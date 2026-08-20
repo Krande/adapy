@@ -14,7 +14,7 @@ const CliTokenButton: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="text-xs px-2 py-1 rounded-sm bg-gray-800 text-gray-200 hover:bg-gray-700 no-drag"
+                className="text-xs px-2 py-1 rounded-sm bg-surface-0 text-content hover:bg-surface-2 no-drag"
                 title="Mint or revoke a CLI bearer token for this account"
             >
                 CLI token
@@ -88,21 +88,21 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-surface-0 border border-edge rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="CLI token"
             >
-                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                <div className="flex items-start gap-3 border-b border-edge px-4 py-2">
                     <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold">CLI token</div>
-                        <div className="text-xs text-gray-400">
+                        <div className="text-xs text-content-muted">
                             30-day bearer for pixi tasks and other API clients.
                         </div>
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -116,7 +116,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onMint}
                             disabled={busy !== null}
-                            className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-accent hover:bg-accent disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "mint" ? "Generating…" : "Generate new"}
                         </button>
@@ -124,18 +124,18 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onRevoke}
                             disabled={busy !== null}
-                            className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-fail hover:bg-fail disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "revoke" ? "Revoking…" : "Revoke all"}
                         </button>
                     </div>
                     {err && (
-                        <div className="text-xs text-red-300 bg-red-900/40 border border-red-700 rounded-sm px-2 py-1">
+                        <div className="text-xs text-fail bg-fail-subtle border border-fail rounded-sm px-2 py-1">
                             {err}
                         </div>
                     )}
                     {revokedAt !== null && (
-                        <div className="text-xs text-gray-300">
+                        <div className="text-xs text-content">
                             All previously-minted CLI tokens revoked at{" "}
                             {new Date(revokedAt * 1000).toLocaleString()}.
                         </div>
@@ -143,14 +143,14 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                     {token && (
                         <div className="space-y-2">
                             <div className="flex items-center justify-between gap-3">
-                                <div className="text-xs text-gray-400">
+                                <div className="text-xs text-content-muted">
                                     Expires {expiresAt ? new Date(expiresAt * 1000).toLocaleString() : "?"}.
                                     Copy now — the server does not store it.
                                 </div>
                                 <button
                                     type="button"
                                     onClick={onCopy}
-                                    className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
+                                    className="shrink-0 bg-surface-0 hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                                 >
                                     {copied ? "Copied" : "Copy"}
                                 </button>
@@ -158,10 +158,10 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             <textarea
                                 readOnly
                                 value={token}
-                                className="w-full h-32 bg-gray-950 border border-gray-700 rounded-sm p-2 font-mono text-xs break-all"
+                                className="w-full h-32 bg-surface-0 border border-edge rounded-sm p-2 font-mono text-xs break-all"
                                 onFocus={(e) => e.currentTarget.select()}
                             />
-                            <pre className="text-[11px] text-gray-400 whitespace-pre-wrap">
+                            <pre className="text-[11px] text-content-muted whitespace-pre-wrap">
 {`# pixi
 export ADAPY_API_TOKEN=<paste>
 export ADAPY_API_BASE=<viewer URL>`}

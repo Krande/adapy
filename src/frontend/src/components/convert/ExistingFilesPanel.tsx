@@ -54,15 +54,15 @@ const DerivedRow: React.FC<{
 
     return (
         <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-gray-300 px-1.5 py-0.5 bg-gray-900 rounded-sm">
+            <span className="font-mono text-content px-1.5 py-0.5 bg-surface-0 rounded-sm">
                 .{derived.format}
             </span>
-            <span className="text-gray-500">{fmtSize(derived.size)}</span>
+            <span className="text-content-subtle">{fmtSize(derived.size)}</span>
             <div className="ml-auto flex items-center gap-1">
                 <button
                     type="button"
                     onClick={onDownload}
-                    className="bg-emerald-700/80 hover:bg-emerald-600 text-white text-xs px-2 py-0.5 rounded-sm"
+                    className="bg-pass-subtle hover:bg-pass text-white text-xs px-2 py-0.5 rounded-sm"
                 >
                     Download
                 </button>
@@ -70,7 +70,7 @@ const DerivedRow: React.FC<{
                     <button
                         type="button"
                         onClick={onViewIn3D}
-                        className="bg-gray-700 hover:bg-gray-600 text-gray-100 text-xs px-2 py-0.5 rounded-sm"
+                        className="bg-surface-2 hover:bg-surface-3 text-content text-xs px-2 py-0.5 rounded-sm"
                     >
                         View in 3D ↗
                     </button>
@@ -98,7 +98,7 @@ const ProfileResultsGroup: React.FC<{
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200"
+                className="flex items-center gap-1 text-[11px] text-content-muted hover:text-content"
                 aria-expanded={open}
             >
                 <span className={"inline-block transition-transform " + (open ? "rotate-90" : "")}>▸</span>
@@ -141,11 +141,11 @@ const ExistingSourceCard: React.FC<{
     }, [addRow, entry]);
 
     return (
-        <div className="rounded-md border border-gray-700 bg-gray-800/40 p-3 space-y-2">
+        <div className="rounded-md border border-edge bg-surface-0 p-3 space-y-2">
             <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="font-mono text-sm truncate">{entry.key}</div>
-                    <div className="text-[11px] text-gray-400">
+                    <div className="text-[11px] text-content-muted">
                         {entry.format} · {fmtSize(entry.size)}
                         {entry.last_modified && (
                             <> · {new Date(entry.last_modified).toLocaleDateString()}</>
@@ -156,7 +156,7 @@ const ExistingSourceCard: React.FC<{
                     <button
                         type="button"
                         onClick={onConvertAgain}
-                        className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded-sm"
+                        className="shrink-0 bg-accent hover:bg-accent text-white text-xs px-2 py-1 rounded-sm"
                         title="Convert this source to another format"
                     >
                         Convert…
@@ -164,7 +164,7 @@ const ExistingSourceCard: React.FC<{
                 )}
             </div>
             {entry.derived.length > 0 ? (
-                <div className="space-y-1 pl-2 border-l border-gray-700/60">
+                <div className="space-y-1 pl-2 border-l border-edge">
                     {entry.derived.filter((d) => !isProfileBlob(d)).map((d) => (
                         <DerivedRow
                             key={d.key}
@@ -182,7 +182,7 @@ const ExistingSourceCard: React.FC<{
                     )}
                 </div>
             ) : (
-                <div className="text-[11px] text-gray-500 italic pl-2">
+                <div className="text-[11px] text-content-subtle italic pl-2">
                     no conversions yet
                 </div>
             )}
@@ -221,25 +221,25 @@ const ExistingFilesPanel: React.FC = () => {
     return (
         <section className="space-y-2">
             <div className="flex items-center justify-between">
-                <h2 className="text-xs uppercase tracking-wider text-gray-400">
+                <h2 className="text-xs uppercase tracking-wider text-content-muted">
                     Existing files in scope
                 </h2>
                 <button
                     type="button"
                     onClick={() => void reload()}
                     disabled={loading}
-                    className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                    className="text-xs text-accent hover:text-accent disabled:opacity-50"
                 >
                     {loading ? "Refreshing…" : "Refresh"}
                 </button>
             </div>
             {error && (
-                <div className="text-xs text-red-400 font-mono break-all">
+                <div className="text-xs text-fail font-mono break-all">
                     {error}
                 </div>
             )}
             {entries !== null && entries.length === 0 && !error && (
-                <div className="text-xs text-gray-500 italic">
+                <div className="text-xs text-content-subtle italic">
                     no files yet — drop something above to get started
                 </div>
             )}

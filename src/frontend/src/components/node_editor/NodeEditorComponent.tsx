@@ -33,22 +33,22 @@ const NodeEditorComponent: React.FC = () => {
             dragHandleClassName="node-editor-drag-handle" // Restrict dragging to the header
         >
             {/* Header Area */}
-            <div className="node-editor-header node-editor-drag-handle bg-gray-800 text-white px-4 py-2 cursor-move">
+            <div className="node-editor-header node-editor-drag-handle bg-surface-0 text-white px-4 py-2 cursor-move">
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => request_list_of_nodes()}
                     >
                         <ReloadIcon />
                     </button>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => start_new_node_editor()}
                     >
                         <PopOutIcon />
                     </button>
-                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}>*/}
+                    {/*<div className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}>*/}
                     {/*    <input type="file" onChange={handleFileUpload}/>*/}
                     {/*</div>*/}
                 </div>

@@ -35,8 +35,8 @@ const DismissButton: React.FC<{
         title={label}
         className={
             "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
-            "border border-gray-600 bg-gray-700/60 text-gray-200 cursor-pointer " +
-            "pointer-events-auto hover:bg-gray-600 hover:border-gray-400 hover:text-white " +
+            "border border-edge bg-surface-2 text-content cursor-pointer " +
+            "pointer-events-auto hover:bg-surface-3 hover:border-edge hover:text-white " +
             "disabled:opacity-50 disabled:cursor-not-allowed"
         }
     >
@@ -73,8 +73,8 @@ const InfoButton: React.FC<{title?: string}> = ({
             title={title}
             className={
                 "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
-                "border border-blue-500/60 bg-blue-700/40 text-blue-200 cursor-pointer " +
-                "pointer-events-auto hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold no-underline"
+                "border border-accent bg-accent-subtle text-accent cursor-pointer " +
+                "pointer-events-auto hover:bg-accent hover:border-accent hover:text-white text-xs font-semibold no-underline"
             }
         >
             i
@@ -143,17 +143,17 @@ const CancelButton: React.FC<{
     }
     return (
         <div className="flex items-center gap-1 ml-2 text-[11px]">
-            <span className="text-gray-300">{question}</span>
+            <span className="text-content">{question}</span>
             <button
                 disabled={busy}
-                className="bg-red-700 hover:bg-red-600 text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-fail hover:bg-fail text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={doCancel}
             >
                 {busy ? "…" : verb}
             </button>
             <button
                 disabled={busy}
-                className="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-sm px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-surface-2 hover:bg-surface-3 text-content rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={() => setConfirming(false)}
             >
                 No
@@ -183,7 +183,7 @@ const ErrorRow: React.FC<{
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-start gap-2">
-                <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
+                <pre className="text-fail break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
                     {message}
                 </pre>
                 <div className="flex flex-col gap-1 shrink-0">
@@ -195,7 +195,7 @@ const ErrorRow: React.FC<{
                 <button
                     type="button"
                     onClick={onCopy}
-                    className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm text-[11px]"
+                    className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                     title="Copy traceback to clipboard"
                 >
                     {copied ? "Copied" : "Copy"}
@@ -244,12 +244,12 @@ const CompressionToast: React.FC<{
     const subtitle = state.current_key || `scope: ${scopeLabel}`;
 
     return (
-        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700">
+        <div className="bg-surface-0 text-content rounded-sm shadow-lg px-3 py-2 text-xs border border-edge">
             <div className="flex justify-between items-center mb-1 gap-2">
                 <span className="truncate flex-1" title={subtitle}>
                     {subtitle}
                 </span>
-                <span className={`ml-2 ${failed || orphaned ? "text-red-400" : "text-gray-400"}`}>
+                <span className={`ml-2 ${failed || orphaned ? "text-fail" : "text-content-muted"}`}>
                     {label}
                     {!finished && !orphaned && state.total > 0 && ` ${pct}%`}
                 </span>
@@ -260,25 +260,25 @@ const CompressionToast: React.FC<{
                 )}
             </div>
             {!finished && !orphaned && state.total > 0 && (
-                <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+                <div className="h-1 bg-surface-2 rounded-sm overflow-hidden">
                     <div
-                        className="h-full bg-blue-500 transition-all"
+                        className="h-full bg-accent transition-all"
                         style={{width: `${Math.max(pct, 4)}%`}}
                     />
                 </div>
             )}
             {orphaned && (
-                <div className="text-[11px] text-gray-300 mt-1">
+                <div className="text-[11px] text-content mt-1">
                     Viewer restarted mid-sweep. Re-run from Admin → Storage to resume.
                 </div>
             )}
             {state.error && (
-                <div className="text-[11px] text-red-400 mt-1 break-all">
+                <div className="text-[11px] text-fail mt-1 break-all">
                     {state.error}
                 </div>
             )}
             {state.errors.length > 0 && !state.error && (
-                <div className="text-[11px] text-red-400 mt-1">
+                <div className="text-[11px] text-fail mt-1">
                     {state.errors.length} file{state.errors.length === 1 ? "" : "s"} failed
                 </div>
             )}
@@ -341,10 +341,10 @@ const JobRow: React.FC<{
     return (
         <div className="space-y-1 min-w-0">
             <div className="flex justify-between items-center gap-2 min-w-0">
-                <span className="truncate min-w-0 flex-1 text-gray-100" title={job.sourceKey}>
+                <span className="truncate min-w-0 flex-1 text-content" title={job.sourceKey}>
                     {job.sourceKey}
                 </span>
-                <span className="ml-2 text-gray-400 shrink-0">
+                <span className="ml-2 text-content-muted shrink-0">
                     {STATUS_LABEL[job.status] || job.status} {pct}%
                 </span>
                 {showCancel && isCancellable && (
@@ -357,13 +357,13 @@ const JobRow: React.FC<{
                 )}
             </div>
             {stageText(job.stage) && (
-                <div className="text-[11px] text-gray-400 truncate" title={stageText(job.stage)}>
+                <div className="text-[11px] text-content-muted truncate" title={stageText(job.stage)}>
                     {stageText(job.stage)}
                 </div>
             )}
-            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+            <div className="h-1 bg-surface-2 rounded-sm overflow-hidden">
                 <div
-                    className="h-full bg-blue-500 transition-all"
+                    className="h-full bg-accent transition-all"
                     style={{width: `${Math.max(pct, 4)}%`}}
                 />
             </div>
@@ -397,14 +397,14 @@ const ConversionRows: React.FC<{
                 showCancel={true}
             />
             {extras.length > 0 && (
-                <div className="pt-1 border-t border-gray-700/60">
+                <div className="pt-1 border-t border-edge">
                     <button
                         type="button"
                         onClick={() => setExpanded(!expanded)}
-                        className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                        className="text-[11px] text-accent hover:text-accent flex items-center gap-1"
                         title={expanded ? "Hide other jobs" : "Show other jobs"}
                     >
-                        <span className="font-mono bg-blue-900/40 border border-blue-700 px-1.5 py-0.5 rounded-sm">
+                        <span className="font-mono bg-accent-subtle border border-accent px-1.5 py-0.5 rounded-sm">
                             +{extras.length}
                         </span>
                         <span>
@@ -418,7 +418,7 @@ const ConversionRows: React.FC<{
                             {extras.map((j) => (
                                 <div
                                     key={j.sourceKey}
-                                    className="border-t border-gray-700/40 pt-2"
+                                    className="border-t border-edge pt-2"
                                 >
                                     <JobRow
                                         job={j}
@@ -446,26 +446,26 @@ const LoadRow: React.FC<{name: string; job?: ConversionJob}> = ({name, job}) => 
     return (
         <div className="space-y-1 min-w-0">
             <div className="flex justify-between items-center gap-2 min-w-0">
-                <span className="truncate min-w-0 flex-1 text-gray-100" title={name}>
+                <span className="truncate min-w-0 flex-1 text-content" title={name}>
                     {basename(name)}
                 </span>
-                <span className="ml-2 text-gray-400 shrink-0">
+                <span className="ml-2 text-content-muted shrink-0">
                     Loading{pct !== null ? ` ${pct}%` : "…"}
                 </span>
             </div>
             {stage && (
-                <div className="text-[11px] text-gray-400 truncate" title={stage}>
+                <div className="text-[11px] text-content-muted truncate" title={stage}>
                     {stage}
                 </div>
             )}
-            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+            <div className="h-1 bg-surface-2 rounded-sm overflow-hidden">
                 {pct !== null ? (
                     <div
-                        className="h-full bg-blue-500 transition-all"
+                        className="h-full bg-accent transition-all"
                         style={{width: `${Math.max(pct, 4)}%`}}
                     />
                 ) : (
-                    <div className="h-full w-1/3 bg-blue-500 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                    <div className="h-full w-1/3 bg-accent animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
                 )}
             </div>
         </div>
@@ -498,16 +498,16 @@ const UnifiedToast: React.FC<{
         return null;
     }
     return (
-        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700 space-y-1">
+        <div className="bg-surface-0 text-content rounded-sm shadow-lg px-3 py-2 text-xs border border-edge space-y-1">
             {loadName && <LoadRow name={loadName} job={loadJob}/>}
             {conversionJobs.length > 0 && (
-                <div className={loadName ? "pt-1 border-t border-gray-700/60" : ""}>
+                <div className={loadName ? "pt-1 border-t border-edge" : ""}>
                     <ConversionRows jobs={conversionJobs} onClearJob={onClearJob}/>
                 </div>
             )}
             {loadQueued.length > 0 && (
-                <div className="pt-1 border-t border-gray-700/60">
-                    <div className="text-[11px] text-gray-400 mb-0.5">
+                <div className="pt-1 border-t border-edge">
+                    <div className="text-[11px] text-content-muted mb-0.5">
                         Queued ({loadQueued.length})
                     </div>
                     <ul className="space-y-0.5 max-h-40 overflow-auto">
@@ -519,7 +519,7 @@ const UnifiedToast: React.FC<{
                                 <button
                                     type="button"
                                     onClick={() => onRemoveQueued(t.name)}
-                                    className="shrink-0 px-1 rounded-sm text-gray-400 hover:text-red-300 hover:bg-gray-700 cursor-pointer"
+                                    className="shrink-0 px-1 rounded-sm text-content-muted hover:text-fail hover:bg-surface-2 cursor-pointer"
                                     title="Remove from load queue"
                                     aria-label={`Remove ${basename(t.name)} from load queue`}
                                 >
@@ -533,16 +533,16 @@ const UnifiedToast: React.FC<{
             {loadErrors.map((e) => (
                 <div
                     key={e.name}
-                    className="flex items-start justify-between gap-2 pt-1 border-t border-gray-700/60"
+                    className="flex items-start justify-between gap-2 pt-1 border-t border-edge"
                 >
                     <div className="min-w-0">
                         <div className="truncate" title={e.name}>{basename(e.name)}</div>
-                        <div className="text-[11px] text-red-400 break-all">{e.message}</div>
+                        <div className="text-[11px] text-fail break-all">{e.message}</div>
                     </div>
                     <button
                         type="button"
                         onClick={() => onClearLoadError(e.name)}
-                        className="shrink-0 px-1 rounded-sm text-gray-400 hover:text-white hover:bg-gray-700 cursor-pointer"
+                        className="shrink-0 px-1 rounded-sm text-content-muted hover:text-white hover:bg-surface-2 cursor-pointer"
                         title="Dismiss"
                         aria-label={`Dismiss error for ${basename(e.name)}`}
                     >
@@ -620,8 +620,8 @@ const AuditActivityBadge: React.FC = () => {
             type="button"
             onClick={() => openPanel("admin", "audit_runs")}
             className={
-                "block w-full text-left bg-blue-950/80 hover:bg-blue-900 border border-blue-700 " +
-                "text-blue-100 rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
+                "block w-full text-left bg-accent-subtle hover:bg-accent-subtle border border-accent " +
+                "text-accent rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
                 "pointer-events-auto cursor-pointer"
             }
             title="Open Audit Runs in the panel"
@@ -632,22 +632,22 @@ const AuditActivityBadge: React.FC = () => {
                         ? "Audit sweep in progress"
                         : `${running_runs} audit sweeps in progress`}
                 </span>
-                <span className="text-blue-300 shrink-0">→</span>
+                <span className="text-accent shrink-0">→</span>
             </div>
             {pending_cells > 0 && (
-                <div className="text-[11px] text-blue-300 mt-0.5">
+                <div className="text-[11px] text-accent mt-0.5">
                     {pending_cells} cell{pending_cells === 1 ? "" : "s"} pending
                 </div>
             )}
             {current_cell && current_cell.key && current_cell.target_format
                 && current_cell.status === "running" && (
-                <div className="text-[11px] text-blue-200 mt-1 min-w-0">
-                    <span className="text-blue-400">now: </span>
+                <div className="text-[11px] text-accent mt-1 min-w-0">
+                    <span className="text-accent">now: </span>
                     <span className="font-mono truncate inline-block max-w-full align-bottom" title={current_cell.key}>
                         {current_cell.key} → {current_cell.target_format}
                     </span>
                     {current_cell.elapsed_ms != null && (
-                        <span className="text-blue-400 ml-1">
+                        <span className="text-accent ml-1">
                             · {fmtCellElapsed(current_cell.elapsed_ms)}
                         </span>
                     )}
@@ -754,11 +754,11 @@ const ConversionProgress = () => {
             {errored.map((job) => (
                 <div
                     key={job.sourceKey}
-                    className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
+                    className="bg-surface-0 text-content rounded-sm shadow-lg px-3 py-2 text-xs border border-edge"
                 >
                     <div className="flex justify-between items-center mb-1">
                         <span className="truncate flex-1">{job.sourceKey}</span>
-                        <span className="ml-2 text-red-400 shrink-0">
+                        <span className="ml-2 text-fail shrink-0">
                             {STATUS_LABEL[job.status] || job.status}
                         </span>
                     </div>

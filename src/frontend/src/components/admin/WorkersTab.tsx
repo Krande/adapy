@@ -33,13 +33,13 @@ function fmtDuration(seconds: number): string {
 
 const Dot: React.FC<{online: boolean}> = ({online}) => (
     <span
-        className={`inline-block w-2 h-2 rounded-full ${online ? "bg-green-400" : "bg-gray-500"}`}
+        className={`inline-block w-2 h-2 rounded-full ${online ? "bg-pass" : "bg-surface-3"}`}
         title={online ? "online" : "offline"}
     />
 );
 
 const CapabilityChip: React.FC<{name: string}> = ({name}) => (
-    <span className="inline-block bg-gray-700 text-gray-100 text-xs px-2 py-0.5 rounded-sm mr-1 mb-1">
+    <span className="inline-block bg-surface-2 text-content text-xs px-2 py-0.5 rounded-sm mr-1 mb-1">
         {name}
     </span>
 );
@@ -92,18 +92,18 @@ const WorkersTab: React.FC = () => {
     }, []);
 
     return (
-        <div className="h-full overflow-auto p-3 sm:p-4 bg-gray-900 text-gray-100">
+        <div className="h-full overflow-auto p-3 sm:p-4 bg-surface-0 text-content">
             <div className="flex items-baseline justify-between mb-3">
                 <h2 className="text-sm font-semibold">
                     Workers
-                    <span className="ml-2 text-xs text-gray-400">
+                    <span className="ml-2 text-xs text-content-muted">
                         {workers.length} entr{workers.length === 1 ? "y" : "ies"}
                         {loading ? " · refreshing…" : ""}
                     </span>
                 </h2>
                 <div className="flex gap-2">
                     <button
-                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm disabled:opacity-40"
+                        className="text-xs px-2 py-1 bg-surface-2 hover:bg-surface-3 rounded-sm disabled:opacity-40"
                         onClick={pruneWorkers}
                         disabled={pruning || offlineCount === 0}
                         title="Drop offline worker registrations left by crashed / scaled-down pods. Live pods re-register automatically."
@@ -111,7 +111,7 @@ const WorkersTab: React.FC = () => {
                         {pruning ? "Removing…" : `Remove offline${offlineCount ? ` (${offlineCount})` : ""}`}
                     </button>
                     <button
-                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm"
+                        className="text-xs px-2 py-1 bg-surface-2 hover:bg-surface-3 rounded-sm"
                         onClick={fetchWorkers}
                         disabled={loading}
                     >
@@ -121,13 +121,13 @@ const WorkersTab: React.FC = () => {
             </div>
 
             {error && (
-                <div className="mb-3 px-3 py-2 bg-red-900/50 border border-red-700 rounded-sm text-sm">
+                <div className="mb-3 px-3 py-2 bg-fail-subtle border border-fail rounded-sm text-sm">
                     {error}
                 </div>
             )}
 
             {workers.length === 0 && !loading && !error && (
-                <div className="text-sm text-gray-400 italic">
+                <div className="text-sm text-content-muted italic">
                     No workers have registered. Either no worker pods are running,
                     or this deployment isn't using the NATS-backed job queue.
                 </div>
@@ -135,8 +135,8 @@ const WorkersTab: React.FC = () => {
 
             {/* Desktop table */}
             <table className="hidden sm:table w-full text-sm border-collapse">
-                <thead className="bg-gray-800 sticky top-0">
-                    <tr className="text-left text-xs uppercase text-gray-400">
+                <thead className="bg-surface-0 sticky top-0">
+                    <tr className="text-left text-xs uppercase text-content-muted">
                         <th className="px-2 py-2 w-8"></th>
                         <th className="px-2 py-2">Worker id</th>
                         <th className="px-2 py-2">Image tag</th>
@@ -150,31 +150,31 @@ const WorkersTab: React.FC = () => {
                     {workers.map((w) => (
                         <tr
                             key={w.worker_id}
-                            className={`border-b border-gray-800 ${w.online ? "" : "opacity-60"}`}
+                            className={`border-b border-edge ${w.online ? "" : "opacity-60"}`}
                         >
                             <td className="px-2 py-1.5"><Dot online={w.online}/></td>
                             <td className="px-2 py-1.5 font-mono text-xs break-all">
                                 {w.worker_id}
                             </td>
                             <td className="px-2 py-1.5 font-mono text-xs">
-                                {w.image_tag || <span className="text-gray-500 italic">—</span>}
+                                {w.image_tag || <span className="text-content-subtle italic">—</span>}
                             </td>
                             <td className="px-2 py-1.5">
                                 {w.capabilities.length === 0
-                                    ? <span className="text-gray-500 italic">—</span>
+                                    ? <span className="text-content-subtle italic">—</span>
                                     : w.capabilities.map((c) => <CapabilityChip key={c} name={c}/>)}
                             </td>
-                            <td className="px-2 py-1.5 text-gray-300">
+                            <td className="px-2 py-1.5 text-content">
                                 {fmtDuration(now - w.started_at)}
                             </td>
-                            <td className="px-2 py-1.5 text-gray-300">
+                            <td className="px-2 py-1.5 text-content">
                                 {fmtRelative(w.last_heartbeat, now)}
                             </td>
                             <td className="px-2 py-1.5 text-right">
                                 <button
                                     type="button"
                                     onClick={() => setInfoWorker(w)}
-                                    className="text-gray-400 hover:text-white p-1 rounded-sm hover:bg-gray-800"
+                                    className="text-content-muted hover:text-white p-1 rounded-sm hover:bg-surface-0"
                                     title="Worker details (versions, conversions, packages)"
                                     aria-label="Worker details"
                                 >
@@ -191,7 +191,7 @@ const WorkersTab: React.FC = () => {
                 {workers.map((w) => (
                     <div
                         key={w.worker_id}
-                        className={`bg-gray-800 border border-gray-700 rounded-sm p-3 ${w.online ? "" : "opacity-60"}`}
+                        className={`bg-surface-0 border border-edge rounded-sm p-3 ${w.online ? "" : "opacity-60"}`}
                     >
                         <div className="flex items-center gap-2 mb-1">
                             <Dot online={w.online}/>
@@ -199,14 +199,14 @@ const WorkersTab: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setInfoWorker(w)}
-                                className="shrink-0 text-gray-400 hover:text-white p-1 rounded-sm hover:bg-gray-700"
+                                className="shrink-0 text-content-muted hover:text-white p-1 rounded-sm hover:bg-surface-2"
                                 title="Worker details"
                                 aria-label="Worker details"
                             >
                                 <InfoIcon className="w-5 h-5"/>
                             </button>
                         </div>
-                        <div className="text-xs text-gray-400 grid grid-cols-2 gap-1">
+                        <div className="text-xs text-content-muted grid grid-cols-2 gap-1">
                             <span>Image</span>
                             <span className="font-mono">{w.image_tag || "—"}</span>
                             <span>Uptime</span>

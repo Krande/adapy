@@ -169,11 +169,11 @@ const ComponentControls: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[280px]">
+        <div className="flex flex-col gap-2 text-xs text-white p-2 bg-surface-0 rounded-md min-w-[280px]">
             <div className="flex items-center gap-2">
-                <span className="text-gray-300 shrink-0">Spec</span>
+                <span className="text-content shrink-0">Spec</span>
                 <select
-                    className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 min-w-0 flex-1 truncate"
+                    className="text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 min-w-0 flex-1 truncate"
                     value={selectedSpecName ?? ""}
                     onChange={(e) => handleSpecChange(e.target.value)}
                     disabled={specs === null}
@@ -197,10 +197,10 @@ const ComponentControls: React.FC = () => {
             </div>
 
             {loadError && (
-                <div className="text-red-400">Failed to load specs: {loadError}</div>
+                <div className="text-fail">Failed to load specs: {loadError}</div>
             )}
             {specs !== null && specNames.length === 0 && !loadError && !specsLoading && (
-                <div className="text-gray-400">
+                <div className="text-content-muted">
                     No baked previews in this scope yet — run the
                     component-previews bake.
                 </div>
@@ -216,12 +216,12 @@ const ComponentControls: React.FC = () => {
                             onField={(field, value) => setRoleField(role.role, field, value)}
                         />
                     ))}
-                    <div className="flex items-center gap-2 pt-1 border-t border-gray-700">
+                    <div className="flex items-center gap-2 pt-1 border-t border-edge">
                         <button
                             type="button"
                             onClick={handleBuild}
                             disabled={submitting}
-                            className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-sm px-3 py-1"
+                            className="bg-accent hover:bg-accent disabled:bg-surface-3 text-white rounded-sm px-3 py-1"
                         >
                             {submitting ? "Building..." : "Build"}
                         </button>
@@ -241,16 +241,16 @@ const RoleRow: React.FC<{
     const allowed = role.section_in?.join(" | ") ?? "(any)";
     const angleRange = role.angle_range;
     return (
-        <div className="flex flex-col gap-1 p-1 bg-gray-800/40 rounded-sm">
-            <div className="text-gray-300 font-medium">
+        <div className="flex flex-col gap-1 p-1 bg-surface-0 rounded-sm">
+            <div className="text-content font-medium">
                 {role.role}
-                {role.kind ? <span className="text-gray-500"> · {role.kind}</span> : null}
+                {role.kind ? <span className="text-content-subtle"> · {role.kind}</span> : null}
             </div>
             <label className="flex items-center gap-2">
-                <span className="text-gray-400 w-12 shrink-0">section</span>
+                <span className="text-content-muted w-12 shrink-0">section</span>
                 <input
                     type="text"
-                    className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
+                    className="text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 flex-1 min-w-0"
                     value={(value.section as string) ?? ""}
                     placeholder={allowed}
                     onChange={(e) => onField("section", e.target.value)}
@@ -258,7 +258,7 @@ const RoleRow: React.FC<{
             </label>
             {angleRange && (
                 <label className="flex items-center gap-2">
-                    <span className="text-gray-400 w-12 shrink-0">angle°</span>
+                    <span className="text-content-muted w-12 shrink-0">angle°</span>
                     <input
                         type="range"
                         min={angleRange.min_deg}
@@ -266,11 +266,11 @@ const RoleRow: React.FC<{
                         step={1}
                         value={typeof value.angle_deg === "number" ? value.angle_deg : angleRange.min_deg}
                         onChange={(e) => onField("angle_deg", parseFloat(e.target.value))}
-                        className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30 min-w-0"
+                        className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-accent-subtle min-w-0"
                     />
                     <input
                         type="number"
-                        className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 w-16"
+                        className="text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-16"
                         min={angleRange.min_deg}
                         max={angleRange.max_deg}
                         value={typeof value.angle_deg === "number" ? value.angle_deg : ""}
@@ -285,14 +285,14 @@ const RoleRow: React.FC<{
 const JobStatus: React.FC<{job: ComponentBuildJob}> = ({job}) => {
     const pct = Math.round((job.progress ?? 0) * 100);
     const color =
-        job.status === "error" ? "text-red-400" :
-        job.status === "done" ? "text-green-400" :
-        "text-gray-300";
+        job.status === "error" ? "text-fail" :
+        job.status === "done" ? "text-pass" :
+        "text-content";
     return (
         <div className={`flex items-center gap-2 ${color}`}>
             <span className="font-mono w-12">{pct}%</span>
             <span className="truncate">{job.stage || job.status}</span>
-            {job.error && <span className="text-red-400 truncate ml-2">{job.error}</span>}
+            {job.error && <span className="text-fail truncate ml-2">{job.error}</span>}
         </div>
     );
 };

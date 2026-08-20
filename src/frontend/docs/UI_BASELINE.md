@@ -1591,3 +1591,41 @@ already carries the message, and a barred cursor on top of it is a scolding.
 Changed across the design system and the shell (IconButton, MenuBar, MarkingMenu, Slider,
 Checkbox, Switch). Reserved now for the genuine case — an action the user is not permitted
 to perform. The admin tabs still use it; they have not been through the design system.
+
+---
+
+## The allowlist reaches 1
+
+~1,900 palette classes across the 14 admin tabs and every other remaining file became
+semantic tokens. **Allowlist 68 → 1.** The survivor is `GitHistoryPanel`'s
+`BRANCH_PALETTE`, which is a categorical scale and documented as such above.
+
+### Enumerating the mapping stopped working
+
+Three hand-written passes each missed a fresh alpha variant — `bg-red-900/70`, then
+`/40`, then `/60`, then `/50`. Tailwind's palette is a grid of *family × shade × alpha*,
+so the mapping has to be **computed** from those three rather than listed. The generic
+pass encodes what each family means in this product:
+
+```
+neutrals → surfaces / text / edges, chosen by shade
+green    → pass        amber/orange → warn
+red/rose → fail        sky/teal/purple → info
+blue     → accent
+```
+
+with two rules that carry most of the meaning: a `bg` with an alpha **or** a very dark
+shade is a tinted wash behind text (`-subtle`), while a mid shade is a solid fill; and
+neutral `bg` shades map to surface depth, darkest furthest back.
+
+**It is only valid because nothing left uses colour as identity.** Run over
+`GitHistoryPanel` it would turn "branch #3" into "warning". That file was excluded by
+hand, and any future use of this technique needs the same check first — a mapping from
+palette to *semantics* assumes every colour means something, and colours used as identity
+mean only "not that other one".
+
+Colour is doing more work in the admin surface than anywhere else in the product — a run
+passed, a worker is degraded, a token expires soon — so it is the surface that benefits
+most from the tokens actually being semantic. It is also the first time the light theme
+will work there at all: `bg-gray-900` is dark whatever the preset says, whereas
+`bg-surface-0` follows it.

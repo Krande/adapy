@@ -14,7 +14,7 @@ const ServerInfoBox = () => {
                 <select
                     id="listbox"
                     name="listbox"
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold p-2 rounded-sm"
+                    className="bg-accent hover:bg-accent-subtle text-white font-bold p-2 rounded-sm"
                 >
                     <option value="item1">Item 1</option>
                     <option value="item2">Item 2</option>
@@ -22,7 +22,7 @@ const ServerInfoBox = () => {
                     <option value="item4">Item 4</option>
                 </select>
                 <button
-                    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-2 ml-2 rounded-sm"}
+                    className={"flex relative bg-accent hover:bg-accent-subtle text-white p-2 ml-2 rounded-sm"}
                     onClick={() => request_list_of_files_from_server()}
                 ><ReloadIcon/></button>
             </div>

@@ -320,23 +320,23 @@ const ConversionSettingsTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="px-3 sm:px-4 py-3 border-b border-gray-700 text-xs text-gray-300">
+            <div className="px-3 sm:px-4 py-3 border-b border-edge text-xs text-content">
                 Per-deployment conversion knobs. Empty (Unset) means adapy uses its
                 in-code default; toggling On/Off pins the value globally. Per-job
                 overrides on the convert dialog win over these.
-                {anySaving ? <span className="ml-2 text-gray-400">(saving…)</span> : null}
+                {anySaving ? <span className="ml-2 text-content-muted">(saving…)</span> : null}
             </div>
             {error && (
-                <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
+                <div className="px-3 sm:px-4 py-2 text-fail text-xs border-b border-edge">
                     {error}
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
                 {!loading && (
-                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                    <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
                         <div>
                             <div className="font-medium text-sm">STEP→GLB tessellator</div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-content-muted font-mono">
                                 {STEP_GLB_PIPELINE_KEY}
                             </div>
                         </div>
@@ -345,20 +345,20 @@ const ConversionSettingsTab: React.FC = () => {
                                 value={pipeline}
                                 onChange={(e) => onPipelineChange(e.target.value)}
                                 disabled={pipelineSaving}
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content max-w-full"
                             >
                                 {buildPipelineOptions().map((o) => (
                                     <option key={o.value} value={o.value}>{o.label}</option>
                                 ))}
                             </select>
-                            {pipelineSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {pipelineSaving && <span className="text-[11px] text-content-muted">saving…</span>}
                             {pipelineSavedAt && !pipelineSaving && (
-                                <span className="text-[11px] text-emerald-400">
+                                <span className="text-[11px] text-pass">
                                     saved {Math.floor((Date.now() - pipelineSavedAt) / 1000)}s ago
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 max-w-2xl">
+                        <div className="text-xs text-content-muted max-w-2xl">
                             Engine for STEP→GLB tessellation. <span className="font-mono">libtess2</span>{" "}
                             (the code default when Unset) is adacpp's OCC-free boundary tessellator — it
                             renders the curved surfaces (rational B-spline / spherical / conical / toroidal)
@@ -371,10 +371,10 @@ const ConversionSettingsTab: React.FC = () => {
                     </div>
                 )}
                 {!loading && (
-                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                    <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
                         <div>
                             <div className="font-medium text-sm">Conversion log level</div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-content-muted font-mono">
                                 {CONVERT_LOG_LEVEL_KEY}
                             </div>
                         </div>
@@ -383,20 +383,20 @@ const ConversionSettingsTab: React.FC = () => {
                                 value={logLevel}
                                 onChange={(e) => onLogLevelChange(e.target.value)}
                                 disabled={logLevelSaving}
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content max-w-full"
                             >
                                 {LOG_LEVEL_OPTIONS.map((o) => (
                                     <option key={o.value} value={o.value}>{o.label}</option>
                                 ))}
                             </select>
-                            {logLevelSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {logLevelSaving && <span className="text-[11px] text-content-muted">saving…</span>}
                             {logLevelSavedAt && !logLevelSaving && (
-                                <span className="text-[11px] text-emerald-400">
+                                <span className="text-[11px] text-pass">
                                     saved {Math.floor((Date.now() - logLevelSavedAt) / 1000)}s ago
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 max-w-2xl">
+                        <div className="text-xs text-content-muted max-w-2xl">
                             Verbosity of the captured conversion log (the audit row's Log tab).{" "}
                             <span className="font-mono">WARNING</span> (default) keeps successful runs quiet;{" "}
                             <span className="font-mono">INFO</span> surfaces per-stage progress and the native
@@ -406,10 +406,10 @@ const ConversionSettingsTab: React.FC = () => {
                     </div>
                 )}
                 {!loading && (
-                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                    <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
                         <div>
                             <div className="font-medium text-sm">Conversion timeout</div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-content-muted font-mono">
                                 {TIMEOUT_KEY}
                             </div>
                         </div>
@@ -421,24 +421,24 @@ const ConversionSettingsTab: React.FC = () => {
                                 value={timeoutMinutes}
                                 onChange={(e) => setTimeoutMinutes(e.target.value)}
                                 placeholder="off"
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm w-32 text-content"
                             />
-                            <span className="text-xs text-gray-400">minutes</span>
+                            <span className="text-xs text-content-muted">minutes</span>
                             <button
                                 type="button"
                                 onClick={onTimeoutSave}
                                 disabled={timeoutSaving}
-                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {timeoutSaving ? "Saving…" : "Save"}
                             </button>
                             {timeoutSavedAt && (
-                                <span className="text-[11px] text-emerald-400">
+                                <span className="text-[11px] text-pass">
                                     saved {Math.floor((Date.now() - timeoutSavedAt) / 1000)}s ago
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 max-w-2xl">
+                        <div className="text-xs text-content-muted max-w-2xl">
                             Wall-clock budget per conversion. Leave empty (or 0) for no
                             timeout. When set, the worker SIGTERMs the conversion
                             subprocess after the deadline (30 s grace, then SIGKILL).
@@ -450,10 +450,10 @@ const ConversionSettingsTab: React.FC = () => {
                     </div>
                 )}
                 {!loading && (
-                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                    <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
                         <div>
                             <div className="font-medium text-sm">STEP streamer threshold</div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-content-muted font-mono">
                                 {STREAMER_THRESHOLD_KEY}
                             </div>
                         </div>
@@ -465,24 +465,24 @@ const ConversionSettingsTab: React.FC = () => {
                                 value={streamerThreshold}
                                 onChange={(e) => setStreamerThreshold(e.target.value)}
                                 placeholder="200"
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm w-32 text-content"
                             />
-                            <span className="text-xs text-gray-400">MB</span>
+                            <span className="text-xs text-content-muted">MB</span>
                             <button
                                 type="button"
                                 onClick={onStreamerThresholdSave}
                                 disabled={streamerSaving}
-                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {streamerSaving ? "Saving…" : "Save"}
                             </button>
                             {streamerSavedAt && (
-                                <span className="text-[11px] text-emerald-400">
+                                <span className="text-[11px] text-pass">
                                     saved {Math.floor((Date.now() - streamerSavedAt) / 1000)}s ago
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 max-w-2xl">
+                        <div className="text-xs text-content-muted max-w-2xl">
                             On-disk STEP size above which STEP→GLB auto-routes through the
                             memory-bounded streaming reader (only when “Auto-stream large
                             STEP” is on / unset). Empty uses the code default (200 MB).
@@ -494,10 +494,10 @@ const ConversionSettingsTab: React.FC = () => {
                     </div>
                 )}
                 {!loading && (
-                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                    <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
                         <div>
                             <div className="font-medium text-sm">STEP streamer per-solid timeout</div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-content-muted font-mono">
                                 {SOLID_TIMEOUT_KEY}
                             </div>
                         </div>
@@ -509,24 +509,24 @@ const ConversionSettingsTab: React.FC = () => {
                                 value={solidTimeout}
                                 onChange={(e) => setSolidTimeout(e.target.value)}
                                 placeholder="120"
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm w-32 text-content"
                             />
-                            <span className="text-xs text-gray-400">seconds</span>
+                            <span className="text-xs text-content-muted">seconds</span>
                             <button
                                 type="button"
                                 onClick={onSolidTimeoutSave}
                                 disabled={solidTimeoutSaving}
-                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {solidTimeoutSaving ? "Saving…" : "Save"}
                             </button>
                             {solidTimeoutSavedAt && (
-                                <span className="text-[11px] text-emerald-400">
+                                <span className="text-[11px] text-pass">
                                     saved {Math.floor((Date.now() - solidTimeoutSavedAt) / 1000)}s ago
                                 </span>
                             )}
                         </div>
-                        <div className="text-xs text-gray-400 max-w-2xl">
+                        <div className="text-xs text-content-muted max-w-2xl">
                             Wall-clock budget for tessellating a single solid in the streaming
                             STEP→GLB pool. A solid that overruns it (an OpenCASCADE hang in an
                             uninterruptible C call) has its worker killed and the solid skipped,
@@ -594,10 +594,10 @@ const ConversionSettingsTab: React.FC = () => {
                     />
                 )}
                 {loading ? (
-                    <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
+                    <div className="px-3 sm:px-4 py-4 text-sm text-content">Loading settings…</div>
                 ) : (
                     <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-gray-800">
+                        <thead className="sticky top-0 bg-surface-0">
                         <tr className="text-left">
                             <th className="px-3 sm:px-4 py-2 w-[18rem]">Setting</th>
                             <th className="px-3 sm:px-4 py-2 w-[20rem]">Value</th>
@@ -606,11 +606,11 @@ const ConversionSettingsTab: React.FC = () => {
                         </thead>
                         <tbody>
                         {ROWS.map((row) => (
-                            <tr key={row.key} className="border-t border-gray-800 align-top">
+                            <tr key={row.key} className="border-t border-edge align-top">
                                 <td className="px-3 sm:px-4 py-3">
                                     <div className="font-medium">{row.label}</div>
-                                    <div className="text-[11px] text-gray-400 font-mono">{row.key}</div>
-                                    <div className="text-[11px] text-gray-500 mt-1">
+                                    <div className="text-[11px] text-content-muted font-mono">{row.key}</div>
+                                    <div className="text-[11px] text-content-subtle mt-1">
                                         Code default: <span className="font-mono">{row.codeDefault ? "true" : "false"}</span>
                                     </div>
                                 </td>
@@ -621,7 +621,7 @@ const ConversionSettingsTab: React.FC = () => {
                                         disabled={Boolean(saving[row.key])}
                                     />
                                 </td>
-                                <td className="px-3 sm:px-4 py-3 text-xs text-gray-300">
+                                <td className="px-3 sm:px-4 py-3 text-xs text-content">
                                     {row.description}
                                 </td>
                             </tr>
@@ -683,10 +683,10 @@ const NumberSetting: React.FC<{
         }
     };
     return (
-        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+        <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
             <div>
                 <div className="font-medium text-sm">{label}</div>
-                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+                <div className="text-[11px] text-content-muted font-mono">{settingKey}</div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
                 <input
@@ -696,24 +696,24 @@ const NumberSetting: React.FC<{
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
                     placeholder={placeholder}
-                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm w-32 text-content"
                 />
-                <span className="text-xs text-gray-400">{unit}</span>
+                <span className="text-xs text-content-muted">{unit}</span>
                 <button
                     type="button"
                     onClick={save}
                     disabled={saving}
-                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                 >
                     {saving ? "Saving…" : "Save"}
                 </button>
                 {savedAt && (
-                    <span className="text-[11px] text-emerald-400">
+                    <span className="text-[11px] text-pass">
                         saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
                     </span>
                 )}
             </div>
-            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
+            <div className="text-xs text-content-muted max-w-2xl">{description}</div>
         </div>
     );
 };
@@ -757,10 +757,10 @@ const StringSetting: React.FC<{
         }
     };
     return (
-        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+        <div className="px-3 sm:px-4 py-3 border-b border-edge space-y-2">
             <div>
                 <div className="font-medium text-sm">{label}</div>
-                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+                <div className="text-[11px] text-content-muted font-mono">{settingKey}</div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
                 <input
@@ -768,23 +768,23 @@ const StringSetting: React.FC<{
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
                     placeholder={placeholder}
-                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-64 text-gray-100"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm w-64 text-content"
                 />
                 <button
                     type="button"
                     onClick={save}
                     disabled={saving}
-                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                 >
                     {saving ? "Saving…" : "Save"}
                 </button>
                 {savedAt && (
-                    <span className="text-[11px] text-emerald-400">
+                    <span className="text-[11px] text-pass">
                         saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
                     </span>
                 )}
             </div>
-            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
+            <div className="text-xs text-content-muted max-w-2xl">{description}</div>
         </div>
     );
 };
@@ -802,8 +802,8 @@ const TriSelect: React.FC<{
             className={
                 "px-3 py-1 text-xs border " +
                 (value === v
-                    ? "bg-blue-700 text-white border-blue-500"
-                    : "bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700")
+                    ? "bg-accent text-white border-accent"
+                    : "bg-surface-0 text-content border-edge hover:bg-surface-2")
             }
         >
             {label}

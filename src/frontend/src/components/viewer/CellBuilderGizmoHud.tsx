@@ -13,15 +13,15 @@ import { useCellBuilderStore } from "@/state/cellBuilderStore";
 // phone. Rendered only while a translate/rotate gizmo is active.
 
 const fieldCls =
-  "w-16 text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 text-right disabled:opacity-40";
+  "w-16 text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 text-right disabled:opacity-40";
 const btn =
-  "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
-const btnGray = "px-2 py-1 rounded-sm bg-gray-600 text-white hover:bg-gray-500";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
+const btnGray = "px-2 py-1 rounded-sm bg-surface-3 text-white hover:bg-surface-3";
 const axisBtn = (on: boolean) =>
   "w-7 py-0.5 rounded-sm " +
   (on
-    ? "bg-blue-600 text-white"
-    : "bg-gray-700 text-gray-200 hover:bg-gray-600");
+    ? "bg-accent text-white"
+    : "bg-surface-2 text-content hover:bg-surface-3");
 
 const AXES: { key: 0 | 1 | 2; label: string }[] = [
   { key: 0, label: "X" },
@@ -110,13 +110,13 @@ const CellBuilderGizmoHud: React.FC = () => {
 
   return (
     <div
-      className="pointer-events-auto absolute bottom-24 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 rounded-md border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm text-gray-100 shadow-lg"
+      className="pointer-events-auto absolute bottom-24 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 rounded-md border border-edge bg-surface-0 px-3 py-2 text-sm text-content shadow-lg"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-4">
         <span className="font-medium">
           {isTranslate ? "Move" : "Rotate"}{" "}
-          <span className="text-gray-400">{cell.name}</span>
+          <span className="text-content-muted">{cell.name}</span>
         </span>
         <button
           className={btnGray}
@@ -129,7 +129,7 @@ const CellBuilderGizmoHud: React.FC = () => {
 
       {/* Axis lock + locked-axis numeric delta (the G/R · X/Y/Z · value flow). */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400">axis</span>
+        <span className="text-xs text-content-muted">axis</span>
         {AXES.map(({ key, label }) => (
           <button
             key={key}
@@ -167,18 +167,18 @@ const CellBuilderGizmoHud: React.FC = () => {
         >
           {isTranslate ? "Move" : "Rotate"}
         </button>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-content-muted">
           {axisLock === null ? "lock an axis" : `Δ ${axisLabel} [${unit}]`}
         </span>
       </div>
 
       {/* Rotate also exposes the exact absolute per-axis angles. */}
       {isRotate && (
-        <div className="flex items-end gap-2 border-t border-gray-600/60 pt-2">
-          <span className="text-xs text-gray-400">set°</span>
+        <div className="flex items-end gap-2 border-t border-edge pt-2">
+          <span className="text-xs text-content-muted">set°</span>
           {AXES.map(({ key, label }) => (
             <label key={key} className="flex flex-col items-center gap-0.5">
-              <span className="text-xs text-gray-400">{label}</span>
+              <span className="text-xs text-content-muted">{label}</span>
               <input
                 className={fieldCls}
                 type="number"

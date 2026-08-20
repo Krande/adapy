@@ -32,7 +32,7 @@ function CompactCard({ stats }: { stats: ModelStats }) {
   const totalMass = React.useMemo(() => stats.disciplines.reduce((s, d) => s + (d.mass || 0), 0), [stats]);
 
   return (
-    <div className="rounded-sm border border-gray-700/60 bg-gray-800/40 p-2 space-y-2">
+    <div className="rounded-sm border border-edge bg-surface-0 p-2 space-y-2">
       {/* header */}
       <div className="flex items-center gap-2">
         <span className="text-[12px] font-semibold tracking-wide">Stats</span>
@@ -42,7 +42,7 @@ function CompactCard({ stats }: { stats: ModelStats }) {
           onClick={openDetail}
           title="Open detailed statistics"
           aria-label="Open detailed statistics"
-          className="shrink-0 grid place-items-center w-6 h-6 rounded-sm border border-gray-700/70 bg-gray-800/60 text-gray-300 hover:text-white hover:bg-gray-700"
+          className="shrink-0 grid place-items-center w-6 h-6 rounded-sm border border-edge bg-surface-0 text-content hover:text-white hover:bg-surface-2"
         >
           <ExpandIcon />
         </button>
@@ -51,14 +51,14 @@ function CompactCard({ stats }: { stats: ModelStats }) {
       {/* hero */}
       <div className="flex items-baseline justify-between gap-2">
         <div>
-          <div className="text-[9.5px] uppercase tracking-wider text-gray-400 font-semibold">Total mass</div>
+          <div className="text-[9.5px] uppercase tracking-wider text-content-muted font-semibold">Total mass</div>
           <div className="text-2xl font-semibold font-mono tabular-nums leading-none">
             {fmt1(totalMass)}
-            <span className="text-xs font-normal text-gray-400 ml-0.5">t</span>
+            <span className="text-xs font-normal text-content-muted ml-0.5">t</span>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[9.5px] uppercase tracking-wider text-gray-400 font-semibold">Objects</div>
+          <div className="text-[9.5px] uppercase tracking-wider text-content-muted font-semibold">Objects</div>
           <div className="text-lg font-semibold font-mono tabular-nums leading-none">{fmt0(stats.objects)}</div>
         </div>
       </div>
@@ -66,15 +66,15 @@ function CompactCard({ stats }: { stats: ModelStats }) {
       {/* inline COG */}
       <div className="flex gap-1.5" title="Total centre of gravity (m)">
         {(["X", "Y", "Z"] as const).map((ax, i) => (
-          <div key={ax} className="flex-1 rounded-sm border border-gray-700/60 bg-gray-800/50 px-1.5 py-1 text-center">
-            <div className="text-[8.5px] uppercase tracking-wider text-gray-500 font-bold">COG {ax}</div>
+          <div key={ax} className="flex-1 rounded-sm border border-edge bg-surface-1 px-1.5 py-1 text-center">
+            <div className="text-[8.5px] uppercase tracking-wider text-content-subtle font-bold">COG {ax}</div>
             <div className="text-[12px] font-semibold font-mono tabular-nums">{fmtCog(stats.total_cog[i])}</div>
           </div>
         ))}
       </div>
 
       {/* mass-share bar */}
-      <div className="flex h-2 rounded overflow-hidden bg-gray-700/50" role="img" aria-label="Mass share by discipline">
+      <div className="flex h-2 rounded overflow-hidden bg-surface-2" role="img" aria-label="Mass share by discipline">
         {share.map((s) => (
           <span key={s.key} style={{ width: `${s.pct}%`, background: s.color }} title={`${s.name} ${fmt1(s.mass)}t`} />
         ))}
@@ -83,21 +83,21 @@ function CompactCard({ stats }: { stats: ModelStats }) {
       {/* legend */}
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {share.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5 text-[11px] text-gray-400">
+          <span key={s.key} className="flex items-center gap-1.5 text-[11px] text-content-muted">
             <span className="w-2 h-2 rounded-sm" style={{ background: s.color }} />
-            {s.name} <b className="text-gray-200 font-semibold font-mono">{fmt1(s.mass)}t</b>
+            {s.name} <b className="text-content font-semibold font-mono">{fmt1(s.mass)}t</b>
           </span>
         ))}
       </div>
 
       {/* counts */}
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1.5 border-t border-gray-700/50 text-[11px] text-gray-400">
-        <span><b className="text-gray-200 font-mono">{fmt0(counts.beams)}</b> beams</span>
-        <span><b className="text-gray-200 font-mono">{fmt0(counts.plates)}</b> plates</span>
-        <span><b className="text-gray-200 font-mono">{fmt0(counts.pipeSeg)}</b> pipe seg</span>
-        <span><b className="text-gray-200 font-mono">{fmt0(counts.ductSeg)}</b> duct seg</span>
-        <span><b className="text-gray-200 font-mono">{fmt0(counts.traySeg)}</b> tray seg</span>
-        <span><b className="text-gray-200 font-mono">{activeDisciplineCount(stats)}</b> disc.</span>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1.5 border-t border-edge text-[11px] text-content-muted">
+        <span><b className="text-content font-mono">{fmt0(counts.beams)}</b> beams</span>
+        <span><b className="text-content font-mono">{fmt0(counts.plates)}</b> plates</span>
+        <span><b className="text-content font-mono">{fmt0(counts.pipeSeg)}</b> pipe seg</span>
+        <span><b className="text-content font-mono">{fmt0(counts.ductSeg)}</b> duct seg</span>
+        <span><b className="text-content font-mono">{fmt0(counts.traySeg)}</b> tray seg</span>
+        <span><b className="text-content font-mono">{activeDisciplineCount(stats)}</b> disc.</span>
       </div>
     </div>
   );

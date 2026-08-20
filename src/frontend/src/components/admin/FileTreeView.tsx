@@ -431,7 +431,7 @@ export function FileTreeView<T>({
             className="flex items-center gap-1.5 px-2 py-1"
             style={{paddingLeft: 8 + depth * 12}}
         >
-            <FolderClosedIcon className="shrink-0 text-blue-400"/>
+            <FolderClosedIcon className="shrink-0 text-accent"/>
             <InlineNameInput
                 initial=""
                 placeholder="New folder name"
@@ -485,13 +485,13 @@ export function FileTreeView<T>({
                     className={
                         "flex items-center gap-1.5 px-2 py-1 rounded select-none " +
                         (dragKeys?.includes(key) ? "opacity-40 " : "") +
-                        (focusedKey === rowKey ? "ring-1 ring-blue-400/70 " : "") +
-                        (checked ? "bg-amber-700/30 " : "") +
+                        (focusedKey === rowKey ? "ring-1 ring-accent " : "") +
+                        (checked ? "bg-warn-subtle " : "") +
                         (disabled
                             ? "opacity-50 "
                             : selection
-                                ? "cursor-pointer hover:bg-gray-800/60 "
-                                : "hover:bg-gray-800/60 ")
+                                ? "cursor-pointer hover:bg-surface-0 "
+                                : "hover:bg-surface-0 ")
                     }
                     style={{paddingLeft: 8 + indentPx}}
                     onClick={onRowClick}
@@ -540,7 +540,7 @@ export function FileTreeView<T>({
                         />
                     ) : (
                         <span
-                            className="font-mono text-xs text-gray-200 flex-1 min-w-0 truncate"
+                            className="font-mono text-xs text-content flex-1 min-w-0 truncate"
                             title={key}
                         >
                             {node.displayName}
@@ -555,7 +555,7 @@ export function FileTreeView<T>({
                         <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${node.displayName}`}
-                                buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                                buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
                                 header={<span className="font-mono" title={key}>{key}</span>}
                                 items={menuItems}
                             />
@@ -585,10 +585,10 @@ export function FileTreeView<T>({
                     data-rowkey={rowKey}
                     className={
                         "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer " +
-                        "select-none hover:bg-gray-800/80 " +
+                        "select-none hover:bg-surface-0 " +
                         (dragFolder === node.path ? "opacity-40 " : "") +
-                        (focusedKey === rowKey && !isDropTarget ? "ring-1 ring-blue-400/70 " : "") +
-                        (isDropTarget ? "ring-1 ring-blue-400 bg-blue-900/30 " : "")
+                        (focusedKey === rowKey && !isDropTarget ? "ring-1 ring-accent " : "") +
+                        (isDropTarget ? "ring-1 ring-accent bg-accent-subtle " : "")
                     }
                     style={{paddingLeft: 8 + indentPx}}
                     onClick={() => {
@@ -623,14 +623,14 @@ export function FileTreeView<T>({
                     )}
                     <ChevronRightIcon
                         className={
-                            "shrink-0 text-blue-400 transition-transform duration-150 " +
+                            "shrink-0 text-accent transition-transform duration-150 " +
                             (isOpen ? "rotate-90" : "")
                         }
                     />
                     {isOpen ? (
-                        <FolderOpenIcon className="shrink-0 text-blue-400"/>
+                        <FolderOpenIcon className="shrink-0 text-accent"/>
                     ) : (
-                        <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                        <FolderClosedIcon className="shrink-0 text-accent"/>
                     )}
                     {isRenaming ? (
                         <InlineNameInput
@@ -639,18 +639,18 @@ export function FileTreeView<T>({
                             onCancel={() => setRenaming(null)}
                         />
                     ) : (
-                        <span className="text-xs flex-1 min-w-0 truncate font-semibold text-gray-200">
+                        <span className="text-xs flex-1 min-w-0 truncate font-semibold text-content">
                             {node.name}/
                         </span>
                     )}
-                    <span className="text-[10px] text-gray-400 shrink-0">
+                    <span className="text-[10px] text-content-muted shrink-0">
                         {total === 0 ? "empty" : total}
                     </span>
                     {menuItems.length > 0 && (
                         <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Organize folder ${node.path}`}
-                                buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                                buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
                                 header={<span className="font-mono">{node.path}/</span>}
                                 items={menuItems}
                             />
@@ -770,7 +770,7 @@ export function FileTreeView<T>({
             ref={wrapRef}
             tabIndex={0}
             onKeyDown={onListKeyDown}
-            className="focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm"
+            className="focus:outline-hidden focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
             // Background (non-row) drops land at root: internal drags
             // move to root, OS files upload at top level. Folder rows
             // stopPropagation when they handle a drop themselves.
@@ -797,8 +797,8 @@ export function FileTreeView<T>({
             {showRootDropStrip && (
                 <div
                     className={
-                        "mb-1 px-2 py-1 text-[11px] text-gray-300 rounded-sm " +
-                        "border border-dashed border-blue-500/60 bg-blue-900/20"
+                        "mb-1 px-2 py-1 text-[11px] text-content rounded-sm " +
+                        "border border-dashed border-accent bg-accent-subtle"
                     }
                     onDragOver={(e) => {
                         e.preventDefault();
@@ -809,7 +809,7 @@ export function FileTreeView<T>({
                     Drop here to move to root /
                 </div>
             )}
-            <ul className="flex flex-col divide-y divide-gray-700/60 text-xs">
+            <ul className="flex flex-col divide-y divide-edge text-xs">
                 {newFolderAt === "" && newFolderInputRow("", 0)}
                 {nodes.map((n) => renderNode(n, 0))}
             </ul>

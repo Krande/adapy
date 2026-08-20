@@ -79,31 +79,31 @@ const NewScheduleForm: React.FC<{
     }, [name, cronExpr, scope, workerPool, enabled, onCreated]);
 
     return (
-        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900/40">
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-edge bg-surface-0">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Name</span>
                 <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="nightly cad-baseline"
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 w-56"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content w-56"
                 />
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Cron expression</span>
                 <input
                     type="text"
                     value={cronExpr}
                     onChange={(e) => setCronExpr(e.target.value)}
                     placeholder="0 2 * * *"
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-40"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-40"
                     title="5-field UTC cron: minute hour dom month dow"
                 />
                 <select
                     value=""
                     onChange={(e) => { if (e.target.value) setCronExpr(e.target.value); }}
-                    className="bg-gray-900 border border-gray-700 rounded-sm px-1 py-0.5 text-[10px] text-gray-400"
+                    className="bg-surface-0 border border-edge rounded-sm px-1 py-0.5 text-[10px] text-content-muted"
                     title="Common presets"
                 >
                     <option value="">presets…</option>
@@ -112,12 +112,12 @@ const NewScheduleForm: React.FC<{
                     ))}
                 </select>
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Scope</span>
                 <select
                     value={scope}
                     onChange={(e) => setScope(e.target.value)}
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-56"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-56"
                 >
                     {corpora.length > 0 && (
                         <optgroup label="Corpora (release-gate)">
@@ -133,12 +133,12 @@ const NewScheduleForm: React.FC<{
                     </optgroup>
                 </select>
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Worker pool</span>
                 <select
                     value={workerPool}
                     onChange={(e) => setWorkerPool(e.target.value)}
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-40"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-40"
                 >
                     <option value="">any pool</option>
                     {capabilities.map((c) => (
@@ -146,7 +146,7 @@ const NewScheduleForm: React.FC<{
                     ))}
                 </select>
             </label>
-            <label className="text-xs text-gray-300 flex items-center gap-1 h-[30px] mt-auto">
+            <label className="text-xs text-content flex items-center gap-1 h-[30px] mt-auto">
                 <input
                     type="checkbox"
                     checked={enabled}
@@ -158,12 +158,12 @@ const NewScheduleForm: React.FC<{
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Saving…" : "Add schedule"}
             </button>
             {err && (
-                <div className="w-full text-xs text-red-400" role="alert">{err}</div>
+                <div className="w-full text-xs text-fail" role="alert">{err}</div>
             )}
         </form>
     );
@@ -222,37 +222,37 @@ const ScheduleRow: React.FC<{
 
     return (
         <div className={
-            "border-b border-gray-800 px-3 py-2 text-xs " +
+            "border-b border-edge px-3 py-2 text-xs " +
             (schedule.enabled ? "" : "opacity-60")
         }>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <div className="font-medium text-gray-100 min-w-0 truncate">
+                <div className="font-medium text-content min-w-0 truncate">
                     {schedule.name}
                 </div>
-                <code className="font-mono text-gray-400">{schedule.cron_expr}</code>
-                <div className="text-gray-400 font-mono truncate">
+                <code className="font-mono text-content-muted">{schedule.cron_expr}</code>
+                <div className="text-content-muted font-mono truncate">
                     {schedule.scope}
                 </div>
                 {schedule.worker_pool && (
-                    <div className="text-gray-500 font-mono">pool:{schedule.worker_pool}</div>
+                    <div className="text-content-subtle font-mono">pool:{schedule.worker_pool}</div>
                 )}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-gray-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-content-subtle">
                 <span>
-                    next: <span className="text-gray-300">{fmtTimestamp(schedule.next_fire_at)}</span>{" "}
-                    <span className="text-gray-500">({fmtRelative(schedule.next_fire_at)})</span>
+                    next: <span className="text-content">{fmtTimestamp(schedule.next_fire_at)}</span>{" "}
+                    <span className="text-content-subtle">({fmtRelative(schedule.next_fire_at)})</span>
                 </span>
                 <span>
-                    last: <span className="text-gray-300">{fmtTimestamp(schedule.last_fired_at)}</span>
+                    last: <span className="text-content">{fmtTimestamp(schedule.last_fired_at)}</span>
                 </span>
             </div>
             {schedule.last_skipped_reason && (
-                <div className="mt-1 text-amber-300 text-[11px]">
+                <div className="mt-1 text-warn text-[11px]">
                     skip note: {schedule.last_skipped_reason}
                 </div>
             )}
             {err && (
-                <div className="mt-1 text-red-400 text-[11px]" role="alert">{err}</div>
+                <div className="mt-1 text-fail text-[11px]" role="alert">{err}</div>
             )}
             <div className="mt-2 flex flex-wrap gap-2">
                 <button
@@ -262,8 +262,8 @@ const ScheduleRow: React.FC<{
                     className={
                         "px-2 py-0.5 rounded-sm text-[11px] border disabled:opacity-50 " +
                         (schedule.enabled
-                            ? "border-amber-700 text-amber-300 hover:bg-amber-900/30"
-                            : "border-emerald-700 text-emerald-300 hover:bg-emerald-900/30")
+                            ? "border-warn text-warn hover:bg-warn-subtle"
+                            : "border-pass text-pass hover:bg-pass-subtle")
                     }
                 >
                     {schedule.enabled ? "Disable" : "Enable"}
@@ -272,7 +272,7 @@ const ScheduleRow: React.FC<{
                     type="button"
                     onClick={fireNow}
                     disabled={busy !== null || !schedule.enabled}
-                    className="px-2 py-0.5 rounded-sm text-[11px] border border-blue-700 text-blue-300 hover:bg-blue-900/30 disabled:opacity-50"
+                    className="px-2 py-0.5 rounded-sm text-[11px] border border-accent text-accent hover:bg-accent-subtle disabled:opacity-50"
                     title={schedule.enabled
                         ? "Dispatch this sweep right now, regardless of the cron slot"
                         : "Re-enable the schedule first"}
@@ -283,7 +283,7 @@ const ScheduleRow: React.FC<{
                     type="button"
                     onClick={archive}
                     disabled={busy !== null}
-                    className="px-2 py-0.5 rounded-sm text-[11px] border border-red-700 text-red-300 hover:bg-red-900/30 disabled:opacity-50"
+                    className="px-2 py-0.5 rounded-sm text-[11px] border border-fail text-fail hover:bg-fail-subtle disabled:opacity-50"
                 >
                     Archive
                 </button>
@@ -351,10 +351,10 @@ const SchedulesTab: React.FC = () => {
             />
             <div className="flex-1 min-h-0 overflow-auto">
                 {listError && (
-                    <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
+                    <div className="text-xs text-fail px-3 py-2">{listError}</div>
                 )}
                 {schedules.length === 0 && !listError && (
-                    <div className="text-xs text-gray-500 italic px-3 py-4">
+                    <div className="text-xs text-content-subtle italic px-3 py-4">
                         No schedules yet. Add one above to start firing audits
                         on a cron pattern.
                     </div>

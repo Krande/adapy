@@ -47,7 +47,7 @@ const SelectButton: React.FC<{
 }> = ({fileName, nodeNames, label, title}) => (
     <button
         type="button"
-        className="text-blue-300 hover:text-blue-200 hover:underline truncate"
+        className="text-accent hover:text-accent hover:underline truncate"
         title={title ?? `Select ${label}`}
         onClick={() => {
             if (!fileName || nodeNames.length === 0) return;
@@ -78,25 +78,25 @@ const ConnectionCard: React.FC<{
     }
 
     return (
-        <div className="p-1 border border-gray-700/60 rounded-sm bg-gray-800/30">
-            <div className="flex items-center gap-2 text-[11px] text-gray-200">
+        <div className="p-1 border border-edge rounded-sm bg-surface-1">
+            <div className="flex items-center gap-2 text-[11px] text-content">
                 <span className="font-mono truncate" title={name}>{name}</span>
-                {specName && <span className="text-gray-400">{specName}</span>}
+                {specName && <span className="text-content-muted">{specName}</span>}
             </div>
             {inputRows.length > 0 && (
-                <ul className="ml-2 mt-0.5 text-[11px] text-gray-300 list-none">
+                <ul className="ml-2 mt-0.5 text-[11px] text-content list-none">
                     {inputRows.map((r) => (
                         <li key={r.role} className="flex items-center gap-2">
-                            <span className="text-gray-500 w-16 shrink-0">{r.role}</span>
+                            <span className="text-content-subtle w-16 shrink-0">{r.role}</span>
                             {r.section && <span>{r.section}</span>}
-                            {r.angle && <span className="text-gray-400">{r.angle}</span>}
+                            {r.angle && <span className="text-content-muted">{r.angle}</span>}
                         </li>
                     ))}
                 </ul>
             )}
             {Object.keys(memberRoles).length > 0 && (
                 <div className="ml-2 mt-1 flex items-center gap-2 flex-wrap text-[11px]">
-                    <span className="text-gray-500">members:</span>
+                    <span className="text-content-subtle">members:</span>
                     {Object.entries(memberRoles).map(([role, names]) =>
                         names.length === 0 ? null : (
                             <SelectButton
@@ -112,7 +112,7 @@ const ConnectionCard: React.FC<{
             )}
             {weldNames.length > 0 && (
                 <div className="ml-2 mt-1 flex items-center gap-2 text-[11px]">
-                    <span className="text-gray-500">welds:</span>
+                    <span className="text-content-subtle">welds:</span>
                     <SelectButton
                         fileName={fileName}
                         nodeNames={weldNames}
@@ -141,7 +141,7 @@ const ConnectionsSection: React.FC<{
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                className="flex items-center gap-1 text-[12px] text-content hover:text-white"
                 aria-expanded={expanded}
                 aria-controls="object-connections"
             >

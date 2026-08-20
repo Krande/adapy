@@ -68,14 +68,14 @@ const UploadContextMenu: React.FC = () => {
             />
             {(busy || error) && (
                 <div
-                    className="absolute bottom-4 left-4 z-50 bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-xs text-gray-100 max-w-sm"
+                    className="absolute bottom-4 left-4 z-50 bg-surface-0 border border-edge rounded-sm px-3 py-2 text-xs text-content max-w-sm"
                 >
                     {busy && <span>Uploading…</span>}
                     {error && (
                         <div className="flex items-start gap-2">
-                            <span className="text-red-400 break-all">{error}</span>
+                            <span className="text-fail break-all">{error}</span>
                             <button
-                                className="text-gray-400 hover:text-gray-200"
+                                className="text-content-muted hover:text-content"
                                 onClick={() => setError(null)}
                             >
                                 ×

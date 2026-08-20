@@ -312,7 +312,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     ref={triggerRef}
                     type="button"
                     onClick={() => setOpen((v) => !v)}
-                    className="flex-1 p-1 rounded-sm bg-gray-700 border border-gray-600 text-gray-100 text-left text-xs truncate"
+                    className="flex-1 p-1 rounded-sm bg-surface-2 border border-edge text-content text-left text-xs truncate"
                     disabled={groups.length === 0}
                     title={triggerLabel}
                 >
@@ -322,7 +322,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <button
                         type="button"
                         onClick={() => onSelect(null)}
-                        className="ml-1 px-1.5 bg-gray-700 border border-gray-600 rounded-sm text-xs text-gray-300 hover:bg-gray-600"
+                        className="ml-1 px-1.5 bg-surface-2 border border-edge rounded-sm text-xs text-content hover:bg-surface-3"
                         title="Clear selection"
                         aria-label="Clear selection"
                     >
@@ -333,7 +333,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
             {open && pos && createPortal(
                 <div
                     ref={popoverRef}
-                    className="fixed z-50 bg-gray-800 border border-gray-600 text-gray-100 rounded-sm shadow-lg"
+                    className="fixed z-50 bg-surface-0 border border-edge text-content rounded-sm shadow-lg"
                     style={{top: pos.top, left: pos.left, width: pos.width}}
                 >
                     <input
@@ -342,7 +342,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                         // text-base on touch: iOS zooms the page when a
                         // focused input's font-size is under 16px, which
                         // is the "whole page shifts" effect on mobile.
-                        className="w-full p-1 bg-gray-800 text-gray-100 placeholder-gray-400 border-b border-gray-600 text-base sm:text-xs"
+                        className="w-full p-1 bg-surface-0 text-content placeholder-gray-400 border-b border-edge text-base sm:text-xs"
                         placeholder={`Filter ${groups.length} group${groups.length === 1 ? "" : "s"}…`}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -353,7 +353,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                         style={{maxHeight: pos.maxH}}
                     >
                         {filteredGroups.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-gray-400 italic">
+                            <div className="px-2 py-2 text-xs text-content-muted italic">
                                 No matches
                             </div>
                         ) : (
@@ -379,8 +379,8 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                             className={
                                                 "absolute left-0 right-0 px-2 text-left text-xs truncate " +
                                                 (isSelected
-                                                    ? "bg-blue-900/60"
-                                                    : "hover:bg-gray-700")
+                                                    ? "bg-accent-subtle"
+                                                    : "hover:bg-surface-2")
                                             }
                                             style={{
                                                 top: vRow.start,
@@ -390,9 +390,9 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                             title={g.source ? `${g.name} (${g.type}) — ${g.source}` : `${g.name} (${g.type})`}
                                         >
                                             {g.name}{" "}
-                                            <span className="text-gray-400">({g.type})</span>
+                                            <span className="text-content-muted">({g.type})</span>
                                             {multiSource && g.source && (
-                                                <span className="text-gray-400"> · {g.source.split("/").pop()}</span>
+                                                <span className="text-content-muted"> · {g.source.split("/").pop()}</span>
                                             )}
                                         </button>
                                     );

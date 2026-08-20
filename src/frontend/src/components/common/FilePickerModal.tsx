@@ -137,15 +137,15 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     return createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
             <div
-                className="bg-gray-900 text-gray-100 border border-gray-700 rounded-md shadow-xl w-[36rem] max-w-[92vw] flex flex-col"
+                className="bg-surface-0 text-content border border-edge rounded-md shadow-xl w-[36rem] max-w-[92vw] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="px-4 py-2 border-b border-gray-700 font-medium flex items-center gap-2">
+                <div className="px-4 py-2 border-b border-edge font-medium flex items-center gap-2">
                     <span className="flex-1">{title}</span>
-                    {refreshing && <span className="text-xs font-normal text-gray-500">refreshing…</span>}
+                    {refreshing && <span className="text-xs font-normal text-content-subtle">refreshing…</span>}
                     <button
                         type="button"
-                        className="text-xs px-2 py-0.5 rounded-sm bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-50"
+                        className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 hover:bg-surface-3 text-content disabled:opacity-50"
                         disabled={loading || refreshing}
                         onClick={() => void load("revalidate")}
                         title="Re-list this scope's files"
@@ -155,9 +155,9 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                 </div>
                 <div className="px-2 py-2 overflow-auto max-h-[60vh] min-h-[8rem]">
                     {loading ? (
-                        <div className="text-xs text-gray-500 px-2 py-4">Loading…</div>
+                        <div className="text-xs text-content-subtle px-2 py-4">Loading…</div>
                     ) : files.length === 0 ? (
-                        <div className="text-xs text-gray-500 italic px-2 py-4">
+                        <div className="text-xs text-content-subtle italic px-2 py-4">
                             No files in this scope. Upload comparison files via the storage browser first.
                         </div>
                     ) : (
@@ -168,26 +168,26 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                             scope={String(scope)}
                             selection={{selected, onSelect}}
                             renderFileTail={(f) => (
-                                <span className="text-gray-400 font-mono text-xs">{fmtBytes(f.size)}</span>
+                                <span className="text-content-muted font-mono text-xs">{fmtBytes(f.size)}</span>
                             )}
                         />
                     )}
                 </div>
-                {err && <div className="text-xs text-red-400 px-4 py-1">{err}</div>}
-                <div className="px-4 py-2 border-t border-gray-700 flex justify-between items-center gap-2">
-                    <span className="text-xs font-mono text-gray-400 truncate flex-1" title={picked ?? ""}>
+                {err && <div className="text-xs text-fail px-4 py-1">{err}</div>}
+                <div className="px-4 py-2 border-t border-edge flex justify-between items-center gap-2">
+                    <span className="text-xs font-mono text-content-muted truncate flex-1" title={picked ?? ""}>
                         {picked ?? "— nothing selected —"}
                     </span>
                     <button
                         type="button"
-                        className="text-sm px-2 py-1 rounded-sm bg-gray-600 text-white"
+                        className="text-sm px-2 py-1 rounded-sm bg-surface-3 text-white"
                         onClick={onCancel}
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
-                        className="text-sm px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50"
+                        className="text-sm px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50"
                         disabled={!picked}
                         onClick={() => picked && onPick(picked)}
                     >

@@ -139,24 +139,24 @@ const SourceSection = () => {
     }, [loadedSourceName, reconverting, scopePart, serializerSel, faceRegionsOn]);
 
     if (!loadedSourceName) {
-        return <div className="text-sm text-gray-400 px-1 py-2">No source model loaded.</div>;
+        return <div className="text-sm text-content-muted px-1 py-2">No source model loaded.</div>;
     }
 
     return (
         <div className="text-sm px-1 py-1 space-y-1">
             <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-                <span className="text-gray-400">Type</span>
+                <span className="text-content-muted">Type</span>
                 <span className="font-medium">{version ? `${format} (${version})` : format}</span>
-                <span className="text-gray-400">File</span>
+                <span className="text-content-muted">File</span>
                 <span className="truncate" title={loadedSourceName}>
                     {loadedSourceName}
                 </span>
-                <span className="text-gray-400">Size</span>
+                <span className="text-content-muted">Size</span>
                 <span>{fmtSize(size)}</span>
             </div>
 
-            <div className="pt-1 border-t border-gray-700">
-                <div className="text-gray-400 mb-1">Re-convert</div>
+            <div className="pt-1 border-t border-edge">
+                <div className="text-content-muted mb-1">Re-convert</div>
                 <SerializerTessellatorSelect
                     ext={ext}
                     target="glb"
@@ -173,17 +173,17 @@ const SourceSection = () => {
                             disabled={reconverting || !faceRegionsSupported}
                             onChange={(e) => setFaceRegions(e.target.checked)}
                         />
-                        <span className={faceRegionsSupported ? "" : "text-gray-500"}>Clickable surfaces</span>
+                        <span className={faceRegionsSupported ? "" : "text-content-subtle"}>Clickable surfaces</span>
                     </label>
                 )}
                 <button
-                    className="mt-1 w-full rounded-sm px-2 py-1 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-gray-100"
+                    className="mt-1 w-full rounded-sm px-2 py-1 bg-accent hover:bg-accent disabled:opacity-50 text-content"
                     disabled={reconverting}
                     onClick={reconvert}
                 >
                     {reconverting ? "re-converting…" : "Re-convert"}
                 </button>
-                {msg && <div className="mt-1 text-xs text-gray-400">{msg}</div>}
+                {msg && <div className="mt-1 text-xs text-content-muted">{msg}</div>}
             </div>
         </div>
     );

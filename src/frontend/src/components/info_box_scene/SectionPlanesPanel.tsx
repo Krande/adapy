@@ -45,7 +45,7 @@ const SectionPlanesPanel = () => {
                 {(["x", "y", "z"] as const).map((ax) => (
                     <button
                         key={ax}
-                        className="px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50"
+                        className="px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50"
                         disabled={!hasModel}
                         onClick={() => addPlane(ax)}
                     >
@@ -53,7 +53,7 @@ const SectionPlanesPanel = () => {
                     </button>
                 ))}
                 {planes.length > 0 && (
-                    <button className="ml-auto px-2 py-1 rounded-sm bg-gray-600 text-white" onClick={clearAll}>
+                    <button className="ml-auto px-2 py-1 rounded-sm bg-surface-3 text-white" onClick={clearAll}>
                         Clear all
                     </button>
                 )}
@@ -67,7 +67,7 @@ const SectionPlanesPanel = () => {
                 const [lo, hi] = sliderRange(p);
                 const pos = planePosition(p);
                 return (
-                    <div key={p.id} className="mb-2 border-b border-gray-500/40 pb-1">
+                    <div key={p.id} className="mb-2 border-b border-edge pb-1">
                         <div className="flex items-center gap-1">
                             <input type="checkbox" checked={p.enabled} onChange={() => toggle(p.id)} title="Enable / disable"/>
                             <label className="flex items-center gap-1 cursor-pointer" title="Attach drag gizmo">
@@ -81,24 +81,24 @@ const SectionPlanesPanel = () => {
                             </label>
                             <div className="relative ml-auto">
                                 <button
-                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    className="px-1 rounded-sm hover:bg-surface-3"
                                     onClick={() => setMenuId(menuId === p.id ? null : p.id)}
                                     aria-label="Plane menu"
                                 >
                                     ⋯
                                 </button>
                                 {menuId === p.id && (
-                                    <div className="absolute right-0 z-10 mt-1 bg-gray-800 text-white text-xs rounded-sm shadow border border-gray-600 min-w-28">
-                                        <button className="block w-full text-left px-2 py-1 hover:bg-gray-700" onClick={() => {toggle(p.id); setMenuId(null);}}>
+                                    <div className="absolute right-0 z-10 mt-1 bg-surface-0 text-white text-xs rounded-sm shadow border border-edge min-w-28">
+                                        <button className="block w-full text-left px-2 py-1 hover:bg-surface-2" onClick={() => {toggle(p.id); setMenuId(null);}}>
                                             {p.enabled ? "Disable" : "Enable"}
                                         </button>
-                                        <button className="block w-full text-left px-2 py-1 hover:bg-gray-700" onClick={() => {flip(p.id); setMenuId(null);}}>
+                                        <button className="block w-full text-left px-2 py-1 hover:bg-surface-2" onClick={() => {flip(p.id); setMenuId(null);}}>
                                             Flip direction
                                         </button>
-                                        <button className="block w-full text-left px-2 py-1 hover:bg-gray-700" onClick={() => {setActive(p.id); setMenuId(null);}}>
+                                        <button className="block w-full text-left px-2 py-1 hover:bg-surface-2" onClick={() => {setActive(p.id); setMenuId(null);}}>
                                             Attach gizmo
                                         </button>
-                                        <button className="block w-full text-left px-2 py-1 hover:bg-gray-700 text-red-300" onClick={() => {removePlane(p.id); setMenuId(null);}}>
+                                        <button className="block w-full text-left px-2 py-1 hover:bg-surface-2 text-fail" onClick={() => {removePlane(p.id); setMenuId(null);}}>
                                             Delete
                                         </button>
                                     </div>

@@ -60,7 +60,7 @@ const TreeViewComponent: React.FC = () => {
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
             <div ref={headerRef} className={"w-full pr-1 pt-1"}>
                 <input
-                    className={"w-full bg-gray-600 text-white rounded-sm pl-1"}
+                    className={"w-full bg-surface-3 text-white rounded-sm pl-1"}
                     placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
                     onInput={
                     (event) => {
@@ -70,12 +70,12 @@ const TreeViewComponent: React.FC = () => {
                 {scopeNodeId && (
                     <div className="mt-1 flex items-center">
                         <span
-                            className="inline-flex items-center max-w-full text-xs bg-blue-700 text-white rounded-full px-2 py-0.5"
+                            className="inline-flex items-center max-w-full text-xs bg-accent text-white rounded-full px-2 py-0.5"
                             title={`Search scoped to ${scopeNodeName ?? "selection"}`}
                         >
                             <span className="truncate">scope: {scopeNodeName ?? "selection"}</span>
                             <button
-                                className="ml-1 font-bold hover:text-red-300"
+                                className="ml-1 font-bold hover:text-fail"
                                 onClick={() => setScope(null, null)}
                                 aria-label="Clear search scope"
                             >

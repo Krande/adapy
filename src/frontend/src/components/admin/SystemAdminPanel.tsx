@@ -9,10 +9,10 @@ import type { SystemTemplateType } from "@/services/viewerApi";
 // rendering knobs. Feeds the cellbuilder systems inspector.
 
 const btn =
-  "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
-const btnDanger = "px-1.5 rounded-sm bg-red-700/70 text-white hover:bg-red-600";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
+const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white hover:bg-fail";
 const inputCls =
-  "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 w-full";
+  "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-full";
 
 const TYPES: SystemTemplateType[] = ["piping", "duct", "cable", "electrical"];
 
@@ -39,7 +39,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
           ? // In the admin panel: fill a centred column and let the tab's
             // own scroll container handle overflow (no floating card).
             "max-w-[560px] mx-auto"
-          : "bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto")
+          : "bg-surface-0 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto")
       }
     >
       {/* Sticky header keeps Close (and Back, while editing) reachable no matter
@@ -47,10 +47,10 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
           the viewport. The scroll container has no top padding (the header owns
           the top) and the header is fully opaque so scrolled content never peeks
           above it. */}
-      <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900 border-b border-gray-700/60">
+      <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-surface-0 border-b border-edge">
         {draft && (
           <button
-            className="px-1 rounded-sm hover:bg-gray-500/40"
+            className="px-1 rounded-sm hover:bg-surface-3"
             title="Back to catalog"
             onClick={() => void store.getState().selectSystem(null)}
           >
@@ -62,7 +62,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
         </span>
         {!draft && (
           <button
-            className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+            className="ml-auto px-1 rounded-sm hover:bg-surface-3"
             title="Refresh"
             onClick={() => void store.getState().refreshSystems()}
           >
@@ -72,7 +72,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
         {!embedded && (
           <button
             className={
-              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-surface-3"
             }
             title="Close"
             onClick={() => store.setState({ systemPanelOpen: false })}
@@ -82,7 +82,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
         )}
       </div>
 
-      {systemError && <div className="text-red-400">{systemError}</div>}
+      {systemError && <div className="text-fail">{systemError}</div>}
 
       {/* create + list — hidden while editing a template (master-detail) */}
       {!draft && (
@@ -114,7 +114,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
 
       <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
         {systemTemplates.length === 0 && availableSystems.length === 0 && (
-          <div className="text-gray-500 italic">No system types available.</div>
+          <div className="text-content-subtle italic">No system types available.</div>
         )}
         {systemTemplates.map((t) => (
           <div
@@ -122,16 +122,16 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
             className={
               "flex items-center gap-1 px-1.5 py-0.5 rounded-sm cursor-pointer " +
               (t.id === selectedSystemId
-                ? "bg-blue-800/60"
-                : "hover:bg-gray-700/60")
+                ? "bg-accent-subtle"
+                : "hover:bg-surface-2")
             }
             onClick={() => void store.getState().selectSystem(t.id)}
           >
             <span className="truncate flex-1">{t.name}</span>
-            <span className="rounded-sm bg-sky-900/70 text-sky-200 px-1 text-[10px]">
+            <span className="rounded-sm bg-info-subtle text-info px-1 text-[10px]">
               db
             </span>
-            <span className="text-gray-400 font-mono text-[10px]">
+            <span className="text-content-muted font-mono text-[10px]">
               {t.slug}
             </span>
             <button
@@ -147,24 +147,24 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </div>
         ))}
         {availableSystems.length > 0 && (
-          <div className="mt-1 pt-1 border-t border-gray-700/60 text-[10px] uppercase text-gray-500">
+          <div className="mt-1 pt-1 border-t border-edge text-[10px] uppercase text-content-subtle">
             Built-in kinds — sync to edit
           </div>
         )}
         {availableSystems.map((t) => (
           <div
             key={t.slug}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-gray-300"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-content"
           >
             <span className="truncate flex-1">{t.name}</span>
-            <span className="rounded-sm bg-gray-700 text-gray-300 px-1 text-[10px]">
+            <span className="rounded-sm bg-surface-2 text-content px-1 text-[10px]">
               code
             </span>
-            <span className="text-gray-500 font-mono text-[10px]">
+            <span className="text-content-subtle font-mono text-[10px]">
               {t.type}
             </span>
             <button
-              className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
+              className="px-1 rounded-sm text-info hover:bg-surface-3"
               title="Sync this built-in kind into the DB catalog to edit it"
               disabled={systemBusy}
               onClick={() => void store.getState().syncSystemFromCode(t.slug)}
@@ -180,7 +180,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
       {draft && (
         <div className="flex flex-col gap-2 pt-1">
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400">Name</span>
+            <span className="text-content-muted">Name</span>
             <input
               className={inputCls}
               value={draft.name}
@@ -190,7 +190,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
             />
           </label>
           <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400">Description</span>
+            <span className="text-content-muted">Description</span>
             <input
               className={inputCls}
               value={draft.description ?? ""}
@@ -201,7 +201,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </label>
           <div className="grid grid-cols-2 gap-1">
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Type</span>
+              <span className="text-content-muted">Type</span>
               <select
                 className={inputCls}
                 value={draft.doc.type}
@@ -221,7 +221,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
               </select>
             </label>
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Medium</span>
+              <span className="text-content-muted">Medium</span>
               <input
                 className={inputCls}
                 value={draft.doc.medium ?? ""}
@@ -236,7 +236,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </div>
           <div className="grid grid-cols-3 gap-1">
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Voltage [V]</span>
+              <span className="text-content-muted">Voltage [V]</span>
               <input
                 type="number"
                 step={10}
@@ -255,7 +255,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
               />
             </label>
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Pipe r [m]</span>
+              <span className="text-content-muted">Pipe r [m]</span>
               <input
                 type="number"
                 step={0.01}
@@ -271,7 +271,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
               />
             </label>
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Pipe wt [m]</span>
+              <span className="text-content-muted">Pipe wt [m]</span>
               <input
                 type="number"
                 step={0.001}
@@ -286,9 +286,9 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
             </label>
           </div>
 
-          <div className="flex items-center gap-2 border-t border-gray-700 pt-2">
-            <span className="text-gray-400">rev {draft.revision}</span>
-            {systemDirty && <span className="text-amber-400">unsaved</span>}
+          <div className="flex items-center gap-2 border-t border-edge pt-2">
+            <span className="text-content-muted">rev {draft.revision}</span>
+            {systemDirty && <span className="text-warn">unsaved</span>}
             <button
               className={btn + " ml-auto"}
               disabled={!systemDirty || systemBusy}

@@ -23,7 +23,7 @@ const LoadedModelsSection: React.FC = () => {
     const [busyName, setBusyName] = useState<string | null>(null);
 
     if (loadedSourceNames.size === 0) {
-        return <div className="text-xs italic text-gray-400">No models loaded.</div>;
+        return <div className="text-xs italic text-content-muted">No models loaded.</div>;
     }
 
     const toggleVisibility = (name: string) => {
@@ -47,7 +47,7 @@ const LoadedModelsSection: React.FC = () => {
     };
 
     return (
-        <ul className="flex flex-col divide-y divide-gray-700/40 text-xs">
+        <ul className="flex flex-col divide-y divide-edge text-xs">
             {Array.from(loadedSourceNames).map((name) => {
                 const group = loadedSourceGroups.get(name);
                 const visible = group ? group.visible : true;
@@ -59,8 +59,8 @@ const LoadedModelsSection: React.FC = () => {
                                 type="button"
                                 onClick={() => toggleVisibility(name)}
                                 className={
-                                    "shrink-0 p-1 rounded-sm cursor-pointer hover:bg-gray-700 " +
-                                    (visible ? "text-blue-400" : "text-gray-500")
+                                    "shrink-0 p-1 rounded-sm cursor-pointer hover:bg-surface-2 " +
+                                    (visible ? "text-accent" : "text-content-subtle")
                                 }
                                 title={visible
                                     ? "Hide in scene (stays loaded)"
@@ -74,12 +74,12 @@ const LoadedModelsSection: React.FC = () => {
                         ) : (
                             // Fallback: a source with no registered group
                             // (can't flip visibility — only unload).
-                            <span className="shrink-0 p-1 text-blue-400" title="Loaded (no visibility toggle)">
+                            <span className="shrink-0 p-1 text-accent" title="Loaded (no visibility toggle)">
                                 <ViewIcon width="16px" height="16px"/>
                             </span>
                         )}
                         <span
-                            className={"flex-1 min-w-0 truncate " + (visible ? "" : "text-gray-500")}
+                            className={"flex-1 min-w-0 truncate " + (visible ? "" : "text-content-subtle")}
                             title={name}
                         >
                             {basename}
@@ -89,8 +89,8 @@ const LoadedModelsSection: React.FC = () => {
                             onClick={() => void onUnload(name)}
                             disabled={busyName !== null}
                             className={
-                                "shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-gray-400 " +
-                                "hover:text-red-300 hover:bg-gray-700 disabled:opacity-50"
+                                "shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-content-muted " +
+                                "hover:text-fail hover:bg-surface-2 disabled:opacity-50"
                             }
                             title="Unload from scene (frees memory)"
                             aria-label={`Unload ${basename}`}

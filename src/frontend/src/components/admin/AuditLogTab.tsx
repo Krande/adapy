@@ -157,16 +157,16 @@ const AuditLogTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="border-b border-gray-700">
+            <div className="border-b border-edge">
                 <div className="flex items-center gap-2 px-3 py-2 sm:hidden">
                     <button
-                        className="bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm text-xs"
+                        className="bg-surface-0 hover:bg-surface-2 px-2 py-1 rounded-sm text-xs"
                         onClick={() => setFiltersOpen((v) => !v)}
                     >
                         Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
                     </button>
                     <button
-                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs"
+                        className="ml-auto bg-accent hover:bg-accent px-3 py-1 rounded-sm text-xs"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -219,7 +219,7 @@ const AuditLogTab: React.FC = () => {
                         onChange={(v) => onFilter({key: v || undefined})}
                     />
                     <button
-                        className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded-sm"
+                        className="hidden sm:inline-block ml-auto bg-accent hover:bg-accent px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -232,8 +232,8 @@ const AuditLogTab: React.FC = () => {
                     Visually separated so the controls are obvious on
                     mobile (where they otherwise sit flush with the
                     Filters / Refresh row). */}
-                <div className="flex flex-wrap items-center gap-3 px-3 sm:px-4 py-2 text-xs border-t border-gray-800 bg-gray-900/40">
-                    <span className="font-semibold text-gray-300 uppercase tracking-wide text-[10px]">
+                <div className="flex flex-wrap items-center gap-3 px-3 sm:px-4 py-2 text-xs border-t border-edge bg-surface-0">
+                    <span className="font-semibold text-content uppercase tracking-wide text-[10px]">
                         Metrics
                     </span>
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -246,11 +246,11 @@ const AuditLogTab: React.FC = () => {
                         />
                         <span>
                             Profile conversions
-                            {profileSaving ? <span className="text-gray-400"> (saving…)</span> : null}
+                            {profileSaving ? <span className="text-content-muted"> (saving…)</span> : null}
                         </span>
                     </label>
                     <button
-                        className="ml-auto bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm disabled:opacity-50"
+                        className="ml-auto bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm disabled:opacity-50"
                         onClick={onClearMetrics}
                         disabled={clearing}
                         title="Null out all metrics columns and delete profile blobs"
@@ -260,7 +260,7 @@ const AuditLogTab: React.FC = () => {
                 </div>
             </div>
             {error && (
-                <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
+                <div className="px-3 sm:px-4 py-2 text-fail text-xs border-b border-edge">
                     {error}
                 </div>
             )}
@@ -291,7 +291,7 @@ const AuditLogTab: React.FC = () => {
                         <col className="min-w-[6rem]"/>
                         <col className="min-w-[6rem]"/>
                     </colgroup>
-                    <thead className="sticky top-0 bg-gray-800">
+                    <thead className="sticky top-0 bg-surface-0">
                     <tr className="text-left">
                         <Th>ID</Th>
                         <Th>Time</Th>
@@ -306,9 +306,9 @@ const AuditLogTab: React.FC = () => {
                     </thead>
                     <tbody>
                     {entries.map((e) => (
-                        <tr key={e.id} className="border-t border-gray-800 hover:bg-gray-800/40">
+                        <tr key={e.id} className="border-t border-edge hover:bg-surface-0">
                             <Td>
-                                <span className="font-mono text-gray-300">#{e.id}</span>
+                                <span className="font-mono text-content">#{e.id}</span>
                             </Td>
                             <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
                             <Td title={userTooltip(e)}>{e.user_display_name || shortSub(e.user_sub)}</Td>
@@ -319,9 +319,9 @@ const AuditLogTab: React.FC = () => {
                             <Td>{e.action}</Td>
                             <Td title={e.device_id || ""}>
                                 {e.device_id ? (
-                                    <span className="font-mono text-gray-400">{e.device_id.slice(0, 8)}</span>
+                                    <span className="font-mono text-content-muted">{e.device_id.slice(0, 8)}</span>
                                 ) : (
-                                    <span className="text-gray-600">—</span>
+                                    <span className="text-content-subtle">—</span>
                                 )}
                             </Td>
                             <Td title={e.key || ""}>{e.key || ""}</Td>
@@ -334,7 +334,7 @@ const AuditLogTab: React.FC = () => {
                                 {hasDetails(e) && (
                                     <button
                                         type="button"
-                                        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
+                                        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content hover:text-white hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                         title={e.error ? "Show error / metrics" : "Show metrics"}
                                         aria-label="Show details"
@@ -349,42 +349,42 @@ const AuditLogTab: React.FC = () => {
                     </tbody>
                 </table>
                 {/* Mobile cards */}
-                <ul className="sm:hidden divide-y divide-gray-800">
+                <ul className="sm:hidden divide-y divide-edge">
                     {entries.map((e) => (
                         <li key={e.id} className="px-3 py-2 text-xs">
                             <div className="flex items-baseline justify-between gap-2">
                                 <span className="font-medium">
-                                    <span className="font-mono text-gray-400 mr-1">#{e.id}</span>
+                                    <span className="font-mono text-content-muted mr-1">#{e.id}</span>
                                     {e.action}
                                 </span>
                                 <span className={statusClass(e.status) + " text-[11px]"}>
                                     {e.status || ""}
                                 </span>
                             </div>
-                            <div className="text-gray-400 mt-0.5">
+                            <div className="text-content-muted mt-0.5">
                                 {formatTs(e.ts)} · {e.scope_kind}
                                 {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
                             </div>
                             {e.key && (
-                                <div className="text-gray-300 mt-1 break-all" title={e.key}>
+                                <div className="text-content mt-1 break-all" title={e.key}>
                                     {e.key}
                                     {e.target_format ? (
-                                        <span className="text-gray-400"> → {e.target_format}</span>
+                                        <span className="text-content-muted"> → {e.target_format}</span>
                                     ) : null}
                                     {isWasmEntry(e) && <WasmBadge/>}
                                 </div>
                             )}
                             {e.user_sub && (
-                                <div className="text-gray-500 mt-0.5" title={userTooltip(e)}>
+                                <div className="text-content-subtle mt-0.5" title={userTooltip(e)}>
                                     by {e.user_display_name || shortSub(e.user_sub)}
                                 </div>
                             )}
                             {e.error && (
-                                <div className="text-red-300 mt-1 break-all flex items-start gap-1" title={e.error}>
+                                <div className="text-fail mt-1 break-all flex items-start gap-1" title={e.error}>
                                     <span className="flex-1">{e.error}</span>
                                     <button
                                         type="button"
-                                        className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
+                                        className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content hover:text-white hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                         aria-label="Show details"
                                     >
@@ -396,7 +396,7 @@ const AuditLogTab: React.FC = () => {
                                 <div className="mt-1">
                                     <button
                                         type="button"
-                                        className="text-[10px] text-gray-400 hover:text-white underline no-drag"
+                                        className="text-[10px] text-content-muted hover:text-white underline no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                     >
                                         details
@@ -407,21 +407,21 @@ const AuditLogTab: React.FC = () => {
                     ))}
                 </ul>
                 {!loading && entries.length === 0 && (
-                    <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                    <div className="px-4 py-8 text-center text-content-subtle text-sm">
                         No matching audit entries.
                     </div>
                 )}
             </div>
-            <div className="border-t border-gray-700 px-3 sm:px-4 py-2 flex items-center gap-3 text-xs">
-                <span className="text-gray-400">{entries.length} rows</span>
+            <div className="border-t border-edge px-3 sm:px-4 py-2 flex items-center gap-3 text-xs">
+                <span className="text-content-muted">{entries.length} rows</span>
                 <button
-                    className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-surface-2 hover:bg-surface-3 px-3 py-1 rounded-sm disabled:opacity-50"
                     onClick={loadMore}
                     disabled={loading || nextBeforeId == null}
                 >
                     Load more
                 </button>
-                {loading && <span className="text-gray-500">loading…</span>}
+                {loading && <span className="text-content-subtle">loading…</span>}
             </div>
             {detailsEntry && (
                 <DetailsModal entry={detailsEntry} onClose={() => setDetailsEntry(null)}/>
@@ -465,10 +465,10 @@ const LogTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         };
     }, [entry.id]);
 
-    if (loading) return <div className="p-4 text-sm text-gray-400">Loading log…</div>;
-    if (err) return <div className="p-4 text-sm text-gray-400 italic">{err}</div>;
+    if (loading) return <div className="p-4 text-sm text-content-muted">Loading log…</div>;
+    if (err) return <div className="p-4 text-sm text-content-muted italic">{err}</div>;
     return (
-        <pre className="p-3 text-xs leading-relaxed whitespace-pre-wrap break-words text-gray-200 font-mono">
+        <pre className="p-3 text-xs leading-relaxed whitespace-pre-wrap break-words text-content font-mono">
             {text}
         </pre>
     );
@@ -531,15 +531,15 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-surface-0 border border-edge rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="Audit row details"
             >
-                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                <div className="flex items-start gap-3 border-b border-edge px-4 py-2">
                     <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold">Audit details</div>
-                        <div className="text-xs text-gray-400 truncate" title={entry.key || ""}>
+                        <div className="text-xs text-content-muted truncate" title={entry.key || ""}>
                             {entry.action}
                             {entry.key ? ` · ${entry.key}` : ""}
                             {entry.target_format ? ` → ${entry.target_format}` : ""}
@@ -548,7 +548,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     {tab === "error" && entry.traceback && (
                         <button
                             type="button"
-                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
+                            className="shrink-0 bg-surface-0 hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                             onClick={onCopy}
                             title="Copy traceback to clipboard"
                         >
@@ -557,7 +557,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     )}
                     <button
                         type="button"
-                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -565,7 +565,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                         ×
                     </button>
                 </div>
-                <div className="flex border-b border-gray-700 text-xs">
+                <div className="flex border-b border-edge text-xs">
                     {clientRow && (
                         <TabButton active={tab === "client"} onClick={() => setTab("client")}>
                             {entry.action === "render" ? "Render" : "Load"}
@@ -578,7 +578,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                         <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")}>
                             Metrics
                             {hasMetrics(entry) ? null : (
-                                <span className="text-gray-500"> (none)</span>
+                                <span className="text-content-subtle"> (none)</span>
                             )}
                         </TabButton>
                     )}
@@ -617,8 +617,8 @@ const TabButton: React.FC<{active: boolean; onClick: () => void; children: React
         className={
             "px-3 py-1.5 border-b-2 " +
             (active
-                ? "border-blue-500 text-white"
-                : "border-transparent text-gray-400 hover:text-gray-200")
+                ? "border-accent text-white"
+                : "border-transparent text-content-muted hover:text-content")
         }
     >
         {children}
@@ -630,16 +630,16 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         return (
             <>
                 {entry.error && (
-                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 wrap-break-word">
+                    <div className="px-4 py-2 text-sm text-fail border-b border-edge wrap-break-word">
                         {entry.error}
                     </div>
                 )}
                 {entry.traceback ? (
-                    <pre className="px-4 py-2 text-xs text-gray-200 whitespace-pre font-mono">
+                    <pre className="px-4 py-2 text-xs text-content whitespace-pre font-mono">
 {entry.traceback}
                     </pre>
                 ) : (
-                    <div className="px-4 py-3 text-xs text-gray-400">
+                    <div className="px-4 py-3 text-xs text-content-muted">
                         No traceback recorded for this entry.
                     </div>
                 )}
@@ -647,7 +647,7 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         );
     }
     return (
-        <div className="px-4 py-3 text-xs text-gray-300 space-y-1">
+        <div className="px-4 py-3 text-xs text-content space-y-1">
             <div>Status: <span className="font-mono">{entry.status || "n/a"}</span></div>
             {entry.duration_ms != null && (
                 <div>Duration: <span className="font-mono">{formatDuration(entry.duration_ms)}</span></div>
@@ -655,7 +655,7 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
             {entry.job_id && (
                 <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
             )}
-            <div className="text-gray-500 mt-2">
+            <div className="text-content-subtle mt-2">
                 No error reported for this entry. Switch to the Metrics tab for
                 CPU / memory / IO data.
             </div>
@@ -671,31 +671,31 @@ const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}
     const opts = meta.options || {};
     const optKeys = Object.keys(opts).sort();
     return (
-        <div className="pt-2 border-t border-gray-800 space-y-1">
-            <div className="text-[11px] uppercase tracking-wide text-gray-400">Conversion engine</div>
+        <div className="pt-2 border-t border-edge space-y-1">
+            <div className="text-[11px] uppercase tracking-wide text-content-muted">Conversion engine</div>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono">
                 {meta.tessellator && (
                     <>
-                        <dt className="text-gray-400">Tessellator</dt>
-                        <dd className={fellBack ? "text-amber-300" : "text-emerald-300"}>{meta.tessellator}</dd>
+                        <dt className="text-content-muted">Tessellator</dt>
+                        <dd className={fellBack ? "text-warn" : "text-pass"}>{meta.tessellator}</dd>
                     </>
                 )}
                 {meta.step_glb_pipeline && (
-                    <><dt className="text-gray-400">Requested</dt><dd>{meta.step_glb_pipeline}</dd></>
+                    <><dt className="text-content-muted">Requested</dt><dd>{meta.step_glb_pipeline}</dd></>
                 )}
                 {meta.glb_compression && (
-                    <><dt className="text-gray-400">Compression</dt><dd>{meta.glb_compression}</dd></>
+                    <><dt className="text-content-muted">Compression</dt><dd>{meta.glb_compression}</dd></>
                 )}
                 {meta.stream_workers != null && meta.stream_workers !== "" && (
-                    <><dt className="text-gray-400">Workers</dt><dd>{String(meta.stream_workers)}</dd></>
+                    <><dt className="text-content-muted">Workers</dt><dd>{String(meta.stream_workers)}</dd></>
                 )}
                 {meta.convert_ms != null && (
-                    <><dt className="text-gray-400">Convert</dt><dd>{meta.convert_ms} ms</dd></>
+                    <><dt className="text-content-muted">Convert</dt><dd>{meta.convert_ms} ms</dd></>
                 )}
                 {meta.compress_ms != null && (
                     <>
-                        <dt className="text-gray-400">Compress</dt>
-                        <dd className="text-sky-300">
+                        <dt className="text-content-muted">Compress</dt>
+                        <dd className="text-info">
                             {meta.compress_ms} ms
                             {meta.convert_ms != null && meta.convert_ms > 0
                                 ? ` (+${Math.round((meta.compress_ms / meta.convert_ms) * 100)}%)`
@@ -706,12 +706,12 @@ const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}
             </dl>
             {optKeys.length > 0 && (
                 <div className="pt-1">
-                    <div className="text-[11px] text-gray-400 mb-0.5">Effective options</div>
+                    <div className="text-[11px] text-content-muted mb-0.5">Effective options</div>
                     <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
                         {optKeys.map((k) => (
                             <React.Fragment key={k}>
-                                <dt className="text-gray-500 break-all">{k}</dt>
-                                <dd className="text-gray-300 break-all">{opts[k]}</dd>
+                                <dt className="text-content-subtle break-all">{k}</dt>
+                                <dd className="text-content break-all">{opts[k]}</dd>
                             </React.Fragment>
                         ))}
                     </dl>
@@ -745,42 +745,42 @@ const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
     const f = filter.trim().toLowerCase();
     const shown = (pkgs || []).filter((p) => !f || p.name.toLowerCase().includes(f));
     return (
-        <div className="pt-2 border-t border-gray-800 space-y-1">
+        <div className="pt-2 border-t border-edge space-y-1">
             <button
                 type="button"
                 onClick={toggle}
-                className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1.5"
+                className="text-[11px] text-accent hover:text-accent flex items-center gap-1.5"
                 title="Captured conda package manifest for this worker image"
             >
                 <span>{open ? "▾" : "▸"}</span>
                 <span>Worker packages</span>
-                <span className="font-mono text-gray-500 break-all">{imageTag}</span>
+                <span className="font-mono text-content-subtle break-all">{imageTag}</span>
             </button>
             {open && (
                 <div className="space-y-1 pl-3">
-                    {err && <div className="text-[11px] text-red-400">{err}</div>}
-                    {!err && !pkgs && <div className="text-[11px] text-gray-400">Loading…</div>}
+                    {err && <div className="text-[11px] text-fail">{err}</div>}
+                    {!err && !pkgs && <div className="text-[11px] text-content-muted">Loading…</div>}
                     {pkgs && (
                         <>
                             <input
                                 value={filter}
                                 onChange={(e) => setFilter(e.target.value)}
                                 placeholder="filter (occt, ada-cpp…)"
-                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-0.5 text-[11px] text-gray-100 w-48"
+                                className="bg-surface-0 border border-edge rounded-sm px-2 py-0.5 text-[11px] text-content w-48"
                             />
                             <div className="max-h-64 overflow-auto">
                                 <dl className="grid grid-cols-[1fr_max-content] gap-x-3 gap-y-0.5 font-mono text-[11px]">
                                     {shown.map((p) => (
                                         <React.Fragment key={p.name}>
-                                            <dt className="text-gray-300 break-all">{p.name}</dt>
-                                            <dd className="text-gray-400 text-right whitespace-nowrap">
+                                            <dt className="text-content break-all">{p.name}</dt>
+                                            <dd className="text-content-muted text-right whitespace-nowrap">
                                                 {p.version}{p.build ? ` (${p.build})` : ""}
                                             </dd>
                                         </React.Fragment>
                                     ))}
                                 </dl>
                             </div>
-                            <div className="text-[10px] text-gray-500">
+                            <div className="text-[10px] text-content-subtle">
                                 {shown.length} / {pkgs.length} packages
                             </div>
                         </>
@@ -796,36 +796,36 @@ const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
 // per-solid stats, achieved parallelism / IO pressure and per-thread utilisation
 // — the C++ sibling of the Python profile below.
 const CppProfilePanel: React.FC<{profiles: import("@/services/viewerApi").CppProfile[]}> = ({profiles}) => (
-    <div className="pt-2 border-t border-gray-800 space-y-3">
-        <div className="text-[11px] uppercase tracking-wide text-gray-400">C++ pipeline profile</div>
+    <div className="pt-2 border-t border-edge space-y-3">
+        <div className="text-[11px] uppercase tracking-wide text-content-muted">C++ pipeline profile</div>
         {profiles.map((p, i) => {
             const wall = p.wall_ms > 0 ? p.wall_ms : 1;
             return (
                 <div key={`${p.label}-${i}`} className="space-y-1">
                     <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
-                        <dt className="text-gray-400">Pipeline</dt>
-                        <dd className="text-emerald-300">{p.label}</dd>
-                        <dt className="text-gray-400">Wall</dt>
+                        <dt className="text-content-muted">Pipeline</dt>
+                        <dd className="text-pass">{p.label}</dd>
+                        <dt className="text-content-muted">Wall</dt>
                         <dd>{formatDuration(p.wall_ms)}</dd>
-                        <dt className="text-gray-400">Peak RSS</dt>
-                        <dd>{formatBytes(p.peak_rss_mb * 1024 * 1024)} <span className="text-gray-500">(VmHWM)</span></dd>
+                        <dt className="text-content-muted">Peak RSS</dt>
+                        <dd>{formatBytes(p.peak_rss_mb * 1024 * 1024)} <span className="text-content-subtle">(VmHWM)</span></dd>
                         {p.cpu_s != null && (
-                            <><dt className="text-gray-400">CPU</dt>
+                            <><dt className="text-content-muted">CPU</dt>
                             <dd>{p.cpu_s.toFixed(1)} s{p.parallelism != null ? ` — ${p.parallelism.toFixed(2)}x cores busy` : ""}</dd></>
                         )}
                         {(p.solids ?? 0) > 0 && (
-                            <><dt className="text-gray-400">Solids</dt>
+                            <><dt className="text-content-muted">Solids</dt>
                             <dd>{p.solids}{(p.tris ?? 0) > 0 ? ` (${p.tris} tris, max ${p.max_tris_solid}/solid)` : ""}</dd></>
                         )}
                         {p.disk_read_mb != null && p.disk_read_mb > 0 && (
-                            <><dt className="text-gray-400">Disk read</dt>
+                            <><dt className="text-content-muted">Disk read</dt>
                             <dd>{p.disk_read_mb.toFixed(0)} MB physical{p.majflt != null ? `, ${p.majflt} major faults` : ""}</dd></>
                         )}
                     </dl>
                     {p.phases.length > 0 && (
                         <table className="w-full text-[11px] font-mono">
                             <thead>
-                                <tr className="text-gray-500 text-left">
+                                <tr className="text-content-subtle text-left">
                                     <th className="font-normal pr-2">phase</th>
                                     <th className="font-normal pr-2 text-right">ms</th>
                                     <th className="font-normal pr-2 text-right">RSS</th>
@@ -834,14 +834,14 @@ const CppProfilePanel: React.FC<{profiles: import("@/services/viewerApi").CppPro
                             </thead>
                             <tbody>
                                 {p.phases.map((ph) => (
-                                    <tr key={ph.name} className="text-gray-300">
+                                    <tr key={ph.name} className="text-content">
                                         <td className="pr-2 break-all">{ph.name}</td>
                                         <td className="pr-2 text-right">{Math.round(ph.ms)}</td>
                                         <td className="pr-2 text-right">{Math.round(ph.rss_mb)} MB</td>
                                         <td>
-                                            <div className="bg-gray-800 rounded-sm h-2 w-full">
+                                            <div className="bg-surface-0 rounded-sm h-2 w-full">
                                                 <div
-                                                    className="bg-sky-600 rounded-sm h-2"
+                                                    className="bg-info rounded-sm h-2"
                                                     style={{width: `${Math.min(100, (ph.ms / wall) * 100).toFixed(1)}%`}}
                                                 />
                                             </div>
@@ -855,14 +855,14 @@ const CppProfilePanel: React.FC<{profiles: import("@/services/viewerApi").CppPro
                         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
                             {Object.entries(p.notes).map(([k, v]) => (
                                 <React.Fragment key={k}>
-                                    <dt className="text-gray-500 break-all">{k}</dt>
-                                    <dd className="text-gray-300">{v}</dd>
+                                    <dt className="text-content-subtle break-all">{k}</dt>
+                                    <dd className="text-content">{v}</dd>
                                 </React.Fragment>
                             ))}
                         </dl>
                     )}
                     {(p.threads?.length ?? 0) > 0 && (
-                        <div className="text-[11px] font-mono text-gray-400">
+                        <div className="text-[11px] font-mono text-content-muted">
                             threads:{" "}
                             {p.threads!.map((t) => `t${t.tid}=${Math.round(t.busy_ms)}ms/${t.solids}s`).join("  ")}
                         </div>
@@ -881,7 +881,7 @@ const MetricsTab: React.FC<{
 }> = ({entry, onDownloadProfile, downloading, downloadErr}) => {
     if (!hasMetrics(entry)) {
         return (
-            <div className="px-4 py-3 text-xs text-gray-400">
+            <div className="px-4 py-3 text-xs text-content-muted">
                 No metrics captured for this entry.
                 {entry.action !== "convert" ? (
                     <span> Only conversion runs collect resource metrics.</span>
@@ -892,7 +892,7 @@ const MetricsTab: React.FC<{
         );
     }
     return (
-        <div className="px-4 py-3 text-xs text-gray-200 space-y-3">
+        <div className="px-4 py-3 text-xs text-content space-y-3">
             <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono">
                 <MetricRow label="Wall" value={formatDuration(entry.duration_ms)}/>
                 <MetricRow label="CPU user" value={formatDuration(entry.cpu_user_ms)}/>
@@ -912,21 +912,21 @@ const MetricsTab: React.FC<{
                 native={entry.convert_meta?.tessellator === "adacpp:native"}
             />
             {entry.profile_key ? (
-                <div className="pt-2 border-t border-gray-800 space-y-3">
+                <div className="pt-2 border-t border-edge space-y-3">
                     <div>
                         <button
                             type="button"
-                            className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent hover:bg-accent px-3 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={onDownloadProfile}
                             disabled={downloading}
                         >
                             {downloading ? "Downloading…" : "Download profile (.prof)"}
                         </button>
-                        <span className="text-[10px] text-gray-500 ml-2">
+                        <span className="text-[10px] text-content-subtle ml-2">
                             Loadable in snakeviz / speedscope / pstats.
                         </span>
                         {downloadErr && (
-                            <div className="text-red-300 text-[10px] mt-1 break-all">{downloadErr}</div>
+                            <div className="text-fail text-[10px] mt-1 break-all">{downloadErr}</div>
                         )}
                     </div>
                     {/* Inline per-function stats — sortable and searchable so
@@ -936,7 +936,7 @@ const MetricsTab: React.FC<{
                     <ProfileStatsTable auditId={entry.id} totalWallMs={entry.duration_ms}/>
                 </div>
             ) : (
-                <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
+                <div className="text-[10px] text-content-subtle pt-2 border-t border-edge">
                     No profile attached. Toggle "Profile conversions" above and re-run.
                 </div>
             )}
@@ -972,9 +972,9 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         };
     }, [entry.id]);
 
-    if (loading) return <div className="px-4 py-3 text-xs text-gray-400">Loading…</div>;
-    if (err) return <div className="px-4 py-3 text-xs text-red-300">{err}</div>;
-    if (!cm) return <div className="px-4 py-3 text-xs text-gray-400">No client metrics recorded for this entry.</div>;
+    if (loading) return <div className="px-4 py-3 text-xs text-content-muted">Loading…</div>;
+    if (err) return <div className="px-4 py-3 text-xs text-fail">{err}</div>;
+    if (!cm) return <div className="px-4 py-3 text-xs text-content-muted">No client metrics recorded for this entry.</div>;
 
     const frames = Array.isArray(cm.profile_frames)
         ? (cm.profile_frames as Array<{fn?: string; self_ms?: number; total_ms?: number}>)
@@ -998,38 +998,38 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     };
 
     return (
-        <div className="px-4 py-3 text-xs text-gray-200 space-y-3">
+        <div className="px-4 py-3 text-xs text-content space-y-3">
             <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono">
                 {scalars.map(([k, v]) => (
                     <React.Fragment key={k}>
-                        <dt className="text-gray-400">{k}</dt>
-                        <dd className="text-gray-100">{fmt(k, v)}</dd>
+                        <dt className="text-content-muted">{k}</dt>
+                        <dd className="text-content">{fmt(k, v)}</dd>
                     </React.Fragment>
                 ))}
             </dl>
             {perfOptions ? (
-                <div className="pt-2 border-t border-gray-800">
-                    <div className="text-[11px] text-gray-400 mb-1">Performance options (active at capture)</div>
+                <div className="pt-2 border-t border-edge">
+                    <div className="text-[11px] text-content-muted mb-1">Performance options (active at capture)</div>
                     <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono">
                         {Object.entries(perfOptions)
                             .sort(([a], [b]) => a.localeCompare(b))
                             .map(([k, v]) => (
                                 <React.Fragment key={k}>
-                                    <dt className="text-gray-400">{k}</dt>
-                                    <dd className="text-gray-100">{String(v)}</dd>
+                                    <dt className="text-content-muted">{k}</dt>
+                                    <dd className="text-content">{String(v)}</dd>
                                 </React.Fragment>
                             ))}
                     </dl>
                 </div>
             ) : null}
             {frames.length > 0 ? (
-                <div className="pt-2 border-t border-gray-800">
-                    <div className="text-[11px] text-gray-400 mb-1">
+                <div className="pt-2 border-t border-edge">
+                    <div className="text-[11px] text-content-muted mb-1">
                         Call hotspots (self-time, TS + WASM)
                         {entry.action === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
                     </div>
                     <table className="w-full">
-                        <thead className="text-gray-400">
+                        <thead className="text-content-muted">
                             <tr>
                                 <th className="text-left font-medium">Function</th>
                                 <th className="text-right font-medium">Self</th>
@@ -1038,10 +1038,10 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
                         </thead>
                         <tbody>
                             {frames.map((f, i) => (
-                                <tr key={i} className="border-t border-gray-800">
+                                <tr key={i} className="border-t border-edge">
                                     <td className="py-0.5 font-mono truncate max-w-md" title={f.fn}>
                                         {typeof f.fn === "string" && f.fn.toLowerCase().includes("wasm") && (
-                                            <span className="text-violet-300 mr-1">[wasm]</span>
+                                            <span className="text-info mr-1">[wasm]</span>
                                         )}
                                         {f.fn}
                                     </td>
@@ -1053,7 +1053,7 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
                     </table>
                 </div>
             ) : (
-                <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
+                <div className="text-[10px] text-content-subtle pt-2 border-t border-edge">
                     No call profile on this event. Enable "Profile calls" in Performance options
                     (Chromium + Document-Policy: js-profiling).
                 </div>
@@ -1091,14 +1091,14 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: b
     }, [auditId]);
 
     if (loading) {
-        return <div className="text-[10px] text-gray-400">Loading resource timeline…</div>;
+        return <div className="text-[10px] text-content-muted">Loading resource timeline…</div>;
     }
     if (err) {
-        return <div className="text-[10px] text-red-300 break-all">timeline: {err}</div>;
+        return <div className="text-[10px] text-fail break-all">timeline: {err}</div>;
     }
     if (!samples || samples.length === 0) {
         return (
-            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-800">
+            <div className="text-[10px] text-content-subtle pt-1 border-t border-edge">
                 No per-heartbeat samples for this run. Older jobs predate the
                 subprocess wrapper, or the worker died before any sample landed.
             </div>
@@ -1152,8 +1152,8 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: b
         : 0;
 
     return (
-        <div className="space-y-2 pt-2 border-t border-gray-800">
-            <div className="text-[10px] uppercase tracking-wide text-gray-500">
+        <div className="space-y-2 pt-2 border-t border-edge">
+            <div className="text-[10px] uppercase tracking-wide text-content-subtle">
                 Resource timeline ({samples.length} samples · {maxElapsed.toFixed(0)}s)
             </div>
             <ChartPanel
@@ -1226,12 +1226,12 @@ const CpuPerCorePanel: React.FC<{
     return (
         <div>
             <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                <div className="text-[10px] text-gray-400 font-mono">CPU per core (native)</div>
-                <div className="text-[10px] text-gray-500 font-mono">
+                <div className="text-[10px] text-content-muted font-mono">CPU per core (native)</div>
+                <div className="text-[10px] text-content-subtle font-mono">
                     top = {cores} cores · peak {peakLanes} saturated
                 </div>
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded-sm">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-surface-0 border border-edge rounded-sm">
                 {Array.from({length: nLanes}, (_, k) => {
                     const top = samples.map(
                         (_, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${yAt(cum(i, k + 1)).toFixed(1)}`,
@@ -1259,10 +1259,10 @@ const ChartPanel: React.FC<{
     return (
         <div>
             <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                <div className="text-[10px] text-gray-400 font-mono">{title}</div>
-                <div className="text-[10px] text-gray-500 font-mono">max ≈ {yLabel}</div>
+                <div className="text-[10px] text-content-muted font-mono">{title}</div>
+                <div className="text-[10px] text-content-subtle font-mono">max ≈ {yLabel}</div>
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded-sm">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-surface-0 border border-edge rounded-sm">
                 {series.map((s, i) => {
                     if (s.points.length === 0) return null;
                     const d = s.points
@@ -1277,9 +1277,9 @@ const ChartPanel: React.FC<{
                     );
                 })}
             </svg>
-            <div className="flex gap-3 mt-0.5 text-[10px] text-gray-500 font-mono">
+            <div className="flex gap-3 mt-0.5 text-[10px] text-content-subtle font-mono">
                 {series.map((s, i) => (
-                    <span key={i} style={{color: s.color}}>● <span className="text-gray-400">{s.label}</span></span>
+                    <span key={i} style={{color: s.color}}>● <span className="text-content-muted">{s.label}</span></span>
                 ))}
             </div>
         </div>
@@ -1341,16 +1341,16 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
 
     if (loading) {
         return (
-            <div className="text-[10px] text-gray-400">Loading profile stats…</div>
+            <div className="text-[10px] text-content-muted">Loading profile stats…</div>
         );
     }
     if (err) {
         return (
-            <div className="text-[10px] text-red-300 break-all">profile stats: {err}</div>
+            <div className="text-[10px] text-fail break-all">profile stats: {err}</div>
         );
     }
     if (!resp || resp.rows.length === 0) {
-        return <div className="text-[10px] text-gray-400">No frames recorded.</div>;
+        return <div className="text-[10px] text-content-muted">No frames recorded.</div>;
     }
 
     const onHeader = (k: StatsSortKey) => {
@@ -1370,7 +1370,7 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
 
     return (
         <div className="text-[11px] space-y-2">
-            <div className="text-gray-400">
+            <div className="text-content-muted">
                 <span className="font-mono">{resp.rows.length}</span> functions ·{" "}
                 <span className="font-mono">{resp.total_tottime.toFixed(2)}s</span> total self-time
                 {totalWallMs != null ? (
@@ -1378,24 +1378,24 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                 ) : null}
             </div>
             {/* Top-10 cumulative-time bar chart */}
-            <div className="space-y-0.5 bg-gray-900/60 border border-gray-800 rounded-sm p-2">
-                <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
+            <div className="space-y-0.5 bg-surface-0 border border-edge rounded-sm p-2">
+                <div className="text-[10px] uppercase tracking-wide text-content-subtle mb-1">
                     Top 10 by cumulative time
                 </div>
                 {topByCum.map((r, i) => (
                     <div key={`${r.file}:${r.line}:${r.func}:${i}`} className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
-                            <div className="font-mono text-gray-200 truncate" title={`${r.file}:${r.line}`}>
+                            <div className="font-mono text-content truncate" title={`${r.file}:${r.line}`}>
                                 {r.func}
                             </div>
-                            <div className="h-1 bg-gray-800 rounded-sm overflow-hidden">
+                            <div className="h-1 bg-surface-0 rounded-sm overflow-hidden">
                                 <div
-                                    className="h-full bg-blue-500"
+                                    className="h-full bg-accent"
                                     style={{width: `${maxCum > 0 ? (r.cumtime / maxCum) * 100 : 0}%`}}
                                 />
                             </div>
                         </div>
-                        <div className="font-mono text-gray-300 w-16 text-right shrink-0">
+                        <div className="font-mono text-content w-16 text-right shrink-0">
                             {r.cumtime.toFixed(3)}s
                         </div>
                     </div>
@@ -1406,11 +1406,11 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Filter by function or file…"
-                className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 w-full text-white"
+                className="bg-surface-0 border border-edge rounded-sm px-2 py-1 w-full text-white"
             />
-            <div className="overflow-auto max-h-96 border border-gray-800 rounded-sm">
+            <div className="overflow-auto max-h-96 border border-edge rounded-sm">
                 <table className="w-full font-mono">
-                    <thead className="sticky top-0 bg-gray-800 text-gray-300">
+                    <thead className="sticky top-0 bg-surface-0 text-content">
                         <tr className="text-right">
                             <StatsTh active={sortKey === "func"} desc={sortDesc} onClick={() => onHeader("func")} align="left">function</StatsTh>
                             <StatsTh active={sortKey === "ncalls"} desc={sortDesc} onClick={() => onHeader("ncalls")}>ncalls</StatsTh>
@@ -1423,23 +1423,23 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                     </thead>
                     <tbody>
                         {filtered.map((r, i) => (
-                            <tr key={`${r.file}:${r.line}:${r.func}:${i}`} className="border-t border-gray-800 text-right">
-                                <td className="px-2 py-0.5 text-left text-gray-200 truncate max-w-[20rem]" title={`${r.file}:${r.line}`}>
-                                    <span className="text-gray-500">{shortFile(r.file)}:{r.line} </span>
+                            <tr key={`${r.file}:${r.line}:${r.func}:${i}`} className="border-t border-edge text-right">
+                                <td className="px-2 py-0.5 text-left text-content truncate max-w-[20rem]" title={`${r.file}:${r.line}`}>
+                                    <span className="text-content-subtle">{shortFile(r.file)}:{r.line} </span>
                                     {r.func}
                                 </td>
-                                <td className="px-2 py-0.5 text-gray-300">{r.ncalls.toLocaleString()}</td>
-                                <td className="px-2 py-0.5 text-gray-400">{r.primitive_calls.toLocaleString()}</td>
-                                <td className="px-2 py-0.5 text-gray-200">{r.tottime.toFixed(3)}</td>
-                                <td className="px-2 py-0.5 text-gray-400">{formatPercall(r.percall_tot)}</td>
-                                <td className="px-2 py-0.5 text-gray-200">{r.cumtime.toFixed(3)}</td>
-                                <td className="px-2 py-0.5 text-gray-400">{formatPercall(r.percall_cum)}</td>
+                                <td className="px-2 py-0.5 text-content">{r.ncalls.toLocaleString()}</td>
+                                <td className="px-2 py-0.5 text-content-muted">{r.primitive_calls.toLocaleString()}</td>
+                                <td className="px-2 py-0.5 text-content">{r.tottime.toFixed(3)}</td>
+                                <td className="px-2 py-0.5 text-content-muted">{formatPercall(r.percall_tot)}</td>
+                                <td className="px-2 py-0.5 text-content">{r.cumtime.toFixed(3)}</td>
+                                <td className="px-2 py-0.5 text-content-muted">{formatPercall(r.percall_cum)}</td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
                 {filtered.length === 0 && (
-                    <div className="text-center text-gray-500 py-3">No frames match the filter.</div>
+                    <div className="text-center text-content-subtle py-3">No frames match the filter.</div>
                 )}
             </div>
         </div>
@@ -1461,7 +1461,7 @@ const StatsTh: React.FC<{
         onClick={onClick}
     >
         {children}
-        {active ? <span className="text-blue-400">{desc ? " ▾" : " ▴"}</span> : null}
+        {active ? <span className="text-accent">{desc ? " ▾" : " ▴"}</span> : null}
     </th>
 );
 
@@ -1481,7 +1481,7 @@ function formatPercall(v: number): string {
 
 const MetricRow: React.FC<{label: string; value: string}> = ({label, value}) => (
     <>
-        <dt className="text-gray-400">{label}</dt>
+        <dt className="text-content-muted">{label}</dt>
         <dd>{value}</dd>
     </>
 );
@@ -1513,7 +1513,7 @@ const FilterInput: React.FC<{
     useEffect(() => setLocal(value), [value]);
     return (
         <input
-            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
+            className="bg-surface-0 border border-edge rounded-sm px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
             placeholder={placeholder}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
@@ -1532,7 +1532,7 @@ const FilterSelect: React.FC<{
     placeholder: string;
 }> = ({options, value, onChange, placeholder}) => (
     <select
-        className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white w-full sm:w-auto"
+        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-white w-full sm:w-auto"
         value={value}
         onChange={(e) => onChange(e.target.value)}
     >
@@ -1551,7 +1551,7 @@ const FilterSelect: React.FC<{
 );
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
+    <th className="px-3 py-2 font-medium text-content whitespace-nowrap">{children}</th>
 );
 
 // Truncation lives at the cell level so long values (paths, error
@@ -1572,7 +1572,7 @@ function isWasmEntry(e: {job_id?: string | null; worker_image_tag?: string | nul
 
 const WasmBadge: React.FC = () => (
     <span
-        className="ml-1 inline-block rounded bg-purple-900/60 text-purple-200 px-1 text-[9px] font-semibold align-middle"
+        className="ml-1 inline-block rounded bg-info-subtle text-info px-1 text-[9px] font-semibold align-middle"
         title="Converted in-browser (WASM)"
     >
         WASM
@@ -1616,10 +1616,10 @@ function formatTs(ts: string | null): string {
 // row that hasn't been claimed yet (status NULL) shows a
 // 'pending' pill so the operator knows the bot will get to it.
 const ISSUE_BOT_BADGE_LOG: Record<string, {cls: string; label: string}> = {
-    done:    {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issue synced"},
-    skipped: {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "bot disabled"},
-    failed:  {cls: "bg-red-900/40 border-red-700 text-red-200",             label: "issue sync failed"},
-    syncing: {cls: "bg-blue-900/40 border-blue-700 text-blue-200",          label: "syncing…"},
+    done:    {cls: "bg-pass-subtle border-pass text-pass", label: "issue synced"},
+    skipped: {cls: "bg-surface-0 border-edge text-content-muted",             label: "bot disabled"},
+    failed:  {cls: "bg-fail-subtle border-fail text-fail",             label: "issue sync failed"},
+    syncing: {cls: "bg-accent-subtle border-accent text-accent",          label: "syncing…"},
 };
 
 const IssueBotBadge: React.FC<{
@@ -1638,10 +1638,10 @@ const IssueBotBadge: React.FC<{
     const status = entry.issue_bot_status;
     const badge = status
         ? ISSUE_BOT_BADGE_LOG[status] || {
-            cls: "bg-gray-800 border-gray-600 text-gray-400",
+            cls: "bg-surface-0 border-edge text-content-muted",
             label: status,
         }
-        : {cls: "bg-amber-900/30 border-amber-700 text-amber-300", label: "issue pending"};
+        : {cls: "bg-warn-subtle border-warn text-warn", label: "issue pending"};
     const retry = async () => {
         setBusy(true);
         setErr(null);
@@ -1671,24 +1671,24 @@ const IssueBotBadge: React.FC<{
                     type="button"
                     onClick={retry}
                     disabled={busy}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 no-drag"
+                    className="text-[10px] text-accent hover:text-accent disabled:opacity-50 no-drag"
                     title="Re-run the issue-bot for this row"
                 >
                     {busy ? "queued…" : "resync"}
                 </button>
             )}
             {err && (
-                <span className="text-[10px] text-red-400" role="alert">{err}</span>
+                <span className="text-[10px] text-fail" role="alert">{err}</span>
             )}
         </span>
     );
 };
 
 function statusClass(s: string | null): string {
-    if (s === "ok" || s === "done") return "text-green-400";
-    if (s === "error") return "text-red-400";
-    if (s === "queued") return "text-yellow-300";
-    return "text-gray-300";
+    if (s === "ok" || s === "done") return "text-pass";
+    if (s === "error") return "text-fail";
+    if (s === "queued") return "text-warn";
+    return "text-content";
 }
 
 function countActive(f: AuditFilters): number {

@@ -35,14 +35,14 @@ const METRIC_LABELS: Record<MetricKey, string> = {
 const POLL_INTERVAL_MS = 5000;
 
 const STATUS_COLOR: Record<string, string> = {
-    done: "bg-emerald-900/60 border-emerald-600 text-emerald-100",
-    ok: "bg-emerald-900/60 border-emerald-600 text-emerald-100",
-    error: "bg-red-900/60 border-red-600 text-red-100",
-    failed: "bg-red-900/60 border-red-600 text-red-100",
-    queued: "bg-amber-900/40 border-amber-600 text-amber-100",
-    running: "bg-blue-900/40 border-blue-600 text-blue-100",
-    cancelled: "bg-gray-800 border-gray-600 text-gray-300",
-    skipped: "bg-gray-800 border-gray-600 text-gray-400",
+    done: "bg-pass-subtle border-pass text-pass",
+    ok: "bg-pass-subtle border-pass text-pass",
+    error: "bg-fail-subtle border-fail text-fail",
+    failed: "bg-fail-subtle border-fail text-fail",
+    queued: "bg-warn-subtle border-warn text-warn",
+    running: "bg-accent-subtle border-accent text-accent",
+    cancelled: "bg-surface-0 border-edge text-content",
+    skipped: "bg-surface-0 border-edge text-content-muted",
 };
 
 function fmtBytes(n: number | null | undefined): string {
@@ -163,10 +163,10 @@ function cellTooltip(job: AuditRunJob | undefined): string {
 // with non-OK status keep the status palette regardless of metric
 // — a failed cell is still failed when you're looking at RSS.
 const METRIC_COLOR_BUCKETS: {cls: string}[] = [
-    {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-100"},  // fast / light
-    {cls: "bg-amber-900/40 border-amber-700 text-amber-100"},        // medium
-    {cls: "bg-orange-900/60 border-orange-600 text-orange-100"},     // heavy
-    {cls: "bg-red-900/60 border-red-600 text-red-100"},              // outlier
+    {cls: "bg-pass-subtle border-pass text-pass"},  // fast / light
+    {cls: "bg-warn-subtle border-warn text-warn"},        // medium
+    {cls: "bg-warn-subtle border-warn text-warn"},     // heavy
+    {cls: "bg-fail-subtle border-fail text-fail"},              // outlier
 ];
 
 // The derived-blob key a cell produced. Mirrors the server's
@@ -213,21 +213,21 @@ function sourceFlags(cells: Map<string, AuditRunJob>, targets: string[], file: s
             key: "dropped",
             label: "dropped faces",
             title: `${dropped} face(s) with a trim boundary tessellated to zero triangles — silently dropped geometry (e.g. a swept/extruded surface the kernel couldn't mesh)`,
-            cls: "bg-red-900/50 border-red-700 text-red-200",
+            cls: "bg-fail-subtle border-fail text-fail",
         });
     if (occ > 0)
         flags.push({
             key: "occ",
             label: "occ fallback",
             title: `${occ} object(s) fell back from the libtess2 stream kernel to OCC`,
-            cls: "bg-amber-900/50 border-amber-700 text-amber-200",
+            cls: "bg-warn-subtle border-warn text-warn",
         });
     if (distorted > 0)
         flags.push({
             key: "distorted",
             label: "distorted tris",
             title: `${distorted} heavily distorted (degenerate/sliver) triangle(s) in a converted mesh`,
-            cls: "bg-red-900/50 border-red-700 text-red-200",
+            cls: "bg-fail-subtle border-fail text-fail",
         });
     return flags;
 }
@@ -307,8 +307,8 @@ const RunGrid: React.FC<{
 
     const validationClass = (file: string): string => {
         const p = parityBySource.get(file);
-        if (!p) return "bg-gray-900 border-gray-800 text-gray-500";  // source has no parity cell
-        return STATUS_COLOR[p.status ?? ""] || "bg-gray-800 border-gray-600 text-gray-300";
+        if (!p) return "bg-surface-0 border-edge text-content-subtle";  // source has no parity cell
+        return STATUS_COLOR[p.status ?? ""] || "bg-surface-0 border-edge text-content";
     };
 
     // For value-based metrics, colour each cell by its *magnitude*
@@ -346,20 +346,20 @@ const RunGrid: React.FC<{
     }, [jobs, metric]);
 
     const cellClass = (job: AuditRunJob | undefined): string => {
-        if (!job) return "bg-gray-900 border-gray-800 text-gray-500";
+        if (!job) return "bg-surface-0 border-edge text-content-subtle";
         const status = job.status ?? "";
         // Non-OK statuses always render in their status palette so a
         // failed cell stays red regardless of which metric the user
         // selected — same recognisability as the pass/fail view.
         if (metric === "status" || status !== "done" && status !== "ok") {
-            return STATUS_COLOR[status] || "bg-gray-900 border-gray-800 text-gray-500";
+            return STATUS_COLOR[status] || "bg-surface-0 border-edge text-content-subtle";
         }
         if (!scale) {
-            return "bg-gray-900 border-gray-800 text-gray-500";
+            return "bg-surface-0 border-edge text-content-subtle";
         }
         const v = cellValue(metric, job);
         if (v == null || v <= 0) {
-            return "bg-gray-900 border-gray-800 text-gray-500";
+            return "bg-surface-0 border-edge text-content-subtle";
         }
         // Position in [min, max] on a log scale → 0..1 → one of four
         // buckets. ``logSpan === 0`` means every cell shares the same
@@ -374,7 +374,7 @@ const RunGrid: React.FC<{
 
     if (grid.files.length === 0) {
         return (
-            <div className="text-sm text-gray-400 italic px-4 py-6">
+            <div className="text-sm text-content-muted italic px-4 py-6">
                 No jobs in this run yet — the dispatcher may still be
                 enumerating cells (background task).
             </div>
@@ -388,28 +388,28 @@ const RunGrid: React.FC<{
         // the table.
         <div className="h-full overflow-auto">
             <table className="text-xs border-collapse">
-                <thead className="sticky top-0 bg-gray-900 z-10">
+                <thead className="sticky top-0 bg-surface-0 z-10">
                     <tr>
-                        <th className="text-left px-2 py-1 border-b border-gray-700 font-medium text-gray-300">
+                        <th className="text-left px-2 py-1 border-b border-edge font-medium text-content">
                             source
                         </th>
                         {grid.targets.map((t) => (
                             <th
                                 key={t}
-                                className="px-2 py-1 border-b border-gray-700 font-medium text-gray-300 text-center"
+                                className="px-2 py-1 border-b border-edge font-medium text-content text-center"
                             >
                                 .{t}
                             </th>
                         ))}
-                        <th className="px-2 py-1 border-b border-gray-700 font-medium text-gray-300 text-left" title="Per-source quality flags (OCC fallback, distorted triangles)">
+                        <th className="px-2 py-1 border-b border-edge font-medium text-content text-left" title="Per-source quality flags (OCC fallback, distorted triangles)">
                             flags
                         </th>
                     </tr>
                 </thead>
                 <tbody>
                     {grid.files.map((file) => (
-                        <tr key={file} className="hover:bg-gray-800/40">
-                            <td className="font-mono text-gray-300 px-2 py-1 border-b border-gray-800 max-w-xs truncate" title={file}>
+                        <tr key={file} className="hover:bg-surface-0">
+                            <td className="font-mono text-content px-2 py-1 border-b border-edge max-w-xs truncate" title={file}>
                                 {file}
                             </td>
                             {grid.targets.map((target) => {
@@ -434,7 +434,7 @@ const RunGrid: React.FC<{
                                     </td>
                                 );
                             })}
-                            <td className="px-2 py-1 border-b border-gray-800 whitespace-nowrap">
+                            <td className="px-2 py-1 border-b border-edge whitespace-nowrap">
                                 {sourceFlags(grid.cells, grid.targets, file).map((f) => (
                                     <span
                                         key={f.key}
@@ -458,19 +458,19 @@ const RunGrid: React.FC<{
             </table>
             {menu && (
                 <div
-                    className="fixed z-50 min-w-[160px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg py-1 text-xs"
+                    className="fixed z-50 min-w-[160px] rounded-sm border border-edge bg-surface-0 shadow-lg py-1 text-xs"
                     style={{left: menu.x, top: menu.y}}
                     // Keep clicks inside the menu from bubbling to the window
                     // close-listener before the item handler runs.
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="px-3 py-1 text-[10px] text-gray-500 font-mono truncate max-w-[240px]">
+                    <div className="px-3 py-1 text-[10px] text-content-subtle font-mono truncate max-w-[240px]">
                         {menu.file} · .{menu.target}
                     </div>
                     {cellViewable(grid.cells.get(`${menu.file}::${menu.target}`)) && (
                         <button
                             type="button"
-                            className="w-full text-left px-3 py-1 text-emerald-300 hover:bg-gray-700"
+                            className="w-full text-left px-3 py-1 text-pass hover:bg-surface-2"
                             onClick={() => {
                                 onCellOpen(menu.file, menu.target);
                                 setMenu(null);
@@ -481,7 +481,7 @@ const RunGrid: React.FC<{
                     )}
                     <button
                         type="button"
-                        className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
+                        className="w-full text-left px-3 py-1 text-content hover:bg-surface-2"
                         onClick={() => {
                             onCellDetails(menu.file, menu.target);
                             setMenu(null);
@@ -491,7 +491,7 @@ const RunGrid: React.FC<{
                     </button>
                     <button
                         type="button"
-                        className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
+                        className="w-full text-left px-3 py-1 text-content hover:bg-surface-2"
                         onClick={() => {
                             onCellHistory(menu.file, menu.target);
                             setMenu(null);
@@ -502,7 +502,7 @@ const RunGrid: React.FC<{
                     {menu.target !== "parity" && (
                         <button
                             type="button"
-                            className="w-full text-left px-3 py-1 text-sky-300 hover:bg-gray-700"
+                            className="w-full text-left px-3 py-1 text-info hover:bg-surface-2"
                             onClick={() => {
                                 onCellRerun(menu.file, menu.target);
                                 setMenu(null);
@@ -515,12 +515,12 @@ const RunGrid: React.FC<{
             )}
             {flagInfo && (
                 <div
-                    className="fixed z-50 max-w-[280px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg p-2 text-xs"
+                    className="fixed z-50 max-w-[280px] rounded-sm border border-edge bg-surface-0 shadow-lg p-2 text-xs"
                     style={{left: flagInfo.x, top: flagInfo.y}}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="text-gray-200 font-medium mb-1">{flagInfo.label}</div>
-                    <div className="text-gray-400 leading-snug">{flagInfo.title}</div>
+                    <div className="text-content font-medium mb-1">{flagInfo.label}</div>
+                    <div className="text-content-muted leading-snug">{flagInfo.title}</div>
                 </div>
             )}
         </div>
@@ -622,13 +622,13 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     }, [createRun]);
 
     return (
-        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900/40">
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-edge bg-surface-0">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Scope</span>
                 <select
                     value={scope}
                     onChange={(e) => setScope(e.target.value)}
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-64"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-64"
                     title="Pick a corpus for release-gate sweeps, or a non-corpus scope for ad-hoc debugging."
                 >
                     {corpora.length > 0 && (
@@ -646,12 +646,12 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                     </optgroup>
                 </select>
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1">
+            <label className="text-xs text-content flex flex-col gap-1">
                 <span>Worker pool</span>
                 <select
                     value={workerPool}
                     onChange={(e) => setWorkerPool(e.target.value)}
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-40"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-40"
                     title={
                         capabilities.length === 0
                             ? "No online workers found; pool restriction won't take effect"
@@ -665,18 +665,18 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                     ))}
                 </select>
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1 flex-1 min-w-[200px]">
-                <span>Note <span className="text-gray-500">(optional)</span></span>
+            <label className="text-xs text-content flex flex-col gap-1 flex-1 min-w-[200px]">
+                <span>Note <span className="text-content-subtle">(optional)</span></span>
                 <input
                     type="text"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="release v0.8 dry run"
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content"
                 />
             </label>
             <label
-                className="text-xs text-gray-300 flex items-center gap-1 h-[30px] mt-auto select-none"
+                className="text-xs text-content flex items-center gap-1 h-[30px] mt-auto select-none"
                 title={
                     "Skip the dispatcher's cached-blob short-circuit so every cell " +
                     "actually re-converts. Use for perf measurements; a second run " +
@@ -693,7 +693,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 <span>Force rebuild</span>
             </label>
             <label
-                className="text-xs text-gray-300 flex items-center gap-1 h-[30px] mt-auto select-none"
+                className="text-xs text-content flex items-center gap-1 h-[30px] mt-auto select-none"
                 title={
                     isWasmPool
                         ? "Auto-validate runs on the worker pool only; ignored for in-browser (WASM) sweeps."
@@ -713,28 +713,28 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Starting…" : "Run audit"}
             </button>
             {err && (
-                <div className="w-full text-xs text-red-400" role="alert">{err}</div>
+                <div className="w-full text-xs text-fail" role="alert">{err}</div>
             )}
             {isWasmPool && (
-                <div className="w-full text-xs text-amber-300/90">
+                <div className="w-full text-xs text-warn">
                     In-browser sweep: runs in this tab via the WASM engine — keep it open until it finishes.
                     Reopening resumes (completed cells are skipped); non-WASM cells (e.g. <code>.odb</code>,
                     non-GLB targets) are recorded as skipped.
                 </div>
             )}
             {sweep && (
-                <div className="w-full text-xs text-gray-300" role="status">
+                <div className="w-full text-xs text-content" role="status">
                     Sweeping {sweep.completed}/{sweep.total}
-                    {sweep.current ? <> — <span className="font-mono text-gray-400">{sweep.current}</span></> : null}
+                    {sweep.current ? <> — <span className="font-mono text-content-muted">{sweep.current}</span></> : null}
                 </div>
             )}
             {sweepErr && (
-                <div className="w-full text-xs text-red-400" role="alert">sweep: {sweepErr}</div>
+                <div className="w-full text-xs text-fail" role="alert">sweep: {sweepErr}</div>
             )}
         </form>
     );
@@ -769,12 +769,12 @@ const CancelRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-red-700 text-red-300 hover:bg-red-900/30 rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-fail text-fail hover:bg-fail-subtle rounded-sm disabled:opacity-50"
                 title="Abort this run; pending cells get marked cancelled."
             >
                 {busy ? "Aborting…" : "Cancel run"}
             </button>
-            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+            {err && <span className="text-[11px] text-fail" role="alert">{err}</span>}
         </div>
     );
 };
@@ -808,12 +808,12 @@ const ReDispatchButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-blue-700 text-blue-300 hover:bg-blue-900/30 rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-accent text-accent hover:bg-accent-subtle rounded-sm disabled:opacity-50"
                 title="Create a new audit run with this run's scope / pool / settings."
             >
                 {busy ? "Starting…" : "Re-run audit"}
             </button>
-            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+            {err && <span className="text-[11px] text-fail" role="alert">{err}</span>}
         </div>
     );
 };
@@ -852,7 +852,7 @@ const ValidateRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy || alreadyValidated}
-                className="text-xs px-2 py-1 border border-teal-700 text-teal-300 hover:bg-teal-900/30 rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2 py-1 border border-info text-info hover:bg-info-subtle rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={
                     alreadyValidated
                         ? "Validation already dispatched for this run."
@@ -861,7 +861,7 @@ const ValidateRunButton: React.FC<{
             >
                 {busy ? "Starting…" : alreadyValidated ? "Validated" : "Validate"}
             </button>
-            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+            {err && <span className="text-[11px] text-fail" role="alert">{err}</span>}
         </div>
     );
 };
@@ -897,12 +897,12 @@ const DeleteRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-red-800 text-red-300 hover:bg-red-900/30 rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-fail text-fail hover:bg-fail-subtle rounded-sm disabled:opacity-50"
                 title="Delete this run and its results."
             >
                 {busy ? "Deleting…" : "Delete"}
             </button>
-            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+            {err && <span className="text-[11px] text-fail" role="alert">{err}</span>}
         </div>
     );
 };
@@ -941,61 +941,61 @@ const CellHistoryModal: React.FC<{
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm max-w-3xl w-full max-h-[80vh] flex flex-col"
+                className="bg-surface-0 border border-edge rounded-sm max-w-3xl w-full max-h-[80vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
-                    <div className="text-sm text-gray-200 font-mono truncate" title={`${cell.key} .${cell.target}`}>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-edge">
+                    <div className="text-sm text-content font-mono truncate" title={`${cell.key} .${cell.target}`}>
                         {cell.key} · .{cell.target}
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-200 text-lg leading-none px-2"
+                        className="text-content-muted hover:text-content text-lg leading-none px-2"
                         aria-label="Close"
                     >
                         ×
                     </button>
                 </div>
                 <div className="overflow-auto p-2">
-                    {err && <div className="text-xs text-red-400 px-2 py-2" role="alert">{err}</div>}
-                    {!rows && !err && <div className="text-xs text-gray-400 px-2 py-4">Loading…</div>}
+                    {err && <div className="text-xs text-fail px-2 py-2" role="alert">{err}</div>}
+                    {!rows && !err && <div className="text-xs text-content-muted px-2 py-4">Loading…</div>}
                     {rows && rows.length === 0 && (
-                        <div className="text-xs text-gray-400 px-2 py-4">No historic results for this cell.</div>
+                        <div className="text-xs text-content-muted px-2 py-4">No historic results for this cell.</div>
                     )}
                     {rows && rows.length > 0 && (
                         <table className="text-xs border-collapse w-full">
-                            <thead className="text-gray-400">
+                            <thead className="text-content-muted">
                                 <tr>
-                                    <th className="text-left px-2 py-1 border-b border-gray-700">when</th>
-                                    <th className="text-left px-2 py-1 border-b border-gray-700">status</th>
-                                    <th className="text-right px-2 py-1 border-b border-gray-700">dur</th>
-                                    <th className="text-right px-2 py-1 border-b border-gray-700">peak RSS</th>
-                                    <th className="text-left px-2 py-1 border-b border-gray-700">worker</th>
-                                    <th className="text-left px-2 py-1 border-b border-gray-700">error</th>
+                                    <th className="text-left px-2 py-1 border-b border-edge">when</th>
+                                    <th className="text-left px-2 py-1 border-b border-edge">status</th>
+                                    <th className="text-right px-2 py-1 border-b border-edge">dur</th>
+                                    <th className="text-right px-2 py-1 border-b border-edge">peak RSS</th>
+                                    <th className="text-left px-2 py-1 border-b border-edge">worker</th>
+                                    <th className="text-left px-2 py-1 border-b border-edge">error</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {rows.map((h) => (
-                                    <tr key={h.id} className="hover:bg-gray-800/40">
-                                        <td className="px-2 py-1 border-b border-gray-800 text-gray-300 whitespace-nowrap">
+                                    <tr key={h.id} className="hover:bg-surface-0">
+                                        <td className="px-2 py-1 border-b border-edge text-content whitespace-nowrap">
                                             {h.ts ? new Date(h.ts).toLocaleString() : "—"}
                                         </td>
-                                        <td className="px-2 py-1 border-b border-gray-800 text-gray-200">{h.status}</td>
-                                        <td className="px-2 py-1 border-b border-gray-800 text-right text-gray-300">
+                                        <td className="px-2 py-1 border-b border-edge text-content">{h.status}</td>
+                                        <td className="px-2 py-1 border-b border-edge text-right text-content">
                                             {h.duration_ms != null ? `${(h.duration_ms / 1000).toFixed(1)}s` : "—"}
                                         </td>
-                                        <td className="px-2 py-1 border-b border-gray-800 text-right text-gray-300">
+                                        <td className="px-2 py-1 border-b border-edge text-right text-content">
                                             {h.peak_rss_kb != null ? `${Math.round(h.peak_rss_kb / 1024)}MB` : "—"}
                                         </td>
                                         <td
-                                            className="px-2 py-1 border-b border-gray-800 text-gray-400 font-mono truncate max-w-[120px]"
+                                            className="px-2 py-1 border-b border-edge text-content-muted font-mono truncate max-w-[120px]"
                                             title={h.worker_image_tag || ""}
                                         >
                                             {h.worker_image_tag || "—"}
                                         </td>
                                         <td
-                                            className="px-2 py-1 border-b border-gray-800 text-red-300 truncate max-w-[220px]"
+                                            className="px-2 py-1 border-b border-edge text-fail truncate max-w-[220px]"
                                             title={h.error || ""}
                                         >
                                             {h.error || ""}
@@ -1049,17 +1049,17 @@ const CellDetailsModal: React.FC<{
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm max-w-2xl w-full max-h-[80vh] flex flex-col"
+                className="bg-surface-0 border border-edge rounded-sm max-w-2xl w-full max-h-[80vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
-                    <div className="text-sm text-gray-200 font-mono truncate" title={`${file} .${target}`}>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-edge">
+                    <div className="text-sm text-content font-mono truncate" title={`${file} .${target}`}>
                         {file} · .{target}
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-200 text-lg leading-none px-2"
+                        className="text-content-muted hover:text-content text-lg leading-none px-2"
                         aria-label="Close"
                     >
                         ×
@@ -1067,22 +1067,22 @@ const CellDetailsModal: React.FC<{
                 </div>
                 <div className="overflow-auto p-3 space-y-3">
                     {!job && (
-                        <div className="text-xs text-gray-400">No result recorded for this cell yet.</div>
+                        <div className="text-xs text-content-muted">No result recorded for this cell yet.</div>
                     )}
                     <table className="text-xs">
                         <tbody>
                             {rows.map(([k, v]) => (
                                 <tr key={k}>
-                                    <td className="text-gray-400 pr-3 py-0.5 align-top whitespace-nowrap">{k}</td>
-                                    <td className="text-gray-200 font-mono break-all py-0.5">{v}</td>
+                                    <td className="text-content-muted pr-3 py-0.5 align-top whitespace-nowrap">{k}</td>
+                                    <td className="text-content font-mono break-all py-0.5">{v}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                     {job?.error && (
                         <div>
-                            <div className="text-xs text-gray-400 mb-1">Error</div>
-                            <pre className="text-xs text-red-300 whitespace-pre-wrap bg-gray-950 border border-gray-800 rounded-sm p-2 overflow-auto max-h-60">
+                            <div className="text-xs text-content-muted mb-1">Error</div>
+                            <pre className="text-xs text-fail whitespace-pre-wrap bg-surface-0 border border-edge rounded-sm p-2 overflow-auto max-h-60">
                                 {job.error}
                             </pre>
                         </div>
@@ -1094,10 +1094,10 @@ const CellDetailsModal: React.FC<{
 };
 
 const ISSUE_BOT_BADGE: Record<string, {cls: string; label: string}> = {
-    done:     {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issues synced"},
-    skipped:  {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "issues skipped"},
-    failed:   {cls: "bg-red-900/40 border-red-700 text-red-200",             label: "issue sync failed"},
-    syncing:  {cls: "bg-blue-900/40 border-blue-700 text-blue-200",          label: "issues syncing…"},
+    done:     {cls: "bg-pass-subtle border-pass text-pass", label: "issues synced"},
+    skipped:  {cls: "bg-surface-0 border-edge text-content-muted",             label: "issues skipped"},
+    failed:   {cls: "bg-fail-subtle border-fail text-fail",             label: "issue sync failed"},
+    syncing:  {cls: "bg-accent-subtle border-accent text-accent",          label: "issues syncing…"},
 };
 
 // Surface the per-run issue-bot outcome inline with the rest of the
@@ -1114,7 +1114,7 @@ const IssueBotStatus: React.FC<{
         return null;
     }
     const badge = ISSUE_BOT_BADGE[run.issue_bot_status] || {
-        cls: "bg-gray-800 border-gray-600 text-gray-400",
+        cls: "bg-surface-0 border-edge text-content-muted",
         label: run.issue_bot_status,
     };
     const retry = async () => {
@@ -1142,13 +1142,13 @@ const IssueBotStatus: React.FC<{
                     type="button"
                     onClick={retry}
                     disabled={busy}
-                    className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                    className="text-accent hover:text-accent disabled:opacity-50"
                     title="Re-run the issue-bot sync for this run"
                 >
                     {busy ? "queued…" : "resync"}
                 </button>
             )}
-            {err && <span className="text-red-400" role="alert">{err}</span>}
+            {err && <span className="text-fail" role="alert">{err}</span>}
         </div>
     );
 };
@@ -1238,11 +1238,11 @@ const AuditRunsTab: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setFormOpen((o) => !o)}
-                className="md:hidden flex items-center justify-between w-full px-3 py-2 border-b border-gray-800 bg-gray-900/40 text-xs text-gray-200"
+                className="md:hidden flex items-center justify-between w-full px-3 py-2 border-b border-edge bg-surface-0 text-xs text-content"
                 aria-expanded={formOpen}
             >
                 <span>New audit run</span>
-                <span className="text-gray-400">{formOpen ? "▾ hide" : "▸ show"}</span>
+                <span className="text-content-muted">{formOpen ? "▾ hide" : "▸ show"}</span>
             </button>
             <div className={(formOpen ? "block" : "hidden") + " md:block"}>
                 <TriggerForm onCreated={loadRuns}/>
@@ -1264,22 +1264,22 @@ const AuditRunsTab: React.FC = () => {
                     parent. */}
                 <div className={
                     "md:w-80 md:shrink-0 md:flex-none md:border-r md:border-b-0 " +
-                    "flex-1 min-h-0 border-b border-gray-800 overflow-auto " +
+                    "flex-1 min-h-0 border-b border-edge overflow-auto " +
                     (showHistory ? "block" : "hidden md:block")
                 }>
                     {/* Overview toggle: show each run's runtime as the sum of its
                         cell times or as active wall clock. Both are relevant —
                         cells = compute cost, wall = time waited. Sticky so it
                         stays put while the list scrolls. */}
-                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800 bg-gray-900/80 backdrop-blur text-[11px] text-gray-400">
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-edge bg-surface-0 backdrop-blur text-[11px] text-content-muted">
                         <div className="flex items-center gap-1.5">
                             <span>Runtime</span>
-                            <div className="inline-flex rounded-sm border border-gray-700 overflow-hidden">
+                            <div className="inline-flex rounded-sm border border-edge overflow-hidden">
                                 <button
                                     type="button"
                                     onClick={() => setRuntimeMode("cells")}
                                     className={"px-2 py-0.5 " + (runtimeMode === "cells"
-                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                        ? "bg-accent text-white" : "text-content hover:bg-surface-0")}
                                     title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
                                 >
                                     Σ cells
@@ -1287,8 +1287,8 @@ const AuditRunsTab: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setRuntimeMode("wall")}
-                                    className={"px-2 py-0.5 border-l border-gray-700 " + (runtimeMode === "wall"
-                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                    className={"px-2 py-0.5 border-l border-edge " + (runtimeMode === "wall"
+                                        ? "bg-accent text-white" : "text-content hover:bg-surface-0")}
                                     title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
                                 >
                                     wall
@@ -1299,18 +1299,18 @@ const AuditRunsTab: React.FC = () => {
                             type="button"
                             onClick={toggleToast}
                             className={"px-2 py-0.5 rounded-sm border " + (toastHidden
-                                ? "border-gray-700 text-gray-400 hover:bg-gray-800"
-                                : "border-blue-700 bg-blue-900/40 text-blue-200 hover:bg-blue-900/60")}
+                                ? "border-edge text-content-muted hover:bg-surface-0"
+                                : "border-accent bg-accent-subtle text-accent hover:bg-accent-subtle")}
                             title="Show/hide the ambient 'audit sweep in progress' toast over the viewer."
                         >
                             {toastHidden ? "◌ toast off" : "● toast on"}
                         </button>
                     </div>
                     {listError && (
-                        <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
+                        <div className="text-xs text-fail px-3 py-2">{listError}</div>
                     )}
                     {runs.length === 0 && !listError && (
-                        <div className="text-xs text-gray-500 italic px-3 py-4">
+                        <div className="text-xs text-content-subtle italic px-3 py-4">
                             No audit runs yet. Use the form above to start one.
                         </div>
                     )}
@@ -1325,50 +1325,50 @@ const AuditRunsTab: React.FC = () => {
                                     key={run.id}
                                     onClick={() => onSelectRun(run.id)}
                                     className={
-                                        "px-3 py-2 border-b border-gray-800 cursor-pointer " +
+                                        "px-3 py-2 border-b border-edge cursor-pointer " +
                                         (active
-                                            ? "bg-blue-900/40"
-                                            : "hover:bg-gray-800/40")
+                                            ? "bg-accent-subtle"
+                                            : "hover:bg-surface-0")
                                     }
                                 >
                                     <div className="flex justify-between items-baseline">
-                                        <span className="font-mono text-gray-200 truncate">
+                                        <span className="font-mono text-content truncate">
                                             {run.seq != null && (
-                                                <span className="text-gray-500 mr-1">#{run.seq}</span>
+                                                <span className="text-content-subtle mr-1">#{run.seq}</span>
                                             )}
                                             {run.scope}
                                         </span>
                                         <span className={
                                             "ml-2 text-[10px] shrink-0 " +
-                                            (run.status === "running" ? "text-blue-300"
-                                                : run.status === "aborted" ? "text-orange-400"
-                                                : run.failed > 0 ? "text-red-400"
-                                                : "text-emerald-400")
+                                            (run.status === "running" ? "text-accent"
+                                                : run.status === "aborted" ? "text-warn"
+                                                : run.failed > 0 ? "text-fail"
+                                                : "text-pass")
                                         }>
                                             {run.status}
                                         </span>
                                     </div>
-                                    <div className="text-gray-400 mt-0.5 flex justify-between">
+                                    <div className="text-content-muted mt-0.5 flex justify-between">
                                         <span>{run.ok + run.failed + run.skipped} / {run.total}</span>
                                         <span title={runtimeMode === "cells" ? "sum of cell runtimes" : "active wall clock"}>
                                             {fmtRunDuration(run, runtimeMode)}
                                         </span>
                                     </div>
                                     {run.total > 0 && (
-                                        <div className="h-1 bg-gray-700 rounded-sm overflow-hidden mt-1">
+                                        <div className="h-1 bg-surface-2 rounded-sm overflow-hidden mt-1">
                                             <div
                                                 className={
                                                     "h-full transition-all " +
-                                                    (run.failed > 0 ? "bg-red-500"
-                                                        : run.status === "finished" ? "bg-emerald-500"
-                                                        : "bg-blue-500")
+                                                    (run.failed > 0 ? "bg-fail"
+                                                        : run.status === "finished" ? "bg-pass"
+                                                        : "bg-accent")
                                                 }
                                                 style={{width: `${Math.max(pct, 4)}%`}}
                                             />
                                         </div>
                                     )}
                                     {run.note && (
-                                        <div className="text-gray-500 text-[10px] mt-1 truncate" title={run.note}>
+                                        <div className="text-content-subtle text-[10px] mt-1 truncate" title={run.note}>
                                             {run.note}
                                         </div>
                                     )}
@@ -1385,13 +1385,13 @@ const AuditRunsTab: React.FC = () => {
                     (showHistory ? "hidden md:flex" : "flex")
                 }>
                     {!selectedRun && (
-                        <div className="hidden md:block text-xs text-gray-500 italic px-4 py-6">
+                        <div className="hidden md:block text-xs text-content-subtle italic px-4 py-6">
                             Pick a run from the list to see its file × target grid.
                         </div>
                     )}
                     {selectedRun && (
                         <>
-                            <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="px-3 py-2 border-b border-edge flex items-center justify-between gap-3 flex-wrap">
                                 <div className="flex items-center gap-2 min-w-0">
                                     {/* Mobile-only back link. On desktop
                                         the history list is always
@@ -1400,19 +1400,19 @@ const AuditRunsTab: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setSelectedId(null)}
-                                        className="md:hidden text-sm text-blue-400 hover:text-blue-300 shrink-0"
+                                        className="md:hidden text-sm text-accent hover:text-accent shrink-0"
                                         title="Back to run list"
                                     >
                                         ← list
                                     </button>
-                                    <div className="text-xs text-gray-300 min-w-0">
+                                    <div className="text-xs text-content min-w-0">
                                         <div className="font-mono truncate">
                                             {selectedRun.seq != null && (
-                                                <span className="text-gray-500 mr-1">#{selectedRun.seq}</span>
+                                                <span className="text-content-subtle mr-1">#{selectedRun.seq}</span>
                                             )}
                                             {selectedRun.scope}
                                         </div>
-                                        <div className="text-gray-500">
+                                        <div className="text-content-subtle">
                                             ok {selectedRun.ok} · failed {selectedRun.failed} ·
                                             skipped {selectedRun.skipped} · total {selectedRun.total}
                                         </div>
@@ -1454,13 +1454,13 @@ const AuditRunsTab: React.FC = () => {
                                             />
                                         </>
                                     )}
-                                    <label className="text-xs text-gray-300 flex items-center gap-2">
+                                    <label className="text-xs text-content flex items-center gap-2">
                                         <span className="hidden sm:inline">Color cells by:</span>
                                         <span className="sm:hidden">Metric:</span>
                                         <select
                                             value={metric}
                                             onChange={(e) => setMetric(e.target.value as MetricKey)}
-                                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-xs text-gray-100"
+                                            className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-xs text-content"
                                         >
                                             {(Object.keys(METRIC_LABELS) as MetricKey[]).map((k) => (
                                                 <option key={k} value={k}>{METRIC_LABELS[k]}</option>
@@ -1470,7 +1470,7 @@ const AuditRunsTab: React.FC = () => {
                                 </div>
                             </div>
                             {detailError && (
-                                <div className="text-xs text-red-400 px-3 py-2">{detailError}</div>
+                                <div className="text-xs text-fail px-3 py-2">{detailError}</div>
                             )}
                             <div className="flex-1 min-h-0 overflow-hidden">
                                 <RunGrid

@@ -77,21 +77,21 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
     if (!enabled || signedIn) return <>{children}</>;
     if (!ready) {
         return (
-            <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white text-sm">
+            <div className="flex h-full w-full items-center justify-center bg-surface-0 text-white text-sm">
                 Loading…
             </div>
         );
     }
 
     return (
-        <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white">
-            <div className="max-w-sm rounded-sm bg-gray-800 p-6 space-y-4 shadow-xl">
+        <div className="flex h-full w-full items-center justify-center bg-surface-0 text-white">
+            <div className="max-w-sm rounded-sm bg-surface-0 p-6 space-y-4 shadow-xl">
                 <h1 className="text-lg font-bold">ada viewer</h1>
-                <p className="text-sm text-gray-300">
+                <p className="text-sm text-content">
                     Sign in with your organisation account to continue.
                 </p>
                 <button
-                    className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-sm text-white w-full"
+                    className="bg-accent hover:bg-accent px-4 py-2 rounded-sm text-white w-full"
                     onClick={() => {
                         void signIn();
                     }}
@@ -99,7 +99,7 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
                     Sign in
                 </button>
                 <button
-                    className="text-xs text-gray-400 hover:text-gray-200 underline w-full"
+                    className="text-xs text-content-muted hover:text-content underline w-full"
                     onClick={() => {
                         void signIn(undefined, {forceLogin: true});
                     }}

@@ -209,11 +209,11 @@ const SimTabButton: React.FC<{
             className={
                 "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 text-sm " +
                 (active
-                    ? "border-blue-400 text-[var(--ada-panel-text)]"
-                    : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+                    ? "border-accent text-[var(--ada-panel-text)]"
+                    : "border-transparent text-content-muted hover:text-[var(--ada-panel-text)]")
             }
         >
-            {contextual && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" aria-hidden="true" />}
+            {contextual && <span className="w-1.5 h-1.5 rounded-full bg-info" aria-hidden="true" />}
             {label}
             {showBadge && (
                 <span className="ml-0.5 rounded-full bg-[var(--ada-fail,#ef4444)] text-white text-[10px] leading-none px-1.5 py-0.5">
@@ -236,13 +236,13 @@ const PluginTabBody: React.FC<{pluginId: string; panel: PanelSlot; ctx: AdaPlugi
         fallback={(error, reset) => {
             disablePlugin(pluginId, `sim tab render threw: ${error.message}`);
             return (
-                <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
-                    <div className="font-semibold text-red-300">Plugin “{pluginId}” hit an error</div>
-                    <div className="mt-0.5 mb-1.5 break-words text-gray-400">{error.message}</div>
+                <div className="rounded-md border border-fail bg-surface-0 p-2 text-xs text-content">
+                    <div className="font-semibold text-fail">Plugin “{pluginId}” hit an error</div>
+                    <div className="mt-0.5 mb-1.5 break-words text-content-muted">{error.message}</div>
                     <button
                         type="button"
                         onClick={reset}
-                        className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
+                        className="rounded-sm bg-surface-2 px-2 py-1 text-white hover:bg-surface-3"
                     >
                         Retry
                     </button>
@@ -535,7 +535,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             {manifest && (
                 <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
                     <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                        <span className="text-gray-300 shrink-0">Field</span>
+                        <span className="text-content shrink-0">Field</span>
                         <select
                             className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                             value={fieldName ?? ""}
@@ -555,7 +555,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     </label>
                     {reductionOptions.length > 0 && (
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Comp</span>
+                            <span className="text-content shrink-0">Comp</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                                 value={reduction}
@@ -571,7 +571,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     )}
                     {activeField && nSteps > 0 && (
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Step</span>
+                            <span className="text-content shrink-0">Step</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"
                                 value={stepIndex}
@@ -607,7 +607,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={factorStep}
                         value={factor}
                         onChange={(e) => onFactorChange(parseFloat(e.target.value))}
-                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-accent-subtle"
                     />
                     <div className="text-white text-sm font-mono w-12 text-center">
                         {factor.toFixed(2)}
@@ -649,21 +649,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 the data-panel button (no ``ml-auto`` push-to-right). */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                     onClick={isPlaying ? onPause : onPlay}
                     title={isPlaying ? "Pause oscillation" : "Play oscillation"}
                 >
                     <PlayPauseIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                     onClick={onStop}
                     title="Stop and reset deformation to 0"
                 >
                     <StopIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                     onClick={onToggleData}
                     title="Toggle simulation data panel"
                 >
@@ -671,8 +671,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <button
                     className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm " +
-                        (showOptions ? "ring-2 ring-blue-300" : "")
+                        "bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm " +
+                        (showOptions ? "ring-2 ring-accent" : "")
                     }
                     onClick={() => setShowOptions((v) => !v)}
                     title="Visualisation options"
@@ -683,9 +683,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </div>
 
             {showOptions && (
-                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
+                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-surface-0 text-xs text-white">
                     <label className="flex items-center gap-1">
-                        <span className="text-gray-300">Colormap</span>
+                        <span className="text-content">Colormap</span>
                         <select
                             className="text-black bg-white rounded-sm px-1 py-0.5"
                             value={colormap}
@@ -706,7 +706,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         filter. */}
                     {isElemField && layerOptions.length > 0 && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">Layer</span>
+                            <span className="text-content">Layer</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={layer}
@@ -721,7 +721,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     )}
                     {isElemField && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">IP reduction</span>
+                            <span className="text-content">IP reduction</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={ipReduction}
@@ -744,7 +744,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 checked={nodalAverage}
                                 onChange={(e) => onNodalAverageToggle(e.target.checked)}
                             />
-                            <span className="text-gray-300">Smooth (nodal avg)</span>
+                            <span className="text-content">Smooth (nodal avg)</span>
                         </label>
                     )}
                     {/* Beam-solid toggle moved to the Scene > FEM panel
@@ -777,7 +777,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     disabled={isReaction}
                                     onChange={(e) => onWarpToggle(e.target.checked)}
                                 />
-                                <span className="text-gray-300">Warp by displacement</span>
+                                <span className="text-content">Warp by displacement</span>
                             </label>
                         );
                     })()}
@@ -853,19 +853,19 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </select>
 
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                 onClick={togglePlayPause}
             >
                 <PlayPauseIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                 onClick={stopAnimation}
             >
                 <StopIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
+                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
                 onClick={onToggleData}
             >
                 <FEMDataPanelIcon/>
@@ -882,7 +882,7 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         setCurrentKey(newTime);
                         seekAnimation(newTime);
                     }}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-accent-subtle"
                 />
                 <div className="text-white text-sm font-mono w-12 text-center">
                     {roundedCurrentKey}

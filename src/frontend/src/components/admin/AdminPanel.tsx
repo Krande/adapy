@@ -82,16 +82,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
         // mid-session). Render a clear refusal rather than a blank
         // screen so a confused user knows what's going on.
         return (
-            <div className="min-h-screen w-full flex items-center justify-center bg-gray-900 text-white">
+            <div className="min-h-screen w-full flex items-center justify-center bg-surface-0 text-white">
                 <div className="max-w-sm text-center space-y-3 px-6">
                     <h1 className="text-lg font-semibold">Admin only</h1>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-content-muted">
                         Your account isn't a member of the admin group on
                         this deployment.
                     </p>
                     <a
                         href="/"
-                        className="inline-block text-sm text-blue-400 hover:text-blue-300"
+                        className="inline-block text-sm text-accent hover:text-accent"
                     >
                         ← back to viewer
                     </a>
@@ -108,8 +108,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
         // whose explicit height drives the same flex chain. Either
         // way the nested ``flex-1 overflow-auto`` columns inside
         // each tab have a definite parent height to clamp against.
-        <div className="h-full flex flex-col bg-gray-900 text-white overflow-hidden">
-            <header className="flex items-center gap-2 border-b border-gray-800 px-3 py-2 sm:px-4 shrink-0">
+        <div className="h-full flex flex-col bg-surface-0 text-white overflow-hidden">
+            <header className="flex items-center gap-2 border-b border-edge px-3 py-2 sm:px-4 shrink-0">
                 <div className="flex-1 min-w-0 overflow-x-auto flex gap-1 text-sm">
                     <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>
                         Audit Log
@@ -159,7 +159,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     {!embedded && (
                         <a
                             href="/"
-                            className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1"
+                            className="text-sm text-accent hover:text-accent px-2 py-1"
                             title="Back to viewer"
                         >
                             ← viewer
@@ -207,7 +207,7 @@ const TabButton: React.FC<{
     <button
         className={
             "px-3 py-2 rounded-sm text-sm whitespace-nowrap " +
-            (active ? "bg-gray-700 text-white" : "text-gray-300 hover:bg-gray-800")
+            (active ? "bg-surface-2 text-white" : "text-content hover:bg-surface-0")
         }
         onClick={onClick}
     >

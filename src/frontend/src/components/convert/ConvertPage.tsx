@@ -41,11 +41,11 @@ const ConvertPage: React.FC = () => {
         // route wraps in ``h-[100dvh]``, in-viewer modal wraps in
         // an Rnd-sized container. ``overflow-y-auto`` so long
         // conversion lists scroll within the panel, not the page.
-        <div className="h-full w-full bg-gray-900 text-gray-100 overflow-y-auto">
-            <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+        <div className="h-full w-full bg-surface-0 text-content overflow-y-auto">
+            <header className="border-b border-edge px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-baseline gap-3">
                     <h1 className="text-xl font-semibold">adapy converter</h1>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-content-muted">
                         CAD &amp; FEA file conversion
                     </span>
                 </div>
@@ -53,7 +53,7 @@ const ConvertPage: React.FC = () => {
                     <WorkerStatusBadge/>
                     <a
                         href="/"
-                        className="text-sm text-blue-400 hover:text-blue-300"
+                        className="text-sm text-accent hover:text-accent"
                     >
                         ← back to viewer
                     </a>
@@ -64,18 +64,18 @@ const ConvertPage: React.FC = () => {
                 <ConvertDropZone/>
 
                 {current ? (
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-content-subtle">
                         files land in your personal scope (<span className="font-mono">{current.name}</span>) — they're visible from the main viewer too
                     </div>
                 ) : (
-                    <div className="text-xs text-amber-400">
+                    <div className="text-xs text-warn">
                         Waiting for scope to load…
                     </div>
                 )}
 
                 {rows.length > 0 && (
                     <section className="space-y-2">
-                        <h2 className="text-xs uppercase tracking-wider text-gray-400">
+                        <h2 className="text-xs uppercase tracking-wider text-content-muted">
                             Uploads &amp; conversions
                         </h2>
                         <div className="space-y-2">

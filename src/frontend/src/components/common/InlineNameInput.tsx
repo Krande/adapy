@@ -32,8 +32,8 @@ const InlineNameInput: React.FC<{
             defaultValue={initial}
             placeholder={placeholder}
             className={
-                "flex-1 min-w-0 bg-gray-800 border border-blue-500 rounded-sm " +
-                "px-1 py-0.5 text-xs text-gray-100 focus:outline-hidden"
+                "flex-1 min-w-0 bg-surface-0 border border-accent rounded-sm " +
+                "px-1 py-0.5 text-xs text-content focus:outline-hidden"
             }
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}

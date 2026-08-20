@@ -128,22 +128,22 @@ const FaceSearchSection: React.FC = () => {
                 onFocus={() => void ensureIndex()}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={loading ? "indexing faces…" : "Search face id…"}
-                className="w-full px-2 py-1 text-xs bg-gray-800 border border-gray-700 rounded-sm text-gray-100 placeholder-gray-500"
+                className="w-full px-2 py-1 text-xs bg-surface-0 border border-edge rounded-sm text-content placeholder-gray-500"
                 aria-label="Search faces by id"
             />
             {query.trim() && entries && (
-                <div className="mt-1 max-h-40 overflow-auto rounded-sm border border-gray-700">
+                <div className="mt-1 max-h-40 overflow-auto rounded-sm border border-edge">
                     {results.length === 0 ? (
-                        <div className="px-2 py-1 text-xs text-gray-400">no matching face</div>
+                        <div className="px-2 py-1 text-xs text-content-muted">no matching face</div>
                     ) : (
                         results.map((e) => (
                             <button
                                 key={`${e.uniqueKey}:${e.faceId}:${e.seq}`}
                                 type="button"
                                 onClick={() => selectFace(e)}
-                                className="block w-full text-left px-2 py-0.5 text-xs text-gray-200 hover:bg-blue-700"
+                                className="block w-full text-left px-2 py-0.5 text-xs text-content hover:bg-accent"
                             >
-                                Face #{e.faceId} <span className="text-gray-400">(seq {e.seq})</span>
+                                Face #{e.faceId} <span className="text-content-muted">(seq {e.seq})</span>
                             </button>
                         ))
                     )}

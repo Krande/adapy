@@ -99,8 +99,8 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
             aria-modal="true"
             aria-label={title}
         >
-            <div className="w-full max-w-md rounded-sm border border-gray-700 bg-gray-800 text-gray-100 shadow-xl">
-                <div className="px-4 py-3 border-b border-gray-700 text-sm font-semibold">
+            <div className="w-full max-w-md rounded-sm border border-edge bg-surface-0 text-content shadow-xl">
+                <div className="px-4 py-3 border-b border-edge text-sm font-semibold">
                     {title}
                 </div>
                 <div className="px-4 py-3 space-y-3 text-sm">
@@ -113,8 +113,8 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                                 className="mt-1 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
-                                <div className="text-gray-200">
-                                    Top level <span className="text-gray-400 font-mono text-xs">/</span>
+                                <div className="text-content">
+                                    Top level <span className="text-content-muted font-mono text-xs">/</span>
                                 </div>
                             </div>
                         </label>
@@ -128,7 +128,7 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                                 className="mt-1 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
-                                <div className="text-gray-200 mb-1">
+                                <div className="text-content mb-1">
                                     Existing folder
                                 </div>
                                 <select
@@ -137,7 +137,7 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                                         setSelected(e.target.value);
                                         setMode("existing");
                                     }}
-                                    className="w-full bg-gray-700 border border-gray-600 rounded-sm px-2 py-1 font-mono text-xs"
+                                    className="w-full bg-surface-2 border border-edge rounded-sm px-2 py-1 font-mono text-xs"
                                 >
                                     {existingFolders.map((p) => (
                                         <option key={p} value={p}>{p}</option>
@@ -154,7 +154,7 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                             className="mt-1 shrink-0"
                         />
                         <div className="flex-1 min-w-0">
-                            <div className="text-gray-200 mb-1">
+                            <div className="text-content mb-1">
                                 {hasExisting ? "New folder" : "Folder path"}
                             </div>
                             <input
@@ -170,23 +170,23 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                                     if (e.key === "Escape") onCancel();
                                 }}
                                 placeholder="e.g. projects/alpha/inputs"
-                                className="w-full bg-gray-700 border border-gray-600 rounded-sm px-2 py-1 font-mono text-xs"
+                                className="w-full bg-surface-2 border border-edge rounded-sm px-2 py-1 font-mono text-xs"
                             />
                         </div>
                     </label>
                 </div>
-                <div className="px-4 py-3 border-t border-gray-700 flex items-center justify-end gap-2">
+                <div className="px-4 py-3 border-t border-edge flex items-center justify-end gap-2">
                     <button
                         type="button"
                         onClick={onCancel}
-                        className="px-3 py-1 rounded-sm bg-gray-700 hover:bg-gray-600 text-xs"
+                        className="px-3 py-1 rounded-sm bg-surface-2 hover:bg-surface-3 text-xs"
                     >
                         Cancel
                     </button>
                     <button
                         type="button"
                         onClick={submit}
-                        className="px-3 py-1 rounded-sm bg-blue-700 hover:bg-blue-600 text-xs disabled:opacity-50"
+                        className="px-3 py-1 rounded-sm bg-accent hover:bg-accent text-xs disabled:opacity-50"
                         disabled={
                             mode !== "root" &&
                             ((mode === "existing" && !selected.trim()) ||

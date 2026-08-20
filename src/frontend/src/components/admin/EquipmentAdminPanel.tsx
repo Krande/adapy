@@ -35,12 +35,12 @@ const isCadFile = (key: string) =>
 // bbox + ports (and the CAD preview once inferred).
 
 const btn =
-  "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
 const btnGray =
-  "px-2 py-1 rounded-sm bg-gray-600 text-white disabled:opacity-50 hover:bg-gray-500";
-const btnDanger = "px-1.5 rounded-sm bg-red-700/70 text-white hover:bg-red-600";
+  "px-2 py-1 rounded-sm bg-surface-3 text-white disabled:opacity-50 hover:bg-surface-3";
+const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white hover:bg-fail";
 const inputCls =
-  "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 w-full";
+  "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-full";
 
 const IFC_CLASSES = [
   "IfcBuildingElementProxy",
@@ -104,7 +104,7 @@ const NumField: React.FC<{
   onChange: (v: number) => void;
 }> = ({ label, value, step = 0.1, onChange }) => (
   <label className="flex flex-col gap-0.5">
-    <span className="text-gray-400">{label}</span>
+    <span className="text-content-muted">{label}</span>
     <NumInput value={value} step={step} onChange={onChange} />
   </label>
 );
@@ -115,7 +115,7 @@ const Vec3Field: React.FC<{
   onChange: (v: [number, number, number]) => void;
 }> = ({ label, value, onChange }) => (
   <div className="flex flex-col gap-0.5">
-    <span className="text-gray-400">{label}</span>
+    <span className="text-content-muted">{label}</span>
     <div className="grid grid-cols-3 gap-1">
       {(["x", "y", "z"] as const).map((_, i) => (
         <NumInput
@@ -142,7 +142,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
   const hasOverride = normalizeHex(port.color) !== null;
   return (
     <div
-      className="flex flex-col gap-1 p-1.5 rounded-sm bg-gray-800/70 border border-gray-700 border-l-4"
+      className="flex flex-col gap-1 p-1.5 rounded-sm bg-surface-0 border border-edge border-l-4"
       // Left accent bar tints the whole card in the port's colour so the info
       // section reads back the same colour as its arrow in the 3D preview.
       style={{ borderLeftColor: color }}
@@ -152,7 +152,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
             accent bar update live and drive the preview arrow. */}
         <input
           type="color"
-          className="w-5 h-5 shrink-0 rounded-sm bg-transparent border border-gray-600 cursor-pointer p-0"
+          className="w-5 h-5 shrink-0 rounded-sm bg-transparent border border-edge cursor-pointer p-0"
           value={color}
           title={
             hasOverride
@@ -163,7 +163,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
         />
         {hasOverride && (
           <button
-            className="px-1 rounded-sm bg-gray-600/60 hover:bg-gray-500 text-white shrink-0"
+            className="px-1 rounded-sm bg-surface-3 hover:bg-surface-3 text-white shrink-0"
             title="Reset to category colour"
             onClick={() => updatePort(index, { color: null })}
           >
@@ -186,7 +186,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
       </div>
       <div className="flex gap-1">
         <label className="flex flex-col gap-0.5 flex-1">
-          <span className="text-gray-400">Direction</span>
+          <span className="text-content-muted">Direction</span>
           <select
             className={inputCls}
             value={port.direction}
@@ -202,7 +202,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
           </select>
         </label>
         <label className="flex flex-col gap-0.5 flex-1">
-          <span className="text-gray-400">Category</span>
+          <span className="text-content-muted">Category</span>
           <select
             className={inputCls}
             value={port.category}
@@ -261,7 +261,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           ? // In the admin panel: fill a centred column and let the tab's
             // own scroll container handle overflow (no floating card).
             "max-w-[560px] mx-auto"
-          : "bg-gray-900/80 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80svh] overflow-y-auto")
+          : "bg-surface-0 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80svh] overflow-y-auto")
       }
     >
       {/* Sticky header keeps Close (and Back, while editing) reachable no matter
@@ -269,10 +269,10 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           the viewport. The scroll container has no top padding (the header owns
           the top) and the header is fully opaque so scrolled content never peeks
           above it. */}
-      <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900 border-b border-gray-700/60">
+      <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-surface-0 border-b border-edge">
         {draft && (
           <button
-            className="px-1 rounded-sm hover:bg-gray-500/40"
+            className="px-1 rounded-sm hover:bg-surface-3"
             title="Back to catalog"
             onClick={() => void store.getState().selectEquipment(null)}
           >
@@ -284,7 +284,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
         </span>
         {!draft && (
           <button
-            className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+            className="ml-auto px-1 rounded-sm hover:bg-surface-3"
             title="Refresh"
             onClick={() => void store.getState().refreshEquipment()}
           >
@@ -294,7 +294,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
         {!embedded && (
           <button
             className={
-              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-surface-3"
             }
             title="Close"
             onClick={() => store.setState({ equipmentPanelOpen: false })}
@@ -304,7 +304,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
         )}
       </div>
 
-      {equipmentError && <div className="text-red-400">{equipmentError}</div>}
+      {equipmentError && <div className="text-fail">{equipmentError}</div>}
 
       {/* create + list — hidden while editing a type (master-detail) */}
       {!draft && (
@@ -337,7 +337,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
       {/* list */}
       <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
         {equipmentTypes.length === 0 && availableEquipment.length === 0 && (
-          <div className="text-gray-500 italic">
+          <div className="text-content-subtle italic">
             No equipment types available.
           </div>
         )}
@@ -347,21 +347,21 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
             className={
               "flex items-center gap-1 px-1.5 py-0.5 rounded-sm cursor-pointer " +
               (t.id === selectedEquipmentId
-                ? "bg-blue-800/60"
-                : "hover:bg-gray-700/60")
+                ? "bg-accent-subtle"
+                : "hover:bg-surface-2")
             }
             onClick={() => void store.getState().selectEquipment(t.id)}
           >
             <span className="truncate flex-1">{t.name}</span>
-            <span className="rounded-sm bg-sky-900/70 text-sky-200 px-1 text-[10px]">
+            <span className="rounded-sm bg-info-subtle text-info px-1 text-[10px]">
               db
             </span>
-            <span className="text-gray-400 font-mono text-[10px]">
+            <span className="text-content-muted font-mono text-[10px]">
               {t.slug}
             </span>
             {t.cad_key && (
               <span
-                className="text-emerald-400 text-[10px]"
+                className="text-pass text-[10px]"
                 title="has CAD asset"
               >
                 CAD
@@ -380,24 +380,24 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </div>
         ))}
         {availableEquipment.length > 0 && (
-          <div className="mt-1 pt-1 border-t border-gray-700/60 text-[10px] uppercase text-gray-500">
+          <div className="mt-1 pt-1 border-t border-edge text-[10px] uppercase text-content-subtle">
             Built-in archetypes — sync to edit
           </div>
         )}
         {availableEquipment.map((t) => (
           <div
             key={t.slug}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-gray-300"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-content"
           >
             <span className="truncate flex-1">{t.name}</span>
-            <span className="rounded-sm bg-gray-700 text-gray-300 px-1 text-[10px]">
+            <span className="rounded-sm bg-surface-2 text-content px-1 text-[10px]">
               code
             </span>
-            <span className="text-gray-500 font-mono text-[10px]">
+            <span className="text-content-subtle font-mono text-[10px]">
               {t.slug}
             </span>
             <button
-              className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
+              className="px-1 rounded-sm text-info hover:bg-surface-3"
               title="Sync this built-in archetype into the DB catalog to edit it"
               disabled={equipmentBusy}
               onClick={() =>
@@ -423,7 +423,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
 
           <div className="flex flex-col gap-1">
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Name</span>
+              <span className="text-content-muted">Name</span>
               <input
                 className={inputCls}
                 value={draft.name}
@@ -433,7 +433,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
               />
             </label>
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">
+              <span className="text-content-muted">
                 Slug (used by the cellbuilder)
               </span>
               <input
@@ -445,7 +445,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
               />
             </label>
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">Description</span>
+              <span className="text-content-muted">Description</span>
               <input
                 className={inputCls}
                 value={draft.description ?? ""}
@@ -495,7 +495,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
               onChange={(v) => store.getState().setEquipmentDoc({ mass: v })}
             />
             <label className="flex flex-col gap-0.5">
-              <span className="text-gray-400">IFC element class</span>
+              <span className="text-content-muted">IFC element class</span>
               <select
                 className={inputCls}
                 value={draft.doc.ifc_element_class}
@@ -531,9 +531,9 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </div>
 
           {/* CAD asset */}
-          <div className="flex flex-col gap-1 border-t border-gray-700 pt-2">
+          <div className="flex flex-col gap-1 border-t border-edge pt-2">
             <span className="font-semibold">CAD asset</span>
-            <div className="text-gray-400 font-mono text-[10px] truncate">
+            <div className="text-content-muted font-mono text-[10px] truncate">
               {draft.cad_key ? draft.cad_key : "— none linked —"}
             </div>
             <div className="flex gap-1">
@@ -620,7 +620,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
             {bboxJob && (
               <div
                 className={
-                  bboxJob.status === "error" ? "text-red-400" : "text-gray-400"
+                  bboxJob.status === "error" ? "text-fail" : "text-content-muted"
                 }
               >
                 bbox inference: {bboxJob.status}
@@ -630,9 +630,9 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           </div>
 
           {/* save */}
-          <div className="flex items-center gap-2 border-t border-gray-700 pt-2">
-            <span className="text-gray-400">rev {draft.revision}</span>
-            {equipmentDirty && <span className="text-amber-400">unsaved</span>}
+          <div className="flex items-center gap-2 border-t border-edge pt-2">
+            <span className="text-content-muted">rev {draft.revision}</span>
+            {equipmentDirty && <span className="text-warn">unsaved</span>}
             {/* Enabled whenever a type is open (not only when dirty) — after
                 linking a CAD asset there may be nothing "dirty" to flag, but the
                 user still expects to be able to Save/re-persist. */}

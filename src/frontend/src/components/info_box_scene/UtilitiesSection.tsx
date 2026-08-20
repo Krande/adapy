@@ -42,14 +42,14 @@ function RefField({
     return (
         <div className="flex items-center gap-2">
             <span
-                className="text-xs font-mono truncate flex-1 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded-sm"
+                className="text-xs font-mono truncate flex-1 px-1 py-0.5 bg-surface-2 border border-edge rounded-sm"
                 title={cur || undefined}
             >
                 {cur || "— no compare file —"}
             </span>
             <button
                 type="button"
-                className="text-xs px-2 py-0.5 rounded-sm bg-gray-600 text-white whitespace-nowrap"
+                className="text-xs px-2 py-0.5 rounded-sm bg-surface-3 text-white whitespace-nowrap"
                 onClick={() => setOpen(true)}
             >
                 Choose…
@@ -81,7 +81,7 @@ function KwargField({
     onChange: (v: string | number | boolean | null) => void;
     scope: ScopeUrl;
 }) {
-    const common = "text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full";
+    const common = "text-sm rounded-sm px-1 py-0.5 bg-surface-2 text-content border border-edge w-full";
     let input: React.ReactNode;
     if (kwarg.type === "ref") {
         input = <RefField value={value} onChange={onChange} scope={scope}/>;
@@ -343,7 +343,7 @@ const UtilitiesSection = () => {
             <label className="block mb-2">
                 <span className="text-xs font-medium">Utility</span>
                 <select
-                    className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full"
+                    className="text-sm rounded-sm px-1 py-0.5 bg-surface-2 text-content border border-edge w-full"
                     value={selectedUtility ?? ""}
                     onChange={(e) => onSelectUtility(e.target.value)}
                 >
@@ -397,14 +397,14 @@ const UtilitiesSection = () => {
             )}
             <div className="flex gap-2 mt-2">
                 <button
-                    className="text-sm px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50"
+                    className="text-sm px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50"
                     disabled={running || !spec}
                     onClick={run}
                 >
                     {running ? "Running…" : "Run"}
                 </button>
                 <button
-                    className="text-sm px-2 py-1 rounded-sm bg-gray-600 text-white"
+                    className="text-sm px-2 py-1 rounded-sm bg-surface-3 text-white"
                     onClick={() => {
                         unflip();
                         setFlipped(false);
@@ -436,7 +436,7 @@ const UtilitiesSection = () => {
                                     <span className="truncate flex-1">{short}</span>
                                     <button
                                         type="button"
-                                        className="text-gray-400 hover:text-blue-400 shrink-0 px-1"
+                                        className="text-content-muted hover:text-accent shrink-0 px-1"
                                         title="Copy this overlay into the current scope as a regular model file (next to the original)"
                                         onClick={async (e) => {
                                             e.preventDefault();
@@ -454,7 +454,7 @@ const UtilitiesSection = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        className="text-gray-400 hover:text-red-400 shrink-0 px-1"
+                                        className="text-content-muted hover:text-fail shrink-0 px-1"
                                         title="Delete this saved overlay from storage"
                                         onClick={async (e) => {
                                             e.preventDefault();
@@ -486,7 +486,7 @@ const UtilitiesSection = () => {
                 </div>
             )}
             {lastResult?.summary && (
-                <pre className="mt-2 text-xs whitespace-pre-wrap bg-black bg-opacity-70 text-gray-100 rounded-sm p-1 max-h-40 overflow-auto">
+                <pre className="mt-2 text-xs whitespace-pre-wrap bg-black bg-opacity-70 text-content rounded-sm p-1 max-h-40 overflow-auto">
                     {JSON.stringify(lastResult.summary, null, 1)}
                 </pre>
             )}
