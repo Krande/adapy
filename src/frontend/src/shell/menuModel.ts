@@ -123,7 +123,7 @@ export const MENUS: MenuDef[] = [
                 kind: "submenu",
                 label: "Mode",
                 // Same order as the switcher, so the two never disagree about which comes first.
-                items: [cmd("mode:data"), cmd("mode:convert"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
+                items: [cmd("mode:convert"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
             },
             sep,
             cmd("layout:reset-mode"),

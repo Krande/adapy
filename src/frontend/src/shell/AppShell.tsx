@@ -13,6 +13,8 @@ import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
 import {ConfirmHost} from "@/components/ui";
 import HelpDialogs from "./HelpDialogs";
+import {clampFilesWidth, useFilesPanel} from "./filesPanel";
+const StoragePanel = React.lazy(() => import("@/components/storage/StoragePanel"));
 const SettingsDialog = React.lazy(() => import("@/components/options/SettingsDialog"));
 import {useUrlParamLoad} from "@/hooks/useUrlParamLoad";
 import {runtime} from "@/runtime/config";
@@ -83,6 +85,26 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
     const size = (d: DockedId) => (visible(d) ? (layout?.docks[d]?.size ?? DOCK_LIMITS[d].default) : 0);
     const SPLIT = 4;
 
+    // The Files flyout: its own column between the rail and the left dock, so opening it
+    // pushes rather than covering the model tree. Zero-width when closed, which keeps the
+    // grid template a fixed shape.
+    const filesShown = useFilesPanel((s) => s.shown) && p.docks && runtime.isRestMode();
+    const filesW = useFilesPanel((s) => s.width);
+    const setFilesWidth = useFilesPanel((s) => s.setWidth);
+
+    // Convert opens the Files flyout on entry: you convert a file you can see, and
+    // arriving here without the sources would mean toggling a panel before you could do
+    // the one thing the mode is for. Only on ENTERING — closing it then stays closed,
+    // because a panel that reopens itself is a panel you cannot dismiss.
+    const enteredConvert = React.useRef(false);
+    React.useEffect(() => {
+        if (mode === "convert" && !enteredConvert.current) {
+            enteredConvert.current = true;
+            if (runtime.isRestMode()) useFilesPanel.getState().setShown(true);
+        }
+        if (mode !== "convert") enteredConvert.current = false;
+    }, [mode]);
+
     const leftW = size("left");
     const rightW = size("right");
     const bottomH = size("bottom");
@@ -92,13 +114,14 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
             className="grid w-full h-full min-w-0 min-h-0 overflow-hidden bg-surface-0 text-content font-ui text-base"
             style={{
                 gridTemplateAreas: [
-                    '"titlebar titlebar titlebar titlebar titlebar"',
-                    '"rail leftdock split-l viewport rightdock"',
-                    '"rail bottomdock bottomdock bottomdock bottomdock"',
-                    '"statusbar statusbar statusbar statusbar statusbar"',
+                    '"titlebar titlebar titlebar titlebar titlebar titlebar"',
+                    '"rail files leftdock split-l viewport rightdock"',
+                    '"rail files bottomdock bottomdock bottomdock bottomdock"',
+                    '"statusbar statusbar statusbar statusbar statusbar statusbar"',
                 ].join(" "),
                 gridTemplateColumns: [
                     p.toolRail ? "auto" : "0",
+                    filesShown ? `${filesW}px` : "0",
                     `${leftW}px`,
                     visible("left") ? `${SPLIT}px` : "0",
                     "minmax(0, 1fr)",
@@ -120,6 +143,33 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
             />
 
             {p.toolRail && <ToolRail />}
+
+            {/* Files. Spans both body rows so it reaches the bottom of the window like
+                the rail does, rather than stopping at the bottom dock. */}
+            {filesShown && (
+                <section
+                    aria-label="Files"
+                    style={{gridArea: "files"}}
+                    className="relative flex min-w-0 border-r border-edge bg-surface-1"
+                >
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                        <Suspense fallback={null}>
+                            <StoragePanel />
+                        </Suspense>
+                    </div>
+                    <div className="absolute inset-y-0 right-0 -mr-0.5 flex items-stretch">
+                        <Splitter
+                            orientation="vertical"
+                            label="Resize files panel"
+                            side="after"
+                            value={filesW}
+                            min={220}
+                            max={560}
+                            onChange={(n) => setFilesWidth(clampFilesWidth(n))}
+                        />
+                    </div>
+                </section>
+            )}
 
             {visible("left") && (
                 <div style={{gridArea: "leftdock"}} className="flex min-w-0 min-h-0">

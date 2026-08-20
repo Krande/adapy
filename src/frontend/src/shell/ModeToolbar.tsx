@@ -8,7 +8,6 @@ import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {openFemConcepts, stopPlayback, toggleDataTable, toggleLegend, togglePlay} from "./resultsActions";
 import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel} from "./buildActions";
-import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
@@ -107,13 +106,6 @@ function needsGizmo(gizmo: "translate" | "rotate" | "resize") {
 const div = (id: string): ModeTool => ({id, icon: "expand", label: "", divider: true});
 
 const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
-    // Library — moving data across the boundary.
-    data: [
-        {id: "upload", icon: "upload", label: "Upload files", why: needsRest, run: openUpload},
-        {id: "convert", icon: "convert", label: "Convert", why: needsRest, run: openConvert},
-        {id: "refresh", icon: "reload", label: "Refresh", why: needsRest, run: refreshFiles},
-    ],
-
     // Build — the gizmos first, because they are the tools you switch between constantly
     // while modelling. They are toggles, not actions: each sets a persistent state, so
     // each shows sunken while it is the active one. Same state G/R/S set from the

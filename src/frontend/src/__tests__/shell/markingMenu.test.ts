@@ -24,7 +24,7 @@ const ctx = (over: Partial<MarkingContext> = {}): MarkingContext => ({
 });
 
 test("every context fills all eight directions exactly once", () => {
-    for (const mode of ["inspect", "results", "build", "data"] as const) {
+    for (const mode of ["inspect", "results", "build", "convert"] as const) {
         const items = markingItemsFor(ctx({mode}));
         const dirs = items.map((i) => i.dir);
         assert.equal(new Set(dirs).size, dirs.length, `${mode}: two items share a direction`);
@@ -42,7 +42,7 @@ test("an action keeps its direction across every context", () => {
         ctx({hasEntities: false}),
         ctx({mode: "results", feaActive: true}),
         ctx({mode: "build", builderActive: true}),
-        ctx({mode: "data"}),
+        ctx({mode: "convert"}),
     ];
     for (const id of ["fit-all", "hide-selection", "unhide-all", "copy-names", "undo"]) {
         const dirs = new Set(contexts.map((c) => dirOf(c, id)));

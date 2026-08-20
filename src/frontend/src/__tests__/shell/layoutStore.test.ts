@@ -218,25 +218,25 @@ test("per-mode dock sizes are clamped like any other", () => {
     }
 });
 
-test("Library mode opens the file browser", () => {
-    const l = layout("data");
-    assert.ok(l.docks.left.tabs.includes("storage"));
-    assert.equal(l.docks.left.collapsed, false);
-    // Convert used to sit in this mode's right dock. It is its own mode now: converting
-    // is a different activity from browsing, and sharing the dock made picking a file
-    // and deciding what to do with it compete for one column.
-    assert.ok(!l.docks.right.tabs.includes("convert"), "convert moved to its own mode");
+test("no mode opens the file browser by default", () => {
+    // There is no Library mode. Browsing files is something you do briefly DURING another
+    // activity, so the Files panel toggles from the rail rather than being a place you
+    // navigate to — and it does not occupy a dock until you ask for it.
+    for (const mode of MODE_IDS) {
+        // Convert is the exception, and earns it: you convert a file you can see, and
+        // arriving in that mode without the source list would mean toggling a panel
+        // before you could do the one thing the mode is for.
+        const l = layout(mode);
+        const open = Object.values(l.docks).flatMap((d) => (d.collapsed ? [] : d.tabs));
+        assert.ok(!open.includes("convert"), `${mode} opens the converter as a dock panel`);
+    }
 });
 
-test("Convert mode shows the files it acts on, and nothing in the right dock", () => {
-    // The point of folding /convert into the shell at all: as a separate PAGE it was a
-    // dead end — no way back to the viewer, and no sight of the storage it reads from.
+test("Convert mode docks nothing — the converter is the main area", () => {
+    // The converter is painted over the (still-mounted) canvas by AppShell, and its
+    // source list is the Files flyout, which is not a dock panel either. A drop zone, a
+    // target matrix and a job list stacked vertically never fit a sidebar.
     const l = layout("convert");
-    assert.ok(l.docks.left.tabs.includes("storage"), "you convert a file you can see");
-    assert.equal(l.docks.left.collapsed, false);
-    // The converter is the MAIN AREA, painted over the (still-mounted) canvas by
-    // AppShell — not a docked panel. It was one briefly, and a drop zone, a target
-    // matrix and a job list stacked vertically never fit a sidebar.
-    assert.ok(!l.docks.right.tabs.includes("convert"), "the converter is not a dock panel");
-    assert.equal(l.docks.right.tabs.length, 0, "nothing competes with it for the room");
+    assert.equal(l.docks.right.tabs.length, 0);
+    assert.equal(l.docks.left.tabs.length, 0);
 });

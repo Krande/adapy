@@ -21,11 +21,15 @@ import {DOCK_IDS} from "../../shell/regions";
 // EXPECTED_PANELS is written out rather than derived from PANEL_IDS on purpose: deriving
 // it would make the test pass no matter what the registry contained.
 
-// "preferences" is deliberately absent: settings became a DIALOG, not a dock panel.
+// Two things are deliberately absent, and both stopped being dock panels rather than
+// being deleted:
+//   * "preferences" — Settings is a DIALOG now.
+//   * "storage" — Files is a flyout COLUMN between the rail and the left dock, so
+//     opening it pushes the model tree aside instead of replacing it.
 // It read "Show preferences" in the menu because panel commands are generated with a
 // Show/Hide prefix, it inherited the panel theme's translucency, and it competed for
 // dock space with panels you want open while working. See SettingsDialog.
-const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "builder-components", "node-editor", "storage", "convert", "admin"];
+const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "builder-components", "node-editor", "convert", "admin"];
 
 test("every expected panel is registered", () => {
     for (const id of EXPECTED_PANELS) {
@@ -96,13 +100,16 @@ test("resolvePanel rejects ids that a stale persisted layout might carry", () =>
 });
 
 test("runtime-gated panels resolve to null when unavailable", () => {
-    // Storage is REST-only. In a desktop/WS build it must degrade to an empty dock
+    // Convert is REST-only. In a desktop/WS build it must degrade to an empty dock
     // rather than mounting a panel whose API does not exist.
+    //
+    // Convert and not admin: admin is gated on isRestMode() AND isAdmin, so it would
+    // stay null in both halves of this test and the assertion would prove nothing.
     (globalThis as Record<string, unknown>).window = {COMMS_MODE: "ws"};
-    assert.equal(resolvePanel("storage"), null);
-    assert.ok(!panelsForMode("data").some((p) => p.id === "storage"));
+    assert.equal(resolvePanel("convert"), null);
+    assert.ok(!panelsForMode("convert").some((p) => p.id === "convert"));
 
     (globalThis as Record<string, unknown>).window = {COMMS_MODE: "rest"};
-    assert.equal(resolvePanel("storage")?.id, "storage");
-    assert.ok(panelsForMode("data").some((p) => p.id === "storage"));
+    assert.equal(resolvePanel("convert")?.id, "convert");
+    assert.ok(panelsForMode("convert").some((p) => p.id === "convert"));
 });

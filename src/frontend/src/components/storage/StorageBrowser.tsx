@@ -1,5 +1,7 @@
 import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useRef, useState} from "react";
+import ScopePicker from "@/shell/ScopePicker";
+import {buttonClasses} from "@/components/ui";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
@@ -1053,15 +1055,16 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         inside was one of four places the same idea was spelled out —
                         Library ▸ Storage ▸ "Storage" ▸ "Refresh file list". */}
                     {!chromeless && <h2 className="font-bold truncate">Storage</h2>}
-                    {/* Show the active scope so it's clear which space
-                        this list reflects. Files uploaded under one
-                        scope are invisible to a list query under another
-                        — surfacing the name avoids the "I uploaded but
-                        nothing shows" confusion when scope drifts. */}
-                    <div className="text-[10px] uppercase tracking-wide text-content-muted truncate"
-                         title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
-                        scope: {currentScope?.name ?? "Shared"}
-                    </div>
+                    {/* The scope PICKER, not just its name.
+                        
+                        It was in the title bar, which put it as far from the file list it
+                        governs as the window allows. Scope decides which files exist —
+                        upload under one and they are invisible under another — so it
+                        belongs at the top of the list it filters, the way a folder path
+                        does. The title bar kept it visible everywhere; but "visible
+                        everywhere" is worth less than "next to the thing it changes",
+                        and the Files panel is reachable from every mode now. */}
+                    <ScopePicker />
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <input
@@ -1088,10 +1091,12 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         ref={plusBtnRef}
                         type="button"
                         className={
-                            "bg-accent hover:bg-accent active:bg-accent-subtle text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center disabled:opacity-60 " +
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
+                            // Ghost, not accent-filled. Two 40px accent squares in a
+                            // panel header read as the loudest thing in the panel, which
+                            // put "add a file" and "refresh" above the files themselves.
+                            // The 40px floor still applies under a coarse pointer — that
+                            // is what IconButton's size classes already do.
+                            buttonClasses("ghost", "sm") + " "
                         }
                         onClick={() => setPlusOpen((v) => !v)}
                         disabled={uploading}
@@ -1217,14 +1222,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                     )}
                     <button
                         type="button"
-                        className={
-                            "bg-accent hover:bg-accent active:bg-accent-subtle text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center " +
-                            // 40px+ tap target on mobile per WCAG; tighter
-                            // on desktop where the cursor is precise.
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
-                        }
+                        className={buttonClasses("ghost", "sm")}
                         onClick={onRefresh}
                         title={refreshing ? "Refreshing — tap again to retry" : "Refresh file list"}
                         aria-label="Refresh list"

@@ -32,7 +32,7 @@ import {persist} from "zustand/middleware";
 // stores either side of a setMode() and asserts they are byte-identical.
 // ============================================================================
 
-export const MODE_IDS = ["inspect", "results", "build", "data", "convert"] as const;
+export const MODE_IDS = ["inspect", "results", "build", "convert"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 export interface ModeDef {
@@ -45,29 +45,18 @@ export interface ModeDef {
 }
 
 export const MODES: readonly ModeDef[] = [
-    // Ordered as work flows, left to right: get files in, convert them, author, examine,
-    // then post-process results. That is how people describe their own work, so it is
+    // Ordered as work flows, left to right: convert what you were given, author, examine,
+    // then post-process results.
+    //
+    // There is no Library mode. Browsing files is not an ACTIVITY you switch into — it is
+    // something you do briefly, in the middle of another activity, to open the thing you
+    // are about to work on. Making it a mode meant leaving whatever you were doing to
+    // find a file, which is backwards. The Files panel toggles from the rail instead, and
+    // is available in every mode. That is how people describe their own work, so it is
     // learnable in a way "most-used first" is not.
     //
     // Build sits before Inspect because you cannot inspect what does not exist yet, and
     // it puts the two "look at what is there" modes — Inspect and Results — side by side.
-    {
-        id: "data",
-        // Labelled "Library". "Data" named the code's concern rather than the user's,
-        // and "Files" — the first replacement — collided with the File menu one row
-        // above it: two things a keystroke apart in the same chrome, meaning different
-        // things. A near-collision like that is what makes a UI feel careless.
-        //
-        // "Library" is a place you draw models from, which is what the storage browser
-        // makes it, and it cannot be confused with a file operation. Admin and jobs are
-        // the parts the name undersells; both are rare, and one is admin-only.
-        //
-        // The ID stays "data": layouts persist per mode under ada:layout:v2, and renaming
-        // the key would silently reset everyone's arrangement.
-        label: "Library",
-        icon: "mode-data",
-        hint: "Where models live — browse, upload, convert, and track jobs",
-    },
     {
         id: "convert",
         label: "Convert",

@@ -101,6 +101,19 @@ export const ShowAllIcon = (p: P) => (
     </Svg>
 );
 
+/** Storage — stacked platters, the universal "this lives on a server" glyph.
+ *
+ * Not a folder: a folder means "a directory on my machine", and this is a scoped remote
+ * store you upload to and convert from. The distinction matters here because the panel
+ * also shows procedural models and CI artefacts, which are not files in a folder sense. */
+export const StorageIcon = (p: P) => (
+    <Svg {...p}>
+        <ellipse cx="12" cy="6" rx="8" ry="3" />
+        <path d="M4 6v5c0 1.66 3.58 3 8 3s8-1.34 8-3V6" />
+        <path d="M4 11v5c0 1.66 3.58 3 8 3s8-1.34 8-3v-5" />
+    </Svg>
+);
+
 /* ---- section planes ---------------------------------------------------- */
 
 // One glyph per axis: the plane it cuts on, plus the axis letter.

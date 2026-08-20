@@ -42,13 +42,13 @@ test("setMode to the current mode is a no-op", () => {
 test("entering a mode clears only that mode's badge", () => {
     reset();
     useModeStore.getState().setBadge("results", "dot");
-    useModeStore.getState().setBadge("data", 3);
+    useModeStore.getState().setBadge("convert", 3);
 
     useModeStore.getState().setMode("results");
 
     const {badges} = useModeStore.getState();
     assert.equal(badges.results, undefined, "the entered mode's badge is acknowledged");
-    assert.equal(badges.data, 3, "other modes' badges survive");
+    assert.equal(badges.convert, 3, "other modes' badges survive");
 });
 
 test("a badge NEVER changes the active mode", () => {

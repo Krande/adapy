@@ -56,7 +56,6 @@ export const PANEL_IDS = [
     "cellbuilder",
     "builder-components",
     "node-editor",
-    "storage",
     "convert",
     "admin",
 ] as const;
@@ -169,22 +168,6 @@ export const PANELS: Record<PanelId, PanelDef> = {
         hint: "Result values per node and element",
         component: lazy(() => import("@/components/simulation/SimulationDataInfoPanel")),
     },
-    storage: {
-        id: "storage",
-        // "Files", not "Storage". The mode is already called Library, so a panel called
-        // Storage restated it — and the panel then restated itself again in its own
-        // header. One name per idea: Library is the place, Files is what is in it.
-        // (The id stays "storage": it is a persisted layout key.)
-        title: "Files",
-        icon: "server",
-        modes: ["data"],
-        defaultDock: "left",
-        defaultOpen: true,
-        // REST-only: the desktop/WS build has no scopes, no blobs and no upload.
-        available: () => runtime.isRestMode(),
-        hint: "Browse, upload and convert files",
-        component: lazy(() => import("@/components/storage/StoragePanel")),
-    },
     convert: {
         id: "convert",
         title: "Convert",
@@ -204,7 +187,7 @@ export const PANELS: Record<PanelId, PanelDef> = {
         id: "admin",
         title: "Admin",
         icon: "settings",
-        modes: ["data"],
+        modes: "all",
         // Bottom dock: 14 tabs of tables want width, not a 360px column.
         defaultDock: "bottom",
         // Admin-only AND REST-only. AdminPanel gates internally too, but a panel that

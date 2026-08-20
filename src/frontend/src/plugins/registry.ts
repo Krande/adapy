@@ -49,7 +49,9 @@ export type PluginRegion =
 export type PluginDockId = "left" | "right" | "bottom" | "float" | "overlay";
 
 /** Shell mode ids, mirrored for the same reason. */
-export type PluginModeId = "inspect" | "results" | "build" | "data";
+// Mirrors the shell's ModeId. "data" (Library) was removed when file browsing stopped
+// being a mode — it is a panel you toggle from the rail, in every mode.
+export type PluginModeId = "inspect" | "results" | "build" | "convert";
 
 /**
  * Where a legacy region lands in the shell, and in which modes.
@@ -69,7 +71,9 @@ export const LEGACY_REGION_PLACEMENT: Record<
   // Finally wired: rides alongside the Scene panel.
   "scene-info": {dock: "right", modes: ["inspect", "results", "build"]},
   // Finally wired: the Data-mode detail pane.
-  "storage-detail": {dock: "right", modes: ["data"]},
+  // Was ["data"] — the Library mode. The Files panel is available everywhere now, so a
+  // storage-detail slot should be too.
+  "storage-detail": {dock: "right", modes: ["inspect", "results", "build", "convert"]},
 };
 
 export const isLegacyRegion = (

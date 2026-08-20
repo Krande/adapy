@@ -1950,3 +1950,54 @@ slab with a large letter on it.
 Same failure as Convert and Refresh sharing the reload arrow, and worth stating as a rule:
 **an icon set has to spend its pixels on what differs between its members**, not on what
 they have in common.
+
+---
+
+## Library stops being a mode; Files becomes a flyout
+
+**Browsing files is not an activity you switch into.** It is something you do briefly, in
+the middle of another activity, to open the thing you are about to work on. Making it a
+mode meant leaving whatever you were doing to go and find a file — backwards for the one
+action that *starts* most sessions.
+
+Modes are now `Convert · Build · Inspect · Results`, and Files is a **column of its own
+between the rail and the left dock**, toggled from the top of the rail.
+
+Its own column, and not a dock tab, for a specific reason: sharing the left dock with the
+Outliner means opening Files *hides the model tree you were reading*. They answer
+different questions — "what exists on the server" and "what is in this scene" — and you
+often want both. A separate track pushes rather than replaces, and the canvas reflows as
+it always does.
+
+This is the activity-bar pattern: a strip of icons revealing a panel beside itself, which
+is what PyCharm's tool windows and VS Code's sidebar both do.
+
+Convert opens it on entry, because you convert a file you can see — but only on
+*entering*. Closing it then keeps it closed: a panel that reopens itself is a panel you
+cannot dismiss.
+
+### Three smaller things it dragged in
+
+**The scope picker moved into the Files panel.** It was in the title bar, as far from the
+file list it governs as the window allows. Scope decides which files *exist* — upload
+under one and they are invisible under another — so it belongs at the top of the list it
+filters, the way a folder path does. The title bar kept it visible everywhere, but
+"visible everywhere" is worth less than "next to the thing it changes", and Files is now
+reachable from every mode.
+
+**The two big blue buttons.** Add and Refresh were accent-filled 40px squares, so a panel
+header showed two large blue blocks — putting "add a file" and "refresh" above the files
+themselves. They are ghost buttons now. The 40px touch floor still applies under a coarse
+pointer; that is what the size classes already do.
+
+**A storage glyph, not a folder.** A folder means "a directory on my machine". This is a
+scoped remote store you upload to and convert from, and the panel also lists procedural
+models and CI artefacts, which are not files in a folder sense.
+
+### A test that would have proved nothing
+
+Removing `storage` from the registry orphaned the "runtime-gated panels resolve to null"
+test, and the obvious repair — point it at `admin` — was wrong: admin is gated on
+`isRestMode() AND isAdmin`, so it would have been null in *both* halves and the assertion
+would have passed while testing nothing. It uses `convert`, which is REST-gated only.
+Second time this session a test nearly degraded into a tautology during a refactor.

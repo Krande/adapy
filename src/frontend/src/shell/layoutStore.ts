@@ -113,9 +113,6 @@ function defaultLayout(mode: ModeId): ModeLayout {
             // surface, not something you want eating viewport height by default.
             put("bottom", ["node-editor"], true);
             break;
-        case "data":
-            put("left", ["storage"], false, 320);
-            break;
         case "convert":
             // The converter is the mode, so it gets the room: a wide right dock rather
             // than the 300px default, because it is a form with a drop zone, a target
@@ -124,9 +121,10 @@ function defaultLayout(mode: ModeId): ModeLayout {
             // Files on the left too, read-only in practice — you convert a file you can
             // see, and having to switch modes to remember its name would be the same
             // dead end /convert had as a standalone page.
-            // Files on the left; the converter fills the main area (AppShell paints it
-            // over the canvas), so it is deliberately not also a docked panel here.
-            put("left", ["storage"], false, 300);
+            // Nothing docked. The converter fills the main area, and the source list is
+            // the Files flyout — which Convert opens on entry (see AppShell), because
+            // arriving here without the sources would mean toggling a panel before you
+            // could do the one thing the mode is for.
             put("bottom", [], true);
             break;
     }

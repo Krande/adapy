@@ -51,7 +51,7 @@ worth reading before making structural changes.
 registry rather than hand-listed. Add a command in `shell/commands.ts` and name its id in
 `shell/menuModel.ts`; a typo fails a test rather than leaving a gap someone has to find.
 
-**Modes** — `Library · Convert · Build · Inspect · Results`. Ordered as work flows. A mode changes
+**Modes** — `Convert · Build · Inspect · Results`. Ordered as work flows. Files is **not** a mode: it is a flyout column toggled from the top of the rail, available in every mode. A mode changes
 which *panels* are offered and which tools sit in the strip under the switcher; it never
 changes selection, camera, visibility or what is loaded, and it never activates itself.
 That contract is written at the top of `shell/modeStore.ts` and enforced by

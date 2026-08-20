@@ -1,6 +1,8 @@
 import React from "react";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useSectionTools} from "./sectionTools";
+import {filesPanelShown, toggleFilesPanel, useFilesPanel} from "./filesPanel";
+import {runtime} from "@/runtime/config";
 import {Icon, IconButton, cn, type IconName} from "@/components/ui";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
@@ -63,6 +65,19 @@ interface RailTool {
  * are in — that is the entry requirement.
  */
 const RAIL_TOOLS: RailTool[] = [
+    // Files first, and at the very top, because it is how work STARTS: you open the
+    // thing you are about to inspect, build from or post-process. It was a whole mode
+    // ("Library"), which meant leaving the activity you were in to go and find a file —
+    // backwards for something you do briefly and constantly.
+    {
+        id: "files",
+        icon: "storage",
+        label: "Files",
+        pressed: filesPanelShown,
+        why: needsRestMode,
+        run: toggleFilesPanel,
+    },
+    {id: "divider-0", icon: "expand", label: "", divider: true},
     {id: "fit", icon: "expand", label: "Fit all", shortcut: "Shift+A", run: fitAll},
     {id: "focus", icon: "mode-inspect", label: "Focus selection", shortcut: "Shift+F", run: focusSelection},
     {id: "divider-1", icon: "expand", label: "", divider: true},
@@ -109,6 +124,11 @@ function builderOpen(): string | null {
  * the second time you press it, which is how people conclude a control is broken. The
  * panel toggles have always behaved this way in the menu; the rail was the odd one out.
  */
+/** Files come from the hosted deployment; the desktop build has no scopes or blobs. */
+function needsRestMode(): string | null {
+    return runtime.isRestMode() ? null : "Only available in the hosted viewer";
+}
+
 function openScenePanel(): void {
     const {mode} = useModeStore.getState();
     useSceneInfoStore.getState().setMode("info");
@@ -122,6 +142,7 @@ export default function ToolRail() {
     // until the next unrelated re-render.
     useCellBuilderStore((st) => st.active);
     useSectionTools((st) => st.shown);
+    useFilesPanel((st) => st.shown);
 
     return (
         <nav
