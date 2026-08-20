@@ -72,7 +72,7 @@ const RAIL_TOOLS: RailTool[] = [
     {
         id: "files",
         icon: "storage",
-        label: "Files",
+        label: "Storage",
         pressed: filesPanelShown,
         why: needsRestMode,
         run: toggleFilesPanel,

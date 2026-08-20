@@ -16,7 +16,6 @@ import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scen
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
-import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";
 import FolderClosedIcon from "../icons/FolderClosedIcon";
 import FieldPickerModal from "./FieldPickerModal";
@@ -1015,12 +1014,31 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
             }
         >
-            <div className="flex justify-between items-center gap-2 mb-2">
-                <div className="min-w-0 flex-1">
-                    {/* The dock header already says which panel this is. Repeating it
-                        inside was one of four places the same idea was spelled out —
-                        Library ▸ Storage ▸ "Storage" ▸ "Refresh file list". */}
-                    {!chromeless && <h2 className="font-bold truncate">Storage</h2>}
+            {/* In the flyout this IS the panel header, so it mirrors the dock's tab
+                strip exactly — same 32px bar, same bottom rule, same 6px icon+label
+                chip — because Storage sits one column away from Model and Outliner and
+                should read as their peer rather than as a differently-built thing.
+                Elsewhere (mobile sheet) the old two-column header stands. */}
+            <div
+                className={
+                    chromeless
+                        ? "flex items-center gap-0.5 shrink-0 h-8 px-1 border-b border-edge"
+                        : "flex justify-between items-center gap-2 mb-2"
+                }
+            >
+                <div
+                    className={
+                        chromeless
+                            ? "flex items-center gap-1.5 min-w-0 px-1 text-xs font-medium text-content"
+                            : "min-w-0 flex-1"
+                    }
+                >
+                    {chromeless && <Icon name="storage" size="sm" />}
+                    {chromeless ? (
+                        <span className="truncate">Storage</span>
+                    ) : (
+                        <h2 className="font-bold truncate">Storage</h2>
+                    )}
                     {/* The scope PICKER, not just its name.
                         
                         It was in the title bar, which put it as far from the file list it
@@ -1029,9 +1047,14 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         belongs at the top of the list it filters, the way a folder path
                         does. The title bar kept it visible everywhere; but "visible
                         everywhere" is worth less than "next to the thing it changes",
-                        and the Files panel is reachable from every mode now. */}
-                    <ScopePicker />
+                        and the Storage panel is reachable from every mode now.
+
+                        On its own line under the title, not beside it: a dropdown in the
+                        title bar makes the header a different height and shape from every
+                        other panel's, which is exactly the mismatch being fixed here. */}
+                    {!chromeless && <ScopePicker />}
                 </div>
+                {chromeless && <span className="flex-1 min-w-0" />}
                 <div className="flex items-center gap-1 shrink-0">
                     <input
                         ref={fileInputRef}
@@ -1195,7 +1218,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         aria-busy={refreshing}
                     >
                         <span className={"inline-flex h-6 w-6 items-center justify-center " + (refreshing ? "animate-spin" : "")}>
-                            <ReloadIcon/>
+                            <Icon name="reload" size="sm" />
                         </span>
                     </button>
                     {/* Clear: unload every loaded source. This is a
@@ -1237,13 +1260,19 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                     {chromeless && (
                         <IconButton
                             size="sm"
-                            tooltip="Close Files"
+                            tooltip="Close Storage"
                             icon={<Icon name="close" size="sm" />}
                             onClick={() => useFilesPanel.getState().setShown(false)}
                         />
                     )}
                 </div>
             </div>
+            {/* Scope, on its own row under the title — the folder path of this panel. */}
+            {chromeless && (
+                <div className="shrink-0 px-1.5 pt-1.5 pb-1">
+                    <ScopePicker />
+                </div>
+            )}
             {inSelectionMode && (() => {
                 const selectionHasVersions = Array.from(selection).some((k) =>
                     k.replace(/^\/+/, "").startsWith("versions/"),

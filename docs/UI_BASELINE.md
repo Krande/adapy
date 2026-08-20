@@ -46,3 +46,25 @@ Two things had keyed off `maximized` as a proxy for "wide": the Modified column 
 list's fill behaviour. The column now keys off the panel's real width
 (`useFilesPanel.width >= 420`) — it is a space question, and the user answers it by
 dragging the splitter, rather than by entering a mode that no longer exists.
+
+## "Files" is now "Storage", and its header mirrors the dock tab strip
+
+The panel was labelled Files in the rail while calling itself Storage inside, and the
+API, the scopes and the docs all say storage. One name now: **Storage**.
+
+Its header was still built its own way — a title-plus-dropdown row of no fixed height,
+sitting one column away from Model and Outliner whose headers are a 32px strip with an
+icon+label chip on the left and controls on the right. In the flyout it now uses that
+same shape exactly (`h-8 px-1 border-b border-edge`, `gap-1.5` icon+label), so the two
+bars share a baseline and a bottom rule — measured identical at top 73, height 32.
+
+The scope picker moved out of the title line onto its own row underneath. A dropdown
+wedged into a title bar is what made the header a different height and shape from every
+other panel's; below the title it reads as this panel's folder path, which is what it is.
+
+Refresh was the last unaligned icon: a bare `ReloadIcon` at its natural size next to two
+16px `Icon`s. All three header icons now measure 14px.
+
+The store, its key (`ada:files-panel:v1`) and the module name stay `filesPanel` — renaming
+the persisted key would silently reset every user's panel width and open state, which is
+a real cost for no gain that the user can see.

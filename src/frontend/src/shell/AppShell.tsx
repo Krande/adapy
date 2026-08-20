@@ -144,11 +144,11 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
 
             {p.toolRail && <ToolRail />}
 
-            {/* Files. Spans both body rows so it reaches the bottom of the window like
+            {/* Storage. Spans both body rows so it reaches the bottom of the window like
                 the rail does, rather than stopping at the bottom dock. */}
             {filesShown && (
                 <section
-                    aria-label="Files"
+                    aria-label="Storage"
                     style={{gridArea: "files"}}
                     className="relative flex min-w-0 border-r border-edge bg-surface-1"
                 >
@@ -160,7 +160,7 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
                     <div className="absolute inset-y-0 right-0 -mr-0.5 flex items-stretch">
                         <Splitter
                             orientation="vertical"
-                            label="Resize files panel"
+                            label="Resize storage panel"
                             side="after"
                             value={filesW}
                             min={220}
