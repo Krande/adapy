@@ -266,7 +266,9 @@ const CellBuilderPanel: React.FC = () => {
         {tabBtn("equipment", "Equipment")}
         {tabBtn("systems", "Systems", systemCount)}
         {s.selectedDetailing !== "none" && tabBtn("detailing", "Detailing")}
-        {tabBtn("tools", "Tools")}
+        {/* "Output", not "Tools": the tools moved to the toolbar and the menu bar, and
+            what is left is what they produced — proposals, summaries, the compile log. */}
+        {tabBtn("tools", "Output")}
       </div>
 
       {/* ── scrollable body ── */}

@@ -1,6 +1,7 @@
 import {needsPreviewCompile, useCellBuilderStore, type CellBuilderMode} from "@/state/cellBuilderStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
+import {useExportPrefs, type ExportFormatId} from "./exportPrefs";
 import {alertText, promptText} from "@/ui/confirm";
 
 // Build-mode rail actions.
@@ -141,6 +142,105 @@ export function togglePortsOverlay(): void {
 export const portsOverlayOn = () => useCellBuilderStore.getState().portsOverlayVisible;
 
 /** Recompute the model's placement so it sits centred after a far-off cell is removed. */
+// ---------------------------------------------------------------------------
+// Export, and the two catalogue analyses. These were the Builder panel's Tools tab: a
+// row of five buttons, each of which does something and then leaves. Actions belong in
+// the toolbar and the menus; what the Tools tab keeps is what those actions PRODUCE.
+// ---------------------------------------------------------------------------
+
+export interface ExportFormat {
+    id: ExportFormatId;
+    label: string;
+    hint: string;
+}
+
+const ALL_FORMATS: ExportFormat[] = [
+    {
+        id: "xlsx",
+        label: "Excel workbook",
+        hint: "The current model as the engine's workbook. Edit it offline and import it back from Storage's + menu.",
+    },
+    {
+        id: "ifc",
+        label: "IFC (detail)",
+        hint: "The DETAIL model: beams, plates, joints and equipment, with clash cuts as IfcRelVoidsElement voids.",
+    },
+    {
+        id: "gxml",
+        label: "Genie XML (simulation)",
+        hint: "The SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE.",
+    },
+];
+
+/**
+ * The formats the current engine can actually produce.
+ *
+ * adapy-default is the only one that compiles a detail or simulation model; the rest
+ * export the workbook only. Asking the store rather than hardcoding the list is what
+ * stops a new engine silently offering downloads it cannot make — the panel did this
+ * check inline, and it would have been easy to lose in the move.
+ */
+export function exportFormats(): ExportFormat[] {
+    const engine = useCellBuilderStore.getState().selectedEngine || "adapy-default";
+    return engine === "adapy-default" ? ALL_FORMATS : ALL_FORMATS.filter((f) => f.id === "xlsx");
+}
+
+/** The format the export button will produce, or null when none is chosen yet. */
+export function chosenExportFormat(): ExportFormat | null {
+    const id = useExportPrefs.getState().format;
+    if (!id) return null;
+    // A format the current engine cannot produce reads as nothing chosen: switching
+    // engines must not leave the button claiming it will export an IFC it cannot make.
+    return exportFormats().find((f) => f.id === id) ?? null;
+}
+
+export const exportFormatLabel = () => chosenExportFormat()?.label ?? null;
+
+/** Export in the chosen format. Each of these commits unsaved edits first. */
+export function runExport(): void {
+    const fmt = chosenExportFormat();
+    if (!fmt) return;
+    const s = useCellBuilderStore.getState();
+    if (fmt.id === "xlsx") void s.exportToExcel();
+    else void s.exportModel(fmt.id);
+}
+
+/** Pick a format from the caret menu, and export in it straight away. */
+export const pickExportFormat = (id: ExportFormatId) => () => {
+    useExportPrefs.getState().setFormat(id);
+    runExport();
+};
+
+export const needsExportable = () => {
+    const s = useCellBuilderStore.getState();
+    if (!s.active) return "No procedural model is open";
+    if (s.xlsxBusy) return "An export is already running";
+    return null;
+};
+
+/** Splice real catalogue CAD into the IFC instead of placeholder boxes. */
+export const toggleIfcCad = () => {
+    const s = useCellBuilderStore.getState();
+    s.setExportIfcCad(!s.exportIfcCad);
+};
+export const ifcCadOn = () => useCellBuilderStore.getState().exportIfcCad;
+
+/** Pull code archetype changes (new ports, corrected heights) into this scope's catalog. */
+export const resyncEquipment = () => void useCellBuilderStore.getState().resyncEquipmentTypes();
+export const needsResync = () => {
+    const s = useCellBuilderStore.getState();
+    if (!s.active) return "No procedural model is open";
+    return s.resyncBusy ? "Already resyncing" : null;
+};
+
+/** Propose the fewest equipment moves that make cramped runs routable. Moves nothing. */
+export const proposeRelocations = () => void useCellBuilderStore.getState().proposeRelocations();
+export const needsRelocation = () => {
+    const s = useCellBuilderStore.getState();
+    if (!s.active) return "No procedural model is open";
+    return s.relocationBusy ? "Already analysing" : null;
+};
+
 export function recentreModel(): void {
     useCellBuilderStore.getState().recenterModel();
 }

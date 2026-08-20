@@ -7,7 +7,18 @@ import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {anyAnimationActive, openFemConcepts, stopPlayback, toggleDataTable, toggleLegend, togglePlay} from "./resultsActions";
-import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel} from "./buildActions";
+import {
+    addLoftMember,
+    addModeIs,
+    armAddMode,
+    compilePreview,
+    exportFormatLabel,
+    exportFormats,
+    newProceduralModel,
+    needsExportable,
+    pickExportFormat,
+    runExport,
+} from "./buildActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
@@ -68,6 +79,8 @@ interface ModeTool {
      * place "nothing" is an action with no visible effect.
      */
     currentLabel?: () => string | null;
+    /** What the caret menu picks — "type" unless said otherwise. Reaches the tooltips. */
+    pickNoun?: string;
     /**
      * Renders its own control instead of an icon button.
      *
@@ -211,6 +224,24 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         {id: "resize", icon: "scale", label: "Resize", shortcut: "S", pressed: gizmoIs("resize"), why: needsGizmo("resize"), run: setGizmo("resize")},
         div("d2"),
         {id: "compile", icon: "reload", label: "Compile preview", shortcut: "Shift+Enter", why: needsBuilder, run: compilePreview},
+        // Export. A split button for the same reason the type pickers are: exporting the
+        // same format twice should not cost a menu, and naming the format in the tooltip
+        // means you can see which one is armed without opening anything.
+        {
+            id: "export",
+            icon: "download",
+            label: "Export",
+            pickNoun: "format",
+            why: needsExportable,
+            run: runExport,
+            currentLabel: exportFormatLabel,
+            menu: () =>
+                exportFormats().map((f) => ({
+                    key: f.id,
+                    label: f.label,
+                    onClick: pickExportFormat(f.id),
+                })),
+        },
         // No "Groups" here. It pointed at the Scene panel's Tools tab while the groups
         // it meant live under Model — and groups describe the loaded model, so they are
         // universal. The rail's Scene button is the one door onto all of that.
@@ -355,6 +386,7 @@ export default function ModeToolbar() {
                     hasMenu: !!t.menu,
                     chosen: t.currentLabel?.() ?? null,
                     pressed: t.pressed?.() ?? false,
+                    noun: t.pickNoun,
                 });
                 const mustPick = split.action === "pick";
                 const tip = split.tooltip;
@@ -394,8 +426,8 @@ export default function ModeToolbar() {
                             disabled={disabled}
                             className={cn(caretClasses(), "rounded-l-none", disabled && "opacity-40")}
                             onClick={() => setOpenMenu((v) => (v === t.id ? null : t.id))}
-                            title={`${t.label} — choose type`}
-                            aria-label={`${t.label} — choose type`}
+                            title={`${t.label} — choose ${t.pickNoun ?? "type"}`}
+                            aria-label={`${t.label} — choose ${t.pickNoun ?? "type"}`}
                             aria-haspopup="menu"
                             aria-expanded={openMenu === t.id}
                         >

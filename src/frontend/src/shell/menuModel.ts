@@ -125,6 +125,14 @@ export const MENUS: MenuDef[] = [
         items: [
             cmd("action:compile-preview"),
             sep,
+            // From the Builder panel's old Tools tab. Both analyse the model and report
+            // back — occasional, deliberate, and named better in a menu than by an icon
+            // nobody would recognise. The IFC option sits with them because it changes
+            // what the export produces, not what you see.
+            cmd("action:builder-resync"),
+            cmd("action:builder-relocate"),
+            cmd("action:builder-ifc-cad"),
+            sep,
             cmd("panel:cellbuilder"),
             cmd("panel:node-editor"),
             sep,

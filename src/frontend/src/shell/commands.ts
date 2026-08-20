@@ -7,7 +7,11 @@ import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview, redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {
+    ifcCadOn,
     newProceduralModel,
+    proposeRelocations,
+    resyncEquipment,
+    toggleIfcCad,
     portsOverlayOn,
     recentreModel,
     representationIs,
@@ -83,6 +87,9 @@ const ACTIONS: {
     // title ("Showing X" / "Show X") rather than a separate pressed affordance, because a
     // menu item's own label is where a menu says what state something is in.
     {id: "rep-topology", title: "Representation: Topology", icon: "cellbuilder", keywords: "cells editable model view", why: REASONS.builder, run: setRepresentation("topology"), checked: representationIs("topology"), checkedTitle: "✓ Representation: Topology"},
+    {id: "builder-resync", title: "Resync equipment catalog", icon: "reload", keywords: "archetype ports catalog update code", why: REASONS.builder, run: resyncEquipment},
+    {id: "builder-relocate", title: "Propose equipment relocations", icon: "move", keywords: "routing cramped clash move suggest", why: REASONS.builder, run: proposeRelocations},
+    {id: "builder-ifc-cad", title: "Export IFC with catalogue CAD", icon: "download", keywords: "ifc cad geometry placeholder boxes", why: REASONS.builder, run: toggleIfcCad, checked: ifcCadOn, checkedTitle: "✓ Export IFC with catalogue CAD"},
     {id: "rep-simulation", title: "Representation: Simulation", icon: "mode-results", keywords: "compiled analysis plates beams view", why: REASONS.builder, run: setRepresentation("simulation"), checked: representationIs("simulation"), checkedTitle: "✓ Representation: Simulation"},
     {id: "rep-detail", title: "Representation: Detail", icon: "component", keywords: "high fidelity joints girder view", why: REASONS.builder, run: setRepresentation("detail"), checked: representationIs("detail"), checkedTitle: "✓ Representation: Detail"},
     {id: "superimpose", title: "Superimpose topology under result", icon: "scene", keywords: "overlay cells under compiled", why: REASONS.builder, run: toggleSuperimpose, checked: superimposeOn, checkedTitle: "✓ Superimpose topology under result"},

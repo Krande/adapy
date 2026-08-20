@@ -1,90 +1,33 @@
 import React from "react";
-import { PositionedMenu } from "@/components/common/PositionedMenu";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
-import { typePickerItems } from "@/utils/cellbuilder/ports";
-import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
-import {
-  CompileLogSection,
-  IconOverlaySection,
-  Section,
-  describeToolState,
-  btn,
-  btnGray,
-  inputCls,
-} from ".";
+import { CompileLogSection, btn, btnGray } from ".";
 
-// The Tools tab body — snapping, the follower window, import/export, and the compile
-// log. Moved verbatim out of CellBuilderPanel.
+// What the Builder's actions produced: relocation proposals, the equipment-resync
+// summary, and the compile log.
+//
+// It used to be those PLUS the five buttons that trigger them. Export is a split button
+// in the Build toolbar now and the two analyses are commands under Tools in the menu bar,
+// which leaves this tab holding only things you read — and gives it a subject.
 export const ToolsTab: React.FC = () => {
   const s = useCellBuilderStore();
 
   return (
     <>
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              className={btnGray}
-              disabled={s.resyncBusy}
-              onClick={() => void s.resyncEquipmentTypes()}
-              title="Update this scope's equipment catalog from the built-in code archetypes (new ports, corrected nozzle heights). Recompile afterwards to pick up the changes."
-            >
-              {s.resyncBusy ? "Resyncing…" : "Resync equipments"}
-            </button>
-            <button
-              className={btnGray}
-              disabled={s.relocationBusy}
-              onClick={() => void s.proposeRelocations()}
-              title="Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
-            >
-              {s.relocationBusy ? "Analyzing…" : "Propose relocations"}
-            </button>
-          </div>
+          {/* Running is not shown here. Resync and Propose relocations are commands
+              under Tools in the menu bar, and Export is a split button in the Build
+              toolbar — each of them does something and then leaves, which is what a
+              toolbar and a menu are for.
 
-          {/* ── Excel export ── Import lives in the storage panel's "+" menu
-              ("Import from Excel…"), since importing creates a NEW procedural
-              model rather than editing the one currently open here. */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              className={btnGray}
-              disabled={s.xlsxBusy || !s.active}
-              onClick={() => void s.exportToExcel()}
-              title="Download the current model as the selected engine's Excel workbook (commits any unsaved edits first). Edit it offline and import it back via the storage panel's + menu."
-            >
-              {s.xlsxBusy ? "Working…" : "Export to Excel"}
-            </button>
-            {(s.selectedEngine || "adapy-default") === "adapy-default" && (
-              <>
-                <button
-                  className={btnGray}
-                  disabled={s.xlsxBusy || !s.active}
-                  onClick={() => void s.exportModel("ifc")}
-                  title="Download the DETAIL model as an IFC — beams, plates, joints and equipment, with the clash cuts as IfcRelVoidsElement voids (commits any unsaved edits first)."
-                >
-                  {s.xlsxBusy ? "Working…" : "Download IFC (detail)"}
-                </button>
-                <label
-                  className="flex items-center gap-1 text-content text-[11px] cursor-pointer"
-                  title="Splice real catalog CAD geometry for equipment in the IFC (off = placeholder boxes). Genie XML always uses the equipment concept type."
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-blue-600"
-                    checked={s.exportIfcCad}
-                    onChange={(e) => s.setExportIfcCad(e.target.checked)}
-                  />
-                  CAD equip
-                </label>
-                <button
-                  className={btnGray}
-                  disabled={s.xlsxBusy || !s.active}
-                  onClick={() => void s.exportModel("gxml")}
-                  title="Download the SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE (commits any unsaved edits first)."
-                >
-                  {s.xlsxBusy ? "Working…" : "Download Genie XML (sim)"}
-                </button>
-              </>
-            )}
-          </div>
+              What is left is everything those actions PRODUCE: a relocation proposal you
+              read and then accept, a resync summary, the compile log. This tab is the
+              model's output, not its controls, and that is the whole reorganisation. */}
+          {(s.resyncBusy || s.relocationBusy) && (
+            <p className="text-[12px] text-content-muted">
+              {s.resyncBusy ? "Resyncing the equipment catalog…" : "Analysing routing…"}
+            </p>
+          )}
+
+          {s.xlsxBusy && <p className="text-[12px] text-content-muted">Exporting…</p>}
 
           {s.relocations && (
             <div className="border border-warn rounded-sm p-1 text-[12px]">

@@ -50,6 +50,16 @@ describe("splitButtonState", () => {
         assert.equal(splitButtonState({...base, pressed: true, chosen: "Door"}).action, "run");
     });
 
+    test("the picker's noun follows what it picks", () => {
+        // Export picks a format, not a type. Hardcoding "type" made the export button
+        // say "choose a type", which is the kind of wrong word that makes a control read
+        // as somebody else's, pasted in.
+        assert.equal(
+            splitButtonState({...base, label: "Export", noun: "format"}).tooltip,
+            "Export — choose a format",
+        );
+    });
+
     test("a tool with no menu is an ordinary button", () => {
         const s = splitButtonState({label: "Compile preview", hasMenu: false, chosen: null, pressed: false});
         assert.equal(s.action, "run");

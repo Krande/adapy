@@ -258,3 +258,44 @@ tinted layer stacked on top. And `panelRegistry` importing the `@/plugins` barre
 the slot components, which reach stores, which reach the model worker — every test touching
 the registry died on `?worker&inline`. Sixth occurrence. Import `@/plugins/registry`
 directly.
+
+## The Builder's Tools tab is "Output" now
+
+It had become a bag of five buttons with no subject: Resync equipments, Propose
+relocations, Export to Excel, Download IFC, Download Genie XML — plus a CAD checkbox, and
+underneath them the things those actions produce.
+
+Split by what each thing *is*, the same cut that dissolved the View tab:
+
+- **Export** is a split button in the Build toolbar, with the format on the caret. Same
+  shape as the opening and equipment pickers, for the same reason: exporting the same
+  format twice should not cost a menu.
+- **Resync** and **Propose relocations** are commands under **Tools** in the menu bar.
+  They are occasional and deliberate, and both are named far better by a sentence than by
+  an icon nobody would recognise. The IFC-CAD toggle sits with them as a checked command,
+  because it changes what the export *produces*, not what you see.
+- **What is left** — the relocation proposal you read and then accept, the resync summary,
+  the compile log — stays in the tab, which is why it is called Output.
+
+Two things worth recording:
+
+- **`exportFormats()` asks the engine.** Only `adapy-default` compiles a detail or
+  simulation model; the others export the workbook alone. The panel did that check inline
+  as a JSX condition, which is exactly the kind of rule that evaporates in a move — a
+  toolbar offering a Genie XML the engine cannot produce would fail at the worker, not at
+  the button. `chosenExportFormat` also returns null for a format the current engine
+  cannot make, so switching engines cannot leave the button claiming an IFC it cannot
+  produce.
+- **The chosen format lives in `src/shell/exportPrefs.ts`, not on `cellBuilderStore`.**
+  The store is business logic and off limits to this rebuild, and this genuinely is chrome
+  state: it remembers which item of a split button you picked last. The model does not
+  care.
+
+`splitButtonState` gained a `noun`, because Export picks a *format*. Hardcoding "type" had
+the export button saying "choose a type" — the kind of wrong word that makes a control
+read as somebody else's, pasted in.
+
+The tab also carried six dead imports (`PositionedMenu`, `typePickerItems`, `followerUrl`,
+`IconOverlaySection`, `Section`, `describeToolState`) left by the earlier split, when
+snapping, the follower window and the icon overlay moved out and took their usages with
+them. TypeScript does not flag unused imports here, so they had simply sat there.

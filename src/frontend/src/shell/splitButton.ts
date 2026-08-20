@@ -52,10 +52,12 @@ export function splitButtonState(opts: {
     hasMenu: boolean;
     chosen: string | null;
     pressed: boolean;
+    /** What the menu picks. "type" for openings and equipment, "format" for export. */
+    noun?: string;
 }): SplitState {
-    const {label, hasMenu, chosen, pressed} = opts;
+    const {label, hasMenu, chosen, pressed, noun = "type"} = opts;
     if (!hasMenu) return {action: "run", tooltip: label};
     if (pressed) return {action: "run", tooltip: chosen ? `${label}: ${chosen}` : label};
     if (chosen) return {action: "run", tooltip: `${label}: ${chosen}`};
-    return {action: "pick", tooltip: `${label} — choose a type`};
+    return {action: "pick", tooltip: `${label} — choose a ${noun}`};
 }
