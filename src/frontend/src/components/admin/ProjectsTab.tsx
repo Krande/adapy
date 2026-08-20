@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
+import {confirm} from "@/ui/confirm";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -47,7 +48,13 @@ const ProjectsTab: React.FC = () => {
     };
 
     const onArchive = async (p: AdminProject) => {
-        if (!confirm(`Archive "${p.name}"? Members will lose access.`)) return;
+        const ok = await confirm({
+            title: "Archive this project?",
+            body: [`"${p.name}" is archived and its members lose access.`],
+            confirmLabel: "Archive",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminArchiveProject(p.id);
             await reload();
@@ -216,7 +223,13 @@ const MemberPane: React.FC<{
     };
 
     const onRemove = async (sub: string) => {
-        if (!confirm(`Remove ${sub} from "${project.name}"?`)) return;
+        const ok = await confirm({
+            title: "Remove this member?",
+            body: [`${sub} loses access to "${project.name}".`],
+            confirmLabel: "Remove",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminRemoveMember(project.id, sub);
             await reload();
@@ -228,13 +241,16 @@ const MemberPane: React.FC<{
     const onMintCiBot = async () => {
         const existing = members.find((m) => m.role === "ci");
         const verb = existing ? "Rotate" : "Mint";
-        if (
-            !confirm(
-                `${verb} CI bot token for "${project.name}"? Any token previously issued to the bot stops working.`,
-            )
-        ) {
-            return;
-        }
+        const ok = await confirm({
+            title: `${verb} the CI bot token?`,
+            body: [
+                `For "${project.name}".`,
+                "Any token previously issued to the bot stops working.",
+            ],
+            confirmLabel: verb,
+            tone: "danger",
+        });
+        if (!ok) return;
         setCiBotBusy(true);
         setCiBotErr(null);
         try {

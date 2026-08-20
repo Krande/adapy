@@ -299,3 +299,28 @@ The tab also carried six dead imports (`PositionedMenu`, `typePickerItems`, `fol
 `IconOverlaySection`, `Section`, `describeToolState`) left by the earlier split, when
 snapping, the follower window and the icon overlay moved out and took their usages with
 them. TypeScript does not flag unused imports here, so they had simply sat there.
+
+## No native dialogs left anywhere
+
+The admin tabs were the last seven files on the `noNativeDialogs` allowlist. It is empty
+now: twenty-two `confirm` / `prompt` / `alert` calls across nine admin files, plus two in
+`WebsocketStatusMenu`, all converted.
+
+**The test was wrong, and finding that was the point.** Its regex matched
+`window.confirm(…)` only. A bare `confirm(…)` is the *same global* opening the *same
+dialog* — and six of them sat in `CorpusTab`, `StorageTab`, `ProjectsTab` and
+`CliTokenButton` while the test reported those files clean. A rule that catches only the
+spelling people happened to use is not a rule. It now matches both, with an `EXEMPT`
+pattern for our own awaited replacements (the native ones are never awaited — they block)
+and a skip for `{/*` JSX comments, which is what made `AppShell` a false positive.
+
+Three of the conversions needed their enclosing function made `async` — `deleteFolder` in
+CorpusTab, `onFolderRenameOrMove` in StorageTab, and the CI-bot-token handler in
+ProjectsTab. That is the tell that these were never really synchronous decisions: the code
+was written around `confirm` blocking the thread, which is the behaviour that makes it
+wrong in the first place.
+
+The copy improved on the way through. `window.confirm` takes one string, so everything was
+crammed into it with `\n\n` separators — the key preview in CorpusTab's bulk delete, the
+scope name in StorageTab's cache clear. Each is now a title and separate body lines, which
+is what they were trying to be.

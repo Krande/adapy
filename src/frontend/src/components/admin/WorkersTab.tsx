@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi, WorkerEntry} from "@/services/viewerApi";
 import InfoIcon from "@/components/icons/InfoIcon";
 import WorkerInfoModal from "./WorkerInfoModal";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Live view of every worker pod that recently published a heartbeat.
 // The endpoint just scans a NATS KV bucket — no DB hit — so the
@@ -71,7 +72,13 @@ const WorkersTab: React.FC = () => {
 
     const pruneWorkers = async () => {
         if (offlineCount === 0) return;
-        if (!window.confirm(`Remove ${offlineCount} offline worker registration(s)? Live pods re-register within a heartbeat.`)) {
+        const ok = await confirm({
+            title: `Remove ${offlineCount} offline worker registration(s)?`,
+            body: ["Live pods re-register within a heartbeat."],
+            confirmLabel: "Remove",
+            tone: "danger",
+        });
+        if (!ok) {
             return;
         }
         setPruning(true);

@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {confirm} from "@/ui/confirm";
 
 // Header button + modal for the admin's own CLI bearer token.
 // Deliberately not a tab — there's no list of tokens to manage. Mint
@@ -56,7 +57,13 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
     };
 
     const onRevoke = async () => {
-        if (!confirm("Revoke every CLI token previously minted for your account?")) return;
+        const ok = await confirm({
+            title: "Revoke every CLI token?",
+            body: ["Every token previously minted for your account stops working."],
+            confirmLabel: "Revoke all",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusy("revoke");
         setErr(null);
         try {

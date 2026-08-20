@@ -13,6 +13,7 @@ import {
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -295,7 +296,13 @@ const StorageTab: React.FC = () => {
     };
 
     const onDelete = async (key: string, label: string) => {
-        if (!confirm(`Delete "${label}"? Any derived products are removed too.`)) return;
+        const ok = await confirm({
+            title: "Delete this file?",
+            body: [`"${label}" — any derived products are removed too.`],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusyKey(`${key}::delete`);
         try {
             await viewerApi.adminDeleteBlob(scope, key);
@@ -350,10 +357,10 @@ const StorageTab: React.FC = () => {
     };
 
     // Rename or relocate a folder. ``mode`` decides whether to prompt
-    // for a sibling name (window.prompt — no destination semantics
+    // for a sibling name (a text prompt — no destination semantics
     // to pick from) or open the folder picker (move-into). Walks
     // every source key under the folder so derived blobs follow.
-    const onFolderRenameOrMove = (
+    const onFolderRenameOrMove = async (
         folderPath: string,
         mode: "rename" | "moveInto",
     ) => {
@@ -392,10 +399,12 @@ const StorageTab: React.FC = () => {
         };
 
         if (mode === "rename") {
-            const input = window.prompt(
-                `Rename folder "${folderPath}" to (sibling name, no slashes):`,
-                "",
-            );
+            const input = await promptText({
+                title: "Rename folder",
+                body: [`Currently "${folderPath}".`],
+                label: "New name (a sibling name, no slashes)",
+                confirmLabel: "Rename",
+            });
             if (input === null) return;
             const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
             if (!trimmedInput) {
@@ -462,7 +471,13 @@ const StorageTab: React.FC = () => {
     // cached output. The admin endpoint already routes derived keys
     // to a one-blob delete; the source delete path is unaffected.
     const onDeleteDerived = async (sourceKey: string, derivedKey: string, label: string) => {
-        if (!confirm(`Delete cached "${label}"? Next Convert will regenerate it.`)) return;
+        const ok = await confirm({
+            title: "Delete this cached product?",
+            body: [`"${label}" — the next Convert regenerates it.`],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusyKey(`${derivedKey}::delete`);
         try {
             await viewerApi.adminDeleteBlob(scope, derivedKey);
@@ -483,10 +498,16 @@ const StorageTab: React.FC = () => {
     const onDeleteAllDerived = async (file: AdminFileEntry) => {
         if (file.derived.length === 0) return;
         const n = file.derived.length;
-        if (!confirm(
-            `Delete all ${n} cached derived product${n === 1 ? "" : "s"} for "${file.key}"? ` +
-            `Sources are not touched; next Convert will regenerate them.`,
-        )) return;
+        const ok = await confirm({
+            title: `Delete ${n} cached derived product${n === 1 ? "" : "s"}?`,
+            body: [
+                `For "${file.key}".`,
+                "Sources are not touched; the next Convert regenerates them.",
+            ],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusyKey(`${file.key}::delete-all-derived`);
         const failures: string[] = [];
         try {
@@ -524,11 +545,16 @@ const StorageTab: React.FC = () => {
         );
         const total = allDerived.length;
         if (total === 0) return;
-        if (!confirm(
-            `Clear ALL ${total} cached derived product${total === 1 ? "" : "s"} ` +
-            `in scope "${currentScope?.name ?? "Shared"}"? ` +
-            `Sources are preserved; next Convert regenerates them.`,
-        )) return;
+        const ok = await confirm({
+            title: `Clear all ${total} cached derived product${total === 1 ? "" : "s"}?`,
+            body: [
+                `In scope "${currentScope?.name ?? "Shared"}".`,
+                "Sources are preserved; the next Convert regenerates them.",
+            ],
+            confirmLabel: "Clear cache",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusyKey("__clear_all_derived__");
         const failures: string[] = [];
         try {

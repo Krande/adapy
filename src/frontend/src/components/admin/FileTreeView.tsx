@@ -10,6 +10,7 @@ import FolderOpenIcon from "../icons/FolderOpenIcon";
 import ChevronRightIcon from "../icons/ChevronRightIcon";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import {RowKebabMenu, KebabMenuItem} from "@/components/common/RowKebabMenu";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Generic folder-tree view shared by the admin Corpus tab's file
 // overview, its "Copy from scope" modal, and the utility file picker.
@@ -312,7 +313,10 @@ export function FileTreeView<T>({
         const name = raw.trim();
         if (!name || name === displayName) return;
         if (name.includes("/")) {
-            window.alert("Name must not contain '/' — use Move to folder… instead");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A file name cannot contain “/”. Use “Move to folder…” instead."],
+            });
             return;
         }
         mutations.renameFile(key, name);
@@ -323,7 +327,10 @@ export function FileTreeView<T>({
         const name = raw.trim().replace(/^\/+|\/+$/g, "");
         if (!name || name === basenameOf(path)) return;
         if (name.includes("/")) {
-            window.alert("Rename must be a single name; use Move folder into… for nested moves");
+            void alertText({
+                title: "That name contains a path",
+                body: ["Rename takes a single name. Use “Move folder into…” to nest it."],
+            });
             return;
         }
         const parent = dirnameOf(path);
@@ -336,7 +343,10 @@ export function FileTreeView<T>({
         const name = raw.trim().replace(/^\/+|\/+$/g, "");
         if (!name) return;
         if (name.includes("/")) {
-            window.alert("Folder name must not contain '/'");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A folder name cannot contain “/”. Create the parent first."],
+            });
             return;
         }
         setExpanded((prev) => {

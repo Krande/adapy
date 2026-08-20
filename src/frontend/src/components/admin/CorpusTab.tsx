@@ -10,6 +10,7 @@ import {
 import FileTreeView, {FileTreeMutations} from "./FileTreeView";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {scopeUrlPart} from "@/state/scopeStore";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in the admin audit-panel design notes).
@@ -656,7 +657,13 @@ const CorpusFiles: React.FC<{
     }, [uploadFilesTo]);
 
     const onDelete = useCallback(async (key: string) => {
-        if (!confirm(`Delete ${key} from ${corpus.slug}? This can't be undone.`)) return;
+        const ok = await confirm({
+            title: "Delete this file?",
+            body: [`${key} — from ${corpus.slug}.`, "This cannot be undone."],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminDeleteBlob(scope, key);
             await reload();
@@ -667,7 +674,11 @@ const CorpusFiles: React.FC<{
 
     const alertFailures = (failed: Array<{key: string; reason: string}>) => {
         if (failed.length > 0) {
-            window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+            void alertText({
+                title: "Some files could not be moved",
+                body: failed.map((f) => `${f.key}: ${f.reason}`),
+                tone: "danger",
+            });
         }
     };
 
@@ -738,11 +749,16 @@ const CorpusFiles: React.FC<{
     // overview of exactly what goes, then delete sequentially.
     const deleteKeysWithConfirm = useCallback(async (keys: string[]) => {
         if (keys.length === 0) return;
-        if (!confirm(
-            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"} from ${corpus.slug}? ` +
-            "This can't be undone.\n\n" +
-            previewKeyList(keys),
-        )) return;
+        const ok = await confirm({
+            title: `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?`,
+            body: [
+                `From ${corpus.slug}. This cannot be undone.`,
+                ...previewKeyList(keys).split("\n").filter(Boolean),
+            ],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         if (!beginOp(`Deleting 0/${keys.length}…`)) return;
         try {
             let done = 0;
@@ -816,7 +832,7 @@ const CorpusFiles: React.FC<{
         moveKeys: (keys, destFolder) => void moveKeys(keys, destFolder),
         moveFolder: moveFolderTo,
         deleteFile: (key) => void onDelete(key),
-        deleteFolder: (path, fileCount) => {
+        deleteFolder: async (path, fileCount) => {
             if (fileCount === 0) {
                 // Pending (empty) folder — pure client state.
                 removePendingFoldersUnder(path);
@@ -824,11 +840,17 @@ const CorpusFiles: React.FC<{
             }
             const prefix = path + "/";
             const targets = files.filter((f) => normKey(f.key).startsWith(prefix));
-            if (!confirm(
-                `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} ` +
-                `from ${corpus.slug}? This can't be undone.\n\n` +
-                previewKeyList(targets.map((t) => t.key)),
-            )) return;
+            const ok = await confirm({
+                title: "Delete folder?",
+                body: [
+                    `"${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} from ${corpus.slug}.`,
+                    "This cannot be undone.",
+                    ...previewKeyList(targets.map((t) => t.key)).split("\n").filter(Boolean),
+                ],
+                confirmLabel: "Delete folder",
+                tone: "danger",
+            });
+            if (!ok) return;
             void (async () => {
                 if (!beginOp(`Deleting 0/${targets.length} from "${path}"…`)) return;
                 try {
@@ -854,7 +876,10 @@ const CorpusFiles: React.FC<{
             // a user folder with that name would collide with the cache
             // prefix.
             if (!parent && name === "_derived") {
-                window.alert(`"${name}" is a reserved name`);
+                void alertText({
+                    title: "Reserved name",
+                    body: [`"${name}" is reserved by the storage layer — pick another.`],
+                });
                 return;
             }
             const path = parent ? `${parent}/${name}` : name;
@@ -1214,10 +1239,16 @@ const CorpusTab: React.FC = () => {
     );
 
     const onArchive = useCallback(async (slug: string) => {
-        if (!confirm(
-            `Archive ${slug}? Storage bytes survive — wipe those separately ` +
-            `if you need the space back. The slug can be reused right away.`,
-        )) return;
+        const ok = await confirm({
+            title: `Archive ${slug}?`,
+            body: [
+                "Storage bytes survive — wipe those separately if you need the space back.",
+                "The slug can be reused right away.",
+            ],
+            confirmLabel: "Archive",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminCorpusArchive(slug);
             if (selectedSlug === slug) setSelectedSlug(null);

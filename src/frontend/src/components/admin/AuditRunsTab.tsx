@@ -4,6 +4,7 @@ import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
 import {runtime} from "@/runtime/config";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
 const WASM_POOL = "wasm";
@@ -747,11 +748,13 @@ const CancelRunButton: React.FC<{
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const onClick = async () => {
-        if (!window.confirm(
-            `Abort audit run "${run.scope}"? Queued cells will be marked cancelled.`,
-        )) {
-            return;
-        }
+        const ok = await confirm({
+            title: "Abort this audit run?",
+            body: [`Run scope: ${run.scope}`, "Queued cells are marked cancelled."],
+            confirmLabel: "Abort run",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusy(true);
         setErr(null);
         try {
@@ -786,11 +789,15 @@ const ReDispatchButton: React.FC<{
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const onClick = async () => {
-        if (!window.confirm(
-            `Re-run this audit against "${run.scope}"? A new run is created with the same scope, pool and settings.`,
-        )) {
-            return;
-        }
+        const ok = await confirm({
+            title: "Re-run this audit?",
+            body: [
+                `Against scope: ${run.scope}`,
+                "A new run is created with the same scope, pool and settings.",
+            ],
+            confirmLabel: "Re-run",
+        });
+        if (!ok) return;
         setBusy(true);
         setErr(null);
         try {
@@ -830,11 +837,12 @@ const ValidateRunButton: React.FC<{
     const [err, setErr] = useState<string | null>(null);
     const alreadyValidated = !!run.auto_validate_dispatched_at;
     const onClick = async () => {
-        if (!window.confirm(
-            `Run validation on "${run.scope}"? Cross-format parity cells are appended to this run.`,
-        )) {
-            return;
-        }
+        const ok = await confirm({
+            title: "Run validation?",
+            body: [`On scope: ${run.scope}`, "Cross-format parity cells are appended to this run."],
+            confirmLabel: "Validate",
+        });
+        if (!ok) return;
         setBusy(true);
         setErr(null);
         try {
@@ -875,11 +883,13 @@ const DeleteRunButton: React.FC<{
     const [err, setErr] = useState<string | null>(null);
     const label = run.seq != null ? `#${run.seq}` : run.scope;
     const onClick = async () => {
-        if (!window.confirm(
-            `Delete audit run ${label} ("${run.scope}")? Its results are removed permanently.`,
-        )) {
-            return;
-        }
+        const ok = await confirm({
+            title: `Delete audit run ${label}?`,
+            body: [`Scope: ${run.scope}`, "Its results are removed permanently."],
+            confirmLabel: "Delete run",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBusy(true);
         setErr(null);
         try {
@@ -1492,7 +1502,11 @@ const AuditRunsTab: React.FC = () => {
                                                 await viewerApi.adminAuditRunRerunCell(selectedRun.id, file, target);
                                                 await loadDetail(selectedRun.id);
                                             } catch (e) {
-                                                window.alert(`Rerun failed: ${(e as Error).message}`);
+                                                void alertText({
+                                                    title: "Re-run failed",
+                                                    body: [(e as Error).message],
+                                                    tone: "danger",
+                                                });
                                             }
                                         })();
                                     }}

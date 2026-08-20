@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from "react";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 import {
     ApiError,
     AuditEntry,
@@ -97,17 +98,30 @@ const AuditLogTab: React.FC = () => {
     };
 
     const onClearMetrics = async () => {
-        if (!window.confirm(
-            "Clear all conversion metrics and delete profile blobs? Audit rows themselves stay; only the metrics columns are nulled."
-        )) return;
+        const ok = await confirm({
+            title: "Clear all conversion metrics?",
+            body: [
+                "Profile blobs are deleted.",
+                "Audit rows themselves stay — only the metrics columns are nulled.",
+            ],
+            confirmLabel: "Clear metrics",
+            tone: "danger",
+        });
+        if (!ok) return;
         setClearing(true);
         try {
             const r = await viewerApi.adminClearMetrics();
             await reload(filters);
-            window.alert(
-                `Cleared ${r.rows_cleared} row(s); deleted ${r.profiles_deleted} profile blob(s).` +
-                (r.errors.length ? `\n${r.errors.length} error(s) — see browser console.` : "")
-            );
+            void alertText({
+                title: "Metrics cleared",
+                body: [
+                    `${r.rows_cleared} row(s) cleared, ${r.profiles_deleted} profile blob(s) deleted.`,
+                    ...(r.errors.length
+                        ? [`${r.errors.length} error(s) — see the browser console.`]
+                        : []),
+                ],
+                tone: r.errors.length ? "danger" : "default",
+            });
             if (r.errors.length) console.warn("clear metrics errors", r.errors);
         } catch (e) {
             setError(e instanceof ApiError ? e.detail || e.message : String(e));

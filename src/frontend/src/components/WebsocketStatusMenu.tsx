@@ -5,6 +5,7 @@ import {comms} from '../utils/comms';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
 import {requestConnectedClients} from '../utils/websocket/requestConnectedClients';
 import {requestShutdownServer} from '../utils/websocket/requestShutdownServer';
+import {alertText} from "@/ui/confirm";
 
 export function WebsocketStatusMenu() {
     const {connected, toggleShowInfoBox} = useWebsocketStatusStore();
@@ -78,7 +79,10 @@ export function WebsocketStatusBox() {
     const saveEdit = useCallback(async () => {
         const parsed = Number(tempId);
         if (!Number.isFinite(parsed)) {
-            alert('Please enter a valid number for Instance ID.');
+            void alertText({
+                title: "That is not a number",
+                body: ["The instance ID must be a whole number."],
+            });
             return;
         }
         try {
@@ -86,7 +90,11 @@ export function WebsocketStatusBox() {
             // Server info will refresh after reconnect in handler.connect()
             setEditingId(false);
         } catch (e: any) {
-            alert(e?.message || 'Failed to set instance ID');
+            void alertText({
+                title: "Could not set the instance ID",
+                body: [String(e?.message || "The server refused the change.")],
+                tone: "danger",
+            });
         }
     }, [tempId]);
 

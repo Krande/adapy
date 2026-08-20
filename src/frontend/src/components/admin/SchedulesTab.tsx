@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {AuditSchedule, Corpus, viewerApi} from "@/services/viewerApi";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 
 // Admin tab — manage recurring audit schedules (M4 of the audit
 // panel design in the admin audit-panel design notes).
@@ -205,7 +206,13 @@ const ScheduleRow: React.FC<{
     }, [schedule.id, onChanged]);
 
     const archive = useCallback(async () => {
-        if (!window.confirm(`Archive schedule "${schedule.name}"? It will stop firing immediately.`)) {
+        const ok = await confirm({
+            title: "Archive this schedule?",
+            body: [`"${schedule.name}" stops firing immediately.`],
+            confirmLabel: "Archive",
+            tone: "danger",
+        });
+        if (!ok) {
             return;
         }
         setBusy("archive");
