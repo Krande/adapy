@@ -152,7 +152,11 @@ export const PANELS: Record<PanelId, PanelDef> = {
     },
     storage: {
         id: "storage",
-        title: "Storage",
+        // "Files", not "Storage". The mode is already called Library, so a panel called
+        // Storage restated it — and the panel then restated itself again in its own
+        // header. One name per idea: Library is the place, Files is what is in it.
+        // (The id stays "storage": it is a persisted layout key.)
+        title: "Files",
         icon: "server",
         modes: ["data"],
         defaultDock: "left",
@@ -160,7 +164,7 @@ export const PANELS: Record<PanelId, PanelDef> = {
         // REST-only: the desktop/WS build has no scopes, no blobs and no upload.
         available: () => runtime.isRestMode(),
         hint: "Browse, upload and convert files",
-        component: lazy(() => import("@/components/storage/StorageBrowser")),
+        component: lazy(() => import("@/components/storage/StoragePanel")),
     },
     convert: {
         id: "convert",

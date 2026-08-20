@@ -59,7 +59,7 @@ const ACTIONS: {
     {id: "redo", title: "Redo", icon: "redo", shortcut: "builder-redo", why: REASONS.builder, run: redo},
     {id: "compile-preview", title: "Compile preview", icon: "reload", shortcut: "compile-preview", keywords: "build procedural", why: REASONS.builder, run: compilePreview},
     {id: "upload", title: "Upload files", icon: "upload", keywords: "import add", why: REASONS.rest, run: openUpload},
-    {id: "convert", title: "Convert files", icon: "reload", keywords: "export format glb ifc step", why: REASONS.rest, run: openConvert},
+    {id: "convert", title: "Convert files", icon: "convert", keywords: "export format glb ifc step", why: REASONS.rest, run: openConvert},
     {id: "refresh-files", title: "Refresh the file list", icon: "reload", why: REASONS.rest, run: refreshFiles},
 
     // Selection. These were keyboard-only until the menu bar needed them by name.

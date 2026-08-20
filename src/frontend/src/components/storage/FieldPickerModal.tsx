@@ -99,7 +99,7 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
             onClick={onClose}
         >
             <div
-                className="bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-md p-4"
+                className="bg-surface-0 text-white rounded-lg shadow-xl w-full max-w-md p-4"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex justify-between items-start mb-3">
@@ -107,11 +107,11 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                         <h3 className="font-bold truncate" title={sourceName}>
                             Select field
                         </h3>
-                        <p className="text-xs text-gray-300 truncate">{sourceName}</p>
+                        <p className="text-xs text-content truncate">{sourceName}</p>
                     </div>
                     <button
                         onClick={onClose}
-                        className="text-gray-300 hover:text-white text-lg leading-none p-1"
+                        className="text-content hover:text-white text-lg leading-none p-1"
                         aria-label="Close"
                     >
                         ×
@@ -119,24 +119,24 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                 </div>
 
                 {loadingMeta && (
-                    <div className="text-sm text-gray-300 py-4 text-center">
+                    <div className="text-sm text-content py-4 text-center">
                         Reading result file…
                     </div>
                 )}
 
                 {metaError && (
                     <div className="flex flex-col gap-1 py-2">
-                        <div className="text-sm text-red-300 wrap-break-word">
+                        <div className="text-sm text-fail wrap-break-word">
                             Couldn't read this file:
                         </div>
-                        <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
+                        <pre className="text-fail break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
                             {metaError}
                         </pre>
                         <div className="flex justify-end">
                             <button
                                 type="button"
                                 onClick={() => void onCopyError(metaError)}
-                                className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm text-[11px]"
+                                className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                                 title="Copy error to clipboard"
                             >
                                 {copied ? "Copied" : "Copy"}
@@ -148,9 +148,9 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                 {meta && !loadingMeta && (
                     <div className="space-y-3">
                         <label className="block text-xs">
-                            <span className="block mb-1 text-gray-300">Field</span>
+                            <span className="block mb-1 text-content">Field</span>
                             <select
-                                className="w-full bg-gray-700 border border-gray-600 rounded-sm px-2 py-1"
+                                className="w-full bg-surface-2 border border-edge rounded-sm px-2 py-1"
                                 value={field ?? ""}
                                 onChange={(e) => setField(e.target.value)}
                             >
@@ -162,9 +162,9 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                             </select>
                         </label>
                         <label className="block text-xs">
-                            <span className="block mb-1 text-gray-300">Step</span>
+                            <span className="block mb-1 text-content">Step</span>
                             <select
-                                className="w-full bg-gray-700 border border-gray-600 rounded-sm px-2 py-1"
+                                className="w-full bg-surface-2 border border-edge rounded-sm px-2 py-1"
                                 value={step ?? ""}
                                 onChange={(e) => setStep(Number(e.target.value))}
                             >
@@ -177,14 +177,14 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                         </label>
                         {submitError && (
                             <div className="flex flex-col gap-1">
-                                <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-40 overflow-auto m-0">
+                                <pre className="text-fail break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-40 overflow-auto m-0">
                                     {submitError}
                                 </pre>
                                 <div className="flex justify-end">
                                     <button
                                         type="button"
                                         onClick={() => void onCopyError(submitError)}
-                                        className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm text-[11px]"
+                                        className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                                         title="Copy error to clipboard"
                                     >
                                         {copied ? "Copied" : "Copy"}
@@ -195,14 +195,14 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                         <div className="flex justify-end gap-2 pt-1">
                             <button
                                 onClick={onClose}
-                                className="px-3 py-1 text-xs rounded-sm bg-gray-600 hover:bg-gray-500"
+                                className="px-3 py-1 text-xs rounded-sm bg-surface-3 hover:bg-surface-3"
                                 disabled={submitting}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={onView}
-                                className="px-3 py-1 text-xs rounded-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-60"
+                                className="px-3 py-1 text-xs rounded-sm bg-accent hover:bg-accent disabled:opacity-60"
                                 disabled={submitting || step === null || field === null}
                             >
                                 {submitting ? "Loading…" : "View"}

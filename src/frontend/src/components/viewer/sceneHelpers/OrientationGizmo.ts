@@ -142,7 +142,19 @@ export class OrientationGizmo extends HTMLElement {
         this.style.boxSizing = "border-box";
         this.style.width = `${this.options.size}px`;
         this.style.height = `${this.options.size}px`;
-        this.style.position = "fixed";
+        // Absolute, not fixed — anchored to the canvas container rather than the window.
+        //
+        // Fixed put it in the bottom-right of the BROWSER, which was the same place as
+        // the bottom-right of the canvas back when the canvas was full-bleed. The shell
+        // gives the 3D view its own grid area, so the gizmo ended up underneath the right
+        // dock, glowing faintly through a translucent panel — visibly wrong, and
+        // unclickable where it overlapped.
+        //
+        // ThreeCanvas's container is already `relative`, so absolute positions against
+        // the viewport region in both UIs: unchanged in the classic full-bleed layout,
+        // and correctly beside the docks in the shell. It follows a splitter drag for
+        // free, which a margin computed from the dock width would not.
+        this.style.position = "absolute";
         // Sit just below the menu/panel layer (z-10) so an open side panel —
         // e.g. the equipment/system catalog editor on mobile — covers the
         // gizmo where they overlap and its Save button stays clickable. The

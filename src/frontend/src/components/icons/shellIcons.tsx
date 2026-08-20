@@ -153,17 +153,42 @@ export const SettingsIcon = (p: P) => (
 
 /* ---- history ----------------------------------------------------------- */
 
+// Undo / redo.
+//
+// Previously a near-complete circle with a small tick — Lucide's rotate-ccw. At 16px in
+// a toolbar that reads as a "refresh" glyph, which is exactly the wrong meaning to
+// suggest next to a Refresh button, and the direction (the thing that distinguishes undo
+// from redo) was carried by a few pixels of arrowhead on a circle.
+//
+// These are the flat hooked arrow every IDE uses — PyCharm, VS Code, Office: a bold
+// horizontal arrowhead, then an arc away from it. The arrowhead is the largest feature,
+// so left-versus-right is legible at a glance, and nothing about it says "reload".
 export const UndoIcon = (p: P) => (
     <Svg {...p}>
-        <path d="M3 7v6h6" />
-        <path d="M3 13a9 9 0 1 0 3-6.7L3 9" />
+        <path d="M8 7 4 11l4 4" />
+        <path d="M4 11h10.5a4.5 4.5 0 0 1 0 9H11" />
     </Svg>
 );
 
 export const RedoIcon = (p: P) => (
     <Svg {...p}>
-        <path d="M21 7v6h-6" />
-        <path d="M21 13a9 9 0 1 1-3-6.7L21 9" />
+        <path d="M16 7l4 4-4 4" />
+        <path d="M20 11H9.5a4.5 4.5 0 0 0 0 9H13" />
+    </Svg>
+);
+
+// Convert — format in, format out.
+//
+// Convert and Refresh both used the circular-arrow ReloadIcon, so the Library toolbar
+// showed the same glyph twice in a row for two unrelated actions. A circular arrow means
+// "do that again"; conversion is a transformation between two things, which is what the
+// opposed arrows say.
+export const ConvertIcon = (p: P) => (
+    <Svg {...p}>
+        <path d="M4 8h13" />
+        <path d="M14 5l3 3-3 3" />
+        <path d="M20 16H7" />
+        <path d="M10 13l-3 3 3 3" />
     </Svg>
 );
 

@@ -63,6 +63,7 @@ import {
     SectionPlaneIcon,
     SettingsIcon,
     SortIcon,
+    ConvertIcon,
     UndoIcon,
 } from "./shellIcons";
 
@@ -108,6 +109,7 @@ export const ICONS = {
     search: SearchIcon,
     filter: FilterIcon,
     sort: SortIcon,
+    convert: ConvertIcon,
     undo: UndoIcon,
     redo: RedoIcon,
     // dock chrome

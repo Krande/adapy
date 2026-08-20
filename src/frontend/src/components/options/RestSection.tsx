@@ -38,7 +38,7 @@ const ConvertButton: React.FC = () => {
     // the 3D model stays on screen.
     const openPanel = useViewerPanelStore((s) => s.openPanel);
     return (
-        <Button variant="secondary" block iconLeft={<Icon name="reload" size="sm" />} onClick={() => openPanel("convert")}>
+        <Button variant="secondary" block iconLeft={<Icon name="convert" size="sm" />} onClick={() => openPanel("convert")}>
             Convert files
         </Button>
     );

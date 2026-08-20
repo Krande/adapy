@@ -78,9 +78,9 @@ export const FolderRow: React.FC<FolderRowProps> = ({
             data-rowkey={rowKey}
             className={
                 "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none " +
-                "hover:bg-gray-800/80 " +
-                (dragHover > 0 ? "ring-1 ring-blue-400 bg-blue-900/30 " : "") +
-                (focused && dragHover === 0 ? "ring-1 ring-blue-400/70 " : "") +
+                "hover:bg-surface-0 " +
+                (dragHover > 0 ? "ring-1 ring-accent bg-accent-subtle " : "") +
+                (focused && dragHover === 0 ? "ring-1 ring-accent " : "") +
                 (isPending ? "opacity-80 " : "")
             }
             style={{paddingLeft: 8 + indentPx}}
@@ -113,7 +113,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
                 expand. */}
             <ChevronRightIcon
                 className={
-                    "shrink-0 text-blue-400 transition-transform duration-150 " +
+                    "shrink-0 text-accent transition-transform duration-150 " +
                     (expanded ? "rotate-90" : "")
                 }
             />
@@ -121,9 +121,9 @@ export const FolderRow: React.FC<FolderRowProps> = ({
                 Same blue tone so eye + chevron read as one
                 composite control. */}
             {expanded ? (
-                <FolderOpenIcon className="shrink-0 text-blue-400"/>
+                <FolderOpenIcon className="shrink-0 text-accent"/>
             ) : (
-                <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                <FolderClosedIcon className="shrink-0 text-accent"/>
             )}
             {renaming && onRenameCommit && onRenameCancel ? (
                 <InlineNameInput
@@ -138,7 +138,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
             )}
             {(loadedCount ?? 0) > 0 && (
                 <span
-                    className="shrink-0 inline-flex items-center gap-0.5 text-blue-400"
+                    className="shrink-0 inline-flex items-center gap-0.5 text-accent"
                     title={`${loadedCount} loaded model${loadedCount === 1 ? "" : "s"} inside`}
                 >
                     <ViewIcon width="14px" height="14px"/>
@@ -147,7 +147,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
                     )}
                 </span>
             )}
-            <span className="text-[10px] text-gray-400 shrink-0">
+            <span className="text-[10px] text-content-muted shrink-0">
                 {isPending ? "empty" : fileCount}
             </span>
             {menuItems.length > 0 && (
@@ -157,7 +157,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
                 >
                     <RowKebabMenu
                         ariaLabel={`Organize folder ${folder.path}`}
-                        buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                        buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
                         header={<span className="font-mono">{folder.path}/</span>}
                         items={menuItems}
                     />

@@ -135,8 +135,8 @@ export const FileRow: React.FC<FileRowProps> = ({
             className={
                 "flex flex-col pr-1 py-1 text-xs rounded cursor-pointer select-none " +
                 (dimmed ? "opacity-40 " : "") +
-                (focused ? "ring-1 ring-blue-400/70 " : "") +
-                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ")
+                (focused ? "ring-1 ring-accent " : "") +
+                (isSelected ? "bg-warn-subtle " : "hover:bg-surface-0 ")
             }
             style={{paddingLeft: `${8 + indentPx}px`}}
             draggable={draggable || undefined}
@@ -216,7 +216,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                             e.stopPropagation();
                             onSelectToggle(f.name, e.shiftKey);
                         }}
-                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
+                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-accent font-medium' : ''}`}
                         title={f.name}
                     >
                         {displayName}
@@ -225,7 +225,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                 <div className="flex items-center gap-1 shrink-0">
                     {showModified && (
                         <span
-                            className="text-[10px] text-gray-400 tabular-nums whitespace-nowrap"
+                            className="text-[10px] text-content-muted tabular-nums whitespace-nowrap"
                             title={f.lastModified}
                         >
                             {formatRelative(f.lastModified)}
@@ -236,7 +236,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         state needs its own signal — the blue filename
                         tint alone is easy to miss on mobile. */}
                     {isQueued && (
-                        <span className="text-[10px] text-amber-400 uppercase tracking-wide shrink-0">
+                        <span className="text-[10px] text-warn uppercase tracking-wide shrink-0">
                             queued
                         </span>
                     )}
@@ -244,7 +244,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         <ViewIcon
                             width="16px"
                             height="16px"
-                            className="text-blue-400"
+                            className="text-accent"
                             aria-label="Loaded in scene"
                         />
                     )}
@@ -262,7 +262,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         re-appears for it without code changes here. */}
                     {isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
-                            className="p-1 rounded-sm text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="p-1 rounded-sm text-white hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setPickerName(f.name);
@@ -278,7 +278,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
-                                buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-700"
+                                buttonClassName="h-7 w-7 text-content hover:bg-surface-2"
                                 header={<span className="font-mono" title={f.name}>{f.name}</span>}
                                 items={menuItems}
                             />
@@ -287,14 +287,14 @@ export const FileRow: React.FC<FileRowProps> = ({
                 </div>
             </div>
             {isViewing && (
-                <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
+                <div className="mt-1 h-1 w-full bg-surface-2 rounded-sm overflow-hidden">
                     {viewJob && viewJob.status !== 'queued' ? (
                         <div
-                            className="h-full bg-blue-600 transition-[width] duration-200"
+                            className="h-full bg-accent transition-[width] duration-200"
                             style={{width: `${viewProgressPct}%`}}
                         />
                     ) : (
-                        <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                        <div className="h-full w-1/3 bg-accent animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
                     )}
                 </div>
             )}

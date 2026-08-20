@@ -41,7 +41,23 @@ import {VersionsTree} from "./VersionsTree";
 
 
 
-const StorageBrowser: React.FC = () => {
+export interface StorageBrowserProps {
+    /**
+     * Drop the panel frame and the redundant title.
+     *
+     * The shell's dock already draws a border, a background and a header carrying this
+     * panel's name — so the classic frame produced a box inside a box with two
+     * scrollbars, and the <h2>Storage</h2> restated the dock tab directly above it. The
+     * SCOPE line stays in both: it is information about which space the list reflects,
+     * not decoration.
+     *
+     * Maximize survives in both, because "give this the whole window" is useful wherever
+     * the panel lives.
+     */
+    chromeless?: boolean;
+}
+
+const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const {sidecars} = useBuildSidecars(files);
     const conversionJobs = useConversionStore((s) => s.jobs);
@@ -997,7 +1013,7 @@ const StorageBrowser: React.FC = () => {
             // toggle. The host column has no transform ancestors, so
             // position:fixed escapes it cleanly.
             className={
-                PANEL_CHROME + " " +
+                (chromeless && !maximized ? "flex min-h-0 flex-1 flex-col " : PANEL_CHROME + " ") +
                 (maximized
                     ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
                       // Same footprint as the floating admin panel
@@ -1006,12 +1022,17 @@ const StorageBrowser: React.FC = () => {
                       // the area behind the browser chrome, so a
                       // vh-sized panel ran past the visible bottom.
                       "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : // Mobile: bound the panel to the viewport and SCROLL its
-                      // content (overflow-y-auto), so a long file list can't run
-                      // the panel past the bottom of the screen. Desktop keeps the
-                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
-                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
-                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
+                    : chromeless
+                      ? // In a dock the host owns width and scrolling; imposing a
+                        // max-width here would leave a gap the user cannot close by
+                        // dragging the splitter, which reads as a broken panel.
+                        "min-w-0 overflow-y-auto scrollbar"
+                      : // Mobile: bound the panel to the viewport and SCROLL its
+                        // content (overflow-y-auto), so a long file list can't run
+                        // the panel past the bottom of the screen. Desktop keeps the
+                        // natural unbounded block layout (md:max-h-none md:overflow-visible).
+                        "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+                        "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
             }
         >
             {maximized && createPortal(
@@ -1031,13 +1052,16 @@ const StorageBrowser: React.FC = () => {
             )}
             <div className="flex justify-between items-center gap-2 mb-2">
                 <div className="min-w-0 flex-1">
-                    <h2 className="font-bold truncate">Storage</h2>
+                    {/* The dock header already says which panel this is. Repeating it
+                        inside was one of four places the same idea was spelled out —
+                        Library ▸ Storage ▸ "Storage" ▸ "Refresh file list". */}
+                    {!chromeless && <h2 className="font-bold truncate">Storage</h2>}
                     {/* Show the active scope so it's clear which space
                         this list reflects. Files uploaded under one
                         scope are invisible to a list query under another
                         — surfacing the name avoids the "I uploaded but
                         nothing shows" confusion when scope drifts. */}
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 truncate"
+                    <div className="text-[10px] uppercase tracking-wide text-content-muted truncate"
                          title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
                         scope: {currentScope?.name ?? "Shared"}
                     </div>
@@ -1067,10 +1091,10 @@ const StorageBrowser: React.FC = () => {
                         ref={plusBtnRef}
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
+                            "bg-accent hover:bg-accent active:bg-accent-subtle text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center disabled:opacity-60 " +
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
                         }
                         onClick={() => setPlusOpen((v) => !v)}
                         disabled={uploading}
@@ -1197,12 +1221,12 @@ const StorageBrowser: React.FC = () => {
                     <button
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
+                            "bg-accent hover:bg-accent active:bg-accent-subtle text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center " +
                             // 40px+ tap target on mobile per WCAG; tighter
                             // on desktop where the cursor is precise.
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
                         }
                         onClick={onRefresh}
                         title={refreshing ? "Refreshing — tap again to retry" : "Refresh file list"}
@@ -1225,7 +1249,7 @@ const StorageBrowser: React.FC = () => {
                         <button
                             type="button"
                             className={
-                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 cursor-pointer " +
+                                "bg-surface-2 hover:bg-surface-3 active:bg-surface-0 disabled:opacity-60 cursor-pointer " +
                                 "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
@@ -1241,10 +1265,10 @@ const StorageBrowser: React.FC = () => {
                     <button
                         type="button"
                         className={
-                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
+                            "bg-surface-2 hover:bg-surface-3 active:bg-surface-0 text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center " +
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
                         }
                         onClick={() => setMaximized((v) => !v)}
                         title={maximized ? "Restore compact panel" : "Maximize"}
@@ -1262,7 +1286,7 @@ const StorageBrowser: React.FC = () => {
                 );
                 const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
                 return (
-                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-edge bg-surface-0 flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-white whitespace-nowrap">
                             {selection.size} selected
                         </span>
@@ -1270,7 +1294,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={onLoadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
+                            className={`bg-accent hover:bg-accent active:bg-accent-subtle ${btn}`}
                         >
                             Load
                         </button>
@@ -1278,7 +1302,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={onUnloadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                            className={`bg-surface-2 hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                         >
                             {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                         </button>
@@ -1288,7 +1312,7 @@ const StorageBrowser: React.FC = () => {
                                 onClick={onMoveSelected}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be moved" : "Move selected files to a folder"}
-                                className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                                className={`bg-surface-2 hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                             >
                                 Move…
                             </button>
@@ -1299,7 +1323,7 @@ const StorageBrowser: React.FC = () => {
                                 onClick={() => void onDeleteSelected()}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
-                                className={`bg-red-800 hover:bg-red-700 active:bg-red-900 ${btn}`}
+                                className={`bg-fail hover:bg-fail active:bg-fail-subtle ${btn}`}
                             >
                                 {bulkBusy === "delete" ? "Deleting…" : "Delete"}
                             </button>
@@ -1308,7 +1332,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={clearSelection}
                             disabled={bulkBusy !== null}
-                            className={`ml-auto bg-gray-600 hover:bg-gray-500 ${btn}`}
+                            className={`ml-auto bg-surface-3 hover:bg-surface-3 ${btn}`}
                         >
                             Cancel
                         </button>
@@ -1316,7 +1340,7 @@ const StorageBrowser: React.FC = () => {
                 );
             })()}
             {opNote && (
-                <div className="mb-2 flex items-center gap-2 text-xs text-blue-300">
+                <div className="mb-2 flex items-center gap-2 text-xs text-accent">
                     <span
                         className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"
                         aria-hidden="true"
@@ -1336,10 +1360,10 @@ const StorageBrowser: React.FC = () => {
                                 : formatBytes(uploadLoaded)}
                         </span>
                     </div>
-                    <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
+                    <div className="mt-1 h-1 w-full bg-surface-2 rounded-sm overflow-hidden">
                         {uploadTotal > 0 ? (
                             <div
-                                className="h-full bg-blue-600 transition-[width] duration-200"
+                                className="h-full bg-accent transition-[width] duration-200"
                                 style={{
                                     width: `${Math.max(
                                         0,
@@ -1348,33 +1372,33 @@ const StorageBrowser: React.FC = () => {
                                 }}
                             />
                         ) : (
-                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                            <div className="h-full w-1/3 bg-accent animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
                         )}
                     </div>
                 </div>
             )}
             {proceduralModels.length > 0 && (
                 <div className="mb-1">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
+                    <div className="text-[10px] uppercase tracking-wide text-content-muted px-2">Procedural models</div>
                     {proceduralModels.map((m) => (
                         <div
                             key={m.id}
                             className={
-                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
-                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
+                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-surface-2 cursor-pointer " +
+                                (activeProcedural === m.id ? "bg-accent-subtle" : "")
                             }
                             onClick={() => void openProceduralModel(m)}
                             title="Procedural cell model (single database source) — click to open in the cellbuilder"
                         >
                             <ProceduralModelIcon className="shrink-0"/>
                             <span className="truncate text-sm">{m.name}</span>
-                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+                            <span className="text-[10px] text-info border border-info rounded-sm px-1">
                                 r{m.revision}
                             </span>
                             <span className="ml-auto flex items-center gap-1">
                                 {m.latest_glb_key && (
                                     <button
-                                        className="px-1 rounded-sm hover:bg-gray-500/40"
+                                        className="px-1 rounded-sm hover:bg-surface-3"
                                         title="View compiled result"
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -1385,7 +1409,7 @@ const StorageBrowser: React.FC = () => {
                                     </button>
                                 )}
                                 <button
-                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    className="px-1 rounded-sm hover:bg-surface-3"
                                     title="Delete procedural model"
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -1401,7 +1425,7 @@ const StorageBrowser: React.FC = () => {
             )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
                 <div
-                    className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
+                    className="text-xs italic text-content rounded-sm border border-dashed border-edge p-3"
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                         e.preventDefault();
@@ -1421,7 +1445,7 @@ const StorageBrowser: React.FC = () => {
                             onKeyDown={onListKeyDown}
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
-                                "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
+                                "focus-visible:ring-1 focus-visible:ring-accent rounded-sm " +
                                 // Desktop compact keeps the fixed 20rem cap;
                                 // maximized fills. On mobile compact the whole
                                 // panel scrolls (root overflow-y-auto), so the
@@ -1441,8 +1465,8 @@ const StorageBrowser: React.FC = () => {
                             {showRootDropStrip && (
                                 <div
                                     className={
-                                        "mb-1 px-2 py-1 text-[11px] text-gray-300 rounded-sm " +
-                                        "border border-dashed border-blue-500/60 bg-blue-900/20"
+                                        "mb-1 px-2 py-1 text-[11px] text-content rounded-sm " +
+                                        "border border-dashed border-accent bg-accent-subtle"
                                     }
                                     onDragOver={(e) => {
                                         e.preventDefault();
@@ -1459,7 +1483,7 @@ const StorageBrowser: React.FC = () => {
                             )}
                             {newFolderAt === "" && (
                                 <div className="flex items-center gap-1.5 px-2 py-1">
-                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                    <FolderClosedIcon className="shrink-0 text-accent"/>
                                     <InlineNameInput
                                         initial=""
                                         placeholder="New folder name"
@@ -1599,7 +1623,7 @@ const StorageBrowser: React.FC = () => {
                                                     className="flex items-center gap-1.5 px-2 py-1"
                                                     style={{paddingLeft: 8 + (depth + 1) * 12}}
                                                 >
-                                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                                    <FolderClosedIcon className="shrink-0 text-accent"/>
                                                     <InlineNameInput
                                                         initial=""
                                                         placeholder="New folder name"
@@ -1616,7 +1640,7 @@ const StorageBrowser: React.FC = () => {
                                     );
                                 };
                                 return (
-                                    <ul className="flex flex-col divide-y divide-gray-700/60">
+                                    <ul className="flex flex-col divide-y divide-edge">
                                         {tree.map((n) => renderNode(n, 0))}
                                     </ul>
                                 );

@@ -1321,3 +1321,67 @@ Worth recording how that check nearly went wrong: the first probe reported the m
 not open, because it clicked the trigger twice and toggled it shut again. The DOM said
 `aria-expanded="false"` and the portal was absent — both true, both meaningless. A probe
 that fires a toggle needs to assert the state it produced, not the state it expected.
+
+---
+
+## StorageBrowser re-chrome (phase 2), and four small corrections
+
+### Phase 2
+
+119 palette classes across the storage files became semantic tokens. `StorageBrowser`
+gained a `chromeless` prop so the dock draws the frame — one more box-in-a-box gone —
+and `StoragePanel` is the shell's entry point. Maximize survives in both, because "give
+this the whole window" is useful wherever the panel lives. **Allowlist 75 → 70.**
+
+### One name per idea
+
+`Library ▸ Storage ▸ "Storage" ▸ "Refresh file list"` said the same thing four times. The
+panel is **Files** (its id stays `storage` — a persisted layout key), its internal `<h2>`
+is gone because the dock header already names it, and the toolbar action is just
+**Refresh**. Library is the place; Files is what is in it.
+
+### Icons
+
+**Undo and redo** were Lucide's `rotate-ccw` — a near-complete circle. At 16px that reads
+as *refresh*, which is the worst possible neighbour for an actual Refresh button, and the
+direction that distinguishes undo from redo was a few pixels of arrowhead on a circle.
+They are now the flat hooked arrow every IDE uses: a bold horizontal arrowhead, then an
+arc away from it. The arrowhead is the largest feature, so left-versus-right is legible at
+a glance.
+
+**Convert and Refresh were the same glyph**, sitting next to each other in the Library
+toolbar. A circular arrow means "do that again"; conversion is a transformation between
+two things. `ConvertIcon` is opposed arrows.
+
+### The orientation gizmo was anchored to the wrong thing
+
+It used `position: fixed`, which pinned it to the bottom-right of the **browser window**.
+That was the same place as the bottom-right of the canvas back when the canvas was
+full-bleed. The shell gives the 3D view its own grid area, so the gizmo ended up
+underneath the right dock — glowing faintly through a translucent panel, and unclickable
+where they overlapped.
+
+`ThreeCanvas`'s container is already `relative`, so `position: absolute` anchors it to the
+viewport region: unchanged in the classic full-bleed layout, correctly beside the docks in
+the shell, and it follows a splitter drag for free — which a margin computed from the dock
+width would not.
+
+This is a specific instance of a general hazard worth naming: **`position: fixed` encodes
+an assumption that the window and the content region are the same rectangle.** Every such
+use is a latent bug once the app grows a layout.
+
+### A bulk rewrite that changed meaning, not just appearance
+
+The palette→token pass rewrote two entries of `GitHistoryPanel`'s `BRANCH_PALETTE` to
+`bg-pass` and `bg-warn` — silently claiming that a branch hashing to slot 0 had "passed"
+and slot 3 was a "warning".
+
+That array is a **categorical scale**: its only job is that seven branches look like seven
+different things. Semantic tokens are the wrong vocabulary for it, the same way they were
+wrong for the theme preset cards. It keeps literal colours and the file keeps its
+allowlist entry, now with the reason written above it.
+
+The lesson generalises past this one array: a codemap from palette to semantics assumes
+every colour *means* something. Colours used as identity — branches, categories, series in
+a chart — mean only "not that other one", and a semantic token is a false statement about
+them.

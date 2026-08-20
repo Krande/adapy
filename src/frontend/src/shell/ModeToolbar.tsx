@@ -88,8 +88,8 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
     // Library — moving data across the boundary.
     data: [
         {id: "upload", icon: "upload", label: "Upload files", why: needsRest, run: openUpload},
-        {id: "convert", icon: "reload", label: "Convert", why: needsRest, run: openConvert},
-        {id: "refresh", icon: "reload", label: "Refresh file list", why: needsRest, run: refreshFiles},
+        {id: "convert", icon: "convert", label: "Convert", why: needsRest, run: openConvert},
+        {id: "refresh", icon: "reload", label: "Refresh", why: needsRest, run: refreshFiles},
     ],
 
     // Build — the gizmos first, because they are the tools you switch between constantly
