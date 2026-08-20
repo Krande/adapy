@@ -184,10 +184,17 @@ export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle,
                 onClick={openCommandPalette}
             />
 
-            {/* Scope is the most consequential context in a multi-project deployment —
-                every file, conversion and job belongs to one. It was buried in the
-                Options drawer; persistent chrome is where it belongs. */}
-            <ScopePicker />
+            {/* No ScopePicker here.
+
+                Scope governs which files exist — upload under one and they are invisible
+                under another — so it now sits at the top of the Storage panel, next to
+                the list it filters. Two pickers for one piece of state is worse than
+                either alone: they are the same store, so they always agree, and a control
+                that never disagrees with the one beside it is just noise you have to
+                learn to ignore.
+
+                The page profile keeps its copy (see above): /convert and /admin have no
+                rail and no Storage panel, so there scope has no other home. */}
 
             {/* Plugin contributions.
                 These are hosted ONLY in the classic Menu.tsx, which the shell never

@@ -107,3 +107,21 @@ Two details that are easy to get wrong:
 size classes carry horizontal padding, and `cn` is a plain join, so two conflicting
 padding utilities are resolved by stylesheet order rather than by the order written. This
 is the third time that has bitten (`w-20` on `Input`, the `Slider` wrapper).
+
+## One scope picker, in Storage
+
+The title bar kept a copy of the scope dropdown after the Storage panel got its own. Two
+controls bound to the same store always agree, so the second one teaches you nothing and
+still has to be read and ignored. The title-bar copy is gone.
+
+Scope lives where its consequences are: it decides which files exist — upload under one
+and they are invisible under another — so it belongs at the top of the list it filters,
+the way a folder path does.
+
+The cost is real and worth stating: scope is now only visible while the Storage panel is
+open. That is the right trade because scope only matters when files do, but it does mean
+the answer to "which project am I in?" moved behind a toggle.
+
+The **page profile keeps its copy**. `/convert` and `/admin` have no rail and no Storage
+panel, so removing it there would leave scope with no home at all rather than a quieter
+one.
