@@ -1,5 +1,5 @@
 import React, {Suspense} from "react";
-import CollapsibleSection from "@/components/common/CollapsibleSection";
+import {CollapsibleSection} from "@/components/ui";
 import {runtime} from "@/runtime/config";
 import PointSizeOptions from "./PointSizeOptions";
 import DisplayOptions from "./DisplayOptions";

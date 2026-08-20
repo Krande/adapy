@@ -63,7 +63,7 @@ export const ToolsTab: React.FC = () => {
                   {s.xlsxBusy ? "Working…" : "Download IFC (detail)"}
                 </button>
                 <label
-                  className="flex items-center gap-1 text-gray-300 text-[11px] cursor-pointer"
+                  className="flex items-center gap-1 text-content text-[11px] cursor-pointer"
                   title="Splice real catalog CAD geometry for equipment in the IFC (off = placeholder boxes). Genie XML always uses the equipment concept type."
                 >
                   <input
@@ -87,9 +87,9 @@ export const ToolsTab: React.FC = () => {
           </div>
 
           {s.relocations && (
-            <div className="border border-amber-500/50 rounded-sm p-1 text-[12px]">
+            <div className="border border-warn rounded-sm p-1 text-[12px]">
               {s.relocations.proposals.length === 0 ? (
-                <p className="text-gray-300">
+                <p className="text-content">
                   {s.relocations.baseline_problems > 0
                     ? `No move found; ${s.relocations.unresolved.length} run(s) still unresolvable.`
                     : "Routing is clean — no relocations needed."}
@@ -97,7 +97,7 @@ export const ToolsTab: React.FC = () => {
               ) : (
                 <>
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-semibold text-amber-300">
+                    <span className="font-semibold text-warn">
                       {s.relocations.proposals.length} move
                       {s.relocations.proposals.length === 1 ? "" : "s"} proposed
                     </span>
@@ -119,16 +119,16 @@ export const ToolsTab: React.FC = () => {
                   </div>
                   <ul className="flex flex-col gap-0.5">
                     {s.relocations.proposals.map((p) => (
-                      <li key={p.equipment} className="text-gray-200 break-all">
-                        <span className="text-blue-300">{p.equipment}</span>{" "}
+                      <li key={p.equipment} className="text-content break-all">
+                        <span className="text-accent">{p.equipment}</span>{" "}
                         {p.from.map((v) => v.toFixed(1)).join(",")} →{" "}
                         {p.to.map((v) => v.toFixed(1)).join(",")}
-                        <span className="text-gray-500"> — {p.reason}</span>
+                        <span className="text-content-subtle"> — {p.reason}</span>
                       </li>
                     ))}
                   </ul>
                   {s.relocations.unresolved.length > 0 && (
-                    <p className="text-red-400 mt-0.5">
+                    <p className="text-fail mt-0.5">
                       still unresolved: {s.relocations.unresolved.join(", ")}
                     </p>
                   )}
@@ -138,12 +138,12 @@ export const ToolsTab: React.FC = () => {
           )}
 
           {s.resyncSummary && (
-            <div className="border border-blue-500/50 rounded-sm p-1 text-[12px]">
+            <div className="border border-accent rounded-sm p-1 text-[12px]">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="font-semibold text-blue-300">
+                <span className="font-semibold text-accent">
                   Equipment resync
                 </span>
-                <span className="text-gray-400">
+                <span className="text-content-muted">
                   {s.resyncSummary.updated.length} updated,{" "}
                   {s.resyncSummary.created.length} added,{" "}
                   {s.resyncSummary.unchanged.length} unchanged
@@ -161,21 +161,21 @@ export const ToolsTab: React.FC = () => {
               {s.resyncSummary.created.length +
                 s.resyncSummary.updated.length ===
               0 ? (
-                <p className="text-gray-300">
+                <p className="text-content">
                   Catalog already matched the code archetypes — nothing changed.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {[...s.resyncSummary.updated, ...s.resyncSummary.created].map(
                     (slug) => (
-                      <li key={slug} className="text-gray-200">
-                        <span className="text-blue-300">{slug}</span>
-                        <span className="text-gray-500">
+                      <li key={slug} className="text-content">
+                        <span className="text-accent">{slug}</span>
+                        <span className="text-content-subtle">
                           {s.resyncSummary!.created.includes(slug)
                             ? " (new)"
                             : " (updated)"}
                         </span>
-                        <ul className="ml-3 list-disc list-inside text-gray-400">
+                        <ul className="ml-3 list-disc list-inside text-content-muted">
                           {(s.resyncSummary!.changes[slug] ?? []).map((c, i) => (
                             <li key={i} className="break-all">
                               {c}

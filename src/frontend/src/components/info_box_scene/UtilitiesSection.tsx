@@ -1,6 +1,6 @@
 import React from "react";
 
-import CollapsibleSection from "@/components/common/CollapsibleSection";
+import {CollapsibleSection} from "@/components/ui";
 import FilePickerModal from "@/components/common/FilePickerModal";
 import {runtime} from "@/runtime/config";
 import {viewerApi, type ScopeUrl} from "@/services/viewerApi";

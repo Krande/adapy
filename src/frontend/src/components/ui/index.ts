@@ -10,6 +10,7 @@ export {cn, type ClassValue} from "./cn";
 
 export {
     Button,
+    buttonClasses,
     IconButton,
     ToggleButton,
     Spinner,
@@ -21,7 +22,8 @@ export {
     type ToggleButtonProps,
 } from "./Button";
 
-export {Input, Textarea, Field, FIELD_BASE, type InputProps, type TextareaProps, type FieldProps, type FieldSize} from "./Input";
+export {Input,
+    fieldClasses, Textarea, Field, FIELD_BASE, type InputProps, type TextareaProps, type FieldProps, type FieldSize} from "./Input";
 export {Select, type SelectProps} from "./Select";
 export {Slider, type SliderProps} from "./Slider";
 export {Checkbox, Switch, type CheckboxProps, type SwitchProps} from "./Checkbox";
@@ -36,6 +38,7 @@ export {Tooltip, type TooltipProps} from "./Tooltip";
 export {Splitter, type SplitterProps} from "./Splitter";
 export {Badge, StatusDot, Kbd, type BadgeProps, type Tone} from "./Badge";
 export {Dialog, type DialogProps} from "./Dialog";
+export {CollapsibleSection, type CollapsibleSectionProps} from "./CollapsibleSection";
 export {default as ConfirmHost} from "./ConfirmHost";
 
 export {Icon, ICONS, ICON_NAMES, type IconName, type IconProps, type IconSize} from "@/components/icons";

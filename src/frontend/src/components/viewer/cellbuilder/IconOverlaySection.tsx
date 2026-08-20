@@ -1,6 +1,6 @@
 import React from "react";
 import {useTypeIconsStore} from "@/state/typeIconsStore";
-import {Section} from "./Section";
+import {Section} from "./boxedSection";
 
 // Type-icon overlay toggles: a Factorio-style layer of icons over the model —
 // archetype icons on equipment (⚡ electrical, P pump, T tank), fluid/service
@@ -19,7 +19,7 @@ export const IconOverlaySection: React.FC = () => {
         Type icons
       </label>
       {icons.enabled && (
-        <div className="flex items-center gap-3 flex-wrap pl-5 text-gray-300">
+        <div className="flex items-center gap-3 flex-wrap pl-5 text-content">
           <label className="flex items-center gap-1">
             <input
               type="checkbox"

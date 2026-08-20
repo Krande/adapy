@@ -56,6 +56,22 @@ export const BUTTON_BASE =
     "select-none transition-colors duration-(--ada-dur-fast) " +
     "disabled:opacity-50 disabled:pointer-events-none";
 
+/**
+ * The exact classes `<Button variant size>` would apply, for the handful of places that
+ * must stay a bare <button>.
+ *
+ * The cellbuilder is the case this exists for: several hundred lines of dense tool rows
+ * where the elements carry their own refs, aria wiring and menu plumbing, and swapping
+ * each for <Button> would be a rewrite rather than a re-chrome. Exporting the classes
+ * means those buttons are styled BY the design system rather than to look like it —
+ * there is one definition of what a secondary button is, and it lives above.
+ *
+ * Prefer <Button>. Reach for this only when you cannot change the element.
+ */
+export function buttonClasses(variant: ButtonVariant = "secondary", size: ButtonSize = "md"): string {
+    return cn(BUTTON_BASE, VARIANT[variant], SIZE[size]);
+}
+
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: ButtonVariant;
     size?: ButtonSize;

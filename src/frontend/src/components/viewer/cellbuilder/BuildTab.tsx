@@ -33,7 +33,7 @@ export const BuildTab: React.FC = () => {
           <div className="flex items-center gap-1 flex-wrap">
             <button
               className={
-                s.mode === "add-cell" ? `${btn} ring-2 ring-blue-300` : btn
+                s.mode === "add-cell" ? `${btn} ring-2 ring-accent` : btn
               }
               onClick={() =>
                 s.setMode(s.mode === "add-cell" ? "idle" : "add-cell")
@@ -45,7 +45,7 @@ export const BuildTab: React.FC = () => {
             <button
               ref={openingBtnRef}
               className={
-                s.mode === "add-opening" ? `${btn} ring-2 ring-blue-300` : btn
+                s.mode === "add-opening" ? `${btn} ring-2 ring-accent` : btn
               }
               onClick={() => {
                 // Already placing → toggle back to idle; otherwise open the
@@ -69,7 +69,7 @@ export const BuildTab: React.FC = () => {
                 ignoreOutsideRef={openingBtnRef}
                 onClose={() => setOpeningMenuOpen(false)}
                 header={
-                  <span className="font-medium text-gray-200">Opening type</span>
+                  <span className="font-medium text-content">Opening type</span>
                 }
                 items={
                   s.openingTypes.length
@@ -102,7 +102,7 @@ export const BuildTab: React.FC = () => {
             <button
               ref={equipBtnRef}
               className={
-                s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
+                s.mode === "add-equipment" ? `${btn} ring-2 ring-accent` : btn
               }
               disabled={
                 s.equipmentTypes.length === 0 && s.selectedEquipmentType === null
@@ -130,7 +130,7 @@ export const BuildTab: React.FC = () => {
                 ignoreOutsideRef={equipBtnRef}
                 onClose={() => setEquipMenuOpen(false)}
                 header={
-                  <span className="font-medium text-gray-200">
+                  <span className="font-medium text-content">
                     Equipment type
                   </span>
                 }
@@ -182,7 +182,7 @@ export const BuildTab: React.FC = () => {
           {/* Keyboard scheme discoverability — a compact one-liner; the full
               set lives in the + Loft tooltip and the design cheat-sheet. */}
           <div
-            className="text-[11px] text-gray-400 leading-snug"
+            className="text-[11px] text-content-muted leading-snug"
             title="Keyboard-only modelling. Select a face (Tab cycles cell/face/edge); Arrow keys walk to the spatially-adjacent face relative to the camera (F/D cycle as a fallback). E extrudes a new cell from the face — type a depth, Enter commits (chains), Esc cancels. N/P step cells, 1–9 pick cell type, G/R/S move/rotate/resize. I inserts equipment into a cell (T type, N/P cell, Enter, then local X,Y). O adds an opening on the selected face (numeric X,Y,W,H,depth). Lofts: L new, E extend stack, F/D stations, S size, T rectangle/circle."
           >
             Keys: <b>E</b> extrude face · <b>Tab</b> cell/face/edge · <b>↑↓←→</b>{" "}
@@ -191,13 +191,13 @@ export const BuildTab: React.FC = () => {
           </div>
 
           {/* Live tool status — which pick mode and what the tool is doing now. */}
-          <div className="text-[11px] flex items-center gap-1.5 rounded-sm bg-black/25 border border-gray-700/60 px-2 py-1">
-            <span className="text-gray-500">Mode</span>
-            <span className="font-semibold text-blue-300 capitalize">
+          <div className="text-[11px] flex items-center gap-1.5 rounded-sm bg-black/25 border border-edge px-2 py-1">
+            <span className="text-content-subtle">Mode</span>
+            <span className="font-semibold text-accent capitalize">
               {s.selectMode}
             </span>
-            <span className="text-gray-600">·</span>
-            <span className="text-gray-200 truncate" title={describeToolState(s)}>
+            <span className="text-content-subtle">·</span>
+            <span className="text-content truncate" title={describeToolState(s)}>
               {describeToolState(s)}
             </span>
           </div>
@@ -207,7 +207,7 @@ export const BuildTab: React.FC = () => {
               needs no picker, the button just uses it. */}
           {s.cellTypes.length > 1 && (
             <div className="flex items-center gap-1 flex-wrap">
-              <span className="text-gray-300">cell</span>
+              <span className="text-content">cell</span>
               <select
                 className={`${inputCls} flex-1 min-w-0`}
                 value={s.selectedCellType ?? ""}
@@ -257,15 +257,15 @@ export const BuildTab: React.FC = () => {
               className="flex items-center gap-0.5"
               title="What a plain click selects — explicit: the mode decides (cell / face / nearest border edge), no hover auto-pick"
             >
-              <span className="text-gray-300 mr-1">select</span>
+              <span className="text-content mr-1">select</span>
               {(["none", "cell", "face", "edge"] as const).map((m) => (
                 <button
                   key={m}
                   className={
                     "px-1.5 py-0.5 rounded-sm " +
                     (s.selectMode === m
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                      ? "bg-accent text-white"
+                      : "bg-surface-2 text-content hover:bg-surface-3")
                   }
                   onClick={() => s.setSelectMode(m)}
                   aria-pressed={s.selectMode === m}
@@ -318,7 +318,7 @@ export const BuildTab: React.FC = () => {
           >
             <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
               {Object.values(s.cells).length === 0 && (
-                <p className="italic text-gray-400">
+                <p className="italic text-content-muted">
                   No cells yet — use + Cell to start, or open a template from the
                   storage “＋ New from template” menu.
                 </p>
@@ -327,10 +327,10 @@ export const BuildTab: React.FC = () => {
                 <div
                   key={c.id}
                   className={
-                    "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
+                    "flex items-center gap-1 border-b border-edge pb-0.5 cursor-pointer rounded-sm px-0.5 " +
                     (s.selection?.cellId === c.id
-                      ? "bg-blue-900/40"
-                      : "hover:bg-gray-700/40")
+                      ? "bg-accent-subtle"
+                      : "hover:bg-surface-2")
                   }
                   onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
                 >
@@ -352,13 +352,13 @@ export const BuildTab: React.FC = () => {
                     {c.name}
                   </span>
                   {c.kind === "equipment" && (
-                    <span className="text-gray-400">
+                    <span className="text-content-muted">
                       {c.equipmentType ?? "generic"}
                     </span>
                   )}
                   {c.kind === "opening" && (
                     <select
-                      className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
+                      className="bg-surface-2 text-content text-[11px] rounded-sm px-1"
                       value={c.subtype ?? "door"}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) =>
@@ -373,7 +373,7 @@ export const BuildTab: React.FC = () => {
                     </select>
                   )}
                   <button
-                    className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+                    className="ml-auto px-1 rounded-sm hover:bg-surface-3"
                     title="Delete"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -457,7 +457,7 @@ export const BuildTab: React.FC = () => {
               const fields = bp?.fields ?? [];
               if (fields.length === 0) return null;
               return (
-                <div className="flex flex-col gap-1 pl-2 ml-1 border-l border-gray-600/40">
+                <div className="flex flex-col gap-1 pl-2 ml-1 border-l border-edge">
                   {fields.map((f) => {
                     const cur = s.blueprintOptions[f.name] ?? f.default;
                     const label =
@@ -470,7 +470,7 @@ export const BuildTab: React.FC = () => {
                           className="flex items-center gap-1"
                           title={title}
                         >
-                          <span className="whitespace-nowrap text-gray-300">
+                          <span className="whitespace-nowrap text-content">
                             {label}
                           </span>
                           <select
@@ -493,7 +493,7 @@ export const BuildTab: React.FC = () => {
                       return (
                         <label
                           key={f.name}
-                          className="flex items-center gap-1 cursor-pointer text-gray-300"
+                          className="flex items-center gap-1 cursor-pointer text-content"
                           title={title}
                         >
                           <input
@@ -511,7 +511,7 @@ export const BuildTab: React.FC = () => {
                     return (
                       <label
                         key={f.name}
-                        className="flex items-center gap-1 text-gray-300"
+                        className="flex items-center gap-1 text-content"
                         title={title}
                       >
                         <span className="whitespace-nowrap">{label}</span>
@@ -622,14 +622,14 @@ export const BuildTab: React.FC = () => {
                 count={supportsGrouping ? s.groups.length : undefined}
               >
                 {!supportsGrouping ? (
-                  <div className="text-gray-400 text-xs">
+                  <div className="text-content-muted text-xs">
                     {eng?.name ?? s.selectedEngine} compiles a single blueprint;
                     grouping is available with a capability engine.
                   </div>
                 ) : (
                   <>
                     {s.groups.length === 0 && (
-                      <div className="text-gray-400 text-xs">
+                      <div className="text-content-muted text-xs">
                         No groups — every cell uses the model-level blueprint. Add
                         a group to give a set of cells its own blueprint.
                       </div>

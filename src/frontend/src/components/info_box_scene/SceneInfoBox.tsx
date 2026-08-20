@@ -1,6 +1,6 @@
 import React from "react";
 
-import CollapsibleSection from "@/components/common/CollapsibleSection";
+import {CollapsibleSection} from "@/components/ui";
 import LoadedModelsSection from "./LoadedModelsSection";
 import SourceSection from "./SourceSection";
 import StatsSection from "./StatsSection";

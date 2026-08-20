@@ -58,8 +58,8 @@ export const ConnectionAdder: React.FC<{
       className={
         "px-1.5 py-0.5 rounded-sm text-[10px] " +
         (mode === m
-          ? "bg-blue-600 text-white"
-          : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+          ? "bg-accent text-white"
+          : "bg-surface-2 text-content hover:bg-surface-3")
       }
       onClick={() => setMode(m)}
       aria-pressed={mode === m}
@@ -71,7 +71,7 @@ export const ConnectionAdder: React.FC<{
   return (
     <div className="flex flex-col gap-1 pl-3">
       <div className="flex items-center gap-1">
-        <span className="text-gray-500 text-[10px]">add</span>
+        <span className="text-content-subtle text-[10px]">add</span>
         {modeBtn("equip", "equipment")}
         {modeBtn("site", "site I/O")}
       </div>
@@ -114,7 +114,7 @@ export const ConnectionAdder: React.FC<{
             />
           )}
           <button
-            className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
+            className="px-1.5 py-0.5 rounded-sm bg-accent text-white disabled:opacity-40"
             disabled={!eq || !port}
             onClick={() => {
               onAdd({ equipment: eq, port });
@@ -173,7 +173,7 @@ export const ConnectionAdder: React.FC<{
             ))}
           </select>
           <button
-            className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
+            className="px-1.5 py-0.5 rounded-sm bg-accent text-white disabled:opacity-40"
             disabled={!siteName.trim()}
             onClick={() => {
               onAdd({

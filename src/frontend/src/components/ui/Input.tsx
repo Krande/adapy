@@ -20,6 +20,12 @@ export const FIELD_BASE =
     // constraint validation and manual validation converge on one visual.
     "aria-[invalid=true]:border-fail aria-[invalid=true]:bg-fail-subtle";
 
+/** The classes `<Input fieldSize>` would apply. Same rationale as buttonClasses —
+ *  for elements that must stay bare. Prefer <Input> / <Select>. */
+export function fieldClasses(fieldSize: FieldSize = "md"): string {
+    return cn(FIELD_BASE, SIZE[fieldSize]);
+}
+
 export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> {
     fieldSize?: FieldSize;
     /** Monospace — for ids, keys, coordinates and other machine values. */

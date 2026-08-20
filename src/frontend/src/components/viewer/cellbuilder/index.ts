@@ -3,7 +3,7 @@
 // be added here without touching the shell's import block again.
 export {CHROME, btn, btnGray, inputCls, FACE_LABELS} from "./chrome";
 export {describeToolState} from "./describeToolState";
-export {Section} from "./Section";
+export {Section} from "./boxedSection";
 export {IconOverlaySection} from "./IconOverlaySection";
 export {CompileLogSection} from "./CompileLogSection";
 export {ConnectionAdder} from "./ConnectionAdder";

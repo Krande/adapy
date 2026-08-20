@@ -26,7 +26,7 @@ export const ViewTab: React.FC = () => {
   return (
     <>
           <div className="flex items-center gap-1 flex-wrap">
-            <span className="text-gray-400 mr-1">Representation</span>
+            <span className="text-content-muted mr-1">Representation</span>
             <span
               className="inline-flex rounded-sm overflow-hidden text-[11px]"
               role="group"
@@ -56,8 +56,8 @@ export const ViewTab: React.FC = () => {
                   className={
                     "px-2 py-0.5 " +
                     (s.repMode === m
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                      ? "bg-accent text-white"
+                      : "bg-surface-2 text-content hover:bg-surface-3")
                   }
                   onClick={() => void s.setRepMode(m)}
                   aria-pressed={s.repMode === m}
@@ -73,7 +73,7 @@ export const ViewTab: React.FC = () => {
             </span>
           </div>
           <label
-            className="inline-flex items-center gap-1 text-gray-300 cursor-pointer"
+            className="inline-flex items-center gap-1 text-content cursor-pointer"
             title="Keep the editable topology cells visible underneath the compiled result (result superimposed on topology)"
           >
             <input
@@ -85,7 +85,7 @@ export const ViewTab: React.FC = () => {
             Superimpose topology under result
           </label>
           <label
-            className="inline-flex items-center gap-1 text-gray-300 cursor-pointer"
+            className="inline-flex items-center gap-1 text-content cursor-pointer"
             title="Show the compiled result BESIDE the editable topology (offset to the right) instead of on top of it. Edit the topology on the left and watch the result update on the right — ⇧↵ recompiles a preview without committing."
           >
             <input
@@ -120,8 +120,8 @@ export const ViewTab: React.FC = () => {
             Recenter model in scene
           </button>
 
-          <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-gray-600/40">
-            <span className="text-gray-400">Compile builds</span>
+          <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-edge">
+            <span className="text-content-muted">Compile builds</span>
             <label
               className="inline-flex items-center gap-1 cursor-pointer"
               title="Produce the simulation-level result (plates, beams, systems)"

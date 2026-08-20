@@ -4,7 +4,7 @@ import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {highlightSystems, revertSystemHighlight, systemColorHex} from "@/utils/viewer/systemColors";
 import {ConnectionAdder, orientLabel} from "./ConnectionAdder";
-import {Section} from "./Section";
+import {Section} from "./boxedSection";
 import {btn, btnGray, inputCls} from "./chrome";
 
 // The whole Systems tab body: list the service runs, their type, and which
@@ -67,7 +67,7 @@ export const SystemsTab: React.FC = () => {
               "px-1.5 py-0.5 rounded-sm text-white " +
               (highlighted
                 ? "bg-emerald-600 hover:bg-emerald-500"
-                : "bg-gray-700 hover:bg-gray-600")
+                : "bg-surface-2 hover:bg-surface-3")
             }
             title="Tint each system's routed geometry with its own colour (dims the rest). Needs a compiled model."
             onClick={() => {
@@ -78,7 +78,7 @@ export const SystemsTab: React.FC = () => {
             Highlight systems
           </button>
           <button
-            className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-40"
+            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content hover:bg-surface-3 disabled:opacity-40"
             disabled={!highlighted}
             title="Restore the original geometry colours"
             onClick={() => {
@@ -91,7 +91,7 @@ export const SystemsTab: React.FC = () => {
         </div>
       )}
       <div className="flex items-center gap-1 flex-wrap">
-        <span className="text-gray-300">add</span>
+        <span className="text-content">add</span>
         <select
           className={inputCls}
           value={effectiveSlug ?? ""}
@@ -106,7 +106,7 @@ export const SystemsTab: React.FC = () => {
           ))}
         </select>
         <button
-          className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-40"
+          className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content hover:bg-surface-3 disabled:opacity-40"
           disabled={!selectedAdd}
           onClick={() =>
             selectedAdd &&
@@ -122,7 +122,7 @@ export const SystemsTab: React.FC = () => {
         </button>
         {selectedAdd?.origin === "code" && (
           <button
-            className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
+            className="px-1 rounded-sm text-sky-300 hover:bg-surface-3"
             title="Sync this built-in system kind into the scope's DB catalog"
             onClick={() => void s.syncSystemTypeToDb(selectedAdd.slug)}
           >
@@ -131,7 +131,7 @@ export const SystemsTab: React.FC = () => {
         )}
       </div>
       {systems.length === 0 && (
-        <p className="italic text-gray-500">
+        <p className="italic text-content-subtle">
           No systems. Add one to route a run between equipment ports.
         </p>
       )}
@@ -142,8 +142,8 @@ export const SystemsTab: React.FC = () => {
           className={
             "rounded-sm p-1 flex flex-col gap-1 border " +
             (sys.name === focused
-              ? "border-blue-400 ring-1 ring-blue-400/60"
-              : "border-gray-700/60")
+              ? "border-accent ring-1 ring-accent"
+              : "border-edge")
           }
         >
           <div className="flex items-center gap-1">
@@ -173,7 +173,7 @@ export const SystemsTab: React.FC = () => {
               ))}
             </select>
             <button
-              className="px-1 rounded-sm hover:bg-gray-500/40"
+              className="px-1 rounded-sm hover:bg-surface-3"
               title="Delete system"
               onClick={() => s.removeSystem(sys.id)}
             >
@@ -182,14 +182,14 @@ export const SystemsTab: React.FC = () => {
           </div>
           {sys.connections.map((c, i) => (
             <div key={i} className="flex items-center gap-1 pl-3">
-              <span className="text-gray-400">→</span>
+              <span className="text-content-muted">→</span>
               {c.site ? (
                 <span
                   className="truncate"
                   title={`Site terminal at ${(c.position ?? [0, 0, 0]).join(", ")}, facing ${(c.directionVector ?? [0, 0, 1]).join(", ")}`}
                 >
                   ⌗ {c.site}{" "}
-                  <span className="text-gray-300">
+                  <span className="text-content">
                     (site {c.direction}
                     {c.directionVector
                       ? ` ${orientLabel(c.directionVector)}`
@@ -199,11 +199,11 @@ export const SystemsTab: React.FC = () => {
                 </span>
               ) : (
                 <span className="truncate">
-                  {c.equipment}.<span className="text-gray-300">{c.port}</span>
+                  {c.equipment}.<span className="text-content">{c.port}</span>
                 </span>
               )}
               <button
-                className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+                className="ml-auto px-1 rounded-sm hover:bg-surface-3"
                 title="Remove connection"
                 onClick={() => s.removeSystemConnection(sys.id, i)}
               >

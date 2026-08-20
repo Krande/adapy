@@ -908,3 +908,54 @@ on the new files — the ad-hoc chrome did not go away, it changed address. Regi
 them keeps the guard honest rather than silently widening it; phase 2 deletes all six
 lines at once. The class strings themselves are collected in `cellbuilder/chrome.ts`
 unchanged, so the re-chrome is one edit rather than five.
+
+---
+
+## CellBuilderPanel re-chrome (phase 2 of 2)
+
+113 palette classes across the cellbuilder became semantic tokens, and the three shared
+class strings became the design system's own.
+
+**`chrome.ts` no longer describes a button — it asks for one.** `btn`, `btnGray` and
+`inputCls` were hand-written Tailwind (three of the ~12 recipes M0 found for the same
+three roles). They are now `buttonClasses("primary","sm")`, `buttonClasses("secondary","sm")`
+and `fieldClasses("sm")` — the same functions `<Button>` and `<Input>` call. There is one
+definition of what a secondary button is, and the cellbuilder cannot drift from it.
+
+That required exporting `buttonClasses` / `fieldClasses` from the primitives. This is a
+deliberate escape hatch with a narrow justification: these roles land on several hundred
+dense tool rows whose elements carry their own refs, aria wiring, menu anchors and split
+borders (`btn + " rounded-r-none"`). Swapping each for `<Button>` is a rewrite, not a
+re-chrome, and phase 1 exists precisely so the two are not mixed in one diff. Both
+functions carry a docstring saying to prefer the component.
+
+**The grey collapse.** Five greys were doing the work of three roles — `text-gray-100/200/300`
+all meant body text, `-400` meant de-emphasised label, `-500/600` meant hint. They map to
+`text-content`, `text-content-muted`, `text-content-subtle`. This is where most of the
+"messy" impression came from: the same role rendered three different shades depending on
+which day the line was written.
+
+**One disclosure instead of two.** `common/CollapsibleSection` (Scene panel, Preferences)
+and the cellbuilder's private `Section` were the same component with different chrome and
+a count badge. Both deleted; `ui/CollapsibleSection` has a `divider` variant (a rule above
+the header — a column of primary groups) and a `boxed` variant (an outlined tinted card —
+occasional groups sitting among ordinary rows, where the box says "container, not another
+row"). `Section` in `Panel.tsx` remains the non-collapsible sibling.
+
+`defaultOpen` deliberately has **no** default on the shared component. The two originals
+disagreed — divider sections opened, boxed ones did not — and inheriting either silently
+would have flipped five cellbuilder groups open on a panel whose whole point is to start
+compact. The cellbuilder keeps a three-line `boxedSection` wrapper pinning its variant and
+default, rather than repeating `variant="boxed" defaultOpen={false}` at five call sites.
+
+**Allowlist 80 → 73.** All seven cellbuilder entries are gone, including the six that
+phase 1 had to add. `CellBuilderPanel.tsx` — on the allowlist since it was written — is
+off it.
+
+### A trap worth naming
+
+The bulk palette→token rewrite edited the *comment* in `chrome.ts` that quoted the old
+class names as examples, turning "these used to be `bg-blue-600`" into "these used to be
+`bg-accent`". Harmless here and caught by reading the diff, but a codemod that rewrites
+class strings will happily rewrite prose about class strings. Track B's codemods should
+operate on JSX attribute values, not on file text.

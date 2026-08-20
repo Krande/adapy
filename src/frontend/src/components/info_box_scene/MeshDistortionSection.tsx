@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useMeshPanelStore} from "@/state/meshPanelStore";
 import {useOptionsStore} from "@/state/optionsStore";
-import CollapsibleSection from "@/components/common/CollapsibleSection";
+import {CollapsibleSection} from "@/components/ui";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";

@@ -184,13 +184,13 @@ const CellBuilderPanel: React.FC = () => {
       className={
         "px-2.5 py-1.5 rounded-t-md font-semibold flex items-center gap-1 border-b-2 -mb-px whitespace-nowrap " +
         (tab === id
-          ? "border-blue-400 text-white"
-          : "border-transparent text-gray-400 hover:text-white hover:bg-white/5")
+          ? "border-accent text-white"
+          : "border-transparent text-content-muted hover:text-white hover:bg-white/5")
       }
     >
       {label}
       {badge != null && (
-        <span className="text-[10px] text-gray-400">{badge}</span>
+        <span className="text-[10px] text-content-muted">{badge}</span>
       )}
     </button>
   );
@@ -223,22 +223,22 @@ const CellBuilderPanel: React.FC = () => {
         aria-label="Drag to resize the panel"
       >
         <span
-          className="block w-10 h-1.5 rounded-full bg-gray-400/70"
+          className="block w-10 h-1.5 rounded-full bg-surface-3"
           aria-hidden="true"
         />
       </div>
 
       {/* ── pinned header ── */}
-      <div className="shrink-0 flex items-center gap-2 px-2.5 py-2 border-b border-gray-600/50">
+      <div className="shrink-0 flex items-center gap-2 px-2.5 py-2 border-b border-edge">
         <span className="font-semibold truncate" title={s.active.modelId}>
           {s.active.name}
         </span>
-        <span className="text-gray-400">r{s.active.revision}</span>
+        <span className="text-content-muted">r{s.active.revision}</span>
         {s.dirty && (
-          <span className="text-amber-400 whitespace-nowrap">● unsaved</span>
+          <span className="text-warn whitespace-nowrap">● unsaved</span>
         )}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          className="ml-auto px-1 rounded-sm hover:bg-surface-3 disabled:opacity-30"
           title="Undo (Ctrl+Z)"
           disabled={s.past.length === 0}
           onClick={s.undo}
@@ -246,7 +246,7 @@ const CellBuilderPanel: React.FC = () => {
           ↶
         </button>
         <button
-          className="px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          className="px-1 rounded-sm hover:bg-surface-3 disabled:opacity-30"
           title="Redo (Ctrl+Shift+Z)"
           disabled={s.future.length === 0}
           onClick={s.redo}
@@ -254,7 +254,7 @@ const CellBuilderPanel: React.FC = () => {
           ↷
         </button>
         <button
-          className="px-1 rounded-sm hover:bg-red-500/30"
+          className="px-1 rounded-sm hover:bg-fail-subtle"
           title="Close model"
           onClick={s.close}
         >
@@ -268,7 +268,7 @@ const CellBuilderPanel: React.FC = () => {
           4K @ 175%) a 1px sub-pixel rounding on the buttons spawns a stray
           vertical scrollbar. shrink-0 keeps the row from being squeezed. */}
       <div
-        className="shrink-0 flex gap-1 px-2 pt-1.5 border-b border-gray-600/50 overflow-x-auto overflow-y-hidden"
+        className="shrink-0 flex gap-1 px-2 pt-1.5 border-b border-edge overflow-x-auto overflow-y-hidden"
         role="tablist"
       >
         {tabBtn("build", "Build", cellCount)}
@@ -292,7 +292,7 @@ const CellBuilderPanel: React.FC = () => {
         <div className={tab === "equipment" ? "block" : "hidden"}>
           {tab === "equipment" && (
             <React.Suspense
-              fallback={<p className="text-gray-500">Loading catalog…</p>}
+              fallback={<p className="text-content-subtle">Loading catalog…</p>}
             >
               <EquipmentAdminPanel embedded />
             </React.Suspense>
@@ -308,8 +308,8 @@ const CellBuilderPanel: React.FC = () => {
               <SystemAdminPanel embedded />
             </React.Suspense>
           )}
-          <div className="mt-3 pt-2 border-t border-gray-600/50">
-            <div className="font-semibold text-gray-300 mb-1.5">
+          <div className="mt-3 pt-2 border-t border-edge">
+            <div className="font-semibold text-content mb-1.5">
               Service runs
             </div>
             <SystemsTab />
@@ -334,10 +334,10 @@ const CellBuilderPanel: React.FC = () => {
 
       {/* ── error / conflict banners (visible on any tab) ── */}
       {(s.conflict || compileState?.status === "error") && (
-        <div className="px-2.5 py-1 border-t border-gray-600/50">
-          {s.conflict && <p className="text-red-400">{s.conflict}</p>}
+        <div className="px-2.5 py-1 border-t border-edge">
+          {s.conflict && <p className="text-fail">{s.conflict}</p>}
           {compileState?.status === "error" && (
-            <p className="text-red-400">
+            <p className="text-fail">
               Compile failed: {compileState.error}
             </p>
           )}
@@ -345,7 +345,7 @@ const CellBuilderPanel: React.FC = () => {
       )}
 
       {/* ── pinned footer ── */}
-      <div className="flex items-center gap-2 px-2.5 py-2 border-t border-gray-600/50">
+      <div className="flex items-center gap-2 px-2.5 py-2 border-t border-edge">
         <span className="inline-flex">
           <button
             className={btn + " rounded-r-none flex items-center gap-1.5"}
@@ -410,7 +410,7 @@ const CellBuilderPanel: React.FC = () => {
         >
           {s.committing ? "Committing…" : "Commit"}
         </button>
-        <span className="ml-auto text-gray-400 whitespace-nowrap">
+        <span className="ml-auto text-content-muted whitespace-nowrap">
           r{s.active.revision}
         </span>
       </div>
