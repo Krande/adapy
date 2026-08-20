@@ -264,15 +264,20 @@ const SelectionSummary = () => {
                     {/* Unhide all is a scene-wide recovery action — it stays
                         available as long as any entity remains, even with no
                         selection, so you can always undo a Hide. */}
+                    {/* "Show all", not "Unhide all": the double negative made you parse
+                        it, and it is not the sentence you would say out loud. It keeps
+                        its place here, unlike Hide, because it is the RECOVERY action —
+                        the moment you need it is the moment you have hidden something and
+                        cannot see what you were working on. */}
                     <button
                         type="button"
                         onClick={onUnhideAll}
                         className={SECONDARY_ACTION}
-                        title="Unhide everything hidden in the scene (cells and geometry) (Shift+U)"
-                        aria-label="Unhide all"
+                        title="Show everything hidden in the scene, cells and geometry (Shift+U)"
+                        aria-label="Show all"
                     >
-                        <EyeIcon/>
-                        Unhide all
+                        <Icon name="show-all" size="sm"/>
+                        Show all
                     </button>
                     {/* Fit all frames the whole scene — a scene-wide action like
                         Unhide all, so it stays next to it and available even with

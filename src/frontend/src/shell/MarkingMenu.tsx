@@ -54,8 +54,14 @@ export default function MarkingMenu() {
             if (e.defaultPrevented) return;
             // Only inside the viewport: a right-click in a dock should still get the
             // browser's own menu (copying a value out of the data table, for instance).
-            const host = (e.target as HTMLElement | null)?.closest?.("[data-testid='viewport-host']");
+            const target = e.target as HTMLElement | null;
+            const host = target?.closest?.("[data-testid='viewport-host']");
             if (!host) return;
+            // …but not when something is covering the 3D. Convert mode paints the
+            // converter over the canvas, and a radial menu of camera and selection
+            // actions on top of a file-conversion form is nonsense — the model it would
+            // act on is not even visible.
+            if (target?.closest?.("[data-viewport-overlay]")) return;
             e.preventDefault();
 
             const cb = useCellBuilderStore.getState();

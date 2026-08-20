@@ -131,7 +131,7 @@ export function markingItemsFor(ctx: MarkingContext): MarkingItem[] {
     // ---- NW: unhide. Deliberately opposite Hide — the pair reads as one axis. ----
     items.push({
         id: "unhide-all",
-        label: "Unhide all",
+        label: "Show all",
         icon: "view",
         dir: "NW",
         disabledReason: ctx.hasEntities ? undefined : "Nothing is loaded",

@@ -55,7 +55,16 @@ export default function ViewportHost({visible = true, children, overlay}: Viewpo
             data-testid="viewport-host"
         >
             {overlay && (
-                <div className="absolute inset-0 z-10 overflow-auto scrollbar bg-surface-0">{overlay}</div>
+                <div
+                    // Tagged so viewport gestures can tell they are over something
+                    // COVERING the 3D rather than over the 3D. The marking menu opened on
+                    // top of the converter otherwise: it gates on being inside
+                    // viewport-host, and the overlay is inside it.
+                    data-viewport-overlay=""
+                    className="absolute inset-0 z-10 overflow-auto scrollbar bg-surface-0"
+                >
+                    {overlay}
+                </div>
             )}
             {children ?? (
                 <Suspense fallback={null}>

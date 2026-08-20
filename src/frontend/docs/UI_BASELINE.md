@@ -1776,3 +1776,41 @@ change** — it means reverting a widget drag whose edit is already coalesced on
 stack, so it is un-doing something the user may currently expect to keep. That belongs in
 its own change, with the decision made deliberately rather than as a side effect of adding
 Enter.
+
+---
+
+## The fifth silent loss, and a test for the class
+
+Right-click did nothing in Build mode. `Menu.tsx` rendered four cellbuilder overlays —
+the context menu, the port menu, the insert-equipment menu and the **gizmo HUD** — and
+the cutover deleted it. Nothing threw: the controller kept opening menus into a store
+nobody was rendering, and the only symptom was that right-click stopped responding. The
+gizmo HUD is the numeric entry field, so the Enter-to-accept work landed against a HUD
+that was not on screen.
+
+They are mounted in `OverlayLayer` now, gated on an open procedural model.
+
+**Five times** this rewrite has lost something to the same shape: the plugin top-bar
+regions, the legacy visibility flags, AuthGate, `useUrlParamLoad` + `RestModeUI`, and now
+these four. Always a component that is *rendered* somewhere rather than *imported*
+somewhere useful, so deleting its host leaves no dangling reference and no type error.
+
+`mountedOverlays.test.ts` now asserts that every such component is both referenced **and
+rendered** (`<Name`) somewhere under `src/shell`, and that `useUrlParamLoad` is *called*
+rather than merely imported. It checks its own anchors resolve before asserting — the
+lesson from `regionCompat`, which quietly became a test of nothing when the string it
+sliced on disappeared.
+
+### Two things this exposed downstream
+
+**The marking menu opened over the converter.** It gates on the event being inside
+`[data-testid='viewport-host']`, and Convert mode's overlay is *inside* that host — so
+right-clicking a file-conversion form produced a radial menu of camera and selection
+actions for a model that was not even visible. The overlay is tagged
+`data-viewport-overlay` and the menu now declines when the target is inside one:
+"in the viewport" and "over the 3D" had silently stopped being the same thing.
+
+**"Unhide all" was renamed in three places out of four.** The rail, the command palette
+and the shortcut registry got "Show all"; the marking menu kept the old label, because it
+builds its items from its own list. Worth noting as a smell — the label is data in four
+registries rather than one — though consolidating them is its own change.
