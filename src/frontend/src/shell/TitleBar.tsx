@@ -1,5 +1,5 @@
 import React from "react";
-import {Badge, Icon, IconButton, cn} from "@/components/ui";
+import {Badge, Button, Icon, IconButton, cn} from "@/components/ui";
 import {MODES, useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useShellPrefs} from "./shellPrefs";
@@ -33,9 +33,55 @@ const pluginNavBtnClass = (active: boolean) =>
 
 export interface TitleBarProps {
     showModeSwitcher: boolean;
+    /** Menus + command palette. Off for the single-purpose pages — see profiles.ts. */
+    showMenus?: boolean;
+    /** Names the page in the reduced bar, e.g. "Convert files". */
+    pageTitle?: string;
 }
 
-export default function TitleBar({showModeSwitcher}: TitleBarProps) {
+export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle}: TitleBarProps) {
+    // A page (/convert, /admin) gets a deliberately thin bar: who we are, what this page
+    // is, and the way back.
+    //
+    // The way back is the whole reason these routes were folded into the shell. They were
+    // reachable by URL and by a button in Preferences, and once you were there the only
+    // exits were the browser's Back button or editing the address bar — which is how a
+    // page stops feeling like part of the application.
+    if (!showMenus) {
+        return (
+            <header
+                style={{gridArea: "titlebar", zIndex: Z.dock}}
+                className="flex items-center gap-2 min-w-0 px-2 h-9 bg-surface-0 border-b border-edge"
+            >
+                <span className="shrink-0 px-1 text-sm font-semibold tracking-tight select-none">ada</span>
+                {pageTitle && (
+                    <>
+                        <span aria-hidden="true" className="shrink-0 w-px h-5 mx-1 bg-edge" />
+                        <span className="shrink-0 text-sm text-content">{pageTitle}</span>
+                    </>
+                )}
+
+                <span className="flex-1 min-w-0" />
+
+                <ScopePicker />
+
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    iconLeft={<Icon name="chevron" size="sm" className="rotate-180" />}
+                    onClick={() => {
+                        // A real navigation, not history.back(): the page may have been
+                        // opened directly from a link or a bookmark, in which case there
+                        // is nothing behind it to go back to.
+                        window.location.href = "/";
+                    }}
+                >
+                    Back to the viewer
+                </Button>
+            </header>
+        );
+    }
+
     const mode = useModeStore((s) => s.mode);
     const setMode = useModeStore((s) => s.setMode);
     const badges = useModeStore((s) => s.badges);

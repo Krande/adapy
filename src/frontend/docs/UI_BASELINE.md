@@ -1462,3 +1462,55 @@ unticked boxes for things that shipped years ago. It now covers how to run the t
 fixtures, where the code lives, the presentation/behaviour split, the three builds and why
 they fail differently, the test runner's explicit file list, and the known rough edges —
 including the ones this cutover left behind.
+
+---
+
+## /convert and /admin become shell pages
+
+They were reachable by URL and by a button in Preferences, and once you were there the
+only ways out were the browser's Back button or editing the address bar. That is how a
+page stops feeling like part of the application.
+
+Both now render `<AppShell profile="page">` with the page filling the viewport track via
+`viewportOverride` — the same slot the graph profile uses for ReactFlow.
+
+**The constraint that made them separate is kept, not traded away.** They still mount
+outside `AdaViewerProvider`, the profile still says `canvas: false`, and `CanvasWrapper`
+stays behind `ViewportHost`'s `React.lazy` boundary — so the 3D scene, the websocket and
+the tree never spin up, and three.js stays out of these routes' entry chunk in the
+chunk-split build. Verified in the browser: `/admin` renders with no `<canvas>` in the
+document at all. Only the dead end was given up.
+
+Two profile changes were needed, and both are about *not* showing things:
+
+* **`docks: false` for `page`.** The dock hosts render whatever the persisted layout says
+  the current mode has open — which on these routes would be viewer panels reaching for a
+  scene that was deliberately never mounted.
+* **`menus: false`, a new profile flag.** Nearly every command acts on the scene, the
+  selection or the layout, so a full menu bar here would be six titles of greyed entries;
+  and outside the provider a command that reached for viewer state would do worse than
+  no-op. The command palette travels with the menus for the same reason — they index the
+  same commands.
+
+The page bar is deliberately thin: who we are, what this page is, the scope, and the way
+back. "Back to the viewer" is a real navigation rather than `history.back()`, because the
+page may have been opened from a link or a bookmark with nothing behind it.
+
+## Two corrections
+
+**Greyed toolbar icons had unreachable tooltips.** A disabled button receives no pointer
+events — that is in `BUTTON_BASE` and it is also what browsers do natively — so its
+`title` never appeared. Every greyed icon was therefore unexplained, which defeats the
+entire point of greying *with a reason*: the reason existed and could not be read.
+`IconButton` now wraps a disabled button in a span that carries the tooltip and is not
+itself disabled, so hover still works.
+
+Worth generalising: **`disabled` is not just "cannot be clicked", it is "cannot be
+interacted with at all"** — no hover, no focus, no tooltip. Any design that explains
+itself on hover has to account for that, and the explanation is needed precisely when the
+control is disabled.
+
+**The "RIGHT DOCK" label is gone.** It was added to fill the header row once the tab strip
+was hidden in the stacked arrangement. But it names the *container*, not the content, and
+every stacked panel already carries its own header — filling an empty row is not a reason
+to put something in it. `DOCK_LABEL` still does its real job in the accessible names.

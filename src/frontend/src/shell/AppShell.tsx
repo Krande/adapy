@@ -42,11 +42,13 @@ import {useLegacyFlagSync} from "./useLegacyFlagSync";
 
 export interface AppShellProps {
     profile?: ProfileId;
-    /** Replaces the 3D canvas in the viewport track (the graph profile). */
+    /** Replaces the 3D canvas in the viewport track (the graph and page profiles). */
     viewportOverride?: React.ReactNode;
+    /** Names the page in the reduced title bar — page profile only. */
+    pageTitle?: string;
 }
 
-export default function AppShell({profile = "viewer", viewportOverride}: AppShellProps) {
+export default function AppShell({profile = "viewer", viewportOverride, pageTitle}: AppShellProps) {
     const p = profileDef(profile);
 
     // Deep links: ?file= / ?scope= / ?derived= load a model at boot.
@@ -106,7 +108,7 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
                 ].join(" "),
             }}
         >
-            <TitleBar showModeSwitcher={p.modeSwitcher} />
+            <TitleBar showModeSwitcher={p.modeSwitcher} showMenus={p.menus} pageTitle={pageTitle} />
 
             {p.toolRail && <ToolRail />}
 
@@ -202,8 +204,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
                 than a hand-kept list, so a bound key is a documented key. */}
             <HelpDialogs />
 
-            {/* Ctrl+K. Outside the grid — a modal overlay, not a region. */}
-            <CommandPalette />
+            {/* Ctrl+K. Outside the grid — a modal overlay, not a region.
+                Menus and palette travel together: both index commands that act on a
+                scene a page profile does not have. */}
+            {p.menus && <CommandPalette />}
 
             {/* Right-click in the viewport. Yields to the cellbuilder's own cell/port
                 menus, which claim the event by calling preventDefault. */}

@@ -128,16 +128,19 @@ const ICON_SIZE: Record<ButtonSize, string> = {
 };
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-    {tooltip, icon, variant = "ghost", size = "md", pressed, className, type, ...rest},
+    {tooltip, icon, variant = "ghost", size = "md", pressed, className, type, disabled, ...rest},
     ref,
 ) {
-    return (
+    const button = (
         <button
             ref={ref}
             type={type ?? "button"}
             aria-label={tooltip}
-            title={tooltip}
+            // Only on the enabled button. When disabled the wrapper below carries it,
+            // because a disabled element never fires the hover the tooltip needs.
+            title={disabled ? undefined : tooltip}
             aria-pressed={pressed}
+            disabled={disabled}
             className={cn(
                 BUTTON_BASE,
                 VARIANT[variant],
@@ -150,6 +153,23 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
         >
             {icon}
         </button>
+    );
+
+    if (!disabled) return button;
+
+    // A disabled button receives no pointer events — that is in BUTTON_BASE, and it is
+    // also what browsers do natively — so its `title` never shows. Every greyed toolbar
+    // icon was therefore unexplained, which defeats the entire point of greying with a
+    // reason: the reason existed and was unreachable.
+    //
+    // The fix is a wrapper that is not disabled and so still gets hover. `inline-flex`
+    // keeps it out of the layout's way (toolbars are flex rows and a plain span would
+    // stretch), and the wrapper is aria-hidden-free but carries no role, so assistive
+    // tech still reads the button's own disabled state rather than a phantom control.
+    return (
+        <span title={tooltip} className="inline-flex cursor-not-allowed">
+            {button}
+        </span>
     );
 });
 

@@ -137,12 +137,6 @@ export default function DockHost({dock}: DockHostProps) {
                     })}
                 </div>
 
-                {stacked && (
-                    <span className="shrink-0 px-1 text-xs font-semibold uppercase tracking-wide text-content-subtle">
-                        {DOCK_LABEL[dock]}
-                    </span>
-                )}
-
                 <span className="flex-1 min-w-0" />
 
                 <div className="flex items-center gap-0.5 shrink-0">

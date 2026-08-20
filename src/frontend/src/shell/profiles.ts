@@ -27,21 +27,36 @@ export interface ShellProfile {
     docks: boolean;
     /** Show the status bar. */
     statusBar: boolean;
+    /**
+     * Show the application menu bar and the command palette.
+     *
+     * Off for the single-purpose pages. Nearly every command acts on the 3D scene, the
+     * selection or the layout — none of which a /convert or /admin page has — so a full
+     * menu there would be six titles of greyed-out entries. Worse, those pages mount
+     * outside AdaViewerProvider on purpose, so a command that reached for viewer state
+     * would not merely no-op.
+     */
+    menus: boolean;
 }
 
 export const SHELL_PROFILES: Record<ProfileId, ShellProfile> = {
     // The full application.
-    viewer: {id: "viewer", canvas: true, modeSwitcher: true, toolRail: true, docks: true, statusBar: true},
-    // A canvas-less full-window workspace: /convert, /admin. Keeps the title bar so
-    // there is a way back to the viewer — the current standalone pages are a dead end.
-    page: {id: "page", canvas: false, modeSwitcher: false, toolRail: false, docks: true, statusBar: true},
+    viewer: {id: "viewer", canvas: true, modeSwitcher: true, toolRail: true, docks: true, statusBar: true, menus: true},
+    // A canvas-less full-window workspace: /convert, /admin. Keeps a reduced title bar,
+    // which is the entire point — these routes were a dead end with no way back.
+    //
+    // docks: false. The dock hosts render whatever the persisted layout says the current
+    // mode has open, which on these routes would be viewer panels (Outliner, Properties)
+    // reaching for a scene that was deliberately never mounted. The page fills the
+    // viewport track via viewportOverride instead.
+    page: {id: "page", canvas: false, modeSwitcher: false, toolRail: false, docks: false, statusBar: true, menus: false},
     // A popped-out single panel (?simfollow=). Title bar + one dock, nothing else.
-    window: {id: "window", canvas: false, modeSwitcher: false, toolRail: false, docks: true, statusBar: false},
+    window: {id: "window", canvas: false, modeSwitcher: false, toolRail: false, docks: true, statusBar: false, menus: false},
     // NODE_EDITOR_ONLY: the viewport region hosts ReactFlow instead of three.js.
-    graph: {id: "graph", canvas: false, modeSwitcher: false, toolRail: true, docks: true, statusBar: true},
+    graph: {id: "graph", canvas: false, modeSwitcher: false, toolRail: true, docks: true, statusBar: true, menus: true},
     // Jupyter / paradoc. Canvas plus optional panels, no chrome of our own — the host
     // page owns the surrounding layout.
-    embed: {id: "embed", canvas: true, modeSwitcher: false, toolRail: false, docks: false, statusBar: false},
+    embed: {id: "embed", canvas: true, modeSwitcher: false, toolRail: false, docks: false, statusBar: false, menus: false},
 };
 
 export const profileDef = (id: ProfileId): ShellProfile => SHELL_PROFILES[id] ?? SHELL_PROFILES.viewer;

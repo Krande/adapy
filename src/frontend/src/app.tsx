@@ -85,35 +85,49 @@ function App() {
     }
 
     if (isConvertPage) {
-        // Standalone /convert page. Mounted outside AdaViewerProvider
-        // so the 3D scene, websocket plumbing, and tree view never
-        // spin up — the page is just upload + pick target + download.
-        // AuthGate handles sign-in + populates the scope store from
-        // /api/me; the page itself auto-picks the user's own scope.
+        // Standalone /convert, now inside the shell on the page profile.
+        //
+        // Still outside AdaViewerProvider, and the profile still says canvas: false — so
+        // the 3D scene, the websocket and the tree never spin up, and ThreeCanvas stays
+        // out of this route's entry chunk. That was the reason these pages were separate
+        // in the first place and it has not been given up; only the dead end has.
+        //
+        // The page fills the viewport track via viewportOverride, which is the same slot
+        // the graph profile uses for ReactFlow.
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
-                        <ConvertPage/>
-                    </div>
+                    <AppShell
+                        profile="page"
+                        pageTitle="Convert files"
+                        viewportOverride={
+                            <Suspense fallback={null}>
+                                <ConvertPage/>
+                            </Suspense>
+                        }
+                    />
                 </AuthGate>
             </Suspense>
         );
     }
 
     if (isAdminPage) {
-        // Path-mounted /admin page. Outside AdaViewerProvider for
-        // the same reasons as /convert — no 3D, no websocket, no
-        // tree view. AuthGate gives us the user object so the panel
-        // can render its admin-only message for non-admins instead
-        // of a blank screen. Tab state syncs to URL hash so a
-        // refresh stays on /admin#<tab>.
+        // Path-mounted /admin, on the same page profile as /convert and for the same
+        // reasons. AuthGate gives the panel the user object so it can render its
+        // admin-only message rather than a blank screen; tab state still syncs to the URL
+        // hash, so a refresh stays on /admin#<tab>.
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
-                        <AdminPanel/>
-                    </div>
+                    <AppShell
+                        profile="page"
+                        pageTitle="Administration"
+                        viewportOverride={
+                            <Suspense fallback={null}>
+                                <AdminPanel/>
+                            </Suspense>
+                        }
+                    />
                 </AuthGate>
             </Suspense>
         );
