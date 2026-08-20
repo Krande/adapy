@@ -6,7 +6,7 @@ import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
-import {openFemConcepts, stopPlayback, toggleDataTable, toggleLegend, togglePlay} from "./resultsActions";
+import {anyAnimationActive, openFemConcepts, stopPlayback, toggleDataTable, toggleLegend, togglePlay} from "./resultsActions";
 import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel} from "./buildActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -25,6 +25,7 @@ import {runtime} from "@/runtime/config";
 import {gizmoReason} from "./gizmoRules";
 import {chosenTypeLabel, splitButtonState} from "./splitButton";
 import SectionPlaneControl from "./SectionPlaneControl";
+import ResultsControls from "./ResultsControls";
 
 // The mode's own tools, as a horizontal strip directly under the mode switcher.
 //
@@ -87,6 +88,8 @@ const needsFea = () =>
 const needsBuilder = () =>
     useCellBuilderStore.getState().active !== null ? null : "No procedural model is open";
 const needsRest = () => (runtime.isRestMode() ? null : "Only available in the hosted viewer");
+const needsAnimation = () =>
+    anyAnimationActive() ? null : "Nothing to play — load a result set or a model with animation";
 
 /**
  * Open the Scene panel at one of its tabs.
@@ -246,8 +249,12 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         // the third duplicated control group found this way, after section planes and
         // groups. The panel keeps the things that pick a VALUE (field, step, colormap,
         // deform scale); the toolbar takes the things that DO something.
-        {id: "play", icon: "play", label: "Play / pause deformation", pressed: () => useFeaAnimationStore.getState().isPlaying, why: needsFea, run: togglePlay},
-        {id: "stop", icon: "stop", label: "Stop and reset deformation to zero", why: needsFea, run: stopPlayback},
+        {id: "play", icon: "play", label: "Play / pause", pressed: () => useFeaAnimationStore.getState().isPlaying, why: needsAnimation, run: togglePlay},
+        {id: "stop", icon: "stop", label: "Stop and reset to the undeformed shape", why: needsAnimation, run: stopPlayback},
+        // Field, step, deformation scale, colormap. The Simulation panel was these plus
+        // the transport; the transport moved out first, and a docked panel holding one
+        // column of dropdowns is a quarter of the window spent on controls you set once.
+        {id: "res-display", icon: "settings", label: "Field, step and display options", render: () => <ResultsControls />},
         div("d1"),
         {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
         {id: "table", icon: "fem-data", label: "Result data table", why: needsFea, run: toggleDataTable},

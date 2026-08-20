@@ -3,6 +3,10 @@ import type {IconName} from "@/components/icons";
 import type {DockId} from "./regions";
 import type {ModeId} from "./modeStore";
 import {runtime} from "@/runtime/config";
+// Straight from the registry module, NOT the @/plugins barrel: the barrel re-exports the
+// slot components, which reach stores, which reach the model worker — and any test that
+// imports this file then dies on ?worker&inline. Sixth occurrence of that trap.
+import {hasSimulationContributors} from "@/plugins/registry";
 import {useMeStore} from "@/state/meStore";
 
 // The panel catalogue.
@@ -109,14 +113,23 @@ export const PANELS: Record<PanelId, PanelDef> = {
         hint: "Loaded models, sections, quantities, mesh QA",
         component: lazy(() => import("@/components/info_box_scene/ScenePanel")),
     },
+    // Plugin tabs only.
+    //
+    // Its built-in content — field, component, step, deform scale, colormap — is in the
+    // Results toolbar's display popover now, and the transport went there earlier. What
+    // is left is the host for plugin `fem-sidebar` panels, which have nowhere else to
+    // go, so the panel stays registered and simply is not offered when no plugin
+    // contributes one. Deleting it outright would have dropped plugin panels silently,
+    // which is inventory row B11 all over again.
     simulation: {
         id: "simulation",
         title: "Simulation",
         icon: "play",
         modes: ["results"],
         defaultDock: "right",
-        defaultOpen: true,
-        hint: "Result fields, deformation and playback",
+        defaultOpen: false,
+        available: hasSimulationContributors,
+        hint: "Plugin-contributed result views",
         component: lazy(() => import("@/components/simulation/SimulationControls")),
     },
     "builder-components": {

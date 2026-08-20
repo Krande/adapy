@@ -92,7 +92,7 @@ function defaultLayout(mode: ModeId): ModeLayout {
             break;
         case "results":
             put("left", ["outliner"], true);
-            put("right", ["simulation", "properties"]);
+            put("right", ["properties"]);
             // The direct fix for "panels cover the 3D". Present but COLLAPSED: the table
             // is the thing you open when you want numbers, and defaulting it open would
             // spend 220px of viewport on an empty grid for every user who only wants to

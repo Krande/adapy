@@ -457,6 +457,24 @@ export interface SimulationTabEntry {
  * tab; each carries its owning `pluginId` so core can build a per-plugin ctx and
  * ErrorBoundary-wrap the mount. Empty when no plugin advertises a tab (the panel
  * then looks byte-identical to the pre-plugin Simulation panel). */
+/**
+ * Could any registered plugin contribute a Simulation-panel view?
+ *
+ * Context-free on purpose: the panel registry has to answer "is this panel offered at
+ * all" before any store context exists, and it only needs to know whether the question is
+ * worth asking. Deliberately optimistic — it ignores activationPredicate, so a panel
+ * whose predicate is currently false still counts. Offering an empty panel is a smaller
+ * failure than hiding the tab a plugin registered.
+ */
+export function hasSimulationContributors(): boolean {
+    for (const p of _registry.values()) {
+        for (const panel of p.panels) {
+            if (panel.region === "fem-sidebar") return true;
+        }
+    }
+    return false;
+}
+
 export function getSimulationTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
   const entries = getPanelsForRegion("fem-sidebar", ctx)
     .filter(({ panel }) => !!panel.asTab)

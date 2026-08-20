@@ -5,6 +5,8 @@ import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useLayoutStore} from "./layoutStore";
 import {useModeStore} from "./modeStore";
+import {animationControllerRef} from "@/state/refs";
+import {useAnimationStore} from "@/state/animationStore";
 
 // Results-mode rail actions.
 //
@@ -38,10 +40,29 @@ export function feaSessionActive(): boolean {
     return useFeaAnimationStore.getState().sessionActive;
 }
 
-/** Start or stop the deformation sweep. */
+/**
+ * Is there any animation at all — an FEA deformation sweep, or a GLTF clip?
+ *
+ * The transport used to require an FEA session, which left the toolbar's play and stop
+ * greyed out for a GLTF model whose clips were perfectly playable. That was invisible
+ * while the Simulation panel carried its own play button; with the panel gone it would
+ * have meant no way to play a clip at all.
+ */
+export function anyAnimationActive(): boolean {
+    if (useFeaAnimationStore.getState().sessionActive) return true;
+    const names = animationControllerRef.current?.getAnimationNames() ?? [];
+    return names.length > 0;
+}
+
+/** Start or stop whichever animation is live. */
 export function togglePlay(): void {
     const s = useFeaAnimationStore.getState();
-    s.setIsPlaying(!s.isPlaying);
+    if (s.sessionActive) {
+        s.setIsPlaying(!s.isPlaying);
+        return;
+    }
+    // GLTF clip: the mixer owns play state, so ask it rather than mirroring it here.
+    animationControllerRef.current?.togglePlayPause();
 }
 
 /**
@@ -57,6 +78,13 @@ export function togglePlay(): void {
  */
 export function stopPlayback(): void {
     const s = useFeaAnimationStore.getState();
+    if (!s.sessionActive) {
+        animationControllerRef.current?.stopAnimation();
+        // The scrubber reads its position from the store, so a stop that only told the
+        // mixer would leave the slider parked where the clip was when it stopped.
+        useAnimationStore.getState().setCurrentKey(0);
+        return;
+    }
     s.setIsPlaying(false);
     s.setFactor(0);
     const mesh = getActiveFeaMesh();

@@ -131,6 +131,29 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     );
 };
 
+/**
+ * The built-in animation controls, without a panel around them.
+ *
+ * Exported so the Results toolbar can host them: the Simulation panel is no longer part
+ * of a stock Results layout, and these are the only things in it that are not
+ * plugin-contributed.
+ *
+ * Which set you get follows the SESSION, not the mode. An FEA result and a GLTF clip are
+ * different animations with genuinely different knobs, and picking between them here
+ * rather than at each call site is what stops the toolbar and the panel disagreeing about
+ * which one is playing.
+ */
+export const AnimationControls: React.FC = () => {
+    const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
+    // Data-panel toggling belongs to the toolbar, and has since the transport moved.
+    const noop = () => {};
+    return sessionActive ? (
+        <FeaModeControls showSimData={false} onToggleData={noop} />
+    ) : (
+        <GltfClipControls showSimData={false} onToggleData={noop} />
+    );
+};
+
 // Built-in "animation" tab — the FEA / GLTF transport controls, the optional
 // data panel, plus the additive plugin color-field picker and any buttonless
 // fem-sidebar panels (asTab panels are hoisted to their own tabs instead).
@@ -794,21 +817,13 @@ const GearIcon: React.FC = () => (
     </svg>
 );
 
-const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+const GltfClipControls: React.FC<ControlPanelProps> = () => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
 
     const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const animationName = e.target.value;
         animationControllerRef.current?.setCurrentAnimation(animationName);
-    };
-
-    const togglePlayPause = () => {
-        animationControllerRef.current?.togglePlayPause();
-    };
-
-    const stopAnimation = () => {
-        animationControllerRef.current?.stopAnimation();
     };
 
     const seekAnimation = (time: number) => {
@@ -822,9 +837,14 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     }, [selectedAnimation]);
 
     return (
-        <div className="flex flex-row items-center gap-x-2 min-w-0">
+        <div className="flex w-full flex-col gap-2 min-w-0 text-xs text-white">
+            <label className="flex items-center gap-2 min-w-0">
+            <span className="shrink-0 text-content">Clip</span>
             <select
-                className={`${fieldClasses("sm")} w-60 font-semibold`}
+                // Was a fixed w-60 with no min-w-0: in a narrow dock the row ran past
+                // the panel and the clip name clipped mid-word, which is what made
+                // "No Animation" unreadable.
+                className={`${fieldClasses("sm")} min-w-0 flex-1 truncate`}
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
@@ -837,26 +857,10 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     </option>
                 ))}
             </select>
+            </label>
 
-            <button
-                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                onClick={togglePlayPause}
-            >
-                <PlayPauseIcon/>
-            </button>
-            <button
-                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                onClick={stopAnimation}
-            >
-                <StopIcon/>
-            </button>
-            <button
-                className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                onClick={onToggleData}
-            >
-                <FEMDataPanelIcon/>
-            </button>
-            <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
+            <div className="flex w-full items-center gap-2 min-w-0">
+                <span className="shrink-0 text-content">Time</span>
                 <input
                     type="range"
                     min="0"

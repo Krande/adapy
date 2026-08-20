@@ -214,3 +214,47 @@ as a broken slider.
 
 The marking menu's "Section planes" entry now arms the clip strip instead of opening a
 Scene tab that no longer exists.
+
+## The Simulation panel is plugin-only now
+
+Its built-in content had already been leaving for the toolbar — play, stop, the legend and
+the data table went first. What stayed was everything that picks a *value*: field,
+component, step, deformation scale, colormap, layer, IP reduction. That left a permanently
+docked panel holding one column of dropdowns, spending a quarter of the window on controls
+you set once and then leave alone.
+
+Those moved into a **display popover** on the Results toolbar. A popover is the honest
+shape for that content: on screen while you set it, gone afterwards, with the 3D getting
+the space back. It is not a panel demoted — it is the same controls, hosted where their
+lifetime actually is.
+
+**The panel stays registered.** Plugin `fem-sidebar` panels have no other host, so deleting
+it outright would drop them silently — inventory row B11 again, the same class of failure
+as the four cellbuilder overlays lost with `Menu.tsx`. It is now `available:
+hasSimulationContributors` and `defaultOpen: false`, so a stock Results layout has no
+Simulation panel and a plugin install still gets one.
+
+Two things the move exposed:
+
+- **The transport was FEA-only.** `togglePlay` and `stopPlayback` required a live FEA
+  session, which greyed them out for a GLTF model whose clips were perfectly playable.
+  Invisible while the panel carried its own play button; with the panel gone it would have
+  meant no way to play a clip at all. They now fall through to the mixer, and `stop` zeroes
+  `currentKey` too — the scrubber reads its position from the store, so a stop that only
+  told the mixer would leave the slider parked where the clip stopped.
+- **A fifth duplicated control group.** The GLTF path had its own play / stop / data
+  buttons, drawn differently from the toolbar's. Gone; the clip picker and time scrubber
+  stay, because those choose a value.
+
+The clip picker was also the "No animation" dropdown that was unreadable: a fixed `w-60`
+with no `min-w-0`, in a row built for a panel as wide as the window, so in a narrow dock
+everything competed for one line and the clip name — the thing you actually read — got the
+least of it. It is a labelled column now.
+
+**Two traps hit again, both already in this document.** The popover drew transparent, with
+the Storage header showing straight through the controls: panel surfaces carry alpha in the
+glass presets and CSS cannot flatten it, so it needs an opaque `surface-0` base with the
+tinted layer stacked on top. And `panelRegistry` importing the `@/plugins` barrel pulled in
+the slot components, which reach stores, which reach the model worker — every test touching
+the registry died on `?worker&inline`. Sixth occurrence. Import `@/plugins/registry`
+directly.
