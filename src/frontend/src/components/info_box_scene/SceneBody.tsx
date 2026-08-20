@@ -1,6 +1,9 @@
 import React from "react";
 import {CollapsibleSection, Tabs} from "@/components/ui";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useStatsStore} from "@/state/statsStore";
 import {shouldStackTabs} from "@/shell/tabArrangement";
 import LoadedModelsSection from "./LoadedModelsSection";
 import SourceSection from "./SourceSection";
@@ -53,6 +56,31 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     fem: "fem",
     joints: "joints",
 };
+
+/**
+ * Which contextual tabs currently have anything to show.
+ *
+ * A question about the loaded model, not about presentation — which is why it is a hook
+ * beside the body rather than logic inside it, and why every entry point calls the same
+ * one instead of each deciding for itself.
+ */
+export function useSceneContextTabs(): Partial<Record<SceneTab, boolean>> {
+    // FEM appears when the model carries FE concepts (masses / boundary conditions /
+    // load cases) OR whenever an FEA result session is active — any FEA result file
+    // (e.g. a Sesam SIN) streams through the FEA path and enables the mesh tools even
+    // when the result carries no baked concepts, so the tab must not be limited to
+    // concept-carrying models.
+    const femHasConcepts = useFemConceptsStore(
+        (s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0,
+    );
+    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
+
+    // Joints appears only when the take-off carries fabrication-detail joints — a model
+    // compiled with a detailing engine.
+    const hasJoints = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
+
+    return {fem: femHasConcepts || feaSessionActive, joints: hasJoints};
+}
 
 /** One group's content. Identical in both arrangements — only the container changes. */
 function TabContent({tab, isMobile}: {tab: SceneTab; isMobile: boolean}) {

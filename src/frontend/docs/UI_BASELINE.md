@@ -1385,3 +1385,80 @@ The lesson generalises past this one array: a codemap from palette to semantics 
 every colour *means* something. Colours used as identity — branches, categories, series in
 a chart — mean only "not that other one", and a semantic token is a false statement about
 them.
+
+---
+
+## M8 — cutover
+
+Two commits: flip, then delete. Deliberately not one. The flip is the reversible half and
+wants to be bisectable on its own; the deletion is a large diff whose review question is
+"is anything still reachable", which is not a question you want mixed with "does the new
+default work".
+
+### What went
+
+`Menu.tsx`, `InViewerPanelHost.tsx`, `OptionsComponent.tsx`, `SceneInfoBox.tsx`, the whole
+`AppBody` tree, and the URL branch chain that chose between two UIs. `app.tsx` is 154
+lines and does only routing. Allowlist 70 → 68.
+
+### The fourth instance of the same trap
+
+Deleting `AppBody` would have silently removed two things nothing else mounted:
+
+* **`useUrlParamLoad()`** — every `?file=` / `?scope=` / `?derived=` deep link into the
+  viewer.
+* **`RestModeUI`** — the conversion-progress toasts and the upload context menu. A
+  conversion started from the shell would have reported its progress nowhere.
+
+That is now four times this rewrite has found bootstrap work hiding inside a component
+the shell does not render — after the plugin top-bar regions, the legacy visibility flags,
+and AuthGate. The shape is always identical: a hook or a mount with a side effect, living
+in a *layout* component because that is where someone happened to be typing, invisible to
+any search for "what does this app do at startup". **Neither would have thrown.** The
+symptom is a feature that quietly is not there.
+
+The lesson for anyone deleting a layout component: grep it for hooks and for components
+rendered but never referenced elsewhere, *before* deleting it. Type-checking will not help
+— removing the only caller of a side effect is perfectly well-typed.
+
+### Two things the plan said to delete that survive, with reasons
+
+**`useLegacyFlagSync`.** The plan reasoned that these visibility booleans existed only for
+the classic UI, so removing the classic UI removes the need. That was wrong. They are
+fields on two *business-logic* stores that their own panels read (`CellBuilderPanel` gates
+on `panelVisible`, `SimulationDataInfoPanel` on `isPanelOpen`); the classic UI merely
+happened to be what wrote them. Deleting the bridge leaves two docked panels rendering an
+empty box with no error — the panel is mounted, it just decides not to draw. Removing it
+properly means un-gating both panels and re-pointing external callers, which is work under
+the business-logic fence and its own change.
+
+**`?shell=0`.** Kept for one transition period so a regression has a workaround and can be
+demonstrated side by side. The stored preference still wins over the new default, so
+anyone who explicitly chose the classic UI stays there until they clear it: a default
+changing underneath someone should not override a choice they made.
+
+`embed/EmbedUI.tsx` also survives. It imports from `embed/`, not `src/`, so it was missed
+by the import scan and only surfaced when `build:embed` failed — a useful reminder that
+the three builds check different things. It now frames the shared `SceneBody` itself. It
+is still a hand-rolled miniature of the shell, and replacing it with
+`<AppShell profile="embed" />` is a rebuild, not a rename.
+
+### A test that would have passed while asserting nothing
+
+`regionCompat.test.ts` checked the shell mounts `AuthGate` by slicing `app.tsx` between
+`if (useNewShell)` and `if (isAuthCallback)`. Cutover removed `useNewShell`, so
+`indexOf` returned −1 and the slice became a prefix of the file — the assertion still
+found `AuthGate` somewhere in it and passed. It failed here only by luck of ordering.
+
+Re-anchored on the viewer branch's own markup, and it now asserts the anchor was found
+before asserting anything about it. **A source-text test must fail loudly when its anchor
+disappears**, or it degrades into a test of nothing at exactly the moment the code it
+guards is being restructured.
+
+### `frontend.md`
+
+Rewritten. It was a 2023-era feature TODO describing a websocket GLB viewer, with
+unticked boxes for things that shipped years ago. It now covers how to run the thing, the
+fixtures, where the code lives, the presentation/behaviour split, the three builds and why
+they fail differently, the test runner's explicit file list, and the known rough edges —
+including the ones this cutover left behind.

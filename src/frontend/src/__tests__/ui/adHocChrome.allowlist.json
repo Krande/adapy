@@ -1,6 +1,4 @@
 [
-    "src/components/InViewerPanelHost.tsx",
-    "src/components/Menu.tsx",
     "src/components/WebsocketStatusMenu.tsx",
     "src/components/admin/AdminPanel.tsx",
     "src/components/admin/AuditLogTab.tsx",

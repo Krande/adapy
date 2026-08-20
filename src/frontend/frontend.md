@@ -1,26 +1,108 @@
-# Adapy-viewer
+# The adapy viewer frontend
 
-A simple threejs (three-fiber to be precise) based viewer for Adapy.
+A React + three.js application for looking at, post-processing, authoring and moving
+engineering models. It started as a websocket GLB viewer; it is now four workspaces over
+one 3D scene, and the name "viewer" has stayed for the same reason "Photoshop" did.
 
-It should be able to load any Adapy design or FE model and display it in the browser. 
-The 3D models are sent as GLB files over a websocket connection along with instructions packaged in a json object.
-This makes it possible to view the model in the browser without having to install any additional software. 
+## Getting it running
 
-The viewer component should be sufficiently separated from the rest of the code so that it can be used in other 
-projects. It should also be possible to 
+```bash
+npm install
+npm run dev              # http://localhost:5173
+npm run dev -- --host    # reachable from another device on the LAN
+npm run dev:rest         # same, but pretending to be the hosted deployment
+```
 
-## TODO
+A bare dev server has no server and no model, so two fixtures ship with the repo:
 
-- [x] Send and receive GLB models over websocket
-- [x] Add support for animations
-  - [x] Add support for translations
-  - [x] Add support for rotations
-  - [x] Add support for deformations
-- [x] Add a color legend for the simulation colorized models
-- [x] Add websocket support for 2-way communication (receive GLB models and send back data-requests)
-- [ ] Create a json object to hold both design and simulation over websocket in the same message
-- [ ] Add a toggle to switch between design and simulation
-- [ ] Add a REST api mode to serve the viewer as a standalone application
-- [ ] Add a plotly based plotter for the simulation results.
-  - [ ] Basic static support
-  - [ ] Support animations using the same time slider as the 3D viewer.
+| URL | What you get |
+|---|---|
+| `?demo=1` | a small structural model — enough to exercise selection, the tree and properties |
+| `?build=1` | a procedural model open in the cellbuilder |
+| `?uikit=1` | the design-system gallery (dev builds only) |
+| `?shell=0` | the pre-rebuild UI, for one transition period |
+
+`npm run dev:rest` adds a stub REST backend (scopes, a file list, blob reads), which is
+the only way to see the Library workspace, upload, conversion or admin.
+
+## Layout of the code
+
+```
+src/
+  shell/        the application frame: menus, modes, docks, command palette, layout state
+  components/   panels and the design system (components/ui)
+  state/        zustand stores — business logic, not presentation
+  utils/        three.js controllers, picking, cellbuilder, storage, scene handlers
+  services/     network: websocket, REST, conversion engines
+  plugins/      the extension-point registry
+```
+
+The important split is **`shell/` and `components/ui/` own presentation; `state/`,
+`utils/` and `services/` own behaviour.** A change that makes the UI prettier should not
+appear in the second group. The rebuild that produced the current shell held that line
+deliberately — see `docs/UI_BASELINE.md`, which records what was decided and why, and is
+worth reading before making structural changes.
+
+## The frame
+
+**Menus** — `File · Edit · View · Tools · Window · Help`, generated from the command
+registry rather than hand-listed. Add a command in `shell/commands.ts` and name its id in
+`shell/menuModel.ts`; a typo fails a test rather than leaving a gap someone has to find.
+
+**Modes** — `Library · Build · Inspect · Results`. Ordered as work flows. A mode changes
+which *panels* are offered and which tools sit in the strip under the switcher; it never
+changes selection, camera, visibility or what is loaded, and it never activates itself.
+That contract is written at the top of `shell/modeStore.ts` and enforced by
+`modeSemantics.test.ts`.
+
+**Panels** — one entry each in `shell/panelRegistry.ts`. Registering a panel is all it
+takes to get a menu item, a command-palette entry and a dock home.
+
+**Docks** — hand-rolled, not a docking library. `ThreeCanvas` appends its WebGL canvas
+imperatively, and every docking library re-parents DOM nodes when you drag a tab, which
+would orphan the canvas. Docks and panels also choose between tabbed and stacked
+arrangements from their measured height (`shell/dockArrangement.ts`,
+`shell/tabArrangement.ts`).
+
+## Three builds, one codebase
+
+| Command | Target | Constraint |
+|---|---|---|
+| `npm run build` | desktop / pip (`.show()`) | single chunk, inlined into one HTML file — bundle size matters |
+| `npm run build:serve` | the hosted viewer | chunk-split |
+| `npm run build:embed` | `mountViewer()` for Jupyter and docs | one ESM file, CSS wrapped in `@scope` |
+
+**All three must pass before any UI change lands.** The embed one breaks in ways the
+others cannot: its CSS is `@scope`-wrapped, so a `:root` rule inside it matches nothing,
+and `@layer`ed styles lose to a host page's unlayered ones regardless of specificity. See
+`vite.plugin-embed-css.mjs`.
+
+## Testing
+
+```bash
+npm test          # node --test, ~400 tests
+npx tsc --noEmit  # three pre-existing errors, unrelated to the UI
+```
+
+The runner takes an **explicit file list** in `package.json`, so a new test file does
+nothing until it is added there. This has silently swallowed new tests more than once.
+
+Anything that reaches a zustand store reaches the model worker (`?worker&inline`), which
+only a bundler resolves — so logic worth testing is separated from its wiring
+(`commandFilter`, `gizmoRules`, `classifyFiles`, `menuModel`, the two arrangement rules).
+If a test cannot import your module, that is usually the reason, and splitting the pure
+part out is the fix rather than a workaround.
+
+`noAdHocChrome.test.ts` fails on any new file using a raw Tailwind palette colour. Use
+the semantic utilities (`bg-surface-*`, `text-content-*`, `bg-accent`, `text-fail`) or a
+primitive from `components/ui`. The allowlist is a burn-down of files not yet converted
+and only ever shrinks.
+
+## Known rough edges
+
+- `?shell=0` and `shell/useLegacyFlagSync.ts` are cutover leftovers. The flag bridge
+  survives because two panels gate on store booleans that the classic UI used to write;
+  removing it means un-gating them, which is business-logic work.
+- `/convert`, `/admin` and `?simfollow=` are still separate top-level routes rather than
+  shell profiles, so they have no way back to the viewer.
+- The admin tabs have not been through the design system.

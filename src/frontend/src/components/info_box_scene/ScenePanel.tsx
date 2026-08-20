@@ -1,6 +1,5 @@
 import React from "react";
-import SceneBody from "./SceneBody";
-import {useSceneContextTabs} from "./SceneInfoBox";
+import SceneBody, {useSceneContextTabs} from "./SceneBody";
 
 // The Scene panel as the shell's dock hosts it: content only, no frame.
 //

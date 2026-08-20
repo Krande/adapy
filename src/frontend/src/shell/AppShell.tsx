@@ -1,4 +1,4 @@
-import React from "react";
+import React, {Suspense} from "react";
 import {Splitter} from "@/components/ui";
 import {DOCK_LIMITS, type DockedId} from "./regions";
 import {useLayoutStore} from "./layoutStore";
@@ -13,6 +13,12 @@ import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
 import {ConfirmHost} from "@/components/ui";
 import HelpDialogs from "./HelpDialogs";
+import {useUrlParamLoad} from "@/hooks/useUrlParamLoad";
+import {runtime} from "@/runtime/config";
+
+// Ambient REST-mode UI: the conversion-progress toasts and the upload context menu.
+// Lazy so the desktop/WS build never pulls it in.
+const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {useLegacyFlagSync} from "./useLegacyFlagSync";
@@ -42,6 +48,19 @@ export interface AppShellProps {
 
 export default function AppShell({profile = "viewer", viewportOverride}: AppShellProps) {
     const p = profileDef(profile);
+
+    // Deep links: ?file= / ?scope= / ?derived= load a model at boot.
+    //
+    // This lived only in the classic AppBody. It is the fourth time this rewrite has
+    // found bootstrap work hiding inside a component the shell does not render — after
+    // the plugin top-bar regions, the legacy visibility flags and AuthGate. The pattern
+    // is always the same: a hook or a mount with a side effect, sitting in a layout
+    // component because that is where someone happened to be typing, invisible to any
+    // search for "what does the app do at startup".
+    //
+    // Called unconditionally so hook order is stable; the hook itself no-ops without the
+    // params, and a canvas-less profile simply never gets a model to show.
+    useUrlParamLoad();
     const mode = useModeStore((s) => s.mode);
     const layout = useLayoutStore((s) => s.perMode[mode]);
     const setDockSize = useLayoutStore((s) => s.setDockSize);
@@ -170,6 +189,14 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
             {/* Whatever `confirm()` currently has pending. One host per shell; callers
                 await a promise rather than rendering their own dialog. */}
             <ConfirmHost />
+
+            {/* Conversion toasts and the upload context menu. Also classic-only until
+                now — a conversion started from the shell reported its progress nowhere. */}
+            {runtime.isRestMode() && (
+                <Suspense fallback={null}>
+                    <RestModeUI />
+                </Suspense>
+            )}
 
             {/* Help ▸ Keyboard shortcuts / About. Rendered from shortcuts.ts rather
                 than a hand-kept list, so a bound key is a documented key. */}

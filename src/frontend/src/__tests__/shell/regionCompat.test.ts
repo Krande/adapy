@@ -106,8 +106,13 @@ test("the shell performs the REST bootstrap the classic path does", () => {
     // scope store. The shell originally rendered AppShell without it, so it booted with
     // no scopes and no admin flag — the scope picker rendered nothing and every scoped
     // request fell back to a default. Nothing errored; it was simply wrong.
+    // Anchored on the viewer branch's own guard rather than on a flag name: the
+    // `useNewShell` this used to slice on was cutover scaffolding and is gone, and a
+    // source-text test that silently matches an empty string still passes.
     const app = fs.readFileSync(path.resolve(import.meta.dirname, "../../app.tsx"), "utf8");
-    const shellBranch = app.slice(app.indexOf("if (useNewShell)"), app.indexOf("if (isAuthCallback)"));
-    assert.match(shellBranch, /AuthGate/, "the shell branch must mount AuthGate in REST mode");
-    assert.match(shellBranch, /isRestMode/, "and must gate it on REST, as the classic path does");
+    const start = app.indexOf("<AppShell profile=\"viewer\"");
+    assert.ok(start > 0, "could not find the viewer branch — re-anchor this test");
+    const branch = app.slice(Math.max(0, start - 1200), start + 800);
+    assert.match(branch, /AuthGate/, "the viewer branch must mount AuthGate in REST mode");
+    assert.match(branch, /isRestMode/, "and must gate it on REST");
 });
