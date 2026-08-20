@@ -46,7 +46,7 @@ export function builderActive(): boolean {
  * Build — so burying it in the file browser's plus menu meant the one place you would
  * look while in Build mode had no way to start.
  *
- * The Library keeps its entry too and now calls this, so there is one implementation
+ * Storage's "+" menu keeps its entry and calls this too, so there is one implementation
  * behind three doors rather than three implementations.
  */
 export async function newProceduralModel(): Promise<void> {

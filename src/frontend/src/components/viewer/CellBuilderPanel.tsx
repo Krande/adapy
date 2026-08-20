@@ -18,6 +18,7 @@ const SystemAdminPanel = React.lazy(
 );
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
+import {EmptyState, Ui} from "@/components/ui";
 
 // Everything below the header used to live in this file — 1963 lines of panel shell,
 // six tab bodies and five helper components in one scope. Split out verbatim (no
@@ -172,7 +173,26 @@ const CellBuilderPanel: React.FC = () => {
     setSheetPx(snapped);
   };
 
-  if (!s.active || !s.panelVisible) return null;
+  // No panelVisible check. The dock decides whether a panel is on screen, as it does for
+  // every other panel; gating here meant a docked Builder could render an empty box with
+  // the reason invisible.
+  //
+  // `active` is different — that is "no model open", which is content — so it says so
+  // rather than returning null. A docked panel that draws nothing is indistinguishable
+  // from one that crashed, which is the same complaint that removed the flag above.
+  if (!s.active) {
+    return (
+      <EmptyState
+        title="No procedural model is open"
+        hint={
+          <>
+            Use <Ui>New procedural model…</Ui> in the Build toolbar, or open one from
+            Storage.
+          </>
+        }
+      />
+    );
+  }
 
   const compileState = s.compileJob;
   const compileBusy =

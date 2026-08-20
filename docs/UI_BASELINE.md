@@ -324,3 +324,51 @@ The copy improved on the way through. `window.confirm` takes one string, so ever
 crammed into it with `\n\n` separators — the key preview in CorpusTab's bulk delete, the
 scope name in StorageTab's cache clear. Each is now a title and separate body lines, which
 is what they were trying to be.
+
+## The legacy flag bridge is gone, and it inverted
+
+`useLegacyFlagSync` mirrored dock state into the old visibility booleans, because panels
+gated themselves on them: in the classic UI those flags *were* the visibility model, so a
+docked panel without its flag set rendered an empty box. It was always meant to come out
+at the cutover.
+
+Deleting it was not enough, because the intent underneath is real. `cellBuilderStore` sets
+`panelVisible: true` from `openModel`, `focusSystem` and `revealEquipment` — not as "this
+panel is visible" but as **"the user just did something that needs the Builder on
+screen"**. Dropping the flag outright would have made "focus this system" quietly do
+nothing whenever the panel happened to be closed.
+
+So the direction inverts. `usePanelReveal` watches the flag going *true* and opens the
+dock panel; the panel no longer gates itself; the dock decides visibility as it does for
+everything else. The store asks, the shell answers — which is the right way round, and
+half the code.
+
+**Rising edge only.** Acting on `false` would close the Builder out from under you when
+the model closes, instead of letting it say so. Same reason mode switching never unloads
+anything.
+
+`fea-table` turned out not to need any of this: nothing read `isPanelOpen` any more, only
+wrote it hoping something would notice. Its two writers — Properties' "Show in data" and
+the marking menu — now call `openDataTable()` directly, one step where the flag was three
+(set a boolean, have a bridge notice, have the dock follow).
+
+`panelSelfGating.test.ts` pins all of it, as source text rather than renders: the failure
+it guards is a line someone adds back at the top of a panel body, and no render test
+catches that without arranging the exact state that hides the panel.
+
+## EmptyState
+
+Every panel had grown its own, and they agreed on nothing — some centred, some flush left,
+some 11px, some 13px. Worse, most said only half of what an empty state is for.
+
+The shape is now fixed: **`title`** says what is missing, as a statement; **`hint`** says
+what to do about it, *naming the actual control in the words the control uses*. The hint
+is the half panels kept leaving out, and it is the half that matters — "Nothing selected"
+describes a state the user can already see. And a hint that paraphrases ("start a new
+model" for a button labelled "New procedural model…") sends people looking for something
+that is not there, which is why `<Ui>` exists to quote control names verbatim.
+
+The Builder panel gained one in the process. It returned `null` when no model was open —
+a docked panel drawing nothing, which is indistinguishable from one that crashed. That is
+the same complaint that removed the visibility flag two paragraphs up, so it would have
+been odd to leave it in place.

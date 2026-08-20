@@ -1,6 +1,7 @@
 import React from "react";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {btn, btnGray, inputCls} from "./chrome";
+import {EmptyState, Ui} from "@/components/ui";
 
 // The procedural model's components: every cell and piece of equipment in it.
 //
@@ -19,10 +20,15 @@ export default function ComponentsPanel() {
 
     if (!s.active) {
         return (
-            <div className="p-3 text-xs text-content-muted">
-                No procedural model is open. Use <span className="text-content">New procedural model…</span>{" "}
-                in the Build toolbar.
-            </div>
+            <EmptyState
+                title="No procedural model is open"
+                hint={
+                    <>
+                        Use <Ui>New procedural model…</Ui> in the Build toolbar, or open one from
+                        Storage.
+                    </>
+                }
+            />
         );
     }
 
@@ -32,7 +38,7 @@ export default function ComponentsPanel() {
               {Object.values(s.cells).length === 0 && (
                 <p className="italic text-content-muted">
                   No cells yet — use Add cell in the toolbar above to start,
-                  or open a template from the Library’s “+” menu.
+                  or open a template from Storage’s “+” menu.
                 </p>
               )}
               {Object.values(s.cells).map((c) => (

@@ -15,6 +15,7 @@ import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
 import {requestRender} from '@/state/perfStore';
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
 import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
+import {openDataTable} from "@/shell/resultsActions";
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -138,12 +139,14 @@ const SelectionSummary = () => {
     // appear on unrelated CAD picks). Click opens the data table
     // panel and scrolls to the element's first node.
     const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
-    const setPanelOpen = useTableNavStore((s) => s.setPanelOpen);
     const setGoToTarget = useTableNavStore((s) => s.setGoToTarget);
     const firstNodeId = name && feaSessionActive ? elementFirstNodeId(name) : null;
     const onShowInData = () => {
         if (firstNodeId == null) return;
-        setPanelOpen(true);
+        // Straight to the layout: the data table is a dock panel, and asking the dock to
+        // show it is one step where the old flag was two (set a boolean, have a bridge
+        // notice, have the dock follow).
+        openDataTable();
         setGoToTarget({kind: "node", id: firstNodeId});
     };
 

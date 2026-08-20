@@ -22,8 +22,8 @@ A bare dev server has no server and no model, so two fixtures ship with the repo
 | `?uikit=1` | the design-system gallery (dev builds only) |
 
 `npm run dev:rest` adds a stub REST backend (scopes, a file list, blob reads, and enough
-of the procedural API to create and open a model), which is the only way to see the
-Library and Convert workspaces, upload, or admin. It deliberately does not implement
+of the procedural API to create and open a model), which is the only way to see
+Storage, Convert, upload, or admin. It deliberately does not implement
 everything — unimplemented routes return a JSON 404 that names the route, so "the fixture
 does not do that" is distinguishable from "the feature is broken".
 
@@ -120,8 +120,7 @@ kept it.
 
 ## Known rough edges
 
-- `shell/useLegacyFlagSync.ts` is a cutover leftover. It survives because two panels gate
-  on store booleans the classic UI used to write; removing it means un-gating them, which
-  is business-logic work.
-- The template picker ("New model from template") is still only in the Library's "+"
-  menu, unlike "New procedural model…" which is also in File and the Build toolbar.
+- The template picker ("New model from template") is still only in Storage's "+" menu,
+  unlike "New procedural model…" which is also in File and the Build toolbar.
+- Escape is inconsistent in the cellbuilder: it cancels a modal move but accepts a widget
+  drag. Both are defensible on their own; together they are not.

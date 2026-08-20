@@ -27,7 +27,7 @@ const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"))
 const ConvertPage = React.lazy(() => import("@/components/convert/ConvertPage"));
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
-import {useLegacyFlagSync} from "./useLegacyFlagSync";
+import {usePanelReveal} from "./usePanelReveal";
 
 // The shell.
 //
@@ -74,8 +74,9 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
     const setDockSize = useLayoutStore((s) => s.setDockSize);
 
     // Keep the legacy per-panel visibility booleans in step with the docks; several
-    // panels still gate themselves on those flags. See useLegacyFlagSync.
-    useLegacyFlagSync();
+    // Lets business logic ask for a panel — "focus this system" needs the Builder on
+    // screen. The shell answers; the panel does not gate itself. See usePanelReveal.
+    usePanelReveal();
 
     // A dock occupies a track only when it has something to show. An empty or collapsed
     // dock collapses to zero width rather than leaving a stripe of chrome.

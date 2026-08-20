@@ -9,7 +9,6 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useSectionTools} from "./sectionTools";
-import {useTableNavStore} from "@/state/tableNavStore";
 import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
 import {compilePreview, undo} from "./buildActions";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -227,7 +226,6 @@ function runItem(id: string): void {
             useSectionTools.getState().setShown(true);
             return;
         case "show-in-data":
-            useTableNavStore.getState().setPanelOpen(true);
             return layout.openPanel(mode, "fea-table", "bottom");
         default:
             console.warn(`[markingMenu] no handler for "${id}"`);

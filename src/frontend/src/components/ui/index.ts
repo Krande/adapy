@@ -36,6 +36,7 @@ export {Toolbar, ToolbarGroup, ToolbarSeparator, ToolbarSpacer, type ToolbarProp
 
 export {Tooltip, type TooltipProps} from "./Tooltip";
 export {Splitter, type SplitterProps} from "./Splitter";
+export {EmptyState, Ui} from "./EmptyState";
 export {Badge, StatusDot, Kbd, type BadgeProps, type Tone} from "./Badge";
 export {Dialog, type DialogProps} from "./Dialog";
 export {CollapsibleSection, type CollapsibleSectionProps} from "./CollapsibleSection";

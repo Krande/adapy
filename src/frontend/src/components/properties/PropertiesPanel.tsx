@@ -3,6 +3,7 @@ import {ErrorBoundary} from "@/components/common/ErrorBoundary";
 import {providersFor} from "./propertyProviders";
 import {useSelectionSnapshot} from "./useSelectionSnapshot";
 import "./registerCoreProviders";
+import {EmptyState} from "@/components/ui";
 
 // One panel that follows selection, in every mode.
 //
@@ -20,14 +21,14 @@ export default function PropertiesPanel() {
 
     if (matched.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center gap-1 h-full p-6 text-center">
-                <p className="text-sm text-content-muted">Nothing selected</p>
-                <p className="text-xs text-content-subtle">
-                    {selection.hasEntities
+            <EmptyState
+                title="Nothing selected"
+                hint={
+                    selection.hasEntities
                         ? "Click an element in the viewport or the outliner."
-                        : "Load a model to inspect its parts."}
-                </p>
-            </div>
+                        : "Load a model to inspect its parts."
+                }
+            />
         );
     }
 

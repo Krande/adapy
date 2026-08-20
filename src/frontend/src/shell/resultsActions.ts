@@ -21,10 +21,14 @@ export function toggleLegend(): void {
 }
 
 /** Show or hide the result data table in the bottom dock. */
+/** Open the result data table, without closing it if it is already open. */
+export function openDataTable(): void {
+    const {mode} = useModeStore.getState();
+    useLayoutStore.getState().openPanel(mode, "fea-table", "bottom");
+}
+
 export function toggleDataTable(): void {
     const {mode} = useModeStore.getState();
-    // The legacy isPanelOpen flag follows automatically via useLegacyFlagSync, so this
-    // only has to move the layout.
     useLayoutStore.getState().togglePanel(mode, "fea-table", "bottom");
 }
 
