@@ -26,6 +26,7 @@ import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
+import {alertText, confirm, promptText} from "@/ui/confirm";
 import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
@@ -213,7 +214,11 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
             // the storage overview so it doesn't sit on top of the freshly-opened model.
             useServerInfoStore.getState().setShowServerInfoBox(false);
         } catch (e) {
-            window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not open the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
@@ -234,7 +239,13 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
-        const name = window.prompt("Name for the new procedural model:", tpl.name);
+        const name = await promptText({
+            title: "New model from template",
+            body: [`Starting from "${tpl.name}" (${tpl.engine}).`],
+            label: "Name for the new procedural model",
+            initial: tpl.name,
+            confirmLabel: "Create",
+        });
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
@@ -252,19 +263,33 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                 .open(fresh.id, fresh.name, revision, fresh.doc);
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not create the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
-        if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
+        const ok = await confirm({
+            title: "Delete procedural model?",
+            body: [`"${m.name}" will be removed from this scope.`],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.deleteProceduralModel(scopeKey, m.id);
             const st = useCellBuilderStore.getState();
             if (st.active?.modelId === m.id) st.close();
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to delete: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not delete the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
@@ -361,7 +386,11 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
     };
 
     const alertError = (e: unknown) => {
-        window.alert(e instanceof Error ? e.message : String(e));
+        void alertText({
+            title: "Storage error",
+            body: [e instanceof Error ? e.message : String(e)],
+            tone: "danger",
+        });
     };
 
     // In-flight move status — a spinner line under the header so a
@@ -399,7 +428,11 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                     failed.push(...r.failed);
                 }
                 if (failed.length > 0) {
-                    window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    void alertText({
+                        title: "Some files could not be moved",
+                        body: failed.map((f) => `${f.key}: ${f.reason}`),
+                        tone: "danger",
+                    });
                 }
             }
             clearSelection();
@@ -429,7 +462,11 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         try {
             const r = await mutations.renameOrMoveFolder(folderPath, newPath, allKeys);
             if (r.failed.length > 0) {
-                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                void alertText({
+                    title: "Some files could not be moved",
+                    body: r.failed.map((f) => `${f.key}: ${f.reason}`),
+                    tone: "danger",
+                });
             }
             setExpandedFolders((prev) => {
                 const next = new Set(prev);
@@ -462,7 +499,10 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name || name === basenameOf(folderPath)) return;
         if (name.includes("/")) {
-            window.alert("Rename must be a single name; use Move folder into… for nested moves");
+            void alertText({
+                title: "That name contains a path",
+                body: ["Rename takes a single name. Use “Move folder into…” to nest it."],
+            });
             return;
         }
         const parent = dirnameOf(folderPath);
@@ -486,7 +526,10 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         const name = rawName.trim();
         if (!name || name === basenameOf(f.name)) return;
         if (name.includes("/")) {
-            window.alert("Name must not contain '/' — use Move to folder… instead");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A file name cannot contain “/”. Use “Move to folder…” instead."],
+            });
             return;
         }
         const dir = dirnameOf(f.name);
@@ -508,7 +551,13 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
     };
 
     const onDeleteFile = async (f: ServerFileEntry) => {
-        if (!window.confirm(`Delete "${f.name}"?\nConverted view caches are removed too.`)) return;
+        const ok = await confirm({
+            title: "Delete file?",
+            body: [`"${f.name}" will be deleted.`, "Converted view caches are removed too."],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await unloadIfLoaded(f.name);
             await mutations.deleteKey(f.name);
@@ -525,11 +574,19 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         }
         const prefix = path + "/";
         const targets = files.filter((x) => x.name.replace(/^\/+/, "").startsWith(prefix));
-        if (!window.confirm(
-            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(targets.map((t) => t.name)),
-        )) return;
+        const ok = await confirm({
+            title: "Delete folder?",
+            body: [
+                `"${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} will be deleted.`,
+                "Converted view caches are removed too.",
+                // previewKeyList returns one newline-joined string. Split it so each key
+                // is its own line rather than a paragraph that wraps mid-path.
+                ...previewKeyList(targets.map((t) => t.name)).split("\n").filter(Boolean),
+            ],
+            confirmLabel: "Delete folder",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             // Sequential: each delete cascades derived blobs server-side
             // and parallel calls would race on the storage listing.
@@ -554,12 +611,18 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name) return;
         if (name.includes("/")) {
-            window.alert("Folder name must not contain '/'");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A folder name cannot contain “/”. Create the parent first."],
+            });
             return;
         }
         const path = parent ? `${parent}/${name}` : name;
         if (!parent && (name === "versions" || name === "_derived")) {
-            window.alert(`"${name}" is a reserved name`);
+            void alertText({
+                title: "Reserved name",
+                body: [`"${name}" is reserved by the storage layer — pick another.`],
+            });
             return;
         }
         setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
@@ -664,11 +727,16 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         if (bulkBusy !== null) return;
         const keys = Array.from(selection);
         if (keys.length === 0) return;
-        if (!window.confirm(
-            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(keys),
-        )) return;
+        const ok = await confirm({
+            title: `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?`,
+            body: [
+                "Converted view caches are removed too.",
+                ...previewKeyList(keys).split("\n").filter(Boolean),
+            ],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBulkBusy("delete");
         try {
             // Sequential: deletes cascade derived blobs server-side and
@@ -746,7 +814,12 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         setUploadName(null);
         setUploadLoaded(0);
         setUploadTotal(0);
-        if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
+        if (failures.length)
+            void alertText({
+                title: failures.length === 1 ? "Upload failed" : `${failures.length} uploads failed`,
+                body: failures,
+                tone: "danger",
+            });
     };
 
     const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -970,7 +1043,10 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         k.replace(/^\/+/, "").startsWith("versions/"),
                     );
                     if (hasVersions) {
-                        window.alert("CI version files can't be deleted");
+                        void alertText({
+                            title: "Version files are protected",
+                            body: ["CI writes these; the server refuses to delete them."],
+                        });
                         break;
                     }
                     void onDeleteSelected();

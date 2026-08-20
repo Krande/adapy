@@ -125,3 +125,52 @@ the answer to "which project am I in?" moved behind a toggle.
 The **page profile keeps its copy**. `/convert` and `/admin` have no rail and no Storage
 panel, so removing it there would leave scope with no home at all rather than a quieter
 one.
+
+## The type catalogues 404'd in dev, not on this branch
+
+The + Opening and + Equipment pickers showed "No opening types". The cause was not the
+toolbar rewrite: `fetchOpeningTypes` / `fetchEquipmentTypes` fire from `openModel` in
+`cellBuilderStore`, byte-identical to main, and main's panel has the same empty-list
+fallback. Every procedural catalogue endpoint simply 404'd against the dev REST stub,
+which also printed eight warnings on every model open.
+
+The stub now answers seven of them: opening, equipment, cell and system types, design
+rulesets, engines, and the equipment resync. Everything is tagged `origin: "code"` —
+the real API returns the union of code-defined archetypes and the scope's DB entries, and
+the code half genuinely is a static list, so the fixture is the honest half rather than an
+invention. Tagging anything `"catalog"` would put rows in a database that does not exist
+here, and every picker label shows the origin ("Door, single leaf (code)"), so the label
+would be lying.
+
+`blueprints` and `detailing-engines` answer with empty lists, and compile still answers
+501. Those need a worker; there is nothing truthful a static fixture can return.
+
+**Heredocs ate the regex escapes for the third time** (`\/` → `/`), which produced
+`/^/scopes/...` — a broken regex that stopped vite reloading the config, so the endpoints
+kept 404ing after the "fix". Use the Edit tool or write a script file; never a heredoc for
+anything containing backslash escapes.
+
+## Storage's dialogs are the app's dialogs
+
+Deleting a procedural model asked through `window.confirm`. Thirteen native dialogs were
+left in `StorageBrowser`: four deletes, the template-name prompt, and eight alerts for
+failures.
+
+They are blocking, unstyleable, and visibly not part of the application — a browser dialog
+over a dark themed viewer reads as a different program. In the embed build it is worse:
+the dialog carries the HOST page's origin, so a docs page shows "docs.example.com says:
+Delete file?", which looks like a phishing attempt. All thirteen now go through
+`confirm()` / `promptText()` / `alertText()`.
+
+Two things the conversion improved beyond the chrome:
+
+- **Multi-line messages became real lines.** `previewKeyList` returns a newline-joined
+  string that a native dialog rendered as separate lines; in a styled `<p>` it would wrap
+  mid-path. It is split into one body line per key.
+- **Alerts got titles.** `window.alert(e.message)` gave a bare string with no indication
+  of what failed. "Some files could not be moved" over the list says more than the list.
+
+`noNativeDialogs.test.ts` enforces this with an allowlist burn-down, same shape as
+`noAdHocChrome`: the seven admin tabs are all that remain, and a second test fails if an
+allowlist entry has already been converted — a burn-down list holding converted files
+stops measuring anything and quietly re-permits what it names.

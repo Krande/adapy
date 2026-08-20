@@ -159,6 +159,88 @@ function buildFileListReply(instanceId: number): Uint8Array {
 }
 
 /** Read a whole request body. */
+
+// Code-defined type catalogues, as the backend's built-in half returns them.
+//
+// Everything here is tagged origin "code": the real API tags DB-backed entries
+// "catalog", and the UI shows that origin in every picker label ("Door (code)"). A
+// fixture that claimed "catalog" would be inventing rows in a database that does not
+// exist here, and the label would lie about where the type came from.
+
+const OPENING_TYPES = [
+    {slug: "door-single", name: "Door, single leaf", origin: "code", subtype: "door", size: [0.1, 0.9, 2.1]},
+    {slug: "door-double", name: "Door, double leaf", origin: "code", subtype: "door", size: [0.1, 1.8, 2.1]},
+    {slug: "window", name: "Window", origin: "code", subtype: "window", size: [0.1, 1.2, 1.0]},
+    {slug: "hatch", name: "Hatch", origin: "code", subtype: "opening", size: [0.1, 0.8, 0.8]},
+    {slug: "penetration", name: "Pipe penetration", origin: "code", subtype: "opening", size: [0.1, 0.3, 0.3]},
+];
+
+const EQUIPMENT_TYPES = [
+    {
+        slug: "pump-centrifugal",
+        name: "Centrifugal pump",
+        origin: "code",
+        ports: [
+            {name: "suction", direction: "in", category: "piping", position: [-0.6, 0, 0.3], direction_vector: [-1, 0, 0]},
+            {name: "discharge", direction: "out", category: "piping", position: [0, 0, 0.9], direction_vector: [0, 0, 1]},
+        ],
+    },
+    {
+        slug: "vessel-vertical",
+        name: "Vertical vessel",
+        origin: "code",
+        ports: [
+            {name: "inlet", direction: "in", category: "piping", position: [0, 0, 2.4], direction_vector: [0, 0, 1]},
+            {name: "outlet", direction: "out", category: "piping", position: [0, 0, -0.2], direction_vector: [0, 0, -1]},
+        ],
+    },
+    {
+        slug: "heat-exchanger",
+        name: "Shell & tube exchanger",
+        origin: "code",
+        ports: [
+            {name: "shell-in", direction: "in", category: "piping", position: [-1.5, 0, 0.4], direction_vector: [-1, 0, 0]},
+            {name: "shell-out", direction: "out", category: "piping", position: [1.5, 0, 0.4], direction_vector: [1, 0, 0]},
+        ],
+    },
+    {
+        slug: "switchboard",
+        name: "Switchboard",
+        origin: "code",
+        ports: [{name: "feed", direction: "in", category: "electrical", position: [0, -0.4, 1.6], direction_vector: [0, -1, 0]}],
+    },
+    {slug: "generic-skid", name: "Generic skid", origin: "code", ports: []},
+];
+
+const CELL_TYPES = [
+    {slug: "room", name: "Room", origin: "code", size: [6, 4, 3]},
+    {slug: "corridor", name: "Corridor", origin: "code", size: [12, 2, 3]},
+    {slug: "equipment-room", name: "Equipment room", origin: "code", size: [8, 6, 4]},
+    {slug: "deck-area", name: "Open deck area", origin: "code", size: [12, 12, 6]},
+];
+
+const SYSTEM_TYPES = [
+    {slug: "process-piping", name: "Process piping", origin: "code", type: "piping", medium: "hydrocarbon"},
+    {slug: "utility-water", name: "Utility water", origin: "code", type: "piping", medium: "water"},
+    {slug: "hvac-supply", name: "HVAC supply", origin: "code", type: "duct", medium: "air"},
+    {slug: "power-lv", name: "LV power", origin: "code", type: "electrical", voltage: 400},
+    {slug: "instrument-cable", name: "Instrument cable", origin: "code", type: "cable"},
+];
+
+const DESIGN_RULESETS = [
+    {slug: "default", name: "Default", description: "Built-in spacing and clearance rules.", origin: "code"},
+    {slug: "offshore-topside", name: "Offshore topside", description: "Escape-route widths and blast clearances.", origin: "code"},
+];
+
+const ENGINE = {
+    id: "adapy-default",
+    name: "adapy-default",
+    slug: "adapy-default",
+    origin: "code",
+    kind: "server",
+    version: "dev",
+};
+
 function readBody(req: {on: (ev: string, cb: (c?: Buffer) => void) => void}): Promise<Buffer> {
     return new Promise((resolve) => {
         const chunks: Buffer[] = [];
@@ -349,6 +431,49 @@ export function adapyDevRestConfig() {
                 if (procOne && req.method === "GET") {
                     const model = PROCEDURAL.get(procOne[1]);
                     if (model) return sendJson(res, model);
+                }
+
+                // Type catalogues.
+                //
+                // Every one of these 404'd, which emptied the + Opening and + Equipment
+                // pickers and printed eight scary warnings on every model open. That is
+                // not a UI bug — the same store code runs on main — but "No opening
+                // types" is indistinguishable from a broken picker, so the fixture has
+                // to answer.
+                //
+                // Faking these is honest in a way that faking compile is not: the real
+                // endpoints return the union of code-defined archetypes and this scope's
+                // DB entries, and the code half is a static list. These are that half,
+                // tagged origin "code" exactly as the backend tags them, so nothing here
+                // claims to be a catalog entry the dev server does not have.
+                const catalogue = /^\/scopes\/[^/]+\/procedural-models\/([a-z-]+)$/.exec(route);
+                if (catalogue && req.method === "GET") {
+                    switch (catalogue[1]) {
+                        case "opening-types":
+                            return sendJson(res, {opening_types: OPENING_TYPES});
+                        case "equipment-types":
+                            return sendJson(res, {equipment_types: EQUIPMENT_TYPES});
+                        case "cell-types":
+                            return sendJson(res, {cell_types: CELL_TYPES});
+                        case "system-types":
+                            return sendJson(res, {system_types: SYSTEM_TYPES});
+                        case "design-rulesets":
+                            return sendJson(res, {design_rulesets: DESIGN_RULESETS});
+                        case "blueprints":
+                            // Blueprints seed a whole structure from a worker. Nothing
+                            // static is honest here, so: none available, not an error.
+                            return sendJson(res, {blueprints: []});
+                        case "detailing-engines":
+                            return sendJson(res, {detailing_engines: []});
+                    }
+                }
+                // Resync pulls code archetypes into the scope's DB catalog. There is no
+                // DB here, so nothing changes — which is a truthful answer, not a stub.
+                if (/^\/scopes\/[^/]+\/procedural-models\/equipment-types\/resync$/.exec(route)) {
+                    return sendJson(res, {updated: [], created: []});
+                }
+                if (/^\/scopes\/[^/]+\/procedural-engines\/?$/.exec(route) && req.method === "GET") {
+                    return sendJson(res, {procedural_engines: [ENGINE]});
                 }
 
                 // Compile / preview. Deliberately NOT faked.
