@@ -3509,6 +3509,45 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             }
         }
 
+        // ── Enter: accept the current operation ─────────────────────────────
+        //
+        // The counterpart to Escape's step-back. Escape unwinds and, for an axis-locked
+        // modal move, REVERTS; there was no key that said "this is right, I'm done" —
+        // you had to click somewhere else and hope that did not also change the
+        // selection, or press Escape and think about whether it kept your edit.
+        //
+        // Reached only after every numeric entry flow above has declined it (loft entry,
+        // opening entry, extrude entry all consume Enter and return), so this never
+        // steals Enter from a field someone is typing a value into.
+        //
+        // Shift+Enter is compile-preview and belongs to the global handler.
+        if (ev.key === "Enter" && !inField && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
+            if (modalMove) {
+                // false = keep it. This is the case where Enter and Escape genuinely
+                // differ: Escape restores the cell to where it started.
+                endModalMove(false);
+                st.setGizmoAxisLock(null);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (st.gizmoMode !== "none") {
+                // A widget drag already applied the transform live and coalesced it into
+                // one undo step (see dragging-changed), so accepting is just putting the
+                // gizmo away. Nothing to commit — which is exactly why the absence of an
+                // accept key was confusing: the work was done and the UI still looked
+                // mid-operation.
+                st.setGizmoMode("none");
+                st.setGizmoAxisLock(null);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            // Nothing in progress: let Enter through. The viewport is not a form, and
+            // swallowing a key that did nothing would break anything else listening.
+            return;
+        }
+
         // Escape while typing in a field (the HUD's numeric inputs) blurs the
         // field — don't also unwind the selection/gizmo underneath.
         if (ev.key !== "Escape" || inField) return;

@@ -64,7 +64,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
     {id: "axis-z", keys: "Z", label: "Lock to Z axis", scope: "builder", group: "Build"},
     {id: "builder-undo", keys: "Ctrl+Z", label: "Undo", scope: "builder", group: "Build"},
     {id: "builder-redo", keys: "Shift+Z", label: "Redo", scope: "builder", group: "Build"},
-    {id: "builder-back", keys: "Escape", label: "Step back one layer", scope: "builder", group: "Build"},
+    {id: "builder-accept", keys: "Enter", label: "Accept the current move / rotate / resize", scope: "builder", group: "Build"},
+    {id: "builder-back", keys: "Escape", label: "Step back one layer (cancels an axis-locked move)", scope: "builder", group: "Build"},
 
     // ---- gallery ----------------------------------------------------------
     {id: "gallery-prev", keys: "Left", label: "Previous item", scope: "gallery", group: "Gallery"},

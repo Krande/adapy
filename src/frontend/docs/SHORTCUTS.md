@@ -48,7 +48,8 @@ can survive CI.
 | `Z` | Lock to Z axis | Only while a procedural model is open. |
 | `Ctrl+Z` | Undo | Only while a procedural model is open. |
 | `Shift+Z` | Redo | Only while a procedural model is open. |
-| `Escape` | Step back one layer | Only while a procedural model is open. |
+| `Enter` | Accept the current move / rotate / resize | Only while a procedural model is open. |
+| `Escape` | Step back one layer (cancels an axis-locked move) | Only while a procedural model is open. |
 
 ## Gallery
 

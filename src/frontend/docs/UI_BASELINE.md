@@ -1735,3 +1735,44 @@ the `\/` escapes, leaving `/^/scopes/...`. `npx tsc --noEmit` passed, because
 server failing to boot with an esbuild stack trace and no message. Worth knowing: **the
 build tooling's own files are outside the typecheck**, so a change there is verified by
 running it, not by the gate.
+
+---
+
+## Enter accepts a transform — and what that exposed about Escape
+
+Build mode had no key that said "this is right, I'm done". You dismissed a gizmo by
+pressing Escape and hoping it kept your edit, or by clicking somewhere else and hoping
+that did not also change the selection.
+
+`Enter` now accepts the current operation:
+
+* an axis-locked modal move **commits** (`endModalMove(false)` — the case where Escape
+  genuinely differs, because it restores the cell);
+* an active gizmo is simply put away, keeping the transform.
+
+It is handled at the same fall-through point as Escape, so it is reached only after every
+numeric entry flow has declined it — the loft, opening and extrude entries all consume
+Enter and return, and none of them lose it. `Shift+Enter` stays compile-preview. With
+nothing in progress, Enter is passed through rather than swallowed: the viewport is not a
+form.
+
+### Escape does not mean one thing
+
+Reported during review and confirmed in the source. Escape's behaviour depends on *how
+the move was started*:
+
+| Started by | Escape |
+|---|---|
+| Dragging the gizmo widget | `setGizmoMode("none")` — **keeps** the transform |
+| `G` then `X`/`Y`/`Z` (axis-locked modal move) | `endModalMove(true)` — **reverts** the cell |
+
+`modalMove` is only ever set by `startModalMove`, which is the keyboard path. So the same
+key cancels or confirms depending on which of two routes you took to the same operation —
+which is precisely why it was unclear what Escape did.
+
+The universal convention (Blender, Maya, C4D, every CAD tool) is Escape cancels, Enter
+confirms. Escape is now half of that. **Making it consistently cancel is a real behaviour
+change** — it means reverting a widget drag whose edit is already coalesced onto the undo
+stack, so it is un-doing something the user may currently expect to keep. That belongs in
+its own change, with the decision made deliberately rather than as a side effect of adding
+Enter.
