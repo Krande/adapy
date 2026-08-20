@@ -1274,3 +1274,50 @@ work in the browser and no amount of re-reading the code explained it; a *fresh*
 `ResizeObserver` created from the console did not fire either, and `document.hidden` was
 `true`. The harness had exposed a genuine defect that a foreground manual test would have
 sailed past. `data-arrangement` on the body is kept as a permanent probe.
+
+---
+
+## StorageBrowser split (phase 1 of 2 — no behaviour change)
+
+2526 lines → 1724, with the rest in named files beside it.
+
+| File | Lines | Was |
+|---|---|---|
+| `StorageBrowser.tsx` | 1724 | the whole thing |
+| `FileRow.tsx` | 376 | top-level in the same file |
+| `VersionsTree.tsx` | 264 | top-level |
+| `FolderRow.tsx` | 221 | top-level |
+| `classifyFiles.ts` | 109 | top-level |
+| `storageHelpers.ts` | 72 | top-level |
+| `Spinner.tsx` | 11 | top-level |
+
+**`classifyFiles` is the reason this split was worth doing beyond line count.** It is the
+only real logic in the storage browser — everything else is presentation over a server
+response — and it was untestable while it sat in a file that reaches the model worker.
+Thirteen tests now cover it, and one of them protects a rule that would otherwise rot
+silently:
+
+> The commit sort key prefers the sidecar's **git timestamp** over S3 **mtime**, because
+> re-running CI on an older commit refreshes that commit's mtime. Sorted by mtime, the
+> "latest" build is whichever was rebuilt most recently — which is still a plausible-looking
+> commit, so nobody notices it is the wrong one.
+
+**A trap in the mechanical part.** Each extracted file inherited StorageBrowser's whole
+53-line import block, of which most was dead — `FolderRow` needed 9 of 40. Left alone this
+is not just noise: it makes each file look like it depends on far more than it does, which
+is exactly the impression a split is supposed to dispel. A small pruner (scratchpad, not
+committed) removed specifiers whose identifier does not appear in the body.
+
+**Allowlist 72 → 75**, and that is correct for a pure move: the ad-hoc chrome did not go
+away, it changed address. Phase 2 deletes all four lines.
+
+### Verified by hand
+
+The row kebab is the highest-regression-risk piece in this file (per the rebuild plan) and
+is not covered by tests. Checked in the browser: the menu opens with all six entries —
+Load into scene · Download · Copy as path · Rename… · Move to folder… · Delete.
+
+Worth recording how that check nearly went wrong: the first probe reported the menu did
+not open, because it clicked the trigger twice and toggled it shut again. The DOM said
+`aria-expanded="false"` and the portal was absent — both true, both meaningless. A probe
+that fires a toggle needs to assert the state it produced, not the state it expected.
