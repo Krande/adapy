@@ -2001,3 +2001,42 @@ test, and the obvious repair — point it at `admin` — was wrong: admin is gat
 `isRestMode() AND isAdmin`, so it would have been null in *both* halves and the assertion
 would have passed while testing nothing. It uses `convert`, which is REST-gated only.
 Second time this session a test nearly degraded into a tautology during a refactor.
+
+---
+
+## Modes filter the lists, not the scene
+
+Each mode now lists the models it is about: **Build** the procedural model, **Results**
+the ones carrying results, **Inspect** everything.
+
+**The Outliner only. Nothing is hidden from the 3D view, and nothing is unloaded.**
+
+That was a deliberate choice between two designs. Filtering the *scene* is what "mode"
+means in some DCC tools, and it would be defensible — but a model that silently vanishes
+on a mode switch leaves its reason off-screen, and "my model disappeared and I do not know
+why" is a worse problem than the one being solved. It would also break the non-modality
+contract in `modeStore.ts`, which says a mode changes what is **offered**, never what is
+loaded or visible.
+
+Filtering the list keeps the contract and still gets the benefit: in Results you see your
+result sets, not the eight geometry files you happen to have open.
+
+Three rules in `outlinerFilter.ts`, all tested:
+
+* **Procedural beats result.** A compiled procedural model can carry results; while you
+  are *building* it, the fact that it is your model matters more than that it has been
+  analysed — otherwise Build would stop listing the very thing you are editing.
+* **It never filters down to nothing.** An empty Outliner in Results, while models *are*
+  loaded, reads as "the tree is broken". The filter is a convenience, not a rule worth
+  enforcing against the only thing you have open.
+* **An unknown mode lists everything.** Failing open matters: a mode added later without a
+  rule should show the user their models, not an empty tree.
+
+When rows *are* filtered, the panel says so — "N more loaded — show all" — and the toggle
+is one click. A list that quietly drops rows is indistinguishable from one that failed to
+load.
+
+**Verified by tests, not by eye.** The dev fixture loads a single model, so the
+never-filter-to-nothing rule always fires and the filter cannot be observed in the browser
+with it. The 14 unit tests cover the classification and the fallbacks; the visible
+behaviour with several models loaded has not been exercised by hand.

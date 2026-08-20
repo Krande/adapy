@@ -3,6 +3,10 @@ import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
+import {useModeStore} from "@/shell/modeStore";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {filterRoots} from "@/shell/outlinerFilter";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
@@ -14,7 +18,26 @@ const TreeViewComponent: React.FC = () => {
 
     // Top level = one root per loaded model (labelled by GLB filename). The
     // store keeps them under a synthetic container; render its children.
-    const treeNodes = treeData?.children ?? [];
+    const allRoots = treeData?.children ?? [];
+
+    // Each mode lists the models it is about: Build the procedural one, Results the ones
+    // carrying results, Inspect everything.
+    //
+    // The LIST only. Nothing is hidden from the 3D view and nothing is unloaded — a model
+    // that silently vanished from the scene on a mode switch would leave its reason
+    // off-screen, and "my model disappeared" is a worse problem than the one this solves.
+    // It also keeps the non-modality contract in modeStore: a mode changes what is
+    // OFFERED, never what is loaded.
+    const mode = useModeStore((s) => s.mode);
+    const proceduralName = useCellBuilderStore((s) => s.active?.name ?? null);
+    const [showAllRoots, setShowAllRoots] = useState(false);
+    const {shown: treeNodes, hidden: hiddenRoots} = filterRoots(
+        allRoots,
+        (n: {name?: string; id?: string}) => n.name ?? n.id ?? "",
+        mode,
+        {proceduralName, isResult: (n) => isFEAResult(n) || isStreamingFEAResult(n)},
+        showAllRoots,
+    );
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -67,6 +90,27 @@ const TreeViewComponent: React.FC = () => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
                 }/>
+                {/* A list that quietly drops rows is indistinguishable from one that
+                    failed to load, so say how many and offer them back. */}
+                {hiddenRoots > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setShowAllRoots(true)}
+                        className="mt-1 w-full rounded-sm px-1 py-0.5 text-left text-xs text-content-muted pointer-fine:hover:text-content pointer-fine:hover:bg-surface-2"
+                        title={`This mode lists only its own models. ${hiddenRoots} other loaded model(s) are still in the 3D view.`}
+                    >
+                        {hiddenRoots} more loaded — show all
+                    </button>
+                )}
+                {showAllRoots && (
+                    <button
+                        type="button"
+                        onClick={() => setShowAllRoots(false)}
+                        className="mt-1 w-full rounded-sm px-1 py-0.5 text-left text-xs text-content-muted pointer-fine:hover:text-content pointer-fine:hover:bg-surface-2"
+                    >
+                        Showing all — filter to this mode
+                    </button>
+                )}
                 {scopeNodeId && (
                     <div className="mt-1 flex items-center">
                         <span
