@@ -45,7 +45,6 @@
     "src/components/info_box_scene/MeshDistortionSection.tsx",
     "src/components/info_box_scene/ModelStatsPanel.tsx",
     "src/components/info_box_scene/ModelStatsSection.tsx",
-    "src/components/info_box_scene/SceneInfoBox.tsx",
     "src/components/info_box_scene/SectionPlanesPanel.tsx",
     "src/components/info_box_scene/SourceSection.tsx",
     "src/components/info_box_scene/StatsSection.tsx",

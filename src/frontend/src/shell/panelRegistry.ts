@@ -104,7 +104,7 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultDock: "right",
         pinnable: true,
         hint: "Loaded models, sections, quantities, mesh QA",
-        component: lazy(() => import("@/components/info_box_scene/SceneInfoBox")),
+        component: lazy(() => import("@/components/info_box_scene/ScenePanel")),
     },
     simulation: {
         id: "simulation",

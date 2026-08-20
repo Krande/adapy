@@ -1221,3 +1221,56 @@ noticing the store had not moved — not by reading the code.
 The rule now lives in `gizmoRules.ts` as a pure function with tests, because it is stated
 in two files and duplicated rules drift. The test names the reason for each restriction so
 the next person does not "fix" the asymmetry.
+
+---
+
+## The Scene panel: split, and its tabs stack too
+
+### Another box in a box
+
+`SceneInfoBox` drew its own bordered, separately-scrolling frame — the same fault
+`OptionsComponent` had, and invisible until you put it in a dock. Content moved to
+`SceneBody`; `SceneInfoBox` is now the classic float / bottom-sheet wrapper, and
+`ScenePanel` is the shell's three-line entry point.
+
+The contextual-tab logic (does this model have FE concepts? joints?) stayed in a shared
+`useSceneContextTabs` hook rather than moving into the body. It is a question about the
+loaded model, not about presentation, and both entry points must get the same answer or
+the classic panel and the docked one will disagree about which tabs exist.
+
+### Six tabs become a column when there is height
+
+Same idea as the dock, different arithmetic, and the difference matters:
+
+* A stacked **dock panel** is always open, so it needs a full body's height each.
+* A stacked **tab** becomes a *collapsible*, so it costs a header row until opened. The
+  budget is `headers × count + one body`. Charging each tab a full body would mean six
+  groups never stack on any real screen — which is why `tabArrangement.ts` is a separate
+  rule from `dockArrangement.ts` rather than a reused one.
+
+Why bother: a strip of six labels admits one group at a time, and in a narrow panel the
+strip itself scrolls, so some labels are not even visible. A column shows every heading at
+once and lets you open two together — which is the point when you are comparing take-off
+against groups. The group the store points at opens, so deep links and the toolbar's
+"Quantities & take-off" still land you in the right place in both arrangements.
+
+### Two real bugs found by measuring instead of assuming
+
+**1. Panels were not filling the dock.** `DockHost`'s tabbed wrapper was `h-full`, a plain
+block. A panel that says `flex-1` to fill its host resolves that against *content* inside
+a block parent, so `SceneBody` sized to its content: **277px inside a 978px dock**. Every
+panel that wants to fill was quietly getting a fraction of the height it had, and any
+panel making its own layout decisions from a measurement was measuring the wrong number.
+The wrapper is `flex h-full flex-col` now.
+
+**2. The arrangement was decided solely by the ResizeObserver's first callback.** That
+callback is delivered on the frame pipeline, which the browser **suspends for a hidden
+tab** and throttles under load — so a panel opened in a background tab would sit in the
+default arrangement until something resized it. Both `SceneBody` and `DockHost` now
+measure synchronously in a `useLayoutEffect` first and keep the observer for changes.
+
+The second one is worth dwelling on because of how it surfaced. The feature simply did not
+work in the browser and no amount of re-reading the code explained it; a *fresh*
+`ResizeObserver` created from the console did not fire either, and `document.hidden` was
+`true`. The harness had exposed a genuine defect that a foreground manual test would have
+sailed past. `data-arrangement` on the body is kept as a permanent probe.

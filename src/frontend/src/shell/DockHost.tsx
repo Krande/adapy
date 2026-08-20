@@ -58,18 +58,27 @@ export default function DockHost({dock}: DockHostProps) {
     // be driven to the exact heights where it matters.
     const bodyRef = React.useRef<HTMLDivElement | null>(null);
     const [stacked, setStacked] = React.useState(false);
-    React.useEffect(() => {
+    // Measure once, synchronously, before paint — then keep the observer for changes.
+    //
+    // The observer alone is not enough. Its first callback is delivered on the frame
+    // pipeline, which the browser suspends for a hidden tab (and throttles under load),
+    // so a panel opened in a background tab would sit in the DEFAULT arrangement until
+    // something happened to resize it. A layout effect runs regardless of visibility, so
+    // the first arrangement is right from the first paint.
+    React.useLayoutEffect(() => {
         if (dock === "bottom" || defs.length < 2) {
             setStacked(false);
             return;
         }
         const el = bodyRef.current;
-        if (!el || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(() => {
+        if (!el) return;
+        const measure = () =>
             setStacked((wasStacked) =>
                 shouldStack({dock, panelCount: defs.length, heightPx: el.clientHeight, wasStacked}),
             );
-        });
+        measure();
+        if (typeof ResizeObserver === "undefined") return;
+        const ro = new ResizeObserver(measure);
         ro.observe(el);
         return () => ro.disconnect();
     }, [dock, defs.length]);
@@ -195,7 +204,14 @@ export default function DockHost({dock}: DockHostProps) {
                             stacked
                                 ? "flex flex-col shrink-0 border-b border-edge last:border-b-0"
                                 : def.id === activeDef.id
-                                  ? "h-full"
+                                  // A flex column, not just h-full: a panel that wants to
+                                  // fill the dock says so with flex-1, and flex-1 inside a
+                                  // plain block resolves against content rather than the
+                                  // parent — so the panel silently sized to its content
+                                  // and its own layout decisions (scroll regions, the
+                                  // tabbed/stacked measurement) saw a fraction of the
+                                  // height they actually had.
+                                  ? "flex h-full flex-col"
                                   : "hidden",
                         )}
                     >
