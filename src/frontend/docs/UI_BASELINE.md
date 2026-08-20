@@ -1695,3 +1695,43 @@ session-wide context — every file, conversion and job belongs to one — and i
 piece of state that changes what every other surface shows. It is also needed on the
 `page` and `window` profiles, which have no Library to put it in. Library is where it is
 most *used*, but persistent chrome is where it needs to be *visible*.
+
+---
+
+## Native dialogs replaced; the dev fixture stops lying about Build
+
+Reported together, and they turned out to be two unrelated things wearing one symptom:
+"New procedural model…" showed a dialog "in another layout", then failed with
+`404 Not Found`.
+
+**The layout was `window.prompt`.** The browser's own dialog, which is blocking,
+unstyleable, and visibly not part of the application — a native prompt over a dark themed
+viewer reads as a different program having opened. In the embed build it is worse: the
+dialog is prefixed with the *host page's* origin, so a docs page would show
+"docs.example.com says: Name for the new procedural model:", which reads as a phishing
+attempt.
+
+`ui/confirm.ts` grew from one question to three — `confirm()`, `promptText()`,
+`alertText()` — all awaitable from non-React code, all rendered by the one host. The
+prompt dialog submits on Enter, because the native prompt did: a replacement that loses a
+behaviour the original had is how a "nicer" component loses the argument.
+
+**The 404 was the dev fixture, not the feature.** It was wired up correctly; the local
+REST stub implements no procedural routes at all. It now serves create / get / list, so
+Build mode is reviewable without a backend.
+
+That mattered more than it looks. A fixture that 404s a whole mode does not read as "the
+stub is incomplete" — it reads as "this feature is broken", and the reasonable response is
+to stop reviewing that mode. The error copy now says so explicitly: a bare 404 on this
+endpoint gets "The server has no procedural-model API. In local development the REST stub
+only implements files and scopes." A 404 alone sends people looking for a typo in the name
+they typed.
+
+### `tsc` does not cover the vite config
+
+The first version of the fixture routes had broken regex literals — a heredoc had eaten
+the `\/` escapes, leaving `/^/scopes/...`. `npx tsc --noEmit` passed, because
+`vite.plugin-dev-rest.ts` is not in the tsconfig `include`; the only signal was the dev
+server failing to boot with an esbuild stack trace and no message. Worth knowing: **the
+build tooling's own files are outside the typecheck**, so a change there is verified by
+running it, not by the gate.

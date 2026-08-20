@@ -1,6 +1,7 @@
 import {needsPreviewCompile, useCellBuilderStore, type CellBuilderMode} from "@/state/cellBuilderStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
+import {alertText, promptText} from "@/ui/confirm";
 
 // Build-mode rail actions.
 //
@@ -51,17 +52,32 @@ export async function newProceduralModel(): Promise<void> {
     const scope = useScopeStore.getState().current;
     const scopeKey = scope ? scopeUrlPart(scope) : "user:me";
 
-    // window.prompt is what the original used. Replacing it with a real dialog is worth
-    // doing, but not in the same change that moves the action — a move and a rewrite in
-    // one diff is how you lose track of which one broke something.
-    const name = window.prompt("Name for the new procedural model:", "");
-    if (!name || !name.trim()) return;
+    const name = await promptText({
+        title: "New procedural model",
+        label: "Model name",
+        placeholder: "e.g. Topside module A",
+        confirmLabel: "Create",
+    });
+    if (!name) return;
 
     try {
-        const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+        const detail = await viewerApi.createProceduralModel(scopeKey, name);
         useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
     } catch (e) {
-        window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        void alertText({
+            title: "Could not create the model",
+            tone: "danger",
+            body: [
+                msg,
+                // A bare 404 on this endpoint almost always means the backend does not
+                // serve the procedural API — the local dev stub does not — and "404 Not
+                // Found" on its own sends people looking for a typo in the name.
+                /404/.test(msg)
+                    ? "The server has no procedural-model API. In local development the REST stub only implements files and scopes."
+                    : "Check that the server is reachable and that you have write access to this scope.",
+            ],
+        });
     }
 }
 

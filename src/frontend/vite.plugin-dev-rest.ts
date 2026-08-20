@@ -207,6 +207,23 @@ export function adapyDevRestConfig() {
             // ADA_DEV_API_BASE at a real backend must not be shadowed by these stubs.
             if (!apiBase.startsWith("/")) return;
 
+            // Created models live for the life of the dev server only. Persisting them
+            // would mean inventing a storage format the real backend does not have.
+            const PROCEDURAL = new Map<string, Record<string, unknown>>();
+
+            const readJson = (req: {on: (e: string, cb: (c?: unknown) => void) => void}) =>
+                new Promise<unknown>((resolve) => {
+                    let raw = "";
+                    req.on("data", (c) => (raw += c));
+                    req.on("end", () => {
+                        try {
+                            resolve(JSON.parse(raw || "{}"));
+                        } catch {
+                            resolve({});
+                        }
+                    });
+                });
+
             server.middlewares.use(apiBase, (req, res) => {
                 const url = new URL(req.url ?? "/", "http://localhost");
                 const route = url.pathname;
@@ -287,6 +304,47 @@ export function adapyDevRestConfig() {
                         res.statusCode = 204;
                         res.end();
                     });
+                }
+
+                // ── Procedural models ────────────────────────────────────────────
+                //
+                // Enough of the API to CREATE and open a model, so the Build mode is
+                // reviewable without a backend. Everything the cellbuilder does after
+                // that (commit, compile, catalogs) still 404s and still says so.
+                //
+                // Added because "New procedural model…" reported "404 Not Found", which
+                // reads as a broken feature rather than as an unimplemented stub — and a
+                // fixture that makes a whole mode unreachable is a fixture that stops
+                // people reviewing that mode.
+                const procList = /^\/scopes\/[^/]+\/procedural-models\/?$/.exec(route);
+                if (procList && req.method === "POST") {
+                    return readJson(req).then((body) => {
+                        const name = String((body as {name?: string}).name ?? "Untitled");
+                        const id = `dev-${Date.now().toString(36)}`;
+                        const model = {
+                            id,
+                            name,
+                            revision: 1,
+                            created_by: "dev",
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            latest_glb_key: null,
+                            // An empty document: no cells, no equipment. That is what a
+                            // real create returns, and it is what makes the empty-state
+                            // copy in the Build panel reviewable.
+                            doc: {spaces: [], equipments: [], systems: [], groups: []},
+                        };
+                        PROCEDURAL.set(id, model);
+                        return sendJson(res, model);
+                    });
+                }
+                if (procList && req.method === "GET") {
+                    return sendJson(res, {items: [...PROCEDURAL.values()].map(({doc, ...rest}) => rest)});
+                }
+                const procOne = /^\/scopes\/[^/]+\/procedural-models\/([^/]+)\/?$/.exec(route);
+                if (procOne && req.method === "GET") {
+                    const model = PROCEDURAL.get(procOne[1]);
+                    if (model) return sendJson(res, model);
                 }
 
                 // Blob reads. The FEA fetcher builds
