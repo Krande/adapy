@@ -97,6 +97,26 @@ export const MENUS: MenuDef[] = [
             cmd("action:toggle-legend"),
             cmd("action:toggle-data-table"),
             cmd("action:fem-concepts"),
+            sep,
+            {
+                // From the Builder panel's old "View" tab. These are view state — which
+                // representation you are looking at, what is drawn on top of what — and
+                // a View menu is where you look for that. On the tab they were findable
+                // only by knowing the Builder panel had a tab called View.
+                kind: "submenu",
+                label: "Builder",
+                items: [
+                    cmd("action:rep-topology"),
+                    cmd("action:rep-simulation"),
+                    cmd("action:rep-detail"),
+                    sep,
+                    cmd("action:superimpose"),
+                    cmd("action:side-by-side"),
+                    cmd("action:ports-overlay"),
+                    sep,
+                    cmd("action:recentre"),
+                ],
+            },
         ],
     },
     {

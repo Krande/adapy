@@ -101,3 +101,46 @@ export const addModeIs = (mode: string) => () => useCellBuilderStore.getState().
 export function addLoftMember(): void {
     useCellBuilderStore.getState().addLoftMember();
 }
+
+// ---- Builder view state ----------------------------------------------------
+//
+// These lived on the Builder panel's "View" tab, which was three unrelated things in one
+// place: view state (which representation, superimpose, side-by-side, overlays), two
+// actions, and two COMPILE settings that had nothing to do with viewing.
+//
+// The view state belongs in the View menu — "which of these am I looking at" and "show X
+// on top of Y" are exactly what a View menu is for, and putting them there means they are
+// findable without knowing the Builder panel has a tab called View. They grey out with a
+// reason when no procedural model is open, like every other conditional command.
+
+export type RepMode = "topology" | "simulation" | "detail";
+
+export function setRepresentation(mode: RepMode): () => void {
+    return () => void useCellBuilderStore.getState().setRepMode(mode);
+}
+
+export const representationIs = (mode: RepMode) => () =>
+    useCellBuilderStore.getState().repMode === mode;
+
+export function toggleSuperimpose(): void {
+    const s = useCellBuilderStore.getState();
+    void s.setSuperimpose(!s.superimpose);
+}
+export const superimposeOn = () => useCellBuilderStore.getState().superimpose;
+
+export function toggleSideBySide(): void {
+    const s = useCellBuilderStore.getState();
+    s.setSideBySide(!s.sideBySide);
+}
+export const sideBySideOn = () => useCellBuilderStore.getState().sideBySide;
+
+export function togglePortsOverlay(): void {
+    const s = useCellBuilderStore.getState();
+    s.setPortsOverlayVisible(!s.portsOverlayVisible);
+}
+export const portsOverlayOn = () => useCellBuilderStore.getState().portsOverlayVisible;
+
+/** Recompute the model's placement so it sits centred after a far-off cell is removed. */
+export function recentreModel(): void {
+    useCellBuilderStore.getState().recenterModel();
+}

@@ -5,6 +5,8 @@ import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {shouldStackTabs} from "@/shell/tabArrangement";
+import {TAB_META, tabsForMode, type SceneTab} from "@/shell/sceneTabs";
+import {useModeStore} from "@/shell/modeStore";
 import LoadedModelsSection from "./LoadedModelsSection";
 import SourceSection from "./SourceSection";
 import StatsSection from "./StatsSection";
@@ -27,16 +29,7 @@ import JointsOverviewPanel from "./JointsOverviewPanel";
 //
 // It also decides between two arrangements of its six groups — see below.
 
-export type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "joints";
-
-export const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
-    {id: "model", label: "Model"},
-    {id: "tools", label: "Tools"},
-    {id: "clip", label: "Clip"},
-    {id: "mesh", label: "Mesh"},
-    {id: "fem", label: "FEM", ctx: true},
-    {id: "joints", label: "Joints", ctx: true},
-];
+export {TAB_META, tabsForMode, type SceneTab} from "@/shell/sceneTabs";
 
 export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     info: "model",
@@ -126,9 +119,10 @@ export interface SceneBodyProps {
 
 export default function SceneBody({isMobile = false, ctxAvailable}: SceneBodyProps) {
     const mode = useSceneInfoStore((s) => s.mode);
+    const appMode = useModeStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
 
-    const tabs = TAB_META.filter((t) => !t.ctx || ctxAvailable[t.id]);
+    const tabs = tabsForMode(TAB_META, appMode, ctxAvailable);
 
     // Fall back to Model when the stored mode names a tab that is not currently
     // available — e.g. FEM after the FE model was unloaded.

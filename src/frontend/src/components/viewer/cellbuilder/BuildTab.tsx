@@ -180,6 +180,38 @@ export const BuildTab: React.FC = () => {
               (Equipment / Systems) — no separate overview buttons/panels. */}
 
           <Section title="Compile settings">
+            {/* Which results a compile produces. These were on the View tab, which was
+                wrong twice over: they are not view state — they decide what the compiler
+                OUTPUTS — and they were separated from the engine and blueprint settings
+                that they belong with. */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-content-muted">Compile builds</span>
+              <label
+                className="inline-flex items-center gap-1 cursor-pointer"
+                title="Produce the simulation-level result (plates, beams, systems)"
+              >
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={s.buildSim}
+                  onChange={(e) => s.setBuildSim(e.target.checked)}
+                />
+                Simulation
+              </label>
+              <label
+                className="inline-flex items-center gap-1 cursor-pointer"
+                title="Also produce the high-fidelity detail result (trimmed deck edges, I-girder joints). Switch the representation to Detail to view it."
+              >
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={s.buildDetail}
+                  onChange={(e) => s.setBuildDetail(e.target.checked)}
+                />
+                Detail
+              </label>
+            </div>
+
             <label
               className="flex items-center gap-1"
               title={

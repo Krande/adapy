@@ -9,5 +9,4 @@ export {CompileLogSection} from "./CompileLogSection";
 export {ConnectionAdder} from "./ConnectionAdder";
 export {SystemsTab} from "./SystemsTab";
 export {BuildTab} from "./BuildTab";
-export {ViewTab} from "./ViewTab";
 export {ToolsTab} from "./ToolsTab";

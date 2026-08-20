@@ -6,7 +6,18 @@ import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview, redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
-import {newProceduralModel} from "./buildActions";
+import {
+    newProceduralModel,
+    portsOverlayOn,
+    recentreModel,
+    representationIs,
+    setRepresentation,
+    sideBySideOn,
+    superimposeOn,
+    togglePortsOverlay,
+    toggleSideBySide,
+    toggleSuperimpose,
+} from "./buildActions";
 import {copyNames, hasSelection, selectChild, selectNextSibling, selectParent, selectPrevSibling} from "./selectionActions";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -48,6 +59,10 @@ const ACTIONS: {
     keywords?: string;
     /** Returns null when runnable, else why it is greyed. */
     why?: () => string | null;
+    /** True when the thing this toggles is currently on. */
+    checked?: () => boolean;
+    /** Title to use while `checked`. */
+    checkedTitle?: string;
     run: () => void;
 }[] = [
     {id: "fit-all", title: "Fit all to view", icon: "expand", shortcut: "fit-all", keywords: "zoom frame extents", run: fitAll},
@@ -63,6 +78,17 @@ const ACTIONS: {
     {id: "upload", title: "Upload files", icon: "upload", keywords: "import add", why: REASONS.rest, run: openUpload},
     {id: "convert", title: "Convert files", icon: "convert", keywords: "export format glb ifc step", why: REASONS.rest, run: openConvert},
     {id: "refresh-files", title: "Refresh the file list", icon: "reload", why: REASONS.rest, run: refreshFiles},
+
+    // Builder view state, from the Builder panel's old "View" tab. A checkmark-style
+    // title ("Showing X" / "Show X") rather than a separate pressed affordance, because a
+    // menu item's own label is where a menu says what state something is in.
+    {id: "rep-topology", title: "Representation: Topology", icon: "cellbuilder", keywords: "cells editable model view", why: REASONS.builder, run: setRepresentation("topology"), checked: representationIs("topology"), checkedTitle: "✓ Representation: Topology"},
+    {id: "rep-simulation", title: "Representation: Simulation", icon: "mode-results", keywords: "compiled analysis plates beams view", why: REASONS.builder, run: setRepresentation("simulation"), checked: representationIs("simulation"), checkedTitle: "✓ Representation: Simulation"},
+    {id: "rep-detail", title: "Representation: Detail", icon: "component", keywords: "high fidelity joints girder view", why: REASONS.builder, run: setRepresentation("detail"), checked: representationIs("detail"), checkedTitle: "✓ Representation: Detail"},
+    {id: "superimpose", title: "Superimpose topology under result", icon: "scene", keywords: "overlay cells under compiled", why: REASONS.builder, run: toggleSuperimpose, checked: superimposeOn, checkedTitle: "✓ Superimpose topology under result"},
+    {id: "side-by-side", title: "Side-by-side: result beside topology", icon: "dock-right", keywords: "compare offset", why: REASONS.builder, run: toggleSideBySide, checked: sideBySideOn, checkedTitle: "✓ Side-by-side: result beside topology"},
+    {id: "ports-overlay", title: "Port overlay", icon: "system-catalog", keywords: "equipment inputs outputs arrows", why: REASONS.builder, run: togglePortsOverlay, checked: portsOverlayOn, checkedTitle: "✓ Port overlay"},
+    {id: "recentre", title: "Recentre the model", icon: "expand", keywords: "placement centre skewed", why: REASONS.builder, run: recentreModel},
 
     {id: "new-procedural", title: "New procedural model…", icon: "plus", keywords: "create build cellbuilder", why: REASONS.rest, run: () => void newProceduralModel()},
 
@@ -157,7 +183,9 @@ export function buildCommands(scope: "palette" | "menu" = "palette"): Command[] 
         const reason = a.why?.() ?? null;
         commands.push({
             id: `action:${a.id}`,
-            title: a.title,
+            // A menu item shows its state in its own text, so a toggle reads "Hide X"
+            // once X is showing. The checked helper is per-action; most have none.
+            title: a.checked?.() ? a.checkedTitle ?? a.title : a.title,
             context: "Action",
             icon: a.icon,
             keys: a.shortcut ? keysFor(a.shortcut) : undefined,

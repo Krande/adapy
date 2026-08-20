@@ -1,5 +1,8 @@
 import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useRef, useState} from "react";
+import {Icon} from "@/components/icons";
+import {IconButton} from "@/components/ui";
+import {useFilesPanel} from "@/shell/filesPanel";
 import ScopePicker from "@/shell/ScopePicker";
 import {buttonClasses} from "@/components/ui";
 import {createPortal} from "react-dom";
@@ -14,8 +17,6 @@ import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_fro
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import ReloadIcon from "../icons/ReloadIcon";
-import PlusIcon from "../icons/PlusIcon";
-import ExpandIcon from "../icons/ExpandIcon";
 import ViewIcon from "../icons/ViewIcon";
 import FolderClosedIcon from "../icons/FolderClosedIcon";
 import FieldPickerModal from "./FieldPickerModal";
@@ -333,18 +334,10 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         ) as HTMLElement | null;
         el?.scrollIntoView({block: "nearest"});
     }, [focusedKey]);
-    // Maximize: same component, restyled as a centered fixed overlay
-    // with a backdrop. Styling-only so every bit of panel state
-    // (selection, expansion, menus) survives the toggle.
-    const [maximized, setMaximized] = useState(false);
-    useEffect(() => {
-        if (!maximized) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMaximized(false);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [maximized]);
+    // Wide enough for the Modified column. Driven by the panel's real width rather
+    // than a mode flag: the column is a space question, and the user answers it by
+    // dragging the splitter.
+    const wide = useFilesPanel((s) => s.width) >= 420;
 
     // Mutating actions (delete / rename / move): personal scope for
     // everyone via the user endpoints, admins elsewhere via the admin
@@ -1007,21 +1000,9 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
             data-no-upload-menu
             // Compact: match ObjectInfoBox footprint (viewport-clamped
             // max-width so the panel self-contains on mobile).
-            // Maximized: same element restyled as a centered fixed
-            // overlay — styling-only so panel state survives the
-            // toggle. The host column has no transform ancestors, so
-            // position:fixed escapes it cleanly.
             className={
-                (chromeless && !maximized ? "flex min-h-0 flex-1 flex-col " : PANEL_CHROME + " ") +
-                (maximized
-                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      // Same footprint as the floating admin panel
-                      // (InViewerPanelHost Rnd: 1100×720 capped to the
-                      // viewport). dvh not vh: on mobile 100vh includes
-                      // the area behind the browser chrome, so a
-                      // vh-sized panel ran past the visible bottom.
-                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : chromeless
+                (chromeless ? "flex min-h-0 flex-1 flex-col " : PANEL_CHROME + " ") +
+                (chromeless
                       ? // In a dock the host owns width and scrolling; imposing a
                         // max-width here would leave a gap the user cannot close by
                         // dragging the splitter, which reads as a broken panel.
@@ -1034,21 +1015,6 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
             }
         >
-            {maximized && createPortal(
-                // Light scrim — just enough to signal modality without
-                // blacking out the 3D scene. z-[5]: the panel lives in
-                // the menu overlay's `z-10` stacking context, so its
-                // own z-index can never exceed 10 at the root level —
-                // a body-portaled scrim above 10 paints OVER the panel
-                // and darkens it too (visibly so on mobile). Below 10
-                // it dims only the canvas underneath.
-                <div
-                    className="fixed inset-0 z-[5] bg-black/25"
-                    onClick={() => setMaximized(false)}
-                    aria-hidden="true"
-                />,
-                document.body,
-            )}
             <div className="flex justify-between items-center gap-2 mb-2">
                 <div className="min-w-0 flex-1">
                     {/* The dock header already says which panel this is. Repeating it
@@ -1109,7 +1075,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             same size as Refresh/Maximize whether it
                             shows the plus or the busy spinner. */}
                         <span className="inline-flex h-6 w-6 items-center justify-center">
-                            {uploading ? <Spinner/> : <PlusIcon width="24px" height="24px"/>}
+                            {uploading ? <Spinner/> : <Icon name="plus" size="sm" />}
                         </span>
                     </button>
                     {plusOpen && (
@@ -1257,22 +1223,25 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             {bulkBusy === "clear" ? "Clearing…" : "Clear"}
                         </button>
                     )}
-                    <button
-                        type="button"
-                        className={
-                            "bg-surface-2 hover:bg-surface-3 active:bg-surface-0 text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center " +
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-accent"
-                        }
-                        onClick={() => setMaximized((v) => !v)}
-                        title={maximized ? "Restore compact panel" : "Maximize"}
-                        aria-label={maximized ? "Restore compact panel" : "Maximize"}
-                    >
-                        <span className="inline-flex h-6 w-6 items-center justify-center">
-                            <ExpandIcon expanded={maximized} width="24px" height="24px"/>
-                        </span>
-                    </button>
+                    {/* Close, not maximize.
+                    
+                        Maximize made sense when this was a floating panel over the 3D
+                        view. As a resizable column with a splitter it is redundant — you
+                        widen it by dragging — and it was the odd control out: every other
+                        panel header offers Close, so the one that offered Maximize
+                        instead had no way to put it away from its own header.
+                        
+                        Same size as the dock panels' buttons, via the same IconButton.
+                        Theirs are sm; these were hand-rolled at 40px, so the Files header
+                        was visibly chunkier than Model's or Outliner's right beside it. */}
+                    {chromeless && (
+                        <IconButton
+                            size="sm"
+                            tooltip="Close Files"
+                            icon={<Icon name="close" size="sm" />}
+                            onClick={() => useFilesPanel.getState().setShown(false)}
+                        />
+                    )}
                 </div>
             </div>
             {inSelectionMode && (() => {
@@ -1441,11 +1410,11 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
                                 "focus-visible:ring-1 focus-visible:ring-accent rounded-sm " +
-                                // Desktop compact keeps the fixed 20rem cap;
-                                // maximized fills. On mobile compact the whole
-                                // panel scrolls (root overflow-y-auto), so the
-                                // list itself is uncapped there (no double scroll).
-                                (maximized ? "flex-1 min-h-0" : "md:max-h-80")
+                                // In the dock the list fills the column. Elsewhere,
+                                // desktop keeps the fixed 20rem cap; on mobile the whole
+                                // panel scrolls (root overflow-y-auto), so the list
+                                // itself is uncapped there (no double scroll).
+                                (chromeless ? "flex-1 min-h-0" : "md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files
@@ -1566,7 +1535,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                                 renaming={renaming?.kind === "file" && renaming.path === node.file.name}
                                                 onRenameCommit={(v) => void onRenameFileCommit(node.file, v)}
                                                 onRenameCancel={() => setRenaming(null)}
-                                                showModified={maximized}
+                                                showModified={wide}
                                             />
                                         );
                                     }
@@ -1656,7 +1625,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                     onSelectToggle={toggleSelection}
                                     fileMenuItemsFor={versionFileMenuItems}
                                     onOpenContextMenu={openCtxMenu}
-                                    showModified={maximized}
+                                    showModified={wide}
                                 />
                             )}
                         </div>

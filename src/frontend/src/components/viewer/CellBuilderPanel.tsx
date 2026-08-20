@@ -26,7 +26,6 @@ import {
   BuildTab,
   SystemsTab,
   ToolsTab,
-  ViewTab,
   btn,
   btnGray,
   CHROME,
@@ -45,7 +44,11 @@ import {
 // top-row button in Menu (only rendered while a procedural model is loaded).
 
 
-type PanelTab = "build" | "equipment" | "systems" | "detailing" | "view" | "tools";
+// No "view" tab. Its contents went three ways: the view state (representation,
+// superimpose, side-by-side, port overlay, recentre) to View ▸ Builder in the menu bar,
+// where a View menu is what people look in; the two compile-output toggles to Compile
+// settings, which is what they actually control; and nothing was left over.
+type PanelTab = "build" | "equipment" | "systems" | "detailing" | "tools";
 
 const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
@@ -263,7 +266,6 @@ const CellBuilderPanel: React.FC = () => {
         {tabBtn("equipment", "Equipment")}
         {tabBtn("systems", "Systems", systemCount)}
         {s.selectedDetailing !== "none" && tabBtn("detailing", "Detailing")}
-        {tabBtn("view", "View")}
         {tabBtn("tools", "Tools")}
       </div>
 
@@ -310,11 +312,6 @@ const CellBuilderPanel: React.FC = () => {
         </div>
 
         {/* VIEW */}
-        <div className={tab === "view" ? "flex flex-col gap-2" : "hidden"}>
-          <ViewTab />
-        </div>
-
-        {/* TOOLS */}
         <div className={tab === "tools" ? "flex flex-col gap-2" : "hidden"}>
           <ToolsTab />
         </div>
