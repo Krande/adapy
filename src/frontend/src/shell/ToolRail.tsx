@@ -67,6 +67,16 @@ const RAIL_TOOLS: RailTool[] = [
     {id: "unhide", icon: "view", label: "Unhide all", shortcut: "Shift+U", run: unhideAll},
     {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
     {id: "measure", icon: "measure", label: "Measure", pending: true},
+    // One door onto the Scene panel, which holds everything that describes the loaded
+    // geometry: loaded models, quantities and take-off, groups, mesh quality, clip
+    // planes. All of that is true of a model in every mode, so it belongs here rather
+    // than being re-offered by each mode's strip — which is where several of these
+    // doors used to live, one per tab, in the Inspect strip alone.
+    //
+    // One button and not four: the panel stacks its own groups into a column when it has
+    // the height, so opening it shows all of them at once. Four rail buttons would be
+    // four ways to open the same panel.
+    {id: "scene", icon: "scene", label: "Scene — models, quantities, groups, mesh quality", run: openScenePanel},
     {id: "divider-2", icon: "expand", label: "", divider: true},
     // Universal, not modelling-specific. Greyed with a reason when there is no document
     // with a history — never hidden.
@@ -77,6 +87,13 @@ const RAIL_TOOLS: RailTool[] = [
 /** Undo/redo currently only have a history to act on inside the procedural builder. */
 function builderOpen(): string | null {
     return useCellBuilderStore.getState().active !== null ? null : "Nothing to undo here yet";
+}
+
+/** Open the Scene panel on its default (Model) tab. */
+function openScenePanel(): void {
+    useSceneInfoStore.getState().setMode("info");
+    const {mode} = useModeStore.getState();
+    useLayoutStore.getState().openPanel(mode, "scene", "right");
 }
 
 function openSectionPlanes(): void {

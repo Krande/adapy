@@ -1514,3 +1514,44 @@ control is disabled.
 was hidden in the stacked arrangement. But it names the *container*, not the content, and
 every stacked panel already carries its own header — filling an empty row is not a reason
 to put something in it. `DOCK_LABEL` still does its real job in the accessible names.
+
+---
+
+## Universal tools belong in the universal place
+
+Two reports, one rule: *a tool that applies in every mode is not a mode tool.*
+
+**Section planes** was in the left rail **and** appended to every mode's strip except the
+Library — the same tool in two places at once. It is in the rail only now. The Scene panel
+also became `modes: "all"`, because clip planes, take-off, groups and mesh quality all
+describe the loaded geometry, which exists in every mode; excluding it from the Library
+meant the rail's own Section button had nowhere to open.
+
+**Groups** was worse. Build's strip had a "Groups" button that opened the Scene panel's
+*Tools* tab, while the groups it meant live under *Model* — a control that was both
+mode-gated when it should not have been, and pointed at the wrong place.
+
+Inspect's three buttons went the same way. They opened three different Scene-panel tabs,
+which is three doors onto universal content dressed as mode tools. The rail now has **one**
+Scene button, not four: the panel stacks its own groups into a column when it has the
+height, so opening it shows all of them at once.
+
+Where things ended up:
+
+| | |
+|---|---|
+| **Rail** (every mode) | Fit · Focus · Hide · Unhide · Section · Measure · **Scene** · Undo · Redo |
+| **Library** | Upload · Convert · Refresh |
+| **Build** | Move · Rotate · Resize · Compile |
+| **Inspect** | *(empty)* |
+| **Results** | Play/pause · Legend · Data table · FEM concepts |
+
+**Inspect is empty again, and that is the finding, not a gap.** It is the third time this
+has come up. Inspect adds nothing because it is the base state: what it offers is the
+*absence* of the other modes' apparatus. Padding the strip to make the mode look busy is
+precisely what pulled universal tools into it the first time.
+
+The test each entry now has to pass: *would this still make sense in a mode that has no
+model / no results / no procedural document?* If yes, it is a rail or a menu item. The
+remaining strips survive it — Move needs a builder selection, Play needs a result set,
+Upload needs a scope.

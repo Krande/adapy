@@ -100,7 +100,11 @@ export const PANELS: Record<PanelId, PanelDef> = {
         id: "scene",
         title: "Scene",
         icon: "scene",
-        modes: ["inspect", "results", "build"],
+        // Every mode. The Scene panel holds the clip planes, the take-off and the mesh
+        // tools — all of which describe the loaded geometry, which is present in every
+        // mode including the Library. Excluding it there meant the rail's "Section
+        // planes" button had nowhere to open.
+        modes: "all",
         defaultDock: "right",
         pinnable: true,
         hint: "Loaded models, sections, quantities, mesh QA",

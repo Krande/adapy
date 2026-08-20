@@ -105,7 +105,9 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         {id: "resize", icon: "scale", label: "Resize", shortcut: "S", pressed: gizmoIs("resize"), why: needsGizmo("resize"), run: setGizmo("resize")},
         div("d1"),
         {id: "compile", icon: "reload", label: "Compile preview", shortcut: "Shift+Enter", why: needsBuilder, run: compilePreview},
-        {id: "groups", icon: "group", label: "Groups", why: needsBuilder, run: openScene("utilities")},
+        // No "Groups" here. It pointed at the Scene panel's Tools tab while the groups
+        // it meant live under Model — and groups describe the loaded model, so they are
+        // universal. The rail's Scene button is the one door onto all of that.
     ],
 
     // Inspect — routes into the Scene panel's tabs.
@@ -114,11 +116,16 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
     // not the same as having nothing to offer: interrogating a model IS the Scene panel,
     // and it was previously reachable only by opening the panel and finding the right
     // tab. These are doors onto tabs that already exist, not new UI.
-    inspect: [
-        {id: "takeoff", icon: "sort", label: "Quantities & take-off", run: openScene("info")},
-        {id: "tools", icon: "settings", label: "Scene tools — face search, groups, gallery", run: openScene("utilities")},
-        {id: "meshqa", icon: "component", label: "Mesh quality", run: openScene("mesh")},
-    ],
+    // Empty, and honestly so — for the second time, and for the same reason.
+    //
+    // It briefly held three buttons, each opening a different Scene-panel tab. Those tabs
+    // describe the loaded geometry, which exists in every mode, so they were universal
+    // tools wearing a mode strip's clothes; they are now one Scene button in the rail.
+    //
+    // What is left is nothing, because Inspect adds nothing: it is the base state, and
+    // what it offers is the ABSENCE of the other modes' apparatus. Padding the strip to
+    // make the mode look busy would be the third time this file learned the same lesson.
+    inspect: [],
 
     // Results — playback first, then the readouts.
     //
@@ -141,18 +148,14 @@ function togglePlay(): void {
     fea.setIsPlaying(!fea.isPlaying);
 }
 
-/** Section planes apply to any geometry, so they are offered wherever the Scene panel
- *  is — everywhere except the Library. */
-const SECTION_TOOL: ModeTool = {
-    id: "section",
-    icon: "section-plane",
-    label: "Section planes",
-    run: openScene("section"),
-};
-
+// Section planes are NOT here. They were, appended to every mode except the Library —
+// and they are also in the left rail, so the same tool sat in two places at once.
+//
+// Clipping applies to any geometry in any mode, which is exactly what the rail is for.
+// Appending it per-mode was the old dynamic-palette habit surviving the move to a stable
+// rail: the strip is for what a mode ADDS, and a tool every mode adds is not a mode tool.
 export function toolsForMode(mode: ModeId): ModeTool[] {
-    const base = MODE_TOOLS[mode] ?? [];
-    return mode === "data" ? base : [...base, SECTION_TOOL];
+    return MODE_TOOLS[mode] ?? [];
 }
 
 export default function ModeToolbar() {
