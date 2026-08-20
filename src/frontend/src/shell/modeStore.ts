@@ -45,17 +45,29 @@ export interface ModeDef {
 }
 
 export const MODES: readonly ModeDef[] = [
+    // Ordered as data flows, left to right: get files in, look at the model, author, then
+    // post-process. That is how people describe their own work, so it is learnable in a
+    // way "most-used first" is not.
+    {
+        id: "data",
+        // Labelled "Files". "Data" named the code's concern, not the user's — nearly all
+        // of the use here is storage, upload and conversion. The admin panel is the one
+        // thing the name undersells, and it is rare and admin-only.
+        //
+        // The ID stays "data": layouts persist per mode under ada:layout:v2, and renaming
+        // the key would silently reset everyone's arrangement.
+        label: "Files",
+        icon: "mode-data",
+        hint: "Get data in and out — storage, upload, conversion, jobs, administration",
+    },
     {
         id: "inspect",
         label: "Inspect",
         icon: "mode-inspect",
-        hint: "Navigate and interrogate the model — selection, tree, sections, quantities",
-    },
-    {
-        id: "results",
-        label: "Results",
-        icon: "mode-results",
-        hint: "Post-process FEA results — fields, deformation, playback, data table",
+        // Deliberately the base state rather than a specialisation: it owns no panel and
+        // no tool the other modes lack. What it offers is the ABSENCE of the others'
+        // apparatus — the model, the tree, properties, and nothing else on screen.
+        hint: "The model on its own — selection, tree, properties, sections, quantities",
     },
     {
         id: "build",
@@ -64,16 +76,29 @@ export const MODES: readonly ModeDef[] = [
         hint: "Author geometry — cells, equipment, systems, procedures",
     },
     {
-        id: "data",
-        label: "Data",
-        icon: "mode-data",
-        hint: "Move data in and out — storage, conversion, jobs, administration",
+        id: "results",
+        label: "Results",
+        icon: "mode-results",
+        hint: "Post-process FEA results — fields, deformation, playback, data table",
     },
 ] as const;
 
 export const isModeId = (v: unknown): v is ModeId => MODE_IDS.includes(v as ModeId);
 
-export const modeDef = (id: ModeId): ModeDef => MODES.find((m) => m.id === id) ?? MODES[0];
+/**
+ * The mode to land in when nothing else decides — a fresh session, or persisted state
+ * naming a mode that no longer exists.
+ *
+ * Explicit rather than MODES[0], because that array's order is a presentation choice
+ * (it reads left-to-right as data flows) and the fallback must not follow it. Reordering
+ * the switcher once silently made the fallback "Files", which needs REST and is an empty
+ * workspace on desktop — the worst possible place to strand someone whose layout blob
+ * just failed to load.
+ */
+export const DEFAULT_MODE: ModeId = "inspect";
+
+export const modeDef = (id: ModeId): ModeDef =>
+    MODES.find((m) => m.id === id) ?? MODES.find((m) => m.id === DEFAULT_MODE)!;
 
 interface ModeState {
     mode: ModeId;
@@ -94,7 +119,7 @@ export const useModeStore = create<ModeState>()(
         (set) => ({
             // Inspect: the one thing every persona does, and the only mode that is
             // useful with nothing loaded.
-            mode: "inspect",
+            mode: DEFAULT_MODE,
             badges: {},
 
             setMode: (mode) =>

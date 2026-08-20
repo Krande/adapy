@@ -1035,3 +1035,74 @@ wrong: for a menu it is legibility, not taste.
 `Edit` currently holds only Undo/Redo/Copy/Select, because those are the only edit
 commands that exist as commands. That thinness is honest and worth leaving visible — it
 is the menu doing its job of showing where the gaps are.
+
+---
+
+## Chrome restructure: two rows, a stable rail, and a mode order that follows the work
+
+### Menus above modes, not beside them
+
+The menu bar and the mode switcher are not peers. The menus are the application; the
+modes are a setting within it. Side by side they read as one row of equals, and "File"
+sitting next to "Inspect" invites you to read File as a fifth mode. Two rows: application
+chrome on top (menus, scope, palette), where-you-are below (modes, and the mode's tools).
+
+### The rail stopped changing; the mode's tools moved under the mode buttons
+
+Mode-specific tools now live in a horizontal strip directly beneath the mode switcher.
+The changing contents sit under the control that changes them, which is what makes them
+legible — the strip is visibly part of the mode rather than part of the app.
+
+The rail keeps only what means the same thing everywhere: camera, visibility, section,
+measure, undo/redo.
+
+**Undo and redo were the clearest symptom.** They lived in the Build rail, which asserted
+that undo is a modelling feature. Undo is universal in every application anyone has ever
+used. They are in the rail now, greyed with "Nothing to undo here yet" when there is no
+document with a history. That is the general rule: *a universally understood feature stays
+put and greys out; it does not vanish and reappear.* Greyed also means the tooltip has to
+say why — a control that is dim for no stated reason is one people stop trying.
+
+**Panel toggles left the rail.** The menu bar lists every panel with its shortcut, which
+is a better index than a column of unlabelled icons, and the duplication cost the rail the
+room its actual tools need.
+
+### Mode order and the Files rename
+
+`Files · Inspect · Build · Results` — data flowing left to right: get it in, look at it,
+author, post-process. That is how people describe their own work, so it is learnable in a
+way "most-used first" is not.
+
+"Data" named the code's concern. Nearly all of the use is storage, upload and conversion,
+so the label is **Files**. The admin panel is the one thing the name undersells, and it is
+rare and admin-only. The mode **id stays `data`**: layouts persist per mode under
+`ada:layout:v2`, and renaming the key would silently reset everyone's arrangement.
+
+### What Inspect is for — the honest answer
+
+Asked directly, the registry answers it: **Inspect owns nothing exclusively.** Outliner,
+Properties and Preferences are `modes: "all"`; Scene is in Inspect, Build *and* Results;
+its two rail tools were section planes (which opens the Scene panel, available in three
+modes) and measure (not wired up). Zero exclusive panels, zero exclusive tools.
+
+That is not an argument for deleting it. It means Inspect is not a specialisation at all —
+it is the **base state**, and what it offers is the *absence* of the other modes'
+apparatus: the model, the tree, properties, and nothing else on screen. That is worth
+having, and it is worth saying out loud in the mode's own hint, which now does.
+
+It also explains why its tool strip is empty, and why that is left empty rather than
+padded to make the mode look busy. An empty strip is the honest rendering of "nothing
+extra here", which is the entire point of the mode.
+
+### A bug the reorder exposed
+
+`modeDef` fell back to `MODES[0]` for an unknown id — coupling the fallback to *display*
+order. The moment that order changed, an unknown persisted mode would have dropped the
+user into Files, which needs REST and is an empty workspace on desktop: the worst place to
+strand someone whose layout blob just failed to load. There is now an explicit
+`DEFAULT_MODE`, and the store's initial value reads from it too.
+
+### Still to do
+
+The right dock still shows one panel at a time and hides the Scene panel's six sub-tabs
+behind tabs even when the dock is tall enough to stack them. Addressed next.

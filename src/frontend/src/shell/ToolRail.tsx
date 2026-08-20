@@ -1,4 +1,5 @@
 import React from "react";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {Icon, IconButton, cn, type IconName} from "@/components/ui";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
@@ -17,11 +18,24 @@ import {Z} from "./zIndex";
 //   * PINNED tools, identical in every mode. C4D keeps select/move/rotate/scale fixed
 //     for exactly this reason: the things you reach for constantly must not move when
 //     you change discipline.
-//   * MODE tools, which swap entirely. This is where the reduction happens — cellbuilder
-//     tools simply do not exist while you are reading FEA results.
+// The rail holds ONLY tools that mean the same thing in every mode.
 //
-// Panel toggles live here too, so the rail doubles as the mode's panel switcher without
-// a separate row of buttons.
+// It used to swap its contents per mode, following Cinema 4D's dynamic palettes. That
+// was wrong for this product: C4D's modes are closely-related modelling contexts sharing
+// most of their tools, while ours are four different applications, so the rail turned
+// over almost completely and nothing had a fixed address. Mode-specific tools now live in
+// a horizontal toolbar under the mode switcher, where changing contents is expected
+// because they sit directly beneath the control that changes them.
+//
+// Undo and redo are the clearest case. They were in the Build rail, which said "undo is a
+// modelling feature" — but undo is universal in every application anyone has used. They
+// belong here, greyed when there is nothing to undo. That is the general rule now: a
+// feature that is universally understood stays put and greys out; it does not vanish and
+// reappear.
+//
+// Panel toggles are gone from the rail. The menu bar lists every panel with its shortcut,
+// which is a better index than a column of unlabelled icons, and the duplication was
+// costing the rail the space its actual tools need.
 
 interface RailTool {
     id: string;
@@ -31,60 +45,40 @@ interface RailTool {
     /** Not yet wired — rendered disabled with an honest tooltip rather than hidden, so
      *  the shape of the mode is visible during the rebuild. */
     pending?: boolean;
+    /** Renders as a rule instead of a button. Keeps grouping in the data, not the JSX. */
+    divider?: boolean;
     /** Delegates to an existing handler. Never reimplements behaviour. */
     run?: () => void;
+    /** Returns null when usable, else why it is greyed — shown in the tooltip. */
+    why?: () => string | null;
 }
 
-/** Always present, always in the same order, in every mode. */
-const PINNED_TOOLS: RailTool[] = [
-    // Fit and focus are camera actions every persona reaches for constantly, which is
-    // exactly what C4D pins: the things you use in every discipline must not move when
-    // you change discipline.
+/**
+ * The tools, in one fixed order, in every mode.
+ *
+ * Grouped: camera, then visibility, then history. Nothing here depends on which mode you
+ * are in — that is the entry requirement.
+ */
+const RAIL_TOOLS: RailTool[] = [
     {id: "fit", icon: "expand", label: "Fit all", shortcut: "Shift+A", run: fitAll},
     {id: "focus", icon: "mode-inspect", label: "Focus selection", shortcut: "Shift+F", run: focusSelection},
+    {id: "divider-1", icon: "expand", label: "", divider: true},
     {id: "hide", icon: "view-off", label: "Hide selection", shortcut: "Shift+H", run: hideSelection},
     {id: "unhide", icon: "view", label: "Unhide all", shortcut: "Shift+U", run: unhideAll},
+    {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
+    {id: "measure", icon: "measure", label: "Measure", pending: true},
+    {id: "divider-2", icon: "expand", label: "", divider: true},
+    // Universal, not modelling-specific. Greyed with a reason when there is no document
+    // with a history — never hidden.
+    {id: "undo", icon: "undo", label: "Undo", shortcut: "Ctrl+Z", run: undo, why: builderOpen},
+    {id: "redo", icon: "redo", label: "Redo", shortcut: "Shift+Z", run: redo, why: builderOpen},
 ];
 
-/**
- * Per-mode tools.
- *
- * Populated as each mode's milestone lands (M3 Inspect, M4 Results, M5 Build, M6 Data);
- * entries are marked pending until their handler exists. Showing a disabled control with
- * a truthful tooltip beats an empty rail that makes the mode look unfinished — and beats
- * a live control that does nothing.
- */
-const MODE_TOOLS: Record<ModeId, RailTool[]> = {
-    inspect: [
-        // Opens the Scene panel on its Clip tab rather than duplicating the
-        // section-plane UI — one implementation, reachable from the rail.
-        {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
-        {id: "measure", icon: "measure", label: "Measure", pending: true},
-    ],
-    results: [
-        {id: "legend", icon: "filter", label: "Colour legend", run: toggleLegend},
-        {id: "table", icon: "fem-data", label: "Result data table", run: toggleDataTable},
-        {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", run: openFemConcepts},
-        // Playback lives on the Simulation panel's transport, where the step and mode
-        // sliders it belongs with already are. A duplicate play button in the rail would
-        // be a second control for one piece of state — the thing this rebuild is
-        // removing, not adding.
-    ],
-    build: [
-        {id: "undo", icon: "undo", label: "Undo", shortcut: "Ctrl+Z", run: undo},
-        {id: "redo", icon: "redo", label: "Redo", shortcut: "Shift+Z", run: redo},
-        // Cell placement is a viewport gesture (click a face, drag to extrude) driven by
-        // CellBuilderController, not a rail button — putting an "Add cell" button here
-        // would imply a mode the tool does not have.
-    ],
-    data: [
-        {id: "upload", icon: "upload", label: "Upload files", run: openUpload},
-        {id: "convert", icon: "reload", label: "Convert", run: openConvert},
-        {id: "refresh", icon: "reload", label: "Refresh file list", run: refreshFiles},
-    ],
-};
+/** Undo/redo currently only have a history to act on inside the procedural builder. */
+function builderOpen(): string | null {
+    return useCellBuilderStore.getState().active !== null ? null : "Nothing to undo here yet";
+}
 
-/** Reveal the section-plane UI where it already lives: the Scene panel's Clip tab. */
 function openSectionPlanes(): void {
     useSceneInfoStore.getState().setMode("section");
     const {mode} = useModeStore.getState();
@@ -92,57 +86,29 @@ function openSectionPlanes(): void {
 }
 
 export default function ToolRail() {
-    const mode = useModeStore((s) => s.mode);
-    const togglePanel = useLayoutStore((s) => s.togglePanel);
-    const layout = useLayoutStore((s) => s.perMode[mode]);
-
-    const panels = panelsForMode(mode);
-    const tools = MODE_TOOLS[mode] ?? [];
-
-    const isOpen = (id: string) =>
-        Boolean(
-            layout &&
-                (Object.values(layout.docks).some((d) => d.tabs.includes(id as never)) ||
-                    id in layout.floats ||
-                    layout.overlays[id as never] === true),
-        );
+    // Subscribes to the builder so undo/redo re-evaluate their greyed state when a
+    // procedural model opens or closes. Without this the rail would be correct only
+    // until the next unrelated re-render.
+    useCellBuilderStore((st) => st.active);
 
     return (
         <nav
-            aria-label={`${mode} tools`}
+            aria-label="Tools"
             style={{gridArea: "rail", zIndex: Z.dock}}
             className="flex flex-col items-center gap-1 shrink-0 w-11 py-1.5 bg-surface-0 border-r border-edge overflow-y-auto scrollbar"
         >
-            {PINNED_TOOLS.map((t) => (
-                <RailButton key={t.id} tool={t} />
-            ))}
-
-            <Divider />
-
-            {tools.map((t) => (
-                <RailButton key={t.id} tool={t} />
-            ))}
-
-            {tools.length > 0 && <Divider />}
-
-            {/* Panel toggles. Generated from the registry — a panel added there appears
-                here with no edit to this file. */}
-            {panels.map((p) => (
-                <IconButton
-                    key={p.id}
-                    size="md"
-                    tooltip={`${p.title}${p.shortcut ? ` (${p.shortcut})` : ""}${p.hint ? ` — ${p.hint}` : ""}`}
-                    icon={<Icon name={p.icon} />}
-                    pressed={isOpen(p.id)}
-                    onClick={() => togglePanel(mode, p.id, p.defaultDock)}
-                />
-            ))}
+            {RAIL_TOOLS.map((t) => (t.divider ? <Divider key={t.id} /> : <RailButton key={t.id} tool={t} />))}
         </nav>
     );
 }
 
 function RailButton({tool}: {tool: RailTool}) {
-    const disabled = tool.pending || !tool.run;
+    // Three ways a tool can be unusable, and each says something different in the
+    // tooltip. "Greyed with no explanation" is the thing that makes people give up on a
+    // control rather than look for the state it needs.
+    const notWired = tool.pending || !tool.run;
+    const reason = notWired ? "not wired up yet" : (tool.why?.() ?? null);
+    const disabled = reason != null;
     return (
         <IconButton
             size="md"
@@ -150,7 +116,7 @@ function RailButton({tool}: {tool: RailTool}) {
             onClick={tool.run}
             tooltip={
                 disabled
-                    ? `${tool.label} — not wired up yet`
+                    ? `${tool.label} — ${reason}`
                     : `${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ""}`
             }
             icon={<Icon name={tool.icon} />}

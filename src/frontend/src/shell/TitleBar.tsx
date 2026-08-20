@@ -6,6 +6,7 @@ import {useShellPrefs} from "./shellPrefs";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import ScopePicker from "./ScopePicker";
 import MenuBar from "./MenuBar";
+import ModeToolbar from "./ModeToolbar";
 import {Z} from "./zIndex";
 import {openCommandPalette} from "./CommandPalette";
 import {keysFor} from "./shortcuts";
@@ -42,48 +43,17 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
     return (
         <header
             style={{gridArea: "titlebar", zIndex: Z.dock}}
-            className="flex items-center gap-2 min-w-0 px-2 h-10 bg-surface-0 border-b border-edge"
+            className="flex flex-col min-w-0 bg-surface-0 border-b border-edge"
         >
-            <span className="shrink-0 px-1 text-sm font-semibold tracking-tight select-none">ada</span>
+            {/* Row 1 — application chrome: the menus, and things that are true of the
+                whole session (which scope, the palette, the way back).
 
-            {showModeSwitcher && (
-                <nav
-                    aria-label="Workspace mode"
-                    className="flex items-center gap-0.5 shrink-0 p-0.5 bg-surface-2 border border-edge rounded-md"
-                >
-                    {MODES.map((m) => {
-                        const active = m.id === mode;
-                        const badge = badges[m.id];
-                        return (
-                            <button
-                                key={m.id}
-                                type="button"
-                                aria-current={active ? "page" : undefined}
-                                title={`${m.label} — ${m.hint}`}
-                                onClick={() => setMode(m.id)}
-                                className={cn(
-                                    "ada-focus relative inline-flex items-center gap-1.5 px-2.5 h-7 rounded-sm",
-                                    "text-sm font-medium whitespace-nowrap transition-colors duration-(--ada-dur-fast)",
-                                    active
-                                        ? "bg-surface-1 text-content shadow-panel"
-                                        : "text-content-muted pointer-fine:hover:text-content",
-                                )}
-                            >
-                                <Icon name={m.icon} size="sm" />
-                                {m.label}
-                                {badge != null && (
-                                    // Passive signal only — the shell tells you
-                                    // something happened without taking you there.
-                                    <span
-                                        aria-label={`${m.label} has updates`}
-                                        className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent"
-                                    />
-                                )}
-                            </button>
-                        );
-                    })}
-                </nav>
-            )}
+                The menu bar sits ABOVE the mode switcher rather than beside it, because
+                the two are not peers. The menus are the application; the modes are a
+                setting within it. Side by side they read as one row of equals, and "File"
+                next to "Inspect" invites you to think File is a fifth mode. */}
+            <div className="flex items-center gap-2 min-w-0 px-2 h-9">
+                <span className="shrink-0 px-1 text-sm font-semibold tracking-tight select-none">ada</span>
 
             {/* The application menu bar: one fixed, complete index of every command.
 
@@ -131,11 +101,60 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 size="sm"
                 tooltip="Return to the classic UI"
                 icon={<Icon name="pop-out" size="sm" />}
-                onClick={() => {
-                    useShellPrefs.getState().setEnabled(false);
-                    window.location.search = "";
-                }}
-            />
+                    onClick={() => {
+                        useShellPrefs.getState().setEnabled(false);
+                        window.location.search = "";
+                    }}
+                />
+            </div>
+
+            {/* Row 2 — where you are, and what this place offers. The mode's own tools sit
+                directly beneath the control that changes them, so a changing strip reads
+                as part of the mode rather than as the app rearranging itself. */}
+            {showModeSwitcher && (
+                <div className="flex items-center gap-2 min-w-0 px-2 h-9 border-t border-edge">
+                    <nav
+                            aria-label="Workspace mode"
+                            className="flex items-center gap-0.5 shrink-0 p-0.5 bg-surface-2 border border-edge rounded-md"
+                        >
+                            {MODES.map((m) => {
+                                const active = m.id === mode;
+                                const badge = badges[m.id];
+                                return (
+                                    <button
+                                        key={m.id}
+                                        type="button"
+                                        aria-current={active ? "page" : undefined}
+                                        title={`${m.label} — ${m.hint}`}
+                                        onClick={() => setMode(m.id)}
+                                        className={cn(
+                                            "ada-focus relative inline-flex items-center gap-1.5 px-2.5 h-7 rounded-sm",
+                                            "text-sm font-medium whitespace-nowrap transition-colors duration-(--ada-dur-fast)",
+                                            active
+                                                ? "bg-surface-1 text-content shadow-panel"
+                                                : "text-content-muted pointer-fine:hover:text-content",
+                                        )}
+                                    >
+                                        <Icon name={m.icon} size="sm" />
+                                        {m.label}
+                                        {badge != null && (
+                                            // Passive signal only — the shell tells you
+                                            // something happened without taking you there.
+                                            <span
+                                                aria-label={`${m.label} has updates`}
+                                                className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent"
+                                            />
+                                        )}
+                                    </button>
+                                );
+                            })}
+                    </nav>
+
+                    <span aria-hidden="true" className="shrink-0 w-px h-5 bg-edge" />
+
+                    <ModeToolbar />
+                </div>
+            )}
         </header>
     );
 }
