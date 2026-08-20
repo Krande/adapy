@@ -1,5 +1,7 @@
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {getActiveFeaMesh} from "@/utils/scene/handlers/load_fea_streaming";
+import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useLayoutStore} from "./layoutStore";
 import {useModeStore} from "./modeStore";
@@ -34,4 +36,30 @@ export function openFemConcepts(): void {
 /** Is a result session live? Used to disable playback actions honestly. */
 export function feaSessionActive(): boolean {
     return useFeaAnimationStore.getState().sessionActive;
+}
+
+/** Start or stop the deformation sweep. */
+export function togglePlay(): void {
+    const s = useFeaAnimationStore.getState();
+    s.setIsPlaying(!s.isPlaying);
+}
+
+/**
+ * Stop and reset the deformation to zero.
+ *
+ * The same three steps the Simulation panel's Stop does, in the same order: pause, zero
+ * the factor, zero the mesh's morph influence, reset the driver's phase.
+ *
+ * The morph write is not redundant with setFactor(0): the RAF driver only applies the
+ * factor while PLAYING, so a stop that only touched the store would leave the mesh frozen
+ * at whatever deflection it was showing — the numbers would say zero and the model would
+ * disagree.
+ */
+export function stopPlayback(): void {
+    const s = useFeaAnimationStore.getState();
+    s.setIsPlaying(false);
+    s.setFactor(0);
+    const mesh = getActiveFeaMesh();
+    if (mesh?.morphTargetInfluences) mesh.morphTargetInfluences[0] = 0;
+    resetFeaAnimationPhase();
 }

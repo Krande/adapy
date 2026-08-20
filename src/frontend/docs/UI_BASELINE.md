@@ -1886,3 +1886,29 @@ Clicking between pages grew and shrank the window — Performance is twice the h
 Theme — so it jumped under the pointer and the category you were aiming at moved. Fixed
 height, scrolling content pane. A window you navigate around has to hold still while you
 do it.
+
+---
+
+## Results: the transport moves to the toolbar
+
+The Simulation panel had its own row of Play / Stop / data-panel buttons, and Play and the
+data-panel toggle were *also* in the Results mode toolbar. Two play buttons for one
+playback state, differently drawn and differently placed — the third duplicated control
+group found this way, after section planes and groups.
+
+The split that resolves it: **the panel keeps the controls that pick a value** (field,
+step, colormap, deform scale, warp factor); **the toolbar takes the ones that do
+something** (play/pause, stop, legend, data table, FEM concepts).
+
+The gear stays in the panel, because what it reveals is that panel's own options row — a
+disclosure for the panel, not an action on the scene.
+
+`stopPlayback` had to reproduce three steps rather than one, and the reason is worth
+recording: the RAF driver only applies the deformation factor **while playing**, so a stop
+that merely zeroed the store would leave the mesh frozen at whatever deflection it was
+showing. The numbers would say zero and the model would disagree. It pauses, zeroes the
+factor, zeroes the mesh's morph influence, and resets the driver's phase — the same four
+steps in the same order the panel's Stop did.
+
+It reaches the mesh through the already-exported `getActiveFeaMesh()`, so nothing under
+the business-logic fence had to change.

@@ -6,7 +6,7 @@ import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
-import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
+import {openFemConcepts, stopPlayback, toggleDataTable, toggleLegend, togglePlay} from "./resultsActions";
 import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
@@ -209,18 +209,18 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
     // panel is the kind of thing people file as a bug. Both drive isPlaying; neither
     // holds its own copy.
     results: [
+        // The transport. These were also in the Simulation panel's own button row —
+        // the third duplicated control group found this way, after section planes and
+        // groups. The panel keeps the things that pick a VALUE (field, step, colormap,
+        // deform scale); the toolbar takes the things that DO something.
         {id: "play", icon: "play", label: "Play / pause deformation", pressed: () => useFeaAnimationStore.getState().isPlaying, why: needsFea, run: togglePlay},
+        {id: "stop", icon: "stop", label: "Stop and reset deformation to zero", why: needsFea, run: stopPlayback},
         div("d1"),
         {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
         {id: "table", icon: "fem-data", label: "Result data table", why: needsFea, run: toggleDataTable},
         {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", why: needsFea, run: openFemConcepts},
     ],
 };
-
-function togglePlay(): void {
-    const fea = useFeaAnimationStore.getState();
-    fea.setIsPlaying(!fea.isPlaying);
-}
 
 // Section planes are NOT here. They were, appended to every mode except the Library —
 // and they are also in the left rail, so the same tool sat in two places at once.

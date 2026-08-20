@@ -18,7 +18,7 @@
 // as a fallback for non-FEA models.
 
 import React, {useEffect, useMemo, useState} from "react";
-import {fieldClasses} from "@/components/ui";
+import {buttonClasses, fieldClasses} from "@/components/ui";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -644,36 +644,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </div>
             </div>
 
-            {/* Row 3 — Transport: play / stop / data-panel toggle +
-                gear, all sized + placed identically so they read as
-                one group of action buttons. Gear lives right after
-                the data-panel button (no ``ml-auto`` push-to-right). */}
+            {/* Row 3 — the visualisation-options toggle.
+
+                Play, Stop and the data-panel toggle used to sit here too. They are in
+                the Results mode toolbar now: the panel keeps the controls that pick a
+                VALUE (field, step, colormap, deform scale) and the toolbar takes the
+                ones that DO something. Having both meant two play buttons for one
+                playback state, differently drawn and differently placed.
+
+                The gear stays, because what it reveals is this panel's own options row
+                — a disclosure for the panel, not an action on the scene. */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
                 <button
-                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={isPlaying ? onPause : onPlay}
-                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
-                >
-                    <PlayPauseIcon/>
-                </button>
-                <button
-                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={onStop}
-                    title="Stop and reset deformation to 0"
-                >
-                    <StopIcon/>
-                </button>
-                <button
-                    className="bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={onToggleData}
-                    title="Toggle simulation data panel"
-                >
-                    <FEMDataPanelIcon/>
-                </button>
-                <button
                     className={
-                        "bg-accent hover:bg-accent-subtle text-white font-bold py-2 px-4 rounded-sm " +
-                        (showOptions ? "ring-2 ring-accent" : "")
+                        buttonClasses("secondary", "sm") +
+                        (showOptions ? " ring-2 ring-accent" : "")
                     }
                     onClick={() => setShowOptions((v) => !v)}
                     title="Visualisation options"
