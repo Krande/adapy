@@ -16,12 +16,19 @@ describe("Scene panel tab scoping", () => {
         assert.ok(!ids("convert").includes("mesh"));
     });
 
+    test("there is no Clip tab — section planes are a rail tool", () => {
+        // Folded away when clipping got its own strip: the tab was the same controls a
+        // second time, and two places to add a plane meant neither was THE place.
+        for (const mode of ["inspect", "results", "build", "convert"]) {
+            assert.ok(!ids(mode).includes("clip" as never), `${mode} still offers Clip`);
+        }
+    });
+
     test("unscoped tabs appear everywhere", () => {
         for (const mode of ["inspect", "results", "build", "convert"]) {
             const t = ids(mode);
             assert.ok(t.includes("model"), `${mode} lost Model`);
             assert.ok(t.includes("tools"), `${mode} lost Tools`);
-            assert.ok(t.includes("clip"), `${mode} lost Clip`);
         }
     });
 

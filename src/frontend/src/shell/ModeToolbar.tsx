@@ -24,6 +24,7 @@ import {
 import {runtime} from "@/runtime/config";
 import {gizmoReason} from "./gizmoRules";
 import {chosenTypeLabel, splitButtonState} from "./splitButton";
+import SectionPlaneControl from "./SectionPlaneControl";
 
 // The mode's own tools, as a horizontal strip directly under the mode switcher.
 //
@@ -66,6 +67,15 @@ interface ModeTool {
      * place "nothing" is an action with no visible effect.
      */
     currentLabel?: () => string | null;
+    /**
+     * Renders its own control instead of an icon button.
+     *
+     * For the two things a strip of icons cannot express: choosing among several of the
+     * same kind of object, and setting a continuous value. Used only by the clip group's
+     * active-plane control — if a third case appears, that is the signal to promote this
+     * into a proper toolbar-widget type rather than to add a fourth.
+     */
+    render?: () => React.ReactNode;
 }
 
 /** The chosen type's label, or null if none is chosen yet. */
@@ -261,6 +271,9 @@ const SECTION_TOOLS: ModeTool[] = [
     {id: "sec-x", icon: "section-x", label: "Clip on X (plane through the model centre)", run: addPlane("x")},
     {id: "sec-y", icon: "section-y", label: "Clip on Y", run: addPlane("y")},
     {id: "sec-z", icon: "section-z", label: "Clip on Z", run: addPlane("z")},
+    // Which plane, and where it sits. The Scene panel's Clip tab held these; the rest of
+    // that tab was add/flip/gizmo/clear, which are already the buttons either side.
+    {id: "sec-active", icon: "move", label: "Active section plane", render: () => <SectionPlaneControl />},
     {id: "sec-flip", icon: "flip", label: "Flip which side is cut away", why: needsActivePlane, run: flipActivePlane},
     {
         id: "sec-gizmo",
@@ -323,6 +336,7 @@ export default function ModeToolbar() {
                 if (t.divider) {
                     return <span key={t.id} aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-edge" />;
                 }
+                if (t.render) return <React.Fragment key={t.id}>{t.render()}</React.Fragment>;
                 const notWired = t.pending || !t.run;
                 const reason = notWired ? "not wired up yet" : (t.why?.() ?? null);
                 const disabled = reason != null;

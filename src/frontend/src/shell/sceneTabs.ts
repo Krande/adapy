@@ -4,7 +4,7 @@
 // sections that reach stores that reach a vite `?worker&inline` module only a bundler can
 // resolve, so a test importing it cannot run. The rule is the part worth asserting.
 
-export type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "joints";
+export type SceneTab = "model" | "tools" | "mesh" | "fem" | "joints";
 
 export interface SceneTabDef {
     id: SceneTab;
@@ -18,7 +18,9 @@ export interface SceneTabDef {
 export const TAB_META: SceneTabDef[] = [
     {id: "model", label: "Model"},
     {id: "tools", label: "Tools"},
-    {id: "clip", label: "Clip"},
+    // No "Clip" tab. Section planes are a rail tool with their own strip now, and the
+    // tab was the same controls a second time — the fourth duplicated group found this
+    // way, after section planes in the mode strips, groups, and the Results transport.
     // Mesh quality asks whether a discretisation is good enough to trust the analysis
     // built on it. That is Inspect and Results work. In Build you are authoring the
     // geometry the mesh will later be made FROM, so there is nothing to assess yet, and

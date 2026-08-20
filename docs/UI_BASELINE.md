@@ -174,3 +174,43 @@ Two things the conversion improved beyond the chrome:
 `noAdHocChrome`: the seven admin tabs are all that remain, and a second test fails if an
 allowlist entry has already been converted — a burn-down list holding converted files
 stops measuring anything and quietly re-permits what it names.
+
+## The Scene panel's Clip tab is gone
+
+Section planes are a rail tool with their own strip, so the tab was the same controls a
+second time — the fourth duplicated group found this way, after section planes in the mode
+strips, groups, and the Results transport. Two places to add a plane means neither is
+*the* place.
+
+Folding it away needed more than deleting it. Add / flip / gizmo / clear were already
+toolbar buttons, but two things in the tab were not, and would have gone silently:
+
+- **Which plane you are steering.** Flip and the gizmo act on the *active* plane, and with
+  several planes there was no way to say which that was.
+- **The position slider.** Dragging a plane along its normal without reaching for the 3D
+  gizmo is the thing people actually did in that tab.
+
+Both became one control — `SectionPlaneControl` — rather than two: the button names the
+active plane and switches between them, the slider moves it. They belong together because
+a slider with no label is meaningless in a strip that has no room for one. It renders
+nothing at all when there are no planes, rather than showing a dead slider next to the
+three buttons that create what it needs.
+
+`ModeTool` gained a `render?: () => ReactNode` escape hatch for this. Deliberately narrow:
+a strip of icons cannot express "choose among several of the same object" or "set a
+continuous value", and those are the only two cases. A third would be the signal to
+promote it into a real toolbar-widget type instead of adding a fourth.
+
+**Cap colour went to Preferences, not the strip.** It is a look you pick once, not a
+per-cut action, and a colour well in a toolbar of verbs is the kind of thing that ends up
+there because it had nowhere else to go.
+
+The arithmetic moved to `src/shell/sectionRange.ts` with tests. Two things worth pinning:
+`position` and `constant` are sign-inverses, and getting that backwards makes the slider
+drive the plane the wrong way — visible only in 3D, never in a type. And the range is
+padded 10% past the box at both ends, without which the extremes leave the plane exactly
+touching the model, so it can never fully clip or fully reveal; the leftover sliver reads
+as a broken slider.
+
+The marking menu's "Section planes" entry now arms the clip strip instead of opening a
+Scene tab that no longer exists.

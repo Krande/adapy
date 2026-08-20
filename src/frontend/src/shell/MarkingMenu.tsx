@@ -8,6 +8,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {useSectionTools} from "./sectionTools";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
 import {compilePreview, undo} from "./buildActions";
@@ -221,8 +222,10 @@ function runItem(id: string): void {
         case "show-properties":
             return layout.openPanel(mode, "properties", "right");
         case "section-planes":
-            useSceneInfoStore.getState().setMode("section");
-            return layout.openPanel(mode, "scene", "right");
+            // Arms the rail's clip strip rather than opening a panel: the Scene panel's
+            // Clip tab is gone, and this is the one door onto section planes now.
+            useSectionTools.getState().setShown(true);
+            return;
         case "show-in-data":
             useTableNavStore.getState().setPanelOpen(true);
             return layout.openPanel(mode, "fea-table", "bottom");

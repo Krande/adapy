@@ -3,6 +3,7 @@ import {Switch} from "@/components/ui";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useModelState} from "@/state/modelState";
+import {useSectionStore} from "@/state/sectionStore";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
 
 // Re-chromed onto the design system. Every control drives exactly the setter it drove
@@ -26,6 +27,11 @@ const DisplayOptions: React.FC = () => {
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
+    // Section-cap colour lived in the Scene panel's Clip tab. It is a look setting you
+    // pick once, not a per-cut action, so it stayed here when the rest of that tab became
+    // toolbar buttons rather than following them into a strip it would have cluttered.
+    const capColor = useSectionStore((st) => st.capColor);
+    const setCapColor = useSectionStore((st) => st.setCapColor);
 
     return (
         <div className="flex flex-col gap-2">
@@ -90,6 +96,21 @@ const DisplayOptions: React.FC = () => {
                 checked={defaultOrbitController}
                 onChange={() => setDefaultOrbitController(!defaultOrbitController)}
             />
+            <label className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                    Section cap colour
+                    <span className="block text-xs text-content-muted">
+                        Fills the cut face so a clipped solid does not read as hollow.
+                    </span>
+                </span>
+                <input
+                    type="color"
+                    className="h-control-sm w-10 shrink-0 cursor-pointer rounded-sm border border-edge bg-surface-2"
+                    value={capColor}
+                    onChange={(e) => setCapColor(e.target.value)}
+                    aria-label="Section cap colour"
+                />
+            </label>
         </div>
     );
 };

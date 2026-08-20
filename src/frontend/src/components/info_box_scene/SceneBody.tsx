@@ -15,7 +15,6 @@ import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
 import FaceSearchSection from "./FaceSearchSection";
 import FacePickingToggle from "./FacePickingToggle";
-import SectionPlanesPanel from "./SectionPlanesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import FemConceptsPanel from "./FemConceptsPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
@@ -35,7 +34,10 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     info: "model",
     source: "model",
     utilities: "tools",
-    section: "clip",
+    // "section" was the Clip tab. Clipping is a rail tool with its own strip now, so the
+    // old mode value maps onto Tools — the nearest thing to "the model-wide utilities" —
+    // rather than at a tab that no longer exists.
+    section: "tools",
     mesh: "mesh",
     fem: "fem",
     joints: "joints",
@@ -44,7 +46,6 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
 export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     model: "info",
     tools: "utilities",
-    clip: "section",
     mesh: "mesh",
     fem: "fem",
     joints: "joints",
@@ -99,8 +100,6 @@ function TabContent({tab, isMobile}: {tab: SceneTab; isMobile: boolean}) {
             );
         case "tools":
             return <UtilitiesSection />;
-        case "clip":
-            return <SectionPlanesPanel />;
         case "mesh":
             return <MeshDistortionSection />;
         case "joints":
