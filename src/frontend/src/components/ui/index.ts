@@ -10,7 +10,7 @@ export {cn, type ClassValue} from "./cn";
 
 export {
     Button,
-    buttonClasses,
+    caretClasses, buttonClasses,
     IconButton,
     ToggleButton,
     Spinner,

@@ -72,6 +72,20 @@ export function buttonClasses(variant: ButtonVariant = "secondary", size: Button
     return cn(BUTTON_BASE, VARIANT[variant], SIZE[size]);
 }
 
+/**
+ * Classes for the caret half of a split button — the narrow strip beside a main action
+ * that opens its menu.
+ *
+ * Its own function rather than `buttonClasses(...) + "w-3"` because the size classes
+ * carry horizontal padding, and `cn` is a plain join: two conflicting padding utilities
+ * are resolved by stylesheet order, not by the order you wrote them. Composing the
+ * narrow case here means there is one place that knows what a caret looks like.
+ */
+export function caretClasses(variant: ButtonVariant = "ghost", size: ButtonSize = "sm"): string {
+    const height = {sm: "h-control-sm min-h-control-sm", md: "h-control-md min-h-control-md", lg: "h-control-lg min-h-control-lg"}[size];
+    return cn(BUTTON_BASE, VARIANT[variant], height, "w-3.5 rounded-sm text-content-muted");
+}
+
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: ButtonVariant;
     size?: ButtonSize;

@@ -68,3 +68,42 @@ Refresh was the last unaligned icon: a bare `ReloadIcon` at its natural size nex
 The store, its key (`ada:files-panel:v1`) and the module name stay `filesPanel` — renaming
 the persisted key would silently reset every user's panel width and open state, which is
 a real cost for no gain that the user can see.
+
+## Add opening / Add equipment are split buttons
+
+Both need a *type* before placement means anything, so the first toolbar version made the
+whole button open a type picker. That made every placement cost two clicks and a menu,
+including the tenth identical door — a toolbar button that never actually does the thing
+it is named after.
+
+They are split buttons now: the icon half fires with the chosen type, a 14px caret beside
+it opens the picker. The tooltip names what will be placed (`Add opening: Door (db)`), so
+the current type is readable without opening anything.
+
+Three rules, in `src/shell/splitButton.ts` and tested there:
+
+- **A type is chosen** → fire.
+- **Nothing chosen yet** → the icon half opens the picker too. Arming to place "nothing"
+  is a press with no visible effect, which reads as a broken button.
+- **Already armed** → always fire, because a second press disarms. Offering a type picker
+  to cancel something answers a question nobody asked.
+
+`chosenTypeLabel` returns null for a slug that is no longer in the catalogue — a model can
+be reloaded against a different one while a stale slug sits in the store, and a button
+that claims it places a Door and then places nothing is worse than one that admits no type
+is chosen.
+
+Two details that are easy to get wrong:
+
+- **The pair needs its own flex box.** The toolbar has `gap-0.5`, so without a wrapper the
+  2px gap lands *between* the halves and they read as two adjacent buttons — exactly what
+  the squared-off facing corners are trying to deny.
+- **The first version built the wrapper as a component defined inside the render loop.**
+  A fresh function identity every render means React remounts the subtree, dropping the
+  button refs the menu anchors to. Branch on the element, never on a locally-defined
+  component type.
+
+`caretClasses()` joins the design system rather than `buttonClasses(...) + "w-3.5"`: the
+size classes carry horizontal padding, and `cn` is a plain join, so two conflicting
+padding utilities are resolved by stylesheet order rather than by the order written. This
+is the third time that has bitten (`w-20` on `Input`, the `Slider` wrapper).

@@ -1,6 +1,6 @@
 import React from "react";
 import {Icon, type IconName} from "@/components/icons";
-import {IconButton, cn} from "@/components/ui";
+import {IconButton, caretClasses, cn} from "@/components/ui";
 import PositionedMenu, {type KebabMenuItem} from "@/components/common/PositionedMenu";
 import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {useModeStore, type ModeId} from "./modeStore";
@@ -23,6 +23,7 @@ import {
 } from "./sectionTools";
 import {runtime} from "@/runtime/config";
 import {gizmoReason} from "./gizmoRules";
+import {chosenTypeLabel, splitButtonState} from "./splitButton";
 
 // The mode's own tools, as a horizontal strip directly under the mode switcher.
 //
@@ -50,15 +51,26 @@ interface ModeTool {
     why?: () => string | null;
     run?: () => void;
     /**
-     * Opens a menu instead of firing.
+     * The type picker, hung off a caret beside the button rather than replacing it.
      *
-     * Openings and equipment need a TYPE before placement means anything. The panel's
-     * buttons always did this; the first version of these toolbar buttons only armed the
-     * mode, which silently placed whatever type happened to be selected last — a toolbar
-     * that looks equivalent to the control it replaced but quietly does less.
+     * Openings and equipment need a TYPE before placement means anything, so the first
+     * version of these made the whole button open the picker: every placement cost two
+     * clicks and a menu, even when you were placing the tenth identical door. Making the
+     * button fire and the caret choose is the split-button shape every toolbar with a
+     * "same again" action ends up at.
      */
     menu?: () => KebabMenuItem[];
+    /**
+     * What the button will place right now, for the tooltip. Null when nothing has been
+     * chosen yet — the button then opens the picker instead of arming, because arming to
+     * place "nothing" is an action with no visible effect.
+     */
+    currentLabel?: () => string | null;
 }
+
+/** The chosen type's label, or null if none is chosen yet. */
+const chosenType = (types: {slug: string; name: string; origin: string}[], slug: string | null) =>
+    chosenTypeLabel(types, slug, (t) => typePickerItems([t])[0].label);
 
 const needsFea = () =>
     useFeaAnimationStore.getState().sessionActive ? null : "No result set is loaded";
@@ -127,7 +139,11 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         {
             id: "add-opening",
             icon: "component",
-            label: "Add opening — pick a type, then click a wall",
+            label: "Add opening",
+            currentLabel: () => {
+                const s = useCellBuilderStore.getState();
+                return chosenType(s.openingTypes, s.selectedOpeningType);
+            },
             pressed: addModeIs("add-opening"),
             why: needsBuilder,
             run: armAddMode("add-opening"),
@@ -149,7 +165,11 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         {
             id: "add-equipment",
             icon: "equipment-catalog",
-            label: "Add equipment — pick a type, then click in the scene",
+            label: "Add equipment",
+            currentLabel: () => {
+                const s = useCellBuilderStore.getState();
+                return chosenType(s.equipmentTypes, s.selectedEquipmentType);
+            },
             pressed: addModeIs("add-equipment"),
             why: needsBuilder,
             run: armAddMode("add-equipment"),
@@ -271,12 +291,15 @@ export default function ModeToolbar() {
     // Which tool's menu is open, and the buttons to anchor them to.
     const [openMenu, setOpenMenu] = React.useState<string | null>(null);
     const btnRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+    const caretRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
     // Subscribe to everything the tools read, so greyed state AND sunken state re-render
     // when the underlying state moves — including when it moves from the keyboard.
     useCellBuilderStore((s) => s.active);
     useCellBuilderStore((s) => s.gizmoMode);
     useCellBuilderStore((s) => s.mode);
     useCellBuilderStore((s) => s.selection);
+    useCellBuilderStore((s) => s.selectedOpeningType);
+    useCellBuilderStore((s) => s.selectedEquipmentType);
     useFeaAnimationStore((s) => s.sessionActive);
     useFeaAnimationStore((s) => s.isPlaying);
 
@@ -303,8 +326,19 @@ export default function ModeToolbar() {
                 const notWired = t.pending || !t.run;
                 const reason = notWired ? "not wired up yet" : (t.why?.() ?? null);
                 const disabled = reason != null;
-                return (
-                    <React.Fragment key={t.id}>
+                // What the button will do if pressed. A tool with a picker but nothing
+                // picked yet has to open the picker — arming to place "nothing" looks
+                // like a button that does not work.
+                const split = splitButtonState({
+                    label: t.label,
+                    hasMenu: !!t.menu,
+                    chosen: t.currentLabel?.() ?? null,
+                    pressed: t.pressed?.() ?? false,
+                });
+                const mustPick = split.action === "pick";
+                const tip = split.tooltip;
+                const button = (
+                    <>
                     <IconButton
                         ref={(el) => {
                             btnRefs.current[t.id] = el;
@@ -312,9 +346,7 @@ export default function ModeToolbar() {
                         size="sm"
                         disabled={disabled}
                         onClick={() => {
-                            // An armed placement mode toggles off on a second press — no
-                            // point offering a type picker to cancel something.
-                            if (t.menu && !t.pressed?.()) {
+                            if (mustPick) {
                                 setOpenMenu((v) => (v === t.id ? null : t.id));
                                 return;
                             }
@@ -322,16 +354,53 @@ export default function ModeToolbar() {
                         }}
                         tooltip={
                             disabled
-                                ? `${t.label} — ${reason}`
-                                : `${t.label}${t.shortcut ? ` (${t.shortcut})` : ""}`
+                                ? `${tip} — ${reason}`
+                                : `${tip}${t.shortcut ? ` (${t.shortcut})` : ""}`
                         }
                         pressed={t.pressed?.() ?? undefined}
                         icon={<Icon name={t.icon} size="sm" />}
-                        className={cn(disabled && "opacity-40")}
+                        className={cn(disabled && "opacity-40", t.menu && "rounded-r-none")}
                     />
+                    {/* The caret. Square-off the facing corners so the pair reads as one
+                        control with two halves rather than two buttons that happen to
+                        touch. */}
+                    {t.menu && (
+                        <button
+                            type="button"
+                            ref={(el) => {
+                                caretRefs.current[t.id] = el;
+                            }}
+                            disabled={disabled}
+                            className={cn(caretClasses(), "rounded-l-none", disabled && "opacity-40")}
+                            onClick={() => setOpenMenu((v) => (v === t.id ? null : t.id))}
+                            title={`${t.label} — choose type`}
+                            aria-label={`${t.label} — choose type`}
+                            aria-haspopup="menu"
+                            aria-expanded={openMenu === t.id}
+                        >
+                            <Icon name="chevron" size="sm" className="rotate-90" />
+                        </button>
+                    )}
+                    </>
+                );
+                return (
+                    <React.Fragment key={t.id}>
+                    {/* A split button sits in its own flex box so the toolbar's 2px gap
+                        falls OUTSIDE the pair. With the gap between the halves they read
+                        as two adjacent buttons, which is what the squared-off facing
+                        corners are trying to deny. */}
+                    {t.menu ? (
+                        <span className="inline-flex items-center">{button}</span>
+                    ) : (
+                        button
+                    )}
                     {t.menu && openMenu === t.id && (
                         <PositionedMenu
-                            anchor={{kind: "rect", getRect: () => btnRefs.current[t.id]?.getBoundingClientRect()}}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () =>
+                                    (caretRefs.current[t.id] ?? btnRefs.current[t.id])?.getBoundingClientRect(),
+                            }}
                             onClose={() => setOpenMenu(null)}
                             items={t.menu().map((it) => ({
                                 ...it,
