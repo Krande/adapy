@@ -45,14 +45,17 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
             style={{gridArea: "titlebar", zIndex: Z.dock}}
             className="flex flex-col min-w-0 bg-surface-0 border-b border-edge"
         >
-            {/* Row 1 — application chrome: the menus, and things that are true of the
-                whole session (which scope, the palette, the way back).
+            {/* Row 1 — application chrome: identity and menus at the left, where you
+                are in the middle, session controls at the right.
 
-                The menu bar sits ABOVE the mode switcher rather than beside it, because
-                the two are not peers. The menus are the application; the modes are a
-                setting within it. Side by side they read as one row of equals, and "File"
-                next to "Inspect" invites you to think File is a fifth mode. */}
-            <div className="flex items-center gap-2 min-w-0 px-2 h-9">
+                A three-column grid, not a flex row with spacers. Centring the modes by
+                putting them after the menus would anchor them to wherever the menus
+                happen to end — so the group would shift sideways when a menu title is
+                renamed, and again on a narrow window. `1fr auto 1fr` centres them on the
+                window regardless of what flanks them, which is what makes a fixed
+                landmark actually fixed. */}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 min-w-0 px-2 h-9">
+                <div className="flex items-center gap-2 min-w-0">
                 <span className="shrink-0 px-1 text-sm font-semibold tracking-tight select-none">ada</span>
 
             {/* The application menu bar: one fixed, complete index of every command.
@@ -67,13 +70,11 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 So: same menus, same order, in every mode. Commands that cannot act right
                 now are greyed with a reason rather than removed. */}
             <MenuBar />
+                </div>
 
+            <div className="flex justify-center min-w-0">
             {showModeSwitcher && (
                 <>
-                    {/* Separated from the menus by a rule: the menus are the application,
-                        the modes are a setting within it, and without the break "Library"
-                        reads as a seventh menu. */}
-                    <span aria-hidden="true" className="shrink-0 w-px h-5 mx-1 bg-edge" />
                     <nav
                         aria-label="Workspace mode"
                         className="flex items-center gap-0.5 shrink-0 p-0.5 bg-surface-2 border border-edge rounded-md"
@@ -121,7 +122,9 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                     </nav>
                 </>
             )}
-            <span className="flex-1 min-w-0" />
+            </div>
+
+            <div className="flex items-center justify-end gap-1 min-w-0">
 
             {/* A visible way in. The palette's job is discoverability, so hiding it
                 behind a shortcut you must already know would defeat it. */}
@@ -156,9 +159,10 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 icon={<Icon name="pop-out" size="sm" />}
                     onClick={() => {
                         useShellPrefs.getState().setEnabled(false);
-                        window.location.search = "";
+                        window.location.search = "?shell=0";
                     }}
                 />
+                </div>
             </div>
 
             {/* Row 2 — the mode's own tools.

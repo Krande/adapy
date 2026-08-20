@@ -10,7 +10,11 @@ import {persist} from "zustand/middleware";
 // touch.
 //
 // Precedence: an explicit ?shell=0/1 in the URL wins and is remembered; otherwise the
-// stored preference; otherwise the classic UI.
+// stored preference; otherwise the shell.
+//
+// CUTOVER: the shell is the product now. `?shell=0` still reaches the classic UI for one
+// transition period so anyone who hits a regression has a way to keep working and a way
+// to show what differs. It goes when the classic code does.
 
 interface ShellPrefs {
     enabled: boolean;
@@ -20,9 +24,13 @@ interface ShellPrefs {
 export const useShellPrefs = create<ShellPrefs>()(
     persist(
         (set) => ({
-            // Default OFF for the whole of the transition. The classic UI stays the
-            // product until M8 cutover; the new shell is opt-in.
-            enabled: false,
+            // Default ON as of the M8 cutover.
+            //
+            // Note this reads the STORED value first, so reviewers who explicitly chose
+            // ?shell=0 during the transition stay on the classic UI until they clear it.
+            // That is deliberate: an explicit choice should not be overridden by a
+            // default changing underneath someone.
+            enabled: true,
             setEnabled: (enabled) => set({enabled}),
         }),
         {name: "ada:shell:v1"},
