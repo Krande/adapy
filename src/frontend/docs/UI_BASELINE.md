@@ -1069,14 +1069,20 @@ room its actual tools need.
 
 ### Mode order and the Files rename
 
-`Files · Inspect · Build · Results` — data flowing left to right: get it in, look at it,
-author, post-process. That is how people describe their own work, so it is learnable in a
-way "most-used first" is not.
+`Library · Build · Inspect · Results` — work flowing left to right: get a model in,
+author it, examine it, post-process results from it. That is how people describe their
+own work, so it is learnable in a way "most-used first" is not. Build precedes Inspect
+because you cannot inspect what does not exist yet, and it puts the two "look at what is
+there" modes side by side.
 
-"Data" named the code's concern. Nearly all of the use is storage, upload and conversion,
-so the label is **Files**. The admin panel is the one thing the name undersells, and it is
-rare and admin-only. The mode **id stays `data`**: layouts persist per mode under
-`ada:layout:v2`, and renaming the key would silently reset everyone's arrangement.
+"Data" named the code's concern rather than the user's. The first replacement, **Files**,
+was worse in a way that is easy to miss on paper and obvious on screen: it sat one row
+below the **File** menu — two labels a keystroke apart, in the same chrome, meaning
+different things. The label is **Library**: a place you draw models from, which is what
+the storage browser makes it, and impossible to confuse with a file operation.
+
+The mode **id stays `data`**: layouts persist per mode under `ada:layout:v2`, and
+renaming the key would silently reset everyone's arrangement.
 
 ### What Inspect is for — the honest answer
 
@@ -1106,3 +1112,54 @@ strand someone whose layout blob just failed to load. There is now an explicit
 
 The right dock still shows one panel at a time and hides the Scene panel's six sub-tabs
 behind tabs even when the dock is tall enough to stack them. Addressed next.
+
+---
+
+## Stacked docks, and the Files→Library rename
+
+### The right dock stops hiding things when it has room
+
+A dock now picks between two arrangements from its own measured height:
+
+* **Tabbed** when short — the strip plus the active panel. Correct when space is scarce;
+  the old UI let every panel be open at once in one column, which is how "too much on
+  screen" happened.
+* **Stacked** when tall — every panel visible at once under its own header. Tabs are a
+  response to scarcity, and applying them when there is room just makes the user click to
+  see what would have fitted anyway.
+
+It follows the window and the splitter with nothing to configure. Panels are mounted in
+both arrangements — the tabbed one hides the inactive ones rather than unmounting them —
+so switching costs nothing and loses no panel state, scroll position or in-flight edit.
+The bottom dock is always tabbed: it is wide-and-short by design (the FEA table, the
+conversion log) and stacking leaves each panel too short to read.
+
+The thresholds and the hysteresis live in `dockArrangement.ts` as a pure function, and
+they are the part worth testing — a browser cannot easily be driven to the exact heights
+where the behaviour changes. **Entering and leaving use different heights on purpose**:
+with one threshold, dragging a splitter across it flips the arrangement every frame, and a
+layout that flickers reads as a fault rather than a feature. The test asserts the band
+holds its state from both directions.
+
+Per-panel controls (pin, float, close) move into each panel's own header when stacked,
+because "close the active panel" has no meaning when they are all active.
+
+### Files → Library
+
+Two names collided. Naming the mode **Files** put it one row below the **File** menu —
+two labels a keystroke apart, in the same chrome, meaning different things. That is easy
+to miss while writing the structure and impossible to miss once it is on screen.
+
+**Library** is a place you draw models from, which is what the storage browser makes it,
+and it cannot be read as a file operation. Admin and jobs are what the name undersells;
+both are rare and one is admin-only — the same trade "Files" made, without the collision.
+
+The mode **id remains `data`** through both renames. Layouts persist per mode under
+`ada:layout:v2`; renaming the key would silently reset every user's arrangement, and no
+label is worth that.
+
+### Mode order, settled
+
+`Library · Build · Inspect · Results`. Build precedes Inspect because you cannot inspect
+what does not exist yet, and it puts the two "look at what is there" modes next to each
+other.

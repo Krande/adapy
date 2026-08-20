@@ -6,14 +6,27 @@ import {useLayoutStore} from "./layoutStore";
 import {useModeStore} from "./modeStore";
 import {resolvePanel, type PanelId} from "./panelRegistry";
 import {Z} from "./zIndex";
+import {shouldStack} from "./dockArrangement";
 
-// One docked region: a tab strip plus the active panel's body.
+// One docked region, in one of two arrangements.
 //
-// Tabs rather than stacking is deliberate. The old UI let every panel be open at once
-// in the same column, which is how "too much on screen" happened; a dock shows one
-// panel at a time and the strip tells you what else is there. Blender's non-blocking
-// rule still holds — nothing is hidden behind a modal, it is one click away and always
-// visible in the strip.
+// TABBED — a strip plus the active panel. The right answer when the dock is short: the
+// old UI let every panel be open at once in one column, which is how "too much on
+// screen" happened.
+//
+// STACKED — every panel visible at once, each under its own header. The right answer
+// when the dock is tall, because then tabs are hiding things for no reason. Tabs are a
+// response to scarcity; applying them when there is room is just making the user click
+// to see what would have fitted anyway.
+//
+// The dock picks between them from its measured height, so it follows the window and the
+// splitter without anyone configuring anything. Panels are mounted either way — the
+// tabbed arrangement hides the inactive ones rather than unmounting them — so switching
+// arrangement costs nothing and loses no panel state.
+//
+// The bottom dock is always tabbed: it is wide-and-short by design (the FEA table, the
+// conversion log), and stacking wide-and-short panels gives every one of them too little
+// height to be useful.
 
 export interface DockHostProps {
     dock: DockedId;
@@ -39,6 +52,28 @@ export default function DockHost({dock}: DockHostProps) {
         [state?.tabs],
     );
 
+    // Arrangement follows the measured height, so it tracks the window and the splitter
+    // with nothing to configure. The decision itself lives in dockArrangement.ts —
+    // thresholds and hysteresis are the part that misbehaves, and a browser cannot easily
+    // be driven to the exact heights where it matters.
+    const bodyRef = React.useRef<HTMLDivElement | null>(null);
+    const [stacked, setStacked] = React.useState(false);
+    React.useEffect(() => {
+        if (dock === "bottom" || defs.length < 2) {
+            setStacked(false);
+            return;
+        }
+        const el = bodyRef.current;
+        if (!el || typeof ResizeObserver === "undefined") return;
+        const ro = new ResizeObserver(() => {
+            setStacked((wasStacked) =>
+                shouldStack({dock, panelCount: defs.length, heightPx: el.clientHeight, wasStacked}),
+            );
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [dock, defs.length]);
+
     if (!state || defs.length === 0) return null;
 
     const activeDef = defs.find((d) => d.id === state.active) ?? defs[0];
@@ -59,7 +94,13 @@ export default function DockHost({dock}: DockHostProps) {
             {/* Tab strip. Scrolls rather than wrapping: 14 admin tabs in a narrow dock
                 must stay one row, or the strip's height changes as you resize. */}
             <div className="flex items-center gap-0.5 shrink-0 px-1 h-8 border-b border-edge overflow-x-auto scrollbar">
-                <div role="tablist" aria-label={`${DOCK_LABEL[dock]} panels`} className="flex items-center gap-0.5 min-w-0">
+                <div
+                    role="tablist"
+                    aria-label={`${DOCK_LABEL[dock]} panels`}
+                    // Stacked, the tabs would be selecting between things that are all
+                    // already on screen. The dock's own controls stay.
+                    className={cn("flex items-center gap-0.5 min-w-0", stacked && "hidden")}
+                >
                     {defs.map((def) => {
                         const active = def.id === activeDef.id && !collapsed;
                         return (
@@ -87,10 +128,16 @@ export default function DockHost({dock}: DockHostProps) {
                     })}
                 </div>
 
+                {stacked && (
+                    <span className="shrink-0 px-1 text-xs font-semibold uppercase tracking-wide text-content-subtle">
+                        {DOCK_LABEL[dock]}
+                    </span>
+                )}
+
                 <span className="flex-1 min-w-0" />
 
                 <div className="flex items-center gap-0.5 shrink-0">
-                    {activeDef.pinnable && (
+                    {!stacked && activeDef.pinnable && (
                         <IconButton
                             size="sm"
                             tooltip={pinned.includes(activeDef.id) ? "Unpin panel" : "Pin panel (survives mode switches)"}
@@ -99,12 +146,14 @@ export default function DockHost({dock}: DockHostProps) {
                             onClick={() => togglePin(mode, activeDef.id)}
                         />
                     )}
-                    <IconButton
-                        size="sm"
-                        tooltip="Float panel"
-                        icon={<Icon name="float" size="sm" />}
-                        onClick={() => floatPanel(mode, activeDef.id, {x: 140, y: 120, w: 380, h: 460})}
-                    />
+                    {!stacked && (
+                        <IconButton
+                            size="sm"
+                            tooltip="Float panel"
+                            icon={<Icon name="float" size="sm" />}
+                            onClick={() => floatPanel(mode, activeDef.id, {x: 140, y: 120, w: 380, h: 460})}
+                        />
+                    )}
                     <IconButton
                         size="sm"
                         tooltip={collapsed ? `Expand ${DOCK_LABEL[dock].toLowerCase()}` : `Collapse ${DOCK_LABEL[dock].toLowerCase()}`}
@@ -117,21 +166,66 @@ export default function DockHost({dock}: DockHostProps) {
                         pressed={collapsed}
                         onClick={() => toggleDock(mode, dock)}
                     />
-                    <IconButton
-                        size="sm"
-                        tooltip={`Close ${activeDef.title}`}
-                        icon={<Icon name="close" size="sm" />}
-                        onClick={() => closePanel(mode, activeDef.id)}
-                    />
+                    {!stacked && (
+                        <IconButton
+                            size="sm"
+                            tooltip={`Close ${activeDef.title}`}
+                            icon={<Icon name="close" size="sm" />}
+                            onClick={() => closePanel(mode, activeDef.id)}
+                        />
+                    )}
                 </div>
             </div>
 
             {/* Body. `hidden` rather than unmounted when collapsed, so panel state
                 (scroll position, expanded sections, in-flight edits) survives a
                 collapse — the same reason ViewportHost never unmounts. */}
-            <div className={cn("flex-1 min-h-0 min-w-0 overflow-auto scrollbar", collapsed && "hidden")}>
+            <div
+                ref={bodyRef}
+                className={cn(
+                    "flex-1 min-h-0 min-w-0 scrollbar",
+                    stacked ? "flex flex-col overflow-y-auto" : "overflow-auto",
+                    collapsed && "hidden",
+                )}
+            >
                 {defs.map((def) => (
-                    <div key={def.id} className={def.id === activeDef.id ? "h-full" : "hidden"}>
+                    <div
+                        key={def.id}
+                        className={cn(
+                            stacked
+                                ? "flex flex-col shrink-0 border-b border-edge last:border-b-0"
+                                : def.id === activeDef.id
+                                  ? "h-full"
+                                  : "hidden",
+                        )}
+                    >
+                        {stacked && (
+                            <div className="flex items-center gap-1.5 shrink-0 px-2 h-7 bg-surface-2 border-b border-edge">
+                                <Icon name={def.icon} size="sm" className="opacity-70" />
+                                <span className="flex-1 truncate text-xs font-medium">{def.title}</span>
+                                {def.pinnable && (
+                                    <IconButton
+                                        size="sm"
+                                        tooltip={pinned.includes(def.id) ? "Unpin panel" : "Pin panel (survives mode switches)"}
+                                        pressed={pinned.includes(def.id)}
+                                        icon={<Icon name="pin" size="sm" />}
+                                        onClick={() => togglePin(mode, def.id)}
+                                    />
+                                )}
+                                <IconButton
+                                    size="sm"
+                                    tooltip="Float panel"
+                                    icon={<Icon name="float" size="sm" />}
+                                    onClick={() => floatPanel(mode, def.id, {x: 140, y: 120, w: 380, h: 460})}
+                                />
+                                <IconButton
+                                    size="sm"
+                                    tooltip={`Close ${def.title}`}
+                                    icon={<Icon name="close" size="sm" />}
+                                    onClick={() => closePanel(mode, def.id)}
+                                />
+                            </div>
+                        )}
                         {/* Per-panel boundary: one panel throwing must not take the
                             shell down with it. */}
                         <ErrorBoundary label={def.title}>

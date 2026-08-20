@@ -45,20 +45,34 @@ export interface ModeDef {
 }
 
 export const MODES: readonly ModeDef[] = [
-    // Ordered as data flows, left to right: get files in, look at the model, author, then
-    // post-process. That is how people describe their own work, so it is learnable in a
-    // way "most-used first" is not.
+    // Ordered as work flows, left to right: get a model in, author it, examine it, then
+    // post-process results from it. That is how people describe their own work, so it is
+    // learnable in a way "most-used first" is not.
+    //
+    // Build sits before Inspect because you cannot inspect what does not exist yet, and
+    // it puts the two "look at what is there" modes — Inspect and Results — side by side.
     {
         id: "data",
-        // Labelled "Files". "Data" named the code's concern, not the user's — nearly all
-        // of the use here is storage, upload and conversion. The admin panel is the one
-        // thing the name undersells, and it is rare and admin-only.
+        // Labelled "Library". "Data" named the code's concern rather than the user's,
+        // and "Files" — the first replacement — collided with the File menu one row
+        // above it: two things a keystroke apart in the same chrome, meaning different
+        // things. A near-collision like that is what makes a UI feel careless.
+        //
+        // "Library" is a place you draw models from, which is what the storage browser
+        // makes it, and it cannot be confused with a file operation. Admin and jobs are
+        // the parts the name undersells; both are rare, and one is admin-only.
         //
         // The ID stays "data": layouts persist per mode under ada:layout:v2, and renaming
         // the key would silently reset everyone's arrangement.
-        label: "Files",
+        label: "Library",
         icon: "mode-data",
-        hint: "Get data in and out — storage, upload, conversion, jobs, administration",
+        hint: "Where models live — browse, upload, convert, and track jobs",
+    },
+    {
+        id: "build",
+        label: "Build",
+        icon: "mode-build",
+        hint: "Author geometry — cells, equipment, systems, procedures",
     },
     {
         id: "inspect",
@@ -68,12 +82,6 @@ export const MODES: readonly ModeDef[] = [
         // no tool the other modes lack. What it offers is the ABSENCE of the others'
         // apparatus — the model, the tree, properties, and nothing else on screen.
         hint: "The model on its own — selection, tree, properties, sections, quantities",
-    },
-    {
-        id: "build",
-        label: "Build",
-        icon: "mode-build",
-        hint: "Author geometry — cells, equipment, systems, procedures",
     },
     {
         id: "results",
@@ -91,7 +99,7 @@ export const isModeId = (v: unknown): v is ModeId => MODE_IDS.includes(v as Mode
  *
  * Explicit rather than MODES[0], because that array's order is a presentation choice
  * (it reads left-to-right as data flows) and the fallback must not follow it. Reordering
- * the switcher once silently made the fallback "Files", which needs REST and is an empty
+ * the switcher once silently made the fallback the Library mode, which needs REST and is an empty
  * workspace on desktop — the worst possible place to strand someone whose layout blob
  * just failed to load.
  */
