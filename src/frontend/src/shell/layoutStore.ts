@@ -119,8 +119,9 @@ function defaultLayout(mode: ModeId): ModeLayout {
             // Files on the left too, read-only in practice — you convert a file you can
             // see, and having to switch modes to remember its name would be the same
             // dead end /convert had as a standalone page.
+            // Files on the left; the converter fills the main area (AppShell paints it
+            // over the canvas), so it is deliberately not also a docked panel here.
             put("left", ["storage"], false, 300);
-            put("right", ["convert"], false, 520);
             put("bottom", [], true);
             break;
     }

@@ -339,7 +339,11 @@ export function adapyDevRestConfig() {
                     });
                 }
                 if (procList && req.method === "GET") {
-                    return sendJson(res, {items: [...PROCEDURAL.values()].map(({doc, ...rest}) => rest)});
+                    // {models: […]} — the key the real API uses and viewerApi reads. Getting this
+                    // wrong returned a 200 whose body was the right SHAPE but the wrong
+                    // NAME, so the caller got undefined and the whole Files panel crashed
+                    // on .length. A fixture that lies is worse than one that 404s.
+                    return sendJson(res, {models: [...PROCEDURAL.values()].map(({doc, ...rest}) => rest)});
                 }
                 const procOne = /^\/scopes\/[^/]+\/procedural-models\/([^/]+)\/?$/.exec(route);
                 if (procOne && req.method === "GET") {

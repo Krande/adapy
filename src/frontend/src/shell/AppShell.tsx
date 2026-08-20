@@ -19,6 +19,9 @@ import {runtime} from "@/runtime/config";
 // Ambient REST-mode UI: the conversion-progress toasts and the upload context menu.
 // Lazy so the desktop/WS build never pulls it in.
 const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
+
+// Convert mode's main area. Lazy so the viewer path never pulls the converter in.
+const ConvertPage = React.lazy(() => import("@/components/convert/ConvertPage"));
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {useLegacyFlagSync} from "./useLegacyFlagSync";
@@ -143,7 +146,21 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
               break the non-modality contract.
             */}
             {p.canvas || viewportOverride ? (
-                <ViewportHost visible>{viewportOverride}</ViewportHost>
+                <ViewportHost
+                    visible
+                    // Convert has no use for the 3D view: you arrive to turn a file into
+                    // another format, and a model behind the form is decoration. It is
+                    // covered rather than unmounted — see ViewportHost's `overlay`.
+                    overlay={
+                        p.canvas && mode === "convert" ? (
+                            <Suspense fallback={null}>
+                                <ConvertPage />
+                            </Suspense>
+                        ) : undefined
+                    }
+                >
+                    {viewportOverride}
+                </ViewportHost>
             ) : (
                 <div style={{gridArea: "viewport"}} className="min-w-0 min-h-0" />
             )}

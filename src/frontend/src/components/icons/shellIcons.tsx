@@ -87,6 +87,20 @@ export const ModeConvertIcon = (p: P) => (
     </Svg>
 );
 
+/** Show all — an eye over stacked layers.
+ *
+ * Distinct from the plain eye, which means "visible" / "show this". "Show all" is a
+ * scene-wide recovery action — it reveals everything anyone has hidden — and giving it
+ * the same glyph as a per-item toggle made the strongest action in the visibility group
+ * look like the mildest. The layers say "all of them". */
+export const ShowAllIcon = (p: P) => (
+    <Svg {...p}>
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+        <circle cx="12" cy="12" r="2.5" />
+        <path d="M4 19.5h16" />
+    </Svg>
+);
+
 /* ---- dock / window ----------------------------------------------------- */
 
 export const CloseIcon = (p: P) => (

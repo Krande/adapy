@@ -30,9 +30,19 @@ export interface ViewportHostProps {
     visible?: boolean;
     /** Replaces the 3D canvas — the graph profile puts ReactFlow here. */
     children?: React.ReactNode;
+    /**
+     * Covers the canvas without replacing it.
+     *
+     * The distinction matters: `children` means CanvasWrapper is never mounted, which is
+     * right for a profile that has no 3D at all. A MODE that happens not to show the 3D
+     * (Convert) must not unmount it — that would tear down the WebGL context and the five
+     * headless controllers, and the scene would be gone when you switched back. So the
+     * converter is painted over an opaque layer while the canvas keeps running beneath.
+     */
+    overlay?: React.ReactNode;
 }
 
-export default function ViewportHost({visible = true, children}: ViewportHostProps) {
+export default function ViewportHost({visible = true, children, overlay}: ViewportHostProps) {
     return (
         <div
             // grid-area is set by AppShell's template; min-w/h-0 is what lets a grid
@@ -44,6 +54,9 @@ export default function ViewportHost({visible = true, children}: ViewportHostPro
             ].join(" ")}
             data-testid="viewport-host"
         >
+            {overlay && (
+                <div className="absolute inset-0 z-10 overflow-auto scrollbar bg-surface-0">{overlay}</div>
+            )}
             {children ?? (
                 <Suspense fallback={null}>
                     {/* CanvasWrapper carries ThreeCanvas plus all five headless

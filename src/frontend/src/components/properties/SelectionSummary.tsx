@@ -3,6 +3,7 @@
 // chrome was removed and the two child panels were promoted to sibling providers.
 // The cell-vs-mesh dispatch below is subtle and correct; it was moved, not rewritten.
 import React, {useState} from 'react';
+import {Icon} from "@/components/icons";
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
@@ -257,27 +258,9 @@ const SelectionSummary = () => {
                 pills). */}
             {(displayName || hasEntities) && (
                 <div className="mt-2 flex flex-wrap gap-2 items-center">
-                    {/* Hide acts on the current selection, so it only shows when
-                        something is selected. */}
-                    {displayName && (
-                        <button
-                            type="button"
-                            onClick={onHide}
-                            className={SECONDARY_ACTION}
-                            title={
-                                cellCtx
-                                    ? (isMultiSelect ? `Hide ${multiSelectCount} selected cells` : "Hide selected cell")
-                                    : isMultiSelect
-                                        ? `Hide ${multiSelectCount} selected (Shift+H)`
-                                        : "Hide selected (Shift+H)"
-                            }
-                            aria-label="Hide selected"
-                        >
-                            <EyeOffIcon/>
-                            Hide
-                            {isMultiSelect ? ` (${multiSelectCount})` : ""}
-                        </button>
-                    )}
+                    {/* No Hide button. It is in the left rail with Fit, Focus and Show
+                        all — the visibility group belongs together, in the one place that
+                        is the same in every mode, rather than half here and half there. */}
                     {/* Unhide all is a scene-wide recovery action — it stays
                         available as long as any entity remains, even with no
                         selection, so you can always undo a Hide. */}

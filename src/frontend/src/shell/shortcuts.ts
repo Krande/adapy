@@ -37,7 +37,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     {id: "fit-all", keys: "Shift+A", label: "Fit all to view", scope: "global", group: "View"},
     {id: "focus-selection", keys: "Shift+F", label: "Centre on selection", scope: "global", group: "View"},
     {id: "hide-selection", keys: "Shift+H", label: "Hide selection", scope: "global", group: "View"},
-    {id: "unhide-all", keys: "Shift+U", label: "Unhide all", scope: "global", group: "View"},
+    {id: "unhide-all", keys: "Shift+U", label: "Show all", scope: "global", group: "View"},
 
     // ---- global: panels ---------------------------------------------------
     {id: "toggle-options", keys: "Shift+Q", label: "Toggle preferences", scope: "global", group: "Panels"},

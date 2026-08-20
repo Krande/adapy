@@ -18,6 +18,7 @@
 // as a fallback for non-FEA models.
 
 import React, {useEffect, useMemo, useState} from "react";
+import {fieldClasses} from "@/components/ui";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -537,7 +538,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                         <span className="text-content shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                            className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none truncate`}
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -557,7 +558,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                             <span className="text-content shrink-0">Comp</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                                className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none truncate`}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -573,7 +574,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                             <span className="text-content shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"
+                                className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate`}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -621,7 +622,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={period}
                         onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className={`${fieldClasses("sm")} w-16`}
                         title="Oscillation period (seconds)"
                     />
                     s
@@ -637,7 +638,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={scaleFactor}
                         onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className={`${fieldClasses("sm")} w-16`}
                         title="Warp scale factor — multiplier on top of the slider value (default 1)"
                     />
                 </div>
@@ -687,7 +688,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <label className="flex items-center gap-1">
                         <span className="text-content">Colormap</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5"
+                            className={fieldClasses("sm")}
                             value={colormap}
                             onChange={(e) => onColormapChange(e.target.value)}
                         >
@@ -708,7 +709,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1">
                             <span className="text-content">Layer</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5"
+                                className={fieldClasses("sm")}
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
                                 title="Which integration-point layer to read"
@@ -723,7 +724,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1">
                             <span className="text-content">IP reduction</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5"
+                                className={fieldClasses("sm")}
                                 value={ipReduction}
                                 onChange={(e) => onIpReductionChange(e.target.value)}
                                 title="How to collapse integration-point values per element"
@@ -838,7 +839,7 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0">
             <select
-                className="text-black font-bold py-2 px-4 rounded-sm w-60"
+                className={`${fieldClasses("sm")} w-60 font-semibold`}
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >

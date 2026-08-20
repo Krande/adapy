@@ -1,6 +1,8 @@
 import React from "react";
 import {Icon, type IconName} from "@/components/icons";
 import {IconButton, cn} from "@/components/ui";
+import PositionedMenu, {type KebabMenuItem} from "@/components/common/PositionedMenu";
+import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
@@ -37,6 +39,15 @@ interface ModeTool {
     /** Returns null when usable, else why it is greyed. */
     why?: () => string | null;
     run?: () => void;
+    /**
+     * Opens a menu instead of firing.
+     *
+     * Openings and equipment need a TYPE before placement means anything. The panel's
+     * buttons always did this; the first version of these toolbar buttons only armed the
+     * mode, which silently placed whatever type happened to be selected last — a toolbar
+     * that looks equivalent to the control it replaced but quietly does less.
+     */
+    menu?: () => KebabMenuItem[];
 }
 
 const needsFea = () =>
@@ -110,8 +121,50 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         // place. Shown pressed while armed, and pressing the armed one disarms it, which
         // is what Escape already does.
         {id: "add-cell", icon: "cellbuilder", label: "Add cell — then click in the scene", pressed: addModeIs("add-cell"), why: needsBuilder, run: armAddMode("add-cell")},
-        {id: "add-opening", icon: "component", label: "Add opening — then click a wall", pressed: addModeIs("add-opening"), why: needsBuilder, run: armAddMode("add-opening")},
-        {id: "add-equipment", icon: "equipment-catalog", label: "Add equipment — then click in the scene", pressed: addModeIs("add-equipment"), why: needsBuilder, run: armAddMode("add-equipment")},
+        {
+            id: "add-opening",
+            icon: "component",
+            label: "Add opening — pick a type, then click a wall",
+            pressed: addModeIs("add-opening"),
+            why: needsBuilder,
+            run: armAddMode("add-opening"),
+            menu: () => {
+                const s = useCellBuilderStore.getState();
+                if (!s.openingTypes.length) {
+                    return [{key: "none", label: "No opening types", disabled: true, onClick: () => {}}];
+                }
+                return typePickerItems(s.openingTypes).map((it) => ({
+                    key: it.key,
+                    label: it.label,
+                    onClick: () => {
+                        s.setSelectedOpeningType(it.slug);
+                        s.setMode("add-opening");
+                    },
+                }));
+            },
+        },
+        {
+            id: "add-equipment",
+            icon: "equipment-catalog",
+            label: "Add equipment — pick a type, then click in the scene",
+            pressed: addModeIs("add-equipment"),
+            why: needsBuilder,
+            run: armAddMode("add-equipment"),
+            menu: () => {
+                const s = useCellBuilderStore.getState();
+                if (!s.equipmentTypes.length) {
+                    return [{key: "none", label: "No equipment types", disabled: true, onClick: () => {}}];
+                }
+                return typePickerItems(s.equipmentTypes).map((it) => ({
+                    key: it.key,
+                    label: it.label,
+                    onClick: () => {
+                        s.setSelectedEquipmentType(it.slug);
+                        s.setMode("add-equipment");
+                    },
+                }));
+            },
+        },
         // A loft member appears at the origin immediately — an action, not a mode, so no
         // pressed state.
         {id: "add-loft", icon: "procedural", label: "Add loft member (L)", why: needsBuilder, run: addLoftMember},
@@ -181,6 +234,9 @@ export function toolsForMode(mode: ModeId): ModeTool[] {
 
 export default function ModeToolbar() {
     const mode = useModeStore((s) => s.mode);
+    // Which tool's menu is open, and the buttons to anchor them to.
+    const [openMenu, setOpenMenu] = React.useState<string | null>(null);
+    const btnRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
     // Subscribe to everything the tools read, so greyed state AND sunken state re-render
     // when the underlying state moves — including when it moves from the keyboard.
     useCellBuilderStore((s) => s.active);
@@ -207,11 +263,22 @@ export default function ModeToolbar() {
                 const reason = notWired ? "not wired up yet" : (t.why?.() ?? null);
                 const disabled = reason != null;
                 return (
+                    <React.Fragment key={t.id}>
                     <IconButton
-                        key={t.id}
+                        ref={(el) => {
+                            btnRefs.current[t.id] = el;
+                        }}
                         size="sm"
                         disabled={disabled}
-                        onClick={t.run}
+                        onClick={() => {
+                            // An armed placement mode toggles off on a second press — no
+                            // point offering a type picker to cancel something.
+                            if (t.menu && !t.pressed?.()) {
+                                setOpenMenu((v) => (v === t.id ? null : t.id));
+                                return;
+                            }
+                            t.run?.();
+                        }}
                         tooltip={
                             disabled
                                 ? `${t.label} — ${reason}`
@@ -221,6 +288,20 @@ export default function ModeToolbar() {
                         icon={<Icon name={t.icon} size="sm" />}
                         className={cn(disabled && "opacity-40")}
                     />
+                    {t.menu && openMenu === t.id && (
+                        <PositionedMenu
+                            anchor={{kind: "rect", getRect: () => btnRefs.current[t.id]?.getBoundingClientRect()}}
+                            onClose={() => setOpenMenu(null)}
+                            items={t.menu().map((it) => ({
+                                ...it,
+                                onClick: () => {
+                                    it.onClick();
+                                    setOpenMenu(null);
+                                },
+                            }))}
+                        />
+                    )}
+                    </React.Fragment>
                 );
             })}
         </div>

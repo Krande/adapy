@@ -64,7 +64,7 @@ const RAIL_TOOLS: RailTool[] = [
     {id: "focus", icon: "mode-inspect", label: "Focus selection", shortcut: "Shift+F", run: focusSelection},
     {id: "divider-1", icon: "expand", label: "", divider: true},
     {id: "hide", icon: "view-off", label: "Hide selection", shortcut: "Shift+H", run: hideSelection},
-    {id: "unhide", icon: "view", label: "Unhide all", shortcut: "Shift+U", run: unhideAll},
+    {id: "unhide", icon: "show-all", label: "Show all", shortcut: "Shift+U", run: unhideAll},
     {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
     {id: "measure", icon: "measure", label: "Measure", pending: true},
     // One door onto the Scene panel, which holds everything that describes the loaded
@@ -89,16 +89,29 @@ function builderOpen(): string | null {
     return useCellBuilderStore.getState().active !== null ? null : "Nothing to undo here yet";
 }
 
-/** Open the Scene panel on its default (Model) tab. */
+/**
+ * Toggle the Scene panel, landing on its Model tab when opening.
+ *
+ * Toggle and not open: a rail button that only ever opens is a button that does nothing
+ * the second time you press it, which is how people conclude a control is broken. The
+ * panel toggles have always behaved this way in the menu; the rail was the odd one out.
+ */
 function openScenePanel(): void {
-    useSceneInfoStore.getState().setMode("info");
     const {mode} = useModeStore.getState();
-    useLayoutStore.getState().openPanel(mode, "scene", "right");
+    useSceneInfoStore.getState().setMode("info");
+    useLayoutStore.getState().togglePanel(mode, "scene", "right");
 }
 
 function openSectionPlanes(): void {
-    useSceneInfoStore.getState().setMode("section");
     const {mode} = useModeStore.getState();
+    const st = useSceneInfoStore.getState();
+    // Already showing the clip tab → this press means "put it away". Otherwise switch to
+    // it, opening the panel if it is closed.
+    if (st.mode === "section") {
+        useLayoutStore.getState().togglePanel(mode, "scene", "right");
+        return;
+    }
+    st.setMode("section");
     useLayoutStore.getState().openPanel(mode, "scene", "right");
 }
 

@@ -52,7 +52,7 @@ const ACTIONS: {
     {id: "fit-all", title: "Fit all to view", icon: "expand", shortcut: "fit-all", keywords: "zoom frame extents", run: fitAll},
     {id: "focus-selection", title: "Centre on selection", icon: "mode-inspect", shortcut: "focus-selection", keywords: "zoom to", why: REASONS.selection, run: focusSelection},
     {id: "hide-selection", title: "Hide selection", icon: "view-off", shortcut: "hide-selection", keywords: "isolate", why: REASONS.selection, run: hideSelection},
-    {id: "unhide-all", title: "Unhide all", icon: "view", shortcut: "unhide-all", keywords: "show reveal", run: unhideAll},
+    {id: "unhide-all", title: "Show all", icon: "show-all", shortcut: "unhide-all", keywords: "show reveal", run: unhideAll},
     {id: "toggle-legend", title: "Toggle the colour legend", icon: "filter", keywords: "scale colours", why: REASONS.fea, run: toggleLegend},
     {id: "toggle-data-table", title: "Toggle the result data table", icon: "fem-data", keywords: "values nodes", why: REASONS.fea, run: toggleDataTable},
     {id: "fem-concepts", title: "Show FEM concepts", icon: "group", keywords: "masses boundary conditions loads", why: REASONS.fea, run: openFemConcepts},
