@@ -11,6 +11,17 @@ import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useSectionStore} from "@/state/sectionStore";
+import {
+    addPlane,
+    clearPlanes,
+    flipActivePlane,
+    gizmoShown,
+    needsActivePlane,
+    needsPlane,
+    toggleGizmo,
+    useSectionTools,
+} from "./sectionTools";
 import {runtime} from "@/runtime/config";
 import {gizmoReason} from "./gizmoRules";
 
@@ -228,8 +239,39 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
 // Clipping applies to any geometry in any mode, which is exactly what the rail is for.
 // Appending it per-mode was the old dynamic-palette habit surviving the move to a stable
 // rail: the strip is for what a mode ADDS, and a tool every mode adds is not a mode tool.
+/**
+ * Clip tools, shown to the RIGHT of the mode's own tools while armed.
+ *
+ * Appended rather than substituted: clipping is a second activity layered on top of the
+ * mode you are in, so the mode's tools must stay put while you do it.
+ */
+const SECTION_TOOLS: ModeTool[] = [
+    {id: "sec-x", icon: "section-x", label: "Clip on X (plane through the model centre)", run: addPlane("x")},
+    {id: "sec-y", icon: "section-y", label: "Clip on Y", run: addPlane("y")},
+    {id: "sec-z", icon: "section-z", label: "Clip on Z", run: addPlane("z")},
+    {id: "sec-flip", icon: "flip", label: "Flip which side is cut away", why: needsActivePlane, run: flipActivePlane},
+    {
+        id: "sec-gizmo",
+        icon: "move",
+        label: "Drag handle on the active plane",
+        pressed: gizmoShown,
+        why: needsPlane,
+        run: toggleGizmo,
+    },
+    {id: "sec-clear", icon: "close", label: "Remove all section planes", why: needsPlane, run: clearPlanes},
+];
+
 export function toolsForMode(mode: ModeId): ModeTool[] {
     return MODE_TOOLS[mode] ?? [];
+}
+
+/** The full strip: the mode's tools, then the clip tools when they are armed. */
+export function stripFor(mode: ModeId, sectionShown: boolean): ModeTool[] {
+    const base = toolsForMode(mode);
+    if (!sectionShown) return base;
+    // A divider only when there is something to divide from — Inspect's strip is empty,
+    // and a rule against the left edge reads as a rendering fault.
+    return base.length ? [...base, div("sec-div"), ...SECTION_TOOLS] : SECTION_TOOLS;
 }
 
 export default function ModeToolbar() {
@@ -246,7 +288,14 @@ export default function ModeToolbar() {
     useFeaAnimationStore((s) => s.sessionActive);
     useFeaAnimationStore((s) => s.isPlaying);
 
-    const tools = toolsForMode(mode);
+    const sectionShown = useSectionTools((s) => s.shown);
+    // Re-render when the planes change, so the clip tools' greyed and pressed states
+    // follow the scene rather than the last unrelated render.
+    useSectionStore((s) => s.planes.length);
+    useSectionStore((s) => s.activeId);
+    useSectionStore((s) => s.gizmoVisible);
+
+    const tools = stripFor(mode, sectionShown);
     if (tools.length === 0) return null;
 
     return (

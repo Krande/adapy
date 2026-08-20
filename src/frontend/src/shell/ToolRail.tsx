@@ -1,5 +1,6 @@
 import React from "react";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useSectionTools} from "./sectionTools";
 import {Icon, IconButton, cn, type IconName} from "@/components/ui";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
@@ -47,6 +48,8 @@ interface RailTool {
     pending?: boolean;
     /** Renders as a rule instead of a button. Keeps grouping in the data, not the JSX. */
     divider?: boolean;
+    /** Sunken while a persistent state is on — the clip tools being armed, for one. */
+    pressed?: () => boolean;
     /** Delegates to an existing handler. Never reimplements behaviour. */
     run?: () => void;
     /** Returns null when usable, else why it is greyed — shown in the tooltip. */
@@ -65,7 +68,17 @@ const RAIL_TOOLS: RailTool[] = [
     {id: "divider-1", icon: "expand", label: "", divider: true},
     {id: "hide", icon: "view-off", label: "Hide selection", shortcut: "Shift+H", run: hideSelection},
     {id: "unhide", icon: "show-all", label: "Show all", shortcut: "Shift+U", run: unhideAll},
-    {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
+    {
+        id: "section",
+        icon: "section-plane",
+        label: "Section planes",
+        // Toggles the clip tools into the mode toolbar rather than opening a panel.
+        // Clipping is a small set of actions you use in bursts; a whole dock panel for
+        // it meant giving up a column to reach three buttons. The panel's Clip tab still
+        // exists for the plane LIST and the cap colour — the things a toolbar cannot hold.
+        pressed: () => useSectionTools.getState().shown,
+        run: () => useSectionTools.getState().toggle(),
+    },
     {id: "measure", icon: "measure", label: "Measure", pending: true},
     // One door onto the Scene panel, which holds everything that describes the loaded
     // geometry: loaded models, quantities and take-off, groups, mesh quality, clip
@@ -102,24 +115,13 @@ function openScenePanel(): void {
     useLayoutStore.getState().togglePanel(mode, "scene", "right");
 }
 
-function openSectionPlanes(): void {
-    const {mode} = useModeStore.getState();
-    const st = useSceneInfoStore.getState();
-    // Already showing the clip tab → this press means "put it away". Otherwise switch to
-    // it, opening the panel if it is closed.
-    if (st.mode === "section") {
-        useLayoutStore.getState().togglePanel(mode, "scene", "right");
-        return;
-    }
-    st.setMode("section");
-    useLayoutStore.getState().openPanel(mode, "scene", "right");
-}
 
 export default function ToolRail() {
     // Subscribes to the builder so undo/redo re-evaluate their greyed state when a
     // procedural model opens or closes. Without this the rail would be correct only
     // until the next unrelated re-render.
     useCellBuilderStore((st) => st.active);
+    useSectionTools((st) => st.shown);
 
     return (
         <nav
@@ -149,6 +151,7 @@ function RailButton({tool}: {tool: RailTool}) {
                     ? `${tool.label} — ${reason}`
                     : `${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ""}`
             }
+            pressed={tool.pressed?.() ?? undefined}
             icon={<Icon name={tool.icon} />}
             className={cn(disabled && "opacity-35")}
         />

@@ -101,6 +101,51 @@ export const ShowAllIcon = (p: P) => (
     </Svg>
 );
 
+/* ---- section planes ---------------------------------------------------- */
+
+// One glyph per axis: the plane it cuts on, plus the axis letter.
+//
+// The letter is not decoration. Three plane glyphs distinguished only by their tilt are
+// indistinguishable at 16px — the same failure Convert and Refresh had when they shared
+// the reload arrow — and the axis IS the whole difference between these three buttons.
+const AxisPlane = ({letter, ...p}: P & {letter: string}) => (
+    <Svg {...p}>
+        {/* The cut, and the axis it is on.
+        
+            First attempt drew a detailed plane with a small letter beside it. At the 16px
+            these render at, the letter came out around 6px and all three buttons were
+            indistinguishable — the glyph spent its pixels on the part that is the SAME
+            across all three. The axis is the entire difference, so it gets the space: a
+            slab with a big letter on it. */}
+        <path d="M2.5 15.5l8-3.5 11 3.5-8 3.5z" />
+        <text
+            x="12"
+            y="10.5"
+            fontSize="12"
+            fontWeight="700"
+            fill="currentColor"
+            stroke="none"
+            textAnchor="middle"
+            dominantBaseline="middle"
+        >
+            {letter}
+        </text>
+    </Svg>
+);
+
+export const SectionXIcon = (p: P) => <AxisPlane {...p} letter="X" />;
+export const SectionYIcon = (p: P) => <AxisPlane {...p} letter="Y" />;
+export const SectionZIcon = (p: P) => <AxisPlane {...p} letter="Z" />;
+
+/** Flip a plane's cut direction — two arrows across a surface. */
+export const FlipIcon = (p: P) => (
+    <Svg {...p}>
+        <path d="M3 12h18" />
+        <path d="M8 7l-5 5 5 5" />
+        <path d="M16 17l5-5-5-5" />
+    </Svg>
+);
+
 /* ---- dock / window ----------------------------------------------------- */
 
 export const CloseIcon = (p: P) => (

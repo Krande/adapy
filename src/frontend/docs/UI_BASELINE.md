@@ -1912,3 +1912,41 @@ steps in the same order the panel's Stop did.
 
 It reaches the mesh through the already-exported `getActiveFeaMesh()`, so nothing under
 the business-logic fence had to change.
+
+---
+
+## Clip tools: same row, to the right, toggled from the rail
+
+The rail's Section button used to open the Scene panel's Clip tab — a whole dock column
+given up to reach three buttons. It now toggles a group of clip tools into the **mode
+toolbar, appended to the right of the mode's own tools**.
+
+Appended, not substituted, and that is the point: **clipping is a second activity layered
+on top of whatever mode you are in.** You clip a model you are inspecting, or one you are
+building. Replacing the row would have implied the mode had changed, which it has not —
+the same reasoning that made Convert its own mode says clipping is *not* one.
+
+`Clip on X · Y · Z │ Flip │ Drag handle │ Remove all`, each greyed with a reason until it
+applies ("No section plane yet", "No plane selected"). The divider only appears when the
+mode actually has tools to divide from — Inspect's strip is empty, and a rule against the
+left edge reads as a rendering fault.
+
+Putting the tools away also hides the drag gizmo. Leaving a manipulator on screen after
+its toolbar is gone strands a control with no visible owner: you can still drag the plane
+and nothing on screen explains what you are dragging.
+
+The Clip tab still exists for the plane **list** and the cap colour — the things a toolbar
+cannot hold. Both drive `sectionStore`; the toolbar is a second entry point, never a
+second implementation.
+
+### The axis glyphs, twice
+
+First attempt drew a detailed plane with the axis letter beside it. At the 16px these
+actually render, the letter came out around 6px and all three buttons were
+indistinguishable — the glyph had spent its pixels on the part that is the *same* across
+all three. The axis is the entire difference between them, so it now gets the space: a
+slab with a large letter on it.
+
+Same failure as Convert and Refresh sharing the reload arrow, and worth stating as a rule:
+**an icon set has to spend its pixels on what differs between its members**, not on what
+they have in common.
