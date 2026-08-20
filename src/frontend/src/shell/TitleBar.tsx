@@ -68,6 +68,59 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 now are greyed with a reason rather than removed. */}
             <MenuBar />
 
+            {showModeSwitcher && (
+                <>
+                    {/* Separated from the menus by a rule: the menus are the application,
+                        the modes are a setting within it, and without the break "Library"
+                        reads as a seventh menu. */}
+                    <span aria-hidden="true" className="shrink-0 w-px h-5 mx-1 bg-edge" />
+                    <nav
+                        aria-label="Workspace mode"
+                        className="flex items-center gap-0.5 shrink-0 p-0.5 bg-surface-2 border border-edge rounded-md"
+                    >
+                        {MODES.map((m) => {
+                            const active = m.id === mode;
+                            const badge = badges[m.id];
+                            return (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    aria-current={active ? "page" : undefined}
+                                    title={`${m.label} — ${m.hint}`}
+                                    onClick={() => setMode(m.id)}
+                                    className={cn(
+                                        "ada-focus relative inline-flex items-center gap-1.5 px-2 h-6 rounded-sm",
+                                        "text-xs font-medium whitespace-nowrap transition-colors duration-(--ada-dur-fast)",
+                                        // Green for the active mode, from the theme's semantic
+                                        // palette rather than a literal, so it moves with the
+                                        // preset and stays legible on the light one.
+                                        //
+                                        // White-on-raised said "this button is pressed", which
+                                        // every toggle in the app also says. Colour says "you are
+                                        // HERE" — a different claim, and the one worth making:
+                                        // this is the only place in the chrome that answers which
+                                        // of four applications you are looking at.
+                                        active
+                                            ? "bg-pass-subtle text-pass"
+                                            : "text-content-muted pointer-fine:hover:text-content",
+                                    )}
+                                >
+                                    <Icon name={m.icon} size="sm" />
+                                    {m.label}
+                                    {badge != null && (
+                                        // Passive signal only — the shell tells you something
+                                        // happened without taking you there.
+                                        <span
+                                            aria-label={`${m.label} has updates`}
+                                            className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent"
+                                        />
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </nav>
+                </>
+            )}
             <span className="flex-1 min-w-0" />
 
             {/* A visible way in. The palette's job is discoverability, so hiding it
@@ -108,50 +161,15 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 />
             </div>
 
-            {/* Row 2 — where you are, and what this place offers. The mode's own tools sit
-                directly beneath the control that changes them, so a changing strip reads
-                as part of the mode rather than as the app rearranging itself. */}
+            {/* Row 2 — the mode's own tools.
+
+                Only the tools. The mode BUTTONS moved up to row 1 beside the menus: they
+                are a persistent statement of where you are, which belongs with the other
+                persistent chrome, and giving them their own row made them shout louder
+                than anything else on screen. What changes with the mode is the strip; the
+                switch itself does not need to be the biggest thing in the window. */}
             {showModeSwitcher && (
                 <div className="flex items-center gap-2 min-w-0 px-2 h-9 border-t border-edge">
-                    <nav
-                            aria-label="Workspace mode"
-                            className="flex items-center gap-0.5 shrink-0 p-0.5 bg-surface-2 border border-edge rounded-md"
-                        >
-                            {MODES.map((m) => {
-                                const active = m.id === mode;
-                                const badge = badges[m.id];
-                                return (
-                                    <button
-                                        key={m.id}
-                                        type="button"
-                                        aria-current={active ? "page" : undefined}
-                                        title={`${m.label} — ${m.hint}`}
-                                        onClick={() => setMode(m.id)}
-                                        className={cn(
-                                            "ada-focus relative inline-flex items-center gap-1.5 px-2.5 h-7 rounded-sm",
-                                            "text-sm font-medium whitespace-nowrap transition-colors duration-(--ada-dur-fast)",
-                                            active
-                                                ? "bg-surface-1 text-content shadow-panel"
-                                                : "text-content-muted pointer-fine:hover:text-content",
-                                        )}
-                                    >
-                                        <Icon name={m.icon} size="sm" />
-                                        {m.label}
-                                        {badge != null && (
-                                            // Passive signal only — the shell tells you
-                                            // something happened without taking you there.
-                                            <span
-                                                aria-label={`${m.label} has updates`}
-                                                className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent"
-                                            />
-                                        )}
-                                    </button>
-                                );
-                            })}
-                    </nav>
-
-                    <span aria-hidden="true" className="shrink-0 w-px h-5 bg-edge" />
-
                     <ModeToolbar />
                 </div>
             )}

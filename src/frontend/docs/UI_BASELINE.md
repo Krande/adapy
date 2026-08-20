@@ -1163,3 +1163,61 @@ label is worth that.
 `Library · Build · Inspect · Results`. Build precedes Inspect because you cannot inspect
 what does not exist yet, and it puts the two "look at what is there" modes next to each
 other.
+
+---
+
+## The mode toolbar, filled in; modes moved up and coloured
+
+### Modes join row 1
+
+The mode buttons sit beside the menus now, separated by a rule, one type-step smaller.
+They are a persistent statement of *where you are*, which belongs with the other
+persistent chrome — and giving them a row of their own made them the loudest thing on
+screen, which they do not need to be. Row 2 is now purely the mode's tools, which makes
+that row's changing contents read correctly: what changes with the mode is the strip, not
+the frame around it.
+
+**The active mode is green** (`bg-pass-subtle text-pass`, from the theme's semantic
+palette rather than a literal, so it moves with the preset and stays legible on the light
+one). White-on-raised said "this button is pressed", which every toggle in the app also
+says. Colour says "you are HERE" — a different claim, and the one worth making: this is
+the only place in the chrome that answers which of four applications you are looking at.
+
+### The strip actually has tools now
+
+It was thin because the first pass only wired actions that already had handlers. Each
+mode now carries what it is actually for:
+
+| Mode | Tools |
+|---|---|
+| Library | Upload · Convert · Refresh |
+| Build | **Move · Rotate · Resize** (gizmo toggles) │ Compile preview · Groups · Section |
+| Inspect | Quantities & take-off · Scene tools · Mesh quality · Section |
+| Results | **Play/pause** │ Legend · Data table · FEM concepts · Section |
+
+Several are doors onto Scene-panel tabs that already existed and were reachable only by
+opening the panel and finding the right tab. Nothing new was implemented; existing state
+got a visible entry point.
+
+Two considered exceptions to "one control per piece of state":
+
+* **Gizmo toggles** are the same `gizmoMode` G/R/S set, so the toolbar shows sunken when
+  you press the key, and pressing the active one clears it exactly as Escape does.
+* **Play/pause** also exists on the Simulation panel's transport. The transport lives on a
+  panel you may have closed, and a result set you cannot start without reopening a panel
+  is the kind of thing people file as a bug. Both drive `isPlaying`; neither holds a copy.
+
+### A control that lied, caught by clicking it
+
+The first version offered all three gizmos for any selection. The controller does not:
+rotate is **equipment-only**, resize is **cell-only**, and no gizmo touches a loft — a cell
+has no meaningful rotation, equipment has no resize handles.
+
+So the toolbar would have set a `gizmoMode` the controller then refuses to act on. Worse:
+pressing `R` on a cell correctly does nothing, so the keyboard and the toolbar would have
+disagreed about the same operation. Found by pressing `R` after clicking the toolbar and
+noticing the store had not moved — not by reading the code.
+
+The rule now lives in `gizmoRules.ts` as a pure function with tests, because it is stated
+in two files and duplicated rules drift. The test names the reason for each restriction so
+the next person does not "fix" the asymmetry.

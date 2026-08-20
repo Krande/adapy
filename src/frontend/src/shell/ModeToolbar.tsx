@@ -3,13 +3,14 @@ import {Icon, type IconName} from "@/components/icons";
 import {IconButton, cn} from "@/components/ui";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
-import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {runtime} from "@/runtime/config";
+import {gizmoReason} from "./gizmoRules";
 
 // The mode's own tools, as a horizontal strip directly under the mode switcher.
 //
@@ -27,6 +28,10 @@ interface ModeTool {
     icon: IconName;
     label: string;
     shortcut?: string;
+    /** Renders a rule instead of a button — grouping stays in the data. */
+    divider?: boolean;
+    /** Sunken when true. For tools that set a persistent state rather than fire once. */
+    pressed?: () => boolean;
     /** Not wired yet: shown disabled with an honest tooltip rather than hidden. */
     pending?: boolean;
     /** Returns null when usable, else why it is greyed. */
@@ -40,47 +45,109 @@ const needsBuilder = () =>
     useCellBuilderStore.getState().active !== null ? null : "No procedural model is open";
 const needsRest = () => (runtime.isRestMode() ? null : "Only available in the hosted viewer");
 
-/** Reveal the section-plane UI where it already lives: the Scene panel's Clip tab. */
-function openSectionPlanes(): void {
-    useSceneInfoStore.getState().setMode("section");
-    const {mode} = useModeStore.getState();
-    useLayoutStore.getState().openPanel(mode, "scene", "right");
+/**
+ * Open the Scene panel at one of its tabs.
+ *
+ * Several toolbar entries are "show me X", where X is already a Scene-panel tab. They
+ * route here rather than duplicating the UI: one implementation, several doors. That is
+ * the same rule the marking menu and the command palette follow.
+ */
+function openScene(tab: SceneInfoMode): () => void {
+    return () => {
+        useSceneInfoStore.getState().setMode(tab);
+        const {mode} = useModeStore.getState();
+        useLayoutStore.getState().openPanel(mode, "scene", "right");
+    };
 }
 
+/** Gizmo toggles drive cellBuilderStore directly — the same state G/R/S set. */
+function setGizmo(g: Exclude<GizmoMode, "none">) {
+    return () => {
+        const cb = useCellBuilderStore.getState();
+        // Pressing the active one turns it off, which is what a toggle in a toolbar
+        // means and what Escape already does from the keyboard.
+        cb.setGizmoMode(cb.gizmoMode === g ? "none" : g);
+    };
+}
+const gizmoIs = (g: GizmoMode) => () => useCellBuilderStore.getState().gizmoMode === g;
+
+/** Wires the pure rule in gizmoRules.ts to live store state. */
+function needsGizmo(gizmo: "translate" | "rotate" | "resize") {
+    return (): string | null => {
+        const cb = useCellBuilderStore.getState();
+        return gizmoReason(gizmo, {
+            modelOpen: cb.active !== null,
+            selectionKind: cb.selection === null ? null : (cb.cells[cb.selection.cellId]?.kind ?? null),
+        });
+    };
+}
+
+const div = (id: string): ModeTool => ({id, icon: "expand", label: "", divider: true});
+
 const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
-    // Files: everything here is about moving data across the boundary.
+    // Library — moving data across the boundary.
     data: [
         {id: "upload", icon: "upload", label: "Upload files", why: needsRest, run: openUpload},
         {id: "convert", icon: "reload", label: "Convert", why: needsRest, run: openConvert},
         {id: "refresh", icon: "reload", label: "Refresh file list", why: needsRest, run: refreshFiles},
     ],
-    // Inspect owns no tool the other modes lack — see the note on the mode itself. Rather
-    // than pad the strip to make the mode look busy, it stays empty and the strip
-    // collapses. An empty toolbar is the honest rendering of "nothing extra here", which
-    // is what this mode is FOR.
-    inspect: [],
+
+    // Build — the gizmos first, because they are the tools you switch between constantly
+    // while modelling. They are toggles, not actions: each sets a persistent state, so
+    // each shows sunken while it is the active one. Same state G/R/S set from the
+    // keyboard, so the toolbar and the keys cannot disagree.
+    //
+    // Cell placement stays a viewport gesture (click a face, drag to extrude) driven by
+    // CellBuilderController. A button here would imply a tool mode that does not exist.
     build: [
+        {id: "move", icon: "move", label: "Move", shortcut: "G", pressed: gizmoIs("translate"), why: needsGizmo("translate"), run: setGizmo("translate")},
+        {id: "rotate", icon: "rotate", label: "Rotate", shortcut: "R", pressed: gizmoIs("rotate"), why: needsGizmo("rotate"), run: setGizmo("rotate")},
+        {id: "resize", icon: "scale", label: "Resize", shortcut: "S", pressed: gizmoIs("resize"), why: needsGizmo("resize"), run: setGizmo("resize")},
+        div("d1"),
         {id: "compile", icon: "reload", label: "Compile preview", shortcut: "Shift+Enter", why: needsBuilder, run: compilePreview},
-        // Cell placement is a viewport gesture (click a face, drag to extrude) driven by
-        // CellBuilderController, not a button — a toolbar button here would imply a tool
-        // mode that does not exist.
+        {id: "groups", icon: "group", label: "Groups", why: needsBuilder, run: openScene("utilities")},
     ],
+
+    // Inspect — routes into the Scene panel's tabs.
+    //
+    // The mode owns no exclusive machinery (see the note on the mode itself), but that is
+    // not the same as having nothing to offer: interrogating a model IS the Scene panel,
+    // and it was previously reachable only by opening the panel and finding the right
+    // tab. These are doors onto tabs that already exist, not new UI.
+    inspect: [
+        {id: "takeoff", icon: "sort", label: "Quantities & take-off", run: openScene("info")},
+        {id: "tools", icon: "settings", label: "Scene tools — face search, groups, gallery", run: openScene("utilities")},
+        {id: "meshqa", icon: "component", label: "Mesh quality", run: openScene("mesh")},
+    ],
+
+    // Results — playback first, then the readouts.
+    //
+    // Play/pause is here as well as on the Simulation panel's transport, and that is a
+    // considered exception to "one control per piece of state": the transport lives on a
+    // panel you may have closed, and a result set you cannot start without reopening a
+    // panel is the kind of thing people file as a bug. Both drive isPlaying; neither
+    // holds its own copy.
     results: [
+        {id: "play", icon: "play", label: "Play / pause deformation", pressed: () => useFeaAnimationStore.getState().isPlaying, why: needsFea, run: togglePlay},
+        div("d1"),
         {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
         {id: "table", icon: "fem-data", label: "Result data table", why: needsFea, run: toggleDataTable},
         {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", why: needsFea, run: openFemConcepts},
-        // Playback lives on the Simulation panel's transport, beside the step and mode
-        // sliders it belongs with. A duplicate play button here would be a second control
-        // for one piece of state.
     ],
 };
 
-/** Section planes are offered wherever the Scene panel is — Inspect, Build and Results. */
+function togglePlay(): void {
+    const fea = useFeaAnimationStore.getState();
+    fea.setIsPlaying(!fea.isPlaying);
+}
+
+/** Section planes apply to any geometry, so they are offered wherever the Scene panel
+ *  is — everywhere except the Library. */
 const SECTION_TOOL: ModeTool = {
     id: "section",
     icon: "section-plane",
     label: "Section planes",
-    run: openSectionPlanes,
+    run: openScene("section"),
 };
 
 export function toolsForMode(mode: ModeId): ModeTool[] {
@@ -90,9 +157,13 @@ export function toolsForMode(mode: ModeId): ModeTool[] {
 
 export default function ModeToolbar() {
     const mode = useModeStore((s) => s.mode);
-    // Re-evaluate greyed state when the documents these tools act on come and go.
+    // Subscribe to everything the tools read, so greyed state AND sunken state re-render
+    // when the underlying state moves — including when it moves from the keyboard.
     useCellBuilderStore((s) => s.active);
+    useCellBuilderStore((s) => s.gizmoMode);
+    useCellBuilderStore((s) => s.selection);
     useFeaAnimationStore((s) => s.sessionActive);
+    useFeaAnimationStore((s) => s.isPlaying);
 
     const tools = toolsForMode(mode);
     if (tools.length === 0) return null;
@@ -104,6 +175,9 @@ export default function ModeToolbar() {
             className="flex min-w-0 items-center gap-0.5 overflow-x-auto scrollbar"
         >
             {tools.map((t) => {
+                if (t.divider) {
+                    return <span key={t.id} aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-edge" />;
+                }
                 const notWired = t.pending || !t.run;
                 const reason = notWired ? "not wired up yet" : (t.why?.() ?? null);
                 const disabled = reason != null;
@@ -118,6 +192,7 @@ export default function ModeToolbar() {
                                 ? `${t.label} — ${reason}`
                                 : `${t.label}${t.shortcut ? ` (${t.shortcut})` : ""}`
                         }
+                        pressed={t.pressed?.() ?? undefined}
                         icon={<Icon name={t.icon} size="sm" />}
                         className={cn(disabled && "opacity-40")}
                     />
