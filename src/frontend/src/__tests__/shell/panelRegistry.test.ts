@@ -25,7 +25,7 @@ import {DOCK_IDS} from "../../shell/regions";
 // It read "Show preferences" in the menu because panel commands are generated with a
 // Show/Hide prefix, it inherited the panel theme's translucency, and it competed for
 // dock space with panels you want open while working. See SettingsDialog.
-const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "node-editor", "storage", "convert", "admin"];
+const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "builder-components", "node-editor", "storage", "convert", "admin"];
 
 test("every expected panel is registered", () => {
     for (const id of EXPECTED_PANELS) {

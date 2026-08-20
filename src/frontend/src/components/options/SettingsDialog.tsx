@@ -157,7 +157,14 @@ export default function SettingsDialog() {
             width="max-w-4xl"
             footer={<BuildLine />}
         >
-            <div className="flex min-h-[26rem] gap-4">
+            {/* A FIXED height, not a minimum.
+                
+                With min-height the dialog grew and shrank as you clicked between pages —
+                Performance is twice the height of Theme — so the window jumped under the
+                pointer and the category you were aiming at moved. A settings window is a
+                place you navigate around; it has to hold still while you do. The content
+                pane scrolls instead. */}
+            <div className="flex h-[30rem] gap-4">
                 {/* Sidebar: search + pages. Fixed width so the content pane does not
                     reflow as page names change length. */}
                 <div className="flex w-56 shrink-0 flex-col gap-2 border-r border-edge pr-3">

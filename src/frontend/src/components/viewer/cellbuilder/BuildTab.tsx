@@ -169,83 +169,12 @@ export const BuildTab: React.FC = () => {
             </label>
           </Section>
 
-          <Section
-            title="Cells & equipment"
-            count={cellCount}
-            // Collapsed by default so the panel opens as compact as possible —
-            // expand it when you want to browse/select from the list.
-            defaultOpen={false}
-          >
-            <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
-              {Object.values(s.cells).length === 0 && (
-                <p className="italic text-content-muted">
-                  No cells yet — use + Cell to start, or open a template from the
-                  storage “＋ New from template” menu.
-                </p>
-              )}
-              {Object.values(s.cells).map((c) => (
-                <div
-                  key={c.id}
-                  className={
-                    "flex items-center gap-1 border-b border-edge pb-0.5 cursor-pointer rounded-sm px-0.5 " +
-                    (s.selection?.cellId === c.id
-                      ? "bg-accent-subtle"
-                      : "hover:bg-surface-2")
-                  }
-                  onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
-                >
-                  <span
-                    className="inline-block w-2 h-2 rounded-sm shrink-0"
-                    style={{
-                      background:
-                        c.kind === "cell"
-                          ? "#3b82f6"
-                          : c.kind === "loft"
-                            ? "#14b8a6"
-                            : "#f97316",
-                    }}
-                  />
-                  <span
-                    className="truncate"
-                    title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
-                  >
-                    {c.name}
-                  </span>
-                  {c.kind === "equipment" && (
-                    <span className="text-content-muted">
-                      {c.equipmentType ?? "generic"}
-                    </span>
-                  )}
-                  {c.kind === "opening" && (
-                    <select
-                      className="bg-surface-2 text-content text-[11px] rounded-sm px-1"
-                      value={c.subtype ?? "door"}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) =>
-                        s.updateCell(c.id, {
-                          subtype: e.target.value as "door" | "window",
-                        })
-                      }
-                      title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
-                    >
-                      <option value="door">door</option>
-                      <option value="window">window</option>
-                    </select>
-                  )}
-                  <button
-                    className="ml-auto px-1 rounded-sm hover:bg-surface-3"
-                    title="Delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      s.removeCell(c.id);
-                    }}
-                  >
-                    🗑
-                  </button>
-                </div>
-              ))}
-            </div>
-          </Section>
+          {/* "Cells & equipment" moved to the Model panel in the left dock.
+
+              It is the document; what is left in this panel is settings ABOUT the
+              document — grid and snapping, compile settings, groups. Those are different
+              kinds of thing and were sharing one narrow column, which is why this panel
+              felt like it had "a lot going on". */}
 
           {/* The equipment & system catalogs live in their own tabs now
               (Equipment / Systems) — no separate overview buttons/panels. */}

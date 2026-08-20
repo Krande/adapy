@@ -54,6 +54,7 @@ export const PANEL_IDS = [
     "simulation",
     "fea-table",
     "cellbuilder",
+    "builder-components",
     "node-editor",
     "storage",
     "convert",
@@ -118,6 +119,21 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultOpen: true,
         hint: "Result fields, deformation and playback",
         component: lazy(() => import("@/components/simulation/SimulationControls")),
+    },
+    "builder-components": {
+        id: "builder-components",
+        title: "Model",
+        icon: "cellbuilder",
+        modes: ["build"],
+        // Left dock, beside the viewport — where a model tree belongs, and where the
+        // Outliner puts the same idea for loaded geometry. It was a collapsed disclosure
+        // inside the Builder panel, sharing a narrow right dock with the settings that
+        // control how the model compiles: the document and the knobs about the document
+        // are different kinds of thing and were competing for one column.
+        defaultDock: "left",
+        defaultOpen: true,
+        hint: "Cells and equipment in the procedural model",
+        component: lazy(() => import("@/components/viewer/cellbuilder/ComponentsPanel")),
     },
     cellbuilder: {
         id: "cellbuilder",

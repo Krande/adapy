@@ -1857,3 +1857,32 @@ the dev REST stub has none". The status line is the only channel available: `Api
 message is built from `${what} failed: ${status} ${statusText}` and drops the JSON detail
 entirely, so a body would never have reached the user. Worth remembering when adding
 fixture routes: the reason has to go in the status line, not the body.
+
+---
+
+## The Builder panel splits: the document on the left, its settings on the right
+
+The panel "had a lot going on" because it held two different kinds of thing in one narrow
+column: **the model** (its cells and equipment) and **settings about the model** (grid and
+snapping, compile settings, groups).
+
+Cells & equipment is now the **Model** panel in Build mode's left dock — where a model
+tree belongs, and where the Outliner puts the same idea for loaded geometry. As a whole
+panel rather than a collapsed disclosure it can also fill the height, instead of capping
+at 14rem and scrolling inside a section that itself scrolls.
+
+**The Outliner is deliberately not opened alongside it.** In Build mode the model tree
+*is* the outliner; the loaded-GLB tree answers a different question you ask occasionally,
+and it is one menu item away. Two trees side by side answering nearly the same thing is
+the duplication this rebuild keeps removing — and `layoutStore.test`'s "defaults are
+sparse" guard caught the first attempt, which opened four panels.
+
+Build mode now reads: **toolbar** = what you do, **left** = what the model contains,
+**right** = how it is built, **viewport** = the model.
+
+### The Settings dialog stopped changing size
+
+Clicking between pages grew and shrank the window — Performance is twice the height of
+Theme — so it jumped under the pointer and the category you were aiming at moved. Fixed
+height, scrolling content pane. A window you navigate around has to hold still while you
+do it.

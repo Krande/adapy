@@ -100,7 +100,12 @@ function defaultLayout(mode: ModeId): ModeLayout {
             put("bottom", ["fea-table"], true);
             break;
         case "build":
-            put("left", ["outliner"], true);
+            // The model's components, and NOT the outliner. In Build mode the model tree
+            // is the outliner — the loaded-GLB tree answers a different question ("what
+            // geometry is in the scene") that you ask occasionally, and it is one menu
+            // item away. Opening both would put two trees side by side answering almost
+            // the same thing, which is the duplication this rebuild keeps removing.
+            put("left", ["builder-components"], false, 260);
             // Builder first: authoring is what this mode is for, and Properties reads
             // the selected cell beside it.
             put("right", ["cellbuilder", "properties"], false, 400);
