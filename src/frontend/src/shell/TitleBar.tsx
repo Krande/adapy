@@ -1,8 +1,7 @@
 import React from "react";
-import {Badge, Button, Icon, IconButton, cn} from "@/components/ui";
+import {Button, Icon, IconButton, cn} from "@/components/ui";
 import {MODES, useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
-import {useShellPrefs} from "./shellPrefs";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import ScopePicker from "./ScopePicker";
 import MenuBar from "./MenuBar";
@@ -200,18 +199,6 @@ export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle,
             <PluginTopBarButtons navBtnClass={pluginNavBtnClass} />
             <PluginPanelRegion region="top-panel" />
 
-            <Badge tone="accent">new shell</Badge>
-            {/* Always offer the way back while the two UIs coexist. The classic pages
-                (/convert, /admin) are a dead end today precisely because they lack this. */}
-            <IconButton
-                size="sm"
-                tooltip="Return to the classic UI"
-                icon={<Icon name="pop-out" size="sm" />}
-                    onClick={() => {
-                        useShellPrefs.getState().setEnabled(false);
-                        window.location.search = "?shell=0";
-                    }}
-                />
                 </div>
             </div>
 

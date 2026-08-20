@@ -72,6 +72,21 @@ export const ModeDataIcon = (p: P) => (
     </Svg>
 );
 
+/** Convert — one document becoming another.
+ *
+ * A mode glyph, not the toolbar's ConvertIcon. The mode family is deliberately its own
+ * visual set: these five sit together in the switcher and have to be told apart at a
+ * glance and at 16px, so they share a weight and a level of detail that the action icons
+ * do not. Reusing an action icon here would make one mode look like a button. */
+export const ModeConvertIcon = (p: P) => (
+    <Svg {...p}>
+        <path d="M4 5h7v6H4z" />
+        <path d="M13 13h7v6h-7z" />
+        <path d="M13 8h4.5a1.5 1.5 0 0 1 1.5 1.5V11" />
+        <path d="M17 9l2 2 2-2" transform="translate(-2 0)" />
+    </Svg>
+);
+
 /* ---- dock / window ----------------------------------------------------- */
 
 export const CloseIcon = (p: P) => (

@@ -34,6 +34,7 @@ import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKi
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {KEYS_MIME, FOLDER_MIME, basenameOf, countFiles, dirnameOf, formatBytes, type ServerFileTreeNode} from "./storageHelpers";
 import {Spinner} from "./Spinner";
+import {newProceduralModel} from "@/shell/buildActions";
 import {classifyFiles} from "./classifyFiles";
 import {FolderRow} from "./FolderRow";
 import {FileRow} from "./FileRow";
@@ -214,17 +215,13 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
         }
     };
 
+    // Delegates to the shared action, which the Build toolbar and the File menu also
+    // call. Creating a model is a File-menu operation everywhere else in software, and
+    // the mode you create one FOR is Build — this menu should not be its only home, and
+    // three doors onto three implementations is how they drift.
     const createProceduralModel = async () => {
-        const name = window.prompt("Name for the new procedural model:", "");
-        if (!name || !name.trim()) return;
-        try {
-            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            const store = useCellBuilderStore.getState();
-            store.open(detail.id, detail.name, detail.revision, detail.doc);
-            void refreshProceduralModels();
-        } catch (e) {
-            window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
-        }
+        await newProceduralModel();
+        void refreshProceduralModels();
     };
 
     // Instantiate a new model from a template: commit the template's document

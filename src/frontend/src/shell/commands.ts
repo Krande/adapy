@@ -6,6 +6,7 @@ import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview, redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
+import {newProceduralModel} from "./buildActions";
 import {copyNames, hasSelection, selectChild, selectNextSibling, selectParent, selectPrevSibling} from "./selectionActions";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -61,6 +62,8 @@ const ACTIONS: {
     {id: "upload", title: "Upload files", icon: "upload", keywords: "import add", why: REASONS.rest, run: openUpload},
     {id: "convert", title: "Convert files", icon: "convert", keywords: "export format glb ifc step", why: REASONS.rest, run: openConvert},
     {id: "refresh-files", title: "Refresh the file list", icon: "reload", why: REASONS.rest, run: refreshFiles},
+
+    {id: "new-procedural", title: "New procedural model…", icon: "plus", keywords: "create build cellbuilder", why: REASONS.rest, run: () => void newProceduralModel()},
 
     // Selection. These were keyboard-only until the menu bar needed them by name.
     {id: "copy-names", title: "Copy selected names", icon: "copy", shortcut: "copy-names", keywords: "clipboard", why: REASONS.selection, run: copyNames},

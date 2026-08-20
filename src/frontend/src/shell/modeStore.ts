@@ -32,21 +32,21 @@ import {persist} from "zustand/middleware";
 // stores either side of a setMode() and asserts they are byte-identical.
 // ============================================================================
 
-export const MODE_IDS = ["inspect", "results", "build", "data"] as const;
+export const MODE_IDS = ["inspect", "results", "build", "data", "convert"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 export interface ModeDef {
     id: ModeId;
     label: string;
     /** Icon registry name. */
-    icon: "mode-inspect" | "mode-results" | "mode-build" | "mode-data";
+    icon: "mode-inspect" | "mode-results" | "mode-build" | "mode-data" | "mode-convert";
     /** One line, shown in the mode switcher tooltip. Says what you DO here. */
     hint: string;
 }
 
 export const MODES: readonly ModeDef[] = [
-    // Ordered as work flows, left to right: get a model in, author it, examine it, then
-    // post-process results from it. That is how people describe their own work, so it is
+    // Ordered as work flows, left to right: get files in, convert them, author, examine,
+    // then post-process results. That is how people describe their own work, so it is
     // learnable in a way "most-used first" is not.
     //
     // Build sits before Inspect because you cannot inspect what does not exist yet, and
@@ -67,6 +67,16 @@ export const MODES: readonly ModeDef[] = [
         label: "Library",
         icon: "mode-data",
         hint: "Where models live — browse, upload, convert, and track jobs",
+    },
+    {
+        id: "convert",
+        label: "Convert",
+        icon: "mode-convert",
+        // Its own mode rather than a panel in the Library's dock, where it competed for
+        // the same column as the file browser you pick sources from. Converting is a
+        // different activity from browsing: you arrive with an intent ("get this STEP
+        // into GLB"), not to look around.
+        hint: "Turn files into other formats — CAD and FEA sources into viewable models",
     },
     {
         id: "build",

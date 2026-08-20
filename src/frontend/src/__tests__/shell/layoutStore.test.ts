@@ -218,12 +218,24 @@ test("per-mode dock sizes are clamped like any other", () => {
     }
 });
 
-test("Data mode opens storage and convert side by side", () => {
-    // The point of folding /convert into a mode: as a separate PAGE it was a dead end —
-    // no way back to the viewer, and no sight of the storage it reads from.
+test("Library mode opens the file browser", () => {
     const l = layout("data");
     assert.ok(l.docks.left.tabs.includes("storage"));
-    assert.ok(l.docks.right.tabs.includes("convert"));
     assert.equal(l.docks.left.collapsed, false);
+    // Convert used to sit in this mode's right dock. It is its own mode now: converting
+    // is a different activity from browsing, and sharing the dock made picking a file
+    // and deciding what to do with it compete for one column.
+    assert.ok(!l.docks.right.tabs.includes("convert"), "convert moved to its own mode");
+});
+
+test("Convert mode shows the converter with the files it acts on", () => {
+    // The point of folding /convert into the shell at all: as a separate PAGE it was a
+    // dead end — no way back to the viewer, and no sight of the storage it reads from.
+    const l = layout("convert");
+    assert.ok(l.docks.right.tabs.includes("convert"));
+    assert.ok(l.docks.left.tabs.includes("storage"), "you convert a file you can see");
     assert.equal(l.docks.right.collapsed, false);
+    // Wider than the 300px default: a drop zone, a target matrix and a job list stacked
+    // vertically do not fit a sidebar.
+    assert.ok(l.docks.right.size > 400, "the converter is the mode, so it gets the room");
 });

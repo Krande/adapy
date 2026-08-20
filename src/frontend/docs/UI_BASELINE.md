@@ -1629,3 +1629,69 @@ passed, a worker is degraded, a token expires soon — so it is the surface that
 most from the tokens actually being semantic. It is also the first time the light theme
 will work there at all: `bg-gray-900` is dark whatever the preset says, whereas
 `bg-surface-0` follows it.
+
+---
+
+## Build gets real tools; Convert gets its own mode; dead chrome goes
+
+### A correction
+
+The cutover commit said `?shell=0` still reached the classic UI "for one transition
+period". **That was false when it was written.** The same commit deleted the classic UI
+and made `app.tsx`'s viewer branch unconditional, so nothing read the flag: the toggle in
+the title bar set a preference no one consulted and navigated to a URL that changed
+nothing. The escape hatch was described, not kept.
+
+`shellPrefs.ts`, the pop-out toggle and the "new shell" badge are all gone. The badge had
+the same problem in a milder form — it marked a UI that is now simply the UI.
+
+### The Build strip
+
+It had four buttons, all of which operated on a model you had no way to create from here.
+Now:
+
+**New procedural model…** first, because until you have one nothing else is usable. It
+lived only in the Library's "+" menu — so the one place you would look while in Build mode
+had no way to begin. It is now a shared action behind three doors (File menu, Build strip,
+Library "+"), rather than three implementations.
+
+**Add cell · opening · equipment · loft.** The placement ones arm a mode and show pressed
+while armed; pressing the armed one disarms it, as Escape already did. Loft is a one-shot,
+so no pressed state. These pass the mode-tool test: they are meaningless without a
+procedural document.
+
+**The Builder panel's own undo/redo are gone.** Two controls for one stack — differently
+drawn, differently placed, and one of them only reachable while that panel happened to be
+open. Undo is in the rail, where it is in every application anyone has used. Third
+instance of the same duplication after section planes and groups.
+
+### Convert as a mode
+
+It was a panel in the Library's right dock, sharing the column with the file browser you
+pick sources from — so choosing a file and choosing what to do with it competed for one
+space. Converting is a different activity from browsing: you arrive with an intent ("get
+this STEP into GLB"), not to look around.
+
+`Library · Convert · Build · Inspect · Results` still reads as the work flowing left to
+right. Convert mode keeps the file list on the left, because you convert a file you can
+see, and gives the converter a 520px dock — a drop zone, a target matrix and a job list
+stacked vertically do not fit a sidebar.
+
+It also carried a "← back to viewer" link inside the panel, from its standalone-page days.
+A link that navigates the whole window out of a panel you are sitting inside is exactly
+the kind of thing that survives a move and stops making sense.
+
+### Native `<select>` popups
+
+The option list is drawn by the OS and does **not** inherit the `<select>`'s background,
+so a themed picker opened onto unreadable options. Only styling `option` directly reaches
+it. `surface-0` and not `surface-1`, because the panel surfaces carry alpha in the glass
+presets and an OS popup composites against the desktop rather than the page.
+
+### On the scope picker's placement
+
+Asked whether it belongs in the title bar or in Library mode: it stays. Scope is
+session-wide context — every file, conversion and job belongs to one — and it is the one
+piece of state that changes what every other surface shows. It is also needed on the
+`page` and `window` profiles, which have no Library to put it in. Library is where it is
+most *used*, but persistent chrome is where it needs to be *visible*.

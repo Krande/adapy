@@ -5,7 +5,7 @@ import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
-import {compilePreview} from "./buildActions";
+import {addLoftMember, addModeIs, armAddMode, compilePreview, newProceduralModel} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useCellBuilderStore, type GizmoMode} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -100,10 +100,27 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
     // Cell placement stays a viewport gesture (click a face, drag to extrude) driven by
     // CellBuilderController. A button here would imply a tool mode that does not exist.
     build: [
+        // Starting a model comes first, because until you have one nothing else here is
+        // usable. It used to live only in the Library's "+" menu — so the one place you
+        // would look while in Build mode had no way to begin.
+        {id: "new-model", icon: "plus", label: "New procedural model…", why: needsRest, run: () => void newProceduralModel()},
+        div("d0"),
+
+        // Placement. These arm a mode rather than firing once: you click in the scene to
+        // place. Shown pressed while armed, and pressing the armed one disarms it, which
+        // is what Escape already does.
+        {id: "add-cell", icon: "cellbuilder", label: "Add cell — then click in the scene", pressed: addModeIs("add-cell"), why: needsBuilder, run: armAddMode("add-cell")},
+        {id: "add-opening", icon: "component", label: "Add opening — then click a wall", pressed: addModeIs("add-opening"), why: needsBuilder, run: armAddMode("add-opening")},
+        {id: "add-equipment", icon: "equipment-catalog", label: "Add equipment — then click in the scene", pressed: addModeIs("add-equipment"), why: needsBuilder, run: armAddMode("add-equipment")},
+        // A loft member appears at the origin immediately — an action, not a mode, so no
+        // pressed state.
+        {id: "add-loft", icon: "procedural", label: "Add loft member (L)", why: needsBuilder, run: addLoftMember},
+        div("d1"),
+
         {id: "move", icon: "move", label: "Move", shortcut: "G", pressed: gizmoIs("translate"), why: needsGizmo("translate"), run: setGizmo("translate")},
         {id: "rotate", icon: "rotate", label: "Rotate", shortcut: "R", pressed: gizmoIs("rotate"), why: needsGizmo("rotate"), run: setGizmo("rotate")},
         {id: "resize", icon: "scale", label: "Resize", shortcut: "S", pressed: gizmoIs("resize"), why: needsGizmo("resize"), run: setGizmo("resize")},
-        div("d1"),
+        div("d2"),
         {id: "compile", icon: "reload", label: "Compile preview", shortcut: "Shift+Enter", why: needsBuilder, run: compilePreview},
         // No "Groups" here. It pointed at the Scene panel's Tools tab while the groups
         // it meant live under Model — and groups describe the loaded model, so they are
@@ -116,6 +133,10 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
     // not the same as having nothing to offer: interrogating a model IS the Scene panel,
     // and it was previously reachable only by opening the panel and finding the right
     // tab. These are doors onto tabs that already exist, not new UI.
+    // Convert's controls all live inside the panel: pick a source, pick targets, go.
+    // A strip above it would either duplicate them or hold nothing.
+    convert: [],
+
     // Empty, and honestly so — for the second time, and for the same reason.
     //
     // It briefly held three buttons, each opening a different Scene-panel tab. Those tabs
@@ -164,6 +185,7 @@ export default function ModeToolbar() {
     // when the underlying state moves — including when it moves from the keyboard.
     useCellBuilderStore((s) => s.active);
     useCellBuilderStore((s) => s.gizmoMode);
+    useCellBuilderStore((s) => s.mode);
     useCellBuilderStore((s) => s.selection);
     useFeaAnimationStore((s) => s.sessionActive);
     useFeaAnimationStore((s) => s.isPlaying);

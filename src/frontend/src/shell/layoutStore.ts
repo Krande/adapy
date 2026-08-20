@@ -110,9 +110,17 @@ function defaultLayout(mode: ModeId): ModeLayout {
             break;
         case "data":
             put("left", ["storage"], false, 320);
-            // Convert sits beside the files it acts on, rather than being a separate
-            // page you navigate away to.
-            put("right", ["convert"], false, 360);
+            break;
+        case "convert":
+            // The converter is the mode, so it gets the room: a wide right dock rather
+            // than the 300px default, because it is a form with a drop zone, a target
+            // matrix and a job list stacked vertically.
+            //
+            // Files on the left too, read-only in practice — you convert a file you can
+            // see, and having to switch modes to remember its name would be the same
+            // dead end /convert had as a standalone page.
+            put("left", ["storage"], false, 300);
+            put("right", ["convert"], false, 520);
             put("bottom", [], true);
             break;
     }

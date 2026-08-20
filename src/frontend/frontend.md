@@ -20,7 +20,6 @@ A bare dev server has no server and no model, so two fixtures ship with the repo
 | `?demo=1` | a small structural model — enough to exercise selection, the tree and properties |
 | `?build=1` | a procedural model open in the cellbuilder |
 | `?uikit=1` | the design-system gallery (dev builds only) |
-| `?shell=0` | the pre-rebuild UI, for one transition period |
 
 `npm run dev:rest` adds a stub REST backend (scopes, a file list, blob reads), which is
 the only way to see the Library workspace, upload, conversion or admin.
@@ -49,7 +48,7 @@ worth reading before making structural changes.
 registry rather than hand-listed. Add a command in `shell/commands.ts` and name its id in
 `shell/menuModel.ts`; a typo fails a test rather than leaving a gap someone has to find.
 
-**Modes** — `Library · Build · Inspect · Results`. Ordered as work flows. A mode changes
+**Modes** — `Library · Convert · Build · Inspect · Results`. Ordered as work flows. A mode changes
 which *panels* are offered and which tools sit in the strip under the switcher; it never
 changes selection, camera, visibility or what is loaded, and it never activates itself.
 That contract is written at the top of `shell/modeStore.ts` and enforced by
@@ -118,7 +117,9 @@ kept it.
 
 ## Known rough edges
 
-- `?shell=0` and `shell/useLegacyFlagSync.ts` are cutover leftovers. The flag bridge
-  survives because two panels gate on store booleans that the classic UI used to write;
-  removing it means un-gating them, which is business-logic work.
-- The admin tabs have not been through the design system.
+- `shell/useLegacyFlagSync.ts` is a cutover leftover. It survives because two panels gate
+  on store booleans the classic UI used to write; removing it means un-gating them, which
+  is business-logic work.
+- Creating a procedural model still uses `window.prompt`. It wants a real dialog.
+- The template picker ("New model from template") is still only in the Library's "+"
+  menu, unlike "New procedural model…" which is also in File and the Build toolbar.

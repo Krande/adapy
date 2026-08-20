@@ -52,6 +52,7 @@ import {
     MeasureIcon,
     ModeBuildIcon,
     ModeDataIcon,
+    ModeConvertIcon,
     ModeInspectIcon,
     ModeResultsIcon,
     MoveIcon,
@@ -73,6 +74,7 @@ export const ICONS = {
     "mode-results": ModeResultsIcon,
     "mode-build": ModeBuildIcon,
     "mode-data": ModeDataIcon,
+    "mode-convert": ModeConvertIcon,
     // panels (existing set)
     tree: TreeViewIcon,
     scene: SceneIcon,

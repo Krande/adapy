@@ -180,3 +180,18 @@
     outline: 2px solid var(--ada-focus-ring);
     outline-offset: 1px;
 }
+
+/* Native <select> popups.
+ *
+ * The dropdown list is drawn by the operating system, not by the page, and it does NOT
+ * inherit the <select>'s background — so a themed select opened to a list of unreadable
+ * options (dark text on the OS's white, or the reverse). The only thing that reaches it
+ * is styling `option` directly.
+ *
+ * surface-0, not surface-1: the panel surfaces carry alpha in the glass presets, and an
+ * OS popup composites against the desktop rather than the page. surface-0 is opaque by
+ * definition — it is the one colour that sits behind everything. */
+select option {
+    background-color: var(--ada-surface-0);
+    color: var(--ada-text);
+}

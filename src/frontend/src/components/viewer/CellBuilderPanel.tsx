@@ -237,24 +237,12 @@ const CellBuilderPanel: React.FC = () => {
         {s.dirty && (
           <span className="text-warn whitespace-nowrap">● unsaved</span>
         )}
+        {/* No undo/redo here. They are in the left rail, which is where undo lives in
+            every application anyone has used, and having them in both places meant two
+            controls for one stack — differently drawn, differently placed, and one of
+            them only reachable while this panel happened to be open. */}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-surface-3 disabled:opacity-30"
-          title="Undo (Ctrl+Z)"
-          disabled={s.past.length === 0}
-          onClick={s.undo}
-        >
-          ↶
-        </button>
-        <button
-          className="px-1 rounded-sm hover:bg-surface-3 disabled:opacity-30"
-          title="Redo (Ctrl+Shift+Z)"
-          disabled={s.future.length === 0}
-          onClick={s.redo}
-        >
-          ↷
-        </button>
-        <button
-          className="px-1 rounded-sm hover:bg-fail-subtle"
+          className="ml-auto px-1 rounded-sm hover:bg-fail-subtle"
           title="Close model"
           onClick={s.close}
         >

@@ -173,12 +173,14 @@ export const PANELS: Record<PanelId, PanelDef> = {
     convert: {
         id: "convert",
         title: "Convert",
-        icon: "reload",
-        modes: ["data"],
-        // Right dock beside the file list: you pick a file on the left and convert it on
-        // the right. As a separate /convert PAGE it was a dead end — no way back to the
-        // viewer, and no sight of the storage it reads from.
+        icon: "convert",
+        // Its own mode. As a Library panel it shared the dock with the file browser you
+        // pick sources from, so choosing a file and choosing what to do with it competed
+        // for one column — and converting is a different activity from browsing anyway:
+        // you arrive with an intent, not to look around.
+        modes: ["convert"],
         defaultDock: "right",
+        defaultOpen: true,
         available: () => runtime.isRestMode(),
         hint: "Convert uploaded files to other formats",
         component: lazy(() => import("@/components/convert/ConvertPage")),

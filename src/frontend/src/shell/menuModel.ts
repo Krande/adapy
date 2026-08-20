@@ -45,6 +45,9 @@ export const MENUS: MenuDef[] = [
         id: "file",
         label: "File",
         items: [
+            // "New" first, as in every File menu ever written.
+            cmd("action:new-procedural"),
+            sep,
             cmd("action:upload"),
             cmd("action:convert"),
             cmd("action:refresh-files"),
@@ -120,7 +123,7 @@ export const MENUS: MenuDef[] = [
                 kind: "submenu",
                 label: "Mode",
                 // Same order as the switcher, so the two never disagree about which comes first.
-                items: [cmd("mode:data"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
+                items: [cmd("mode:data"), cmd("mode:convert"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
             },
             sep,
             cmd("layout:reset-mode"),
