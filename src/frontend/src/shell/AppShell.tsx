@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette";
 import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
 import {ConfirmHost} from "@/components/ui";
+import HelpDialogs from "./HelpDialogs";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {useLegacyFlagSync} from "./useLegacyFlagSync";
@@ -169,6 +170,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
             {/* Whatever `confirm()` currently has pending. One host per shell; callers
                 await a promise rather than rendering their own dialog. */}
             <ConfirmHost />
+
+            {/* Help ▸ Keyboard shortcuts / About. Rendered from shortcuts.ts rather
+                than a hand-kept list, so a bound key is a documented key. */}
+            <HelpDialogs />
 
             {/* Ctrl+K. Outside the grid — a modal overlay, not a region. */}
             <CommandPalette />

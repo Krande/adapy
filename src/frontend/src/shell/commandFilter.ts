@@ -18,6 +18,15 @@ export interface Command {
     keys?: string;
     /** Extra words to match on that are not in the title (synonyms, old names). */
     keywords?: string;
+    /**
+     * False when the command cannot act right now — no selection, no FEA session, no
+     * builder model. The menu bar renders these greyed rather than hiding them: a menu
+     * whose contents change is a menu you cannot learn, and "why is that greyed out" is
+     * a far better question than "where did it go". Defaults to true when absent.
+     */
+    enabled?: boolean;
+    /** Why it is greyed, shown as the item's tooltip. */
+    disabledReason?: string;
     run: () => void;
 }
 

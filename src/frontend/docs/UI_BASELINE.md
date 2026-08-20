@@ -959,3 +959,79 @@ class names as examples, turning "these used to be `bg-blue-600`" into "these us
 `bg-accent`". Harmless here and caught by reading the diff, but a codemod that rewrites
 class strings will happily rewrite prose about class strings. Track B's codemods should
 operate on JSX attribute values, not on file text.
+
+---
+
+## The menu bar
+
+The per-mode tool rail was the wrong idea, taken from the right place. Cinema 4D's
+dynamic palettes work because its modes are five closely-related modelling contexts
+sharing most of their tools. Here the four modes are genuinely different applications,
+so the rail turned over almost completely between them: nothing had a fixed address, and
+you cannot build a memory of where a command lives if it moves when the mode changes.
+
+**File · Edit · View · Tools · Window · Help.** Same menus, same order, in every mode.
+
+### The three discovery mechanisms, and what each is for
+
+* **The menu bar** is the complete index. Every command, fixed place, same order. It is
+  the only one that answers "what can this application do".
+* **The command palette** answers "run the thing I can already name". It is useless for
+  discovery — you cannot search for a word you have never seen — which is why it was
+  never sufficient on its own.
+* **The tool rail** is now for the handful of actions you reach for constantly without
+  looking.
+
+All three read from **one command registry**. A hand-written menu would be a fifth copy
+of facts that already live in the panel registry, the mode list and the shortcut
+registry, and it would be the copy that goes stale, because nothing breaks when it does.
+`menuModel.ts` names command *ids*; a typo is caught by a test, not by a user finding a
+gap where an item should be.
+
+### Disabled, not hidden
+
+Commands that cannot act right now are greyed with the reason as their tooltip —
+"Nothing is selected", "No result set is loaded", "No procedural model is open". This is
+the whole point of having a menu bar. A menu whose contents depend on state is a menu you
+cannot learn, and "why is that greyed out" is a far better question than "where did it
+go". `Command` gained `enabled` / `disabledReason`; enablement is evaluated when the menu
+opens, so it is a snapshot of live state rather than a stale one.
+
+Cross-mode panels are listed with their mode's name on the right — "Show Simulation
+··· Results". Choosing one switches mode, which is a mode switch the user asked for by
+name. The non-modality contract forbids *automatic* switches, not user-initiated ones.
+The palette still scopes panels to the current mode, because there the user is typing a
+name rather than reading a list, and a silent jump would be a surprise.
+
+### What this made visible
+
+Five commands existed only as key bindings — Shift+C and the Shift+arrow tree
+navigation, bound in `setupCameraControlsHandlers` and documented nowhere a user would
+look. `selectionActions.ts` gives them a name and a second entry point, delegating to the
+same `copySelectionNames` / `treeNavigation` functions the key handler calls. This is the
+menu's real value showing up before it even shipped: laying out a complete index forces
+you to notice what has no home.
+
+`Help ▸ Keyboard shortcuts` renders `shortcuts.ts` directly, grouped by *when a key is
+live* rather than by topic — a builder-only key listed beside a global one is how people
+conclude a shortcut is broken. The classic `ShortcutsModal` keeps a hand-maintained
+second copy of the same list; it dies at cutover.
+
+### Popovers must be opaque
+
+Panel themes are rgba — the default "slate glass" is 62% opaque, which is right for a
+panel you park beside the model and wrong for a menu you read in a fraction of a second
+over arbitrary 3D content.
+
+CSS cannot flatten that alpha: `color-mix` over an opaque colour still yields a
+translucent result, because mixing is not compositing. The fix is to stack — an opaque
+`bg-surface-0` layer blocks the background, and a tinted `bg-surface-1` layer inside
+supplies the theme's colour. The composite is opaque and still themed. **This is the
+pattern for every popover**, and the earlier note deferring it as a taste question was
+wrong: for a menu it is legibility, not taste.
+
+### Deferred
+
+`Edit` currently holds only Undo/Redo/Copy/Select, because those are the only edit
+commands that exist as commands. That thinness is honest and worth leaving visible — it
+is the menu doing its job of showing where the gaps are.

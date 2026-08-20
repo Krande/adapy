@@ -1,15 +1,14 @@
 import React from "react";
-import {createPortal} from "react-dom";
 import {Badge, Icon, IconButton, cn} from "@/components/ui";
-import {MODES, modeDef, useModeStore, type ModeId} from "./modeStore";
+import {MODES, useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
-import {panelsForMode} from "./panelRegistry";
 import {useShellPrefs} from "./shellPrefs";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import ScopePicker from "./ScopePicker";
+import MenuBar from "./MenuBar";
+import {Z} from "./zIndex";
 import {openCommandPalette} from "./CommandPalette";
 import {keysFor} from "./shortcuts";
-import {Z} from "./zIndex";
 
 /** Chrome for a plugin's top-bar button, in the shell's idiom rather than the classic
  *  Menu.tsx's. Plugins supply an icon and a label; the shape is core's to decide. */
@@ -86,9 +85,18 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 </nav>
             )}
 
-            {/* Menu set: the panels THIS mode offers. Maya's menu sets — the app-level
-                chrome stays put while the discipline-specific contents swap. */}
-            <PanelMenu mode={mode} />
+            {/* The application menu bar: one fixed, complete index of every command.
+
+                This replaces the per-mode "Panels" dropdown, which followed Maya's
+                menu-set idea — app chrome stays put, discipline-specific contents swap.
+                That works in Maya because its disciplines share most of their tools. Here
+                the four modes are genuinely different applications, so the contents turned
+                over almost completely and nothing had a fixed address. A menu you cannot
+                learn is not a menu.
+
+                So: same menus, same order, in every mode. Commands that cannot act right
+                now are greyed with a reason rather than removed. */}
+            <MenuBar />
 
             <span className="flex-1 min-w-0" />
 
@@ -129,164 +137,5 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
                 }}
             />
         </header>
-    );
-}
-
-/** Toggles for the current mode's panels, plus the way out of a layout you have made
- *  a mess of. Generated from the registry, so a new panel appears here without anyone
- *  editing a menu. */
-function PanelMenu({mode}: {mode: ModeId}) {
-    const [open, setOpen] = React.useState(false);
-    const togglePanel = useLayoutStore((s) => s.togglePanel);
-    const resetMode = useLayoutStore((s) => s.resetMode);
-    const resetAll = useLayoutStore((s) => s.resetAll);
-    const layout = useLayoutStore((s) => s.perMode[mode]);
-    const ref = React.useRef<HTMLDivElement | null>(null);
-    const triggerRef = React.useRef<HTMLButtonElement | null>(null);
-    // The menu is portalled out of `ref`, so dismiss-on-outside-click has to know about
-    // it separately — otherwise clicking a panel toggle counts as "outside" and closes
-    // the menu, when toggling several panels in a row is the normal way to use it.
-    const menuRef = React.useRef<HTMLDivElement | null>(null);
-
-    // The menu is portalled to <body>, so it needs a measured anchor rather than
-    // `absolute top-full`. See the render for why the portal is not optional.
-    const [anchor, setAnchor] = React.useState<{left: number; top: number} | null>(null);
-    React.useLayoutEffect(() => {
-        if (!open) return setAnchor(null);
-        const place = () => {
-            const r = triggerRef.current?.getBoundingClientRect();
-            if (r) setAnchor({left: r.left, top: r.bottom + 4});
-        };
-        place();
-        window.addEventListener("resize", place);
-        return () => window.removeEventListener("resize", place);
-    }, [open]);
-
-    const panels = panelsForMode(mode);
-
-    React.useEffect(() => {
-        if (!open) return;
-        const onDown = (e: PointerEvent) => {
-            const t = e.target as Node;
-            const inTrigger = ref.current?.contains(t);
-            const inMenu = menuRef.current?.contains(t);
-            if (!inTrigger && !inMenu) setOpen(false);
-        };
-        const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-        window.addEventListener("pointerdown", onDown);
-        window.addEventListener("keydown", onKey);
-        return () => {
-            window.removeEventListener("pointerdown", onDown);
-            window.removeEventListener("keydown", onKey);
-        };
-    }, [open]);
-
-    const isOpen = (id: string) =>
-        Boolean(
-            layout &&
-                (Object.values(layout.docks).some((d) => d.tabs.includes(id as never)) ||
-                    id in layout.floats ||
-                    layout.overlays[id as never] === true),
-        );
-
-    return (
-        <div ref={ref} className="relative shrink-0">
-            <button
-                ref={triggerRef}
-                type="button"
-                aria-expanded={open}
-                aria-haspopup="menu"
-                onClick={() => setOpen((v) => !v)}
-                className={cn(
-                    "ada-focus inline-flex items-center gap-1 px-2 h-7 rounded-sm text-sm",
-                    "text-content-muted pointer-fine:hover:text-content pointer-fine:hover:bg-surface-2",
-                )}
-            >
-                Panels
-                <Icon name="chevron" size="sm" className="rotate-90" />
-            </button>
-
-            {/* Portalled to <body>, not rendered in place.
-
-                The title bar is a grid item carrying z-index: dock. A z-index on a grid
-                item applies even at position: static — and with it comes a stacking
-                context, which traps every descendant. So this menu’s z-index: contextMenu
-                was being resolved *inside* the header at z 20, and floating panels at z 40
-                drew straight over it. The registry was right; the containment was the bug.
-                A portal takes the menu out to the root, where its z means what it says. */}
-            {open && anchor && createPortal(
-                <div
-                    ref={menuRef}
-                    role="menu"
-                    style={{zIndex: Z.contextMenu, position: "fixed", left: anchor.left, top: anchor.top}}
-                    className="min-w-56 p-1 bg-surface-1 border border-edge rounded-md shadow-popover"
-                >
-                    {panels.map((p) => (
-                        <button
-                            key={p.id}
-                            role="menuitemcheckbox"
-                            aria-checked={isOpen(p.id)}
-                            type="button"
-                            onClick={() => togglePanel(mode, p.id, p.defaultDock)}
-                            className={cn(
-                                "ada-focus flex items-center gap-2 w-full px-2 h-7 rounded-sm text-sm text-left",
-                                "pointer-fine:hover:bg-surface-2",
-                            )}
-                        >
-                            <span className="w-3 shrink-0 text-accent">{isOpen(p.id) ? "✓" : ""}</span>
-                            <Icon name={p.icon} size="sm" />
-                            <span className="flex-1 truncate">{p.title}</span>
-                            {p.shortcut && <span className="text-xs text-content-subtle font-mono">{p.shortcut}</span>}
-                        </button>
-                    ))}
-                    {panels.length === 0 && (
-                        <p className="px-2 py-1.5 text-xs text-content-subtle">No panels available in this mode.</p>
-                    )}
-
-                    {/* The way back to a working screen.
-
-                        Layout is persisted per mode, so one bad afternoon of dragging
-                        follows you across reloads and the app just looks broken — a dock
-                        squashed to nothing, a panel covering the viewport, no obvious
-                        undo. Reset existed, but only in the command palette, which is
-                        exactly the thing you cannot be expected to find while the UI is
-                        the problem. It belongs in permanent chrome. */}
-                    <div className="my-1 border-t border-edge" />
-                    <button
-                        role="menuitem"
-                        type="button"
-                        onClick={() => {
-                            resetMode(mode);
-                            setOpen(false);
-                        }}
-                        className={cn(
-                            "ada-focus flex items-center gap-2 w-full px-2 h-7 rounded-sm text-sm text-left",
-                            "pointer-fine:hover:bg-surface-2",
-                        )}
-                    >
-                        <span className="w-3 shrink-0" />
-                        <Icon name="reload" size="sm" />
-                        <span className="flex-1 truncate">Reset {modeDef(mode).label} layout</span>
-                    </button>
-                    <button
-                        role="menuitem"
-                        type="button"
-                        onClick={() => {
-                            resetAll();
-                            setOpen(false);
-                        }}
-                        className={cn(
-                            "ada-focus flex items-center gap-2 w-full px-2 h-7 rounded-sm text-sm text-left",
-                            "pointer-fine:hover:bg-surface-2",
-                        )}
-                    >
-                        <span className="w-3 shrink-0" />
-                        <Icon name="reload" size="sm" />
-                        <span className="flex-1 truncate">Reset every mode&rsquo;s layout</span>
-                    </button>
-                </div>,
-                document.body,
-            )}
-        </div>
     );
 }
