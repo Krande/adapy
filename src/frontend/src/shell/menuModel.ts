@@ -22,7 +22,15 @@ import type {Command} from "./commandFilter";
 export type MenuItemDef =
     | {kind: "command"; id: string}
     | {kind: "separator"}
-    | {kind: "submenu"; label: string; items: MenuItemDef[]};
+    | {kind: "submenu"; label: string; items: MenuItemDef[]}
+    /**
+     * Every command whose id starts with `prefix`, in the order the registry built them.
+     *
+     * For lists the menu structure cannot know in advance — saved workspaces are named by
+     * the user, so there is no id to write down here. Naming a prefix instead keeps this
+     * file what it is: a description of where things go, not a copy of what exists.
+     */
+    | {kind: "group"; prefix: string};
 
 export interface MenuDef {
     id: string;
@@ -154,6 +162,14 @@ export const MENUS: MenuDef[] = [
                 items: [cmd("mode:convert"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
             },
             sep,
+            cmd("layout:save-workspace"),
+            // Saved arrangements, one command each, named by the user. Nothing to list
+            // here — the registry knows them and this says where they belong.
+            {kind: "group", prefix: "layout:workspace:"},
+            // Only exists once there is something to forget — the command is not
+            // registered before that, and resolveMenus drops what it cannot find.
+            cmd("layout:forget-workspace"),
+            sep,
             cmd("layout:reset-mode"),
             cmd("layout:reset-all"),
         ],
@@ -216,6 +232,11 @@ export function resolveMenus(commands: Command[], defs: MenuDef[] = MENUS): Reso
                 if (it.kind === "submenu") {
                     const inner = resolve(it.items);
                     return inner.length ? [{kind: "submenu", label: it.label, items: inner}] : [];
+                }
+                if (it.kind === "group") {
+                    return commands
+                        .filter((c) => c.id.startsWith(it.prefix))
+                        .map((c) => ({kind: "command", command: c}) as ResolvedItem);
                 }
                 const c = byId.get(it.id);
                 return c ? [{kind: "command", command: c}] : [];

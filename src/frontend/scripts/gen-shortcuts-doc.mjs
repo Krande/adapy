@@ -12,19 +12,17 @@ import {readFileSync, writeFileSync, mkdirSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const src = readFileSync(resolve(root, "src/shell/shortcuts.ts"), "utf8");
+export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+export const REGISTRY = resolve(ROOT, "src/shell/shortcuts.ts");
+export const DOC = resolve(ROOT, "docs/SHORTCUTS.md");
 
 // Parse the object literals rather than importing the module: this script runs in plain
 // node with no TS pipeline, and the registry is deliberately a flat list of literals so
 // it can be read this way.
-const entries = [...src.matchAll(/\{id:\s*"([^"]+)",\s*keys:\s*"([^"]+)",\s*label:\s*"([^"]+)",\s*scope:\s*"([^"]+)",\s*group:\s*"([^"]+)"\}/g)].map(
-    (m) => ({id: m[1], keys: m[2], label: m[3], scope: m[4], group: m[5]}),
-);
-
-if (entries.length === 0) {
-    console.error("no shortcuts parsed — has the registry's shape changed?");
-    process.exit(1);
+export function parseShortcuts(src) {
+    return [...src.matchAll(/\{id:\s*"([^"]+)",\s*keys:\s*"([^"]+)",\s*label:\s*"([^"]+)",\s*scope:\s*"([^"]+)",\s*group:\s*"([^"]+)"\}/g)].map(
+        (m) => ({id: m[1], keys: m[2], label: m[3], scope: m[4], group: m[5]}),
+    );
 }
 
 const SCOPE_NOTE = {
@@ -34,6 +32,14 @@ const SCOPE_NOTE = {
     shell: "Anywhere.",
 };
 
+/**
+ * Render the reference. Exported so a test can regenerate and compare without writing
+ * anything — a generated file that is committed but never checked is just a hand-written
+ * file with extra steps, and this one had already drifted by a renamed label.
+ */
+export function renderShortcutsDoc(registrySrc) {
+    const entries = parseShortcuts(registrySrc);
+    if (entries.length === 0) throw new Error("no shortcuts parsed — has the registry's shape changed?");
 const groups = [...new Set(entries.map((e) => e.group))];
 const lines = [
     "# Keyboard shortcuts",
@@ -58,7 +64,13 @@ for (const g of groups) {
     lines.push("");
 }
 
-const out = resolve(root, "docs/SHORTCUTS.md");
-mkdirSync(dirname(out), {recursive: true});
-writeFileSync(out, lines.join("\n"), "utf8");
-console.log(`wrote docs/SHORTCUTS.md — ${entries.length} shortcuts in ${groups.length} groups`);
+    return {text: lines.join("\n"), entries, groups};
+}
+
+// Writing only when run as a script, so importing this for the test has no side effects.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    const {text, entries, groups} = renderShortcutsDoc(readFileSync(REGISTRY, "utf8"));
+    mkdirSync(dirname(DOC), {recursive: true});
+    writeFileSync(DOC, text, "utf8");
+    console.log(`wrote docs/SHORTCUTS.md — ${entries.length} shortcuts in ${groups.length} groups`);
+}

@@ -16,7 +16,7 @@ can survive CI.
 | `Shift+A` | Fit all to view | Anywhere except a text input. |
 | `Shift+F` | Centre on selection | Anywhere except a text input. |
 | `Shift+H` | Hide selection | Anywhere except a text input. |
-| `Shift+U` | Unhide all | Anywhere except a text input. |
+| `Shift+U` | Show all | Anywhere except a text input. |
 
 ## Panels
 

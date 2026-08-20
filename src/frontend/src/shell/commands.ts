@@ -6,6 +6,7 @@ import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview, redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
+import {forgetWorkspacePrompt, saveWorkspacePrompt} from "./workspaceActions";
 import {
     ifcCadOn,
     newProceduralModel,
@@ -205,6 +206,40 @@ export function buildCommands(scope: "palette" | "menu" = "palette"): Command[] 
 
     // Layout housekeeping — reachable nowhere else, which is precisely the sort of thing
     // a palette is for.
+    // Workspaces — named arrangements of every mode's docks, the Maya idea.
+    //
+    // Saving captures ALL modes, not just the current one: an arrangement is how you like
+    // the application set up, and one that changed only the mode you happened to be in
+    // would be a per-mode preset wearing the wrong name.
+    commands.push({
+        id: "layout:save-workspace",
+        title: "Save this layout as a workspace…",
+        context: "Layout",
+        icon: "pin",
+        keywords: "workspace arrangement preset save named",
+        run: () => void saveWorkspacePrompt(),
+    });
+    for (const name of Object.keys(layout.workspaces)) {
+        commands.push({
+            id: `layout:workspace:${name}`,
+            title: `Workspace: ${name}`,
+            context: "Layout",
+            icon: "pin",
+            keywords: "workspace arrangement preset apply restore",
+            run: () => layout.loadWorkspace(name),
+        });
+    }
+    if (Object.keys(layout.workspaces).length > 0) {
+        commands.push({
+            id: "layout:forget-workspace",
+            title: "Forget a workspace…",
+            context: "Layout",
+            icon: "close",
+            keywords: "workspace delete remove forget",
+            run: () => void forgetWorkspacePrompt(),
+        });
+    }
+
     commands.push({
         id: "layout:reset-mode",
         title: `Reset the ${mode} layout`,

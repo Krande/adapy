@@ -44,6 +44,36 @@ describe("menu structure", () => {
     });
 });
 
+describe("resolveMenus — groups", () => {
+    const defs: MenuDef[] = [
+        {id: "m", label: "M", items: [{kind: "group", prefix: "ws:"}]},
+    ];
+
+    test("expands to every command with the prefix, in registry order", () => {
+        const menus = resolveMenus([cmd("ws:b"), cmd("other"), cmd("ws:a")], defs);
+        const ids = menus[0].items.map((i) => (i.kind === "command" ? i.command.id : i.kind));
+        assert.deepEqual(ids, ["ws:b", "ws:a"], "order follows the registry, not the alphabet");
+    });
+
+    test("a group matching nothing leaves no empty menu behind", () => {
+        // Same rule as a submenu: a title you can click for nothing is worse than no
+        // title. Before any workspace is saved, Window must not grow an empty section.
+        assert.deepEqual(resolveMenus([cmd("other")], defs), []);
+    });
+
+    test("the prefix is a prefix, not a substring", () => {
+        const menus = resolveMenus([cmd("x:ws:a")], defs);
+        assert.deepEqual(menus, [], "matched a command whose id merely contains the prefix");
+    });
+
+    test("the Window menu actually carries the workspace group", () => {
+        // The point of the kind. A typo in the prefix would silently list nothing, and
+        // menuCommandIds cannot catch it — a group names no id.
+        const json = JSON.stringify(MENUS);
+        assert.ok(json.includes('"prefix":"layout:workspace:"'), "workspace group is missing");
+    });
+});
+
 describe("resolveMenus", () => {
     test("drops items whose command does not exist", () => {
         const defs: MenuDef[] = [
