@@ -137,45 +137,50 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 ### E1 Cellbuilder (`CellBuilderPanel.tsx` — 6 tab types)
 | ID | Feature | Business logic (untouched) | Status |
 |---|---|---|---|
-| E1.1 | Build tab — place / move / resize cells | `cellBuilderStore.ts` | Pending |
-| E1.2 | Equipment tab *(contextual)* | `equipmentCatalogStore` | Pending |
-| E1.3 | Systems tab — piping / electrical / HVAC | `cellbuilder/ports.ts` | Pending |
-| E1.4 | Detailing tab *(contextual)*, engine-advertised | `cellbuilder/detailingOptions.ts` | Pending |
-| E1.5 | View tab | — | Pending |
-| E1.6 | Tools tab | — | Pending |
-| E1.7 | Magnetic snap, face/edge extrude | `cellbuilder/snap.ts` | Pending |
-| E1.8 | Loft members / stations → bands | `cellbuilder/loft.ts` | Pending |
-| E1.9 | Groups → blueprints / structures | `cellbuilder/groups.ts`, `blueprints.ts` | Pending |
-| E1.10 | Port overrides (round-trip) | `cellbuilder/ports.ts` | Pending |
+| E1.1 | Build tab — place / move / resize cells | `cellBuilderStore.ts` | Moved (browser: tab, cell list, mode readout; viewport gestures not exercised) |
+| E1.2 | Equipment tab *(contextual)* | `equipmentCatalogStore` | Verified (browser — catalogue lists the built-in archetypes) |
+| E1.3 | Systems tab — piping / electrical / HVAC | `cellbuilder/ports.ts` | Verified (browser — catalogue lists the built-in kinds) |
+| E1.4 | Detailing tab *(contextual)*, engine-advertised | `cellbuilder/detailingOptions.ts` | Moved (contextual — needs a detailing engine) |
+| E1.5 | View tab — **dissolved** | representation, superimpose, side-by-side, ports overlay, recentre → **View ▸ Builder** commands; the two compile-output toggles → Build tab | Verified (browser, menu) |
+| E1.6 | Tools tab — **reorganised** | export → Build toolbar split button; resync + relocations → **Tools** menu; what they produce → the **Output** tab | Verified (browser) |
+| E1.7 | Magnetic snap, face/edge extrude | `cellbuilder/snap.ts` | Verified (cellbuilderSnap tests) — logic only; gesture not exercised |
+| E1.8 | Loft members / stations → bands | `cellbuilder/loft.ts` | Verified (cellbuilderLoft tests) — logic only; gesture not exercised |
+| E1.9 | Groups → blueprints / structures | `cellbuilder/groups.ts`, `blueprints.ts` | Verified (cellbuilderGroups + cellbuilderBlueprints tests) — logic only |
+| E1.10 | Port overrides (round-trip) | `cellbuilder/ports.ts` | Verified (cellbuilderPorts tests) — logic only |
 | E1.11 | Undo / redo (`Ctrl+Z`, `Shift+Z`, `Y`) | `cellbuilder/history.ts` (+ Build rail) | Verified (M5, browser) |
 | E1.12 | Compile + preview gate (`Shift+Enter`) | `cellbuilder/compileGate.ts` | **status bar** | Verified (M5, browser) |
-| E1.13 | Side-by-side compiled preview | `cellbuilder/sideBySide.ts` | Pending |
-| E1.14 | Cross-tab sync (`?pfollow=`) | `cellbuilder/proceduralChannel.ts` | Pending |
-| E1.15 | Gizmo HUD (`G`/`R`/`S`, `X`/`Y`/`Z`) | `CellBuilderGizmoHud.tsx` | `OverlayLayer` | Pending |
-| E1.16 | Context / port / insert menus | `CellBuilder*Menu.tsx` | → `ContextMenu` primitive | Pending |
-| E1.17 | Equipment CAD preview + bbox infer | `EquipmentPreview.tsx` | Pending |
+| E1.13 | Side-by-side compiled preview | `cellbuilder/sideBySide.ts` | Verified (cellbuilderSideBySide tests + View ▸ Builder command in browser) |
+| E1.14 | Cross-tab sync (`?pfollow=`) | `cellbuilder/proceduralChannel.ts` | Pending — needs a second tab on ?pfollow= |
+| E1.15 | Gizmo HUD (`G`/`R`/`S`, `X`/`Y`/`Z`) | `CellBuilderGizmoHud.tsx` | `OverlayLayer` | Verified (browser — key legend visible; mount held by mountedOverlays.test.ts) |
+| E1.16 | Context / port / insert menus | `CellBuilder*Menu.tsx` | → `ContextMenu` primitive | Verified (mountedOverlays.test.ts — the four overlays are mounted) |
+| E1.17 | Equipment CAD preview + bbox infer | `EquipmentPreview.tsx` | Verified (cellbuilderEquipmentPreviewBox tests) — bbox infer only; needs CAD |
 | E1.18 | Cell selection info | `CellBuilderSelectionInfo.tsx` (1017 ln) | Properties provider `cellbuilder-cell` | Verified (M3/M5) |
 
 ### E2 Node editor
 | ID | Feature | Business logic (untouched) | Status |
 |---|---|---|---|
 | E2.1 | Procedure nodes with typed params | `node_editor/handlers/run_procedure.ts` | Verified (M5, dock panel) |
-| E2.2 | File-object nodes | `CustomFileObjectNode.tsx` | Pending |
+| E2.2 | File-object nodes | `CustomFileObjectNode.tsx` | Pending — needs a websocket backend |
 | E2.3 | List procedures | `request_list_of_nodes.ts` (`LIST_PROCEDURES`) | Verified (M5, toolbar action) |
-| E2.4 | Run procedure | `RUN_PROCEDURE` flatbuffer | Pending |
-| E2.5 | Finished-procedure → new node | `handle_finished_procedure.ts` | Pending |
-| E2.6 | Delete node/edge on server | `on_delete.ts` (`DELETE_FILE_OBJECT`) | Pending |
+| E2.4 | Run procedure | `RUN_PROCEDURE` flatbuffer | Pending — needs a websocket backend |
+| E2.5 | Finished-procedure → new node | `handle_finished_procedure.ts` | Pending — needs a websocket backend |
+| E2.6 | Delete node/edge on server | `on_delete.ts` (`DELETE_FILE_OBJECT`) | Pending — needs a websocket backend |
 | E2.7 | Spawn standalone editor | `start_new_node_editor.ts` | Verified (M5, toolbar action) |
 
 ### E3 Component builder
 `ComponentControls.tsx`, `componentSpecsStore`, `componentBuildStore`,
-`services/components/componentBuildPipeline.ts`. Status: Pending.
+`services/components/componentBuildPipeline.ts`.
+
+Status: **restored** — it had been orphaned by the rewrite (nothing rendered it). Now the
+`component-build` panel in Build mode, reachable from **Tools ▸ Show Connections**;
+verified in the browser. Building a component still needs a backend, so the form is
+reachable but has not been submitted here. See row B9 below.
 
 ### Restored during verification
 
 | ID | Feature | Reached today | Owning component | Business logic (untouched) | New home | Status |
 |---|---|---|---|---|---|---|
-| B9 | Connection-component build | top-toolbar toggle | `component_view/ComponentControls.tsx` | `services/components/componentBuildPipeline.ts`, `componentBuildStore` | Build mode, right dock (`component-build`) | Verified (registry, test) |
+| B9 | Connection-component build | top-toolbar toggle | `component_view/ComponentControls.tsx` | `services/components/componentBuildPipeline.ts`, `componentBuildStore` | Build mode, right dock (`component-build`) | **Restored** — Verified (browser, panel opens) |
 
 ## F. Data mode
 

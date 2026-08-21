@@ -68,6 +68,19 @@ export async function loadDevBuildFixtureIfRequested(
                 `${doc.systems?.length ?? 0} systems`,
         );
         useCellBuilderStore.getState().open("dev-procedural", "Dev procedural model", 1, doc);
+        // ...and land in Build mode.
+        //
+        // Not a violation of the non-modality contract, which forbids the APP switching
+        // modes because data arrived — "loading a FEA model puts a badge on Results, it
+        // does not jump you there". A URL parameter is not data arriving; it is the person
+        // opening the page saying which workspace they want, and `?build=1` exists for no
+        // other reason.
+        //
+        // Without it the fixture loaded into the store and left you looking at whichever
+        // mode was persisted from last time, with nothing on screen to say a model had
+        // opened — which is how a working fixture reads as a broken one.
+        const {useModeStore} = await import("@/shell/modeStore");
+        useModeStore.getState().setMode("build");
         return true;
     } catch (err) {
         console.warn("[devFixture] procedural fixture load failed", err);

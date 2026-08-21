@@ -476,6 +476,23 @@ export function adapyDevRestConfig() {
                     return sendJson(res, {procedural_engines: [ENGINE]});
                 }
 
+                // The scope's DB catalogues, which the Builder's Equipment and Systems
+                // tabs list. Distinct endpoints from the procedural type lists above:
+                // those are what you can PLACE, these are the editable entries behind
+                // them. Both tabs rendered nothing but "404 Not Found" without these.
+                //
+                // Empty lists, not invented entries. A DB catalogue is per-scope content
+                // somebody curated; making rows up would put names in the UI that exist
+                // nowhere else and cannot be edited or deleted. Empty is the truthful
+                // state of a scope nobody has curated, and the tabs have empty states for
+                // exactly that.
+                if (/^\/scopes\/[^/]+\/equipment-types\/?$/.exec(route) && req.method === "GET") {
+                    return sendJson(res, {equipment_types: []});
+                }
+                if (/^\/scopes\/[^/]+\/system-templates\/?$/.exec(route) && req.method === "GET") {
+                    return sendJson(res, {system_templates: []});
+                }
+
                 // Compile / preview. Deliberately NOT faked.
                 //
                 // Compiling runs a worker and produces a GLB; there is nothing honest a

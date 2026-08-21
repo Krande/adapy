@@ -2673,3 +2673,38 @@ lists `dev-cantilever.rmed` with an unload control, which is exactly what it is 
 what the old wording obscured.
 
 Sections E–H remain: 71 rows.
+
+## Section E, and `?build=1` opening on the wrong mode
+
+The Build fixture loaded its model into the store and left you looking at whichever mode
+was persisted from last time — with nothing on screen to say anything had opened. A
+working fixture reading as a broken one.
+
+It sets the mode now, and that is **not** a breach of the non-modality contract. That
+contract forbids the *app* switching modes because data arrived — "loading a FEA model
+puts a badge on Results, it does not jump you there". A URL parameter is not data
+arriving; it is the person opening the page saying which workspace they want, and
+`?build=1` exists for no other reason.
+
+Two more stub 404s behind it: `/equipment-types` and `/system-templates`, the scope's DB
+catalogues that the Equipment and Systems tabs list. Both tabs rendered nothing but "404
+Not Found". They answer with **empty lists, not invented rows** — a DB catalogue is
+per-scope content somebody curated, and inventing entries would put names in the UI that
+exist nowhere else and cannot be edited or deleted. Empty is the truthful state of an
+uncurated scope, and both tabs have empty states for it. With the built-in archetypes now
+served, both tabs list the code entries with their sync-to-DB affordance.
+
+**The two dissolved tabs got their rows rewritten, not just re-statused.** A parity row
+records that a feature is *reachable*, not that it sits where it used to, so E1.5 and E1.6
+now say where each piece went — View state to **View ▸ Builder**, compile toggles to the
+Build tab, export to the toolbar, the analyses to **Tools**, and what they produce to
+**Output**. A row that said only "Verified" would have lost the one thing a reader coming
+back in a year actually needs.
+
+**"Logic only" appears seven times, and it is not hedging.** Snap, loft, groups,
+blueprints, ports, side-by-side and the equipment preview box all have real unit tests
+over the business logic that survived the rewrite untouched — but their *gestures* (drag a
+face to extrude, drag a station) were not exercised. The tests are strong evidence the
+rules are right and no evidence the mouse reaches them.
+
+Sections F–H remain: 57 rows.
