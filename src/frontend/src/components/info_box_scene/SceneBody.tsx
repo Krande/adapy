@@ -163,7 +163,13 @@ export default function SceneBody({isMobile = false, ctxAvailable}: SceneBodyPro
                 model should never mean digging through a tab first. Capped so a long list
                 cannot swallow the panel. */}
             <div className="max-h-40 shrink-0 overflow-y-auto scrollbar px-2.5">
-                <CollapsibleSection title="Loaded models" defaultOpen>
+                {/* "Overlaid models", not "Loaded models". This section lists SOURCES
+                    added on top of the primary model — the ones you can unload again. The
+                    primary model is not one of them, so with a model plainly open and
+                    named in the Outliner, this section headed "Loaded models" said "No
+                    models loaded". Two panels, three inches apart, disagreeing about
+                    whether anything was open. */}
+                <CollapsibleSection title="Overlaid models" defaultOpen>
                     <LoadedModelsSection />
                 </CollapsibleSection>
             </div>

@@ -2611,3 +2611,34 @@ session's own mistakes. An inventory whose Verified column cannot be trusted is 
 one that is honestly Pending, because it stops anyone looking again.
 
 Sections C–H remain: 96 rows.
+
+## Section C, and a panel that contradicted the Outliner
+
+Inspect mode's 29 rows, worked through with `?demo=1` loaded. One real defect, and one
+thing that looked like a defect and was not.
+
+**The Scene panel said "No models loaded" while the Outliner listed the model.** Two
+panels three inches apart, disagreeing about whether anything was open. The section is
+right — it lists *overlaid* sources, the ones you can unload again, and the primary model
+is not one of them — but nothing in the heading or the empty state said so. It is
+**Overlaid models** now, with an empty state that says what would go in it and how to put
+something there.
+
+**Face picking and face search render nothing, and that is correct.** Both gate on
+`faceRegionsAvailable`, which is true only for models carrying `face_ranges` extras from a
+STEP/IFC conversion; the GLB fixture has none. I nearly filed this as a third lost
+feature. Contextual absence and silent loss look identical from the outside, which is
+exactly why the inventory asks for the verification *method* and not just a tick — those
+rows say `Moved (contextual — needs a model with face_ranges)`, which is the truth and is
+also a note to whoever has such a file.
+
+Four rows closed on `shortcuts.test.ts` rather than by hand. That test parses the real
+handler and checks **both directions**, so a binding added or removed without updating the
+registry fails CI — stronger evidence than pressing the key once.
+
+Ten rows stay Pending with the reason attached: a point-cloud fixture, a second model, an
+FE model, a detailed model, or simply "not exercised" for orbit/pan/zoom and adaptive
+clipping. Naming what is missing is the difference between a checklist someone can finish
+and one they have to redo.
+
+Sections D–H remain: 80 rows.

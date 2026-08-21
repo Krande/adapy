@@ -55,41 +55,41 @@ rule in the plan.
 | ID | Feature | Owning component | Business logic (untouched) | Status |
 |---|---|---|---|---|
 | C1.1 | Click-to-select mesh (GPU pick) | `setupPointerHandler.ts` | `mesh_select/GpuMeshPicker.ts`, `CustomBatchedMesh.ts` | Verified (M3, browser) |
-| C1.2 | Face-level picking | Scene ▸ Tools | `mesh_select/faceHighlight.ts`, `GpuMeshPicker` | Pending |
-| C1.3 | Point-cloud picking | option `useGpuPointPicking` | `mesh_select/GpuPointPicker.ts` | Pending |
+| C1.2 | Face-level picking | Scene ▸ Tools | `mesh_select/faceHighlight.ts`, `GpuMeshPicker` | Moved (contextual — needs a model with face_ranges) |
+| C1.3 | Point-cloud picking | option `useGpuPointPicking` | `mesh_select/GpuPointPicker.ts` | Pending — needs a point-cloud fixture |
 | C1.4 | Selection highlight | — | `utils/default_materials.ts` `selectedMaterial` | Verified (M1/M3, browser) |
-| C1.5 | Model hierarchy tree | `tree_view/TreeViewComponent.tsx` (dock) | `utils/tree_view/treeGraph.ts`, `react-arborist` | Verified (M2, browser) |
-| C1.6 | Tree keyboard nav (`Shift+↑↓←→`) | `setupCameraControlsHandlers.ts:126-140` | `utils/tree_view/treeNavigation.ts` | Pending |
-| C1.7 | Cross-model select | — | `utils/scene/crossModelSelect.ts` | Pending |
-| C1.8 | Copy selected names (`Shift+C`) | — | `utils/clipboard/copySelectionNames.ts` | Pending |
-| C1.9 | Double-click recentre pivot | `setupPointerHandler.ts` | same | Pending |
+| C1.5 | Model hierarchy tree | `tree_view/TreeViewComponent.tsx` (dock) | `utils/tree_view/treeGraph.ts`, `react-arborist` | Verified (browser, Outliner lists the fixture) |
+| C1.6 | Tree keyboard nav (`Shift+↑↓←→`) | `setupCameraControlsHandlers.ts:126-140` | `utils/tree_view/treeNavigation.ts` | Verified (shortcuts.test.ts, both directions) |
+| C1.7 | Cross-model select | — | `utils/scene/crossModelSelect.ts` | Pending — needs two models loaded |
+| C1.8 | Copy selected names (`Shift+C`) | — | `utils/clipboard/copySelectionNames.ts` | Verified (shortcuts.test.ts, both directions) |
+| C1.9 | Double-click recentre pivot | `setupPointerHandler.ts` | same | Pending — not exercised |
 
 ### C2 Visibility and camera
 | ID | Feature | Reached today | Business logic | Status |
 |---|---|---|---|---|
-| C2.1 | Hide selection (`Shift+H`) | shortcut + Object Info | `utils/scene/visibility.ts` | Pending |
+| C2.1 | Hide selection (`Shift+H`) | shortcut + Object Info | `utils/scene/visibility.ts` | Verified (shortcuts.test.ts + rail button) |
 | C2.2 | Unhide all (`Shift+U`) | shortcut + Properties + rail | same | Verified (M3, browser) |
-| C2.3 | Centre on selection (`Shift+F`) | shortcut | `centerViewOnSelection.ts` | Pending |
+| C2.3 | Centre on selection (`Shift+F`) | shortcut | `centerViewOnSelection.ts` | Verified (shortcuts.test.ts, both directions) |
 | C2.4 | Zoom to fit (`Shift+A`) | shortcut + rail | `setupCameraControlsHandlers.ts` `zoomToAll` | Verified (M3, browser) |
-| C2.5 | Orbit / pan / zoom | canvas | OrbitControls or `camera-controls` | Pending |
-| C2.6 | Orientation gizmo (view cube) | canvas corner | `addOrientationGizmo` | Pending |
-| C2.7 | Adaptive near/far clipping | automatic | `applyAdaptiveClipping` | Pending |
-| C2.8 | Grid helper, Z-up toggle | Options | `addDynamicGridHelper` | Pending |
+| C2.5 | Orbit / pan / zoom | canvas | OrbitControls or `camera-controls` | Pending — not exercised |
+| C2.6 | Orientation gizmo (view cube) | canvas corner | `addOrientationGizmo` | Verified (browser — element present; its HMR crash fixed) |
+| C2.7 | Adaptive near/far clipping | automatic | `applyAdaptiveClipping` | Pending — not exercised |
+| C2.8 | Grid helper, Z-up toggle | Options | `addDynamicGridHelper` | Pending — Z-up verified in Preferences; the grid helper is unchecked |
 
 ### C3 Scene panel tabs (`SceneInfoBox.tsx` — 6 tabs, 2 contextual)
 | ID | Tab ▸ section | Owning component | Status |
 |---|---|---|---|
-| C3.1 | Model ▸ loaded models / overlay / unload | `LoadedModelsSection.tsx` | Pending |
-| C3.2 | Model ▸ source + re-convert | `SourceSection.tsx` | Pending |
-| C3.3 | Model ▸ stats | `StatsSection.tsx`, `ModelStatsSection.tsx` | Pending |
-| C3.4 | Model ▸ groups | `GroupsSection.tsx` | Pending |
-| C3.5 | Tools ▸ utilities | `UtilitiesSection.tsx` | Pending |
-| C3.6 | Tools ▸ face picking toggle | `FacePickingToggle.tsx` | Pending |
-| C3.7 | Tools ▸ face search | `FaceSearchSection.tsx` | Pending |
+| C3.1 | Model ▸ loaded models / overlay / unload | `LoadedModelsSection.tsx` | Verified (browser; heading corrected to “Overlaid models”) |
+| C3.2 | Model ▸ source + re-convert | `SourceSection.tsx` | Verified (browser, section present) |
+| C3.3 | Model ▸ stats | `StatsSection.tsx`, `ModelStatsSection.tsx` | Verified (browser, Stats + Take-off present) |
+| C3.4 | Model ▸ groups | `GroupsSection.tsx` | Verified (browser, section present) |
+| C3.5 | Tools ▸ utilities | `UtilitiesSection.tsx` | Verified (browser, group present) |
+| C3.6 | Tools ▸ face picking toggle | `FacePickingToggle.tsx` | Moved (contextual — needs a model with face_ranges) |
+| C3.7 | Tools ▸ face search | `FaceSearchSection.tsx` | Moved (contextual — needs a model with face_ranges) |
 | C3.8 | Clip ▸ section planes | `SectionPlanesPanel.tsx` + `SectionPlanesController.tsx` | Verified (M3, reachable from rail) |
-| C3.9 | Mesh ▸ distortion scan | `MeshDistortionSection.tsx`, `meshPanelStore` | Pending |
-| C3.10 | FEM ▸ concepts *(contextual)* | `FemConceptsPanel.tsx` | Pending |
-| C3.11 | Joints ▸ overview *(contextual)* | `JointsOverviewPanel.tsx` | Pending |
+| C3.9 | Mesh ▸ distortion scan | `MeshDistortionSection.tsx`, `meshPanelStore` | Verified (browser, group present) |
+| C3.10 | FEM ▸ concepts *(contextual)* | `FemConceptsPanel.tsx` | Moved (contextual — needs an FE model) |
+| C3.11 | Joints ▸ overview *(contextual)* | `JointsOverviewPanel.tsx` | Moved (contextual — needs a detailed model) |
 
 ### C4 Section planes (all of it — the closest thing to a measure tool)
 Add X/Y/Z plane · enable/disable per plane · position slider · flip direction ·

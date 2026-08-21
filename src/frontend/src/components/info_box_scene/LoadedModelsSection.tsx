@@ -4,6 +4,7 @@ import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {requestRender} from "@/state/perfStore";
 import ViewIcon from "../icons/ViewIcon";
 import ViewOffIcon from "../icons/ViewOffIcon";
+import {EmptyState} from "@/components/ui";
 
 // Flat list of every loaded model — the "layers panel" answer to
 // models living in deeply nested storage folders: whatever the prefix
@@ -23,7 +24,13 @@ const LoadedModelsSection: React.FC = () => {
     const [busyName, setBusyName] = useState<string | null>(null);
 
     if (loadedSourceNames.size === 0) {
-        return <div className="text-xs italic text-content-muted">No models loaded.</div>;
+        return (
+            <EmptyState
+                title="Nothing overlaid"
+                hint="Load a second file from Storage to compare it against the model you have open."
+                centered={false}
+            />
+        );
     }
 
     const toggleVisibility = (name: string) => {
