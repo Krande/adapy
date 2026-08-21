@@ -142,6 +142,7 @@ export const MENUS: MenuDef[] = [
             cmd("action:builder-ifc-cad"),
             sep,
             cmd("panel:cellbuilder"),
+            cmd("panel:component-build"),
             cmd("panel:node-editor"),
             sep,
             cmd("panel:simulation"),

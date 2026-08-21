@@ -22,32 +22,32 @@ rule in the plan.
 
 | ID | Feature | Reached today | Owning component | Business logic (untouched) | New home | Status |
 |---|---|---|---|---|---|---|
-| A1 | Main viewer app | `/` | `app.tsx` → `AppBody` | — | `AppShell profile="viewer"` | Pending |
-| A2 | OIDC redirect landing | `/auth/callback` | `auth/AuthCallback.tsx` | `services/auth/oidc.ts` | unchanged, outside the shell | Pending |
-| A3 | Convert page | `/convert` | `convert/ConvertPage.tsx` | `services/conversion/*` | Data mode workspace + `profile="page"` deep link | Pending |
-| A4 | Admin console | `/admin` (+ `#tab`) | `admin/AdminPanel.tsx` | `services/viewerApi.ts` | Data mode workspace + `profile="page"` deep link | Pending |
-| A5 | Simulation follower window | `?simfollow=` | `simulation/SimFollowerPage.tsx` | `ada-sim` BroadcastChannel | `profile="window"` | Pending |
-| A6 | Node-editor-only window | `NODE_EDITOR_ONLY` | `node_editor/NodeEditorComponent.tsx` | flatbuffers procedures | `profile="graph"` | Pending |
-| A7 | Paradoc / Jupyter embed | `mountViewer()` | `embed/EmbedUI.tsx` | `embed/index.ts` | `profile="embed"` (EmbedUI deleted) | Pending |
+| A1 | Main viewer app | `/` | `app.tsx` → `AppBody` | — | `AppShell profile="viewer"` | Verified (browser) |
+| A2 | OIDC redirect landing | `/auth/callback` | `auth/AuthCallback.tsx` | `services/auth/oidc.ts` | unchanged, outside the shell || Moved (app.tsx branch; not exercised) |
+| A3 | Convert page | `/convert` | `convert/ConvertPage.tsx` | `services/conversion/*` | Data mode workspace + `profile="page"` deep link | Verified (browser, /convert) |
+| A4 | Admin console | `/admin` (+ `#tab`) | `admin/AdminPanel.tsx` | `services/viewerApi.ts` | Data mode workspace + `profile="page"` deep link | Verified (browser, /admin) |
+| A5 | Simulation follower window | `?simfollow=` | `simulation/SimFollowerPage.tsx` | `ada-sim` BroadcastChannel | `profile="window"` || Moved (app.tsx branch; not exercised) |
+| A6 | Node-editor-only window | `NODE_EDITOR_ONLY` | `node_editor/NodeEditorComponent.tsx` | flatbuffers procedures | `profile="graph"` || **Restored** — Moved (needs NODE_EDITOR_ONLY to exercise) |
+| A7 | Paradoc / Jupyter embed | `mountViewer()` | `embed/EmbedUI.tsx` | `embed/index.ts` | `profile="embed"` (EmbedUI deleted) || Moved (build:embed emits the lib; not opened) |
 | A8 | Auth gate (REST) | wraps app | `auth/AuthGate.tsx` | `services/auth/oidc.ts`, `meStore` | wraps `AppShell` | Verified (M6, test) |
-| A9 | Fatal error boundary | on throw | `common/ErrorBoundary.tsx` | — | unchanged, plus per-dock boundaries | Pending |
+| A9 | Fatal error boundary | on throw | `common/ErrorBoundary.tsx` | — | unchanged, plus per-dock boundaries || Verified (browser — boundaries caught real throws) |
 
 ## B. Top toolbar (`components/Menu.tsx`) — every button
 
 | ID | Button / title | Store flag | New home | Status |
 |---|---|---|---|---|
-| B1 | ☰ Toggle options drawer | `optionsStore.isOptionsVisible` | Preferences panel + title-bar menu set | Pending |
-| B2 | Show/Hide selection tree (`Shift+T`) | `treeViewStore.isTreeCollapsed` | Outliner, left dock | Pending |
-| B3 | Toggle node editor | `useNodeEditorStore.isNodeEditorVisible` | Build mode, dock panel | Pending |
-| B4 | Storage (REST) | `serverInfoStore.showServerInfoBox` | Data mode, left dock | Pending |
-| B5 | Toggle object info | `objectInfoStore.show_info_box` | **Properties panel, right dock** (unified) | Pending |
-| B6 | Toggle scene info | `sceneInfoStore.show_scene_info_box` | Scene panel, right dock | Pending |
-| B7 | Reload nodes (graph mode) | — | `profile="graph"` toolbar | Pending |
-| B8 | Toggle animation controls | `animationStore.isControlsVisible` | Results mode, right dock | Pending |
-| B9 | Toggle connection-component panel | `componentControlsStore.isVisible` | Build mode, right dock | Pending |
-| B10 | Toggle procedural cellbuilder panel | `cellBuilderStore.panelVisible` | Build mode, right dock | Pending |
+| B1 | ☰ Toggle options drawer | `optionsStore.isOptionsVisible` | Preferences panel + title-bar menu set | Verified (browser, Settings dialog) |
+| B2 | Show/Hide selection tree (`Shift+T`) | `treeViewStore.isTreeCollapsed` | Outliner, left dock | Verified (browser) |
+| B3 | Toggle node editor | `useNodeEditorStore.isNodeEditorVisible` | Build mode, dock panel || Verified (browser, Tools menu item) |
+| B4 | Storage (REST) | `serverInfoStore.showServerInfoBox` | Data mode, left dock | Verified (browser, Storage flyout) |
+| B5 | Toggle object info | `objectInfoStore.show_info_box` | **Properties panel, right dock** (unified) | Verified (browser) |
+| B6 | Toggle scene info | `sceneInfoStore.show_scene_info_box` | Scene panel, right dock | Verified (browser) |
+| B7 | Reload nodes (graph mode) | — | `profile="graph"` toolbar | Pending — the graph profile is mounted again (A6), but its toolbar has no reload |
+| B8 | Toggle animation controls | `animationStore.isControlsVisible` | Results toolbar → display popover | Verified (browser, toolbar popover) |
+| B9 | Toggle connection-component panel | `componentControlsStore.isVisible` | Build mode, right dock || **Restored** — Verified (browser, panel opens) |
+| B10 | Toggle procedural cellbuilder panel | `cellBuilderStore.panelVisible` | Build mode, right dock | Verified (browser) |
 | B11 | Plugin top-bar buttons | `pluginUiStore` visible-map | hosted by shell TitleBar + compat map | Verified (M4, test) |
-| B12 | Websocket status | `websocketStatusStore.showInfoBox` | **Status bar** | Pending |
+| B12 | Websocket status | `websocketStatusStore.showInfoBox` | **Status bar** || Verified (browser, REST state shown) |
 
 ## C. Inspect mode
 
@@ -170,6 +170,12 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 ### E3 Component builder
 `ComponentControls.tsx`, `componentSpecsStore`, `componentBuildStore`,
 `services/components/componentBuildPipeline.ts`. Status: Pending.
+
+### Restored during verification
+
+| ID | Feature | Reached today | Owning component | Business logic (untouched) | New home | Status |
+|---|---|---|---|---|---|---|
+| B9 | Connection-component build | top-toolbar toggle | `component_view/ComponentControls.tsx` | `services/components/componentBuildPipeline.ts`, `componentBuildStore` | Build mode, right dock (`component-build`) | Verified (registry, test) |
 
 ## F. Data mode
 

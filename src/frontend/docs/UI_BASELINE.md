@@ -2577,3 +2577,37 @@ prints to the console. Of the three files left, one is a comment naming the clas
 replaced, one is `GitHistoryPanel`'s categorical branch palette (deliberate, allowlisted —
 colours used as *identity* must not become semantic tokens), and the third was
 `PluginSlots`, now converted.
+
+## Working the parity checklist found two features that had been lost
+
+`FEATURE_INVENTORY.md` sat at 114 `Pending` rows — the parity contract, unverified. Closing
+sections A (routing) and B (the old top toolbar) turned up two rows that were not merely
+unchecked but **broken**, both in the same way, and both invisible:
+
+- **A6 — `NODE_EDITOR_ONLY` routed nowhere.** `profiles.ts` defined a `graph` profile for
+  it, with a comment explaining what it was for. Nothing ever mounted that profile. The
+  flag was still read inside `NodeEditorComponent`, so nothing threw — setting it just
+  gave you the ordinary viewer, silently ignoring the flag.
+- **B9 — the connection-component panel was orphaned.** `ComponentControls.tsx`, its
+  store, its build pipeline and its `viewerApi` calls all survived the rewrite intact, and
+  nothing rendered the component. It was a top-toolbar toggle in the classic UI and its
+  store flag was never re-homed.
+
+That is the **sixth and seventh** instance of the same failure in this rebuild: work that
+lives in a module nothing renders. It never throws, never fails a type check, and leaves
+no trace except the feature not being there. `mountedOverlays.test.ts` was written for
+overlays after the first five; these two were a *profile* and a *panel*, which it does not
+cover — the panel registry's inventory guard is what would have caught B9, and it did, the
+moment the panel was added back.
+
+Both restored: `component-build` is a Build-mode dock panel (verified by opening it), and
+`NODE_EDITOR_ONLY` mounts `profile="graph"` with the node editor in the viewport track.
+
+**The statuses name their method, and some were downgraded on purpose.** Reading a branch
+in `app.tsx` is not "exercised" — those rows say `Moved (app.tsx branch; not exercised)`.
+A9 says `Verified (browser — boundaries caught real throws)` because the console showed
+`[ErrorBoundary: Files]` and `[ErrorBoundary: Viewer]` doing their job during this
+session's own mistakes. An inventory whose Verified column cannot be trusted is worse than
+one that is honestly Pending, because it stops anyone looking again.
+
+Sections C–H remain: 96 rows.

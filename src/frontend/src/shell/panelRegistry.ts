@@ -56,6 +56,7 @@ export const PANEL_IDS = [
     "properties",
     "scene",
     "simulation",
+    "component-build",
     "fea-table",
     "cellbuilder",
     "builder-components",
@@ -131,6 +132,22 @@ export const PANELS: Record<PanelId, PanelDef> = {
         available: hasSimulationContributors,
         hint: "Plugin-contributed result views",
         component: lazy(() => import("@/components/simulation/SimulationControls")),
+    },
+    // Inventory row B9. It was a top-toolbar toggle in the classic UI, its store flag
+    // was never re-homed, and nothing rendered the component afterwards: the file, its
+    // store, its build pipeline and its service all survived the rewrite, unreachable.
+    // Exactly the silent loss the parity checklist exists to catch, and invisible from
+    // the outside — nothing throws when a component is simply never rendered.
+    "component-build": {
+        id: "component-build",
+        title: "Connections",
+        icon: "component",
+        modes: ["build"],
+        defaultDock: "right",
+        defaultOpen: false,
+        available: () => runtime.isRestMode(),
+        hint: "Build a connection from a registered spec",
+        component: lazy(() => import("@/components/component_view/ComponentControls")),
     },
     "builder-components": {
         id: "builder-components",

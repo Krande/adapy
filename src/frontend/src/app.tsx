@@ -17,11 +17,18 @@ const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
 // Canvas-less Simulation follower window (`?simfollow=…`) — mounted in its own
 // lazy chunk so a normal viewer tab never pulls it in.
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
+// Only pulled in on the graph profile; the viewer's node editor is a lazy dock panel.
+const NodeEditorComponent = React.lazy(() => import("./components/node_editor/NodeEditorComponent"));
 const isRestMode = runtime.isRestMode();
 const isSimFollower = !!simFollowerParams();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
+// Inventory row A6. NODE_EDITOR_ONLY replaced the whole canvas with the node editor in
+// the classic app; the shell defined a "graph" profile for it and then nothing ever
+// mounted that profile — the flag was still read inside NodeEditorComponent, so the
+// dead route left no error behind, just a viewer that ignored the flag.
+const isNodeEditorOnly = runtime.nodeEditorOnly();
 
 // Design-system catalogue at `?uikit=1`. Dev-only (import.meta.env.DEV is statically
 // replaced, so rollup drops both the flag and the lazy chunk from every production
@@ -56,7 +63,23 @@ function App() {
     if (!isAuthCallback && !isConvertPage && !isAdminPage && !isSimFollower) {
         const shell = (
             <Suspense fallback={null}>
-                <AppShell profile="viewer" />
+                {isNodeEditorOnly ? (
+                    // The graph profile: same shell, no three.js, ReactFlow in the
+                    // viewport track. Rail and docks stay — the node editor is a workspace
+                    // in its own right, not a bare canvas, and the menu bar is how you
+                    // reach anything at all in a window with no mode switcher.
+                    <AppShell
+                        profile="graph"
+                        pageTitle="Node editor"
+                        viewportOverride={
+                            <Suspense fallback={null}>
+                                <NodeEditorComponent />
+                            </Suspense>
+                        }
+                    />
+                ) : (
+                    <AppShell profile="viewer" />
+                )}
             </Suspense>
         );
         return (
