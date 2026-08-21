@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 
 import {
+    GROUPS_ROOT_ID,
+    buildGroupsRoot,
     complementRanges,
+    groupNameFromId,
+    groupNodeId,
     isElementSet,
     selectedMemberCount,
     unionMembers,
@@ -61,4 +65,30 @@ test("node sets are not element sets", () => {
     assert.equal(isElementSet(SETS[1]), true);
     // Absent fe_object_type means element: the manifest's older group shape omitted it.
     assert.equal(isElementSet({name: "x", members: []}), true);
+});
+
+test("group row ids round-trip and never collide with model nodes", () => {
+    assert.equal(groupNameFromId(groupNodeId("Mini_area_dbl_btm")), "Mini_area_dbl_btm");
+    // A group whose name happens to match a mesh name must still be distinguishable, or
+    // selecting it would be routed through the mesh handler.
+    assert.equal(groupNameFromId("node0"), null);
+    assert.equal(groupNameFromId(GROUPS_ROOT_ID), null);
+    // Names containing the separator survive, because slicing is by prefix length.
+    assert.equal(groupNameFromId(groupNodeId("a:b:c")), "a:b:c");
+});
+
+test("the Groups root carries counts, and vanishes when there are no sets", () => {
+    assert.equal(buildGroupsRoot([]), null, "an empty Groups row would be permanent clutter");
+    const root = buildGroupsRoot(SETS);
+    assert.ok(root);
+    assert.equal(root.id, GROUPS_ROOT_ID);
+    assert.equal(root.name, "Groups");
+    assert.equal(root.meta, "4");
+    assert.equal(root.children.length, 4);
+    // Node groups say so; element groups are the unmarked default.
+    assert.equal(root.children[0].meta, "3 n");
+    assert.equal(root.children[1].meta, "4");
+    // Children are leaves: react-arborist draws a toggle for anything with children, and a
+    // group row that looks expandable but is not is a dead end.
+    assert.ok(root.children.every((c) => c.children.length === 0));
 });

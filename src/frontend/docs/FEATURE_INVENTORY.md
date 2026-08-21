@@ -132,9 +132,9 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | D19 | Plugin `fem-sidebar` panels + `asTab` | `PluginSlots.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
 | D20 | Plugin scene colour fields | `PluginColorFields.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
 | D21 | Result model info (node/element totals) | `tree_view/TreeViewComponent.tsx` (Outliner header) | `read_sin_sets.read_sin_model_info` | Verified (browser — 1,057 nodes · 2,461 elements from a Sesam deck) |
-| D22 | Named group list, shared search, multi-select | `tree_view/OutlinerGroups.tsx`, `shell/feaSets.ts` | `read_sin_sets.read_sin_groups` | Verified (browser — 32 groups, "btm" filters to one, ctrl-click unions) |
-| D23 | Isolate group; show rest as wireframe | `shell/feaSetIsolation.ts` | `CustomBatchedMesh.hideBatchDrawRange`, `fea-element-edges` overlay | Verified (browser — supports isolated, ghost on/off) |
-| D24 | Resizable Groups section | `tree_view/TreeViewComponent.tsx` + `ui/Splitter` | — | Verified (browser — pointer drag 640→520, ArrowUp/End) |
+| D22 | Groups branch in the Outliner tree, searchable, multi-select | `shell/feaSets.ts` (`buildGroupsRoot`), `tree_view/TreeViewComponent.tsx` | `read_sin_sets.read_sin_groups` | Verified (browser — 32 groups, expands like any branch, ctrl-click unions) |
+| D23 | Isolate group; show rest as wireframe | `shell/feaSetIsolation.ts`, `shell/feaEdgeFilter.ts` | `CustomBatchedMesh.hideBatchDrawRange`, `fea-element-edges` overlay | Verified (browser — ghost on/off, isolated set keeps its own element lines) |
+| D24 | Ctrl+click multi-select in the Outliner (all platforms) | `tree_view/OutlinerRow.tsx` | react-arborist `DefaultRow` | Verified (browser — two groups selected on Windows) |
 
 ## E. Build mode
 

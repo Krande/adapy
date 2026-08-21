@@ -2,16 +2,23 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
+import {OutlinerRow} from './OutlinerRow';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {useModeStore} from "@/shell/modeStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {filterRoots} from "@/shell/outlinerFilter";
-import {Splitter} from "@/components/ui";
+import {Checkbox} from "@/components/ui";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {applyFeaGroupVisibility, clearFeaGroupVisibility} from "@/shell/feaSetIsolation";
-import {type FeaSet, unionMembers} from "@/shell/feaSets";
-import {OutlinerGroups} from "./OutlinerGroups";
+import {
+    GROUPS_ROOT_ID,
+    buildGroupsRoot,
+    groupNameFromId,
+    isElementSet,
+    type FeaSet,
+    unionMembers,
+} from "@/shell/feaSets";
 
 const nf = new Intl.NumberFormat();
 
@@ -24,19 +31,17 @@ const TreeViewComponent: React.FC = () => {
     // The tree's own area is measured directly rather than derived as
     // container-minus-header. The old arithmetic only re-ran when the CONTAINER resized,
     // so anything that changed the header's height — the scope chip, the "N more loaded"
-    // button, and now the Groups section below — left the tree sized for a layout that no
-    // longer existed, either clipped or overflowing.
+    // button — left the tree sized for a layout that no longer existed, either clipped or
+    // overflowing.
     const treeAreaRef = useRef<HTMLDivElement | null>(null);
 
     // Named sets from the loaded result. The whole manifest is already in this store, so
-    // the Groups section needs no store, no fetch and no loading state of its own.
+    // Groups needs no store, no fetch and no loading state of its own.
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const sets: FeaSet[] = useMemo(() => (manifest?.groups as FeaSet[] | undefined) ?? [], [manifest]);
     const modelInfo = manifest?.model_info ?? null;
     const [selectedGroups, setSelectedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
     const [wireframeRest, setWireframeRest] = useState(true);
-    const [groupsCollapsed, setGroupsCollapsed] = useState(false);
-    const [groupsHeight, setGroupsHeight] = useState(240);
 
     // A result swap must not leave the previous model's groups selected — the names would
     // be meaningless against the new mesh and the isolation would survive as hidden
@@ -61,13 +66,25 @@ const TreeViewComponent: React.FC = () => {
     const mode = useModeStore((s) => s.mode);
     const proceduralName = useCellBuilderStore((s) => s.active?.name ?? null);
     const [showAllRoots, setShowAllRoots] = useState(false);
-    const {shown: treeNodes, hidden: hiddenRoots} = filterRoots(
+    const {shown: modelRoots, hidden: hiddenRoots} = filterRoots(
         allRoots,
         (n: {name?: string; id?: string}) => n.name ?? n.id ?? "",
         mode,
         {proceduralName, isResult: (n) => isFEAResult(n) || isStreamingFEAResult(n)},
         showAllRoots,
     );
+
+    // Groups is a root of its own, beside "FEA elements" and "Beam solids", so it expands,
+    // scrolls and searches exactly like every other branch — one list with one set of
+    // conventions instead of a second panel with its own.
+    //
+    // Appended AFTER the mode filter: that filter is about which MODELS this mode lists,
+    // and dropping the loaded result's groups because of it would be a rule applied to
+    // something it was never about.
+    const treeNodes = useMemo(() => {
+        const groupsRoot = buildGroupsRoot(sets);
+        return groupsRoot ? [...modelRoots, groupsRoot] : modelRoots;
+    }, [modelRoots, sets]);
 
     // react-arborist needs an explicit pixel height, so measure the flex track it sits in
     // and hand back what the browser already worked out.
@@ -88,13 +105,48 @@ const TreeViewComponent: React.FC = () => {
         }
     }, []);
 
+    /** Push a group selection to the scene. Always the full desired state, never a delta. */
+    const applyGroups = React.useCallback(
+        (names: ReadonlySet<string>, wire: boolean) => {
+            setSelectedGroups(names);
+            if (names.size === 0) clearFeaGroupVisibility();
+            else applyFeaGroupVisibility(unionMembers(sets, names), wire);
+        },
+        [sets],
+    );
+
     const handleSelect = (ids: NodeApi[]) => {
-        if (!treeRef.current?.isProgrammaticChange) {
-            (async () => {
-                await handleTreeSelectionChange(ids);
-            })();
+        if (treeRef.current?.isProgrammaticChange) return;
+
+        // Group rows are not model nodes: they carry no mesh, no draw range and no scope
+        // worth searching within. Routing them through the normal handler would clear the
+        // 3D selection and then scope the search to a branch with no children, which
+        // silently empties the tree.
+        const groupNames = ids.map((n) => groupNameFromId(String(n.id))).filter((n): n is string => n !== null);
+        const hitGroupsRoot = ids.some((n) => String(n.id) === GROUPS_ROOT_ID);
+
+        if (groupNames.length > 0) {
+            applyGroups(new Set(groupNames), wireframeRest);
+            return;
         }
+        if (hitGroupsRoot) {
+            // The container row is the way back to the whole model.
+            applyGroups(new Set(), wireframeRest);
+            return;
+        }
+
+        // Selecting an ordinary node leaves any isolation alone on purpose: you isolate a
+        // group in order to click around INSIDE it, and dropping the isolation on the first
+        // click would make that impossible.
+        (async () => {
+            await handleTreeSelectionChange(ids);
+        })();
     };
+
+    // A node-only selection names no triangles, so ghosting the rest would blank the
+    // viewport. Disable rather than let the toggle do something misleading.
+    const wireDisabled =
+        selectedGroups.size > 0 && !sets.some((g) => selectedGroups.has(g.name) && isElementSet(g));
 
     return (
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
@@ -121,6 +173,25 @@ const TreeViewComponent: React.FC = () => {
                         {nf.format(modelInfo.n_nodes)} nodes · {nf.format(modelInfo.n_elements)} elements
                         {modelInfo.super_elements.length > 1 && ` · ${modelInfo.super_elements.length} SE`}
                     </p>
+                )}
+                {/* Next to the search rather than on the Groups row: it applies to whatever
+                    is isolated, it has to stay reachable while the tree is scrolled past
+                    the Groups branch, and a tree row is a poor place for a control. Shown
+                    only when the loaded result actually has groups. */}
+                {sets.length > 0 && (
+                    <div className="mt-1">
+                        <Checkbox
+                            checked={wireframeRest && !wireDisabled}
+                            disabled={wireDisabled}
+                            onChange={(e) => {
+                                setWireframeRest(e.target.checked);
+                                if (selectedGroups.size > 0) {
+                                    applyFeaGroupVisibility(unionMembers(sets, selectedGroups), e.target.checked);
+                                }
+                            }}
+                            label="Show rest as wireframe"
+                        />
+                    </div>
                 )}
                 {/* A list that quietly drops rows is indistinguishable from one that
                     failed to load, so say how many and offer them back. */}
@@ -174,6 +245,7 @@ const TreeViewComponent: React.FC = () => {
                     disableEdit={true}
                     openByDefault={false}
                     disableMultiSelection={false}
+                    renderRow={OutlinerRow}
                     searchTerm={searchTerm}
                     searchMatch={
                         (node, term) => {
@@ -209,35 +281,6 @@ const TreeViewComponent: React.FC = () => {
                 </Tree>
             </div>
 
-            {/* Groups sits under the tree rather than inside it: a section can carry its
-                own controls, scroll independently of a 2,461-element tree, and be resized.
-                A tree row can do none of those. The search box above filters both. */}
-            {sets.length > 0 && (
-                <>
-                    {!groupsCollapsed && (
-                        <Splitter
-                            orientation="horizontal"
-                            side="after"
-                            value={groupsHeight}
-                            onChange={setGroupsHeight}
-                            min={96}
-                            max={640}
-                            label="Resize the Groups list"
-                        />
-                    )}
-                    <OutlinerGroups
-                        sets={sets}
-                        query={searchTerm ?? ""}
-                        collapsed={groupsCollapsed}
-                        onToggleCollapsed={() => setGroupsCollapsed((c) => !c)}
-                        selected={selectedGroups}
-                        onSelectedChange={setSelectedGroups}
-                        wireframeRest={wireframeRest}
-                        onWireframeRestChange={setWireframeRest}
-                        height={groupsHeight}
-                    />
-                </>
-            )}
         </div>
     );
 };

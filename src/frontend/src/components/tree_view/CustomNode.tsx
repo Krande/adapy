@@ -10,6 +10,9 @@ export interface TreeNodeData {
     model_key?: string | null;
     node_name?: string | null;
     rangeId?: string | null;
+    /** Right-aligned muted text — a count, a kind, anything that qualifies the row without
+     *  competing with its name. Group rows carry their member count here. */
+    meta?: string;
 }
 
 export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, node, dragHandle}) => {
@@ -43,6 +46,11 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                 </div>
             )}
             <div className="whitespace-nowrap">{data.name}</div>
+            {data.meta && (
+                <span className="ml-auto shrink-0 pl-2 pr-1 text-[10px] tabular-nums text-content-subtle">
+                    {data.meta}
+                </span>
+            )}
         </div>
     );
 };
