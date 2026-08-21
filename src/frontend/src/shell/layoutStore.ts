@@ -2,7 +2,7 @@ import {create} from "zustand";
 import {persist} from "zustand/middleware";
 import {DOCK_LIMITS, type DockedId, type DockId} from "./regions";
 import {MODE_IDS, type ModeId} from "./modeStore";
-import type {PanelId} from "./panelRegistry";
+import {PANELS, PANEL_IDS, type PanelId} from "./panelRegistry";
 
 // Layout geometry, per mode.
 //
@@ -91,7 +91,11 @@ function defaultLayout(mode: ModeId): ModeLayout {
             put("bottom", [], true);
             break;
         case "results":
-            put("left", ["outliner"], true);
+            // Open, unlike Inspect's collapsed left dock: the result's own description --
+            // node/element totals, super-elements, named sets -- is what you read FIRST,
+            // before picking a field. The outliner rides along as a second tab because a
+            // baked result's GLB tree answers a different question.
+            put("left", ["results-model", "outliner"], false);
             put("right", ["properties"]);
             // The direct fix for "panels cover the 3D". Present but COLLAPSED: the table
             // is the thing you open when you want numbers, and defaulting it open would
@@ -183,6 +187,42 @@ function removeEverywhere(l: ModeLayout, panel: PanelId): ModeLayout {
     const overlays = {...l.overlays};
     delete overlays[panel];
     return {...l, docks, floats, overlays};
+}
+
+/**
+ * Place panels that are new SINCE this layout was saved.
+ *
+ * Persisted layouts are a closed list of panel ids. Register a panel with
+ * `defaultOpen`, and every existing user -- which after the first release is all of
+ * them -- gets a layout that has simply never heard of it: the panel is registered, in
+ * the menu, and nowhere on screen. It reads as the feature not shipping.
+ *
+ * So on rehydrate, any default-open panel for this mode that appears in no dock, no
+ * float and no overlay is appended to its default dock. Only genuinely absent panels
+ * qualify, so a panel the user deliberately CLOSED stays closed -- it is still in the
+ * blob, just not in a dock's tabs... which is exactly why this checks the union of
+ * every location rather than dock membership alone.
+ *
+ * Appended, not prepended, and never made the active tab: adopting a panel must not
+ * silently replace whatever the user was last looking at.
+ */
+function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
+    const placed = new Set<PanelId>();
+    for (const d of Object.values(l.docks)) for (const t of d.tabs) placed.add(t);
+    for (const k of Object.keys(l.floats)) placed.add(k as PanelId);
+    for (const k of Object.keys(l.overlays)) placed.add(k as PanelId);
+
+    for (const id of PANEL_IDS) {
+        const def = PANELS[id];
+        if (!def?.defaultOpen || placed.has(id)) continue;
+        if (def.modes !== "all" && !def.modes.includes(mode)) continue;
+        const dock = def.defaultDock;
+        if (dock === "float" || dock === "overlay") continue;
+        const d = l.docks[dock];
+        if (!d) continue;
+        d.tabs = [...d.tabs, id];
+        d.active = d.active ?? id;
+    }
 }
 
 export const useLayoutStore = create<LayoutState>()(
@@ -369,6 +409,7 @@ export const useLayoutStore = create<LayoutState>()(
                     for (const dock of Object.keys(l.docks) as DockedId[]) {
                         l.docks[dock].size = clampSize(dock, l.docks[dock].size);
                     }
+                    adoptNewPanels(l, mode);
                 }
             },
         },

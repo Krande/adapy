@@ -32,7 +32,7 @@ import {DOCK_IDS} from "../../shell/regions";
 // "component-build" is inventory row B9, restored: it was a top-toolbar toggle whose
 // store flag was never re-homed, so the component, its store, its build pipeline and its
 // service all survived the rewrite with nothing rendering them.
-const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "builder-components", "component-build", "node-editor", "convert", "admin"];
+const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "results-model", "fea-table", "cellbuilder", "builder-components", "component-build", "node-editor", "convert", "admin"];
 
 test("every expected panel is registered", () => {
     for (const id of EXPECTED_PANELS) {

@@ -655,7 +655,18 @@ class SinStreamReader:
         return None
 
     def try_groups(self):
-        return None
+        # Sesam sets, which the bake forwards straight into the viewer's group picker.
+        # This returned None for as long as the streaming path has existed, so a SIN
+        # arrived with a mesh and no set names -- while every consumer downstream was
+        # already built and waiting for them.
+        from ada.fem.formats.sesam.results.read_sin_sets import read_sin_groups
+
+        return read_sin_groups(self.sin)
+
+    def try_model_info(self):
+        from ada.fem.formats.sesam.results.read_sin_sets import read_sin_model_info
+
+        return read_sin_model_info(self.sin)
 
 
 __all__ = [

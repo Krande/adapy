@@ -131,6 +131,10 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | D18 | Manifest bake polling | — | `services/feaManifestPoll.ts` | Verified (fetchFeaManifest tests ×7, and now exercised in dev) |
 | D19 | Plugin `fem-sidebar` panels + `asTab` | `PluginSlots.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
 | D20 | Plugin scene colour fields | `PluginColorFields.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
+| D21 | Result model info (node/element totals) | `results/ResultsModelPanel.tsx` | `read_sin_sets.read_sin_model_info` | Pending — browser check with a .SIN |
+| D22 | Super-element outliner | `results/ResultsModelPanel.tsx` | manifest `model_info.super_elements` | Pending — browser check with a .SIN |
+| D23 | Named set/group list, search + multi-select | `results/ResultsModelPanel.tsx`, `shell/feaSets.ts` | `read_sin_sets.read_sin_groups` | Pending — browser check with a .SIN |
+| D24 | Isolate set, show rest as wireframe | `shell/feaSetIsolation.ts` | `CustomBatchedMesh.hideBatchDrawRange(ids, keepEdges)` | Pending — browser check with a .SIN |
 
 ## E. Build mode
 

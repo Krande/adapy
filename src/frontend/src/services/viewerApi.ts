@@ -379,6 +379,17 @@ export interface FeaManifest {
    * Code_Aster suivi.). The two have different axes — region ×
    * variable × step × time — so they live in their own section. */
   history?: FeaManifestHistory;
+  /** What the model is made of: totals and the super-element breakdown.
+   *
+   *  A mesh reports triangles; this reports the ANALYSIS's nodes and elements, which is
+   *  what an engineer sizes work from. Per-super-element counts are null when the deck has
+   *  several and the format does not carry the element-to-SE association — a missing count
+   *  rather than an invented split. */
+  model_info?: {
+    n_nodes: number;
+    n_elements: number;
+    super_elements: {index: number; name: string; n_nodes: number | null; n_elements: number | null}[];
+  };
   /** CAD↔FEA lineage stamped by adapy's FEM writer (currently the
    *  code_aster ``<name>.beams.json`` sidecar carries this). The
    *  frontend feeds it to ``useLineageStore`` on load so a click

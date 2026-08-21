@@ -509,20 +509,39 @@ export function adapyDevRestConfig() {
                 const files = /^\/scopes\/[^/]+\/files$/.exec(route);
                 if (files) {
                     const withDerived = url.searchParams.get("include_derived") === "1";
+                    // Uploads join the listing. The PUT route stored them and the blob route
+                    // served them, but nothing ever LISTED them -- so a file you had just
+                    // uploaded successfully was absent from the panel, which reads as the
+                    // upload having failed rather than as the fixture being partial. Newest
+                    // first, and never doubling a key the fixture already ships.
+                    const uploaded = [...UPLOADED.entries()]
+                        .filter(([k]) => !k.startsWith("_derived/") && !FIXTURE_FILES.some((f) => f.name === k))
+                        .map(([key, buf]) => ({key, size: buf.length}));
                     if (!withDerived) {
-                        return sendJson(res, {files: FIXTURE_FILES.map((f) => ({key: f.name, size: 0}))});
+                        return sendJson(res, {
+                            files: [...uploaded, ...FIXTURE_FILES.map((f) => ({key: f.name, size: 0}))],
+                        });
                     }
                     return sendJson(res, {
-                        files: FIXTURE_FILES.filter((f) => !f.name.startsWith("_derived/")).map((f) => ({
-                            key: f.name,
-                            size: 0,
-                            last_modified: f.modified,
-                            format: f.name.split(".").pop() ?? "",
-                            // Empty: no workers are registered in the fixture, so nothing
-                            // is convertible. The panel renders that state correctly.
-                            available_targets: [],
-                            derived: [],
-                        })),
+                        files: [
+                            ...uploaded.map((u) => ({
+                                ...u,
+                                last_modified: new Date().toISOString(),
+                                format: u.key.split(".").pop() ?? "",
+                                available_targets: [],
+                                derived: [],
+                            })),
+                            ...FIXTURE_FILES.filter((f) => !f.name.startsWith("_derived/")).map((f) => ({
+                                key: f.name,
+                                size: 0,
+                                last_modified: f.modified,
+                                // Empty: no workers are registered in the fixture, so nothing
+                                // is convertible. The panel renders that state correctly.
+                                format: f.name.split(".").pop() ?? "",
+                                available_targets: [],
+                                derived: [],
+                            })),
+                        ],
                     });
                 }
 

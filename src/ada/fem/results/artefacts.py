@@ -386,6 +386,15 @@ class FEAStreamReader(Protocol):
         """
         ...
 
+    def try_model_info(self) -> "dict | None":
+        """Optional: what the model is made of -- totals and super-elements.
+
+        A mesh says how many triangles it has; it does not say how many NODES and ELEMENTS
+        the analysis had, nor what the deck was assembled from. Readers that know return a
+        dict; the rest return None and the manifest omits the section.
+        """
+        ...
+
     def try_history_records(self) -> "HistoryRecords | None":
         """Optional: time-series history output at monitored points.
 
@@ -707,6 +716,7 @@ class FEAResultStreamAdapter:
         # Optional FEM node/element sets as manifest group dicts ({name, members, fe_object_type}).
         # Populated by the FEM reader so the Scene > FEM groups picker works for design models.
         self._groups: list[dict] | None = None
+        self._model_info: dict | None = None
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -720,6 +730,9 @@ class FEAResultStreamAdapter:
 
     def try_groups(self) -> list[dict] | None:
         return self._groups
+
+    def try_model_info(self) -> dict | None:
+        return self._model_info
 
     # ----- protocol -------------------------------------------------------
 
@@ -1769,6 +1782,7 @@ def build_manifest(
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
     groups: list[dict] | None = None,
+    model_info: dict | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -2011,6 +2025,8 @@ def build_manifest(
     # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
     if groups:
         manifest["groups"] = groups
+    if model_info:
+        manifest["model_info"] = model_info
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 
@@ -2183,7 +2199,24 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
 
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
-    return FEAResultStreamAdapter(read_sin_file(path))
+    reader = FEAResultStreamAdapter(read_sin_file(path))
+    # Sets and model description come from the SIN itself, not from the materialised
+    # FEAResult -- the result carries values, not the file's named collections. Read them
+    # here so the DEFAULT path (this adapter) emits them too; wiring only SinStreamReader
+    # would have left sets working solely under the ADA_FEA_SIN_STREAMER opt-in, which is
+    # the kind of half-wiring nobody notices until the one deployment that needs it.
+    try:
+        from ada.fem.formats.sesam.results.read_sin_sets import read_sin_groups, read_sin_model_info
+        from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+        with open_sin(str(path)) as sin:
+            reader._groups = read_sin_groups(sin)
+            reader._model_info = read_sin_model_info(sin)
+    except Exception as e:  # noqa: BLE001 -- description is decoration; a result still loads
+        from ada.config import get_logger
+
+        get_logger().debug("SIN bake: set/model-info scrape failed: %s", e)
+    return reader
 
 
 def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
@@ -2525,6 +2558,13 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         groups = None
 
+    # Model description (node/element totals, super-elements) -> manifest. Same optional
+    # shape as groups: a reader that cannot describe its model contributes nothing.
+    try:
+        model_info = reader.try_model_info()
+    except (AttributeError, NotImplementedError):
+        model_info = None
+
     manifest = build_manifest(
         src=src,
         source_sha256=source_sha256,
@@ -2537,6 +2577,7 @@ def bake_artefacts(
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
         history=history,
+        model_info=model_info,
         beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
         beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
         beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),

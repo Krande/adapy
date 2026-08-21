@@ -706,8 +706,17 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * Hide a batch of draw-ranges in one go.
      *
      * @param rangeIds A set (or other iterable) of draw-range IDs to hide.
+     * @param keepEdges Hide the FACES but keep the edge overlay drawing, so the hidden
+     *   ranges read as a wireframe ghost instead of vanishing. Defaults to false, which
+     *   is the original all-or-nothing behaviour every existing caller relies on.
+     *
+     *   This exists because "isolate this set, show the rest as wireframe" -- the way
+     *   every FE post-processor presents a selected set -- is otherwise unreachable from
+     *   outside: faces and edges are hidden together here, and the edge texture that
+     *   would have to stay lit is private to this class. A caller reaching in through a
+     *   cast would break the moment the texture layout changed.
      */
-    public hideBatchDrawRange(rangeIds: Iterable<string>): void {
+    public hideBatchDrawRange(rangeIds: Iterable<string>, keepEdges = false): void {
         // 1) Mark them hidden
         for (const id of rangeIds) {
             this.hiddenRanges.add(id);
@@ -718,7 +727,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateGroups();
 
         // 3) Update the edge-overlay texture in one shot
-        if (this.edgeMaterial && this.rangeIdToIndex) {
+        if (!keepEdges && this.edgeMaterial && this.rangeIdToIndex) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
             const data = tex.image.data as Uint8Array;
             for (const id of rangeIds) {
