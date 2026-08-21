@@ -497,6 +497,32 @@ export function adapyDevRestConfig() {
                     }));
                 }
 
+                // The FEA manifest — the thing that unlocks all of Results mode.
+                //
+                // The fixture has shipped its blobs (mesh, edges, elements, a modal field)
+                // since M0, and this route did not exist, so loading the .rmed 404'd at
+                // the first request and nothing downstream ever ran. A fixture whose data
+                // is present but unreachable is the same failure as a feature nobody
+                // renders: everything is there and none of it happens.
+                //
+                // 200 straight away rather than 202-then-poll. A real backend enqueues a
+                // bake job; there is no job here, and pretending to run one would make the
+                // fixture slower and less predictable for no gain — feaManifestPoll's own
+                // tests already cover the 202 path in seven cases.
+                const feaManifest = /^\/scopes\/[^/]+\/fea\/manifest$/.exec(route);
+                if (feaManifest) {
+                    const key = new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "";
+                    const file = path.join(FIXTURE_DIR, "fea.manifest.json");
+                    if (!key.includes(FIXTURE_SRC) || !fs.existsSync(file)) {
+                        res.statusCode = 404;
+                        res.setHeader("Content-Type", "application/json");
+                        return res.end(JSON.stringify({
+                            detail: `the dev fixture only has results for "${FIXTURE_SRC}"`,
+                        }));
+                    }
+                    return sendFile(req, res, file);
+                }
+
                 // Blob reads. The FEA fetcher builds
                 //   {apiBase}/scopes/{scope}/blobs/{encoded _derived/<src>.fea/<file>}
                 const blob = /^\/scopes\/[^/]+\/blobs\/(.+)$/.exec(route);

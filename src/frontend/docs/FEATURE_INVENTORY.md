@@ -88,7 +88,7 @@ rule in the plan.
 | C3.7 | Tools ▸ face search | `FaceSearchSection.tsx` | Moved (contextual — needs a model with face_ranges) |
 | C3.8 | Clip ▸ section planes | `SectionPlanesPanel.tsx` + `SectionPlanesController.tsx` | Verified (M3, reachable from rail) |
 | C3.9 | Mesh ▸ distortion scan | `MeshDistortionSection.tsx`, `meshPanelStore` | Verified (browser, group present) |
-| C3.10 | FEM ▸ concepts *(contextual)* | `FemConceptsPanel.tsx` | Moved (contextual — needs an FE model) |
+| C3.10 | FEM ▸ concepts *(contextual)* | `FemConceptsPanel.tsx` | Verified (browser — appears with a live FEA session) |
 | C3.11 | Joints ▸ overview *(contextual)* | `JointsOverviewPanel.tsx` | Moved (contextual — needs a detailed model) |
 
 ### C4 Section planes (all of it — the closest thing to a measure tool)
@@ -113,24 +113,24 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 |---|---|---|---|---|
 | D1 | Streaming FEA load | — | `load_fea_streaming.ts`, `services/fea/feaFetcher.ts` | Verified (M4, browser) |
 | D2 | Per-step HTTP Range fetch | — | `FeaRangeFetcher` | Verified (M4, 206 confirmed) |
-| D3 | Nodal field → colours + morph | — | `scene/fea/applyField.ts` | Verified (M4, browser) |
-| D4 | Element field | — | `scene/fea/applyElemField.ts` | Pending |
-| D5 | Colormaps (viridis/abaqus/jet/coolwarm/grayscale) | field picker | `scene/fea/colormaps.ts` | Pending |
-| D6 | Deformation scale | `SimulationControls.tsx` | — | Pending |
-| D7 | Step + mode two-slider scrubber | `SimulationControls.tsx`, `feaAnimationStore` | — | Pending |
-| D8 | Play / pause / stop | `SimulationControls.tsx` | `feaAnimationDriver.ts` | Pending |
-| D9 | GLTF animation clips (legacy) | `animationStore` | `AnimationController.ts` | Pending |
-| D10 | Morph propagation to edges/points | — | `assignMorphToEdgeAlso.ts`, `assignMorphToPointsAlso.ts` | Pending |
+| D3 | Nodal field → colours + morph | — | `scene/fea/applyField.ts` | Verified (browser, live session) |
+| D4 | Element field | — | `scene/fea/applyElemField.ts` | Verified (parseElemFieldBlob tests) — parse only; fixture has no element field |
+| D5 | Colormaps (viridis/abaqus/jet/coolwarm/grayscale) | field picker | `scene/fea/colormaps.ts` | Verified (browser — all five colormaps listed) |
+| D6 | Deformation scale | `SimulationControls.tsx` | — | Verified (browser — deform slider, −1…1) |
+| D7 | Step + mode two-slider scrubber | `SimulationControls.tsx`, `feaAnimationStore` | — | Verified (browser — stepped 1→6 of 20) |
+| D8 | Play / pause / stop | `SimulationControls.tsx` | `feaAnimationDriver.ts` | Verified (browser — play toggles aria-pressed) |
+| D9 | GLTF animation clips (legacy) | `animationStore` | `AnimationController.ts` | Moved (clip picker reachable; the fixture carries no GLTF clips) |
+| D10 | Morph propagation to edges/points | — | `assignMorphToEdgeAlso.ts`, `assignMorphToPointsAlso.ts` | Pending — not exercised |
 | D11 | Colour legend | `ColorLegend.tsx` (OverlayLayer) | — | Verified (M4, browser) |
 | D12 | FEA data table | `SimulationDataInfoPanel.tsx`, `tableNavStore` | — | **bottom dock** | Verified (M4, browser) |
-| D13 | Table row → 3D marker + camera | — | `scene/fea/goToNode.ts` | Pending |
-| D14 | Beam-solids warp | — | `services/feaBeamSolidsWarp.ts` | Pending |
-| D15 | FEM concepts glyphs (masses / BCs) | `FemConceptsController.tsx`, `femConceptsStore` | — | Pending |
-| D16 | CAD ↔ FEA lineage | — | `lineage/registerLineageFromExtension.ts` | Pending |
-| D17 | Pop-out sim window | `SimWindowFrame.tsx`, `SimFollowerPage.tsx` | `ada-sim` BroadcastChannel | Pending |
-| D18 | Manifest bake polling | — | `services/feaManifestPoll.ts` | Pending |
-| D19 | Plugin `fem-sidebar` panels + `asTab` | `PluginSlots.tsx` | `plugins/registry.ts` | Pending |
-| D20 | Plugin scene colour fields | `PluginColorFields.tsx` | `plugins/registry.ts` | Pending |
+| D13 | Table row → 3D marker + camera | — | `scene/fea/goToNode.ts` | Pending — the table is virtualised; row click not exercised |
+| D14 | Beam-solids warp | — | `services/feaBeamSolidsWarp.ts` | Verified (parseBeamSolidsWarp tests) — parse only |
+| D15 | FEM concepts glyphs (masses / BCs) | `FemConceptsController.tsx`, `femConceptsStore` | — | Verified (browser — FEM group: masses, BCs, load scenario) |
+| D16 | CAD ↔ FEA lineage | — | `lineage/registerLineageFromExtension.ts` | Pending — needs a CAD↔FEA pair |
+| D17 | Pop-out sim window | `SimWindowFrame.tsx`, `SimFollowerPage.tsx` | `ada-sim` BroadcastChannel | Pending — needs the pop-out window |
+| D18 | Manifest bake polling | — | `services/feaManifestPoll.ts` | Verified (fetchFeaManifest tests ×7, and now exercised in dev) |
+| D19 | Plugin `fem-sidebar` panels + `asTab` | `PluginSlots.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
+| D20 | Plugin scene colour fields | `PluginColorFields.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
 
 ## E. Build mode
 

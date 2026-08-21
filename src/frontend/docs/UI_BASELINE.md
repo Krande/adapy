@@ -2642,3 +2642,34 @@ clipping. Naming what is missing is the difference between a checklist someone c
 and one they have to redo.
 
 Sections D–H remain: 80 rows.
+
+## Results mode became reviewable in dev, for the first time
+
+Section D was unverifiable because loading the `.rmed` fixture 404'd at the very first
+request: `/scopes/{scope}/fea/manifest` was never implemented in the dev stub. The
+fixture's blobs — mesh, edges, elements, a 20-step modal field — have shipped since M0 and
+nothing could reach them. **A fixture whose data is present but unreachable is the same
+failure as a feature nothing renders: everything is there and none of it happens.** It is
+also why the plan's own M4 note said Results-mode review "stays theoretical".
+
+One route later, the whole mode opens up. Verified against a live session: the field,
+component and step pickers (stepped 1→6 of twenty), the deformation slider, all five
+colormaps, play toggling its pressed state, the colour legend, the data table with its 403
+rows and a header naming the field, step and component, and the FEM group appearing in the
+Scene panel — which also closes C3.10, since that tab is contextual on a live session.
+
+The stub answers **200 straight away** rather than 202-then-poll. A real backend enqueues a
+bake job; there is none here, and simulating one would make the fixture slower and less
+predictable for nothing — `feaManifestPoll`'s own tests already cover the 202 path in
+seven cases.
+
+**Two rows say "parse only" on purpose.** D4 and D14 have real tests, but of blob
+*parsing* — evidence the bytes are understood, not that a field appears on screen. Writing
+"Verified (test)" without that qualifier would be the same overclaim as marking a row
+verified for having read a branch.
+
+The renamed **Overlaid models** section proved itself in passing: with the result loaded it
+lists `dev-cantilever.rmed` with an unload control, which is exactly what it is for and
+what the old wording obscured.
+
+Sections E–H remain: 71 rows.
