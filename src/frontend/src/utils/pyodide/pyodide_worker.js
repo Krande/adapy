@@ -131,6 +131,17 @@ async function ensurePyquaternion() {
     return pyquaternionPromise;
 }
 
+/**
+ * Did this response actually carry JSON?
+ *
+ * Not `response.ok` — a history-fallback host answers any unknown path with the SPA
+ * shell at status 200, which `ok` happily accepts.
+ */
+function isJsonResponse(resp) {
+    const type = resp.headers.get("content-type") || "";
+    return type.includes("json");
+}
+
 // Resolve a wheel filename via its manifest and stage it on the pyodide FS.
 async function fetchWheelToFs(manifestUrl, key) {
     // no-store: the manifest is the indirection that changes when the wheel is
@@ -142,6 +153,21 @@ async function fetchWheelToFs(manifestUrl, key) {
     if (!mResp.ok) {
         throw new Error(`${key} manifest fetch failed: ${mResp.status} ${mResp.statusText} (${manifestUrl})`);
     }
+    // A missing manifest does not 404 — it comes back as the SPA shell.
+    //
+    // The dev server (and any static host with a history fallback) answers an unknown
+    // path with index.html and status 200, so `mResp.ok` is true and the next line dies
+    // on "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON". That message names
+    // the symptom and hides the cause: the wheels were never built. Checking the content
+    // type turns it into a sentence someone can act on.
+    if (!isJsonResponse(mResp)) {
+        throw new Error(
+            `${key} wheels are not available: ${manifestUrl} returned ` +
+                `${mResp.headers.get("content-type") || "no content-type"} — the page shell, ` +
+                `not a manifest. In-browser compilation needs the wheels in public/wheels/: ` +
+                `run "pixi run wheel-pyodide", or use server-side Compile instead.`,
+        );
+    }
     const manifest = await mResp.json();
     const filename = manifest[key];
     if (!filename) {
@@ -151,6 +177,14 @@ async function fetchWheelToFs(manifestUrl, key) {
     const wResp = await fetch(wheelUrl);
     if (!wResp.ok) {
         throw new Error(`${key} wheel fetch failed: ${wResp.status} ${wResp.statusText} (${wheelUrl})`);
+    }
+    // Same fallback trap, and worse here: index.html written to the FS as a .whl gets a
+    // much stranger error out of micropip, several steps from the real cause.
+    if ((wResp.headers.get("content-type") || "").includes("text/html")) {
+        throw new Error(
+            `${key} wheel missing: ${wheelUrl} returned the page shell, not a wheel. ` +
+                `The manifest names a file that is not there.`,
+        );
     }
     pyodide.FS.mkdirTree("/wheels");
     const fsPath = `/wheels/${filename}`;

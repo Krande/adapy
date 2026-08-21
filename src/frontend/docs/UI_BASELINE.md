@@ -2848,3 +2848,32 @@ The tab strip is on the DS `Tabs`. The dialogs are converted. The hover rules ho
 bodies still hand-roll their buttons, inputs and tables — deliberately, because the audit
 says converting them means 64 bespoke decisions, not one recipe applied 137 times. That is
 a real remaining item and `FEATURE_INVENTORY.md` row F22 says so rather than rounding up.
+
+## "Unexpected token '<'" — a 200 that was not JSON
+
+Reported from a real session: compiling a procedural model in the browser failed with
+`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+
+The in-browser engine stages wheels onto the Pyodide FS, resolving filenames through
+`/wheels/manifest.json`. That file does not exist in dev — and a missing path under a
+history fallback does not 404. **The dev server answers it with `index.html` at status
+200**, so the `if (!mResp.ok)` guard passes and the very next line dies parsing the page
+shell as JSON.
+
+That error names the symptom and hides the cause entirely. It now checks the content type
+and says what is actually wrong, naming the command: *"In-browser compilation needs the
+wheels in public/wheels/: run `pixi run wheel-pyodide`, or use server-side Compile
+instead."* The wheel fetch below it had the same trap and is worse — `index.html` written
+to the FS as a `.whl` surfaces several steps later as something stranger still.
+
+**`response.ok` is not a guard against a missing file on any SPA host.** Anything fetching
+JSON from a same-origin path needs to check what came back, not just the status.
+
+The **501 from server-side compile is not a bug** — compiling runs a worker that produces a
+GLB and nothing static can stand in for it — but the message was a dead end. It now names
+both ways forward: run a real backend, or build the wheels and compile in the browser.
+
+**And my own error, caught by the gate.** Inserting a backticked command name into a
+template literal terminated the string; two of the three builds failed. I had syntax-checked
+that file after an earlier edit and not after this one. The three builds are the gate for
+exactly this: `tsc` passed and all 496 tests passed, because neither compiles the worker.

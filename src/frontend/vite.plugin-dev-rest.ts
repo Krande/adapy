@@ -507,10 +507,14 @@ export function adapyDevRestConfig() {
                     /^\/scopes\/[^/]+\/procedural-models\/[^/]+\/(compile|compile-preview)$/.exec(route);
                 if (procCompile) {
                     res.statusCode = 501;
-                    res.statusMessage = "compiling needs a worker - the dev REST stub has none";
+                    res.statusMessage = "no procedural worker here - run: pixi run -e viewer-api viewer-api";
                     res.setHeader("Content-Type", "application/json");
                     return res.end(JSON.stringify({
-                        detail: "The dev fixture cannot compile. Run a real backend (pixi run -e viewer-api viewer-api) with a procedural worker.",
+                        detail:
+                            "The dev fixture cannot compile: compiling runs a worker that produces a " +
+                            "GLB, and nothing static can stand in for it. Two ways forward — run a real " +
+                            "backend (pixi run -e viewer-api viewer-api) with a procedural worker, or " +
+                            "compile in the browser, which needs the pyodide wheels: pixi run wheel-pyodide.",
                     }));
                 }
 
