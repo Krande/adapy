@@ -3161,3 +3161,35 @@ arrives gives you nothing to aim at beforehand, and the gap where the controls w
 itself information. Layer and IP reduction remain the exception: they are element-field
 concepts that do not *exist* for a nodal field, and rendering them disabled would claim a
 choice that is not there.
+
+## Tidying the Results strip — and the width trap, again
+
+Four things from one report, and the interesting one is the last.
+
+**The labels were a size too large.** Splitting the panel's rows apart for the inline
+layout dropped the row that carried `text-xs`, so every label inherited the page default.
+The type scale now sits on the outer element, where a layout change cannot lose it.
+
+**Nothing wraps.** The options group had `flex-wrap`, so picking an element field grew the
+toolbar a second line — pushing the whole application down and moving every control you
+were aiming at. It scrolls instead, which moves nothing. Verified at a fixed 22px with the
+widest case on screen: field, component, step, scale, period, warp, colormap, layer, IP
+reduction, smoothing and the warp toggle.
+
+**Static tools now come first.** The display controls resize as you pick a field — a vector
+field has six components where a scalar has none — so anything to their right moved when
+you changed field. Play, stop, legend, table and FEM concepts keep fixed addresses on the
+left; the group that changes shape is last, where it grows into the scroll instead of
+dragging its neighbours.
+
+**And the overlap was the plain-join trap for the fifth time.** `FIELD_BASE` carries
+`w-full`. Adding `w-32` beside it put two width utilities on one element, the stylesheet
+picked, and each `<select>` drew wider than the flex box it was given — painting over the
+next label. Measuring the *labels* said "no overlap" while the screen plainly disagreed,
+because the layout boxes were fine; the painted controls were not.
+
+Fixed with an inline `style={{width}}`, which cannot lose to a class. That is worth being
+explicit about: inline styles are normally the wrong tool, but the whole problem here was a
+race between two class-based widths, and adding a third contender would not have settled
+it. **Five occurrences in, the rule is: when two utilities target one property, remove one
+— and if you cannot, stop using classes for that property.**

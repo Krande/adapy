@@ -325,11 +325,20 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
     const [showOptions, setShowOptions] = useState(false);
     const optionsOpen = inline || showOptions;
     // One row when inline, the stacked panel otherwise.
+    //
+    // No wrapping inline. A toolbar that grows a second line as you pick a field with more
+    // components pushes everything below it down and moves every control you were aiming
+    // at; the strip scrolls instead, which moves nothing.
+    //
+    // `text-xs` on the OUTER element, not on each row. Splitting the panel's rows apart
+    // for the inline layout dropped the row that carried the type scale, so the labels
+    // inherited the page default and sat a size larger than every other label in the
+    // toolbar — the "bigger font" in the report.
     const rowCls = inline
-        ? "flex flex-row flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+        ? "flex flex-row flex-nowrap items-center gap-x-3 min-w-0 text-xs text-content"
         : "flex flex-col gap-2 min-w-0";
     const groupCls = inline
-        ? "flex flex-row items-center gap-x-2 min-w-0"
+        ? "flex flex-row items-center gap-x-3 min-w-0 shrink-0"
         : "flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white";
 
     const [lo, hi] = range;
@@ -568,10 +577,11 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                 with ``justify-between`` spacing the groups. */}
             {manifest && (
                 <div className={groupCls}>
-                    <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                        <span className="text-content shrink-0">Field</span>
+                    <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                        <span className="shrink-0 text-content-muted">Field</span>
                         <select
-                            className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none truncate`}
+                            className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none truncate"}`}
+                            style={inline ? {width: 128} : undefined}
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -588,10 +598,11 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-content shrink-0">Comp</span>
+                        <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                            <span className="shrink-0 text-content-muted">Comp</span>
                             <select
-                                className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none truncate`}
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none truncate"}`}
+                                style={inline ? {width: 96} : undefined}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -604,10 +615,11 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-content shrink-0">Step</span>
+                        <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                            <span className="shrink-0 text-content-muted">Step</span>
                             <select
-                                className={`${fieldClasses("sm")} min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate`}
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"}`}
+                                style={inline ? {width: 144} : undefined}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -707,14 +719,15 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                 <div
                     className={
                         inline
-                            ? "flex flex-row items-center gap-x-3 text-xs text-white min-w-0"
+                            ? "flex shrink-0 flex-row flex-nowrap items-center gap-x-3 min-w-0 whitespace-nowrap"
                             : "flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-surface-0 text-xs text-white"
                     }
                 >
                     <label className="flex items-center gap-1">
                         <span className="text-content">Colormap</span>
                         <select
-                            className={fieldClasses("sm")}
+                            className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                            style={inline ? {width: 96} : undefined}
                             value={colormap}
                             onChange={(e) => onColormapChange(e.target.value)}
                         >
@@ -735,7 +748,8 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                         <label className="flex items-center gap-1">
                             <span className="text-content">Layer</span>
                             <select
-                                className={fieldClasses("sm")}
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                                style={inline ? {width: 72} : undefined}
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
                                 title="Which integration-point layer to read"
@@ -750,7 +764,8 @@ const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onTo
                         <label className="flex items-center gap-1">
                             <span className="text-content">IP reduction</span>
                             <select
-                                className={fieldClasses("sm")}
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                            style={inline ? {width: 96} : undefined}
                                 value={ipReduction}
                                 onChange={(e) => onIpReductionChange(e.target.value)}
                                 title="How to collapse integration-point values per element"

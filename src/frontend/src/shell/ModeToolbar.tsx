@@ -295,17 +295,24 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         // the third duplicated control group found this way, after section planes and
         // groups. The panel keeps the things that pick a VALUE (field, step, colormap,
         // deform scale); the toolbar takes the things that DO something.
+        // Fixed-position tools first, everything that changes shape after them.
+        //
+        // The display controls resize as you pick a field — a vector field has six
+        // components where a scalar has none, a 20-step result has a wide step picker —
+        // so anything placed to their right MOVES when you change field. Buttons that
+        // never change size keep their address on the left; the variable group is last,
+        // where it can grow into the scroll without dragging anything with it.
         {id: "play", icon: "play", label: "Play / pause", pressed: () => useFeaAnimationStore.getState().isPlaying, pressedTone: "pass", why: needsAnimation, run: togglePlay},
         {id: "stop", icon: "stop", label: "Stop and reset to the undeformed shape", why: needsAnimation, run: stopPlayback},
         div("d0"),
+        {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
+        {id: "table", icon: "fem-data", label: "Result data table", why: needsFea, run: toggleDataTable},
+        {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", why: needsFea, run: openFemConcepts},
+        div("d1"),
         // Field, step, deformation scale, colormap — in the strip, not behind a gear. A
         // popover hid the current field and step, which are the two things you most want
         // to read while looking at a result.
         {id: "res-display", icon: "settings", label: "Field, step and display options", render: () => <ResultsControls />},
-        div("d1"),
-        {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
-        {id: "table", icon: "fem-data", label: "Result data table", why: needsFea, run: toggleDataTable},
-        {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", why: needsFea, run: openFemConcepts},
     ],
 };
 
