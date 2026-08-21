@@ -600,6 +600,45 @@ export function adapyDevRestConfig() {
                     const model = PROCEDURAL.get(procOne[1]);
                     if (model) return sendJson(res, model);
                 }
+                if (procOne && req.method === "PUT") {
+                    // Commit. This is what makes a model survive being closed.
+                    //
+                    // Only GET was implemented, so committing 404'd and the stored copy
+                    // stayed the empty document that create returned. Everything looked
+                    // fine until you closed the model and reopened it from Storage — and
+                    // then it opened with no cells, because the cells had never left the
+                    // browser. Create/edit/compile all worked, so the one step that was
+                    // missing was invisible right up to the moment it lost your work.
+                    return readJson(req).then((body) => {
+                        const id = procOne[1];
+                        const model = PROCEDURAL.get(id);
+                        if (!model) {
+                            res.statusCode = 404;
+                            return sendJson(res, {detail: `no procedural model "${id}"`}, 404);
+                        }
+                        const {doc, base_revision: base} = body as {doc?: unknown; base_revision?: number};
+                        // Optimistic concurrency, as the real API does it: a stale base
+                        // revision is a 409 and the client refetches. Worth honouring
+                        // rather than always accepting — the retry path is real code that
+                        // otherwise never runs outside production.
+                        if (typeof base === "number" && base !== model.revision) {
+                            return sendJson(
+                                res,
+                                {detail: `revision ${base} is stale; current is ${model.revision}`},
+                                409,
+                            );
+                        }
+                        model.doc = doc ?? model.doc;
+                        model.revision += 1;
+                        model.updated_at = new Date().toISOString();
+                        PROCEDURAL.set(id, model);
+                        return sendJson(res, {id, revision: model.revision});
+                    });
+                }
+                if (procOne && req.method === "DELETE") {
+                    PROCEDURAL.delete(procOne[1]);
+                    return sendJson(res, {id: procOne[1], deleted: true});
+                }
 
                 // Type catalogues.
                 //

@@ -3193,3 +3193,35 @@ explicit about: inline styles are normally the wrong tool, but the whole problem
 race between two class-based widths, and adding a third contender would not have settled
 it. **Five occurrences in, the rule is: when two utilities target one property, remove one
 — and if you cannot, stop using classes for that property.**
+
+## Committing a procedural model did nothing in dev
+
+Reported: build a model with cells, open it from Storage, and nothing loads.
+
+The dev stub implemented `GET /procedural-models/{id}` and **not `PUT`** — and `PUT` is
+the commit. So committing 404'd, the stored copy stayed the empty document that `create`
+returned, and every cell you drew lived only in the browser tab.
+
+This one is worth dwelling on because of *when* it failed. Create worked. Editing worked.
+Compiling worked — the compiler reads the in-memory document, so the model built correctly
+and looked right on screen. The single missing step surfaced only after closing and
+reopening, which is exactly the moment the work was already gone. **A gap that is invisible
+until it costs you something is the worst shape a gap can have**, and it stayed hidden
+through every review that did not close a model.
+
+`PUT` now stores the document, bumps the revision, and **honours optimistic concurrency**:
+a stale `base_revision` gets a 409 rather than being quietly accepted. The client has a
+refetch-and-reapply path for that, and code that never runs outside production is code
+nobody has seen work. `DELETE` landed alongside it, which had the same hole.
+
+Verified end to end in the browser: a model committed with one cell, closed, then reopened
+from the Storage checkbox — the Builder shows `commit-test · r2 · Build 1` and the Model
+panel lists `CELL_X`.
+
+**Models created before this fix stay empty**, because their stored document really is
+empty; there is nothing to recover. New ones round-trip.
+
+The `?build=1` fixture still cannot commit, and that is deliberate: it opens its model
+directly through the store rather than creating one through the API, which is what keeps it
+working in plain `npm run dev` with no REST at all. Committing needs a model made with
+**New procedural model…**.
