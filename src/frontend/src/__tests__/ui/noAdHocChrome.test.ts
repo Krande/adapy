@@ -97,10 +97,41 @@ test("the shell is held to the rule with no allowlist at all", () => {
     assert.deepEqual(bad, [], `src/shell must use tokens only:\n  ${bad.join("\n  ")}`);
 });
 
+// The one file in the design system allowed to name hues, and why.
+//
+// Semantic tokens answer "what does this colour SAY" — good, bad, interactive, surface.
+// A branch chip or a per-series swatch says none of those: it only has to be reliably
+// distinguishable from its neighbours. There is no honest semantic token for "the third
+// branch", and reaching for fail-red to mean it would be worse than naming a hue.
+//
+// Exempted by NAME rather than by loosening the rule, so the exception stays one file
+// somebody had to argue for instead of a hole anything can slip through.
+const CATEGORICAL = "src/components/ui/categorical.ts";
+
 test("the design system itself does not regress into ad-hoc colours", () => {
     const uiDir = path.join(COMPONENTS, "ui");
     const bad = walk(uiDir)
         .filter((f) => PALETTE.test(stripComments(fs.readFileSync(f, "utf8"))))
-        .map(rel);
+        .map(rel)
+        .filter((f) => f !== CATEGORICAL);
     assert.deepEqual(bad, [], `src/components/ui must use tokens only:\n  ${bad.join("\n  ")}`);
+});
+
+test("the categorical palette stays the only exemption, and stays used", () => {
+    // Two ways this exemption could rot: the file quietly becoming a dumping ground for
+    // chrome colours, or outliving its caller and leaving a permanent exception for
+    // nothing. Pin both.
+    const src = fs.readFileSync(path.join(COMPONENTS, "ui/categorical.ts"), "utf8");
+    assert.ok(
+        !/\bbg-(?:surface|accent|content|edge)\b/.test(src),
+        "chrome tokens do not belong in the categorical set",
+    );
+
+    const consumers = ROOTS.flatMap((d) => walk(d))
+        .filter((f) => rel(f) !== CATEGORICAL)
+        .filter((f) => /categoricalChip|CATEGORICAL_CHIPS/.test(fs.readFileSync(f, "utf8")));
+    assert.ok(
+        consumers.length > 0,
+        "nothing imports the categorical palette — delete it rather than exempt it",
+    );
 });

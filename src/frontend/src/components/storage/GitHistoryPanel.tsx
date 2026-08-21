@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo} from "react";
 import {ServerFileEntry} from "@/state/serverInfoStore";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
+import {categoricalChip} from "@/components/ui";
 
 // Modal-style panel showing CI uploads as a chronological commit
 // timeline, fetched from the per-artefact ``.build.json`` sidecars
@@ -60,25 +61,12 @@ function relTime(iso: string): string {
     return new Date(t).toISOString().slice(0, 10);
 }
 
-// Deterministic branch → Tailwind chip palette. Same branch always
-// gets the same colour across reopens; different branches get
-// different ones. Cheap string hash → 1-of-N indices.
-const BRANCH_PALETTE = [
-    "bg-pass",
-    "bg-sky-700",
-    "bg-violet-700",
-    "bg-warn",
-    "bg-rose-700",
-    "bg-teal-700",
-    "bg-indigo-700",
-];
-function branchChipClass(branch: string): string {
-    let h = 0;
-    for (let i = 0; i < branch.length; i++) {
-        h = (h * 31 + branch.charCodeAt(i)) | 0;
-    }
-    return BRANCH_PALETTE[Math.abs(h) % BRANCH_PALETTE.length];
-}
+// Deterministic branch → chip colour, from the design system's categorical set. Same
+// branch always gets the same colour across reopens; different branches get different
+// ones. The palette lives in ui/categorical so a "these are different" colour is declared
+// once instead of hand-rolled per feature -- which is what put this file on the ad-hoc
+// chrome allowlist, as its last entry.
+const branchChipClass = categoricalChip;
 
 // Group files into per-commit buckets and merge in sidecar fields.
 // Rows render immediately from path data; branch/parents/timestamp/

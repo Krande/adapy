@@ -29,6 +29,10 @@ function fakeCtx(): AdaPluginContext {
       paintField() {},
       getActiveFeaMesh: () => null,
       getSelectedFeaRangeIds: () => [],
+    // Part of the SceneHandle contract since plugins gained list-driven selection.
+    // A stub, but a PRESENT one: the point of typing the mock as SceneHandle is that a
+    // handle gaining a method breaks here until the fake grows it too.
+    setSelectedFeaRanges: () => {},
     },
     scope: () => "user:me",
     theme: {

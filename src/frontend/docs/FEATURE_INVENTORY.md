@@ -135,6 +135,7 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | D22 | Groups branch in the Outliner tree, searchable, multi-select | `shell/feaSets.ts` (`buildGroupsRoot`), `tree_view/TreeViewComponent.tsx` | `read_sin_sets.read_sin_groups` | Verified (browser — 32 groups, expands like any branch, ctrl-click unions) |
 | D23 | Isolate group; show rest as wireframe | `shell/feaSetIsolation.ts`, `shell/feaEdgeFilter.ts` | `CustomBatchedMesh.hideBatchDrawRange`, `fea-element-edges` overlay | Verified (browser — ghost on/off, isolated set keeps its own element lines) |
 | D24 | Ctrl+click multi-select in the Outliner (all platforms) | `tree_view/OutlinerRow.tsx` | react-arborist `DefaultRow` | Verified (browser — two groups selected on Windows) |
+| D25 | Super-element branch (multi-SE decks) | `shell/feaSets.ts` (`buildSuperElementsRoot`) | manifest `model_info.super_elements` | Pending — needs a deck with more than one SE; suppressed and verified absent on a 1-SE deck |
 
 ## E. Build mode
 

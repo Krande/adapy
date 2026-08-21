@@ -4,10 +4,12 @@ import {test} from "node:test";
 import {
     GROUPS_ROOT_ID,
     buildGroupsRoot,
+    buildSuperElementsRoot,
     complementRanges,
     groupNameFromId,
     groupNodeId,
     isElementSet,
+    isInformationalRow,
     unionMembers,
     type FeaSet,
 } from "../../shell/feaSets";
@@ -83,4 +85,42 @@ test("the Groups root carries counts, and vanishes when there are no sets", () =
     // Children are leaves: react-arborist draws a toggle for anything with children, and a
     // group row that looks expandable but is not is a dead end.
     assert.ok(root.children.every((c) => c.children.length === 0));
+});
+
+test("a single super-element gets no row of its own", () => {
+    // Its counts ARE the model totals, which the Outliner states one line above. A row
+    // here would be a restatement dressed up as structure.
+    assert.equal(buildSuperElementsRoot([]), null);
+    assert.equal(
+        buildSuperElementsRoot([{index: 1, name: "SE 1", n_nodes: 1057, n_elements: 2461}]),
+        null,
+    );
+});
+
+test("several super-elements are listed with whatever counts are known", () => {
+    const root = buildSuperElementsRoot([
+        {index: 1, name: "SE 1", n_nodes: 10, n_elements: 20},
+        {index: 2, name: "SE 2", n_nodes: null, n_elements: null},
+    ]);
+    assert.ok(root);
+    assert.equal(root.name, "Super elements");
+    assert.equal(root.children[0].meta, "10 n · 20 el");
+    // "not reported" rather than 0: the format does not carry the element-to-SE
+    // association, and a zero would be a lie about an empty part.
+    assert.equal(root.children[1].meta, "not reported");
+});
+
+test("super-element rows are informational, and group rows are not", () => {
+    const root = buildSuperElementsRoot([
+        {index: 1, name: "SE 1", n_nodes: null, n_elements: null},
+        {index: 2, name: "SE 2", n_nodes: null, n_elements: null},
+    ]);
+    assert.ok(root);
+    assert.ok(isInformationalRow(root.id));
+    assert.ok(root.children.every((c) => isInformationalRow(c.id)));
+    // A group row must NOT be informational — it drives visibility.
+    assert.ok(!isInformationalRow(groupNodeId("Mini_area_dbl_btm")));
+    assert.ok(!isInformationalRow(GROUPS_ROOT_ID));
+    // Nor may a real model node be mistaken for one.
+    assert.ok(!isInformationalRow("node0"));
 });

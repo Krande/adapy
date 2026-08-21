@@ -139,6 +139,18 @@ const defaultPerMode = (): Record<ModeId, ModeLayout> =>
 interface LayoutState {
     v: number;
     perMode: Record<ModeId, ModeLayout>;
+    /**
+     * Panels this layout has already been offered.
+     *
+     * Without it, adoption cannot tell "the user closed this" from "this did not exist
+     * when the layout was saved" — both are simply absence — so closing a panel the mode's
+     * default wants meant getting it back on the next load, for ever.
+     *
+     * Absent on a layout saved before this field existed. It is then seeded from whatever
+     * that layout has placed, which costs at most one reappearance of an already-closed
+     * panel, once, and never again.
+     */
+    known?: PanelId[];
     /** Named saved arrangements (Maya workspaces). */
     workspaces: Record<string, Record<ModeId, ModeLayout>>;
 
@@ -205,7 +217,7 @@ function removeEverywhere(l: ModeLayout, panel: PanelId): ModeLayout {
  * Appended, never made the active tab unless the dock had nothing showing: adopting a
  * panel must not replace what the user was last looking at.
  */
-export function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
+export function adoptNewPanels(l: ModeLayout, mode: ModeId, known?: ReadonlySet<PanelId>): void {
     const placed = new Set<PanelId>();
     for (const d of Object.values(l.docks)) for (const t of d.tabs) placed.add(t);
     for (const k of Object.keys(l.floats)) placed.add(k as PanelId);
@@ -214,7 +226,7 @@ export function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
     const wanted = defaultLayout(mode);
     for (const dockId of Object.keys(wanted.docks) as DockedId[]) {
         for (const id of wanted.docks[dockId].tabs) {
-            if (placed.has(id) || !l.docks[dockId]) continue;
+            if (placed.has(id) || known?.has(id) || !l.docks[dockId]) continue;
             l.docks[dockId].tabs = [...l.docks[dockId].tabs, id];
             l.docks[dockId].active = l.docks[dockId].active ?? id;
             placed.add(id);
@@ -222,11 +234,21 @@ export function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
     }
 }
 
+/** Every panel any mode's default layout places. The full candidate set for adoption. */
+export function defaultPlacedPanels(): PanelId[] {
+    const out = new Set<PanelId>();
+    for (const mode of MODE_IDS) {
+        for (const d of Object.values(defaultLayout(mode).docks)) for (const t of d.tabs) out.add(t);
+    }
+    return [...out];
+}
+
 export const useLayoutStore = create<LayoutState>()(
     persist(
         (set) => ({
             v: LAYOUT_VERSION,
             perMode: defaultPerMode(),
+            known: defaultPlacedPanels(),
             workspaces: {},
 
             setDockSize: (mode, dock, size) =>
@@ -397,6 +419,13 @@ export const useLayoutStore = create<LayoutState>()(
              */
             onRehydrateStorage: () => (state) => {
                 if (!state) return;
+                // A layout from before `known` existed: treat what it has placed as seen.
+                const known = new Set<PanelId>(
+                    state.known ??
+                        MODE_IDS.flatMap((m) =>
+                            Object.values(state.perMode[m]?.docks ?? {}).flatMap((d) => d.tabs),
+                        ),
+                );
                 for (const mode of MODE_IDS) {
                     const l = state.perMode[mode];
                     if (!l) {
@@ -406,8 +435,11 @@ export const useLayoutStore = create<LayoutState>()(
                     for (const dock of Object.keys(l.docks) as DockedId[]) {
                         l.docks[dock].size = clampSize(dock, l.docks[dock].size);
                     }
-                    adoptNewPanels(l, mode);
+                    adoptNewPanels(l, mode, known);
                 }
+                // Everything on offer now counts as seen, adopted or not — so a panel is
+                // adopted at most once, ever, and a later close sticks.
+                state.known = [...new Set([...known, ...defaultPlacedPanels()])];
             },
         },
     ),

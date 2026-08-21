@@ -7,6 +7,7 @@
 // shrinking allowlist.
 
 export {cn, type ClassValue} from "./cn";
+export {CATEGORICAL_CHIPS, categoricalChip} from "./categorical";
 
 export {
     Button,

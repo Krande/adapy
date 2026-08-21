@@ -247,7 +247,7 @@ test("Convert mode docks nothing — the converter is the main area", () => {
 // a newly registered panel is in the registry and in the menu but on nobody's screen. It
 // reads as the feature not shipping, and it happened once already.
 
-import {adoptNewPanels} from "../../shell/layoutStore";
+import {adoptNewPanels, defaultPlacedPanels} from "../../shell/layoutStore";
 import type {PanelId} from "../../shell/panelRegistry";
 
 /** A saved layout that has never heard of `absent`. */
@@ -312,5 +312,45 @@ test("adoption appends, and does not steal the active tab", () => {
                 if (active !== null) assert.equal(l.docks[id].active, active, "the visible tab is not replaced");
             }
         }
+    }
+});
+
+test("a panel the user closed stays closed once it is known", () => {
+    // The distinction adoption could not previously make: "closed" and "never existed"
+    // are both just absence in a saved layout. `known` records what has been offered, so
+    // a deliberate close survives the next load instead of being undone.
+    for (const mode of MODE_IDS) {
+        for (const panel of allTabs(defaultLayout(mode))) {
+            const l = layoutWithout(mode, panel);
+            adoptNewPanels(l, mode, new Set([panel]));
+            assert.ok(!allTabs(l).includes(panel), `${panel} was closed in ${mode} and must stay closed`);
+        }
+    }
+});
+
+test("a genuinely new panel is adopted even when others are known", () => {
+    for (const mode of MODE_IDS) {
+        const wanted = allTabs(defaultLayout(mode));
+        if (wanted.length < 2) continue;
+        const [fresh, ...rest] = wanted;
+        const l = defaultLayout(mode);
+        for (const d of Object.values(l.docks)) {
+            d.tabs = d.tabs.filter((t) => t !== fresh);
+            if (d.active === fresh) d.active = d.tabs[0] ?? null;
+        }
+        adoptNewPanels(l, mode, new Set(rest));
+        assert.ok(allTabs(l).includes(fresh), `${fresh} is new in ${mode} and must be placed`);
+    }
+});
+
+test("a fresh install has nothing to adopt", () => {
+    // known is seeded with every default-placed panel, so a new user is never shown a
+    // panel "arriving" that was simply always part of the layout.
+    const known = new Set(defaultPlacedPanels());
+    for (const mode of MODE_IDS) {
+        const l = defaultLayout(mode);
+        const before = JSON.stringify(l);
+        adoptNewPanels(l, mode, known);
+        assert.equal(JSON.stringify(l), before);
     }
 });

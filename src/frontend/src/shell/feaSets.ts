@@ -65,6 +65,53 @@ export function buildGroupsRoot(sets: readonly FeaSet[]): GroupTreeNode | null {
     };
 }
 
+/** Id of the Super elements container row. */
+export const SUPER_ELEMENTS_ROOT_ID = "fea-super-elements";
+
+const SE_PREFIX = "fea-se:";
+
+/** True for rows that only report a number — no mesh, no draw range, nothing to select.
+ *  The Outliner uses this to leave them alone rather than route a click through the mesh
+ *  handler, which would clear the 3D selection and scope the search to a childless branch. */
+export const isInformationalRow = (id: string): boolean =>
+    id === SUPER_ELEMENTS_ROOT_ID || id.startsWith(SE_PREFIX);
+
+/** What the manifest says the model is assembled from. */
+export interface FeaSuperElement {
+    index: number;
+    name: string;
+    n_nodes: number | null;
+    n_elements: number | null;
+}
+
+/** A "Super elements" row listing the deck's parts, or null when it would say nothing new.
+ *
+ *  Suppressed for a single super-element: its counts ARE the model totals, which the
+ *  Outliner already states one line above, so the row would be a restatement dressed up as
+ *  structure. Suppressed for zero, obviously.
+ *
+ *  Counts read "not reported" rather than 0 when the format does not carry the
+ *  element-to-SE association. A zero there would be a lie about an empty part.
+ */
+export function buildSuperElementsRoot(supers: readonly FeaSuperElement[]): GroupTreeNode | null {
+    if (supers.length < 2) return null;
+    const fmt = new Intl.NumberFormat();
+    return {
+        id: SUPER_ELEMENTS_ROOT_ID,
+        name: "Super elements",
+        meta: String(supers.length),
+        children: supers.map((se) => ({
+            id: `${SE_PREFIX}${se.index}`,
+            name: se.name,
+            children: [],
+            meta:
+                se.n_nodes === null || se.n_elements === null
+                    ? "not reported"
+                    : `${fmt.format(se.n_nodes)} n · ${fmt.format(se.n_elements)} el`,
+        })),
+    };
+}
+
 /** Every member id across the named sets, de-duplicated, order preserved.
  *
  *  Multi-select is a union rather than an intersection because that is what picking two

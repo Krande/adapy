@@ -14,8 +14,10 @@ import {applyFeaGroupVisibility, clearFeaGroupVisibility} from "@/shell/feaSetIs
 import {
     GROUPS_ROOT_ID,
     buildGroupsRoot,
+    buildSuperElementsRoot,
     groupNameFromId,
     isElementSet,
+    isInformationalRow,
     type FeaSet,
     unionMembers,
 } from "@/shell/feaSets";
@@ -82,9 +84,11 @@ const TreeViewComponent: React.FC = () => {
     // and dropping the loaded result's groups because of it would be a rule applied to
     // something it was never about.
     const treeNodes = useMemo(() => {
-        const groupsRoot = buildGroupsRoot(sets);
-        return groupsRoot ? [...modelRoots, groupsRoot] : modelRoots;
-    }, [modelRoots, sets]);
+        const extra = [buildSuperElementsRoot(modelInfo?.super_elements ?? []), buildGroupsRoot(sets)].filter(
+            (n) => n !== null,
+        );
+        return extra.length > 0 ? [...modelRoots, ...extra] : modelRoots;
+    }, [modelRoots, sets, modelInfo]);
 
     // react-arborist needs an explicit pixel height, so measure the flex track it sits in
     // and hand back what the browser already worked out.
@@ -129,6 +133,10 @@ const TreeViewComponent: React.FC = () => {
             applyGroups(new Set(groupNames), wireframeRest);
             return;
         }
+        // Super-element rows report a count and nothing else. Routing them through the
+        // mesh handler would clear the 3D selection and scope the search to a branch with
+        // no children, which silently empties the tree.
+        if (ids.some((n) => isInformationalRow(String(n.id)))) return;
         if (hitGroupsRoot) {
             // The container row is the way back to the whole model.
             applyGroups(new Set(), wireframeRest);

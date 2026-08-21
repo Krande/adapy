@@ -1268,8 +1268,18 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                     url: (rel) => viewerApi.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
                     json: async (rel) =>
                         JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
-                    bytes: async (rel, range) =>
-                        range ? rangeFetcher(rel, range.start, range.end) : fetcher(rel),
+                    // SidecarFetcher.bytes promises the requested bytes; rangeFetcher
+                    // returns {buf, ranged}. Handing that object straight back type-erred
+                    // AND, worse, would have given a plugin an object where it asked for
+                    // an ArrayBuffer. `ranged: false` means the server ignored Range and
+                    // sent the whole object, so the window has to be cut here — otherwise
+                    // the plugin silently reads the wrong bytes rather than failing.
+                    // `end` is inclusive (HTTP Range), slice() is not.
+                    bytes: async (rel, range) => {
+                        if (!range) return fetcher(rel);
+                        const {buf, ranged} = await rangeFetcher(rel, range.start, range.end);
+                        return ranged ? buf : buf.slice(range.start, range.end + 1);
+                    },
                 };
                 void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
             } catch (err) {
