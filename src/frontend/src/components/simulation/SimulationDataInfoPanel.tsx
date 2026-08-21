@@ -460,7 +460,7 @@ const TableToolbar: React.FC<{
         />
         {filter && (
             <button
-                className="text-content-subtle hover:text-content-subtle underline"
+                className="text-content-subtle pointer-fine:hover:text-content-subtle underline"
                 onClick={() => onFilter("")}
             >
                 clear
@@ -508,7 +508,7 @@ const FeaTableHead: React.FC<{
                     onClick={() => onHeaderClick(i)}
                     className={
                         "px-2 py-1 border-r border-edge last:border-r-0 truncate " +
-                        "text-left hover:bg-surface-3 cursor-pointer flex items-center justify-between gap-1 " +
+                        "text-left pointer-fine:hover:bg-surface-3 cursor-pointer flex items-center justify-between gap-1 " +
                         (active ? "bg-accent text-accent" : "")
                     }
                     title="Click to sort (asc → desc → off)"
@@ -583,8 +583,8 @@ const FeaTableRow: React.FC<{
                 className={
                     "px-1 border-b border-edge flex items-center justify-center " +
                     (active
-                        ? "text-accent hover:text-accent"
-                        : "text-content-muted hover:text-accent")
+                        ? "text-accent pointer-fine:hover:text-accent"
+                        : "text-content-muted pointer-fine:hover:text-accent")
                 }
                 onClick={() => onGoTo(nodeId)}
                 title={

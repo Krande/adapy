@@ -110,7 +110,7 @@ const WorkersTab: React.FC = () => {
                 </h2>
                 <div className="flex gap-2">
                     <button
-                        className="text-xs px-2 py-1 bg-surface-2 hover:bg-surface-3 rounded-sm disabled:opacity-40"
+                        className="text-xs px-2 py-1 bg-surface-2 pointer-fine:hover:bg-surface-3 rounded-sm disabled:opacity-40"
                         onClick={pruneWorkers}
                         disabled={pruning || offlineCount === 0}
                         title="Drop offline worker registrations left by crashed / scaled-down pods. Live pods re-register automatically."
@@ -118,7 +118,7 @@ const WorkersTab: React.FC = () => {
                         {pruning ? "Removing…" : `Remove offline${offlineCount ? ` (${offlineCount})` : ""}`}
                     </button>
                     <button
-                        className="text-xs px-2 py-1 bg-surface-2 hover:bg-surface-3 rounded-sm"
+                        className="text-xs px-2 py-1 bg-surface-2 pointer-fine:hover:bg-surface-3 rounded-sm"
                         onClick={fetchWorkers}
                         disabled={loading}
                     >
@@ -181,7 +181,7 @@ const WorkersTab: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setInfoWorker(w)}
-                                    className="text-content-muted hover:text-white p-1 rounded-sm hover:bg-surface-0"
+                                    className="text-content-muted pointer-fine:hover:text-white p-1 rounded-sm pointer-fine:hover:bg-surface-0"
                                     title="Worker details (versions, conversions, packages)"
                                     aria-label="Worker details"
                                 >
@@ -206,7 +206,7 @@ const WorkersTab: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setInfoWorker(w)}
-                                className="shrink-0 text-content-muted hover:text-white p-1 rounded-sm hover:bg-surface-2"
+                                className="shrink-0 text-content-muted pointer-fine:hover:text-white p-1 rounded-sm pointer-fine:hover:bg-surface-2"
                                 title="Worker details"
                                 aria-label="Worker details"
                             >

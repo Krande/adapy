@@ -125,7 +125,7 @@ export const BuildTab: React.FC = () => {
                     "px-1.5 py-0.5 rounded-sm " +
                     (s.selectMode === m
                       ? "bg-accent text-white"
-                      : "bg-surface-2 text-content hover:bg-surface-3")
+                      : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
                   }
                   onClick={() => s.setSelectMode(m)}
                   aria-pressed={s.selectMode === m}

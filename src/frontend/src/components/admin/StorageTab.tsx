@@ -645,7 +645,7 @@ const StorageTab: React.FC = () => {
                 <span className="text-content-subtle">·</span>
                 <span className="text-content-muted">{files.length} source{files.length === 1 ? "" : "s"}</span>
                 <button
-                    className="ml-2 bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px]"
+                    className="ml-2 bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px]"
                     onClick={() => setOverrideOpen((v) => !v)}
                     title="Per-conversion overrides applied to all Convert clicks on this tab"
                 >
@@ -658,7 +658,7 @@ const StorageTab: React.FC = () => {
                         </span>
                         <button
                             type="button"
-                            className="bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
                             onClick={() => void onMoveSelectedToFolder()}
                             disabled={busyKey === "__bulk_move__"}
                             title="Rename selected sources under a folder prefix"
@@ -667,7 +667,7 @@ const StorageTab: React.FC = () => {
                         </button>
                         <button
                             type="button"
-                            className="bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px]"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px]"
                             onClick={clearSelection}
                             title="Clear selection"
                         >
@@ -678,7 +678,7 @@ const StorageTab: React.FC = () => {
                 {totalDerivedAcrossScope > 0 && (
                     <button
                         type="button"
-                        className="bg-fail-subtle hover:bg-fail px-2 py-1 rounded-sm text-[11px] text-content disabled:opacity-50"
+                        className="bg-fail-subtle pointer-fine:hover:bg-fail px-2 py-1 rounded-sm text-[11px] text-content disabled:opacity-50"
                         onClick={() => void onClearAllDerived()}
                         disabled={busyKey === "__clear_all_derived__"}
                         title={
@@ -693,7 +693,7 @@ const StorageTab: React.FC = () => {
                 )}
                 <button
                     type="button"
-                    className="bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
+                    className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
                     onClick={() => void onCompressUncompressed()}
                     disabled={compressionBusy}
                     title={
@@ -709,7 +709,7 @@ const StorageTab: React.FC = () => {
                     type="button"
                     className={
                         "ml-auto inline-flex items-center gap-1.5 bg-accent active:bg-accent-subtle " +
-                        "hover:bg-accent rounded-sm text-xs " +
+                        "pointer-fine:hover:bg-accent rounded-sm text-xs " +
                         // Bigger tap target on mobile (≥40px tall);
                         // tighter on desktop where the cursor is precise.
                         "px-4 py-2 sm:px-3 sm:py-1 min-h-[40px] sm:min-h-0 " +
@@ -759,7 +759,7 @@ const StorageTab: React.FC = () => {
                                                 "px-2 py-0.5 border text-[10px] " +
                                                 (overrides[key] === v
                                                     ? "bg-accent text-white border-accent"
-                                                    : "bg-surface-0 text-content border-edge hover:bg-surface-2")
+                                                    : "bg-surface-0 text-content border-edge pointer-fine:hover:bg-surface-2")
                                             }
                                         >
                                             {v === "unset" ? "—" : v === "on" ? "On" : "Off"}
@@ -801,7 +801,7 @@ const StorageTab: React.FC = () => {
                                 {i < STORAGE_COLUMNS.length - 1 && (
                                     <span
                                         onMouseDown={startResize(i)}
-                                        className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent-subtle"
+                                        className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize pointer-fine:hover:bg-accent-subtle"
                                         title="Drag to resize column"
                                     />
                                 )}
@@ -983,7 +983,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                         disabled={derivedCount === 0}
                         aria-expanded={expanded}
                         title={derivedCount === 0 ? "No derived products" : "Show derived products"}
-                        className={"shrink-0 w-4 text-content-muted hover:text-content disabled:opacity-30 " +
+                        className={"shrink-0 w-4 text-content-muted pointer-fine:hover:text-content disabled:opacity-30 " +
                             (derivedCount === 0 ? "cursor-default" : "cursor-pointer")}
                     >
                         <span className={"inline-block transition-transform " + (expanded ? "rotate-90" : "")}>▸</span>
@@ -1013,7 +1013,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                 <div className="flex flex-wrap gap-1 justify-end">
                     {!file.orphan && (
                         <button
-                            className="bg-surface-2 hover:bg-surface-3 px-2 py-0.5 rounded-sm text-xs"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-0.5 rounded-sm text-xs"
                             onClick={() => onDownload(file.key, file.key)}
                         >
                             DL
@@ -1022,7 +1022,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                     {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
                         <select
                             disabled={busyConverting || false}
-                            className="bg-surface-2 hover:bg-surface-3 text-xs rounded-sm px-1 py-0.5 disabled:opacity-50"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-xs rounded-sm px-1 py-0.5 disabled:opacity-50"
                             value=""
                             onChange={(e) => {
                                 const t = e.target.value as TargetFormat | "";
@@ -1037,7 +1037,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                         </select>
                     )}
                     <button
-                        className="bg-fail hover:bg-fail px-2 py-0.5 rounded-sm text-xs disabled:opacity-50"
+                        className="bg-fail pointer-fine:hover:bg-fail px-2 py-0.5 rounded-sm text-xs disabled:opacity-50"
                         onClick={() => onDelete(file.key, file.key)}
                         disabled={busyDeleting}
                         title="Delete source + all derived"
@@ -1070,14 +1070,14 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                             return (
                                 <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-edge">
                                     <button
-                                        className="bg-surface-0 hover:bg-surface-2 px-2 py-0.5 text-[11px]"
+                                        className="bg-surface-0 pointer-fine:hover:bg-surface-2 px-2 py-0.5 text-[11px]"
                                         onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
                                         title={`${d.key} (${formatBytes(d.size)})`}
                                     >
                                         {d.format.toUpperCase()} ↓
                                     </button>
                                     <button
-                                        className="bg-fail-subtle hover:bg-fail px-1.5 text-[11px] text-content disabled:opacity-50"
+                                        className="bg-fail-subtle pointer-fine:hover:bg-fail px-1.5 text-[11px] text-content disabled:opacity-50"
                                         onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
                                         disabled={busyDerived}
                                         title="Delete cached derived blob (next Convert will regenerate it)"
@@ -1089,7 +1089,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                         })}
                         {file.derived.length > 1 && (
                             <button
-                                className="bg-fail-subtle hover:bg-fail px-2 py-0.5 rounded-sm text-[11px] text-content disabled:opacity-50"
+                                className="bg-fail-subtle pointer-fine:hover:bg-fail px-2 py-0.5 rounded-sm text-[11px] text-content disabled:opacity-50"
                                 onClick={() => onDeleteAllDerived(file)}
                                 disabled={busyDeletingAllDerived}
                                 title="Delete every cached derived blob for this source"
@@ -1194,14 +1194,14 @@ const SourceCard: React.FC<CardProps> = ({
                                 return (
                                     <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-edge">
                                         <button
-                                            className="bg-surface-0 hover:bg-surface-2 px-2 py-0.5 text-[11px]"
+                                            className="bg-surface-0 pointer-fine:hover:bg-surface-2 px-2 py-0.5 text-[11px]"
                                             onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
                                             title={`${d.key} (${formatBytes(d.size)})`}
                                         >
                                             {d.format.toUpperCase()} ↓
                                         </button>
                                         <button
-                                            className="bg-fail-subtle hover:bg-fail px-1.5 text-[11px] text-content disabled:opacity-50"
+                                            className="bg-fail-subtle pointer-fine:hover:bg-fail px-1.5 text-[11px] text-content disabled:opacity-50"
                                             onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
                                             disabled={busyDerived}
                                             title="Delete cached derived blob"
@@ -1213,7 +1213,7 @@ const SourceCard: React.FC<CardProps> = ({
                             })}
                             {file.derived.length > 1 && (
                                 <button
-                                    className="bg-fail-subtle hover:bg-fail px-2 py-0.5 rounded-sm text-[11px] text-content disabled:opacity-50"
+                                    className="bg-fail-subtle pointer-fine:hover:bg-fail px-2 py-0.5 rounded-sm text-[11px] text-content disabled:opacity-50"
                                     onClick={() => onDeleteAllDerived(file)}
                                     disabled={busyDeletingAllDerived}
                                     title="Delete every cached derived blob for this source"
@@ -1228,7 +1228,7 @@ const SourceCard: React.FC<CardProps> = ({
                     <div className="flex flex-wrap gap-1">
                         {!file.orphan && (
                             <button
-                                className="bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm text-xs"
+                                className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm text-xs"
                                 onClick={() => onDownload(file.key, file.key)}
                             >
                                 Download
@@ -1237,7 +1237,7 @@ const SourceCard: React.FC<CardProps> = ({
                         {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
                             <select
                                 disabled={busyConverting || false}
-                                className="bg-surface-2 hover:bg-surface-3 text-xs rounded-sm px-2 py-1 disabled:opacity-50"
+                                className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-xs rounded-sm px-2 py-1 disabled:opacity-50"
                                 value=""
                                 onChange={(e) => {
                                     const t = e.target.value as TargetFormat | "";
@@ -1252,7 +1252,7 @@ const SourceCard: React.FC<CardProps> = ({
                             </select>
                         )}
                         <button
-                            className="bg-fail hover:bg-fail px-2 py-1 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-fail pointer-fine:hover:bg-fail px-2 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => onDelete(file.key, file.key)}
                             disabled={busyDeleting}
                         >
@@ -1309,7 +1309,7 @@ const FolderTableRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
     onRename, onMoveInto, busyMoving,
 }) => (
-    <tr className="border-t border-edge bg-surface-0 hover:bg-surface-0">
+    <tr className="border-t border-edge bg-surface-0 pointer-fine:hover:bg-surface-0">
         <td colSpan={7} className="px-3 py-1.5">
             <div className="flex items-center gap-1">
                 <button
@@ -1343,7 +1343,7 @@ const FolderCardRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
     onRename, onMoveInto, busyMoving,
 }) => (
-    <li className="bg-surface-0 hover:bg-surface-0 px-3 py-2 flex items-center gap-1"
+    <li className="bg-surface-0 pointer-fine:hover:bg-surface-0 px-3 py-2 flex items-center gap-1"
         style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
         <button
             type="button"

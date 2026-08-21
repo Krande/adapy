@@ -409,7 +409,7 @@ const RunGrid: React.FC<{
                 </thead>
                 <tbody>
                     {grid.files.map((file) => (
-                        <tr key={file} className="hover:bg-surface-0">
+                        <tr key={file} className="pointer-fine:hover:bg-surface-0">
                             <td className="font-mono text-content px-2 py-1 border-b border-edge max-w-xs truncate" title={file}>
                                 {file}
                             </td>
@@ -471,7 +471,7 @@ const RunGrid: React.FC<{
                     {cellViewable(grid.cells.get(`${menu.file}::${menu.target}`)) && (
                         <button
                             type="button"
-                            className="w-full text-left px-3 py-1 text-pass hover:bg-surface-2"
+                            className="w-full text-left px-3 py-1 text-pass pointer-fine:hover:bg-surface-2"
                             onClick={() => {
                                 onCellOpen(menu.file, menu.target);
                                 setMenu(null);
@@ -482,7 +482,7 @@ const RunGrid: React.FC<{
                     )}
                     <button
                         type="button"
-                        className="w-full text-left px-3 py-1 text-content hover:bg-surface-2"
+                        className="w-full text-left px-3 py-1 text-content pointer-fine:hover:bg-surface-2"
                         onClick={() => {
                             onCellDetails(menu.file, menu.target);
                             setMenu(null);
@@ -492,7 +492,7 @@ const RunGrid: React.FC<{
                     </button>
                     <button
                         type="button"
-                        className="w-full text-left px-3 py-1 text-content hover:bg-surface-2"
+                        className="w-full text-left px-3 py-1 text-content pointer-fine:hover:bg-surface-2"
                         onClick={() => {
                             onCellHistory(menu.file, menu.target);
                             setMenu(null);
@@ -503,7 +503,7 @@ const RunGrid: React.FC<{
                     {menu.target !== "parity" && (
                         <button
                             type="button"
-                            className="w-full text-left px-3 py-1 text-info hover:bg-surface-2"
+                            className="w-full text-left px-3 py-1 text-info pointer-fine:hover:bg-surface-2"
                             onClick={() => {
                                 onCellRerun(menu.file, menu.target);
                                 setMenu(null);
@@ -714,7 +714,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-accent hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Starting…" : "Run audit"}
             </button>
@@ -772,7 +772,7 @@ const CancelRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-fail text-fail hover:bg-fail-subtle rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-fail text-fail pointer-fine:hover:bg-fail-subtle rounded-sm disabled:opacity-50"
                 title="Abort this run; pending cells get marked cancelled."
             >
                 {busy ? "Aborting…" : "Cancel run"}
@@ -815,7 +815,7 @@ const ReDispatchButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-accent text-accent hover:bg-accent-subtle rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-accent text-accent pointer-fine:hover:bg-accent-subtle rounded-sm disabled:opacity-50"
                 title="Create a new audit run with this run's scope / pool / settings."
             >
                 {busy ? "Starting…" : "Re-run audit"}
@@ -860,7 +860,7 @@ const ValidateRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy || alreadyValidated}
-                className="text-xs px-2 py-1 border border-info text-info hover:bg-info-subtle rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2 py-1 border border-info text-info pointer-fine:hover:bg-info-subtle rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={
                     alreadyValidated
                         ? "Validation already dispatched for this run."
@@ -907,7 +907,7 @@ const DeleteRunButton: React.FC<{
                 type="button"
                 onClick={onClick}
                 disabled={busy}
-                className="text-xs px-2 py-1 border border-fail text-fail hover:bg-fail-subtle rounded-sm disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-fail text-fail pointer-fine:hover:bg-fail-subtle rounded-sm disabled:opacity-50"
                 title="Delete this run and its results."
             >
                 {busy ? "Deleting…" : "Delete"}
@@ -961,7 +961,7 @@ const CellHistoryModal: React.FC<{
                     <button
                         type="button"
                         onClick={onClose}
-                        className="text-content-muted hover:text-content text-lg leading-none px-2"
+                        className="text-content-muted pointer-fine:hover:text-content text-lg leading-none px-2"
                         aria-label="Close"
                     >
                         ×
@@ -987,7 +987,7 @@ const CellHistoryModal: React.FC<{
                             </thead>
                             <tbody>
                                 {rows.map((h) => (
-                                    <tr key={h.id} className="hover:bg-surface-0">
+                                    <tr key={h.id} className="pointer-fine:hover:bg-surface-0">
                                         <td className="px-2 py-1 border-b border-edge text-content whitespace-nowrap">
                                             {h.ts ? new Date(h.ts).toLocaleString() : "—"}
                                         </td>
@@ -1069,7 +1069,7 @@ const CellDetailsModal: React.FC<{
                     <button
                         type="button"
                         onClick={onClose}
-                        className="text-content-muted hover:text-content text-lg leading-none px-2"
+                        className="text-content-muted pointer-fine:hover:text-content text-lg leading-none px-2"
                         aria-label="Close"
                     >
                         ×
@@ -1152,7 +1152,7 @@ const IssueBotStatus: React.FC<{
                     type="button"
                     onClick={retry}
                     disabled={busy}
-                    className="text-accent hover:text-accent disabled:opacity-50"
+                    className="text-accent pointer-fine:hover:text-accent disabled:opacity-50"
                     title="Re-run the issue-bot sync for this run"
                 >
                     {busy ? "queued…" : "resync"}
@@ -1289,7 +1289,7 @@ const AuditRunsTab: React.FC = () => {
                                     type="button"
                                     onClick={() => setRuntimeMode("cells")}
                                     className={"px-2 py-0.5 " + (runtimeMode === "cells"
-                                        ? "bg-accent text-white" : "text-content hover:bg-surface-0")}
+                                        ? "bg-accent text-white" : "text-content pointer-fine:hover:bg-surface-0")}
                                     title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
                                 >
                                     Σ cells
@@ -1298,7 +1298,7 @@ const AuditRunsTab: React.FC = () => {
                                     type="button"
                                     onClick={() => setRuntimeMode("wall")}
                                     className={"px-2 py-0.5 border-l border-edge " + (runtimeMode === "wall"
-                                        ? "bg-accent text-white" : "text-content hover:bg-surface-0")}
+                                        ? "bg-accent text-white" : "text-content pointer-fine:hover:bg-surface-0")}
                                     title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
                                 >
                                     wall
@@ -1309,8 +1309,8 @@ const AuditRunsTab: React.FC = () => {
                             type="button"
                             onClick={toggleToast}
                             className={"px-2 py-0.5 rounded-sm border " + (toastHidden
-                                ? "border-edge text-content-muted hover:bg-surface-0"
-                                : "border-accent bg-accent-subtle text-accent hover:bg-accent-subtle")}
+                                ? "border-edge text-content-muted pointer-fine:hover:bg-surface-0"
+                                : "border-accent bg-accent-subtle text-accent pointer-fine:hover:bg-accent-subtle")}
                             title="Show/hide the ambient 'audit sweep in progress' toast over the viewer."
                         >
                             {toastHidden ? "◌ toast off" : "● toast on"}
@@ -1338,7 +1338,7 @@ const AuditRunsTab: React.FC = () => {
                                         "px-3 py-2 border-b border-edge cursor-pointer " +
                                         (active
                                             ? "bg-accent-subtle"
-                                            : "hover:bg-surface-0")
+                                            : "pointer-fine:hover:bg-surface-0")
                                     }
                                 >
                                     <div className="flex justify-between items-baseline">
@@ -1410,7 +1410,7 @@ const AuditRunsTab: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setSelectedId(null)}
-                                        className="md:hidden text-sm text-accent hover:text-accent shrink-0"
+                                        className="md:hidden text-sm text-accent pointer-fine:hover:text-accent shrink-0"
                                         title="Back to run list"
                                     >
                                         ← list

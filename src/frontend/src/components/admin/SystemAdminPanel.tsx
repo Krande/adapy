@@ -9,8 +9,8 @@ import type { SystemTemplateType } from "@/services/viewerApi";
 // rendering knobs. Feeds the cellbuilder systems inspector.
 
 const btn =
-  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
-const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white hover:bg-fail";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
+const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white pointer-fine:hover:bg-fail";
 const inputCls =
   "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-full";
 
@@ -50,7 +50,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
       <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-surface-0 border-b border-edge">
         {draft && (
           <button
-            className="px-1 rounded-sm hover:bg-surface-3"
+            className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
             title="Back to catalog"
             onClick={() => void store.getState().selectSystem(null)}
           >
@@ -62,7 +62,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
         </span>
         {!draft && (
           <button
-            className="ml-auto px-1 rounded-sm hover:bg-surface-3"
+            className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
             title="Refresh"
             onClick={() => void store.getState().refreshSystems()}
           >
@@ -72,7 +72,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
         {!embedded && (
           <button
             className={
-              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-surface-3"
+              (draft ? "ml-auto " : "") + "px-1 rounded-sm pointer-fine:hover:bg-surface-3"
             }
             title="Close"
             onClick={() => store.setState({ systemPanelOpen: false })}
@@ -123,7 +123,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
               "flex items-center gap-1 px-1.5 py-0.5 rounded-sm cursor-pointer " +
               (t.id === selectedSystemId
                 ? "bg-accent-subtle"
-                : "hover:bg-surface-2")
+                : "pointer-fine:hover:bg-surface-2")
             }
             onClick={() => void store.getState().selectSystem(t.id)}
           >
@@ -164,7 +164,7 @@ const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
               {t.type}
             </span>
             <button
-              className="px-1 rounded-sm text-info hover:bg-surface-3"
+              className="px-1 rounded-sm text-info pointer-fine:hover:bg-surface-3"
               title="Sync this built-in kind into the DB catalog to edit it"
               disabled={systemBusy}
               onClick={() => void store.getState().syncSystemFromCode(t.slug)}

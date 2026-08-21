@@ -55,7 +55,7 @@ export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
                 aria-expanded={open}
                 className={
                     "inline-flex items-center justify-center rounded-sm text-content " +
-                    "hover:bg-surface-2 active:bg-surface-3 disabled:opacity-40 " +
+                    "pointer-fine:hover:bg-surface-2 active:bg-surface-3 disabled:opacity-40 " +
                     "focus:outline-hidden focus:ring-2 focus:ring-accent " +
                     (buttonClassName ?? "h-7 w-7 sm:h-6 sm:w-6")
                 }

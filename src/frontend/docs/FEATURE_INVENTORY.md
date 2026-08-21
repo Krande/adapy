@@ -215,13 +215,18 @@ reachable but has not been submitted here. See row B9 below.
 `EquipmentPreview`. **Treatment: wrap in DS `Panel`/`Tabs` + codemod only — no
 rewrite.**
 
-Status: **partly**. All 14 tabs load and render at `/admin` on the page profile (verified
-in the browser: the tab strip lists audit, audit runs, schedules, issues, performance,
-frontend loads, corpus, projects, storage, workers, conversion, equipment, system,
-engines, and the `#hash` still selects one). Their twenty-two native dialogs are
-converted. The DS `Panel`/`Tabs` wrap and the className codemod are **not** done — the
-tabs still carry their own chrome, which is the lowest-value-per-line work in the plan and
-deliberately last.
+Status: **partly**. All 14 tabs load and render at `/admin` on the page profile, the
+`#hash` still selects one, and their twenty-two native dialogs are converted.
+
+The **tab strip is now the DS `Tabs`** — it was fourteen hand-written buttons repeating
+each id three times, with no `role="tab"`, no `aria-selected` and no keyboard support.
+Arrow keys, roving tabindex and the hash sync are verified in the browser. `VALID_TABS` is
+derived from the same list rather than written out again, so the strip and the hash parser
+cannot disagree about which ids exist.
+
+The **hover codemod is done** (see H3). What remains is the rest of the className
+migration — the tabs' own bodies still hand-roll buttons, inputs and tables rather than
+using the primitives. That is the lowest-value-per-line work in the plan and stays last.
 
 ## G. Preferences (`OptionsComponent.tsx` — 4 sections)
 
@@ -240,7 +245,7 @@ deliberately last.
 |---|---|---|---|
 | H1 | Panel theming (`--ada-*` CSS vars) | `themeStore.ts` — **extend, do not replace** | Verified (tokens.test.ts — themeStore emits the documented var set for every preset) |
 | H2 | Mobile bottom sheets | `useBottomSheet.ts` — **move, do not rewrite** | Moved (`utils/useBottomSheet.ts`, unchanged) — not exercised on a touch device |
-| H3 | `pointer-fine:hover:` sticky-hover guard | bake into `Button`/`IconButton` | Verified (hoverGuard.test.ts) for `components/ui` + `shell`; **73 older files still use a bare `hover:`** |
+| H3 | `pointer-fine:hover:` sticky-hover guard | bake into `Button`/`IconButton` | Verified (hoverGuard.test.ts, no allowlist — the 73 older files were converted) |
 | H4 | Per-panel error boundaries | `ErrorBoundary.tsx` | Verified (browser — boundaries caught real throws this session) |
 | H5 | Off-thread model cache | `state/model_worker/*` | Moved — the `?worker&inline` barrier is why pure logic is extracted; not separately exercised |
 | H6 | Sequential load queue | `loadQueueStore` | Verified (browser — the queue reported a failed load by name) |

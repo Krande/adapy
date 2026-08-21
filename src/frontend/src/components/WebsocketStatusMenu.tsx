@@ -121,7 +121,7 @@ export function WebsocketStatusBox() {
                                     ID: {currentId}
                                 </span>
                                 <button
-                                    className="cursor-pointer text-white bg-accent hover:bg-accent text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent text-xs px-2 py-1 rounded-sm"
                                     title="Edit Instance ID"
                                     onClick={startEdit}
                                 >
@@ -139,14 +139,14 @@ export function WebsocketStatusBox() {
                                     aria-label="Frontend Instance ID"
                                 />
                                 <button
-                                    className="cursor-pointer text-white bg-accent hover:bg-accent text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent text-xs px-2 py-1 rounded-sm"
                                     onClick={saveEdit}
                                     title="Save"
                                 >
                                     Save
                                 </button>
                                 <button
-                                    className="cursor-pointer text-content hover:text-content text-xs px-2 py-1 border border-edge rounded-sm"
+                                    className="cursor-pointer text-content pointer-fine:hover:text-content text-xs px-2 py-1 border border-edge rounded-sm"
                                     onClick={cancelEdit}
                                     title="Cancel"
                                 >
@@ -169,7 +169,7 @@ export function WebsocketStatusBox() {
                         <div className="flex justify-between items-center mt-1">
                             <span className="font-medium">Connected Clients:</span>
                             <button
-                                className="cursor-pointer text-accent hover:text-accent font-medium"
+                                className="cursor-pointer text-accent pointer-fine:hover:text-accent font-medium"
                                 onClick={() => setShowClientsList(!showClientsList)}
                                 title="Click to show/hide client list"
                             >
@@ -228,7 +228,7 @@ export function WebsocketStatusBox() {
             </div>
             {connected && (
                 <button
-                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded-sm bg-fail text-white hover:bg-fail transition"
+                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded-sm bg-fail text-white pointer-fine:hover:bg-fail transition"
                     onClick={handleKillServer}
                 >
                     Shutdown Server

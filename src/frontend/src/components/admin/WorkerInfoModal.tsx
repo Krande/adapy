@@ -144,7 +144,7 @@ const WorkerInfoModal: React.FC<{worker: WorkerEntry; now: number; onClose: () =
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"

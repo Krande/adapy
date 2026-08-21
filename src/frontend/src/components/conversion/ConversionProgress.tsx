@@ -36,7 +36,7 @@ const DismissButton: React.FC<{
         className={
             "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
             "border border-edge bg-surface-2 text-content cursor-pointer " +
-            "pointer-events-auto hover:bg-surface-3 hover:border-edge hover:text-white " +
+            "pointer-events-auto pointer-fine:hover:bg-surface-3 pointer-fine:hover:border-edge pointer-fine:hover:text-white " +
             "disabled:opacity-50 disabled:cursor-not-allowed"
         }
     >
@@ -74,7 +74,7 @@ const InfoButton: React.FC<{title?: string}> = ({
             className={
                 "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
                 "border border-accent bg-accent-subtle text-accent cursor-pointer " +
-                "pointer-events-auto hover:bg-accent hover:border-accent hover:text-white text-xs font-semibold no-underline"
+                "pointer-events-auto pointer-fine:hover:bg-accent pointer-fine:hover:border-accent pointer-fine:hover:text-white text-xs font-semibold no-underline"
             }
         >
             i
@@ -146,14 +146,14 @@ const CancelButton: React.FC<{
             <span className="text-content">{question}</span>
             <button
                 disabled={busy}
-                className="bg-fail hover:bg-fail text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-fail pointer-fine:hover:bg-fail text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={doCancel}
             >
                 {busy ? "…" : verb}
             </button>
             <button
                 disabled={busy}
-                className="bg-surface-2 hover:bg-surface-3 text-content rounded-sm px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={() => setConfirming(false)}
             >
                 No
@@ -195,7 +195,7 @@ const ErrorRow: React.FC<{
                 <button
                     type="button"
                     onClick={onCopy}
-                    className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
+                    className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                     title="Copy traceback to clipboard"
                 >
                     {copied ? "Copied" : "Copy"}
@@ -401,7 +401,7 @@ const ConversionRows: React.FC<{
                     <button
                         type="button"
                         onClick={() => setExpanded(!expanded)}
-                        className="text-[11px] text-accent hover:text-accent flex items-center gap-1"
+                        className="text-[11px] text-accent pointer-fine:hover:text-accent flex items-center gap-1"
                         title={expanded ? "Hide other jobs" : "Show other jobs"}
                     >
                         <span className="font-mono bg-accent-subtle border border-accent px-1.5 py-0.5 rounded-sm">
@@ -519,7 +519,7 @@ const UnifiedToast: React.FC<{
                                 <button
                                     type="button"
                                     onClick={() => onRemoveQueued(t.name)}
-                                    className="shrink-0 px-1 rounded-sm text-content-muted hover:text-fail hover:bg-surface-2 cursor-pointer"
+                                    className="shrink-0 px-1 rounded-sm text-content-muted pointer-fine:hover:text-fail pointer-fine:hover:bg-surface-2 cursor-pointer"
                                     title="Remove from load queue"
                                     aria-label={`Remove ${basename(t.name)} from load queue`}
                                 >
@@ -542,7 +542,7 @@ const UnifiedToast: React.FC<{
                     <button
                         type="button"
                         onClick={() => onClearLoadError(e.name)}
-                        className="shrink-0 px-1 rounded-sm text-content-muted hover:text-white hover:bg-surface-2 cursor-pointer"
+                        className="shrink-0 px-1 rounded-sm text-content-muted pointer-fine:hover:text-white pointer-fine:hover:bg-surface-2 cursor-pointer"
                         title="Dismiss"
                         aria-label={`Dismiss error for ${basename(e.name)}`}
                     >
@@ -620,7 +620,7 @@ const AuditActivityBadge: React.FC = () => {
             type="button"
             onClick={() => openPanel("admin", "audit_runs")}
             className={
-                "block w-full text-left bg-accent-subtle hover:bg-accent-subtle border border-accent " +
+                "block w-full text-left bg-accent-subtle pointer-fine:hover:bg-accent-subtle border border-accent " +
                 "text-accent rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
                 "pointer-events-auto cursor-pointer"
             }

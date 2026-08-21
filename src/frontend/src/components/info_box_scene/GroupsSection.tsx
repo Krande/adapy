@@ -322,7 +322,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <button
                         type="button"
                         onClick={() => onSelect(null)}
-                        className="ml-1 px-1.5 bg-surface-2 border border-edge rounded-sm text-xs text-content hover:bg-surface-3"
+                        className="ml-1 px-1.5 bg-surface-2 border border-edge rounded-sm text-xs text-content pointer-fine:hover:bg-surface-3"
                         title="Clear selection"
                         aria-label="Clear selection"
                     >
@@ -380,7 +380,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                                 "absolute left-0 right-0 px-2 text-left text-xs truncate " +
                                                 (isSelected
                                                     ? "bg-accent-subtle"
-                                                    : "hover:bg-surface-2")
+                                                    : "pointer-fine:hover:bg-surface-2")
                                             }
                                             style={{
                                                 top: vRow.start,

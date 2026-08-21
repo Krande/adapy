@@ -145,7 +145,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                     {refreshing && <span className="text-xs font-normal text-content-subtle">refreshing…</span>}
                     <button
                         type="button"
-                        className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 hover:bg-surface-3 text-content disabled:opacity-50"
+                        className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 pointer-fine:hover:bg-surface-3 text-content disabled:opacity-50"
                         disabled={loading || refreshing}
                         onClick={() => void load("revalidate")}
                         title="Re-list this scope's files"

@@ -78,7 +78,7 @@ const ConvertDropZone: React.FC = () => {
                 "rounded-md border-2 border-dashed cursor-pointer p-8 text-center transition-colors " +
                 (dragging
                     ? "border-accent bg-accent-subtle text-accent"
-                    : "border-edge bg-surface-0 text-content hover:border-edge hover:bg-surface-0")
+                    : "border-edge bg-surface-0 text-content pointer-fine:hover:border-edge pointer-fine:hover:bg-surface-0")
             }
         >
             <input

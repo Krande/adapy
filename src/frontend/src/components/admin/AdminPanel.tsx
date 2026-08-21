@@ -16,6 +16,7 @@ import StorageTab from "./StorageTab";
 import SystemAdminPanel from "./SystemAdminPanel";
 import ProceduralEngineAdminPanel from "./ProceduralEngineAdminPanel";
 import WorkersTab from "./WorkersTab";
+import {Tabs} from "@/components/ui";
 
 // Path-mounted admin page (``/admin``) — full-screen on every
 // viewport, with the active tab serialised into the URL hash so a
@@ -30,11 +31,31 @@ import WorkersTab from "./WorkersTab";
 // specific tab without touching state, e.g. the conversion-toast
 // info icon hard-codes ``/admin#audit``.
 
-const VALID_TABS = new Set<AdminTab>([
-    "audit", "audit_runs", "schedules", "issues", "performance",
-    "frontend_loads", "corpus", "projects", "storage", "workers", "conversion",
-    "equipment", "system", "engines",
-]);
+/**
+ * The tab strip, as data.
+ *
+ * VALID_TABS below is derived from it rather than written out a second time: the two lists
+ * disagreeing is how a tab ends up rendering but refusing to survive a reload, since the
+ * hash parser would reject the very id the strip just set.
+ */
+const ADMIN_TABS: {id: AdminTab; label: string}[] = [
+    {id: "audit", label: "Audit Log"},
+    {id: "audit_runs", label: "Audit Runs"},
+    {id: "schedules", label: "Schedules"},
+    {id: "issues", label: "Issues"},
+    {id: "performance", label: "Performance"},
+    {id: "frontend_loads", label: "Frontend Loads"},
+    {id: "corpus", label: "Corpus"},
+    {id: "projects", label: "Projects"},
+    {id: "storage", label: "Storage"},
+    {id: "workers", label: "Workers"},
+    {id: "conversion", label: "Conversion"},
+    {id: "equipment", label: "Equipment"},
+    {id: "system", label: "System"},
+    {id: "engines", label: "Engines"},
+];
+
+const VALID_TABS = new Set<AdminTab>(ADMIN_TABS.map((t) => t.id));
 
 function readTabFromHash(): AdminTab {
     const raw = (window.location.hash || "").replace(/^#/, "").trim() as AdminTab;
@@ -91,7 +112,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     </p>
                     <a
                         href="/"
-                        className="inline-block text-sm text-accent hover:text-accent"
+                        className="inline-block text-sm text-accent pointer-fine:hover:text-accent"
                     >
                         ← back to viewer
                     </a>
@@ -110,56 +131,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
         // each tab have a definite parent height to clamp against.
         <div className="h-full flex flex-col bg-surface-0 text-white overflow-hidden">
             <header className="flex items-center gap-2 border-b border-edge px-3 py-2 sm:px-4 shrink-0">
-                <div className="flex-1 min-w-0 overflow-x-auto flex gap-1 text-sm">
-                    <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>
-                        Audit Log
-                    </TabButton>
-                    <TabButton active={tab === "audit_runs"} onClick={() => setTab("audit_runs")}>
-                        Audit Runs
-                    </TabButton>
-                    <TabButton active={tab === "schedules"} onClick={() => setTab("schedules")}>
-                        Schedules
-                    </TabButton>
-                    <TabButton active={tab === "issues"} onClick={() => setTab("issues")}>
-                        Issues
-                    </TabButton>
-                    <TabButton active={tab === "performance"} onClick={() => setTab("performance")}>
-                        Performance
-                    </TabButton>
-                    <TabButton active={tab === "frontend_loads"} onClick={() => setTab("frontend_loads")}>
-                        Frontend Loads
-                    </TabButton>
-                    <TabButton active={tab === "corpus"} onClick={() => setTab("corpus")}>
-                        Corpus
-                    </TabButton>
-                    <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
-                        Projects
-                    </TabButton>
-                    <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
-                        Storage
-                    </TabButton>
-                    <TabButton active={tab === "workers"} onClick={() => setTab("workers")}>
-                        Workers
-                    </TabButton>
-                    <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
-                        Conversion
-                    </TabButton>
-                    <TabButton active={tab === "equipment"} onClick={() => setTab("equipment")}>
-                        Equipment
-                    </TabButton>
-                    <TabButton active={tab === "system"} onClick={() => setTab("system")}>
-                        System
-                    </TabButton>
-                    <TabButton active={tab === "engines"} onClick={() => setTab("engines")}>
-                        Engines
-                    </TabButton>
-                </div>
+                <Tabs
+                    label="Admin sections"
+                    variant="pill"
+                    className="flex-1 min-w-0"
+                    value={tab}
+                    onChange={(id) => setTab(id as AdminTab)}
+                    items={ADMIN_TABS.map((t) => ({id: t.id, label: t.label}))}
+                />
                 <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
                     {!embedded && (
                         <a
                             href="/"
-                            className="text-sm text-accent hover:text-accent px-2 py-1"
+                            className="text-sm text-accent pointer-fine:hover:text-accent px-2 py-1"
                             title="Back to viewer"
                         >
                             ← viewer
@@ -198,21 +183,5 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
         </div>
     );
 };
-
-const TabButton: React.FC<{
-    active: boolean;
-    onClick: () => void;
-    children: React.ReactNode;
-}> = ({active, onClick, children}) => (
-    <button
-        className={
-            "px-3 py-2 rounded-sm text-sm whitespace-nowrap " +
-            (active ? "bg-surface-2 text-white" : "text-content hover:bg-surface-0")
-        }
-        onClick={onClick}
-    >
-        {children}
-    </button>
-);
 
 export default AdminPanel;

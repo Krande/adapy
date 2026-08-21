@@ -234,7 +234,7 @@ const SimTabButton: React.FC<{
                 "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 text-sm " +
                 (active
                     ? "border-accent text-[var(--ada-panel-text)]"
-                    : "border-transparent text-content-muted hover:text-[var(--ada-panel-text)]")
+                    : "border-transparent text-content-muted pointer-fine:hover:text-[var(--ada-panel-text)]")
             }
         >
             {contextual && <span className="w-1.5 h-1.5 rounded-full bg-info" aria-hidden="true" />}
@@ -266,7 +266,7 @@ const PluginTabBody: React.FC<{pluginId: string; panel: PanelSlot; ctx: AdaPlugi
                     <button
                         type="button"
                         onClick={reset}
-                        className="rounded-sm bg-surface-2 px-2 py-1 text-white hover:bg-surface-3"
+                        className="rounded-sm bg-surface-2 px-2 py-1 text-white pointer-fine:hover:bg-surface-3"
                     >
                         Retry
                     </button>

@@ -119,7 +119,7 @@ const CellBuilderInsertMenu: React.FC = () => {
               "px-2 py-0.5 rounded-sm " +
               (value === o.v
                 ? "bg-accent text-white"
-                : "bg-surface-2 text-content hover:bg-surface-3")
+                : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
             }
           >
             {o.label}
@@ -185,14 +185,14 @@ const CellBuilderInsertMenu: React.FC = () => {
           <div className="flex items-center gap-1 justify-end pt-0.5">
             <button
               type="button"
-              className="px-2 py-1 rounded-sm bg-surface-3 text-white hover:bg-surface-3"
+              className="px-2 py-1 rounded-sm bg-surface-3 text-white pointer-fine:hover:bg-surface-3"
               onClick={close}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="px-2 py-1 rounded-sm bg-accent text-white hover:bg-accent disabled:opacity-50"
+              className="px-2 py-1 rounded-sm bg-accent text-white pointer-fine:hover:bg-accent disabled:opacity-50"
               disabled={!cellId}
               onClick={() => {
                 if (!cellId) return;

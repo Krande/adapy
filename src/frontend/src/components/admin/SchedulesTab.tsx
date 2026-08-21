@@ -159,7 +159,7 @@ const NewScheduleForm: React.FC<{
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-accent hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Saving…" : "Add schedule"}
             </button>
@@ -269,8 +269,8 @@ const ScheduleRow: React.FC<{
                     className={
                         "px-2 py-0.5 rounded-sm text-[11px] border disabled:opacity-50 " +
                         (schedule.enabled
-                            ? "border-warn text-warn hover:bg-warn-subtle"
-                            : "border-pass text-pass hover:bg-pass-subtle")
+                            ? "border-warn text-warn pointer-fine:hover:bg-warn-subtle"
+                            : "border-pass text-pass pointer-fine:hover:bg-pass-subtle")
                     }
                 >
                     {schedule.enabled ? "Disable" : "Enable"}
@@ -279,7 +279,7 @@ const ScheduleRow: React.FC<{
                     type="button"
                     onClick={fireNow}
                     disabled={busy !== null || !schedule.enabled}
-                    className="px-2 py-0.5 rounded-sm text-[11px] border border-accent text-accent hover:bg-accent-subtle disabled:opacity-50"
+                    className="px-2 py-0.5 rounded-sm text-[11px] border border-accent text-accent pointer-fine:hover:bg-accent-subtle disabled:opacity-50"
                     title={schedule.enabled
                         ? "Dispatch this sweep right now, regardless of the cron slot"
                         : "Re-enable the schedule first"}
@@ -290,7 +290,7 @@ const ScheduleRow: React.FC<{
                     type="button"
                     onClick={archive}
                     disabled={busy !== null}
-                    className="px-2 py-0.5 rounded-sm text-[11px] border border-fail text-fail hover:bg-fail-subtle disabled:opacity-50"
+                    className="px-2 py-0.5 rounded-sm text-[11px] border border-fail text-fail pointer-fine:hover:bg-fail-subtle disabled:opacity-50"
                 >
                     Archive
                 </button>

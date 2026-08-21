@@ -141,7 +141,7 @@ const FaceSearchSection: React.FC = () => {
                                 key={`${e.uniqueKey}:${e.faceId}:${e.seq}`}
                                 type="button"
                                 onClick={() => selectFace(e)}
-                                className="block w-full text-left px-2 py-0.5 text-xs text-content hover:bg-accent"
+                                className="block w-full text-left px-2 py-0.5 text-xs text-content pointer-fine:hover:bg-accent"
                             >
                                 Face #{e.faceId} <span className="text-content-muted">(seq {e.seq})</span>
                             </button>

@@ -68,14 +68,14 @@ const ProceduralSystemSection: React.FC<Props> = ({objectName}) => {
     const equipmentConns = system.connections.filter((c) => c.equipment);
     const siteConns = system.connections.filter((c) => c.site);
     const linkCls =
-        'text-blue-300 hover:text-blue-200 hover:underline cursor-pointer';
+        'text-blue-300 pointer-fine:hover:text-blue-200 pointer-fine:hover:underline cursor-pointer';
 
     return (
         <div className="mt-2">
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                className="flex items-center gap-1 text-[12px] text-gray-100 pointer-fine:hover:text-white"
                 aria-expanded={expanded}
                 aria-controls="procedural-system"
             >

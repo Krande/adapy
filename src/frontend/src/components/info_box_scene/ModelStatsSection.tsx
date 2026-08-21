@@ -42,7 +42,7 @@ function CompactCard({ stats }: { stats: ModelStats }) {
           onClick={openDetail}
           title="Open detailed statistics"
           aria-label="Open detailed statistics"
-          className="shrink-0 grid place-items-center w-6 h-6 rounded-sm border border-edge bg-surface-0 text-content hover:text-white hover:bg-surface-2"
+          className="shrink-0 grid place-items-center w-6 h-6 rounded-sm border border-edge bg-surface-0 text-content pointer-fine:hover:text-white pointer-fine:hover:bg-surface-2"
         >
           <ExpandIcon />
         </button>

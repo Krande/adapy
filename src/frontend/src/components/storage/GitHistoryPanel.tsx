@@ -172,7 +172,7 @@ const GitHistoryPanel: React.FC<Props> = ({
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -225,7 +225,7 @@ const CommitRow: React.FC<CommitRowProps> = ({
     onToggle,
 }) => {
     return (
-        <li className="border border-edge rounded-sm bg-surface-0 hover:bg-surface-0 transition-colors">
+        <li className="border border-edge rounded-sm bg-surface-0 pointer-fine:hover:bg-surface-0 transition-colors">
             <div className="flex items-center gap-2 px-2 py-2 flex-wrap">
                 <span
                     className={`px-2 py-0.5 rounded-sm text-[10px] font-mono text-white ${branchChipClass(row.branch)}`}
@@ -278,8 +278,8 @@ const CommitRow: React.FC<CommitRowProps> = ({
                                     "px-2 py-1 rounded-sm text-[10px] font-mono whitespace-nowrap " +
                                     "disabled:opacity-50 disabled:cursor-not-allowed " +
                                     (isLoaded
-                                        ? "bg-accent hover:bg-accent text-white"
-                                        : "bg-surface-2 hover:bg-surface-3 text-content")
+                                        ? "bg-accent pointer-fine:hover:bg-accent text-white"
+                                        : "bg-surface-2 pointer-fine:hover:bg-surface-3 text-content")
                                 }
                                 title={
                                     isLoaded

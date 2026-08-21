@@ -75,7 +75,7 @@ const UploadContextMenu: React.FC = () => {
                         <div className="flex items-start gap-2">
                             <span className="text-fail break-all">{error}</span>
                             <button
-                                className="text-content-muted hover:text-content"
+                                className="text-content-muted pointer-fine:hover:text-content"
                                 onClick={() => setError(null)}
                             >
                                 ×

@@ -2,8 +2,10 @@ import {test, describe} from "node:test";
 import assert from "node:assert/strict";
 import {arrangeRail, canHide, customisableTools} from "@/shell/railArrangement";
 
-const t = (id: string, extra: Record<string, unknown> = {}) => ({id, ...extra});
-const d = (id: string) => ({id, divider: true});
+import type {RailItem} from "@/shell/railArrangement";
+
+const t = (id: string, extra: Partial<RailItem> = {}): RailItem => ({id, ...extra});
+const d = (id: string): RailItem => ({id, divider: true});
 
 // files │ fit · focus │ hide · show-all │ undo — the shape of the real rail.
 const RAIL = [

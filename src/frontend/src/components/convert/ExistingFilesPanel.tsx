@@ -62,7 +62,7 @@ const DerivedRow: React.FC<{
                 <button
                     type="button"
                     onClick={onDownload}
-                    className="bg-pass-subtle hover:bg-pass text-white text-xs px-2 py-0.5 rounded-sm"
+                    className="bg-pass-subtle pointer-fine:hover:bg-pass text-white text-xs px-2 py-0.5 rounded-sm"
                 >
                     Download
                 </button>
@@ -70,7 +70,7 @@ const DerivedRow: React.FC<{
                     <button
                         type="button"
                         onClick={onViewIn3D}
-                        className="bg-surface-2 hover:bg-surface-3 text-content text-xs px-2 py-0.5 rounded-sm"
+                        className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content text-xs px-2 py-0.5 rounded-sm"
                     >
                         View in 3D ↗
                     </button>
@@ -98,7 +98,7 @@ const ProfileResultsGroup: React.FC<{
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="flex items-center gap-1 text-[11px] text-content-muted hover:text-content"
+                className="flex items-center gap-1 text-[11px] text-content-muted pointer-fine:hover:text-content"
                 aria-expanded={open}
             >
                 <span className={"inline-block transition-transform " + (open ? "rotate-90" : "")}>▸</span>
@@ -156,7 +156,7 @@ const ExistingSourceCard: React.FC<{
                     <button
                         type="button"
                         onClick={onConvertAgain}
-                        className="shrink-0 bg-accent hover:bg-accent text-white text-xs px-2 py-1 rounded-sm"
+                        className="shrink-0 bg-accent pointer-fine:hover:bg-accent text-white text-xs px-2 py-1 rounded-sm"
                         title="Convert this source to another format"
                     >
                         Convert…
@@ -228,7 +228,7 @@ const ExistingFilesPanel: React.FC = () => {
                     type="button"
                     onClick={() => void reload()}
                     disabled={loading}
-                    className="text-xs text-accent hover:text-accent disabled:opacity-50"
+                    className="text-xs text-accent pointer-fine:hover:text-accent disabled:opacity-50"
                 >
                     {loading ? "Refreshing…" : "Refresh"}
                 </button>

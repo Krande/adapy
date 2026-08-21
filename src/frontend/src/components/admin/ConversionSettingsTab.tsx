@@ -428,7 +428,7 @@ const ConversionSettingsTab: React.FC = () => {
                                 type="button"
                                 onClick={onTimeoutSave}
                                 disabled={timeoutSaving}
-                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent pointer-fine:hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {timeoutSaving ? "Saving…" : "Save"}
                             </button>
@@ -472,7 +472,7 @@ const ConversionSettingsTab: React.FC = () => {
                                 type="button"
                                 onClick={onStreamerThresholdSave}
                                 disabled={streamerSaving}
-                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent pointer-fine:hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {streamerSaving ? "Saving…" : "Save"}
                             </button>
@@ -516,7 +516,7 @@ const ConversionSettingsTab: React.FC = () => {
                                 type="button"
                                 onClick={onSolidTimeoutSave}
                                 disabled={solidTimeoutSaving}
-                                className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                                className="bg-accent pointer-fine:hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                             >
                                 {solidTimeoutSaving ? "Saving…" : "Save"}
                             </button>
@@ -703,7 +703,7 @@ const NumberSetting: React.FC<{
                     type="button"
                     onClick={save}
                     disabled={saving}
-                    className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-accent pointer-fine:hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                 >
                     {saving ? "Saving…" : "Save"}
                 </button>
@@ -774,7 +774,7 @@ const StringSetting: React.FC<{
                     type="button"
                     onClick={save}
                     disabled={saving}
-                    className="bg-accent hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-accent pointer-fine:hover:bg-accent text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
                 >
                     {saving ? "Saving…" : "Save"}
                 </button>
@@ -803,7 +803,7 @@ const TriSelect: React.FC<{
                 "px-3 py-1 text-xs border " +
                 (value === v
                     ? "bg-accent text-white border-accent"
-                    : "bg-surface-0 text-content border-edge hover:bg-surface-2")
+                    : "bg-surface-0 text-content border-edge pointer-fine:hover:bg-surface-2")
             }
         >
             {label}

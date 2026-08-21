@@ -26,7 +26,7 @@ import {
 // tool panel (CellBuilderPanel), not here.
 
 const btn =
-  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
 const inputCls =
   "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5";
 
@@ -187,7 +187,7 @@ const EquipmentSystems: React.FC<{
   return (
     <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-surface-2 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -398,7 +398,7 @@ const LoftFaces: React.FC<{
   return (
     <div className="border border-edge rounded-sm p-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-surface-2 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -491,7 +491,7 @@ const LoftInfo: React.FC<{
               "px-1.5 py-0.5 rounded-sm " +
               (gizmoMode === m
                 ? "bg-accent text-white"
-                : "bg-surface-2 text-content hover:bg-surface-3")
+                : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
             }
             onClick={() => setGizmoMode(m)}
             aria-pressed={gizmoMode === m}
@@ -577,7 +577,7 @@ const MetadataFields: React.FC<{
   return (
     <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-surface-2 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -619,7 +619,7 @@ const MetadataFields: React.FC<{
                 title="Value — numbers, true/false and JSON are stored typed; anything else stays text"
               />
               <button
-                className="px-1 rounded-sm text-content-muted hover:bg-surface-3 hover:text-white"
+                className="px-1 rounded-sm text-content-muted pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-white"
                 onClick={() => remove(k)}
                 title="Remove field"
               >
@@ -664,7 +664,7 @@ const ShowAsCadToggle: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
         "self-start px-2 py-1 rounded-sm " +
         (on
           ? "bg-accent text-white"
-          : "bg-surface-2 text-content hover:bg-surface-3")
+          : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
       }
       onClick={() => toggleCadPreview(cell.id)}
       aria-pressed={on}
@@ -736,7 +736,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   return (
     <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-surface-2 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -745,7 +745,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
         </span>
         <span className="font-semibold truncate">{title}</span>
         <span
-          className="ml-auto px-1 rounded-sm hover:bg-surface-3"
+          className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
           title="Clear selection (Esc)"
           onClick={(e) => {
             e.stopPropagation();
@@ -785,7 +785,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                     "px-1.5 py-0.5 rounded-sm " +
                     (gizmoMode === m
                       ? "bg-accent text-white"
-                      : "bg-surface-2 text-content hover:bg-surface-3")
+                      : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
                   }
                   onClick={() => setGizmoMode(m)}
                   aria-pressed={gizmoMode === m}
@@ -898,7 +898,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           {selection.kind === "cell" && (
             <div className="border-t border-edge pt-1">
               <button
-                className="flex items-center gap-1 w-full text-left hover:bg-surface-2 rounded-sm px-1"
+                className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
                 onClick={() => setPropsOpen((v) => !v)}
                 aria-expanded={propsOpen}
               >

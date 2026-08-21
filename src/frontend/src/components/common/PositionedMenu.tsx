@@ -167,8 +167,8 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
                         title={item.title}
                         className={
                             "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs " +
-                            "hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent " +
-                            (item.destructive ? "text-fail hover:text-fail " : "")
+                            "pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent " +
+                            (item.destructive ? "text-fail pointer-fine:hover:text-fail " : "")
                         }
                     >
                         {item.icon && (

@@ -96,7 +96,7 @@ export const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                 <button
                     type="button"
                     onClick={props.onOpenGitHistory}
-                    className="text-[10px] px-1.5 py-0.5 rounded-sm bg-surface-2 hover:bg-surface-3 text-white"
+                    className="text-[10px] px-1.5 py-0.5 rounded-sm bg-surface-2 pointer-fine:hover:bg-surface-3 text-white"
                     title="Open chronological commit timeline with author + parent links"
                 >
                     Git history
@@ -110,7 +110,7 @@ export const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                             <button
                                 type="button"
                                 onClick={() => toggleBranch(b.encodedBranch)}
-                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-surface-0"
+                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full pointer-fine:hover:bg-surface-0"
                                 aria-expanded={branchOpen}
                                 title={b.displayBranch}
                             >
@@ -135,7 +135,7 @@ export const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleCommit(commitKey)}
-                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-surface-0"
+                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full pointer-fine:hover:bg-surface-0"
                                                     style={{paddingLeft: "16px"}}
                                                     aria-expanded={commitOpen}
                                                 >

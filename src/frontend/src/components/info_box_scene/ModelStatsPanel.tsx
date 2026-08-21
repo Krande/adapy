@@ -62,7 +62,7 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="hover:bg-surface-0">
+            <tr key={i} className="pointer-fine:hover:bg-surface-0">
               {cols.map((c) => (
                 <td
                   key={c.key}
@@ -482,7 +482,7 @@ const ModelStatsPanel = () => {
               aria-haspopup="true"
               aria-expanded={exportMenuOpen}
               disabled={exporting}
-              className="inline-flex items-center gap-1.5 bg-accent hover:bg-accent text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 bg-accent pointer-fine:hover:bg-accent text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
             >
               <DownloadIcon /> Export <span aria-hidden="true" className="opacity-70">▾</span>
             </button>
@@ -491,7 +491,7 @@ const ModelStatsPanel = () => {
                 <button
                   type="button"
                   onClick={() => void exportStats("xlsx")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-2 text-left"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs pointer-fine:hover:bg-surface-2 text-left"
                 >
                   <span className="text-[10px] font-bold border border-edge rounded px-1 py-0.5 text-content">XLSX</span>
                   Excel workbook
@@ -499,7 +499,7 @@ const ModelStatsPanel = () => {
                 <button
                   type="button"
                   onClick={() => void exportStats("csv")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-2 text-left"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs pointer-fine:hover:bg-surface-2 text-left"
                 >
                   <span className="text-[10px] font-bold border border-edge rounded px-1 py-0.5 text-content">CSV</span>
                   Comma-separated
@@ -515,7 +515,7 @@ const ModelStatsPanel = () => {
             onClick={closeDetail}
             title="Close"
             aria-label="Close"
-            className="shrink-0 grid place-items-center w-7 h-7 rounded-md border border-edge bg-surface-0 text-content hover:text-white hover:bg-surface-2"
+            className="shrink-0 grid place-items-center w-7 h-7 rounded-md border border-edge bg-surface-0 text-content pointer-fine:hover:text-white pointer-fine:hover:bg-surface-2"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3.5 h-3.5">
               <path d="M6 6l12 12M18 6L6 18" />
@@ -536,7 +536,7 @@ const ModelStatsPanel = () => {
                 "whitespace-nowrap px-3 py-2 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 " +
                 (activeTab === t.key
                   ? "border-accent text-[var(--ada-panel-text)]"
-                  : "border-transparent text-content-muted hover:text-[var(--ada-panel-text)]")
+                  : "border-transparent text-content-muted pointer-fine:hover:text-[var(--ada-panel-text)]")
               }
             >
               {t.color && <span className="w-1.5 h-1.5 rounded-sm" style={{ background: t.color }} />}

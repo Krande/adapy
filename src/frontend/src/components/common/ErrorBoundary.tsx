@@ -90,7 +90,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-sm bg-accent px-3 py-1 text-white hover:bg-accent active:bg-accent-subtle"
+              className="rounded-sm bg-accent px-3 py-1 text-white pointer-fine:hover:bg-accent active:bg-accent-subtle"
             >
               Reload viewer
             </button>
@@ -107,7 +107,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <button
           type="button"
           onClick={this.reset}
-          className="rounded-sm bg-surface-2 px-2 py-1 text-white hover:bg-surface-3 active:bg-surface-0"
+          className="rounded-sm bg-surface-2 px-2 py-1 text-white pointer-fine:hover:bg-surface-3 active:bg-surface-0"
         >
           Retry
         </button>

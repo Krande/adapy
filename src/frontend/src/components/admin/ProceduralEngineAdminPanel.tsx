@@ -9,8 +9,8 @@ import type { ProceduralEngineKind } from "@/services/viewerApi";
 // present and read-only.
 
 const btn =
-  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
-const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white hover:bg-fail";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
+const btnDanger = "px-1.5 rounded-sm bg-fail-subtle text-white pointer-fine:hover:bg-fail";
 const inputCls =
   "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-full";
 
@@ -40,7 +40,7 @@ const ProceduralEngineAdminPanel: React.FC<{ embedded?: boolean }> = ({
       <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-surface-0 border-b border-edge">
         {draft && (
           <button
-            className="px-1 rounded-sm hover:bg-surface-3"
+            className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
             title="Back to registry"
             onClick={() => void store.getState().select(null)}
           >
@@ -52,7 +52,7 @@ const ProceduralEngineAdminPanel: React.FC<{ embedded?: boolean }> = ({
         </span>
         {!draft && (
           <button
-            className="ml-auto px-1 rounded-sm hover:bg-surface-3"
+            className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
             title="Refresh"
             onClick={() => void store.getState().refresh()}
           >
@@ -104,7 +104,7 @@ const ProceduralEngineAdminPanel: React.FC<{ embedded?: boolean }> = ({
                     (builtin ? "text-content " : "cursor-pointer ") +
                     (e.id === selectedId
                       ? "bg-accent-subtle"
-                      : "hover:bg-surface-2")
+                      : "pointer-fine:hover:bg-surface-2")
                   }
                   onClick={() =>
                     builtin ? undefined : void store.getState().select(e.id)

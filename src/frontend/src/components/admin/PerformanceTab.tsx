@@ -134,7 +134,7 @@ const ThresholdEditor: React.FC<{
                     type="button"
                     onClick={save}
                     disabled={busy}
-                    className="bg-accent hover:bg-accent disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
+                    className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
                 >
                     {busy ? "Saving…" : "Save thresholds"}
                 </button>
@@ -255,7 +255,7 @@ const HotspotsPanel: React.FC<{
                         {data.functions.map((row) => (
                             <tr
                                 key={`${row.file}:${row.line}:${row.func}`}
-                                className="border-t border-edge hover:bg-surface-0"
+                                className="border-t border-edge pointer-fine:hover:bg-surface-0"
                             >
                                 <td className="px-2 py-1 text-right text-warn font-mono">
                                     {row.agg_cumtime.toFixed(2)}
@@ -473,7 +473,7 @@ const PerformanceTab: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setShowThresholds(!showThresholds)}
-                    className="text-xs text-accent hover:text-accent ml-auto"
+                    className="text-xs text-accent pointer-fine:hover:text-accent ml-auto"
                 >
                     {showThresholds ? "hide" : "edit"} thresholds
                 </button>
@@ -540,7 +540,7 @@ const PerformanceTab: React.FC = () => {
                                     <React.Fragment key={key}>
                                         <tr
                                             className={
-                                                "border-t border-edge hover:bg-surface-0 " +
+                                                "border-t border-edge pointer-fine:hover:bg-surface-0 " +
                                                 (c.streaming.is_candidate ? "bg-warn-subtle" : "")
                                             }
                                         >
@@ -548,7 +548,7 @@ const PerformanceTab: React.FC = () => {
                                                 <button
                                                     type="button"
                                                     onClick={() => setExpanded(isOpen ? null : key)}
-                                                    className="text-accent hover:text-accent font-mono"
+                                                    className="text-accent pointer-fine:hover:text-accent font-mono"
                                                     title={isOpen ? "Hide hotspots" : "Show top functions by cumtime"}
                                                 >
                                                     {isOpen ? "▾" : "▸"}
@@ -620,7 +620,7 @@ const Th: React.FC<{
         className={
             "px-2 py-1 border-b border-edge font-medium whitespace-nowrap " +
             (align === "right" ? "text-right " : align === "center" ? "text-center " : "") +
-            (onClick ? "cursor-pointer hover:text-accent" : "")
+            (onClick ? "cursor-pointer pointer-fine:hover:text-accent" : "")
         }
         onClick={onClick}
     >

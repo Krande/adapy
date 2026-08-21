@@ -66,8 +66,8 @@ export const SystemsTab: React.FC = () => {
             className={
               "px-1.5 py-0.5 rounded-sm text-white " +
               (highlighted
-                ? "bg-emerald-600 hover:bg-emerald-500"
-                : "bg-surface-2 hover:bg-surface-3")
+                ? "bg-emerald-600 pointer-fine:hover:bg-emerald-500"
+                : "bg-surface-2 pointer-fine:hover:bg-surface-3")
             }
             title="Tint each system's routed geometry with its own colour (dims the rest). Needs a compiled model."
             onClick={() => {
@@ -78,7 +78,7 @@ export const SystemsTab: React.FC = () => {
             Highlight systems
           </button>
           <button
-            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content hover:bg-surface-3 disabled:opacity-40"
+            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content pointer-fine:hover:bg-surface-3 disabled:opacity-40"
             disabled={!highlighted}
             title="Restore the original geometry colours"
             onClick={() => {
@@ -106,7 +106,7 @@ export const SystemsTab: React.FC = () => {
           ))}
         </select>
         <button
-          className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content hover:bg-surface-3 disabled:opacity-40"
+          className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content pointer-fine:hover:bg-surface-3 disabled:opacity-40"
           disabled={!selectedAdd}
           onClick={() =>
             selectedAdd &&
@@ -122,7 +122,7 @@ export const SystemsTab: React.FC = () => {
         </button>
         {selectedAdd?.origin === "code" && (
           <button
-            className="px-1 rounded-sm text-sky-300 hover:bg-surface-3"
+            className="px-1 rounded-sm text-sky-300 pointer-fine:hover:bg-surface-3"
             title="Sync this built-in system kind into the scope's DB catalog"
             onClick={() => void s.syncSystemTypeToDb(selectedAdd.slug)}
           >
@@ -173,7 +173,7 @@ export const SystemsTab: React.FC = () => {
               ))}
             </select>
             <button
-              className="px-1 rounded-sm hover:bg-surface-3"
+              className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
               title="Delete system"
               onClick={() => s.removeSystem(sys.id)}
             >
@@ -203,7 +203,7 @@ export const SystemsTab: React.FC = () => {
                 </span>
               )}
               <button
-                className="ml-auto px-1 rounded-sm hover:bg-surface-3"
+                className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                 title="Remove connection"
                 onClick={() => s.removeSystemConnection(sys.id, i)}
               >

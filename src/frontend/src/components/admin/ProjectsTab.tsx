@@ -84,7 +84,7 @@ const ProjectsTab: React.FC = () => {
                         <button
                             key={p.id}
                             className={
-                                "w-full text-left px-3 py-3 sm:py-2 border-b border-edge hover:bg-surface-0 " +
+                                "w-full text-left px-3 py-3 sm:py-2 border-b border-edge pointer-fine:hover:bg-surface-0 " +
                                 (selected?.id === p.id ? "bg-surface-0" : "")
                             }
                             onClick={() => setSelected(p)}
@@ -169,7 +169,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             />
             <button
                 type="submit"
-                className="w-full bg-accent hover:bg-accent px-2 py-2 rounded-sm text-sm disabled:opacity-50"
+                className="w-full bg-accent pointer-fine:hover:bg-accent px-2 py-2 rounded-sm text-sm disabled:opacity-50"
                 disabled={!name.trim() || !effectiveSlug}
             >
                 Create project
@@ -270,7 +270,7 @@ const MemberPane: React.FC<{
             <div className="px-3 sm:px-4 py-3 border-b border-edge">
                 <div className="flex items-center gap-2 mb-1">
                     <button
-                        className="sm:hidden bg-surface-0 hover:bg-surface-2 text-xs px-2 py-1 rounded-sm"
+                        className="sm:hidden bg-surface-0 pointer-fine:hover:bg-surface-2 text-xs px-2 py-1 rounded-sm"
                         onClick={onBack}
                     >
                         ← Projects
@@ -286,7 +286,7 @@ const MemberPane: React.FC<{
                     {!project.archived_at && (
                         <div className="flex shrink-0 gap-1">
                             <button
-                                className="text-xs bg-surface-0 hover:bg-surface-2 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
+                                className="text-xs bg-surface-0 pointer-fine:hover:bg-surface-2 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
                                 onClick={() => void onMintCiBot()}
                                 disabled={ciBotBusy}
                                 title="Mint or rotate the CI bot bearer for this project"
@@ -298,7 +298,7 @@ const MemberPane: React.FC<{
                                         : "Mint CI bot"}
                             </button>
                             <button
-                                className="text-xs bg-fail hover:bg-fail px-2 py-1 rounded-sm"
+                                className="text-xs bg-fail pointer-fine:hover:bg-fail px-2 py-1 rounded-sm"
                                 onClick={onArchive}
                             >
                                 Archive
@@ -333,7 +333,7 @@ const MemberPane: React.FC<{
                             <option value="owner">owner</option>
                         </select>
                         <button
-                            className="bg-accent hover:bg-accent px-3 py-2 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent px-3 py-2 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => void onAdd()}
                             disabled={adding || !newSub.trim()}
                         >
@@ -381,7 +381,7 @@ const MemberPane: React.FC<{
                             <Td>
                                 {!project.archived_at && (
                                     <button
-                                        className="text-fail hover:text-fail"
+                                        className="text-fail pointer-fine:hover:text-fail"
                                         onClick={() => onRemove(m.user_sub)}
                                     >
                                         remove
@@ -410,7 +410,7 @@ const MemberPane: React.FC<{
                                 </div>
                                 {!project.archived_at && (
                                     <button
-                                        className="text-fail hover:text-fail text-xs px-2 py-1 rounded-sm border border-fail"
+                                        className="text-fail pointer-fine:hover:text-fail text-xs px-2 py-1 rounded-sm border border-fail"
                                         onClick={() => onRemove(m.user_sub)}
                                     >
                                         Remove
@@ -490,7 +490,7 @@ const CiBotTokenModal: React.FC<{
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -507,7 +507,7 @@ const CiBotTokenModal: React.FC<{
                         <button
                             type="button"
                             onClick={onCopy}
-                            className="shrink-0 bg-surface-0 hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
+                            className="shrink-0 bg-surface-0 pointer-fine:hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                         >
                             {copied ? "Copied" : "Copy"}
                         </button>

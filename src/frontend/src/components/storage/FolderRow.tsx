@@ -78,7 +78,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
             data-rowkey={rowKey}
             className={
                 "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none " +
-                "hover:bg-surface-0 " +
+                "pointer-fine:hover:bg-surface-0 " +
                 (dragHover > 0 ? "ring-1 ring-accent bg-accent-subtle " : "") +
                 (focused && dragHover === 0 ? "ring-1 ring-accent " : "") +
                 (isPending ? "opacity-80 " : "")
@@ -157,7 +157,7 @@ export const FolderRow: React.FC<FolderRowProps> = ({
                 >
                     <RowKebabMenu
                         ariaLabel={`Organize folder ${folder.path}`}
-                        buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
+                        buttonClassName="h-6 w-6 text-content pointer-fine:hover:bg-surface-2"
                         header={<span className="font-mono">{folder.path}/</span>}
                         items={menuItems}
                     />

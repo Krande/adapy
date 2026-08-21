@@ -48,7 +48,7 @@ export default function ComponentsPanel() {
                     "flex items-center gap-1 border-b border-edge pb-0.5 cursor-pointer rounded-sm px-0.5 " +
                     (s.selection?.cellId === c.id
                       ? "bg-accent-subtle"
-                      : "hover:bg-surface-2")
+                      : "pointer-fine:hover:bg-surface-2")
                   }
                   onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
                 >
@@ -91,7 +91,7 @@ export default function ComponentsPanel() {
                     </select>
                   )}
                   <button
-                    className="ml-auto px-1 rounded-sm hover:bg-surface-3"
+                    className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                     title="Delete"
                     onClick={(e) => {
                       e.stopPropagation();

@@ -47,7 +47,7 @@ const SelectButton: React.FC<{
 }> = ({fileName, nodeNames, label, title}) => (
     <button
         type="button"
-        className="text-accent hover:text-accent hover:underline truncate"
+        className="text-accent pointer-fine:hover:text-accent pointer-fine:hover:underline truncate"
         title={title ?? `Select ${label}`}
         onClick={() => {
             if (!fileName || nodeNames.length === 0) return;
@@ -141,7 +141,7 @@ const ConnectionsSection: React.FC<{
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-content hover:text-white"
+                className="flex items-center gap-1 text-[12px] text-content pointer-fine:hover:text-white"
                 aria-expanded={expanded}
                 aria-controls="object-connections"
             >

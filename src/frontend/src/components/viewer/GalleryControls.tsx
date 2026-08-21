@@ -359,7 +359,7 @@ const GalleryControls: React.FC = () => {
                     if (entries.length) void goGeom(Math.min(geomIndex, entries.length - 1), entries);
                 }}
                 title="Rebuild the geom list from the current scene"
-                className="rounded-sm border border-edge px-1.5 py-0.5 hover:bg-surface-2"
+                className="rounded-sm border border-edge px-1.5 py-0.5 pointer-fine:hover:bg-surface-2"
             >
                 ⟳
             </button>
@@ -374,7 +374,7 @@ const GalleryControls: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setToolsOpen((v) => !v)}
-                className="flex w-full items-center justify-between text-[10px] uppercase tracking-wide text-content-muted hover:text-content"
+                className="flex w-full items-center justify-between text-[10px] uppercase tracking-wide text-content-muted pointer-fine:hover:text-content"
             >
                 <span>Tools</span>
                 <span>{toolsOpen ? "▾" : "▸"}</span>
@@ -417,7 +417,7 @@ const GalleryControls: React.FC = () => {
                         disabled={empty || reconverting}
                         onClick={() => void reconvert()}
                         title="Run a fresh conversion (throwaway; never overwrites the audit-run product)"
-                        className="rounded-sm border border-warn px-2 py-0.5 text-warn hover:bg-warn-subtle disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-warn px-2 py-0.5 text-warn pointer-fine:hover:bg-warn-subtle disabled:opacity-40 disabled:cursor-default"
                     >
                         {reconverting ? "Re-converting…" : "↻ Re-convert"}
                     </button>
@@ -438,7 +438,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Previous"
                         disabled={empty || navBusy}
                         onClick={() => step(-1)}
-                        className="rounded-sm border border-edge px-2 py-0.5 hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-edge px-2 py-0.5 pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ‹ Prev
                     </button>
@@ -447,7 +447,7 @@ const GalleryControls: React.FC = () => {
                         onClick={() => setFilePickerOpen(true)}
                         disabled={files.length === 0}
                         title="Jump to a file…"
-                        className="tabular-nums text-content-muted hover:text-content hover:underline disabled:cursor-default disabled:no-underline"
+                        className="tabular-nums text-content-muted pointer-fine:hover:text-content pointer-fine:hover:underline disabled:cursor-default disabled:no-underline"
                     >
                         {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
                     </button>
@@ -456,7 +456,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Next"
                         disabled={empty || navBusy}
                         onClick={() => step(1)}
-                        className="rounded-sm border border-edge px-2 py-0.5 hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-edge px-2 py-0.5 pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         Next ›
                     </button>
@@ -467,7 +467,7 @@ const GalleryControls: React.FC = () => {
                     onClick={() => void copyName(primaryLabel)}
                     disabled={empty}
                     title={empty ? primaryLabel : `Click to copy: ${primaryLabel}`}
-                    className="truncate text-left font-mono text-[11px] text-content hover:text-content disabled:cursor-default"
+                    className="truncate text-left font-mono text-[11px] text-content pointer-fine:hover:text-content disabled:cursor-default"
                 >
                     {nameCopied ? "✓ copied" : primaryLabel}
                 </button>
@@ -483,7 +483,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Previous"
                         disabled={empty || navBusy}
                         onClick={() => step(-1)}
-                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
+                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ‹
                     </button>
@@ -493,7 +493,7 @@ const GalleryControls: React.FC = () => {
                             onClick={() => void copyName(primaryLabel)}
                             disabled={empty}
                             title={empty ? primaryLabel : `Tap to copy: ${primaryLabel}`}
-                            className="w-full truncate font-mono text-[11px] text-content hover:text-white disabled:cursor-default"
+                            className="w-full truncate font-mono text-[11px] text-content pointer-fine:hover:text-white disabled:cursor-default"
                         >
                             {nameCopied ? "✓ copied" : primaryLabel}
                         </button>
@@ -501,7 +501,7 @@ const GalleryControls: React.FC = () => {
                             type="button"
                             onClick={() => setFilePickerOpen(true)}
                             disabled={files.length === 0}
-                            className="tabular-nums text-[10px] text-content-subtle hover:text-content disabled:cursor-default"
+                            className="tabular-nums text-[10px] text-content-subtle pointer-fine:hover:text-content disabled:cursor-default"
                         >
                             {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
                         </button>
@@ -511,7 +511,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Next"
                         disabled={empty || navBusy}
                         onClick={() => step(1)}
-                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
+                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ›
                     </button>

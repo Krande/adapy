@@ -436,7 +436,7 @@ const UtilitiesSection = () => {
                                     <span className="truncate flex-1">{short}</span>
                                     <button
                                         type="button"
-                                        className="text-content-muted hover:text-accent shrink-0 px-1"
+                                        className="text-content-muted pointer-fine:hover:text-accent shrink-0 px-1"
                                         title="Copy this overlay into the current scope as a regular model file (next to the original)"
                                         onClick={async (e) => {
                                             e.preventDefault();
@@ -454,7 +454,7 @@ const UtilitiesSection = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        className="text-content-muted hover:text-fail shrink-0 px-1"
+                                        className="text-content-muted pointer-fine:hover:text-fail shrink-0 px-1"
                                         title="Delete this saved overlay from storage"
                                         onClick={async (e) => {
                                             e.preventDefault();

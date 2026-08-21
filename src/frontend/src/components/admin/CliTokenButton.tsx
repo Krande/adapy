@@ -15,7 +15,7 @@ const CliTokenButton: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="text-xs px-2 py-1 rounded-sm bg-surface-0 text-content hover:bg-surface-2 no-drag"
+                className="text-xs px-2 py-1 rounded-sm bg-surface-0 text-content pointer-fine:hover:bg-surface-2 no-drag"
                 title="Mint or revoke a CLI bearer token for this account"
             >
                 CLI token
@@ -109,7 +109,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -123,7 +123,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onMint}
                             disabled={busy !== null}
-                            className="bg-accent hover:bg-accent disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "mint" ? "Generating…" : "Generate new"}
                         </button>
@@ -131,7 +131,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onRevoke}
                             disabled={busy !== null}
-                            className="bg-fail hover:bg-fail disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-fail pointer-fine:hover:bg-fail disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "revoke" ? "Revoking…" : "Revoke all"}
                         </button>
@@ -157,7 +157,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                                 <button
                                     type="button"
                                     onClick={onCopy}
-                                    className="shrink-0 bg-surface-0 hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
+                                    className="shrink-0 bg-surface-0 pointer-fine:hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                                 >
                                     {copied ? "Copied" : "Copy"}
                                 </button>

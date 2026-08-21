@@ -20,7 +20,11 @@ import path from "node:path";
 // distinguishes them.
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const ROOTS = ["components/ui", "shell"].map((d) => path.resolve(ROOT, d));
+// Every directory that draws, not just the new code. The guard started scoped to
+// components/ui and shell because 73 older files still used a bare hover:; those were
+// converted in one mechanical pass (326 sites), so there is no allowlist and no
+// burn-down — the rule simply holds everywhere.
+const ROOTS = ["components", "shell", "plugins"].map((d) => path.resolve(ROOT, d));
 
 function walk(dir: string, out: string[] = []): string[] {
     for (const e of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -38,8 +42,20 @@ function walk(dir: string, out: string[] = []): string[] {
 const stripComments = (src: string) =>
     src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
-/** A `hover:` NOT preceded by `pointer-fine:` (or another variant chain ending in it). */
-const BARE_HOVER = /(?<!pointer-fine:)(?<![\w-])hover:/;
+/**
+ * A `hover:` that starts its own variant chain.
+ *
+ * Excluding `:` as well as word characters is not laziness — it exempts `disabled:hover:`
+ * and `sm:hover:`, and both occurrences of those in this codebase are hover *resets*
+ * (`disabled:hover:bg-transparent`, `sm:hover:bg-transparent`). Forcing `pointer-fine:`
+ * onto a reset would stop it applying on touch, which is the one place the sticky
+ * highlight it cancels actually happens: the guard would have caused the bug it exists to
+ * prevent.
+ *
+ * This is the same pattern the codemod used, deliberately. A report that disagrees with
+ * its gate is how the ui-audit came to claim 82 offending files while the test found one.
+ */
+const BARE_HOVER = /(?<![\w:-])hover:/;
 
 function offenders(): {file: string; line: number; text: string}[] {
     const bad: {file: string; line: number; text: string}[] = [];
@@ -61,7 +77,7 @@ function offenders(): {file: string; line: number; text: string}[] {
 }
 
 describe("sticky-hover guard", () => {
-    test("the design system and the shell never use a bare hover:", () => {
+    test("nothing under components, shell or plugins uses a bare hover:", () => {
         const bad = offenders();
         assert.deepEqual(
             bad.map((b) => `${b.file}:${b.line}  ${b.text}`),
@@ -80,6 +96,14 @@ describe("sticky-hover guard", () => {
 
     test("and lets the guarded form through", () => {
         assert.ok(!BARE_HOVER.test('className="pointer-fine:hover:bg-surface-2"'));
+    });
+
+    test("a chained variant is left alone", () => {
+        // These cancel a hover style. Guarding them would stop the cancellation applying
+        // on touch — exactly where the sticky highlight they exist to kill occurs.
+        assert.ok(!BARE_HOVER.test("disabled:hover:bg-transparent"));
+        assert.ok(!BARE_HOVER.test("sm:hover:bg-transparent"));
+        assert.ok(!BARE_HOVER.test("group-hover:opacity-100"));
     });
 
     test("the Button family really carries the guard", () => {

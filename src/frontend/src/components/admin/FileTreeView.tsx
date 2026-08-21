@@ -500,8 +500,8 @@ export function FileTreeView<T>({
                         (disabled
                             ? "opacity-50 "
                             : selection
-                                ? "cursor-pointer hover:bg-surface-0 "
-                                : "hover:bg-surface-0 ")
+                                ? "cursor-pointer pointer-fine:hover:bg-surface-0 "
+                                : "pointer-fine:hover:bg-surface-0 ")
                     }
                     style={{paddingLeft: 8 + indentPx}}
                     onClick={onRowClick}
@@ -565,7 +565,7 @@ export function FileTreeView<T>({
                         <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${node.displayName}`}
-                                buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
+                                buttonClassName="h-6 w-6 text-content pointer-fine:hover:bg-surface-2"
                                 header={<span className="font-mono" title={key}>{key}</span>}
                                 items={menuItems}
                             />
@@ -595,7 +595,7 @@ export function FileTreeView<T>({
                     data-rowkey={rowKey}
                     className={
                         "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer " +
-                        "select-none hover:bg-surface-0 " +
+                        "select-none pointer-fine:hover:bg-surface-0 " +
                         (dragFolder === node.path ? "opacity-40 " : "") +
                         (focusedKey === rowKey && !isDropTarget ? "ring-1 ring-accent " : "") +
                         (isDropTarget ? "ring-1 ring-accent bg-accent-subtle " : "")
@@ -660,7 +660,7 @@ export function FileTreeView<T>({
                         <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Organize folder ${node.path}`}
-                                buttonClassName="h-6 w-6 text-content hover:bg-surface-2"
+                                buttonClassName="h-6 w-6 text-content pointer-fine:hover:bg-surface-2"
                                 header={<span className="font-mono">{node.path}/</span>}
                                 items={menuItems}
                             />

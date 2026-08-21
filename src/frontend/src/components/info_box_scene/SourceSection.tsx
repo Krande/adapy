@@ -177,7 +177,7 @@ const SourceSection = () => {
                     </label>
                 )}
                 <button
-                    className="mt-1 w-full rounded-sm px-2 py-1 bg-accent hover:bg-accent disabled:opacity-50 text-content"
+                    className="mt-1 w-full rounded-sm px-2 py-1 bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-content"
                     disabled={reconverting}
                     onClick={reconvert}
                 >

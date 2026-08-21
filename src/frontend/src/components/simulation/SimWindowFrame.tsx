@@ -58,7 +58,7 @@ const HeaderBtn: React.FC<{onClick: () => void; title: string; children: React.R
         onClick={onClick}
         title={title}
         aria-label={title}
-        className="rounded-sm p-1 text-[var(--ada-panel-text)] hover:bg-[var(--ada-panel-surface)]"
+        className="rounded-sm p-1 text-[var(--ada-panel-text)] pointer-fine:hover:bg-[var(--ada-panel-surface)]"
     >
         {children}
     </button>
@@ -245,7 +245,7 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
             <div className="min-h-0 overflow-auto p-2 max-h-[70vh]">{children}</div>
             {/* Right-edge handle — drag to resize the panel horizontally. */}
             <div
-                className="absolute top-0 right-0 h-full w-1.5 cursor-ew-resize touch-none hover:bg-accent-subtle"
+                className="absolute top-0 right-0 h-full w-1.5 cursor-ew-resize touch-none pointer-fine:hover:bg-accent-subtle"
                 onPointerDown={onDockResizeDown}
                 onPointerMove={onDockResizeMove}
                 onPointerUp={onDockResizeUp}

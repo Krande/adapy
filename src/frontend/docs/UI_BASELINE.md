@@ -2772,3 +2772,40 @@ where a test covers the bytes but not the render; *logic only* where the cellbui
 are tested but no gesture was driven; *not exercised* where a branch was read. An inventory
 whose Verified column cannot be trusted stops anyone looking again — which is worse than
 one that is honestly Pending, because the second gets revisited and the first does not.
+
+## The admin tab strip, and the end of the bare `hover:`
+
+**The strip is the DS `Tabs` now.** It was fourteen hand-written `<TabButton>` elements,
+each repeating its id three times — in the active test, in the click handler, and as the
+label. That is the shape that drifts: add a tab, forget one of the three. It had no
+`role="tab"`, no `aria-selected` and no keyboard support at all. It is a data array plus
+one `<Tabs>` today: 31 lines lighter, with arrow-key navigation, roving tabindex and the
+`#hash` deep link all verified in the browser.
+
+`VALID_TABS` is derived from that array rather than written out a second time. Two lists
+disagreeing is how a tab ends up rendering but refusing to survive a reload — the hash
+parser rejecting the very id the strip just set.
+
+**The bare `hover:` is gone: 326 sites across 72 files, in one mechanical pass.** Plain
+`hover:` sticks after a tap on touch devices, leaving a trail of controls that all look
+pressed. `hoverGuard.test.ts` now holds `components`, `shell` and `plugins` with **no
+allowlist** — the rule simply holds everywhere rather than shrinking towards holding.
+
+Two things worth keeping:
+
+- **The guard exempts chained variants**, and that is a correctness decision, not laziness.
+  The two survivors were `disabled:hover:bg-transparent` and `sm:hover:bg-transparent` —
+  hover *resets*. Forcing `pointer-fine:` onto a reset stops it applying on touch, which is
+  precisely where the sticky highlight it cancels occurs. The guard would have caused the
+  bug it exists to prevent.
+- **The codemod and the test now share one pattern.** They did not at first, which is how
+  the widened test failed on two files the codemod had deliberately skipped. A report that
+  disagrees with its gate is the same defect as the ui-audit claiming 82 offending files
+  while the test found one.
+
+**And a mistake of my own worth recording.** `tsc` had been reporting two real type errors
+in `railArrangement.test.ts` for several commits, and I never saw them because I kept
+filtering its output through `grep` patterns naming only the files I had just touched.
+Filtering a compiler's output to the files you expect to be wrong defeats the point of
+running it. Fixed, and the filters now only ever exclude the three known pre-existing
+errors.

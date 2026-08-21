@@ -66,7 +66,7 @@ const LoadedModelsSection: React.FC = () => {
                                 type="button"
                                 onClick={() => toggleVisibility(name)}
                                 className={
-                                    "shrink-0 p-1 rounded-sm cursor-pointer hover:bg-surface-2 " +
+                                    "shrink-0 p-1 rounded-sm cursor-pointer pointer-fine:hover:bg-surface-2 " +
                                     (visible ? "text-accent" : "text-content-subtle")
                                 }
                                 title={visible
@@ -97,7 +97,7 @@ const LoadedModelsSection: React.FC = () => {
                             disabled={busyName !== null}
                             className={
                                 "shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-content-muted " +
-                                "hover:text-fail hover:bg-surface-2 disabled:opacity-50"
+                                "pointer-fine:hover:text-fail pointer-fine:hover:bg-surface-2 disabled:opacity-50"
                             }
                             title="Unload from scene (frees memory)"
                             aria-label={`Unload ${basename}`}

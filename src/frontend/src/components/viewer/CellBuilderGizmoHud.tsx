@@ -15,13 +15,13 @@ import { useCellBuilderStore } from "@/state/cellBuilderStore";
 const fieldCls =
   "w-16 text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 text-right disabled:opacity-40";
 const btn =
-  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
-const btnGray = "px-2 py-1 rounded-sm bg-surface-3 text-white hover:bg-surface-3";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
+const btnGray = "px-2 py-1 rounded-sm bg-surface-3 text-white pointer-fine:hover:bg-surface-3";
 const axisBtn = (on: boolean) =>
   "w-7 py-0.5 rounded-sm " +
   (on
     ? "bg-accent text-white"
-    : "bg-surface-2 text-content hover:bg-surface-3");
+    : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3");
 
 const AXES: { key: 0 | 1 | 2; label: string }[] = [
   { key: 0, label: "X" },

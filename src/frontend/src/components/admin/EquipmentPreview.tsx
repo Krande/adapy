@@ -494,7 +494,7 @@ const EquipmentPreview: React.FC<{
             <div className="relative w-full h-full">
                 <div ref={mountRef} className="w-full h-full rounded-sm bg-surface-0 overflow-hidden" />
                 <button
-                    className="absolute right-2 top-2 px-1.5 py-0.5 rounded-sm text-[13px] leading-none bg-surface-0 text-content hover:bg-surface-2"
+                    className="absolute right-2 top-2 px-1.5 py-0.5 rounded-sm text-[13px] leading-none bg-surface-0 text-content pointer-fine:hover:bg-surface-2"
                     onClick={() => setExpanded((v) => !v)}
                     title={expanded ? "Collapse preview" : "Expand preview"}
                     aria-pressed={expanded}
@@ -522,7 +522,7 @@ const EquipmentPreview: React.FC<{
                                 key={m}
                                 className={
                                     "px-1.5 py-0.5 rounded-sm " +
-                                    (mode === m ? "bg-accent text-white" : "bg-surface-2 text-content hover:bg-surface-3")
+                                    (mode === m ? "bg-accent text-white" : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
                                 }
                                 onClick={() => setMode(m)}
                                 aria-pressed={mode === m}
@@ -538,7 +538,7 @@ const EquipmentPreview: React.FC<{
                             snap
                         </label>
                         <button
-                            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content hover:bg-surface-3"
+                            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content pointer-fine:hover:bg-surface-3"
                             onClick={() => setSelPort(null)}
                             title="Finish editing this port"
                         >

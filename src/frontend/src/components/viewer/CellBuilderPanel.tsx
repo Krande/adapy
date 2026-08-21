@@ -208,7 +208,7 @@ const CellBuilderPanel: React.FC = () => {
         "px-2.5 py-1.5 rounded-t-md font-semibold flex items-center gap-1 border-b-2 -mb-px whitespace-nowrap " +
         (tab === id
           ? "border-accent text-white"
-          : "border-transparent text-content-muted hover:text-white hover:bg-white/5")
+          : "border-transparent text-content-muted pointer-fine:hover:text-white pointer-fine:hover:bg-white/5")
       }
     >
       {label}
@@ -265,7 +265,7 @@ const CellBuilderPanel: React.FC = () => {
             controls for one stack — differently drawn, differently placed, and one of
             them only reachable while this panel happened to be open. */}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-fail-subtle"
+          className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-fail-subtle"
           title="Close model"
           onClick={s.close}
         >

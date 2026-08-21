@@ -119,7 +119,7 @@ const TreeViewComponent: React.FC = () => {
                         >
                             <span className="truncate">scope: {scopeNodeName ?? "selection"}</span>
                             <button
-                                className="ml-1 font-bold hover:text-fail"
+                                className="ml-1 font-bold pointer-fine:hover:text-fail"
                                 onClick={() => setScope(null, null)}
                                 aria-label="Clear search scope"
                             >

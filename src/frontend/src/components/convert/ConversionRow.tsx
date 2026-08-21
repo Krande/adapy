@@ -294,7 +294,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                 <button
                     type="button"
                     onClick={onRemove}
-                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm border border-edge bg-surface-2 text-content hover:bg-surface-3"
+                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm border border-edge bg-surface-2 text-content pointer-fine:hover:bg-surface-3"
                     aria-label={`Remove ${row.sourceKey}`}
                     title="Remove from list"
                 >
@@ -322,7 +322,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         type="button"
                         onClick={onConvert}
                         disabled={isRunning || submitting}
-                        className="bg-accent hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {isRunning ? "Converting…" : submitting ? "Submitting…" : "Convert"}
                     </button>
@@ -332,7 +332,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         <button
                             type="button"
                             onClick={onDownload}
-                            className="bg-pass hover:bg-pass text-white text-sm px-3 py-1 rounded-sm"
+                            className="bg-pass pointer-fine:hover:bg-pass text-white text-sm px-3 py-1 rounded-sm"
                         >
                             Download
                         </button>
@@ -340,7 +340,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                             <button
                                 type="button"
                                 onClick={onViewIn3D}
-                                className="bg-surface-2 hover:bg-surface-3 text-content text-sm px-3 py-1 rounded-sm"
+                                className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content text-sm px-3 py-1 rounded-sm"
                             >
                                 View in 3D ↗
                             </button>

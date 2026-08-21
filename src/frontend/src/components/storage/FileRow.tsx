@@ -136,7 +136,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                 "flex flex-col pr-1 py-1 text-xs rounded cursor-pointer select-none " +
                 (dimmed ? "opacity-40 " : "") +
                 (focused ? "ring-1 ring-accent " : "") +
-                (isSelected ? "bg-warn-subtle " : "hover:bg-surface-0 ")
+                (isSelected ? "bg-warn-subtle " : "pointer-fine:hover:bg-surface-0 ")
             }
             style={{paddingLeft: `${8 + indentPx}px`}}
             draggable={draggable || undefined}
@@ -262,7 +262,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         re-appears for it without code changes here. */}
                     {isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
-                            className="p-1 rounded-sm text-white hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="p-1 rounded-sm text-white pointer-fine:hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setPickerName(f.name);
@@ -278,7 +278,7 @@ export const FileRow: React.FC<FileRowProps> = ({
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
-                                buttonClassName="h-7 w-7 text-content hover:bg-surface-2"
+                                buttonClassName="h-7 w-7 text-content pointer-fine:hover:bg-surface-2"
                                 header={<span className="font-mono" title={f.name}>{f.name}</span>}
                                 items={menuItems}
                             />

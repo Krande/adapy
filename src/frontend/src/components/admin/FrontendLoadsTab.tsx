@@ -208,7 +208,7 @@ const LoadsView: React.FC<{days: number}> = ({days}) => {
                     return (
                         <React.Fragment key={key}>
                             <tr
-                                className="border-b border-edge hover:bg-surface-1 cursor-pointer"
+                                className="border-b border-edge pointer-fine:hover:bg-surface-1 cursor-pointer"
                                 onClick={() => setExpanded(isOpen ? null : key)}
                             >
                                 <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
@@ -296,7 +296,7 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
                     return (
                         <React.Fragment key={key}>
                             <tr
-                                className="border-b border-edge hover:bg-surface-1 cursor-pointer"
+                                className="border-b border-edge pointer-fine:hover:bg-surface-1 cursor-pointer"
                                 onClick={() => setExpanded(isOpen ? null : key)}
                             >
                                 <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
@@ -338,13 +338,13 @@ const FrontendLoadsTab: React.FC = () => {
             <div className="px-3 py-2 border-b border-edge bg-surface-0 flex flex-wrap items-center gap-3">
                 <div className="flex gap-1 text-sm">
                     <button
-                        className={`px-2 py-1 rounded-sm ${view === "loads" ? "bg-surface-2 text-white" : "text-content hover:bg-surface-0"}`}
+                        className={`px-2 py-1 rounded-sm ${view === "loads" ? "bg-surface-2 text-white" : "text-content pointer-fine:hover:bg-surface-0"}`}
                         onClick={() => setView("loads")}
                     >
                         Loads
                     </button>
                     <button
-                        className={`px-2 py-1 rounded-sm ${view === "render" ? "bg-surface-2 text-white" : "text-content hover:bg-surface-0"}`}
+                        className={`px-2 py-1 rounded-sm ${view === "render" ? "bg-surface-2 text-white" : "text-content pointer-fine:hover:bg-surface-0"}`}
                         onClick={() => setView("render")}
                     >
                         Render

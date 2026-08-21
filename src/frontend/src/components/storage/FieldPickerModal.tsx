@@ -111,7 +111,7 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                     </div>
                     <button
                         onClick={onClose}
-                        className="text-content hover:text-white text-lg leading-none p-1"
+                        className="text-content pointer-fine:hover:text-white text-lg leading-none p-1"
                         aria-label="Close"
                     >
                         ×
@@ -136,7 +136,7 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                             <button
                                 type="button"
                                 onClick={() => void onCopyError(metaError)}
-                                className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
+                                className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                                 title="Copy error to clipboard"
                             >
                                 {copied ? "Copied" : "Copy"}
@@ -184,7 +184,7 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                                     <button
                                         type="button"
                                         onClick={() => void onCopyError(submitError)}
-                                        className="bg-surface-2 hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
+                                        className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content px-2 py-0.5 rounded-sm text-[11px]"
                                         title="Copy error to clipboard"
                                     >
                                         {copied ? "Copied" : "Copy"}
@@ -195,14 +195,14 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                         <div className="flex justify-end gap-2 pt-1">
                             <button
                                 onClick={onClose}
-                                className="px-3 py-1 text-xs rounded-sm bg-surface-3 hover:bg-surface-3"
+                                className="px-3 py-1 text-xs rounded-sm bg-surface-3 pointer-fine:hover:bg-surface-3"
                                 disabled={submitting}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={onView}
-                                className="px-3 py-1 text-xs rounded-sm bg-accent hover:bg-accent disabled:opacity-60"
+                                className="px-3 py-1 text-xs rounded-sm bg-accent pointer-fine:hover:bg-accent disabled:opacity-60"
                                 disabled={submitting || step === null || field === null}
                             >
                                 {submitting ? "Loading…" : "View"}

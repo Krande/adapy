@@ -174,13 +174,13 @@ const AuditLogTab: React.FC = () => {
             <div className="border-b border-edge">
                 <div className="flex items-center gap-2 px-3 py-2 sm:hidden">
                     <button
-                        className="bg-surface-0 hover:bg-surface-2 px-2 py-1 rounded-sm text-xs"
+                        className="bg-surface-0 pointer-fine:hover:bg-surface-2 px-2 py-1 rounded-sm text-xs"
                         onClick={() => setFiltersOpen((v) => !v)}
                     >
                         Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
                     </button>
                     <button
-                        className="ml-auto bg-accent hover:bg-accent px-3 py-1 rounded-sm text-xs"
+                        className="ml-auto bg-accent pointer-fine:hover:bg-accent px-3 py-1 rounded-sm text-xs"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -233,7 +233,7 @@ const AuditLogTab: React.FC = () => {
                         onChange={(v) => onFilter({key: v || undefined})}
                     />
                     <button
-                        className="hidden sm:inline-block ml-auto bg-accent hover:bg-accent px-2 py-1 rounded-sm"
+                        className="hidden sm:inline-block ml-auto bg-accent pointer-fine:hover:bg-accent px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -264,7 +264,7 @@ const AuditLogTab: React.FC = () => {
                         </span>
                     </label>
                     <button
-                        className="ml-auto bg-surface-2 hover:bg-surface-3 px-2 py-1 rounded-sm disabled:opacity-50"
+                        className="ml-auto bg-surface-2 pointer-fine:hover:bg-surface-3 px-2 py-1 rounded-sm disabled:opacity-50"
                         onClick={onClearMetrics}
                         disabled={clearing}
                         title="Null out all metrics columns and delete profile blobs"
@@ -320,7 +320,7 @@ const AuditLogTab: React.FC = () => {
                     </thead>
                     <tbody>
                     {entries.map((e) => (
-                        <tr key={e.id} className="border-t border-edge hover:bg-surface-0">
+                        <tr key={e.id} className="border-t border-edge pointer-fine:hover:bg-surface-0">
                             <Td>
                                 <span className="font-mono text-content">#{e.id}</span>
                             </Td>
@@ -348,7 +348,7 @@ const AuditLogTab: React.FC = () => {
                                 {hasDetails(e) && (
                                     <button
                                         type="button"
-                                        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content hover:text-white hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
+                                        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content pointer-fine:hover:text-white pointer-fine:hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                         title={e.error ? "Show error / metrics" : "Show metrics"}
                                         aria-label="Show details"
@@ -398,7 +398,7 @@ const AuditLogTab: React.FC = () => {
                                     <span className="flex-1">{e.error}</span>
                                     <button
                                         type="button"
-                                        className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content hover:text-white hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
+                                        className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-edge text-content pointer-fine:hover:text-white pointer-fine:hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                         aria-label="Show details"
                                     >
@@ -410,7 +410,7 @@ const AuditLogTab: React.FC = () => {
                                 <div className="mt-1">
                                     <button
                                         type="button"
-                                        className="text-[10px] text-content-muted hover:text-white underline no-drag"
+                                        className="text-[10px] text-content-muted pointer-fine:hover:text-white underline no-drag"
                                         onClick={() => setDetailsEntry(e)}
                                     >
                                         details
@@ -429,7 +429,7 @@ const AuditLogTab: React.FC = () => {
             <div className="border-t border-edge px-3 sm:px-4 py-2 flex items-center gap-3 text-xs">
                 <span className="text-content-muted">{entries.length} rows</span>
                 <button
-                    className="bg-surface-2 hover:bg-surface-3 px-3 py-1 rounded-sm disabled:opacity-50"
+                    className="bg-surface-2 pointer-fine:hover:bg-surface-3 px-3 py-1 rounded-sm disabled:opacity-50"
                     onClick={loadMore}
                     disabled={loading || nextBeforeId == null}
                 >
@@ -562,7 +562,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     {tab === "error" && entry.traceback && (
                         <button
                             type="button"
-                            className="shrink-0 bg-surface-0 hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
+                            className="shrink-0 bg-surface-0 pointer-fine:hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                             onClick={onCopy}
                             title="Copy traceback to clipboard"
                         >
@@ -571,7 +571,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     )}
                     <button
                         type="button"
-                        className="shrink-0 text-content hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -632,7 +632,7 @@ const TabButton: React.FC<{active: boolean; onClick: () => void; children: React
             "px-3 py-1.5 border-b-2 " +
             (active
                 ? "border-accent text-white"
-                : "border-transparent text-content-muted hover:text-content")
+                : "border-transparent text-content-muted pointer-fine:hover:text-content")
         }
     >
         {children}
@@ -763,7 +763,7 @@ const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
             <button
                 type="button"
                 onClick={toggle}
-                className="text-[11px] text-accent hover:text-accent flex items-center gap-1.5"
+                className="text-[11px] text-accent pointer-fine:hover:text-accent flex items-center gap-1.5"
                 title="Captured conda package manifest for this worker image"
             >
                 <span>{open ? "▾" : "▸"}</span>
@@ -930,7 +930,7 @@ const MetricsTab: React.FC<{
                     <div>
                         <button
                             type="button"
-                            className="bg-accent hover:bg-accent px-3 py-1 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent px-3 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={onDownloadProfile}
                             disabled={downloading}
                         >
@@ -1469,7 +1469,7 @@ const StatsTh: React.FC<{
 }> = ({active, desc, onClick, align = "right", children}) => (
     <th
         className={
-            "px-2 py-1 select-none cursor-pointer hover:text-white whitespace-nowrap " +
+            "px-2 py-1 select-none cursor-pointer pointer-fine:hover:text-white whitespace-nowrap " +
             (align === "left" ? "text-left" : "text-right")
         }
         onClick={onClick}
@@ -1685,7 +1685,7 @@ const IssueBotBadge: React.FC<{
                     type="button"
                     onClick={retry}
                     disabled={busy}
-                    className="text-[10px] text-accent hover:text-accent disabled:opacity-50 no-drag"
+                    className="text-[10px] text-accent pointer-fine:hover:text-accent disabled:opacity-50 no-drag"
                     title="Re-run the issue-bot for this row"
                 >
                     {busy ? "queued…" : "resync"}

@@ -31,7 +31,7 @@ import { clampField } from "@/utils/cellbuilder/detailingOptions";
 const inputCls =
   "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-20";
 const btn =
-  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 hover:bg-accent";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
 
 const fieldLabel = (f: DetailingFieldSpec): string =>
   (f.label ?? f.name) + (f.unit ? ` (${f.unit})` : "");

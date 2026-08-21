@@ -59,7 +59,7 @@ export const ConnectionAdder: React.FC<{
         "px-1.5 py-0.5 rounded-sm text-[10px] " +
         (mode === m
           ? "bg-accent text-white"
-          : "bg-surface-2 text-content hover:bg-surface-3")
+          : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
       }
       onClick={() => setMode(m)}
       aria-pressed={mode === m}

@@ -37,13 +37,13 @@ const NodeEditorComponent: React.FC = () => {
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent pointer-fine:hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => request_list_of_nodes()}
                     >
                         <ReloadIcon />
                     </button>
                     <button
-                        className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent pointer-fine:hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => start_new_node_editor()}
                     >
                         <PopOutIcon />

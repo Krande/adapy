@@ -16,7 +16,7 @@ const FacePickingToggle: React.FC = () => {
 
     const btn = (active: boolean) =>
         "flex-1 px-2 py-0.5 text-xs rounded-sm transition-colors " +
-        (active ? "bg-accent text-white" : "bg-surface-2 text-content hover:bg-surface-3");
+        (active ? "bg-accent text-white" : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3");
 
     return (
         <div className="flex items-center gap-2 py-1">

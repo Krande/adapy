@@ -29,7 +29,7 @@ const AuthCallback: React.FC = () => {
                     <div className="font-bold">Sign-in failed</div>
                     <div className="font-mono text-xs whitespace-pre-wrap">{error}</div>
                     <button
-                        className="bg-accent hover:bg-accent px-3 py-1 rounded-sm text-xs"
+                        className="bg-accent pointer-fine:hover:bg-accent px-3 py-1 rounded-sm text-xs"
                         onClick={() => window.location.assign("/")}
                     >
                         Back home

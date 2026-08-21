@@ -1309,7 +1309,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         <button
                             type="button"
                             className={
-                                "bg-surface-2 hover:bg-surface-3 active:bg-surface-0 disabled:opacity-60 cursor-pointer " +
+                                "bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 disabled:opacity-60 cursor-pointer " +
                                 "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
@@ -1363,7 +1363,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             type="button"
                             onClick={onLoadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-accent hover:bg-accent active:bg-accent-subtle ${btn}`}
+                            className={`bg-accent pointer-fine:hover:bg-accent active:bg-accent-subtle ${btn}`}
                         >
                             Load
                         </button>
@@ -1371,7 +1371,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             type="button"
                             onClick={onUnloadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-surface-2 hover:bg-surface-3 active:bg-surface-0 ${btn}`}
+                            className={`bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                         >
                             {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                         </button>
@@ -1381,7 +1381,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                 onClick={onMoveSelected}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be moved" : "Move selected files to a folder"}
-                                className={`bg-surface-2 hover:bg-surface-3 active:bg-surface-0 ${btn}`}
+                                className={`bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                             >
                                 Move…
                             </button>
@@ -1392,7 +1392,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                 onClick={() => void onDeleteSelected()}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
-                                className={`bg-fail hover:bg-fail active:bg-fail-subtle ${btn}`}
+                                className={`bg-fail pointer-fine:hover:bg-fail active:bg-fail-subtle ${btn}`}
                             >
                                 {bulkBusy === "delete" ? "Deleting…" : "Delete"}
                             </button>
@@ -1401,7 +1401,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             type="button"
                             onClick={clearSelection}
                             disabled={bulkBusy !== null}
-                            className={`ml-auto bg-surface-3 hover:bg-surface-3 ${btn}`}
+                            className={`ml-auto bg-surface-3 pointer-fine:hover:bg-surface-3 ${btn}`}
                         >
                             Cancel
                         </button>
@@ -1453,7 +1453,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                         <div
                             key={m.id}
                             className={
-                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-surface-2 cursor-pointer " +
+                                "flex items-center gap-1.5 px-2 py-1 rounded-sm pointer-fine:hover:bg-surface-2 cursor-pointer " +
                                 (activeProcedural === m.id ? "bg-accent-subtle" : "")
                             }
                             onClick={() => void openProceduralModel(m)}
@@ -1467,7 +1467,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             <span className="ml-auto flex items-center gap-1">
                                 {m.latest_glb_key && (
                                     <button
-                                        className="px-1 rounded-sm hover:bg-surface-3"
+                                        className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                                         title="View compiled result"
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -1478,7 +1478,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                     </button>
                                 )}
                                 <button
-                                    className="px-1 rounded-sm hover:bg-surface-3"
+                                    className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                                     title="Delete procedural model"
                                     onClick={(e) => {
                                         e.stopPropagation();

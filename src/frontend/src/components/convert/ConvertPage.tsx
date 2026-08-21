@@ -71,7 +71,7 @@ const ConvertPage: React.FC<ConvertPageProps> = ({inViewer = false}) => {
                         is a deep link someone may have arrived at cold, with no switcher
                         anywhere, so there the link is the only way back. */}
                     {!inViewer && (
-                        <a href="/" className="text-sm text-accent hover:text-accent">
+                        <a href="/" className="text-sm text-accent pointer-fine:hover:text-accent">
                             ← back to viewer
                         </a>
                     )}
