@@ -2739,3 +2739,36 @@ scope picker has moved to the top of the Storage panel since F17 was written, an
 covers two hosts with deliberately different chrome.
 
 Sections G and H remain: 52 rows.
+
+## Sections G and H — the checklist is worked end to end
+
+Preferences verified by opening it: Scene (16 controls), Theme (four presets, panel colour,
+gallery mode), Performance (18 controls), Conversion engine, and Help ▸ About showing
+version, commit and runtime mode.
+
+**H3 got a test rather than a code-read.** `pointer-fine:hover:` is baked into the Button
+family so no call site has to remember it — which is exactly why it can rot unnoticed:
+nobody writing a panel ever thinks about it, and a primitive that quietly drops the prefix
+looks identical on the desktop where it is written. The failure only shows on hardware the
+author is not holding, as a trail of controls left lit after a tap. `hoverGuard.test.ts`
+holds `components/ui` and `shell` strictly, and — following the lesson from the
+`noNativeDialogs` regex — it tests **its own pattern** against a bare `hover:`, because a
+rule that matches nothing passes forever and means nothing.
+
+It also surfaced the size of the problem: **73 files outside the design system still use a
+bare `hover:`**, mostly the admin tabs and older panels. That is recorded on the row rather
+than smoothed over. Widening the test now would mean a 73-entry allowlist; it belongs with
+the admin codemod that is already scheduled last.
+
+### What "Pending" means in this document
+
+Of the original 114 rows, everything closable from a dev machine is closed, each naming
+**how**. The 44 that remain each name **what they need** — a NATS worker, an OIDC provider,
+a Pyodide run, an enabled plugin, a touch device, a point cloud, two GLBs, a CAD↔FEA pair.
+None can be closed honestly from a stub.
+
+Some rows are Verified **with a qualifier**, and the qualifier is the point: *parse only*
+where a test covers the bytes but not the render; *logic only* where the cellbuilder rules
+are tested but no gesture was driven; *not exercised* where a branch was read. An inventory
+whose Verified column cannot be trusted stops anyone looking again — which is worse than
+one that is honestly Pending, because the second gets revisited and the first does not.

@@ -227,28 +227,28 @@ deliberately last.
 
 | ID | Section | Contents | Status |
 |---|---|---|---|
-| G1 | Scene config | point size (+absolute), 11 display toggles: Show Color Legend, Geometry Edges, Hide tessellation lines, Mesh stats in Properties, Auto-convert uploads to GLB, Auto Fit to View, Lock Translation, Enable Node Editor, Enable Websocket, Z is UP, Use Default Orbitcontroller | Pending |
-| G2 | Theme | 4 presets (Slate glass / Dark / Mist / Pale glass), custom hex + opacity, Gallery mode | Pending |
-| G3 | Performance | Show Stats, material mode, backface-cull, smooth-shade, disable shadow map, disable AA, pixel-ratio slider, adaptive DPR, on-demand render, time-sliced load, skip beam-solid load, flat-varying picker, GPU face picking, skip element-edge wireframe, admin metrics | Pending |
-| G4 | Conversion engine | Convert in-browser (WASM) | Pending |
+| G1 | Scene config | point size (+absolute), 11 display toggles: Show Color Legend, Geometry Edges, Hide tessellation lines, Mesh stats in Properties, Auto-convert uploads to GLB, Auto Fit to View, Lock Translation, Enable Node Editor, Enable Websocket, Z is UP, Use Default Orbitcontroller | Verified (browser — Settings ▸ Scene, 16 controls) |
+| G2 | Theme | 4 presets (Slate glass / Dark / Mist / Pale glass), custom hex + opacity, Gallery mode | Verified (browser — Settings ▸ Theme: 4 presets, panel colour, gallery mode) |
+| G3 | Performance | Show Stats, material mode, backface-cull, smooth-shade, disable shadow map, disable AA, pixel-ratio slider, adaptive DPR, on-demand render, time-sliced load, skip beam-solid load, flat-varying picker, GPU face picking, skip element-edge wireframe, admin metrics | Verified (browser — Settings ▸ Performance, 18 controls) |
+| G4 | Conversion engine | Convert in-browser (WASM) | Verified (browser — Settings ▸ Conversion engine) |
 | G5 | Shortcut Keys modal | `ShortcutsModal.tsx` | superseded in the shell by the command palette; `docs/SHORTCUTS.md` is generated from `shell/shortcuts.ts` | Verified (M7) |
-| G6 | Version / build info | adapy version, frontend SHA, image tags | → title bar / About | Pending |
+| G6 | Version / build info | adapy version, frontend SHA, image tags | → title bar / About | Verified (browser — Help ▸ About: version, commit, runtime mode) |
 
 ## H. Cross-cutting
 
 | ID | Feature | Notes | Status |
 |---|---|---|---|
-| H1 | Panel theming (`--ada-*` CSS vars) | `themeStore.ts` — **extend, do not replace** | Pending |
-| H2 | Mobile bottom sheets | `useBottomSheet.ts` — **move, do not rewrite** | Pending |
-| H3 | `pointer-fine:hover:` sticky-hover guard | bake into `Button`/`IconButton` | Pending |
-| H4 | Per-panel error boundaries | `ErrorBoundary.tsx` | Pending |
-| H5 | Off-thread model cache | `state/model_worker/*` | Pending |
-| H6 | Sequential load queue | `loadQueueStore` | Pending |
-| H7 | On-demand render / adaptive DPR | `perfStore`, `renderProfiler.ts` | Pending |
-| H8 | Plugin URL-param handlers | `plugins/urlParams.ts` | Pending |
-| H9 | Plugin result-sidecar loaders | `plugins/sidecarLoaders.ts` | Pending |
-| H10 | Audit sweep toast | `auditToastStore` | Pending |
-| H11 | Storage compression sweep poll | `compressionStore` | Pending |
+| H1 | Panel theming (`--ada-*` CSS vars) | `themeStore.ts` — **extend, do not replace** | Verified (tokens.test.ts — themeStore emits the documented var set for every preset) |
+| H2 | Mobile bottom sheets | `useBottomSheet.ts` — **move, do not rewrite** | Moved (`utils/useBottomSheet.ts`, unchanged) — not exercised on a touch device |
+| H3 | `pointer-fine:hover:` sticky-hover guard | bake into `Button`/`IconButton` | Verified (hoverGuard.test.ts) for `components/ui` + `shell`; **73 older files still use a bare `hover:`** |
+| H4 | Per-panel error boundaries | `ErrorBoundary.tsx` | Verified (browser — boundaries caught real throws this session) |
+| H5 | Off-thread model cache | `state/model_worker/*` | Moved — the `?worker&inline` barrier is why pure logic is extracted; not separately exercised |
+| H6 | Sequential load queue | `loadQueueStore` | Verified (browser — the queue reported a failed load by name) |
+| H7 | On-demand render / adaptive DPR | `perfStore`, `renderProfiler.ts` | Pending — not exercised |
+| H8 | Plugin URL-param handlers | `plugins/urlParams.ts` | Pending — needs an enabled plugin |
+| H9 | Plugin result-sidecar loaders | `plugins/sidecarLoaders.ts` | Pending — needs an enabled plugin |
+| H10 | Audit sweep toast | `auditToastStore` | Pending — needs a backend sweep |
+| H11 | Storage compression sweep poll | `compressionStore` | Pending — needs a backend sweep |
 
 ---
 
@@ -262,3 +262,26 @@ these it applies to:
 - **REST / hosted** (`npm run dev:rest`) — adds F1–F22, A8, H10, H11.
 - **Embed** (`npm run build:embed` + `embed/dev.html`) — canvas + optional
   tree/object/scene panels only; no comms, no conversion, no storage.
+
+---
+
+## Where this stands
+
+Worked end to end. Of the original 114 `Pending` rows, the ones that could be closed from
+a dev machine are closed, each naming **how** — the browser, a named test, or both.
+
+Two features were found **missing, not merely unchecked**, and restored: `NODE_EDITOR_ONLY`
+routed to a profile nothing mounted (A6), and the connection-component panel was orphaned
+with its store, pipeline and service all intact (B9). Both were invisible: nothing throws
+when a module is simply never rendered.
+
+**A "Pending" here is a statement about the environment, not a shrug.** Every remaining row
+names what it needs — a NATS worker, an OIDC provider, a Pyodide run, an enabled plugin, a
+touch device, a point cloud, two GLBs, a CAD↔FEA pair. None can be closed honestly from a
+dev stub, and the alternative — marking them Verified after reading the code — is the thing
+that makes a parity checklist worth nothing.
+
+Some rows are Verified **with a qualifier**, and the qualifier is the point: "parse only"
+where a test covers the bytes but not the render, "logic only" where the cellbuilder rules
+are tested but the gesture was not driven, "not exercised" where a branch was read. An
+inventory whose Verified column cannot be trusted stops anyone looking again.
