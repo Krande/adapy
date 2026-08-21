@@ -35,10 +35,32 @@ import {
 // leaving the Build tools to compare two representations — at exactly the moment you want
 // them. Buttons, not modes.
 
+// The tooltips say what each one IS, in the compiler's own terms.
+//
+// "Sim" and "Detail" are the same build at two levels of detail, and the difference is not
+// guessable from the labels — worth spelling out, including the case where there is no
+// difference at all: with no structural blueprint the detail flag has no effect, so Detail
+// renders the same geometry as Sim. Someone comparing them and seeing nothing change
+// deserves to know that is the model, not the button.
 const REPS: {value: RepMode; label: string; title: string}[] = [
-    {value: "topology", label: "Topology", title: "The cells and equipment you are editing"},
-    {value: "simulation", label: "Sim", title: "The compiled analysis model — plates and beams"},
-    {value: "detail", label: "Detail", title: "The compiled detail model — joints and fabrication"},
+    {
+        value: "topology",
+        label: "Topology",
+        title: "The cells, openings and equipment you are editing — the input to a compile",
+    },
+    {
+        value: "simulation",
+        label: "Sim",
+        title: "Compiled, analysis grade: plates and beams as the analysis wants them",
+    },
+    {
+        value: "detail",
+        label: "Detail",
+        title:
+            "Compiled, fabrication grade: deck plate edges trimmed to the girder flanges, " +
+            "I-girder joints modelled, connection joints added. Identical to Sim when the " +
+            "model has no structural blueprint — the detail flag has nothing to act on.",
+    },
 ];
 
 export default function RepresentationControl() {
@@ -46,17 +68,23 @@ export default function RepresentationControl() {
     // when the same state is changed from the View menu.
     const repMode = useCellBuilderStore((s) => s.repMode);
     const active = useCellBuilderStore((s) => s.active);
-    const result = useCellBuilderStore((s) => s.resultSourceName);
     useCellBuilderStore((s) => s.superimpose);
     useCellBuilderStore((s) => s.sideBySide);
 
     if (!active) return null;
 
-    // Nothing compiled yet: the compiled representations are still real choices, but
-    // choosing one would show an empty scene. Disabled with the reason rather than hidden
-    // — hiding them means the strip changes shape the moment you compile, and controls
-    // that appear from nowhere are how people conclude they imagined them.
-    const noResult = result ? null : "Compile first — there is no compiled model yet";
+    // Nothing is disabled on "no result loaded", and the first version of this control got
+    // that wrong badly enough to trap people.
+    //
+    // Switching to Topology UNLOADS the compiled model and nulls resultSourceName — that is
+    // what Topology means. Gating Sim and Detail on "a result is currently loaded" therefore
+    // greyed them out the instant you looked at your topology, with no way back short of
+    // compiling again. The signal was wrong: "is a result on screen" is not "can I ask for
+    // one".
+    //
+    // `setRepMode` already compiles a preview when the representation you pick has no GLB
+    // yet. Asking for Sim IS the way to get Sim. So the control just asks, and a compile
+    // that cannot run reports itself in a toast like any other.
 
     return (
         <span className="inline-flex items-center gap-1">
@@ -68,22 +96,15 @@ export default function RepresentationControl() {
                 options={REPS.map((r) => ({
                     value: r.value,
                     label: r.label,
-                    // Topology is always available — it is the thing you are editing.
-                    disabled: r.value !== "topology" && noResult != null,
-                    title: r.value !== "topology" && noResult ? `${r.title} — ${noResult}` : r.title,
+                    title: r.title,
                 }))}
             />
             <ToggleButton
                 size="sm"
                 variant="ghost"
                 pressed={superimposeOn()}
-                disabled={noResult != null}
                 onClick={toggleSuperimpose}
-                title={
-                    noResult
-                        ? `Draw the compiled model on top of the topology — ${noResult}`
-                        : "Draw the compiled model on top of the topology"
-                }
+                title="Draw the compiled model on top of the topology"
             >
                 Overlay
             </ToggleButton>
@@ -91,11 +112,8 @@ export default function RepresentationControl() {
                 size="sm"
                 variant="ghost"
                 pressed={sideBySideOn()}
-                disabled={noResult != null}
                 onClick={toggleSideBySide}
-                title={
-                    noResult ? `Offset the two so they sit side by side — ${noResult}` : "Offset the two so they sit side by side"
-                }
+                title="Offset the two so they sit side by side"
             >
                 Side by side
             </ToggleButton>

@@ -2996,3 +2996,36 @@ the viewer renders happily, that could not be got into storage in the first plac
 Two lists describing one set, disagreeing. This one touches a fenced file
 (`utils/scene/**`) — justified because it is a reported defect and a one-line data
 correction, not the rebuild reaching into business logic.
+
+## Topology was a one-way trip, and that was my bug
+
+Reported: after a compile you land on Sim, and picking Topology leaves no way back to Sim
+without compiling again.
+
+The cause was in the control I had just added. I disabled Sim and Detail whenever
+`resultSourceName` was null — but **switching to Topology unloads the compiled model and
+nulls exactly that field.** That is what Topology means. So the two buttons greyed out the
+instant you looked at your topology, and the only way back was a fresh compile.
+
+The signal was wrong: *"is a result on screen"* is not *"can I ask for one"*.
+`setRepMode` already compiles a preview when the representation you pick has no GLB yet —
+asking for Sim **is** the way to get Sim. The control now just asks, and a compile that
+cannot run reports itself in a toast like anything else. Verified: Sim → Topology → Sim
+brings the compiled model back.
+
+Worth generalising: a control that disables itself on state its own action *clears* is a
+trap, and it looks correct in every screenshot.
+
+## Sim and Detail, said properly
+
+"What is the difference?" was a fair question the tooltips did not answer. From the
+compiler's own docstring:
+
+- **Sim** — analysis grade: plates and beams as the analysis wants them.
+- **Detail** — fabrication grade: deck plate edges trimmed to the girder flanges, I-girder
+  joints modelled, connection joints added.
+
+And the part worth saying out loud: **with no structural blueprint the detail flag has
+nothing to act on**, so Detail renders exactly what Sim does. Someone comparing the two and
+seeing no change deserves to know that is the model, not a broken button. All three
+tooltips now say what the representation *is* rather than naming it twice.
