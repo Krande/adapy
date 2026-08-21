@@ -36,6 +36,7 @@ import {runtime} from "@/runtime/config";
 import {gizmoReason} from "./gizmoRules";
 import {chosenTypeLabel, splitButtonState} from "./splitButton";
 import SectionPlaneControl from "./SectionPlaneControl";
+import RepresentationControl from "./RepresentationControl";
 import ResultsControls from "./ResultsControls";
 
 // The mode's own tools, as a horizontal strip directly under the mode switcher.
@@ -224,6 +225,11 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         {id: "resize", icon: "scale", label: "Resize", shortcut: "S", pressed: gizmoIs("resize"), why: needsGizmo("resize"), run: setGizmo("resize")},
         div("d2"),
         {id: "compile", icon: "reload", label: "Compile preview", shortcut: "Shift+Enter", why: needsBuilder, run: compilePreview},
+        div("d3"),
+        // What you are looking at: topology, the compiled model, or both. On the strip and
+        // not only in View ▸ Builder, because this is the control you reach for after
+        // every compile — see RepresentationControl.
+        {id: "representation", icon: "view", label: "Representation", render: () => <RepresentationControl />},
         // Export. A split button for the same reason the type pickers are: exporting the
         // same format twice should not cost a menu, and naming the format in the tooltip
         // means you can see which one is armed without opening anything.

@@ -2947,3 +2947,52 @@ Nothing in that boot can make them appear, so the check runs first: **2 seconds,
 
 The general shape is worth keeping: *when a precondition cannot be satisfied by the
 expensive work that follows it, check it before starting.*
+
+## The representation controls went back on the strip
+
+Dissolving the Builder's View tab, I sent representation / superimpose / side-by-side to
+**View ▸ Builder** as menu commands. That was wrong for these particular controls, and the
+report was blunt: *"where are these options?"*
+
+A menu is where occasional commands go. These are reached **after every compile**, to see
+what the compiler made of the model — once per edit loop, not once per session. Something
+used that often belongs on the strip, visible, showing its state without being opened.
+
+They are back in the Build toolbar:
+
+- **Topology | Sim | Detail** as a `SegmentedControl`, because the three are mutually
+  exclusive and the control says so — you can see which one you are in without hovering.
+- **Overlay** and **Side by side** as separate toggles, because they are independent
+  modifiers on top of whichever representation is showing.
+
+The menu commands stay. Two doors onto one state is fine when one is the index of
+everything (the menu bar) and the other is the fast path; what was wrong was having only
+the index.
+
+**They carry text, not icons.** No icon in the set means "superimpose" or "side by side",
+and the near-miss — two overlapping rectangles, which is the *copy* glyph — would say
+something else confidently. These are the two controls that went missing; findable beats
+compact.
+
+**Disabled, not hidden, before the first compile.** Choosing "Sim" with nothing compiled
+would show an empty scene, so they grey out with the reason. Hiding them would mean the
+strip changes shape the moment you compile, and controls that appear from nowhere are how
+people conclude they imagined them.
+
+**Not tied to the mode, and that was a real suggestion to turn down.** "Build shows
+topology, Inspect shows the compiled model" is the obvious shortcut. It breaks the
+non-modality contract — a mode changes what is OFFERED, never what is loaded or visible —
+and it would mean leaving the Build tools to compare two representations, at exactly the
+moment you want them.
+
+## `.sin` could be loaded but not uploaded
+
+`SUPPORTED_EXTS` in `upload_source_file.ts` listed `.sif` and `.rmed` and not `.sin`, while
+`fileKinds.ts` has always treated `.sin` as a first-class streaming result — its own comment
+says the two Sesam formats "carry the same record schema and converter". So the file picker
+filtered `.sin` out of the dialog, and choosing "all files" then failed validation: a format
+the viewer renders happily, that could not be got into storage in the first place.
+
+Two lists describing one set, disagreeing. This one touches a fenced file
+(`utils/scene/**`) — justified because it is a reported defect and a one-line data
+correction, not the rebuild reaching into business logic.
