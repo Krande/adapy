@@ -2927,3 +2927,23 @@ The list now carries `dev-cantilever.sin` pointing at the same baked artefacts, 
 streams: loading it puts **FEA elements** in the Outliner. The flatbuffer `FileType` enum
 has no `SIN` member — it predates streaming FEA — but the frontend classifies by
 *extension*, so that field is a placeholder here exactly as it is for the `.rmed`.
+
+## The wheel message named the wrong command
+
+In-browser compile needs **two** wheels, built by **two different repos**, and my error
+said "run `pixi run wheel-pyodide`" whichever one was missing. That command builds the
+pure-python `adapy` wheel and cannot produce `adacpp` — the OCCT-cross-compiled wasm
+kernel, which comes from the adacpp repo's own emscripten build. So following the message
+exactly still failed, on the other wheel.
+
+Advice is now per wheel, and **both** missing wheels are reported at once. Being told about
+one, fixing it, and being told about the next is two boots to learn what a single sentence
+could have said.
+
+**It also failed twelve seconds late.** The wheel fetch happens near the end of
+`ensureProceduralStack`, after `loadPyodide`, numpy and Pillow have all been fetched and
+initialised — so the wait was paid in full before hearing that the wheels were never there.
+Nothing in that boot can make them appear, so the check runs first: **2 seconds, not 12.**
+
+The general shape is worth keeping: *when a precondition cannot be satisfied by the
+expensive work that follows it, check it before starting.*
