@@ -106,6 +106,15 @@ const FIXTURE_FILES: {name: string; type: FileType; modified: string}[] = [
     {name: "cantilever.step", type: FileType.STEP, modified: "2026-08-14T09:12:00Z"},
     {name: "topside.ifc", type: FileType.IFC, modified: "2026-08-15T14:03:00Z"},
     {name: "dev-cantilever.rmed", type: FileType.IFC, modified: "2026-08-18T08:41:00Z"},
+    // A Sesam .sin, pointing at the same baked artefacts.
+    //
+    // The list had no .sin, so the one streaming format people ask about first could not
+    // be clicked here at all — which reads as "the viewer does not recognise .sin" when
+    // the predicates in fileKinds.ts have always accepted it. The flatbuffer FileType enum
+    // has no SIN member (it predates streaming FEA) and the frontend classifies by
+    // EXTENSION anyway, so the type here is a placeholder, exactly as it is for the .rmed
+    // above.
+    {name: "dev-cantilever.sin", type: FileType.IFC, modified: "2026-08-18T08:44:00Z"},
     {name: "_derived/cantilever.step.glb", type: FileType.GLB, modified: "2026-08-14T09:14:00Z"},
 ];
 
@@ -156,6 +165,86 @@ function buildFileListReply(instanceId: number): Uint8Array {
     b.finish(Message.endMessage(b));
 
     return b.asUint8Array();
+}
+
+// Compiled GLBs, keyed by the derived_key handed back to the client. In memory on
+// purpose: writing them under public/ would drop a build artefact into the git tree for
+// every model anyone previewed.
+const COMPILED = new Map<string, Buffer>();
+
+/** Pythons that might have adapy importable, best first. ADA_DEV_PY overrides. */
+function pythonCandidates(): string[] {
+    const root = path.resolve(__dirname, "../..");
+    const envs = ["tests", "prod", "fem", "viewer-api", "tests-core"];
+    return [
+        process.env.ADA_DEV_PY,
+        ...envs.map((e) => path.join(root, ".pixi", "envs", e, "python.exe")),
+        ...envs.map((e) => path.join(root, ".pixi", "envs", e, "bin", "python")),
+    ].filter((x): x is string => Boolean(x));
+}
+
+/**
+ * Compile a procedural doc by running the repo's own compiler.
+ *
+ * Throws with `shortReason` set to something that fits on an HTTP status line — the
+ * client's ApiError keeps the status text and discards the body, so a long message
+ * arrives at the user as nothing at all.
+ */
+async function compileProcedural(
+    doc: unknown,
+    opts: {lod: string; engine: string | null; name: string},
+): Promise<Buffer> {
+    const {execFile} = await import("node:child_process");
+    const os = await import("node:os");
+    const python = pythonCandidates().find((p) => fs.existsSync(p));
+    if (!python) {
+        const err: Error & {shortReason?: string} = new Error(
+            "No python with adapy found. Set ADA_DEV_PY, or create a pixi env (pixi install -e tests).",
+        );
+        err.shortReason = "no local python with adapy - set ADA_DEV_PY";
+        throw err;
+    }
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ada-compile-"));
+    const docPath = path.join(tmp, "doc.json");
+    const outPath = path.join(tmp, "out.glb");
+    fs.writeFileSync(docPath, JSON.stringify(doc));
+
+    const script = path.resolve(__dirname, "scripts/dev-compile-procedural.py");
+    const args = [script, docPath, outPath, "--lod", opts.lod, "--name", opts.name];
+    if (opts.engine) args.push("--engine", opts.engine);
+
+    await new Promise<void>((resolve, reject) => {
+        execFile(python, args, {timeout: 180_000, maxBuffer: 8 << 20}, (error, _out, stderr) => {
+            if (!error) return resolve();
+            // Pick the line a person can act on.
+            //
+            // NOT simply the last line: pydantic ends its report with "For further
+            // information visit https://errors.pydantic.dev/...", so the naive choice
+            // surfaced a URL to the user and hid the actual message — "1 validation error
+            // for TopoSystem / TYPE / Input should be 'piping', 'duct'...". Prefer the
+            // first line that names an error; fall back to the last useful one.
+            const lines = String(stderr || error.message)
+                .trim()
+                .split(/\r?\n/)
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .filter((l) => !/^For further information visit/.test(l));
+            const named = lines.find((l) => /error for |Error:/.test(l) && !/^Traceback/.test(l));
+            const last = named ?? lines[lines.length - 1] ?? "compile failed";
+            const e: Error & {shortReason?: string} = new Error(String(stderr || error.message));
+            e.shortReason = last.slice(0, 110);
+            reject(e);
+        });
+    });
+
+    const glb = fs.readFileSync(outPath);
+    try {
+        fs.rmSync(tmp, {recursive: true, force: true});
+    } catch {
+        /* a leftover temp dir is not worth failing a dev compile over */
+    }
+    return glb;
 }
 
 /** Read a whole request body. */
@@ -493,29 +582,53 @@ export function adapyDevRestConfig() {
                     return sendJson(res, {system_templates: []});
                 }
 
-                // Compile / preview. Deliberately NOT faked.
+                // Compile / preview — really compiled, not faked.
                 //
-                // Compiling runs a worker and produces a GLB; there is nothing honest a
-                // static fixture can return. So it answers 501 with the reason in the
-                // STATUS TEXT rather than a body: ApiError's message is built from
-                // "${what} failed: ${status} ${statusText}" and drops the JSON detail,
-                // so the status line is the only channel that reaches the user.
+                // It answered 501 for a long time, on the grounds that compiling runs a
+                // worker producing a GLB and nothing static can stand in for one. True,
+                // and the wrong conclusion: the compiler is plain Python and it is in this
+                // repo. So the fixture shells out to it. What comes back is the REAL
+                // compiler's output — the same `compile_doc` the server worker calls —
+                // which makes Build mode's whole loop reviewable with no backend and no
+                // pyodide wheels.
                 //
-                // Without this the UI showed "404 Not Found", which reads as a broken
-                // feature. It is not broken — there is simply no worker here.
-                const procCompile =
-                    /^\/scopes\/[^/]+\/procedural-models\/[^/]+\/(compile|compile-preview)$/.exec(route);
-                if (procCompile) {
-                    res.statusCode = 501;
-                    res.statusMessage = "no procedural worker here - run: pixi run -e viewer-api viewer-api";
-                    res.setHeader("Content-Type", "application/json");
-                    return res.end(JSON.stringify({
-                        detail:
-                            "The dev fixture cannot compile: compiling runs a worker that produces a " +
-                            "GLB, and nothing static can stand in for it. Two ways forward — run a real " +
-                            "backend (pixi run -e viewer-api viewer-api) with a procedural worker, or " +
-                            "compile in the browser, which needs the pyodide wheels: pixi run wheel-pyodide.",
-                    }));
+                // The GLB is kept in memory and served from the blobs route below. Writing
+                // it into public/ would leave build artefacts in a git tree for every
+                // model anyone previewed.
+                const procCompileNew =
+                    /^\/scopes\/[^/]+\/procedural-models\/([^/]+)\/(compile|compile-preview)$/.exec(route);
+                if (procCompileNew && req.method === "POST") {
+                    const modelId = procCompileNew[1];
+                    const q = new URL(req.url ?? "", "http://x").searchParams;
+                    const lod = q.get("lod") === "detail" ? "detail" : "sim";
+                    const engine = q.get("engine");
+                    return readJson(req)
+                        .then(async (body) => {
+                            const doc = (body as {doc?: unknown}).doc ?? body;
+                            const glb = await compileProcedural(doc, {lod, engine, name: modelId});
+                            const key = `_derived/${modelId}.${lod}.glb`;
+                            COMPILED.set(key, glb);
+                            // cached:true, not a null job id.
+                            //
+                            // The client polls convertStatus(job_id) unless `cached` says
+                            // the artefact is already there — with cached:false and no id
+                            // it called convertStatus(null) and got a 404. "Cached" is
+                            // also simply true here: this compiled synchronously, so the
+                            // GLB is ready before the response is written.
+                            return sendJson(res, {job_id: null, derived_key: key, cached: true});
+                        })
+                        .catch((err) => {
+                            // 501 with the reason on the STATUS LINE: ApiError builds its
+                            // message from "${what} failed: ${status} ${statusText}" and
+                            // drops the JSON body, so the status text is the only channel
+                            // that reaches the toast.
+                            res.statusCode = 501;
+                            res.statusMessage = String(err && err.shortReason ? err.shortReason : "local compile failed")
+                                .replace(/[\r\n]+/g, " ")
+                                .slice(0, 120);
+                            res.setHeader("Content-Type", "application/json");
+                            res.end(JSON.stringify({detail: String(err?.message ?? err)}));
+                        });
                 }
 
                 // The FEA manifest — the thing that unlocks all of Results mode.
@@ -549,6 +662,15 @@ export function adapyDevRestConfig() {
                 const blob = /^\/scopes\/[^/]+\/blobs\/(.+)$/.exec(route);
                 if (blob) {
                     const key = decodeURIComponent(blob[1]);
+                    // A GLB this stub compiled a moment ago.
+                    const compiled = COMPILED.get(key);
+                    if (compiled) {
+                        res.statusCode = 200;
+                        res.setHeader("Content-Type", "model/gltf-binary");
+                        res.setHeader("Cache-Control", "no-store");
+                        res.setHeader("Content-Length", String(compiled.length));
+                        return res.end(compiled);
+                    }
                     const fea = /^_derived\/.+\.fea\/(.+)$/.exec(key);
                     if (fea) {
                         // basename only — never let a crafted key escape the fixture dir.

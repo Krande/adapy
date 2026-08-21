@@ -26,6 +26,7 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
+import {EmptyState} from "@/components/ui";
 import type {
     FeaManifest,
     FeaManifestField,
@@ -813,8 +814,14 @@ const FeaHistoryTable: React.FC<{
     );
 };
 
+// Tokens, not white.
+//
+// This was `bg-white bg-opacity-90` — pre-design-system styling the migration missed,
+// because noAdHocChrome's pattern requires a numeric suffix (`bg-gray-800`) and
+// `bg-white` has none. Worse, `bg-opacity-90` is Tailwind v3 syntax that v4 ignores, so
+// the panel was not even translucent: a solid white card in a dark viewer.
 const PanelShell: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <div className="p-3 border rounded-lg shadow-xs bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px] overflow-auto">
+    <div className="flex min-h-0 max-h-[420px] flex-col overflow-auto rounded-md border border-edge bg-surface-1 p-3">
         {children}
     </div>
 );
@@ -836,13 +843,10 @@ const LegacyGltfSimDataPanel: React.FC = () => {
     if (!simData) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-content-subtle">
-                    No Simulation Loaded
-                </h2>
-                <p className="text-sm text-content-subtle mt-2">
-                    Load a GLB with the ADA simulation metadata extension, or
-                    open a streaming-FEA file from storage to view nodal data.
-                </p>
+                <EmptyState
+                    title="No simulation loaded"
+                    hint="Open a result file from Storage — a Sesam .sin, a Code_Aster .rmed, or a GLB carrying the ADA simulation extension."
+                />
             </PanelShell>
         );
     }
@@ -851,7 +855,10 @@ const LegacyGltfSimDataPanel: React.FC = () => {
     if (!steps || steps.length === 0) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-content-subtle">No Simulation Steps</h2>
+                <EmptyState
+                    title="No steps in this result"
+                    hint="The file loaded, but its result set carries no time or mode steps to scrub through."
+                />
             </PanelShell>
         );
     }

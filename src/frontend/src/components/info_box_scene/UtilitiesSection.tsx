@@ -486,7 +486,7 @@ const UtilitiesSection = () => {
                 </div>
             )}
             {lastResult?.summary && (
-                <pre className="mt-2 text-xs whitespace-pre-wrap bg-black bg-opacity-70 text-content rounded-sm p-1 max-h-40 overflow-auto">
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-sm bg-surface-0 p-1 text-xs text-content">
                     {JSON.stringify(lastResult.summary, null, 1)}
                 </pre>
             )}

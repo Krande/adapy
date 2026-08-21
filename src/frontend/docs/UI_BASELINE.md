@@ -2877,3 +2877,53 @@ both ways forward: run a real backend, or build the wheels and compile in the br
 template literal terminated the string; two of the three builds failed. I had syntax-checked
 that file after an earlier edit and not after this one. The three builds are the gate for
 exactly this: `tsc` passed and all 496 tests passed, because neither compiles the worker.
+
+## Compile actually compiles in dev now
+
+The stub answered 501 on the grounds that "compiling runs a worker producing a GLB and
+nothing static can stand in for one". True, and the wrong conclusion — **the compiler is
+plain Python and it is in this repo.** The fixture shells out to it. What comes back is
+the real `compile_doc` output, the same call the server worker makes, so Build mode's whole
+loop is reviewable with no backend and no pyodide wheels.
+
+The in-browser route stays out of reach here for a reason worth writing down: procedural
+compile needs **two** wheels — `adapy` (buildable with `pixi run wheel-pyodide`) and
+`adacpp`, the OCCT-cross-compiled wasm kernel, which comes from a different repo. My
+earlier error message named only the first, so following it exactly would still have
+failed on the second.
+
+Three things this shook out:
+
+- **The dev fixture's own document did not compile.** Its equipment lacked `COGx/y/z`,
+  `massDry`, `massCont`, and its systems used `TYPE: "pipe"` where the model wants
+  `"piping"`. A fixture that cannot go through the product's central operation is not a
+  fixture, and nothing had ever tried.
+- **The error surfaced was a URL.** Taking the *last* stderr line meant pydantic's
+  "For further information visit https://errors.pydantic.dev/…" reached the user while
+  "1 validation error for TopoSystem / TYPE / Input should be 'piping'…" was thrown away.
+  It now prefers the first line that names an error.
+- **`cached: false` with a null job id made the client poll `convertStatus(null)`** and
+  fail on a 404. `cached: true` is both what the client needs and what is true: the GLB is
+  finished before the response is written.
+
+## A white card in a dark viewer
+
+Results mode's "No Simulation Loaded" box was `bg-white bg-opacity-90` — pre-design-system
+styling the migration never touched. The colours were not intentional.
+
+**Two rules missed it.** `noAdHocChrome`'s pattern requires a numeric suffix
+(`bg-gray-800`), and `bg-white` has none. And `bg-opacity-90` is Tailwind **v3** syntax
+that v4 ignores, so it was not even the translucent card its author intended — it was solid
+white. Both empty states now use `EmptyState` on `bg-surface-1`.
+
+## `.sin` was recognised all along — there was just never one to click
+
+`isFEAResult` and `isStreamingFEAResult` have always accepted `.sin`. The dev fixture's
+file list had a `.step`, an `.ifc` and a `.rmed`, and no `.sin` at all — so the streaming
+format people ask about first could not be exercised, which reads exactly like "the viewer
+does not recognise it".
+
+The list now carries `dev-cantilever.sin` pointing at the same baked artefacts, and it
+streams: loading it puts **FEA elements** in the Outliner. The flatbuffer `FileType` enum
+has no `SIN` member — it predates streaming FEA — but the frontend classifies by
+*extension*, so that field is a placeholder here exactly as it is for the `.rmed`.
