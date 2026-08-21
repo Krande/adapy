@@ -8,7 +8,6 @@ import {
     groupNameFromId,
     groupNodeId,
     isElementSet,
-    selectedMemberCount,
     unionMembers,
     type FeaSet,
 } from "../../shell/feaSets";
@@ -32,13 +31,6 @@ test("multi-select unions and de-duplicates overlapping sets", () => {
     // E2 and E3 are in both sets; each must appear once, or the same range would be hidden
     // and unhidden inside one pass.
     assert.deepEqual(ids, ["E1", "E2", "E3", "E4"]);
-});
-
-test("member count never exceeds the model by double-counting", () => {
-    const both = new Set(["Mini (elements)", "Mini_area_dbl_btm"]);
-    const naive = SETS.filter((s) => both.has(s.name)).reduce((n, s) => n + s.members.length, 0);
-    assert.equal(naive, 6, "the naive sum really does over-count here");
-    assert.equal(selectedMemberCount(SETS, both), 4);
 });
 
 test("the hidden set is the mesh's ranges minus the selection", () => {

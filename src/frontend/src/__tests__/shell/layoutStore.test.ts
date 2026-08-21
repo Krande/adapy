@@ -240,3 +240,77 @@ test("Convert mode docks nothing — the converter is the main area", () => {
     assert.equal(l.docks.right.tabs.length, 0);
     assert.equal(l.docks.left.tabs.length, 0);
 });
+
+// --- adopting panels registered after a layout was saved -------------------------------
+//
+// The failure this guards is silent: a persisted layout is a closed list of panel ids, so
+// a newly registered panel is in the registry and in the menu but on nobody's screen. It
+// reads as the feature not shipping, and it happened once already.
+
+import {adoptNewPanels} from "../../shell/layoutStore";
+import type {PanelId} from "../../shell/panelRegistry";
+
+/** A saved layout that has never heard of `absent`. */
+const layoutWithout = (mode: Parameters<typeof defaultLayout>[0], absent: PanelId) => {
+    const l = defaultLayout(mode);
+    for (const d of Object.values(l.docks)) {
+        d.tabs = d.tabs.filter((t) => t !== absent);
+        if (d.active === absent) d.active = d.tabs[0] ?? null;
+    }
+    return l;
+};
+
+const allTabs = (l: ReturnType<typeof defaultLayout>) => Object.values(l.docks).flatMap((d) => d.tabs);
+
+test("a panel the mode's default layout wants, missing from a saved layout, gets placed", () => {
+    for (const mode of MODE_IDS) {
+        const wanted = allTabs(defaultLayout(mode));
+        for (const panel of wanted) {
+            const l = layoutWithout(mode, panel);
+            adoptNewPanels(l, mode);
+            assert.ok(allTabs(l).includes(panel), `${panel} should be adopted back in ${mode}`);
+        }
+    }
+});
+
+test("adoption never overrides a mode that deliberately leaves a panel out", () => {
+    // The bug this caught: "outliner" is registered modes:"all" + defaultOpen, but Build's
+    // default layout omits it on purpose -- the components tree already answers that
+    // question. Adopting on the registry flag shoved a second tree into Build for every
+    // user, on every load.
+    for (const mode of MODE_IDS) {
+        const omitted = MODE_IDS.flatMap((m) => allTabs(defaultLayout(m))).filter(
+            (id) => !allTabs(defaultLayout(mode)).includes(id),
+        );
+        const l = defaultLayout(mode);
+        adoptNewPanels(l, mode);
+        for (const id of omitted) {
+            assert.ok(!allTabs(l).includes(id), `${id} is not part of ${mode} and must stay out`);
+        }
+    }
+});
+
+test("adoption is idempotent, so a panel is never doubled", () => {
+    for (const mode of MODE_IDS) {
+        const l = defaultLayout(mode);
+        const before = JSON.stringify(l);
+        adoptNewPanels(l, mode);
+        adoptNewPanels(l, mode);
+        assert.equal(JSON.stringify(l), before, `${mode} already has its default panels`);
+    }
+});
+
+test("adoption appends, and does not steal the active tab", () => {
+    for (const mode of MODE_IDS) {
+        for (const panel of allTabs(defaultLayout(mode))) {
+            const l = layoutWithout(mode, panel);
+            const docks = Object.entries(l.docks) as [keyof typeof l.docks, (typeof l.docks)[keyof typeof l.docks]][];
+            const before = docks.map(([id, d]) => [id, [...d.tabs], d.active] as const);
+            adoptNewPanels(l, mode);
+            for (const [id, tabs, active] of before) {
+                assert.deepEqual(l.docks[id].tabs.slice(0, tabs.length), tabs, "existing tabs keep their order");
+                if (active !== null) assert.equal(l.docks[id].active, active, "the visible tab is not replaced");
+            }
+        }
+    }
+});

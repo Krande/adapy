@@ -101,13 +101,3 @@ export function complementRanges(allRangeIds: Iterable<string>, keep: Iterable<s
     }
     return out;
 }
-
-/** Sum of members across the selected sets, counting shared members once.
- *
- *  Reported instead of adding the per-set counts up: two overlapping sets summing to more
- *  elements than the model contains is the kind of number that destroys trust in every
- *  other number on screen.
- */
-export function selectedMemberCount(sets: readonly FeaSet[], selected: ReadonlySet<string>): number {
-    return unionMembers(sets, selected).length;
-}

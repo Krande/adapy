@@ -2,7 +2,7 @@ import {create} from "zustand";
 import {persist} from "zustand/middleware";
 import {DOCK_LIMITS, type DockedId, type DockId} from "./regions";
 import {MODE_IDS, type ModeId} from "./modeStore";
-import {PANELS, PANEL_IDS, type PanelId} from "./panelRegistry";
+import type {PanelId} from "./panelRegistry";
 
 // Layout geometry, per mode.
 //
@@ -190,36 +190,35 @@ function removeEverywhere(l: ModeLayout, panel: PanelId): ModeLayout {
 /**
  * Place panels that are new SINCE this layout was saved.
  *
- * Persisted layouts are a closed list of panel ids. Register a panel with
- * `defaultOpen`, and every existing user -- which after the first release is all of
- * them -- gets a layout that has simply never heard of it: the panel is registered, in
- * the menu, and nowhere on screen. It reads as the feature not shipping.
+ * The failure this prevents is silent: a persisted layout is a closed list of panel ids,
+ * so a newly registered panel is in the registry and in the menu but on nobody's screen.
+ * It reads as the feature not shipping.
  *
- * So on rehydrate, any default-open panel for this mode that appears in no dock, no
- * float and no overlay is appended to its default dock. Only genuinely absent panels
- * qualify, so a panel the user deliberately CLOSED stays closed -- it is still in the
- * blob, just not in a dock's tabs... which is exactly why this checks the union of
- * every location rather than dock membership alone.
+ * Candidates come from THIS MODE'S default layout, not from the registry's
+ * `defaultOpen` flag. The flag says a panel is worth opening somewhere; the default
+ * layout says where, per mode, and it deliberately leaves panels out -- Build omits the
+ * Outliner because the components tree already answers that question, and two trees side
+ * by side is the duplication this rebuild keeps removing. An earlier version adopted on
+ * the flag alone and shoved the Outliner into Build for every user on every load, quietly
+ * overriding that decision.
  *
- * Appended, not prepended, and never made the active tab: adopting a panel must not
- * silently replace whatever the user was last looking at.
+ * Appended, never made the active tab unless the dock had nothing showing: adopting a
+ * panel must not replace what the user was last looking at.
  */
-function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
+export function adoptNewPanels(l: ModeLayout, mode: ModeId): void {
     const placed = new Set<PanelId>();
     for (const d of Object.values(l.docks)) for (const t of d.tabs) placed.add(t);
     for (const k of Object.keys(l.floats)) placed.add(k as PanelId);
     for (const k of Object.keys(l.overlays)) placed.add(k as PanelId);
 
-    for (const id of PANEL_IDS) {
-        const def = PANELS[id];
-        if (!def?.defaultOpen || placed.has(id)) continue;
-        if (def.modes !== "all" && !def.modes.includes(mode)) continue;
-        const dock = def.defaultDock;
-        if (dock === "float" || dock === "overlay") continue;
-        const d = l.docks[dock];
-        if (!d) continue;
-        d.tabs = [...d.tabs, id];
-        d.active = d.active ?? id;
+    const wanted = defaultLayout(mode);
+    for (const dockId of Object.keys(wanted.docks) as DockedId[]) {
+        for (const id of wanted.docks[dockId].tabs) {
+            if (placed.has(id) || !l.docks[dockId]) continue;
+            l.docks[dockId].tabs = [...l.docks[dockId].tabs, id];
+            l.docks[dockId].active = l.docks[dockId].active ?? id;
+            placed.add(id);
+        }
     }
 }
 
