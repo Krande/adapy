@@ -722,7 +722,25 @@ export function adapyDevRestConfig() {
                     const engine = q.get("engine");
                     return readJson(req)
                         .then(async (body) => {
-                            const doc = (body as {doc?: unknown}).doc ?? body;
+                            // Preview posts {doc}; COMMIT-compile posts nothing and expects
+                            // the server to build the stored document. Reading the request
+                            // either way meant the committed compile compiled `{}` and
+                            // failed with "document has no spaces or loft_members" — while
+                            // the model plainly had spaces, just not in that request.
+                            const posted = (body as {doc?: unknown}).doc;
+                            const stored = PROCEDURAL.get(modelId)?.doc;
+                            const doc =
+                                posted ??
+                                (body && Object.keys(body as object).length ? body : undefined) ??
+                                stored;
+                            if (!doc) {
+                                const err: Error & {shortReason?: string} = new Error(
+                                    `No document to compile: "${modelId}" is not stored here and the ` +
+                                        `request carried none. Commit the model first.`,
+                                );
+                                err.shortReason = "nothing to compile - commit the model first";
+                                throw err;
+                            }
                             const glb = await compileProcedural(doc, {lod, engine, name: modelId});
                             const key = `_derived/${modelId}.${lod}.glb`;
                             COMPILED.set(key, glb);

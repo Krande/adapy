@@ -3225,3 +3225,39 @@ The `?build=1` fixture still cannot commit, and that is deliberate: it opens its
 directly through the store rather than creating one through the API, which is what keeps it
 working in plain `npm run dev` with no REST at all. Committing needs a model made with
 **New procedural model…**.
+
+## Committed compile read the wrong document
+
+`compileProceduralModel` POSTs with **no body** — the server is expected to build the
+*stored* document. `previewProceduralModel` posts `{doc}` because a preview builds the
+uncommitted one. The stub read the request either way, so the committed compile compiled
+`{}` and failed with *"document has no spaces or loft_members to compile"* — while the
+model plainly had spaces, just not in that request.
+
+It uses the stored document now, and says so when there is none: *"nothing to compile —
+commit the model first"* rather than a validation error about an empty document, which
+describes the payload rather than the situation.
+
+With the `PUT` from the previous entry, the whole loop is verified in the browser: add a
+cell → **Commit** → revision r3 → close → reopen from Storage → both cells present, "Build
+2". Models created before that `PUT` landed will still open empty; their stored document
+genuinely is.
+
+## Loading an FEA result replaces the scene — by design
+
+Reported: with a compiled Sim showing, adding a `.sin` leaves only the `.sin`. Topology
+survives, which is the clue — the cells are a separate layer, so whatever cleared the scene
+cleared *loaded sources*.
+
+That is what it does. `load_fea_streaming` calls `replace_model(url, …)` and
+`setModelUrl(url, SceneOperations.REPLACE)`, and `setLoadedSourceName` clears
+`loadedSourceGroups`. A result deck takes the scene: the mesh lookups, the morph targets and
+the field application are all scoped to "the GLB we just loaded", and the teardown exists so
+a previous result cannot be mistaken for the current one.
+
+**Not changed here, deliberately.** It sits in `utils/scene/handlers/**` — inside the
+business-logic fence — and it is not a slip: the comments around it describe the scoping it
+protects. Making an FEA result an overlay rather than a replacement means reworking that
+teardown, the mesh-lookup scoping and the "one result is live" assumption the field code
+leans on. That is a real piece of work with real regression surface, and it is the user's
+call whether to spend it, not a bug to quietly patch.
