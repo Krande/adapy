@@ -267,6 +267,7 @@ const CellBuilderPanel: React.FC = () => {
         <button
           className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-fail-subtle"
           title="Close model"
+          aria-label="Close model"
           onClick={s.close}
         >
           ✕

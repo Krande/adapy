@@ -173,7 +173,7 @@ const IssueTargetTab: React.FC = () => {
                         type="button"
                         onClick={save}
                         disabled={!dirty || busy}
-                        className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {busy ? "Saving…" : "Save"}
                     </button>

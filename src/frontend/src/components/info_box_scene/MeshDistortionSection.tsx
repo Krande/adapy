@@ -166,7 +166,7 @@ const MeshDistortionSection: React.FC = () => {
                     </label>
                     <div className="flex items-center gap-2">
                         <button
-                            className="bg-accent pointer-fine:hover:bg-accent text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
                             onClick={() => void rescan()}
                             disabled={scanning}
                         >

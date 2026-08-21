@@ -156,7 +156,7 @@ const ExistingSourceCard: React.FC<{
                     <button
                         type="button"
                         onClick={onConvertAgain}
-                        className="shrink-0 bg-accent pointer-fine:hover:bg-accent text-white text-xs px-2 py-1 rounded-sm"
+                        className="shrink-0 bg-accent pointer-fine:hover:bg-accent-hover text-white text-xs px-2 py-1 rounded-sm"
                         title="Convert this source to another format"
                     >
                         Convert…

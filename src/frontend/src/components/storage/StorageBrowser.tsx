@@ -1363,7 +1363,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             type="button"
                             onClick={onLoadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-accent pointer-fine:hover:bg-accent active:bg-accent-subtle ${btn}`}
+                            className={`bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle ${btn}`}
                         >
                             Load
                         </button>
@@ -1392,7 +1392,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                                 onClick={() => void onDeleteSelected()}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
-                                className={`bg-fail pointer-fine:hover:bg-fail active:bg-fail-subtle ${btn}`}
+                                className={`bg-fail pointer-fine:hover:brightness-110 active:bg-fail-subtle ${btn}`}
                             >
                                 {bulkBusy === "delete" ? "Deleting…" : "Delete"}
                             </button>
@@ -1401,7 +1401,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             type="button"
                             onClick={clearSelection}
                             disabled={bulkBusy !== null}
-                            className={`ml-auto bg-surface-3 pointer-fine:hover:bg-surface-3 ${btn}`}
+                            className={`ml-auto bg-surface-3 pointer-fine:hover:bg-surface-2 ${btn}`}
                         >
                             Cancel
                         </button>

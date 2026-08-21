@@ -169,7 +169,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             />
             <button
                 type="submit"
-                className="w-full bg-accent pointer-fine:hover:bg-accent px-2 py-2 rounded-sm text-sm disabled:opacity-50"
+                className="w-full bg-accent pointer-fine:hover:bg-accent-hover px-2 py-2 rounded-sm text-sm disabled:opacity-50"
                 disabled={!name.trim() || !effectiveSlug}
             >
                 Create project
@@ -298,7 +298,7 @@ const MemberPane: React.FC<{
                                         : "Mint CI bot"}
                             </button>
                             <button
-                                className="text-xs bg-fail pointer-fine:hover:bg-fail px-2 py-1 rounded-sm"
+                                className="text-xs bg-fail pointer-fine:hover:brightness-110 px-2 py-1 rounded-sm"
                                 onClick={onArchive}
                             >
                                 Archive
@@ -333,7 +333,7 @@ const MemberPane: React.FC<{
                             <option value="owner">owner</option>
                         </select>
                         <button
-                            className="bg-accent pointer-fine:hover:bg-accent px-3 py-2 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover px-3 py-2 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => void onAdd()}
                             disabled={adding || !newSub.trim()}
                         >

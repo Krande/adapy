@@ -186,7 +186,7 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                     <button
                         type="button"
                         onClick={submit}
-                        className="px-3 py-1 rounded-sm bg-accent pointer-fine:hover:bg-accent text-xs disabled:opacity-50"
+                        className="px-3 py-1 rounded-sm bg-accent pointer-fine:hover:bg-accent-hover text-xs disabled:opacity-50"
                         disabled={
                             mode !== "root" &&
                             ((mode === "existing" && !selected.trim()) ||

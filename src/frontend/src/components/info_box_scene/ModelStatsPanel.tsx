@@ -482,7 +482,7 @@ const ModelStatsPanel = () => {
               aria-haspopup="true"
               aria-expanded={exportMenuOpen}
               disabled={exporting}
-              className="inline-flex items-center gap-1.5 bg-accent pointer-fine:hover:bg-accent text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 bg-accent pointer-fine:hover:bg-accent-hover text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
             >
               <DownloadIcon /> Export <span aria-hidden="true" className="opacity-70">▾</span>
             </button>

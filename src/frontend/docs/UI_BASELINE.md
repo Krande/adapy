@@ -2809,3 +2809,42 @@ filtering its output through `grep` patterns naming only the files I had just to
 Filtering a compiler's output to the files you expect to be wrong defeats the point of
 running it. Fixed, and the filters now only ever exclude the three known pre-existing
 errors.
+
+## 53 hover states that did nothing
+
+The admin bodies turned out not to be worth a blanket codemod — 137 buttons across **64
+distinct class recipes**, which is a long tail, not the "unambiguous majority" Track B was
+written for. Rewriting one-offs mechanically is risk without gain, and the plan already
+calls this the lowest-value-per-line work in the repo.
+
+What was worth doing was the defect hiding underneath it.
+
+**`bg-accent pointer-fine:hover:bg-accent` — 53 sites across 32 files.** The bulk
+palette→token pass mapped `bg-blue-600` *and* `hover:bg-blue-500` onto the same
+`bg-accent`, so every one of those buttons lost its hover feedback. Nothing looked broken;
+the button simply stopped responding to the pointer, which reads as *the application*
+being unresponsive rather than as a styling bug. That is why it survived an entire rebuild
+unnoticed — and it is the same lesson as the categorical `BRANCH_PALETTE`, from the other
+direction: a bulk colour pass loses information, and the information it loses is the
+distinctions.
+
+Fixed to `bg-accent-hover` where a token exists, and to `brightness-110` for solid `fail`
+and `pass`, which is the design system's own idiom (`Button` uses `active:brightness-95`
+on every solid variant) rather than two new tokens for two buttons.
+
+**Only `base === hover` was rewritten.** A pair that genuinely changes colour is somebody's
+choice, however unusual — `bg-accent pointer-fine:hover:bg-accent-subtle` goes *lighter* on
+hover, which is odd but is not nothing, and overruling it is not a codemod's job.
+
+`hoverGuard.test.ts` now holds both rules: no bare `hover:`, and no hover that repaints the
+colour already there.
+
+**Two buttons had no accessible name.** `title` is a tooltip, not a name — a screen reader
+announces those as "button" and stops, and `×` is not a word. Both now carry `aria-label`.
+
+### Where the admin migration actually stands
+
+The tab strip is on the DS `Tabs`. The dialogs are converted. The hover rules hold. The
+bodies still hand-roll their buttons, inputs and tables — deliberately, because the audit
+says converting them means 64 bespoke decisions, not one recipe applied 137 times. That is
+a real remaining item and `FEATURE_INVENTORY.md` row F22 says so rather than rounding up.

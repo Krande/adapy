@@ -163,7 +163,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
         />
         {hasOverride && (
           <button
-            className="px-1 rounded-sm bg-surface-3 pointer-fine:hover:bg-surface-3 text-white shrink-0"
+            className="px-1 rounded-sm bg-surface-3 pointer-fine:hover:bg-surface-2 text-white shrink-0"
             title="Reset to category colour"
             onClick={() => updatePort(index, { color: null })}
           >

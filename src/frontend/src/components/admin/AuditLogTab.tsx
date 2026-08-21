@@ -180,7 +180,7 @@ const AuditLogTab: React.FC = () => {
                         Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
                     </button>
                     <button
-                        className="ml-auto bg-accent pointer-fine:hover:bg-accent px-3 py-1 rounded-sm text-xs"
+                        className="ml-auto bg-accent pointer-fine:hover:bg-accent-hover px-3 py-1 rounded-sm text-xs"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -233,7 +233,7 @@ const AuditLogTab: React.FC = () => {
                         onChange={(v) => onFilter({key: v || undefined})}
                     />
                     <button
-                        className="hidden sm:inline-block ml-auto bg-accent pointer-fine:hover:bg-accent px-2 py-1 rounded-sm"
+                        className="hidden sm:inline-block ml-auto bg-accent pointer-fine:hover:bg-accent-hover px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -930,7 +930,7 @@ const MetricsTab: React.FC<{
                     <div>
                         <button
                             type="button"
-                            className="bg-accent pointer-fine:hover:bg-accent px-3 py-1 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover px-3 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={onDownloadProfile}
                             disabled={downloading}
                         >

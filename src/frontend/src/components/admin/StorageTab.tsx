@@ -1037,7 +1037,7 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
                         </select>
                     )}
                     <button
-                        className="bg-fail pointer-fine:hover:bg-fail px-2 py-0.5 rounded-sm text-xs disabled:opacity-50"
+                        className="bg-fail pointer-fine:hover:brightness-110 px-2 py-0.5 rounded-sm text-xs disabled:opacity-50"
                         onClick={() => onDelete(file.key, file.key)}
                         disabled={busyDeleting}
                         title="Delete source + all derived"
@@ -1252,7 +1252,7 @@ const SourceCard: React.FC<CardProps> = ({
                             </select>
                         )}
                         <button
-                            className="bg-fail pointer-fine:hover:bg-fail px-2 py-1 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-fail pointer-fine:hover:brightness-110 px-2 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => onDelete(file.key, file.key)}
                             disabled={busyDeleting}
                         >
@@ -1309,7 +1309,7 @@ const FolderTableRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
     onRename, onMoveInto, busyMoving,
 }) => (
-    <tr className="border-t border-edge bg-surface-0 pointer-fine:hover:bg-surface-0">
+    <tr className="border-t border-edge bg-surface-0 pointer-fine:hover:bg-surface-2">
         <td colSpan={7} className="px-3 py-1.5">
             <div className="flex items-center gap-1">
                 <button
@@ -1343,7 +1343,7 @@ const FolderCardRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
     onRename, onMoveInto, busyMoving,
 }) => (
-    <li className="bg-surface-0 pointer-fine:hover:bg-surface-0 px-3 py-2 flex items-center gap-1"
+    <li className="bg-surface-0 pointer-fine:hover:bg-surface-2 px-3 py-2 flex items-center gap-1"
         style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
         <button
             type="button"

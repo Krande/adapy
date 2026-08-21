@@ -106,6 +106,27 @@ describe("sticky-hover guard", () => {
         assert.ok(!BARE_HOVER.test("group-hover:opacity-100"));
     });
 
+    test("no hover paints the colour that is already there", () => {
+        // Fallout from the bulk palette->token pass: `bg-blue-600 hover:bg-blue-500`
+        // mapped BOTH shades onto `bg-accent`, so 53 buttons silently lost their hover
+        // feedback. Nothing looks broken — the button just stops responding to the
+        // pointer, which reads as the application being unresponsive rather than as a
+        // styling bug, and that is why it survived a whole rebuild unnoticed.
+        const DEAD = /bg-([a-z0-9-]+) pointer-fine:hover:bg-([a-z0-9-]+)/g;
+        const bad: string[] = [];
+        for (const dir of ROOTS) {
+            for (const file of walk(dir)) {
+                const src = stripComments(fs.readFileSync(file, "utf8"));
+                for (const m of src.matchAll(DEAD)) {
+                    if (m[1] === m[2]) {
+                        bad.push(`${path.relative(ROOT, file).split(path.sep).join("/")}: ${m[0]}`);
+                    }
+                }
+            }
+        }
+        assert.deepEqual(bad, [], "these hover styles repaint the base colour and do nothing");
+    });
+
     test("the Button family really carries the guard", () => {
         // The whole point of baking it into the primitives: if this is ever true and the
         // test above is also true, the guard was removed rather than moved.

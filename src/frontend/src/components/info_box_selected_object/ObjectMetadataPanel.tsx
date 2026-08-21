@@ -180,7 +180,7 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
                 <button
                     type="button"
                     onClick={() => void selectInOtherModel({file, nodeNames: [name]})}
-                    className="ml-2 bg-accent pointer-fine:hover:bg-accent active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
+                    className="ml-2 bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
                     title={`Switch to ${file} and select ${name}`}
                 >
                     Select in CAD
@@ -202,7 +202,7 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
                     <button
                         type="button"
                         onClick={() => void selectInOtherModel({file: entry.file, nodeNames: entry.elementNames})}
-                        className="ml-2 bg-accent pointer-fine:hover:bg-accent active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
+                        className="ml-2 bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
                         title={`Switch to ${entry.file} and select all ${entry.elementNames.length} elements`}
                     >
                         Select FEA elements

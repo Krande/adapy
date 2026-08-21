@@ -91,7 +91,7 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
                     Sign in with your organisation account to continue.
                 </p>
                 <button
-                    className="bg-accent pointer-fine:hover:bg-accent px-4 py-2 rounded-sm text-white w-full"
+                    className="bg-accent pointer-fine:hover:bg-accent-hover px-4 py-2 rounded-sm text-white w-full"
                     onClick={() => {
                         void signIn();
                     }}

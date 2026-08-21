@@ -322,7 +322,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         type="button"
                         onClick={onConvert}
                         disabled={isRunning || submitting}
-                        className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {isRunning ? "Converting…" : submitting ? "Submitting…" : "Convert"}
                     </button>
@@ -332,7 +332,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         <button
                             type="button"
                             onClick={onDownload}
-                            className="bg-pass pointer-fine:hover:bg-pass text-white text-sm px-3 py-1 rounded-sm"
+                            className="bg-pass pointer-fine:hover:brightness-110 text-white text-sm px-3 py-1 rounded-sm"
                         >
                             Download
                         </button>

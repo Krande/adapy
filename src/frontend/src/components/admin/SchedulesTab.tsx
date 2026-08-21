@@ -159,7 +159,7 @@ const NewScheduleForm: React.FC<{
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Saving…" : "Add schedule"}
             </button>

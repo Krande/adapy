@@ -134,7 +134,7 @@ const ThresholdEditor: React.FC<{
                     type="button"
                     onClick={save}
                     disabled={busy}
-                    className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
+                    className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
                 >
                     {busy ? "Saving…" : "Save thresholds"}
                 </button>

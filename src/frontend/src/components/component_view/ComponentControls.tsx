@@ -221,7 +221,7 @@ const ComponentControls: React.FC = () => {
                             type="button"
                             onClick={handleBuild}
                             disabled={submitting}
-                            className="bg-accent pointer-fine:hover:bg-accent disabled:bg-surface-3 text-white rounded-sm px-3 py-1"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover disabled:bg-surface-3 text-white rounded-sm px-3 py-1"
                         >
                             {submitting ? "Building..." : "Build"}
                         </button>

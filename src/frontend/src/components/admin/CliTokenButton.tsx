@@ -123,7 +123,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onMint}
                             disabled={busy !== null}
-                            className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "mint" ? "Generating…" : "Generate new"}
                         </button>
@@ -131,7 +131,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onRevoke}
                             disabled={busy !== null}
-                            className="bg-fail pointer-fine:hover:bg-fail disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
+                            className="bg-fail pointer-fine:hover:brightness-110 disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "revoke" ? "Revoking…" : "Revoke all"}
                         </button>

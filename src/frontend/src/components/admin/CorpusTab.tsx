@@ -154,7 +154,7 @@ const NewCorpusForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             <button
                 type="submit"
                 disabled={busy}
-                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+                className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Creating…" : "Create corpus"}
             </button>
@@ -300,7 +300,15 @@ const CopyFromScopeModal: React.FC<{
                     <h3 className="text-sm font-semibold text-content">
                         Copy files into <span className="font-mono">{dstSlug}</span>
                     </h3>
-                    <button type="button" onClick={onClose} className="text-content-muted pointer-fine:hover:text-white text-lg leading-none px-1">×</button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close"
+                        title="Close"
+                        className="text-content-muted pointer-fine:hover:text-white text-lg leading-none px-1"
+                    >
+                        ×
+                    </button>
                 </div>
                 <div className="px-4 py-3 border-b border-edge flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-content">From scope</span>
@@ -405,7 +413,7 @@ const CopyFromScopeModal: React.FC<{
                         type="button"
                         onClick={() => void onCopy()}
                         disabled={busy || selected.size === 0}
-                        className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {busy ? "Copying…" : `Copy ${selected.size || ""} file${selected.size === 1 ? "" : "s"}`.trim()}
                     </button>
@@ -965,7 +973,7 @@ const CorpusFiles: React.FC<{
                             <button
                                 type="submit"
                                 disabled={metaBusy}
-                                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
+                                className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
                             >
                                 {metaBusy ? "Saving…" : "Save"}
                             </button>
@@ -1012,7 +1020,7 @@ const CorpusFiles: React.FC<{
                         type="button"
                         onClick={() => inputRef.current?.click()}
                         disabled={!!uploading}
-                        className="bg-pass pointer-fine:hover:bg-pass disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-pass pointer-fine:hover:brightness-110 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {uploading
                             ? `Uploading ${Math.round(progress * 100)}%`
@@ -1066,14 +1074,14 @@ const CorpusFiles: React.FC<{
                     <button
                         type="button"
                         onClick={() => void deleteKeysWithConfirm(Array.from(selected))}
-                        className="bg-fail pointer-fine:hover:bg-fail active:bg-fail-subtle text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                        className="bg-fail pointer-fine:hover:brightness-110 active:bg-fail-subtle text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
                     >
                         Delete
                     </button>
                     <button
                         type="button"
                         onClick={clearSelection}
-                        className="ml-auto bg-surface-3 pointer-fine:hover:bg-surface-3 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                        className="ml-auto bg-surface-3 pointer-fine:hover:bg-surface-2 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
                     >
                         Cancel
                     </button>
@@ -1204,7 +1212,7 @@ const CorpusFiles: React.FC<{
                                     setUploadFailures(null);
                                     void uploadFilesTo(failed.map((f) => f.file), folder);
                                 }}
-                                className="bg-accent pointer-fine:hover:bg-accent disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                                className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
                             >
                                 Retry {uploadFailures.failed.length} file{uploadFailures.failed.length === 1 ? "" : "s"}
                             </button>

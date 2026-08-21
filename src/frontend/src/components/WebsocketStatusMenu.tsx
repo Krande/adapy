@@ -121,7 +121,7 @@ export function WebsocketStatusBox() {
                                     ID: {currentId}
                                 </span>
                                 <button
-                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent-hover text-xs px-2 py-1 rounded-sm"
                                     title="Edit Instance ID"
                                     onClick={startEdit}
                                 >
@@ -139,7 +139,7 @@ export function WebsocketStatusBox() {
                                     aria-label="Frontend Instance ID"
                                 />
                                 <button
-                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent-hover text-xs px-2 py-1 rounded-sm"
                                     onClick={saveEdit}
                                     title="Save"
                                 >

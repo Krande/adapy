@@ -195,14 +195,14 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                         <div className="flex justify-end gap-2 pt-1">
                             <button
                                 onClick={onClose}
-                                className="px-3 py-1 text-xs rounded-sm bg-surface-3 pointer-fine:hover:bg-surface-3"
+                                className="px-3 py-1 text-xs rounded-sm bg-surface-3 pointer-fine:hover:bg-surface-2"
                                 disabled={submitting}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={onView}
-                                className="px-3 py-1 text-xs rounded-sm bg-accent pointer-fine:hover:bg-accent disabled:opacity-60"
+                                className="px-3 py-1 text-xs rounded-sm bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-60"
                                 disabled={submitting || step === null || field === null}
                             >
                                 {submitting ? "Loading…" : "View"}

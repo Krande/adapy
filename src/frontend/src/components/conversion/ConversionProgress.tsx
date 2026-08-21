@@ -146,7 +146,7 @@ const CancelButton: React.FC<{
             <span className="text-content">{question}</span>
             <button
                 disabled={busy}
-                className="bg-fail pointer-fine:hover:bg-fail text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-fail pointer-fine:hover:brightness-110 text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={doCancel}
             >
                 {busy ? "…" : verb}
@@ -620,7 +620,7 @@ const AuditActivityBadge: React.FC = () => {
             type="button"
             onClick={() => openPanel("admin", "audit_runs")}
             className={
-                "block w-full text-left bg-accent-subtle pointer-fine:hover:bg-accent-subtle border border-accent " +
+                "block w-full text-left bg-accent-subtle pointer-fine:hover:bg-accent border border-accent " +
                 "text-accent rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
                 "pointer-events-auto cursor-pointer"
             }
