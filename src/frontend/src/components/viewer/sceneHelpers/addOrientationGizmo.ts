@@ -6,9 +6,19 @@ export function addOrientationGizmo(
   camera: THREE.Camera,
   container: HTMLElement
 ): OrientationGizmo {
+  // Register once, then construct through whatever is REGISTERED — not through the
+  // imported class.
+  //
+  // Custom-element names cannot be re-registered. On a hot update this module
+  // re-evaluates with a fresh `OrientationGizmo` class, `customElements.get` still
+  // returns the OLD one, so the define is skipped and the new class is never registered.
+  // Constructing it then throws "Failed to construct 'HTMLElement': Illegal constructor",
+  // which took ThreeCanvas down to its error boundary — the 3D view went blank after any
+  // edit until a full page reload. Dev-only, but it is every dev, every edit.
   if (!customElements.get("orientation-gizmo")) {
     customElements.define("orientation-gizmo", OrientationGizmo);
   }
+  const Registered = customElements.get("orientation-gizmo") as typeof OrientationGizmo;
 
   // The gizmo class now self-positions in connectedCallback (display,
   // size, position:fixed, anchor → top/right/bottom/left). Caller just
@@ -16,7 +26,7 @@ export function addOrientationGizmo(
   const isNarrow = window.matchMedia("(max-width: 767px)").matches;
   const size = isNarrow ? 80 : 150;
 
-  const gizmo = new OrientationGizmo(camera, {
+  const gizmo = new Registered(camera, {
     size,
     bubbleSizePrimary: isNarrow ? 6 : 10,
     bubbleSizeSeconday: isNarrow ? 6 : 10,

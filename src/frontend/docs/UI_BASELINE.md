@@ -2510,3 +2510,48 @@ against — it grows now, which is right for every consumer. And `RailCustomiseD
 into `mountedOverlays.test.ts` alongside `SettingsDialog`: both are openable from two
 places and rendered from one, which is the exact shape of the five features silently lost
 earlier in this rebuild.
+
+## Escape cancels. Enter accepts.
+
+Decided, and now true everywhere in the cellbuilder.
+
+It already was for an axis-locked modal move: Escape restored the cell, Enter kept it. For
+a **widget drag** it was not. Escape fell through the unwind ladder to "put the gizmo
+away", which kept the half-finished drag — so the one key every application uses to mean
+*forget it* was the key that committed your accident, and silently, because putting the
+gizmo away looks like exactly what you asked for.
+
+Cancelling restores through `undo()` rather than a recorded baseline. `beginTransaction()`
+already snapshots the whole document at drag start, so one path covers every gizmo mode,
+loft members and the equipment that rides along with a cell. A hand-recorded baseline
+would have to know about all of them, and would quietly stop covering whatever gets added
+next.
+
+**Not `gizmo.enabled = false`**, which is the obvious way to stop a drag and the wrong one:
+TransformControls checks `enabled` in its *pointerup* handler too, so disabling mid-drag
+leaves `dragging` stuck true and the widget wedged on the next click. A flag the
+`objectChange` handler consults stops the edit without touching the widget's state
+machine, and the pointerup that ends the drag still arrives normally. The widget keeps
+following the pointer until you let go — the model does not — and it snaps back to the
+cell on release.
+
+The port gizmo gets the same treatment. A port dragged onto the wrong face is exactly as
+much of an accident as a cell dragged into a wall.
+
+The ordering is what a test can hold: `escapeCancels.test.ts` asserts the cancel comes
+before every later branch of the Escape ladder, because the way this regresses is a branch
+catching the key first. It re-anchors explicitly rather than passing when its strings
+vanish — `regionCompat` degraded into a test of nothing exactly that way.
+
+## The orientation gizmo broke on every hot update
+
+`addOrientationGizmo` did the usual `if (!customElements.get(name)) define(name, Class)`,
+then constructed the *imported* class. Custom-element names cannot be re-registered, so
+after a hot update the module re-evaluates with a fresh class, `get()` returns the **old**
+one, the define is skipped — and constructing the new, unregistered class throws
+`Failed to construct 'HTMLElement': Illegal constructor`. That took `ThreeCanvas` down to
+its error boundary, so the 3D view went blank after any edit until a full page reload.
+
+Dev-only, but it is every developer, every edit — and it is why so much of this rebuild
+was reviewed through full reloads. Constructing through whatever is *registered* rather
+than through the imported binding makes re-evaluation harmless.

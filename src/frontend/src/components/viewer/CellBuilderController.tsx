@@ -1288,11 +1288,44 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
     };
 
+    // Escape was pressed mid-drag: ignore the rest of this pointer sequence.
+    //
+    // Not `gizmo.enabled = false`, which is the obvious move and the wrong one —
+    // TransformControls checks `enabled` in its pointerup handler too, so disabling
+    // mid-drag leaves `dragging` stuck true and the widget wedged on the next click.
+    // A flag the handlers below consult stops the edit without touching the widget's
+    // own state machine, and the pointerup that ends the drag still arrives normally.
+    let dragCancelled = false;
+
+    /**
+     * Cancel the widget drag in progress, restoring what was there before it started.
+     *
+     * The restore is `undo()` rather than a recorded box, because `beginTransaction()`
+     * already pushed a snapshot of the whole document at drag start. That covers every
+     * gizmo mode, loft members and the equipment that rides along with a cell in one
+     * path — a hand-recorded baseline would have to know about all of them, and would
+     * quietly stop covering whatever gets added next.
+     */
+    const cancelWidgetDrag = () => {
+        const st = useCellBuilderStore.getState();
+        dragCancelled = true;
+        st.endTransaction();
+        st.undo();
+        loftDragLast = null;
+        translateEquip = [];
+        showSnapMarker(null);
+        guideLine.visible = false;
+        rebuild();
+        syncGizmo();
+        requestRender();
+    };
+
     gizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
         if (controlsRef.current) controlsRef.current.enabled = !e.value;
         // Coalesce the whole widget drag into one undo step.
         if (e.value) {
+            dragCancelled = false;
             st.beginTransaction();
             // Seed the loft member-move baseline at the proxy's current (box-
             // centre) position; cleared when the drag ends.
@@ -1306,10 +1339,19 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             loftDragLast = null;
             translateEquip = [];
             showSnapMarker(null); // drag ended — clear the snap indicator
+            // A cancelled drag leaves the widget wherever the pointer dragged it, since
+            // the model stopped following. Put it back on the cell it belongs to.
+            if (dragCancelled) {
+                dragCancelled = false;
+                syncGizmo();
+            }
         }
         requestRender();
     });
     gizmo.addEventListener("objectChange", () => {
+        // Escape ended this drag. The widget still moves under the pointer until the
+        // button is released — the model does not follow it.
+        if (dragCancelled) return;
         const st = useCellBuilderStore.getState();
         const sel = st.selection;
         if (!sel) return;
@@ -1566,10 +1608,28 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         requestRender();
     };
 
+    // The port gizmo gets the same treatment as the cell one — a port you dragged onto
+    // the wrong face is exactly as much of an accident as a cell you dragged into a wall.
+    let portDragCancelled = false;
+
+    const cancelPortDrag = () => {
+        const st = useCellBuilderStore.getState();
+        portDragCancelled = true;
+        st.endTransaction();
+        st.undo();
+        portRotateStartDir = null;
+        showSnapMarker(null);
+        rebuild();
+        rebuildPorts();
+        syncPortGizmo();
+        requestRender();
+    };
+
     portGizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
         if (controlsRef.current) controlsRef.current.enabled = !e.value;
         if (e.value) {
+            portDragCancelled = false;
             st.beginTransaction();
             const pg = st.portGizmo;
             const info = pg ? portGeom(pg.cellId, pg.portName) : null;
@@ -1579,11 +1639,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             st.endTransaction();
             portRotateStartDir = null;
             showSnapMarker(null);
+            if (portDragCancelled) {
+                portDragCancelled = false;
+                syncPortGizmo();
+            }
         }
         requestRender();
     });
 
     portGizmo.addEventListener("objectChange", () => {
+        if (portDragCancelled) return;
         const st = useCellBuilderStore.getState();
         const pg = st.portGizmo;
         if (!pg) return;
@@ -3532,11 +3597,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 return;
             }
             if (st.gizmoMode !== "none") {
-                // A widget drag already applied the transform live and coalesced it into
-                // one undo step (see dragging-changed), so accepting is just putting the
-                // gizmo away. Nothing to commit — which is exactly why the absence of an
-                // accept key was confusing: the work was done and the UI still looked
-                // mid-operation.
+                // A widget drag applies its transform live and coalesces it into one undo
+                // step (see dragging-changed), so accepting is just putting the gizmo
+                // away. Nothing to commit — which is why the absence of an accept key was
+                // confusing: the work was done and the UI still looked mid-operation.
+                //
+                // Escape is not the same thing any more. Mid-drag it reverts; with the
+                // gizmo merely showing, it dismisses. Enter always keeps.
                 st.setGizmoMode("none");
                 st.setGizmoAxisLock(null);
                 ev.preventDefault();
@@ -3554,6 +3621,25 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // The insert popover owns its own Escape (it closes itself); don't also
         // unwind the selection underneath it.
         if (st.insertMenu) return;
+        // A widget drag in progress: cancel it, restoring the cell to where the drag
+        // started. Escape used to fall through to "put the gizmo away", which KEPT the
+        // half-finished drag — so the one key every application uses to mean "forget it"
+        // was the key that committed your accident.
+        //
+        // Before the modal-move branch on purpose: both can be live at once, and the
+        // widget drag is the one the pointer is holding.
+        if (gizmo.dragging) {
+            cancelWidgetDrag();
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+        if (portGizmo.dragging) {
+            cancelPortDrag();
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
         // An active axis-locked modal move: Escape cancels it (restore the cell)
         // and drops the lock, without also tearing down the gizmo/selection.
         if (modalMove) {

@@ -122,5 +122,3 @@ kept it.
 
 - The template picker ("New model from template") is still only in Storage's "+" menu,
   unlike "New procedural model…" which is also in File and the Build toolbar.
-- Escape is inconsistent in the cellbuilder: it cancels a modal move but accepts a widget
-  drag. Both are defensible on their own; together they are not.
