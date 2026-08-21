@@ -13,6 +13,10 @@ import {redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {Z} from "./zIndex";
+import PositionedMenu, {type KebabMenuItem} from "@/components/common/PositionedMenu";
+import {arrangeRail, canHide} from "./railArrangement";
+import {railIsCustomised, resetRail, useRailPrefs} from "./railPrefs";
+import {openRailCustomise, registerRailTools} from "./railCustomise";
 
 // The dynamic tool palette — Cinema 4D R25's central idea, and the direct answer to
 // "too much on screen at once".
@@ -56,6 +60,15 @@ interface RailTool {
     run?: () => void;
     /** Returns null when usable, else why it is greyed — shown in the tooltip. */
     why?: () => string | null;
+    /**
+     * Cannot be hidden.
+     *
+     * For the one tool that is the way back to something otherwise unreachable. Storage
+     * is it: hide that and the only route to opening a file is the File menu, which is
+     * fine — but the rail is where people look, and a rail with no way to open anything
+     * reads as an application that cannot open anything.
+     */
+    essential?: boolean;
 }
 
 /**
@@ -75,6 +88,7 @@ const RAIL_TOOLS: RailTool[] = [
         label: "Storage",
         pressed: filesPanelShown,
         why: needsRestMode,
+        essential: true,
         run: toggleFilesPanel,
     },
     {id: "divider-0", icon: "expand", label: "", divider: true},
@@ -88,9 +102,10 @@ const RAIL_TOOLS: RailTool[] = [
         icon: "section-plane",
         label: "Section planes",
         // Toggles the clip tools into the mode toolbar rather than opening a panel.
-        // Clipping is a small set of actions you use in bursts; a whole dock panel for
-        // it meant giving up a column to reach three buttons. The panel's Clip tab still
-        // exists for the plane LIST and the cap colour — the things a toolbar cannot hold.
+        // Clipping is a small set of actions you use in bursts; a whole dock panel for it
+        // meant giving up a column to reach three buttons. The plane list and the position
+        // slider are in that strip too, and the cap colour is in Preferences — there is no
+        // Clip tab any more.
         pressed: () => useSectionTools.getState().shown,
         run: () => useSectionTools.getState().toggle(),
     },
@@ -111,6 +126,11 @@ const RAIL_TOOLS: RailTool[] = [
     {id: "undo", icon: "undo", label: "Undo", shortcut: "Ctrl+Z", run: undo, why: builderOpen},
     {id: "redo", icon: "redo", label: "Redo", shortcut: "Shift+Z", run: redo, why: builderOpen},
 ];
+
+// Hand the customise dialog the list. Here rather than importing RAIL_TOOLS there,
+// because that would make the two files import each other and a cycle resolves
+// differently across the three builds.
+registerRailTools(RAIL_TOOLS);
 
 /** Undo/redo currently only have a history to act on inside the procedural builder. */
 function builderOpen(): string | null {
@@ -136,6 +156,26 @@ function openScenePanel(): void {
 }
 
 
+/** The rail's right-click menu: hide the tool you hit, or open the full list. */
+function railMenuItems(tool: RailTool | null): KebabMenuItem[] {
+    const hidden = useRailPrefs.getState().hidden;
+    const items: KebabMenuItem[] = [];
+    if (tool && !tool.essential) {
+        const allowed = canHide(RAIL_TOOLS, hidden, tool.id);
+        items.push({
+            key: "hide",
+            label: `Hide "${tool.label.split(" — ")[0]}"`,
+            disabled: !allowed,
+            onClick: () => useRailPrefs.getState().toggleHidden(tool.id),
+        });
+    }
+    items.push({key: "customise", label: "Customise rail…", onClick: openRailCustomise});
+    if (railIsCustomised()) {
+        items.push({key: "reset", label: "Show every tool", onClick: resetRail});
+    }
+    return items;
+}
+
 export default function ToolRail() {
     // Subscribes to the builder so undo/redo re-evaluate their greyed state when a
     // procedural model opens or closes. Without this the rail would be correct only
@@ -144,13 +184,41 @@ export default function ToolRail() {
     useSectionTools((st) => st.shown);
     useFilesPanel((st) => st.shown);
 
+    const hidden = useRailPrefs((st) => st.hidden);
+    const tools = arrangeRail(RAIL_TOOLS, hidden);
+
+    // Right-click anywhere on the rail. On the rail's own background it offers the list;
+    // on a button it also offers to hide that one, which is the fast path — you notice a
+    // tool is in your way at the moment you look at it, not later in a settings dialog.
+    const [menuAt, setMenuAt] = React.useState<{x: number; y: number; tool: RailTool | null} | null>(null);
+    const onContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const el = (e.target as HTMLElement).closest("[data-rail-tool]");
+        const id = el?.getAttribute("data-rail-tool") ?? null;
+        setMenuAt({x: e.clientX, y: e.clientY, tool: RAIL_TOOLS.find((t) => t.id === id) ?? null});
+    };
+
     return (
         <nav
             aria-label="Tools"
             style={{gridArea: "rail", zIndex: Z.dock}}
             className="flex flex-col items-center gap-1 shrink-0 w-11 py-1.5 bg-surface-0 border-r border-edge overflow-y-auto scrollbar"
+            onContextMenu={onContextMenu}
         >
-            {RAIL_TOOLS.map((t) => (t.divider ? <Divider key={t.id} /> : <RailButton key={t.id} tool={t} />))}
+            {tools.map((t) => (t.divider ? <Divider key={t.id} /> : <RailButton key={t.id} tool={t} />))}
+            {menuAt && (
+                <PositionedMenu
+                    anchor={{kind: "point", x: menuAt.x, y: menuAt.y}}
+                    onClose={() => setMenuAt(null)}
+                    items={railMenuItems(menuAt.tool).map((it) => ({
+                        ...it,
+                        onClick: () => {
+                            it.onClick();
+                            setMenuAt(null);
+                        },
+                    }))}
+                />
+            )}
         </nav>
     );
 }
@@ -165,6 +233,7 @@ function RailButton({tool}: {tool: RailTool}) {
     return (
         <IconButton
             size="md"
+            data-rail-tool={tool.id}
             disabled={disabled}
             onClick={tool.run}
             tooltip={

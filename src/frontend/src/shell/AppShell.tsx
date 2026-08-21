@@ -28,6 +28,7 @@ const ConvertPage = React.lazy(() => import("@/components/convert/ConvertPage"))
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {usePanelReveal} from "./usePanelReveal";
+import RailCustomiseDialog from "./railCustomise";
 
 // The shell.
 //
@@ -265,6 +266,7 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
             {/* Whatever `confirm()` currently has pending. One host per shell; callers
                 await a promise rather than rendering their own dialog. */}
             <ConfirmHost />
+            <RailCustomiseDialog />
 
             {/* Conversion toasts and the upload context menu. Also classic-only until
                 now — a conversion started from the shell reported its progress nowhere. */}

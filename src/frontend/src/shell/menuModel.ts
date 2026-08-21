@@ -162,6 +162,7 @@ export const MENUS: MenuDef[] = [
                 items: [cmd("mode:convert"), cmd("mode:build"), cmd("mode:inspect"), cmd("mode:results")],
             },
             sep,
+            cmd("layout:customise-rail"),
             cmd("layout:save-workspace"),
             // Saved arrangements, one command each, named by the user. Nothing to list
             // here — the registry knows them and this says where they belong.

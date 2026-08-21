@@ -32,6 +32,10 @@ const MUST_BE_MOUNTED = [
     "ConfirmHost",
     "HelpDialogs",
     "MarkingMenu",
+    // Openable from two places (the rail's context menu and the View menu) and rendered
+    // from neither — exactly the shape of the five failures above.
+    "RailCustomiseDialog",
+    "SettingsDialog",
 ];
 
 function shellSource(): string {

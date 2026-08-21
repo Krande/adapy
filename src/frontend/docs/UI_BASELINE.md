@@ -2468,3 +2468,45 @@ Worth recording because of how it happened: `frontend.md` says "see `docs/UI_BAS
 which is correct *relative to `src/frontend`*, and a repo-root path of the same name was
 plausible enough that nothing ever looked wrong. The notes were fine; they were just
 orphaned from the document they belonged to.
+
+## The rail is customisable — show and hide, not reorder
+
+Right-click a rail button to hide it, right-click the rail for the full list, or open
+**View ▸ Customise the tool rail…**. The last M7 item.
+
+**Deliberately not reorderable.** The rail is grouped — camera, then visibility, then
+history — and the dividers are a claim about what belongs with what. Dropping Undo between
+Fit and Focus would break that claim while leaving the rules that draw it in place. It
+also protects the promise the rail is built on: a tool means the same thing in every mode
+and sits in the same place. A rail you can shuffle is one where nobody's muscle memory
+transfers, including from a screenshot in the docs. So the arrangement stays and the
+contents are yours.
+
+Three rules, all in `railArrangement.ts` with tests, because they are the only part with
+any reasoning in it and all of them are invisible until they go wrong:
+
+- **Dividers get tidied.** Hide both tools in a band and its rule would sit against the
+  one above it; hide the first tool and a rule floats at the top. Two rules in a row is
+  not a group boundary — it is a rendering fault to anyone who did not do the hiding.
+- **The last tool cannot be hidden.** An empty rail is indistinguishable from a broken
+  one, and the control that puts it back is in a menu you now have no reason to believe
+  exists. Same reasoning as the outliner's never-filter-to-nothing rule. The dialog says
+  so, rather than leaving a checkbox that stopped responding.
+- **Storage is essential and not offered.** Hide it and the only route to opening a file
+  is the File menu — true, but the rail is where people look, and a rail with no way to
+  open anything reads as an application that cannot open anything.
+
+**Prefs store the hidden set, not the visible one.** A tool added in a later release is in
+nobody's saved list; with a visible-set it would be invisible to every existing user, with
+no error anywhere to explain a feature that shipped and cannot be found.
+
+`registerRailTools` passes the list from `ToolRail` to the dialog rather than the dialog
+importing `RAIL_TOOLS`, which would make the two files import each other — and an import
+cycle resolves differently across the three builds.
+
+Two things fixed on the way: `Checkbox`'s label column shrank to fit, so a label
+containing a row (icon · name · right-aligned shortcut) had nothing for `ml-auto` to push
+against — it grows now, which is right for every consumer. And `RailCustomiseDialog` went
+into `mountedOverlays.test.ts` alongside `SettingsDialog`: both are openable from two
+places and rendered from one, which is the exact shape of the five features silently lost
+earlier in this rebuild.

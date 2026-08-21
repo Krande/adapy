@@ -7,6 +7,7 @@ import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {compilePreview, redo, undo} from "./buildActions";
 import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {forgetWorkspacePrompt, saveWorkspacePrompt} from "./workspaceActions";
+import {openRailCustomise} from "./railCustomise";
 import {
     ifcCadOn,
     newProceduralModel,
@@ -211,6 +212,14 @@ export function buildCommands(scope: "palette" | "menu" = "palette"): Command[] 
     // Saving captures ALL modes, not just the current one: an arrangement is how you like
     // the application set up, and one that changed only the mode you happened to be in
     // would be a per-mode preset wearing the wrong name.
+    commands.push({
+        id: "layout:customise-rail",
+        title: "Customise the tool rail…",
+        context: "Layout",
+        icon: "settings",
+        keywords: "rail tools hide show sidebar shelf customise",
+        run: openRailCustomise,
+    });
     commands.push({
         id: "layout:save-workspace",
         title: "Save this layout as a workspace…",

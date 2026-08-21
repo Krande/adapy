@@ -68,7 +68,11 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(functi
             )}
         >
             {control}
-            <span className="flex flex-col gap-0.5 leading-tight">
+            {/* Grows, rather than shrinking to fit its text. A label that wraps should use
+                the width available to it, and a label containing a row — an icon, a name
+                and a right-aligned shortcut — needs a full-width line for `ml-auto` to
+                have anything to push against. */}
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
                 <span>{label}</span>
                 {hint && <span className="text-xs text-content-subtle">{hint}</span>}
             </span>
