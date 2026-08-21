@@ -133,7 +133,34 @@ export interface IconButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLBut
     size?: ButtonSize;
     /** Toggle state. Sets aria-pressed and an active fill. */
     pressed?: boolean;
+    /** Which active fill. Accent unless the button is transport, where green reads faster. */
+    pressedTone?: "accent" | "pass";
 }
+
+/**
+ * The pressed look — a COMPLETE style, replacing the variant rather than layering on it.
+ *
+ * It used to be `cn(VARIANT[variant], …, pressed && "bg-accent-subtle …")`, and it never
+ * appeared: `cn` is a plain join, so `bg-transparent` from the ghost variant and
+ * `bg-accent-subtle` are two utilities for one property, and which wins is decided by the
+ * order Tailwind emits them, not the order they are written. Transparent won. Every
+ * pressed IconButton in the product — the rail's section toggle, the gizmo mode buttons,
+ * overlay and side-by-side — has been drawing with no pressed background at all.
+ *
+ * Replacing instead of overriding removes the race: there is only ever one background
+ * utility on the element. Hover is restated here because dropping the variant drops its
+ * hover with it.
+ */
+const PRESSED: Record<"accent" | "pass", string> = {
+    accent:
+        "bg-accent-subtle text-accent border border-accent/40 " +
+        "pointer-fine:hover:bg-accent-subtle pointer-fine:hover:border-accent",
+    // Transport. A playing animation is something happening NOW, and green is what every
+    // transport ever built uses to say so — worth breaking uniformity for.
+    pass:
+        "bg-pass-subtle text-pass border border-pass/40 " +
+        "pointer-fine:hover:bg-pass-subtle pointer-fine:hover:border-pass",
+};
 
 const ICON_SIZE: Record<ButtonSize, string> = {
     sm: "h-control-sm w-control-sm min-h-control-sm rounded-sm",
@@ -142,7 +169,7 @@ const ICON_SIZE: Record<ButtonSize, string> = {
 };
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-    {tooltip, icon, variant = "ghost", size = "md", pressed, className, type, disabled, ...rest},
+    {tooltip, icon, variant = "ghost", size = "md", pressed, pressedTone = "accent", className, type, disabled, ...rest},
     ref,
 ) {
     const button = (
@@ -157,10 +184,10 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
             disabled={disabled}
             className={cn(
                 BUTTON_BASE,
-                VARIANT[variant],
+                // Either/or, never both — see PRESSED.
+                pressed ? PRESSED[pressedTone] : VARIANT[variant],
                 ICON_SIZE[size],
                 "p-0",
-                pressed && "bg-accent-subtle text-accent border-accent/40",
                 className,
             )}
             {...rest}

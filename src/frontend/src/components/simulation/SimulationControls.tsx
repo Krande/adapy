@@ -143,14 +143,14 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
  * rather than at each call site is what stops the toolbar and the panel disagreeing about
  * which one is playing.
  */
-export const AnimationControls: React.FC = () => {
+export const AnimationControls: React.FC<{inline?: boolean}> = ({inline = false}) => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     // Data-panel toggling belongs to the toolbar, and has since the transport moved.
     const noop = () => {};
     return sessionActive ? (
-        <FeaModeControls showSimData={false} onToggleData={noop} />
+        <FeaModeControls showSimData={false} onToggleData={noop} inline={inline} />
     ) : (
-        <GltfClipControls showSimData={false} onToggleData={noop} />
+        <GltfClipControls showSimData={false} onToggleData={noop} inline={inline} />
     );
 };
 
@@ -283,7 +283,7 @@ interface ControlPanelProps {
     onToggleData: () => void;
 }
 
-const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onToggleData, inline = false}) => {
     const {
         mesh,
         range,
@@ -320,7 +320,17 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // single-line; new per-session preferences (background tone,
     // scalar-bar tick density, etc.) land in here without adding
     // top-level buttons.
+    // Inline (in the toolbar) every option is simply present; the gear only makes sense
+    // when the panel has vertical room to reveal into.
     const [showOptions, setShowOptions] = useState(false);
+    const optionsOpen = inline || showOptions;
+    // One row when inline, the stacked panel otherwise.
+    const rowCls = inline
+        ? "flex flex-row flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+        : "flex flex-col gap-2 min-w-0";
+    const groupCls = inline
+        ? "flex flex-row items-center gap-x-2 min-w-0"
+        : "flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white";
 
     const [lo, hi] = range;
     // Step granularity for the factor slider — 200 stops over the
@@ -544,7 +554,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     };
 
     return (
-        <div className="flex flex-col gap-2 min-w-0">
+        <div className={rowCls}>
             {/* Row 1 — Field / Comp / Step selectors only. Gear
                 moved down to the transport row so this stays a
                 focused "what are you looking at" line.
@@ -557,7 +567,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 width on desktop so the dropdowns size to content
                 with ``justify-between`` spacing the groups. */}
             {manifest && (
-                <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
+                <div className={groupCls}>
                     <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                         <span className="text-content shrink-0">Field</span>
                         <select
@@ -622,8 +632,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 fills the same total width as row 1 — the slider
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
-            <div className="flex flex-row items-center gap-x-2 w-full min-w-0">
-                <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+            <div className={inline ? "flex flex-row items-center gap-x-2 min-w-0" : "flex flex-row items-center gap-x-2 w-full min-w-0"}>
+                <div className={inline ? "flex items-center gap-2 w-40 shrink-0" : "flex items-center gap-2 flex-1 min-w-[100px]"}>
                     <input
                         type="range"
                         min={lo}
@@ -677,22 +687,30 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
                 The gear stays, because what it reveals is this panel's own options row
                 — a disclosure for the panel, not an action on the scene. */}
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
-                <button
-                    className={
-                        buttonClasses("secondary", "sm") +
-                        (showOptions ? " ring-2 ring-accent" : "")
-                    }
-                    onClick={() => setShowOptions((v) => !v)}
-                    title="Visualisation options"
-                    aria-pressed={showOptions}
-                >
-                    <GearIcon/>
-                </button>
-            </div>
+            {!inline && (
+                <div className="flex flex-row items-center gap-x-2 min-w-0">
+                    <button
+                        className={
+                            buttonClasses("secondary", "sm") +
+                            (showOptions ? " ring-2 ring-accent" : "")
+                        }
+                        onClick={() => setShowOptions((v) => !v)}
+                        title="Visualisation options"
+                        aria-pressed={showOptions}
+                    >
+                        <GearIcon/>
+                    </button>
+                </div>
+            )}
 
-            {showOptions && (
-                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-surface-0 text-xs text-white">
+            {optionsOpen && (
+                <div
+                    className={
+                        inline
+                            ? "flex flex-row items-center gap-x-3 text-xs text-white min-w-0"
+                            : "flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-surface-0 text-xs text-white"
+                    }
+                >
                     <label className="flex items-center gap-1">
                         <span className="text-content">Colormap</span>
                         <select
@@ -817,7 +835,7 @@ const GearIcon: React.FC = () => (
     </svg>
 );
 
-const GltfClipControls: React.FC<ControlPanelProps> = () => {
+const GltfClipControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({inline = false}) => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
 
@@ -837,7 +855,13 @@ const GltfClipControls: React.FC<ControlPanelProps> = () => {
     }, [selectedAnimation]);
 
     return (
-        <div className="flex w-full flex-col gap-2 min-w-0 text-xs text-white">
+        <div
+            className={
+                inline
+                    ? "flex flex-row items-center gap-x-2 min-w-0 text-xs text-white"
+                    : "flex w-full flex-col gap-2 min-w-0 text-xs text-white"
+            }
+        >
             <label className="flex items-center gap-2 min-w-0">
             <span className="shrink-0 text-content">Clip</span>
             <select

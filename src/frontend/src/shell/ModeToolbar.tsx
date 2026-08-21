@@ -59,6 +59,15 @@ interface ModeTool {
     divider?: boolean;
     /** Sunken when true. For tools that set a persistent state rather than fire once. */
     pressed?: () => boolean;
+    /**
+     * Colour of the pressed state. Accent by default.
+     *
+     * "pass" for transport: a playing animation is not the same kind of fact as a pressed
+     * mode toggle — it is something happening right now, and green is the colour every
+     * transport in existence uses for that. Reading it at a glance matters more here than
+     * consistency with the other sunken buttons.
+     */
+    pressedTone?: "accent" | "pass";
     /** Not wired yet: shown disabled with an honest tooltip rather than hidden. */
     pending?: boolean;
     /** Returns null when usable, else why it is greyed. */
@@ -286,11 +295,12 @@ const MODE_TOOLS: Record<ModeId, ModeTool[]> = {
         // the third duplicated control group found this way, after section planes and
         // groups. The panel keeps the things that pick a VALUE (field, step, colormap,
         // deform scale); the toolbar takes the things that DO something.
-        {id: "play", icon: "play", label: "Play / pause", pressed: () => useFeaAnimationStore.getState().isPlaying, why: needsAnimation, run: togglePlay},
+        {id: "play", icon: "play", label: "Play / pause", pressed: () => useFeaAnimationStore.getState().isPlaying, pressedTone: "pass", why: needsAnimation, run: togglePlay},
         {id: "stop", icon: "stop", label: "Stop and reset to the undeformed shape", why: needsAnimation, run: stopPlayback},
-        // Field, step, deformation scale, colormap. The Simulation panel was these plus
-        // the transport; the transport moved out first, and a docked panel holding one
-        // column of dropdowns is a quarter of the window spent on controls you set once.
+        div("d0"),
+        // Field, step, deformation scale, colormap — in the strip, not behind a gear. A
+        // popover hid the current field and step, which are the two things you most want
+        // to read while looking at a result.
         {id: "res-display", icon: "settings", label: "Field, step and display options", render: () => <ResultsControls />},
         div("d1"),
         {id: "legend", icon: "filter", label: "Colour legend", why: needsFea, run: toggleLegend},
@@ -417,6 +427,11 @@ export default function ModeToolbar() {
                                 : `${tip}${t.shortcut ? ` (${t.shortcut})` : ""}`
                         }
                         pressed={t.pressed?.() ?? undefined}
+                        // The tone belongs to the primitive, not to an override here: two
+                        // background utilities on one element is a race the stylesheet
+                        // decides, which is exactly how the pressed state came to be
+                        // invisible in the first place.
+                        pressedTone={t.pressedTone}
                         icon={<Icon name={t.icon} size="sm" />}
                         className={cn(disabled && "opacity-40", t.menu && "rounded-r-none")}
                     />

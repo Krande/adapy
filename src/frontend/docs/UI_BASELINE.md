@@ -3119,3 +3119,45 @@ what made the panel read as two lists.
 
 The unsaved row's ✕ went with it — a checkbox and an ✕ beside each other doing the same
 thing is exactly the duplication this rebuild has spent its time removing.
+
+## Every pressed IconButton had no pressed state
+
+Chasing "the play button should be green while playing" turned up something bigger: the
+pressed fill has **never rendered**, on any icon button in the product — the rail's section
+toggle, the gizmo mode buttons, Overlay, Side by side.
+
+`cn(BUTTON_BASE, VARIANT[variant], …, pressed && "bg-accent-subtle …")` puts two
+background utilities on one element. `cn` is a plain join, so which wins is decided by the
+order **Tailwind emits them**, not the order they are written — and `bg-transparent` from
+the ghost variant won. Measured: a pressed rail button computed to
+`rgba(0, 0, 0, 0)`.
+
+The fix is to stop layering: `pressed ? PRESSED[tone] : VARIANT[variant]` — either/or, so
+only one background utility ever reaches the element. `PRESSED` restates hover, because
+dropping the variant drops its hover with it.
+
+This is the **fourth** time the plain-join trap has bitten (after `w-20` on `Input`, the
+`Slider` wrapper, and `caretClasses`). The rule that keeps emerging: *never emit two
+utilities for the same property and hope.* Ordering them is not a fix; removing one is.
+
+Play is green while playing (`pressedTone="pass"`), which is what every transport ever
+built does, and the tone lives in the primitive rather than as a call-site override — an
+override would have been a second background utility, i.e. the same bug again.
+
+## The Results display options are in the strip
+
+They were the Simulation panel, then a popover behind a gear. The popover was wrong twice
+over: it hid the current **field and step** — the two things you most want to *read* while
+looking at a result — behind a click, and it put the controls somewhere you had to remember
+rather than somewhere you could see.
+
+Everything is inline now: field, component, step, deformation scale, period, warp factor,
+colormap, layer, IP reduction, smoothing, warp toggle. The strip already scrolls
+horizontally, which is what makes that affordable — a control you have to scroll to still
+beats one you have to know about.
+
+**Greyed, not absent, with no result loaded.** A strip that changes shape when a result
+arrives gives you nothing to aim at beforehand, and the gap where the controls will be is
+itself information. Layer and IP reduction remain the exception: they are element-field
+concepts that do not *exist* for a nodal field, and rendering them disabled would claim a
+choice that is not there.

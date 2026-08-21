@@ -1,100 +1,47 @@
 import React, {Suspense, lazy} from "react";
-import {createPortal} from "react-dom";
-import {Icon} from "@/components/icons";
-import {IconButton} from "@/components/ui";
-import {Z} from "./zIndex";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 
 const AnimationControls = lazy(() =>
     import("@/components/simulation/SimulationControls").then((m) => ({default: m.AnimationControls})),
 );
 
-// The result field and its display knobs, hung off the Results toolbar.
+// The result field and its display knobs, in the Results toolbar itself.
 //
-// These were the Simulation panel. Play, stop, the legend and the data table left it for
-// the toolbar a while ago; what stayed was everything that picks a VALUE — which field,
-// which component, which step, how much to exaggerate the deflection, which colormap.
-// That left a permanently docked panel holding one column of dropdowns, occupying a
-// quarter of the window for controls you touch and then leave alone.
+// These were the Simulation panel, then a popover hung off a gear button. The popover was
+// the wrong answer twice over: it hid the current field and step — the two things you most
+// want to READ while looking at a result — behind a click, and it put the controls
+// somewhere you had to remember rather than somewhere you could see.
 //
-// A popover is the right shape for that: the same controls, on screen while you are
-// setting them and out of the way afterwards, with the 3D getting the space back.
+// They are simply in the strip now. Everything the panel had is here: field, component,
+// step, deformation scale, period, warp factor, colormap, layer, IP reduction, smoothing
+// and the warp toggle. The strip already scrolls horizontally, which is what makes that
+// affordable — a control you have to scroll to is still better than one you have to know
+// about.
 //
-// Portalled to <body> because the toolbar sits in a grid item whose z-index creates a
-// stacking context — a popover positioned inside it draws UNDER the docks. Same trap the
-// marking menu and the panels dropdown both hit.
+// Nothing is hidden when it does not apply. Layer and IP reduction are element-field
+// concepts and simply do not render for a nodal field (that is the component's own rule,
+// and correct — they are not "disabled", they are meaningless). What DOES grey out is the
+// whole group when no result is loaded, which is the honest state: the controls exist,
+// they have nothing to act on yet.
 
 export default function ResultsControls() {
-    const [open, setOpen] = React.useState(false);
-    const btnRef = React.useRef<HTMLButtonElement | null>(null);
-    const popRef = React.useRef<HTMLDivElement | null>(null);
-    const [rect, setRect] = React.useState<DOMRect | null>(null);
-
-    React.useEffect(() => {
-        if (!open) return;
-        setRect(btnRef.current?.getBoundingClientRect() ?? null);
-        const onDown = (e: PointerEvent) => {
-            const t = e.target as Node;
-            if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
-            setOpen(false);
-        };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setOpen(false);
-        };
-        // Capture phase: a click inside the 3D canvas is handled by the picker and never
-        // bubbles, so a bubble-phase listener would leave the popover open over a scene
-        // the user has already moved on from.
-        window.addEventListener("pointerdown", onDown, true);
-        window.addEventListener("keydown", onKey);
-        return () => {
-            window.removeEventListener("pointerdown", onDown, true);
-            window.removeEventListener("keydown", onKey);
-        };
-    }, [open]);
+    const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
 
     return (
-        <>
-            <IconButton
-                ref={btnRef}
-                size="sm"
-                tooltip="Field, step and display options"
-                icon={<Icon name="settings" size="sm" />}
-                pressed={open}
-                onClick={() => setOpen((v) => !v)}
-                aria-haspopup="dialog"
-                aria-expanded={open}
-            />
-            {open &&
-                rect &&
-                createPortal(
-                    <div
-                        ref={popRef}
-                        role="dialog"
-                        aria-label="Result display options"
-                        style={{
-                            position: "fixed",
-                            top: rect.bottom + 4,
-                            // Clamp to the viewport: the button can sit far right in a
-                            // long strip, and a popover that opens off-screen is the same
-                            // as one that did not open.
-                            left: Math.max(8, Math.min(rect.left, window.innerWidth - 388)),
-                            width: 380,
-                            zIndex: Z.contextMenu,
-                        }}
-                        // Opaque base, tinted layer on top. The panel surfaces carry alpha
-                        // in the glass presets, and CSS cannot flatten that — a single
-                        // bg-surface-1 popover let the panel underneath show through, so
-                        // the Storage header read straight across the controls. Only
-                        // surface-0 is opaque by definition.
-                        className="rounded-md border border-edge bg-surface-0 shadow-lg"
-                    >
-                        <div className="rounded-md bg-surface-1 p-2">
-                            <Suspense fallback={<p className="p-2 text-xs text-content-muted">Loading…</p>}>
-                                <AnimationControls />
-                            </Suspense>
-                        </div>
-                    </div>,
-                    document.body,
-                )}
-        </>
+        <span
+            className={
+                "inline-flex min-w-0 items-center " +
+                // Greyed rather than absent: a strip that changes shape when a result
+                // loads gives you nothing to aim at beforehand, and the gap where the
+                // controls will be is itself information.
+                (sessionActive ? "" : "pointer-events-none opacity-40")
+            }
+            aria-disabled={!sessionActive}
+            title={sessionActive ? undefined : "Load a result set to use these"}
+        >
+            <Suspense fallback={null}>
+                <AnimationControls inline />
+            </Suspense>
+        </span>
     );
 }
