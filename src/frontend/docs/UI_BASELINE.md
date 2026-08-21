@@ -3061,3 +3061,31 @@ handle on it from the file panel, including no way to put it away. It is listed 
 on the server to reopen. The check is "the open model is not in the fetched list", which
 covers both a never-committed model and the dev fixture's, which was never created
 server-side at all.
+
+## An uploaded `.SIN` streams in dev — the bake is Python too
+
+I said a fixture could not bake FEA artefacts and that streaming an uploaded `.sin` needed
+a worker. That was the **same wrong conclusion** as the 501 on compile, for the same
+reason: the baker is `ada.fem.results.artefacts.bake_fea_artefacts_from_source`, plain
+Python, in this repo. `make-fea-fixture.py` has been calling it since M0.
+
+The stub bakes uploaded sources on demand now, driving that same function — so what the
+viewer streams is the real artefact set (mesh GLB, edges, per-element blobs, per-field
+blobs, beam solids, manifest), not a stand-in. Verified end to end with a **5 MB Sesam
+`.SIN`**: uploaded through the panel, baked in ~4 s, streamed into Results with the
+transport, legend, data table and FEM tools all live.
+
+Two things it cost:
+
+- **Cache by the storage key, not the filename stem.** The viewer fetches sidecars from
+  `_derived/<storage key>.fea/<file>` — extension included. Keying the bake cache on the
+  stem served the manifest and then 404'd every blob beside it, which reads as a corrupt
+  bake rather than a lookup miss.
+- **Ask the right python.** The bake wants the `fem` env (what `make-fea-fixture.py`
+  documents); the procedural compile is happy in `tests`. `pythonCandidates(prefer)` puts
+  one first and still falls through to the rest.
+
+**The pattern is now three for three.** Compile, the FEA manifest, and the bake were each
+declared impossible for a static fixture, and each turned out to be a Python call sitting
+in the repo. "A fixture cannot do this" deserves one more question: *is the thing it cannot
+do actually a service call, or is it a function?*

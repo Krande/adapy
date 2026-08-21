@@ -184,10 +184,77 @@ const COMPILED = new Map<string, Buffer>();
 // as COMPILED: a dev fixture should not leave artefacts in the git tree.
 const UPLOADED = new Map<string, Buffer>();
 
-/** Pythons that might have adapy importable, best first. ADA_DEV_PY overrides. */
-function pythonCandidates(): string[] {
+// Source key -> directory holding its baked artefacts. Baked once per dev session; the
+// bake is slow enough that repeating it per manifest request would be felt.
+const BAKED = new Map<string, string>();
+
+/**
+ * Bake an uploaded FEA source into streaming artefacts.
+ *
+ * Writes to a temp dir rather than public/, for the same reason the compiled GLBs stay in
+ * memory: a dev fixture should not leave build output in the git tree.
+ */
+async function bakeUploadedFea(key: string, bytes: Buffer): Promise<string> {
+    // Keyed by the STORAGE key, not the filename stem.
+    //
+    // The viewer fetches sidecars from `_derived/<storage key>.fea/<file>` — extension
+    // included. Caching under the stem meant the manifest was served and then every blob
+    // beside it 404'd, which reads as a corrupt bake rather than a lookup miss.
+    const cached = BAKED.get(key);
+    if (cached && fs.existsSync(path.join(cached, "fea.manifest.json"))) return cached;
+    const stem = key.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/, "");
+
+    const {execFile} = await import("node:child_process");
+    const os = await import("node:os");
+    const python = pythonCandidates("fem").find((p) => fs.existsSync(p));
+    if (!python) {
+        const err: Error & {shortReason?: string} = new Error(
+            "No python with adapy found. Set ADA_DEV_PY, or create a pixi env (pixi install -e fem).",
+        );
+        err.shortReason = "no local python with adapy - set ADA_DEV_PY";
+        throw err;
+    }
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ada-bake-"));
+    const srcPath = path.join(tmp, path.basename(key));
+    const outDir = path.join(tmp, "out");
+    fs.writeFileSync(srcPath, bytes);
+
+    const script = path.resolve(__dirname, "scripts/dev-bake-fea.py");
+    await new Promise<void>((resolve, reject) => {
+        // Baking a real result deck is minutes-scale work on a big model, so the timeout
+        // is generous; a hung bake still ends rather than wedging the dev server.
+        execFile(python, [script, srcPath, outDir, "--key", stem], {timeout: 900_000, maxBuffer: 16 << 20}, (error, _o, stderr) => {
+            if (!error) return resolve();
+            const lines = String(stderr || error.message)
+                .trim()
+                .split(/\r?\n/)
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .filter((l) => !/^For further information visit/.test(l));
+            const named = lines.find((l) => /error for |Error:/.test(l) && !/^Traceback/.test(l));
+            const e: Error & {shortReason?: string} = new Error(String(stderr || error.message));
+            e.shortReason = (named ?? lines[lines.length - 1] ?? "bake failed").slice(0, 110);
+            reject(e);
+        });
+    });
+
+    BAKED.set(key, outDir);
+    return outDir;
+}
+
+/**
+ * Pythons that might have adapy importable, best first. ADA_DEV_PY overrides.
+ *
+ * `prefer` puts one env at the front: the FEA bake wants `fem` (which is what
+ * make-fea-fixture.py documents), the procedural compile is happy in `tests`. Getting
+ * this wrong is not fatal — the others are still tried — but it is one import error and
+ * one retry cheaper to ask the right one first.
+ */
+function pythonCandidates(prefer?: string): string[] {
     const root = path.resolve(__dirname, "../..");
-    const envs = ["tests", "prod", "fem", "viewer-api", "tests-core"];
+    const base = ["tests", "prod", "fem", "viewer-api", "tests-core"];
+    const envs = prefer ? [prefer, ...base.filter((e) => e !== prefer)] : base;
     return [
         process.env.ADA_DEV_PY,
         ...envs.map((e) => path.join(root, ".pixi", "envs", e, "python.exe")),
@@ -658,15 +725,37 @@ export function adapyDevRestConfig() {
                 const feaManifest = /^\/scopes\/[^/]+\/fea\/manifest$/.exec(route);
                 if (feaManifest) {
                     const key = new URL(req.url ?? "", "http://x").searchParams.get("key") ?? "";
-                    const file = path.join(FIXTURE_DIR, "fea.manifest.json");
-                    if (!key.includes(FIXTURE_SRC) || !fs.existsSync(file)) {
-                        res.statusCode = 404;
-                        res.setHeader("Content-Type", "application/json");
-                        return res.end(JSON.stringify({
-                            detail: `the dev fixture only has results for "${FIXTURE_SRC}"`,
-                        }));
+                    // The pre-baked fixture.
+                    if (key.includes(FIXTURE_SRC) && fs.existsSync(path.join(FIXTURE_DIR, "fea.manifest.json"))) {
+                        return sendFile(req, res, path.join(FIXTURE_DIR, "fea.manifest.json"));
                     }
-                    return sendFile(req, res, file);
+                    // Anything else that was uploaded: bake it, the same way compile
+                    // compiles. Baking is not something a fixture can fake — but it does
+                    // not have to, because the baker is plain Python and it is in this
+                    // repo. Before this, an uploaded .sin landed in storage and then had
+                    // nothing to stream from, and the 404 said only that the fixture had
+                    // no results for it.
+                    const uploaded = UPLOADED.get(key);
+                    if (uploaded) {
+                        return bakeUploadedFea(key, uploaded)
+                            .then((dir) => sendFile(req, res, path.join(dir, "fea.manifest.json")))
+                            .catch((err) => {
+                                res.statusCode = 501;
+                                res.statusMessage = String(err?.shortReason ?? "bake failed")
+                                    .replace(/[\r\n]+/g, " ")
+                                    .slice(0, 120);
+                                res.setHeader("Content-Type", "application/json");
+                                res.end(JSON.stringify({detail: String(err?.message ?? err)}));
+                            });
+                    }
+                    res.statusCode = 404;
+                    res.setHeader("Content-Type", "application/json");
+                    return res.end(JSON.stringify({
+                        detail:
+                            `No results for "${key}". The fixture ships a baked deck for ` +
+                            `"${FIXTURE_SRC}"; anything else has to be uploaded here first, ` +
+                            `and is then baked on demand.`,
+                    }));
                 }
 
                 // Blob reads. The FEA fetcher builds
@@ -713,6 +802,11 @@ export function adapyDevRestConfig() {
                         res.setHeader("Cache-Control", "no-store");
                         res.setHeader("Content-Length", String(compiled.length));
                         return res.end(compiled);
+                    }
+                    const feaAny = /^_derived\/(.+)\.fea\/(.+)$/.exec(key);
+                    // Sidecars of something baked from an upload live in their own dir.
+                    if (feaAny && BAKED.has(feaAny[1])) {
+                        return sendFile(req, res, path.join(BAKED.get(feaAny[1]), path.basename(feaAny[2])));
                     }
                     const fea = /^_derived\/.+\.fea\/(.+)$/.exec(key);
                     if (fea) {
