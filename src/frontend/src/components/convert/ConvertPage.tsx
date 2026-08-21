@@ -31,7 +31,17 @@ function useEnsureUserScope(): void {
     }, [available, current, setCurrent]);
 }
 
-const ConvertPage: React.FC = () => {
+export interface ConvertPageProps {
+    /**
+     * Rendered inside the running viewer (Convert mode) rather than at /convert.
+     *
+     * Only affects the "back to the viewer" link — see the header. Defaulting to false
+     * keeps the standalone route's behaviour for every existing caller.
+     */
+    inViewer?: boolean;
+}
+
+const ConvertPage: React.FC<ConvertPageProps> = ({inViewer = false}) => {
     useEnsureUserScope();
     const rows = useConvertPageStore((s) => s.rows);
     const current = useScopeStore((s) => s.current);
@@ -51,12 +61,20 @@ const ConvertPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-3">
                     <WorkerStatusBadge/>
-                    <a
-                        href="/"
-                        className="text-sm text-accent hover:text-accent"
-                    >
-                        ← back to viewer
-                    </a>
+                    {/* "Back to the viewer" only on the standalone /convert route.
+                    
+                        In Convert MODE this page fills the viewport of the running
+                        viewer, with the mode switcher directly above it — a link that
+                        navigates the whole window away is both redundant and worse than
+                        the control beside it, and it discards the session to get where
+                        one click already goes. The page profile is a different case: it
+                        is a deep link someone may have arrived at cold, with no switcher
+                        anywhere, so there the link is the only way back. */}
+                    {!inViewer && (
+                        <a href="/" className="text-sm text-accent hover:text-accent">
+                            ← back to viewer
+                        </a>
+                    )}
                 </div>
             </header>
 

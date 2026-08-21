@@ -187,33 +187,41 @@ reachable but has not been submitted here. See row B9 below.
 | ID | Feature | Owning component | Business logic (untouched) | Status |
 |---|---|---|---|---|
 | F1 | Storage browser (folder tree over flat keys) | `StorageBrowser.tsx` (Data left dock) | `utils/storage/fileTree.ts` | Verified (M6, browser) |
-| F2 | Row kebab / context menu | `storageMenuItems.tsx`, `RowKebabMenu.tsx` | `useStorageMutations.ts` | Pending |
-| F3 | Rename / move / delete / new folder | same | `viewerApi.ts` | Pending |
+| F2 | Row kebab / context menu | `storageMenuItems.tsx`, `RowKebabMenu.tsx` | `useStorageMutations.ts` | Verified (browser — row menu: load, download, copy path, rename, move, delete) |
+| F3 | Rename / move / delete / new folder | same | `viewerApi.ts` | Verified (browser — rename opens the inline editor; delete/move reachable) |
 | F4 | Upload (+ presigned direct >200 MB) | `UploadContextMenu.tsx` (ToastHost) | `upload_source_file.ts`, rail trigger | Moved (needs a real backend to verify) |
-| F5 | Download | `storageMenuItems.tsx` | `viewerApi.ts` | Pending |
-| F6 | Load into scene | — | `overlay_file_in_scene.ts` | Pending |
-| F7 | CI upload history | `GitHistoryPanel.tsx` | `.build.json` sidecars | Pending |
-| F8 | Field picker | `FieldPickerModal.tsx` | — | Pending |
-| F9 | Convert page (drop zone, target picker, rows) | `convert/*` (Data right dock) | `services/conversion/*` | Verified (M6, browser) |
-| F10 | Server conversion (NATS worker) | — | `serverPipeline.ts` | Pending |
-| F11 | Pyodide in-browser conversion | — | `pyodidePipeline.ts` | Pending |
-| F12 | Native wasm CAD→GLB | — | `nativeCadGlbPipeline.ts` | Pending |
-| F13 | Native wasm B-rep writer | — | `nativeBrepWriterPipeline.ts` | Pending |
+| F5 | Download | `storageMenuItems.tsx` | `viewerApi.ts` | Verified (browser — menu item present; download not triggered) |
+| F6 | Load into scene | — | `overlay_file_in_scene.ts` | Verified (browser — loaded dev-cantilever.rmed into the scene) |
+| F7 | CI upload history | `GitHistoryPanel.tsx` | `.build.json` sidecars | Pending — needs .build.json sidecars |
+| F8 | Field picker | `FieldPickerModal.tsx` | — | Pending — needs a field-carrying model |
+| F9 | Convert page (drop zone, target picker, rows) | `convert/*` — Convert **mode** overlay, and the `/convert` deep link | `services/conversion/*` | Verified (browser, both) — the mode drops the “back to the viewer” link, the route keeps it |
+| F10 | Server conversion (NATS worker) | — | `serverPipeline.ts` | Pending — needs a NATS worker |
+| F11 | Pyodide in-browser conversion | — | `pyodidePipeline.ts` | Pending — needs a Pyodide run |
+| F12 | Native wasm CAD→GLB | — | `nativeCadGlbPipeline.ts` | Pending — needs a wasm run |
+| F13 | Native wasm B-rep writer | — | `nativeBrepWriterPipeline.ts` | Pending — needs a wasm run |
 | F14 | Conversion progress toasts | `ConversionProgress.tsx` | `conversionStore` | `ToastHost` | Verified (M6) |
-| F15 | `CONVERSION_MATRIX` target gating | `SerializerTessellatorSelect.tsx` | `runtime/config.ts` | Pending |
-| F16 | Worker status badge | `WorkerStatusBadge.tsx` | — | Pending |
-| F17 | Scope / project picker | shell `ScopePicker` + classic drawer | `scopeStore`, shared `applyScopeChange` | title bar | Verified (M6, browser) |
-| F18 | Sign in / out | `RestSection.tsx` | `services/auth/oidc.ts` | Pending |
-| F19 | Server info file list (non-REST) | `ServerInfoBox.tsx` | `server_info/handlers/*` | Pending |
-| F20 | GLB↔GLB diff | — | `utils/diffConverter/*` | Pending |
-| F21 | Client-side wasm utilities | — | `wasm/wasmUtilityRegistry.ts` | Pending |
+| F15 | `CONVERSION_MATRIX` target gating | `SerializerTessellatorSelect.tsx` | `runtime/config.ts` | Pending — needs CONVERSION_MATRIX from a real /config.js |
+| F16 | Worker status badge | `WorkerStatusBadge.tsx` | — | Verified (browser — badge reads “no workers” in Convert mode) |
+| F17 | Scope / project picker | shell `ScopePicker` | `scopeStore`, shared `applyScopeChange` | **top of the Storage panel** (the title-bar copy is gone; the page profile keeps one, having no Storage panel) | Verified (browser) |
+| F18 | Sign in / out | `RestSection.tsx` | `services/auth/oidc.ts` | Pending — needs an OIDC provider |
+| F19 | Server info file list (non-REST) | `ServerInfoBox.tsx` | `server_info/handlers/*` | Pending — needs the websocket runtime |
+| F20 | GLB↔GLB diff | — | `utils/diffConverter/*` | Pending — needs two GLBs |
+| F21 | Client-side wasm utilities | — | `wasm/wasmUtilityRegistry.ts` | Pending — needs a wasm utility run |
 
 ### F22 Admin console — all 14 tabs
 `audit` · `audit_runs` · `schedules` · `issues` · `performance` · `frontend_loads` ·
 `corpus` · `projects` · `storage` · `workers` · `conversion` · `equipment` ·
 `system` · `engines`. Plus `CliTokenButton`, `WorkerInfoModal`, `FileTreeView`,
 `EquipmentPreview`. **Treatment: wrap in DS `Panel`/`Tabs` + codemod only — no
-rewrite.** Status: Pending.
+rewrite.**
+
+Status: **partly**. All 14 tabs load and render at `/admin` on the page profile (verified
+in the browser: the tab strip lists audit, audit runs, schedules, issues, performance,
+frontend loads, corpus, projects, storage, workers, conversion, equipment, system,
+engines, and the `#hash` still selects one). Their twenty-two native dialogs are
+converted. The DS `Panel`/`Tabs` wrap and the className codemod are **not** done — the
+tabs still carry their own chrome, which is the lowest-value-per-line work in the plan and
+deliberately last.
 
 ## G. Preferences (`OptionsComponent.tsx` — 4 sections)
 

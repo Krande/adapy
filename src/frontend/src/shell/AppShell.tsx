@@ -207,7 +207,7 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
                     overlay={
                         p.canvas && mode === "convert" ? (
                             <Suspense fallback={null}>
-                                <ConvertPage />
+                                <ConvertPage inViewer />
                             </Suspense>
                         ) : undefined
                     }

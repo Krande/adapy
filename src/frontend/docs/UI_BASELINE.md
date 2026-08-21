@@ -2708,3 +2708,34 @@ face to extrude, drag a station) were not exercised. The tests are strong eviden
 rules are right and no evidence the mouse reaches them.
 
 Sections F–H remain: 57 rows.
+
+## Section F, and the back-link that should not have been in Convert mode
+
+Verified against the dev stub: the row menu (load, download, copy path, rename, move,
+delete), rename opening its inline editor, loading a file into the scene, the worker badge,
+the drop zone, and all fourteen admin tabs at `/convert` and `/admin`.
+
+**Convert mode was still showing "← back to the viewer"** — which you asked to be rid of
+weeks ago, and which was never a styling oversight. `ConvertPage` renders in two places,
+and the link is right in exactly one of them: at `/convert`, someone may have arrived cold
+at a deep link with no mode switcher anywhere, so it is the only way back. Inside Convert
+*mode* the switcher sits directly above it, so the link is redundant *and worse than the
+control beside it* — it navigates the whole window away and discards the session to reach
+somewhere one click already goes. It now takes an `inViewer` prop, and both behaviours are
+verified.
+
+**Ten F rows stay Pending, and each names the thing it needs** — a NATS worker, a Pyodide
+run, an OIDC provider, `.build.json` sidecars, two GLBs. None of them can be closed from a
+dev stub, and writing "Verified" against a code-read would be exactly the false confidence
+that makes a parity checklist worthless.
+
+**F22 is `partly`, not Verified.** All fourteen admin tabs load and render, the hash still
+selects one, and their twenty-two native dialogs are converted — but the DS `Panel`/`Tabs`
+wrap and the className codemod are not done. That is real remaining work and the row says
+so rather than rounding up.
+
+Two rows were rewritten rather than re-statused, for the same reason as E1.5/E1.6: the
+scope picker has moved to the top of the Storage panel since F17 was written, and F9 now
+covers two hosts with deliberately different chrome.
+
+Sections G and H remain: 52 rows.
