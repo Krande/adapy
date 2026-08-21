@@ -130,7 +130,15 @@ const FIXTURE_FILES: {name: string; type: FileType; modified: string}[] = [
 function buildFileListReply(instanceId: number): Uint8Array {
     const b = new flatbuffers.Builder(1024);
 
-    const fileOffsets = FIXTURE_FILES.map((f) => {
+    // Fixture files plus anything uploaded this session, so an upload actually shows up
+    // in the panel rather than vanishing into a 200.
+    const listed = [
+        ...FIXTURE_FILES,
+        ...[...UPLOADED.keys()]
+            .filter((k) => !FIXTURE_FILES.some((f) => f.name === k))
+            .map((name) => ({name, type: FileType.IFC, modified: new Date().toISOString()})),
+    ];
+    const fileOffsets = listed.map((f) => {
         const name = b.createString(f.name);
         const filepath = b.createString(`/dev-fixture/${f.name}`);
         const lastModified = b.createString(f.modified);
@@ -171,6 +179,10 @@ function buildFileListReply(instanceId: number): Uint8Array {
 // purpose: writing them under public/ would drop a build artefact into the git tree for
 // every model anyone previewed.
 const COMPILED = new Map<string, Buffer>();
+
+// Files uploaded during this dev session, by storage key. In memory for the same reason
+// as COMPILED: a dev fixture should not leave artefacts in the git tree.
+const UPLOADED = new Map<string, Buffer>();
 
 /** Pythons that might have adapy importable, best first. ADA_DEV_PY overrides. */
 function pythonCandidates(): string[] {
@@ -660,8 +672,39 @@ export function adapyDevRestConfig() {
                 // Blob reads. The FEA fetcher builds
                 //   {apiBase}/scopes/{scope}/blobs/{encoded _derived/<src>.fea/<file>}
                 const blob = /^\/scopes\/[^/]+\/blobs\/(.+)$/.exec(route);
+                if (blob && req.method === "PUT") {
+                    // Uploads land here.
+                    //
+                    // The stub had no upload route at all, so every upload failed with a
+                    // JSON 404 regardless of file type — which reads as "this format is
+                    // rejected" when the truth is "this fixture cannot accept anything".
+                    // Keeping the bytes in memory is enough to make the whole loop real:
+                    // the file appears in the list, downloads, renames and deletes.
+                    const key = decodeURIComponent(blob[1]);
+                    const chunks: Buffer[] = [];
+                    req.on("data", (c) => chunks.push(Buffer.from(c)));
+                    req.on("end", () => {
+                        UPLOADED.set(key, Buffer.concat(chunks));
+                        res.statusCode = 200;
+                        res.setHeader("Content-Type", "application/json");
+                        res.end(JSON.stringify({key, size: UPLOADED.get(key).length}));
+                    });
+                    return;
+                }
+                if (blob && req.method === "DELETE") {
+                    const key = decodeURIComponent(blob[1]);
+                    UPLOADED.delete(key);
+                    return sendJson(res, {key, deleted: true});
+                }
                 if (blob) {
                     const key = decodeURIComponent(blob[1]);
+                    const uploaded = UPLOADED.get(key);
+                    if (uploaded) {
+                        res.statusCode = 200;
+                        res.setHeader("Content-Type", "application/octet-stream");
+                        res.setHeader("Content-Length", String(uploaded.length));
+                        return res.end(uploaded);
+                    }
                     // A GLB this stub compiled a moment ago.
                     const compiled = COMPILED.get(key);
                     if (compiled) {

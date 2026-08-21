@@ -3029,3 +3029,35 @@ And the part worth saying out loud: **with no structural blueprint the detail fl
 nothing to act on**, so Detail renders exactly what Sim does. Someone comparing the two and
 seeing no change deserves to know that is the model, not a broken button. All three
 tooltips now say what the representation *is* rather than naming it twice.
+
+## Upload failed for everything, not just `.sin`
+
+Adding `.sin` to `SUPPORTED_EXTS` got it past the file picker, and the upload then still
+failed — because **the dev stub had no upload route at all.** `putBlob` PUTs to the blobs
+URL and the stub only answered GET, so every upload of every format fell through to the
+JSON 404. That reads as "this format is rejected" when the truth is "this fixture accepts
+nothing".
+
+It accepts PUT now, keeps the bytes in memory like the compiled GLBs, serves them back on
+GET, and lists them alongside the fixture files — so upload, download, rename and delete
+are all real in dev.
+
+**One thing it still cannot do, and the distinction matters:** *streaming* an uploaded
+`.sin` needs a worker to bake the mesh and field blobs. The fixture's own
+`dev-cantilever.sin` streams because it ships **pre-baked**. An arbitrary uploaded `.sin`
+will land in storage and then have nothing to stream from — that is a real backend's job,
+not something a fixture can fake.
+
+## Two smaller things from the same report
+
+**The storage checkbox was 20px** where every other control is 16px, and it was the last
+one in the product still drawing the platform's own tick rather than the accent one. It
+uses the design system's `Checkbox` now.
+
+**An uncommitted procedural model appeared in no list anywhere.** It exists only in the
+cellbuilder store, so Storage did not show it — you could see it in the viewport with no
+handle on it from the file panel, including no way to put it away. It is listed now, marked
+**unsaved**, with a close control; closing asks first and says why, because there is no copy
+on the server to reopen. The check is "the open model is not in the fetched list", which
+covers both a never-committed model and the dev fixture's, which was never created
+server-side at all.

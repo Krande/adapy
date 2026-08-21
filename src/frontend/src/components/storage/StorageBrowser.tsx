@@ -166,6 +166,7 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
     // rename/move; delete archives the row server-side.
     const [proceduralModels, setProceduralModels] = useState<ProceduralModelSummary[]>([]);
     const activeProcedural = useCellBuilderStore((s) => s.active?.modelId ?? null);
+    const activeProceduralName = useCellBuilderStore((s) => s.active?.name ?? null);
     // Engine-picker prompt raised by the store when an imported workbook has no
     // _ADA_META engine (hand-made / legacy). Rendered here because import is now
     // triggered from the + menu, not the cellbuilder panel.
@@ -269,6 +270,34 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                 tone: "danger",
             });
         }
+    };
+
+    /**
+     * The open model, when the saved list does not already contain it.
+     *
+     * `active.modelId` is the server id once committed; a model that has never been
+     * committed still has one locally (the create call assigns it) but the list will not
+     * carry it — and the dev/build fixture opens one that was never created server-side at
+     * all. Comparing against the fetched list is what covers both.
+     */
+    const unsavedProcedural = React.useMemo(() => {
+        if (!activeProceduralName) return null;
+        if (proceduralModels.some((m) => m.id === activeProcedural)) return null;
+        return {id: activeProcedural, name: activeProceduralName};
+    }, [activeProcedural, activeProceduralName, proceduralModels]);
+
+    const closeUnsavedProcedural = async () => {
+        const ok = await confirm({
+            title: "Close without saving?",
+            body: [
+                `"${unsavedProcedural?.name ?? "This model"}" has not been committed.`,
+                "Closing discards it — there is no copy on the server to reopen.",
+            ],
+            confirmLabel: "Discard",
+            tone: "danger",
+        });
+        if (!ok) return;
+        useCellBuilderStore.getState().close();
     };
 
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
@@ -1446,9 +1475,41 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                     </div>
                 </div>
             )}
-            {proceduralModels.length > 0 && (
+            {(proceduralModels.length > 0 || unsavedProcedural) && (
                 <div className="mb-1">
                     <div className="text-[10px] uppercase tracking-wide text-content-muted px-2">Procedural models</div>
+                    {/* The open model, when it is not one of the saved ones.
+
+                        A model created but not yet committed exists only in the cellbuilder
+                        store, so it appeared in no list anywhere — you could see it in the
+                        viewport and had no way to reach it from the file panel, including
+                        no way to put it away. Listing it here gives it the same handle
+                        every other model has, and says plainly that it is not saved. */}
+                    {unsavedProcedural && (
+                        <div
+                            className="flex items-center gap-1.5 rounded-sm bg-accent-subtle px-2 py-1"
+                            title="Open in the cellbuilder and not yet committed — it exists only in this tab"
+                        >
+                            <ProceduralModelIcon className="shrink-0" />
+                            <span className="truncate text-sm">{unsavedProcedural.name}</span>
+                            <span className="rounded-sm border border-warn px-1 text-[10px] text-warn">
+                                unsaved
+                            </span>
+                            <span className="ml-auto flex items-center gap-1">
+                                <button
+                                    className="rounded-sm px-1 pointer-fine:hover:bg-surface-3"
+                                    title="Close without saving — the model is discarded"
+                                    aria-label="Close the unsaved model"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        void closeUnsavedProcedural();
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </span>
+                        </div>
+                    )}
                     {proceduralModels.map((m) => (
                         <div
                             key={m.id}

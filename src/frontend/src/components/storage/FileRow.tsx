@@ -9,6 +9,7 @@ import {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {formatRelative} from "./storageHelpers";
 import {Spinner} from "./Spinner";
+import {Checkbox} from "@/components/ui";
 
 
 // Custom drag MIME for in-panel file moves. OS-file drops arrive as
@@ -181,9 +182,14 @@ export const FileRow: React.FC<FileRowProps> = ({
                     it loads/unloads directly. Row click = selection
                     (amber highlight feeds the bulk toolbar). */}
                 {(
-                    <input
-                        type="checkbox"
-                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                    // The design system's Checkbox, not a bare input at h-5 w-5.
+                    //
+                    // 20px next to a 16px control everywhere else made the storage rows
+                    // read as a different, chunkier list — and it was the one checkbox in
+                    // the product still drawing the platform's own tick instead of the
+                    // accent one.
+                    <Checkbox
+                        className="shrink-0 cursor-pointer disabled:cursor-not-allowed"
                         checked={isLoaded || isQueued || isViewing}
                         onChange={() => void onToggle(f, !(isLoaded || isQueued))}
                         onClick={(e) => e.stopPropagation()}
