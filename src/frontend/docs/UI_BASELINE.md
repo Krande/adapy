@@ -3089,3 +3089,33 @@ Two things it cost:
 declared impossible for a static fixture, and each turned out to be a Python call sitting
 in the repo. "A fixture cannot do this" deserves one more question: *is the thing it cannot
 do actually a service call, or is it a function?*
+
+## Switching representation hides; it no longer unloads
+
+Topology called `hideResult()` / `hideDetail()`, which **unload** the GLB and null the
+source name. So every trip through Topology threw the compiled model away, and coming back
+recompiled it. Flipping between "what I drew" and "what the compiler made of it" is
+something you do constantly while modelling, and paying a compile each way made the
+comparison not worth doing.
+
+It is visibility now. The GLBs stay in the scene's source map, so the round trip is
+instant — measured at **5 s including two deliberate waits, with no compile toast at all** —
+and a compile happens exactly when there is nothing to show yet.
+
+This edits `cellBuilderStore`, inside the fence. Justified: a reported defect in behaviour
+the user asked to change, not the rebuild reaching into business logic, and the change is
+four lines of visibility flipping rather than new logic.
+
+## Procedural rows got the same checkbox as file rows
+
+The panel had two lists sharing a border: files with a load checkbox in the first column,
+procedural models with a ✕ or a 🗑 somewhere on the right. Different shapes for the same
+question — *is this thing in front of me?*
+
+Every procedural row now carries a checkbox in that first column. For a file, ticked means
+"loaded into the scene"; for a procedural model, "open in the cellbuilder". Not identical
+operations, but the same question, and answering it two different ways one column apart is
+what made the panel read as two lists.
+
+The unsaved row's ✕ went with it — a checkbox and an ✕ beside each other doing the same
+thing is exactly the duplication this rebuild has spent its time removing.

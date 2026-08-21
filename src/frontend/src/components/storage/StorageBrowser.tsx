@@ -27,6 +27,7 @@ import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu"
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
 import {alertText, confirm, promptText} from "@/ui/confirm";
+import {Checkbox} from "@/components/ui";
 import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
@@ -1490,24 +1491,19 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             className="flex items-center gap-1.5 rounded-sm bg-accent-subtle px-2 py-1"
                             title="Open in the cellbuilder and not yet committed — it exists only in this tab"
                         >
+                            <Checkbox
+                                className="shrink-0"
+                                checked
+                                aria-label={`Close ${unsavedProcedural.name}`}
+                                title="Open in the cellbuilder — untick to close it"
+                                onChange={() => void closeUnsavedProcedural()}
+                            />
                             <ProceduralModelIcon className="shrink-0" />
                             <span className="truncate text-sm">{unsavedProcedural.name}</span>
                             <span className="rounded-sm border border-warn px-1 text-[10px] text-warn">
                                 unsaved
                             </span>
-                            <span className="ml-auto flex items-center gap-1">
-                                <button
-                                    className="rounded-sm px-1 pointer-fine:hover:bg-surface-3"
-                                    title="Close without saving — the model is discarded"
-                                    aria-label="Close the unsaved model"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void closeUnsavedProcedural();
-                                    }}
-                                >
-                                    ✕
-                                </button>
-                            </span>
+
                         </div>
                     )}
                     {proceduralModels.map((m) => (
@@ -1520,6 +1516,32 @@ const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => 
                             onClick={() => void openProceduralModel(m)}
                             title="Procedural cell model (single database source) — click to open in the cellbuilder"
                         >
+                            {/* Same column, same meaning as the file rows above: ticked =
+                                this is in the viewer.
+
+                                For a file that means "loaded into the scene"; for a
+                                procedural model it means "open in the cellbuilder". Not
+                                identical operations, but the same question — is this thing
+                                in front of me — and answering it in two different shapes,
+                                one column apart, is what made the panel read as two lists
+                                that happened to share a border. */}
+                            <Checkbox
+                                className="shrink-0"
+                                checked={activeProcedural === m.id}
+                                aria-label={
+                                    activeProcedural === m.id ? `Close ${m.name}` : `Open ${m.name}`
+                                }
+                                title={
+                                    activeProcedural === m.id
+                                        ? "Open in the cellbuilder — untick to close it"
+                                        : "Open in the cellbuilder"
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => {
+                                    if (activeProcedural === m.id) useCellBuilderStore.getState().close();
+                                    else void openProceduralModel(m);
+                                }}
+                            />
                             <ProceduralModelIcon className="shrink-0"/>
                             <span className="truncate text-sm">{m.name}</span>
                             <span className="text-[10px] text-info border border-info rounded-sm px-1">
