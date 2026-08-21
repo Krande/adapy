@@ -2555,3 +2555,25 @@ its error boundary, so the 3D view went blank after any edit until a full page r
 Dev-only, but it is every developer, every edit — and it is why so much of this rebuild
 was reviewed through full reloads. Constructing through whatever is *registered* rather
 than through the imported binding makes re-evaluation harmless.
+
+## The chrome rule did not cover src/plugins
+
+`noAdHocChrome` walked `src/components` and `src/shell`. `src/plugins` draws UI too, and
+`PluginSlots.tsx` sat outside the rule with a hand-styled `bg-gray-800/95` error box —
+the chrome shown **when a plugin crashes**, which is the worst possible place for the
+surrounding UI to look broken as well. In the light and glass themes it did exactly that.
+
+Converted to tokens (`bg-fail-subtle`, `border-fail`, `text-content-muted`, a real
+`Button`), and the rule now walks every directory that draws.
+
+Same lesson as the `noNativeDialogs` regex a few entries up: **a rule that only checks
+where you happened to look is not a rule.** Two of the three enforcement tests written for
+this rebuild have now been found under-scoped by exactly this — worth assuming the third
+is too until someone checks.
+
+**The burn-down is 82 → 3, not 82 → 82.** `docs/ui-audit.summary.json` is the frozen M0
+baseline and is not rewritten unless the script is run with `--json`; the live number
+prints to the console. Of the three files left, one is a comment naming the class it
+replaced, one is `GitHistoryPanel`'s categorical branch palette (deliberate, allowlisted —
+colours used as *identity* must not become semantic tokens), and the third was
+`PluginSlots`, now converted.

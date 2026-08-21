@@ -9,6 +9,7 @@ import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { makePluginContext } from "./context";
 import { usePluginUiStore } from "./pluginUiStore";
+import {Button} from "@/components/ui";
 import {
   disablePlugin,
   getPanelsForRegion,
@@ -60,20 +61,20 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
               fallback={(error, reset) => {
                 disablePlugin(pluginId, `panel render threw: ${error.message}`);
                 return (
-                  <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
-                    <div className="font-semibold text-red-300">
+                  // Tokens, not the palette. This is the chrome shown WHEN A PLUGIN
+                  // CRASHES — the one moment you least want the surrounding UI to look
+                  // broken too, and a hardcoded dark grey does exactly that in the light
+                  // and glass themes.
+                  <div className="rounded-md border border-fail/60 bg-fail-subtle p-2 text-xs text-content">
+                    <div className="font-semibold text-fail">
                       Plugin “{pluginId}” hit an error
                     </div>
-                    <div className="mt-0.5 mb-1.5 break-words text-gray-400">
+                    <div className="mt-0.5 mb-1.5 break-words text-content-muted">
                       {error.message}
                     </div>
-                    <button
-                      type="button"
-                      onClick={reset}
-                      className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
-                    >
+                    <Button size="sm" variant="secondary" onClick={reset}>
                       Retry
-                    </button>
+                    </Button>
                   </div>
                 );
               }}

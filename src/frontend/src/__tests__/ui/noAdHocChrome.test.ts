@@ -22,6 +22,16 @@ const ALLOWLIST: string[] = require("./adHocChrome.allowlist.json");
 // from @/components/ui — then delete its line from adHocChrome.allowlist.json.
 
 const COMPONENTS = path.resolve(import.meta.dirname, "../../components");
+
+// Every directory that draws UI, not components/ and shell/ alone.
+//
+// src/plugins draws too, and sat outside the rule with a hand-styled bg-gray-800 error
+// box — the chrome shown WHEN A PLUGIN CRASHES, which is the worst possible place for the
+// surrounding UI to look broken as well. Same lesson as noNativeDialogs: a rule that only
+// checks where you happened to look is not a rule.
+const ROOTS = ["components", "shell", "plugins"]
+    .map((d) => path.resolve(import.meta.dirname, "../..", d))
+    .filter((d) => fs.existsSync(d));
 const PALETTE = /\bbg-(?:gray|blue|red|green|yellow|indigo|slate|zinc|neutral|stone)-[0-9]{2,3}\b/;
 
 /**
@@ -49,7 +59,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const rel = (p: string) => path.relative(path.resolve(import.meta.dirname, "../../.."), p).split(path.sep).join("/");
 
-const offenders = walk(COMPONENTS)
+const offenders = ROOTS.flatMap((d) => walk(d))
     .filter((f) => PALETTE.test(stripComments(fs.readFileSync(f, "utf8"))))
     .map(rel)
     .sort();
