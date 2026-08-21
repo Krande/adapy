@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {versionInjectPlugin} from './version-plugin';
 import {adapyPluginsResolver} from './vite.plugin-resolver.mjs';
+import {adapyDevRestConfig} from './vite.plugin-dev-rest';
 
 export default defineConfig({
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'
@@ -15,13 +16,26 @@ export default defineConfig({
     // ./StorageBrowser-*.js against the page URL `/`, missing the
     // `/assets/` prefix where the chunks actually live → 404 + blank page.
     base: '/',
-    plugins: [react(), versionInjectPlugin(), adapyPluginsResolver()],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
+    // adapyDevRestConfig is serve-only and self-disables unless ADA_DEV_REST is set,
+    // so it costs nothing in either build path.
+    plugins: [react(), versionInjectPlugin(), adapyPluginsResolver(), adapyDevRestConfig()],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),
             // Build-time plugin packages resolve to their TS source so they are
             // transformed as first-party code (avoids a node_modules TSX
             // pre-bundle for the workspace symlink). Enabled set is in plugins.json.
+        },
+    },
+    optimizeDeps: {
+        esbuildOptions: {
+            // Same reason as `build.target` below, but for the dev server's dependency
+            // pre-bundle, which has its own target and otherwise defaults to the browser
+            // list. esbuild is pinned to 0.28.1 (security fix, see package.json overrides)
+            // and that version cannot lower destructuring, so pre-bundling @xyflow/react
+            // and @tanstack/react-virtual fails with 417 errors and `npm run dev` never
+            // starts. Nothing to lower at esnext.
+            target: 'esnext',
         },
     },
     build: {

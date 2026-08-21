@@ -18,6 +18,7 @@
 // as a fallback for non-FEA models.
 
 import React, {useEffect, useMemo, useState} from "react";
+import {buttonClasses, fieldClasses} from "@/components/ui";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -130,6 +131,29 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     );
 };
 
+/**
+ * The built-in animation controls, without a panel around them.
+ *
+ * Exported so the Results toolbar can host them: the Simulation panel is no longer part
+ * of a stock Results layout, and these are the only things in it that are not
+ * plugin-contributed.
+ *
+ * Which set you get follows the SESSION, not the mode. An FEA result and a GLTF clip are
+ * different animations with genuinely different knobs, and picking between them here
+ * rather than at each call site is what stops the toolbar and the panel disagreeing about
+ * which one is playing.
+ */
+export const AnimationControls: React.FC<{inline?: boolean}> = ({inline = false}) => {
+    const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
+    // Data-panel toggling belongs to the toolbar, and has since the transport moved.
+    const noop = () => {};
+    return sessionActive ? (
+        <FeaModeControls showSimData={false} onToggleData={noop} inline={inline} />
+    ) : (
+        <GltfClipControls showSimData={false} onToggleData={noop} inline={inline} />
+    );
+};
+
 // Built-in "animation" tab — the FEA / GLTF transport controls, the optional
 // data panel, plus the additive plugin color-field picker and any buttonless
 // fem-sidebar panels (asTab panels are hoisted to their own tabs instead).
@@ -209,11 +233,11 @@ const SimTabButton: React.FC<{
             className={
                 "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 text-sm " +
                 (active
-                    ? "border-blue-400 text-[var(--ada-panel-text)]"
-                    : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+                    ? "border-accent text-[var(--ada-panel-text)]"
+                    : "border-transparent text-content-muted pointer-fine:hover:text-[var(--ada-panel-text)]")
             }
         >
-            {contextual && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" aria-hidden="true" />}
+            {contextual && <span className="w-1.5 h-1.5 rounded-full bg-info" aria-hidden="true" />}
             {label}
             {showBadge && (
                 <span className="ml-0.5 rounded-full bg-[var(--ada-fail,#ef4444)] text-white text-[10px] leading-none px-1.5 py-0.5">
@@ -236,13 +260,13 @@ const PluginTabBody: React.FC<{pluginId: string; panel: PanelSlot; ctx: AdaPlugi
         fallback={(error, reset) => {
             disablePlugin(pluginId, `sim tab render threw: ${error.message}`);
             return (
-                <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
-                    <div className="font-semibold text-red-300">Plugin “{pluginId}” hit an error</div>
-                    <div className="mt-0.5 mb-1.5 break-words text-gray-400">{error.message}</div>
+                <div className="rounded-md border border-fail bg-surface-0 p-2 text-xs text-content">
+                    <div className="font-semibold text-fail">Plugin “{pluginId}” hit an error</div>
+                    <div className="mt-0.5 mb-1.5 break-words text-content-muted">{error.message}</div>
                     <button
                         type="button"
                         onClick={reset}
-                        className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
+                        className="rounded-sm bg-surface-2 px-2 py-1 text-white pointer-fine:hover:bg-surface-3"
                     >
                         Retry
                     </button>
@@ -259,7 +283,7 @@ interface ControlPanelProps {
     onToggleData: () => void;
 }
 
-const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+const FeaModeControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({onToggleData, inline = false}) => {
     const {
         mesh,
         range,
@@ -296,7 +320,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // single-line; new per-session preferences (background tone,
     // scalar-bar tick density, etc.) land in here without adding
     // top-level buttons.
+    // Inline (in the toolbar) every option is simply present; the gear only makes sense
+    // when the panel has vertical room to reveal into.
     const [showOptions, setShowOptions] = useState(false);
+    const optionsOpen = inline || showOptions;
+    // One row when inline, the stacked panel otherwise.
+    //
+    // No wrapping inline. A toolbar that grows a second line as you pick a field with more
+    // components pushes everything below it down and moves every control you were aiming
+    // at; the strip scrolls instead, which moves nothing.
+    //
+    // `text-xs` on the OUTER element, not on each row. Splitting the panel's rows apart
+    // for the inline layout dropped the row that carried the type scale, so the labels
+    // inherited the page default and sat a size larger than every other label in the
+    // toolbar — the "bigger font" in the report.
+    const rowCls = inline
+        ? "flex flex-row flex-nowrap items-center gap-x-3 min-w-0 text-xs text-content"
+        : "flex flex-col gap-2 min-w-0";
+    const groupCls = inline
+        ? "flex flex-row items-center gap-x-3 min-w-0 shrink-0"
+        : "flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white";
 
     const [lo, hi] = range;
     // Step granularity for the factor slider — 200 stops over the
@@ -520,7 +563,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     };
 
     return (
-        <div className="flex flex-col gap-2 min-w-0">
+        <div className={rowCls}>
             {/* Row 1 — Field / Comp / Step selectors only. Gear
                 moved down to the transport row so this stays a
                 focused "what are you looking at" line.
@@ -533,11 +576,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 width on desktop so the dropdowns size to content
                 with ``justify-between`` spacing the groups. */}
             {manifest && (
-                <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                        <span className="text-gray-300 shrink-0">Field</span>
+                <div className={groupCls}>
+                    <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                        <span className="shrink-0 text-content-muted">Field</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                            className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none truncate"}`}
+                            style={inline ? {width: 128} : undefined}
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -554,10 +598,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Comp</span>
+                        <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                            <span className="shrink-0 text-content-muted">Comp</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none truncate"}`}
+                                style={inline ? {width: 96} : undefined}
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -570,10 +615,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Step</span>
+                        <label className={inline ? "flex shrink-0 items-center gap-1" : "flex items-center gap-1 min-w-0 flex-1 sm:flex-none"}>
+                            <span className="shrink-0 text-content-muted">Step</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : "min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"}`}
+                                style={inline ? {width: 144} : undefined}
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -598,8 +644,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 fills the same total width as row 1 — the slider
                 absorbs whatever space is left after the fixed-width
                 period + scale inputs. */}
-            <div className="flex flex-row items-center gap-x-2 w-full min-w-0">
-                <div className="flex items-center gap-2 flex-1 min-w-[100px]">
+            <div className={inline ? "flex flex-row items-center gap-x-2 min-w-0" : "flex flex-row items-center gap-x-2 w-full min-w-0"}>
+                <div className={inline ? "flex items-center gap-2 w-40 shrink-0" : "flex items-center gap-2 flex-1 min-w-[100px]"}>
                     <input
                         type="range"
                         min={lo}
@@ -607,7 +653,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={factorStep}
                         value={factor}
                         onChange={(e) => onFactorChange(parseFloat(e.target.value))}
-                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                        className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-accent-subtle"
                     />
                     <div className="text-white text-sm font-mono w-12 text-center">
                         {factor.toFixed(2)}
@@ -621,7 +667,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={period}
                         onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className={`${fieldClasses("sm")} w-16`}
                         title="Oscillation period (seconds)"
                     />
                     s
@@ -637,57 +683,51 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={scaleFactor}
                         onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded-sm"
+                        className={`${fieldClasses("sm")} w-16`}
                         title="Warp scale factor — multiplier on top of the slider value (default 1)"
                     />
                 </div>
             </div>
 
-            {/* Row 3 — Transport: play / stop / data-panel toggle +
-                gear, all sized + placed identically so they read as
-                one group of action buttons. Gear lives right after
-                the data-panel button (no ``ml-auto`` push-to-right). */}
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={isPlaying ? onPause : onPlay}
-                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
-                >
-                    <PlayPauseIcon/>
-                </button>
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={onStop}
-                    title="Stop and reset deformation to 0"
-                >
-                    <StopIcon/>
-                </button>
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                    onClick={onToggleData}
-                    title="Toggle simulation data panel"
-                >
-                    <FEMDataPanelIcon/>
-                </button>
-                <button
-                    className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm " +
-                        (showOptions ? "ring-2 ring-blue-300" : "")
-                    }
-                    onClick={() => setShowOptions((v) => !v)}
-                    title="Visualisation options"
-                    aria-pressed={showOptions}
-                >
-                    <GearIcon/>
-                </button>
-            </div>
+            {/* Row 3 — the visualisation-options toggle.
 
-            {showOptions && (
-                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
+                Play, Stop and the data-panel toggle used to sit here too. They are in
+                the Results mode toolbar now: the panel keeps the controls that pick a
+                VALUE (field, step, colormap, deform scale) and the toolbar takes the
+                ones that DO something. Having both meant two play buttons for one
+                playback state, differently drawn and differently placed.
+
+                The gear stays, because what it reveals is this panel's own options row
+                — a disclosure for the panel, not an action on the scene. */}
+            {!inline && (
+                <div className="flex flex-row items-center gap-x-2 min-w-0">
+                    <button
+                        className={
+                            buttonClasses("secondary", "sm") +
+                            (showOptions ? " ring-2 ring-accent" : "")
+                        }
+                        onClick={() => setShowOptions((v) => !v)}
+                        title="Visualisation options"
+                        aria-pressed={showOptions}
+                    >
+                        <GearIcon/>
+                    </button>
+                </div>
+            )}
+
+            {optionsOpen && (
+                <div
+                    className={
+                        inline
+                            ? "flex shrink-0 flex-row flex-nowrap items-center gap-x-3 min-w-0 whitespace-nowrap"
+                            : "flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-surface-0 text-xs text-white"
+                    }
+                >
                     <label className="flex items-center gap-1">
-                        <span className="text-gray-300">Colormap</span>
+                        <span className="text-content">Colormap</span>
                         <select
-                            className="text-black bg-white rounded-sm px-1 py-0.5"
+                            className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                            style={inline ? {width: 96} : undefined}
                             value={colormap}
                             onChange={(e) => onColormapChange(e.target.value)}
                         >
@@ -706,9 +746,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         filter. */}
                     {isElemField && layerOptions.length > 0 && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">Layer</span>
+                            <span className="text-content">Layer</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5"
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                                style={inline ? {width: 72} : undefined}
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
                                 title="Which integration-point layer to read"
@@ -721,9 +762,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     )}
                     {isElemField && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">IP reduction</span>
+                            <span className="text-content">IP reduction</span>
                             <select
-                                className="text-black bg-white rounded-sm px-1 py-0.5"
+                                className={`${fieldClasses("sm")} ${inline ? "shrink-0 truncate" : ""}`}
+                            style={inline ? {width: 96} : undefined}
                                 value={ipReduction}
                                 onChange={(e) => onIpReductionChange(e.target.value)}
                                 title="How to collapse integration-point values per element"
@@ -744,7 +786,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 checked={nodalAverage}
                                 onChange={(e) => onNodalAverageToggle(e.target.checked)}
                             />
-                            <span className="text-gray-300">Smooth (nodal avg)</span>
+                            <span className="text-content">Smooth (nodal avg)</span>
                         </label>
                     )}
                     {/* Beam-solid toggle moved to the Scene > FEM panel
@@ -777,7 +819,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     disabled={isReaction}
                                     onChange={(e) => onWarpToggle(e.target.checked)}
                                 />
-                                <span className="text-gray-300">Warp by displacement</span>
+                                <span className="text-content">Warp by displacement</span>
                             </label>
                         );
                     })()}
@@ -808,21 +850,13 @@ const GearIcon: React.FC = () => (
     </svg>
 );
 
-const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+const GltfClipControls: React.FC<ControlPanelProps & {inline?: boolean}> = ({inline = false}) => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
 
     const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const animationName = e.target.value;
         animationControllerRef.current?.setCurrentAnimation(animationName);
-    };
-
-    const togglePlayPause = () => {
-        animationControllerRef.current?.togglePlayPause();
-    };
-
-    const stopAnimation = () => {
-        animationControllerRef.current?.stopAnimation();
     };
 
     const seekAnimation = (time: number) => {
@@ -836,9 +870,20 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     }, [selectedAnimation]);
 
     return (
-        <div className="flex flex-row items-center gap-x-2 min-w-0">
+        <div
+            className={
+                inline
+                    ? "flex flex-row items-center gap-x-2 min-w-0 text-xs text-white"
+                    : "flex w-full flex-col gap-2 min-w-0 text-xs text-white"
+            }
+        >
+            <label className="flex items-center gap-2 min-w-0">
+            <span className="shrink-0 text-content">Clip</span>
             <select
-                className="text-black font-bold py-2 px-4 rounded-sm w-60"
+                // Was a fixed w-60 with no min-w-0: in a narrow dock the row ran past
+                // the panel and the clip name clipped mid-word, which is what made
+                // "No Animation" unreadable.
+                className={`${fieldClasses("sm")} min-w-0 flex-1 truncate`}
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
@@ -851,26 +896,10 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     </option>
                 ))}
             </select>
+            </label>
 
-            <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                onClick={togglePlayPause}
-            >
-                <PlayPauseIcon/>
-            </button>
-            <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                onClick={stopAnimation}
-            >
-                <StopIcon/>
-            </button>
-            <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
-                onClick={onToggleData}
-            >
-                <FEMDataPanelIcon/>
-            </button>
-            <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
+            <div className="flex w-full items-center gap-2 min-w-0">
+                <span className="shrink-0 text-content">Time</span>
                 <input
                     type="range"
                     min="0"
@@ -882,7 +911,7 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         setCurrentKey(newTime);
                         seekAnimation(newTime);
                     }}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-accent-subtle"
                 />
                 <div className="text-white text-sm font-mono w-12 text-center">
                     {roundedCurrentKey}

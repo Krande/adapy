@@ -144,20 +144,20 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
             // max-h + scroll so a long menu (e.g. the template list) doesn't
             // overflow a short/mobile viewport; overscroll-contain keeps the
             // page behind from scrolling when the menu list hits its ends.
-            className="fixed z-[70] min-w-[180px] max-h-[80vh] overflow-y-auto overscroll-contain rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
+            className="fixed z-[70] min-w-[180px] max-h-[80vh] overflow-y-auto overscroll-contain rounded-sm border border-edge bg-surface-0 shadow-lg text-content"
             style={style}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
         >
             {header && (
-                <div className="px-3 py-1.5 text-[11px] text-gray-400 border-b border-gray-700 break-all">
+                <div className="px-3 py-1.5 text-[11px] text-content-muted border-b border-edge break-all">
                     {header}
                 </div>
             )}
             {items.map((item) => (
                 <React.Fragment key={item.key}>
                     {item.separatorBefore && (
-                        <div className="my-1 border-t border-gray-700"/>
+                        <div className="my-1 border-t border-edge"/>
                     )}
                     <button
                         type="button"
@@ -167,8 +167,8 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
                         title={item.title}
                         className={
                             "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs " +
-                            "hover:bg-gray-700 disabled:opacity-40 disabled:hover:bg-transparent " +
-                            (item.destructive ? "text-red-400 hover:text-red-300 " : "")
+                            "pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent " +
+                            (item.destructive ? "text-fail pointer-fine:hover:text-fail " : "")
                         }
                     >
                         {item.icon && (

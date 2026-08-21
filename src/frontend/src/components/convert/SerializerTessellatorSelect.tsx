@@ -55,11 +55,11 @@ export const SerializerTessellatorSelect: React.FC<{
     const tessTitle = (schema.tessellator.title ?? schema.tessellator.name).toLowerCase();
 
     const selCls = compact
-        ? "rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
-        : "bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100";
+        ? "rounded-sm border border-edge bg-surface-0 px-1 py-0.5 text-[11px] text-content"
+        : "bg-surface-0 border border-edge rounded-sm px-1 py-0.5 text-xs text-content";
     const lblCls = compact
-        ? "flex items-center gap-1 text-[11px] text-gray-300"
-        : "inline-flex items-center gap-1 text-xs text-gray-300";
+        ? "flex items-center gap-1 text-[11px] text-content"
+        : "inline-flex items-center gap-1 text-xs text-content";
 
     return (
         <>

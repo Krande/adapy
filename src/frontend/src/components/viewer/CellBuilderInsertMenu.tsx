@@ -107,7 +107,7 @@ const CellBuilderInsertMenu: React.FC = () => {
     onChange: (v: T) => void,
   ) => (
     <div className="flex items-center gap-2">
-      <span className="w-12 text-gray-300">{label}</span>
+      <span className="w-12 text-content">{label}</span>
       <div className="flex gap-1">
         {options.map((o) => (
           <button
@@ -118,8 +118,8 @@ const CellBuilderInsertMenu: React.FC = () => {
             className={
               "px-2 py-0.5 rounded-sm " +
               (value === o.v
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                ? "bg-accent text-white"
+                : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
             }
           >
             {o.label}
@@ -133,23 +133,23 @@ const CellBuilderInsertMenu: React.FC = () => {
     <div
       ref={menuRef}
       role="dialog"
-      className="fixed z-[70] min-w-[240px] rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100 text-xs p-2 flex flex-col gap-2"
+      className="fixed z-[70] min-w-[240px] rounded-sm border border-edge bg-surface-0 shadow-lg text-content text-xs p-2 flex flex-col gap-2"
       style={style}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="font-medium text-gray-200 border-b border-gray-700 pb-1">
-        Insert <span className="text-gray-400">{targetName}</span>
+      <div className="font-medium text-content border-b border-edge pb-1">
+        Insert <span className="text-content-muted">{targetName}</span>
       </div>
 
       {spaceCells.length === 0 ? (
-        <p className="italic text-gray-400">Add a cell first.</p>
+        <p className="italic text-content-muted">Add a cell first.</p>
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <span className="w-12 text-gray-300">cell</span>
+            <span className="w-12 text-content">cell</span>
             <select
-              className="flex-1 min-w-0 text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5"
+              className="flex-1 min-w-0 text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5"
               value={cellId ?? ""}
               onChange={(e) => setCellId(e.target.value || null)}
             >
@@ -180,19 +180,19 @@ const CellBuilderInsertMenu: React.FC = () => {
             setSide,
           )}
 
-          <p className="text-gray-400 italic">→ {SIDE_HINT[`${surface}:${side}`]}</p>
+          <p className="text-content-muted italic">→ {SIDE_HINT[`${surface}:${side}`]}</p>
 
           <div className="flex items-center gap-1 justify-end pt-0.5">
             <button
               type="button"
-              className="px-2 py-1 rounded-sm bg-gray-600 text-white hover:bg-gray-500"
+              className="px-2 py-1 rounded-sm bg-surface-3 text-white pointer-fine:hover:bg-surface-3"
               onClick={close}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="px-2 py-1 rounded-sm bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+              className="px-2 py-1 rounded-sm bg-accent text-white pointer-fine:hover:bg-accent disabled:opacity-50"
               disabled={!cellId}
               onClick={() => {
                 if (!cellId) return;

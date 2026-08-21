@@ -65,7 +65,9 @@ const SimFollowerPage: React.FC = () => {
   if (!follow) return null;
 
   return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-[var(--ada-panel-bg)]">
+    // h-full, not 100dvh: the shell's viewport track sets the height, and a viewport
+    // unit inside a grid cell ignores it and overflows past the bottom.
+    <div className="h-full w-full overflow-hidden bg-surface-1">
       <SimulationControls initialMode="window" forcedTabId={follow.panel} />
     </div>
   );

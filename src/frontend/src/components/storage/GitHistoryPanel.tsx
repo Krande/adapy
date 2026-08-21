@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo} from "react";
 import {ServerFileEntry} from "@/state/serverInfoStore";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
+import {categoricalChip} from "@/components/ui";
 
 // Modal-style panel showing CI uploads as a chronological commit
 // timeline, fetched from the per-artefact ``.build.json`` sidecars
@@ -60,25 +61,12 @@ function relTime(iso: string): string {
     return new Date(t).toISOString().slice(0, 10);
 }
 
-// Deterministic branch → Tailwind chip palette. Same branch always
-// gets the same colour across reopens; different branches get
-// different ones. Cheap string hash → 1-of-N indices.
-const BRANCH_PALETTE = [
-    "bg-emerald-700",
-    "bg-sky-700",
-    "bg-violet-700",
-    "bg-amber-700",
-    "bg-rose-700",
-    "bg-teal-700",
-    "bg-indigo-700",
-];
-function branchChipClass(branch: string): string {
-    let h = 0;
-    for (let i = 0; i < branch.length; i++) {
-        h = (h * 31 + branch.charCodeAt(i)) | 0;
-    }
-    return BRANCH_PALETTE[Math.abs(h) % BRANCH_PALETTE.length];
-}
+// Deterministic branch → chip colour, from the design system's categorical set. Same
+// branch always gets the same colour across reopens; different branches get different
+// ones. The palette lives in ui/categorical so a "these are different" colour is declared
+// once instead of hand-rolled per feature -- which is what put this file on the ad-hoc
+// chrome allowlist, as its last entry.
+const branchChipClass = categoricalChip;
 
 // Group files into per-commit buckets and merge in sidecar fields.
 // Rows render immediately from path data; branch/parents/timestamp/
@@ -153,15 +141,15 @@ const GitHistoryPanel: React.FC<Props> = ({
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-surface-0 border border-edge rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="Git history"
             >
-                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                <div className="flex items-start gap-3 border-b border-edge px-4 py-2">
                     <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold">Git history</div>
-                        <div className="text-xs text-gray-400">
+                        <div className="text-xs text-content-muted">
                             {pending > 0
                                 ? `Fetching ${pending} sidecar${pending === 1 ? "" : "s"}…`
                                 : `${rows.length} commit${rows.length === 1 ? "" : "s"}` +
@@ -172,7 +160,7 @@ const GitHistoryPanel: React.FC<Props> = ({
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -182,7 +170,7 @@ const GitHistoryPanel: React.FC<Props> = ({
                 </div>
                 <div className="flex-1 overflow-auto px-3 py-2">
                     {rows.length === 0 ? (
-                        <div className="text-xs italic text-gray-300 px-1 py-4 text-center">
+                        <div className="text-xs italic text-content px-1 py-4 text-center">
                             No CI uploads under <code>versions/</code> in this scope yet.
                         </div>
                     ) : (
@@ -225,7 +213,7 @@ const CommitRow: React.FC<CommitRowProps> = ({
     onToggle,
 }) => {
     return (
-        <li className="border border-gray-700/60 rounded-sm bg-gray-800/40 hover:bg-gray-800/70 transition-colors">
+        <li className="border border-edge rounded-sm bg-surface-0 pointer-fine:hover:bg-surface-2 transition-colors">
             <div className="flex items-center gap-2 px-2 py-2 flex-wrap">
                 <span
                     className={`px-2 py-0.5 rounded-sm text-[10px] font-mono text-white ${branchChipClass(row.branch)}`}
@@ -233,26 +221,26 @@ const CommitRow: React.FC<CommitRowProps> = ({
                 >
                     {row.branch}
                 </span>
-                <span className="font-mono text-[11px] text-gray-200" title={row.commit}>
+                <span className="font-mono text-[11px] text-content" title={row.commit}>
                     {shortSha(row.commit)}
                 </span>
                 {isFirstOnBranch && (
                     <span
-                        className="px-1 py-0 rounded-sm text-[9px] uppercase tracking-wide bg-emerald-700 text-white"
+                        className="px-1 py-0 rounded-sm text-[9px] uppercase tracking-wide bg-pass text-white"
                         title="Most recent commit on this branch"
                     >
                         latest
                     </span>
                 )}
                 <span
-                    className="text-[10px] text-gray-300 ml-auto whitespace-nowrap"
+                    className="text-[10px] text-content ml-auto whitespace-nowrap"
                     title={row.timestamp || "(timestamp unavailable)"}
                 >
                     {relTime(row.timestamp)}
                 </span>
             </div>
             {(row.author || row.parents.length > 0) && (
-                <div className="px-2 pb-1 text-[10px] text-gray-400 flex items-center gap-2 flex-wrap">
+                <div className="px-2 pb-1 text-[10px] text-content-muted flex items-center gap-2 flex-wrap">
                     {row.author && <span title={`Author: ${row.author}`}>{row.author}</span>}
                     {row.parents.length > 0 && (
                         <span className="font-mono" title={`Parents: ${row.parents.join(", ")}`}>
@@ -278,8 +266,8 @@ const CommitRow: React.FC<CommitRowProps> = ({
                                     "px-2 py-1 rounded-sm text-[10px] font-mono whitespace-nowrap " +
                                     "disabled:opacity-50 disabled:cursor-not-allowed " +
                                     (isLoaded
-                                        ? "bg-blue-700 hover:bg-blue-600 text-white"
-                                        : "bg-gray-700 hover:bg-gray-600 text-gray-100")
+                                        ? "bg-accent pointer-fine:hover:bg-accent-hover text-white"
+                                        : "bg-surface-2 pointer-fine:hover:bg-surface-3 text-content")
                                 }
                                 title={
                                     isLoaded

@@ -131,6 +131,31 @@ async function ensurePyquaternion() {
     return pyquaternionPromise;
 }
 
+/**
+ * Where each wheel comes from, for when it is not there.
+ *
+ * They are built by different repos, and saying "run pixi run wheel-pyodide" when the
+ * ADACPP wheel is the missing one sends people round in a circle — that command builds
+ * the pure-python adapy wheel and cannot produce the wasm kernel.
+ */
+const WHEEL_SOURCE = {
+    adapy: 'run "pixi run wheel-pyodide" in the adapy repo',
+    adacpp:
+        "built by the adacpp repo (tools/build_wheel.py, emscripten) — copy its " +
+        "manifest.json and .whl into src/frontend/public/wheels/",
+};
+
+/**
+ * Did this response actually carry JSON?
+ *
+ * Not `response.ok` — a history-fallback host answers any unknown path with the SPA
+ * shell at status 200, which `ok` happily accepts.
+ */
+function isJsonResponse(resp) {
+    const type = resp.headers.get("content-type") || "";
+    return type.includes("json");
+}
+
 // Resolve a wheel filename via its manifest and stage it on the pyodide FS.
 async function fetchWheelToFs(manifestUrl, key) {
     // no-store: the manifest is the indirection that changes when the wheel is
@@ -142,6 +167,20 @@ async function fetchWheelToFs(manifestUrl, key) {
     if (!mResp.ok) {
         throw new Error(`${key} manifest fetch failed: ${mResp.status} ${mResp.statusText} (${manifestUrl})`);
     }
+    // A missing manifest does not 404 — it comes back as the SPA shell.
+    //
+    // The dev server (and any static host with a history fallback) answers an unknown
+    // path with index.html and status 200, so `mResp.ok` is true and the next line dies
+    // on "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON". That message names
+    // the symptom and hides the cause: the wheels were never built. Checking the content
+    // type turns it into a sentence someone can act on.
+    if (!isJsonResponse(mResp)) {
+        throw new Error(
+            `In-browser compile needs the ${key} wheel, and public/wheels/ has none ` +
+                `(${manifestUrl} served the page shell). ${WHEEL_SOURCE[key] ?? "see the adapy docs"}. ` +
+                `Server-side Compile needs none of this and works today.`,
+        );
+    }
     const manifest = await mResp.json();
     const filename = manifest[key];
     if (!filename) {
@@ -151,6 +190,14 @@ async function fetchWheelToFs(manifestUrl, key) {
     const wResp = await fetch(wheelUrl);
     if (!wResp.ok) {
         throw new Error(`${key} wheel fetch failed: ${wResp.status} ${wResp.statusText} (${wheelUrl})`);
+    }
+    // Same fallback trap, and worse here: index.html written to the FS as a .whl gets a
+    // much stranger error out of micropip, several steps from the real cause.
+    if ((wResp.headers.get("content-type") || "").includes("text/html")) {
+        throw new Error(
+            `${key} wheel missing: ${wheelUrl} returned the page shell, not a wheel. ` +
+                `The manifest names a file that is not there.`,
+        );
     }
     pyodide.FS.mkdirTree("/wheels");
     const fsPath = `/wheels/${filename}`;
@@ -284,6 +331,32 @@ async function ensureFemStack() {
     return femStackPromise;
 }
 
+/**
+ * Are the wheels there at all? Report every missing one, not just the first.
+ *
+ * Fixing one and being told about the next is two boots to learn what one message could
+ * have said.
+ */
+async function preflightWheels(keys) {
+    const urls = {adacpp: ADACPP_MANIFEST_URL, adapy: ADAPY_MANIFEST_URL};
+    const missing = [];
+    for (const key of keys) {
+        try {
+            const r = await fetch(urls[key], {cache: "no-store"});
+            if (!r.ok || !isJsonResponse(r)) missing.push(key);
+        } catch {
+            missing.push(key);
+        }
+    }
+    if (missing.length === 0) return;
+    const how = missing.map((k) => `${k}: ${WHEEL_SOURCE[k] ?? "see the adapy docs"}`).join("; ");
+    throw new Error(
+        `In-browser compile needs ${missing.length === 1 ? "one wheel" : "wheels"} that ` +
+            `public/wheels/ does not have — ${how}. Server-side Compile needs none of this ` +
+            `and works today.`,
+    );
+}
+
 // Lazy procedural stack — the built-in adapy procedural engine compiled fully
 // in-browser (ada.topo_model.wasm_compile.compile_doc). Same set as the SAT
 // stack (pydantic for the topology entities; trimesh for the GLB export;
@@ -291,6 +364,13 @@ async function ensureFemStack() {
 async function ensureProceduralStack() {
     if (!proceduralStackPromise) {
         proceduralStackPromise = (async () => {
+            // Check the wheels FIRST.
+            //
+            // Both are needed, and both are fetched near the end of a boot that takes the
+            // better part of a minute — so a missing wheel used to cost that whole wait
+            // before saying so. Nothing below can succeed without them, and the check is
+            // two HEAD-shaped GETs.
+            await preflightWheels(["adacpp", "adapy"]);
             log("Installing procedural stack (pydantic + trimesh + adacpp)…");
             await pyodide.loadPackage(["pydantic", "Pillow"]);
             await ensureTrimesh();
@@ -583,6 +663,13 @@ self.onmessage = async (e) => {
         // adapy-default engine). data.doc is the cellbuilder commit JSON string.
         const reqId = data.reqId;
         try {
+            // Before Pyodide boots, not after.
+            //
+            // The stack check inside ensureProceduralStack already refuses early, but by
+            // then loadPyodide + numpy + Pillow have been fetched and initialised — about
+            // twelve seconds of waiting to be told the wheels were never there. Nothing in
+            // that boot can make them appear, so ask first.
+            await preflightWheels(["adacpp", "adapy"]);
             const bytes = await compileProcedural(data.doc, data.engine, data.wheel);
             let heap = 0;
             try {

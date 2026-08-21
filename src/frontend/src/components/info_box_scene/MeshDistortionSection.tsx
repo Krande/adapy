@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useMeshPanelStore} from "@/state/meshPanelStore";
 import {useOptionsStore} from "@/state/optionsStore";
-import CollapsibleSection from "@/components/common/CollapsibleSection";
+import {CollapsibleSection} from "@/components/ui";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
@@ -95,7 +95,7 @@ const MeshDistortionSection: React.FC = () => {
     };
 
     const sortArrow = (key: SortKey) => (sortKey === key ? (sortDir === "desc" ? " ▼" : " ▲") : "");
-    const thClass = "sticky top-0 bg-gray-800 px-2 py-1 text-left font-semibold cursor-pointer select-none whitespace-nowrap";
+    const thClass = "sticky top-0 bg-surface-0 px-2 py-1 text-left font-semibold cursor-pointer select-none whitespace-nowrap";
 
     return (
         <div className="space-y-1">
@@ -146,7 +146,7 @@ const MeshDistortionSection: React.FC = () => {
                             type="number" min={1} max={50} step={1}
                             value={spikeAspectMin}
                             onChange={(e) => setSpikeAspectMin(parseFloat(e.target.value) || 1)}
-                            className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
+                            className="w-20 bg-surface-2 text-white p-1 rounded-sm no-drag"
                         />
                     </label>
                     <label className="flex items-center space-x-2 text-sm">
@@ -161,19 +161,19 @@ const MeshDistortionSection: React.FC = () => {
                             type="number" min={1} max={20} step={0.5}
                             value={spikeOutlierK}
                             onChange={(e) => setSpikeOutlierK(parseFloat(e.target.value) || 1)}
-                            className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
+                            className="w-20 bg-surface-2 text-white p-1 rounded-sm no-drag"
                         />
                     </label>
                     <div className="flex items-center gap-2">
                         <button
-                            className="bg-blue-700 pointer-fine:hover:bg-blue-600 text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
                             onClick={() => void rescan()}
                             disabled={scanning}
                         >
                             {scanning ? "Scanning…" : "Rescan"}
                         </button>
                         <button
-                            className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-3 py-1 rounded-sm no-drag"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-white px-3 py-1 rounded-sm no-drag"
                             onClick={resetThresholds}
                             title="Reset thresholds to the gallery defaults"
                         >
@@ -184,7 +184,7 @@ const MeshDistortionSection: React.FC = () => {
                             <span>Isolate</span>
                         </label>
                         <button
-                            className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-2 py-1 rounded-sm no-drag"
+                            className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-white px-2 py-1 rounded-sm no-drag"
                             onClick={() => {
                                 setSelectedRange(null);
                                 endGeomWalk();
@@ -203,11 +203,11 @@ const MeshDistortionSection: React.FC = () => {
                 defaultOpen={false}
             >
                 {rows.length === 0 ? (
-                    <div className="text-sm text-gray-400 py-4 text-center">
+                    <div className="text-sm text-content-muted py-4 text-center">
                         {scanning ? "Scanning scene…" : "No distorted geoms at these thresholds."}
                     </div>
                 ) : (
-                    <div className="max-h-[50vh] overflow-y-auto border border-gray-700 rounded-sm">
+                    <div className="max-h-[50vh] overflow-y-auto border border-edge rounded-sm">
                         <table className="w-full text-xs border-collapse">
                             <thead>
                                 <tr>
@@ -221,8 +221,8 @@ const MeshDistortionSection: React.FC = () => {
                                 {sorted.map((r) => (
                                     <tr
                                         key={`${r.mesh.unique_key}|${r.rangeId}`}
-                                        className={`cursor-pointer pointer-fine:hover:bg-gray-700 ${
-                                            selectedRange === r.rangeId ? "bg-blue-900" : ""
+                                        className={`cursor-pointer pointer-fine:hover:bg-surface-2 ${
+                                            selectedRange === r.rangeId ? "bg-accent-subtle" : ""
                                         }`}
                                         onClick={() => onRowClick(r)}
                                     >

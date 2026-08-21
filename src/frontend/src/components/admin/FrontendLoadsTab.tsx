@@ -16,11 +16,11 @@ import {viewerApi} from "@/services/viewerApi";
 type Cell = Record<string, number | string | null>;
 
 const BOUND_COLORS: Record<string, string> = {
-    io: "bg-amber-600",
-    network: "bg-sky-600",
-    cpu: "bg-rose-600",
-    gpu: "bg-violet-600",
-    unknown: "bg-gray-600",
+    io: "bg-warn",
+    network: "bg-info",
+    cpu: "bg-fail",
+    gpu: "bg-info",
+    unknown: "bg-surface-3",
 };
 
 function ms(v: number | string | null | undefined): string {
@@ -45,12 +45,12 @@ function shortKey(k: string): string {
 }
 
 const WindowPicker: React.FC<{days: number; onChange: (d: number) => void}> = ({days, onChange}) => (
-    <label className="text-xs text-gray-300 flex items-center gap-2">
+    <label className="text-xs text-content flex items-center gap-2">
         <span>Window</span>
         <select
             value={days}
             onChange={(e) => onChange(Number(e.target.value))}
-            className="bg-gray-700 text-white text-xs rounded-sm px-2 py-1"
+            className="bg-surface-2 text-white text-xs rounded-sm px-2 py-1"
         >
             <option value={1}>24h</option>
             <option value={7}>7d</option>
@@ -67,7 +67,7 @@ const BoundBar: React.FC<{cell: Cell}> = ({cell}) => {
     const cpu = Number(cell.cpu_ms || 0);
     const gpu = Number(cell.gpu_ms || 0);
     const total = io + net + cpu + gpu;
-    if (total <= 0) return <span className="text-gray-500">—</span>;
+    if (total <= 0) return <span className="text-content-subtle">—</span>;
     const seg = (v: number, cls: string, label: string) =>
         v > 0 ? (
             <div
@@ -77,7 +77,7 @@ const BoundBar: React.FC<{cell: Cell}> = ({cell}) => {
             />
         ) : null;
     return (
-        <div className="flex w-40 rounded-sm overflow-hidden border border-gray-700">
+        <div className="flex w-40 rounded-sm overflow-hidden border border-edge">
             {seg(io, BOUND_COLORS.io, "IO / TTFB")}
             {seg(net, BOUND_COLORS.network, "Network")}
             {seg(cpu, BOUND_COLORS.cpu, "CPU")}
@@ -105,25 +105,25 @@ const HotspotsPanel: React.FC<{keyName: string; since: number; kind?: "view" | "
             alive = false;
         };
     }, [keyName, since, kind]);
-    if (err) return <div className="text-xs text-red-400 px-3 py-2">hotspots: {err}</div>;
-    if (!data) return <div className="text-xs text-gray-400 px-3 py-2">loading hotspots…</div>;
+    if (err) return <div className="text-xs text-fail px-3 py-2">hotspots: {err}</div>;
+    if (!data) return <div className="text-xs text-content-muted px-3 py-2">loading hotspots…</div>;
     if (data.loads_in_window === 0)
         return (
-            <div className="text-xs text-gray-400 px-3 py-2">
+            <div className="text-xs text-content-muted px-3 py-2">
                 No profiled {kind === "render" ? "render windows" : "loads"} in window. Enable "Profile calls"
                 in Performance options, and serve the{" "}
-                <code className="text-gray-300">Document-Policy: js-profiling</code> header (Chromium only).
+                <code className="text-content">Document-Policy: js-profiling</code> header (Chromium only).
                 {kind === "render" && " These are main-thread (CPU) frames; GPU-bound cost shows in the GPU column, not here."}
             </div>
         );
     return (
-        <div className="px-3 py-2 bg-gray-900/60">
-            <div className="text-[11px] text-gray-400 mb-1">
+        <div className="px-3 py-2 bg-surface-0">
+            <div className="text-[11px] text-content-muted mb-1">
                 Top self-time frames across {data.loads_in_window} profiled {kind === "render" ? "render window(s)" : "load(s)"} — TS + WASM
                 {kind === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
             </div>
             <table className="text-xs w-full">
-                <thead className="text-gray-400">
+                <thead className="text-content-muted">
                     <tr>
                         <th className="text-left font-medium">Function</th>
                         <th className="text-right font-medium">Self (sum)</th>
@@ -133,9 +133,9 @@ const HotspotsPanel: React.FC<{keyName: string; since: number; kind?: "view" | "
                 </thead>
                 <tbody>
                     {data.functions.map((f, i) => (
-                        <tr key={i} className="border-t border-gray-800">
+                        <tr key={i} className="border-t border-edge">
                             <td className="py-0.5 font-mono truncate max-w-md" title={f.fn}>
-                                {f.is_wasm && <span className="text-violet-300 mr-1">[wasm]</span>}
+                                {f.is_wasm && <span className="text-info mr-1">[wasm]</span>}
                                 {f.fn}
                             </td>
                             <td className="text-right">{ms(f.self_ms_sum)}</td>
@@ -172,11 +172,11 @@ const LoadsView: React.FC<{days: number}> = ({days}) => {
         void load();
     }, [load]);
 
-    if (loading) return <div className="p-4 text-sm text-gray-400">Loading…</div>;
-    if (err) return <div className="p-4 text-sm text-red-400">{err}</div>;
+    if (loading) return <div className="p-4 text-sm text-content-muted">Loading…</div>;
+    if (err) return <div className="p-4 text-sm text-fail">{err}</div>;
     if (cells.length === 0)
         return (
-            <div className="p-4 text-sm text-gray-400">
+            <div className="p-4 text-sm text-content-muted">
                 No model-load metrics in this window. Turn on "Record model-load metrics" in the
                 viewer's Performance options (admin), then load a model.
             </div>
@@ -184,8 +184,8 @@ const LoadsView: React.FC<{days: number}> = ({days}) => {
 
     return (
         <table className="text-xs w-full">
-            <thead className="text-gray-400 sticky top-0 bg-gray-900">
-                <tr className="border-b border-gray-800">
+            <thead className="text-content-muted sticky top-0 bg-surface-0">
+                <tr className="border-b border-edge">
                     <th className="text-left font-medium px-2 py-1">File</th>
                     <th className="text-left font-medium px-2">Bound</th>
                     <th className="text-left font-medium px-2">Phase split (p50)</th>
@@ -208,11 +208,11 @@ const LoadsView: React.FC<{days: number}> = ({days}) => {
                     return (
                         <React.Fragment key={key}>
                             <tr
-                                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+                                className="border-b border-edge pointer-fine:hover:bg-surface-1 cursor-pointer"
                                 onClick={() => setExpanded(isOpen ? null : key)}
                             >
                                 <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
-                                    <span className="text-gray-500 mr-1">{isOpen ? "▼" : "▶"}</span>
+                                    <span className="text-content-subtle mr-1">{isOpen ? "▼" : "▶"}</span>
                                     {shortKey(key)}
                                 </td>
                                 <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
@@ -262,11 +262,11 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
         };
     }, [days]);
 
-    if (loading) return <div className="p-4 text-sm text-gray-400">Loading…</div>;
-    if (err) return <div className="p-4 text-sm text-red-400">{err}</div>;
+    if (loading) return <div className="p-4 text-sm text-content-muted">Loading…</div>;
+    if (err) return <div className="p-4 text-sm text-fail">{err}</div>;
     if (cells.length === 0)
         return (
-            <div className="p-4 text-sm text-gray-400">
+            <div className="p-4 text-sm text-content-muted">
                 No render metrics in this window. Turn on "Record render metrics" in the viewer's
                 Performance options (admin), then interact with a model.
             </div>
@@ -274,8 +274,8 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
 
     return (
         <table className="text-xs w-full">
-            <thead className="text-gray-400 sticky top-0 bg-gray-900">
-                <tr className="border-b border-gray-800">
+            <thead className="text-content-muted sticky top-0 bg-surface-0">
+                <tr className="border-b border-edge">
                     <th className="text-left font-medium px-2 py-1">File</th>
                     <th className="text-left font-medium px-2">Bound</th>
                     <th className="text-right font-medium px-2">FPS p50</th>
@@ -296,11 +296,11 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
                     return (
                         <React.Fragment key={key}>
                             <tr
-                                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+                                className="border-b border-edge pointer-fine:hover:bg-surface-1 cursor-pointer"
                                 onClick={() => setExpanded(isOpen ? null : key)}
                             >
                                 <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
-                                    <span className="text-gray-500 mr-1">{isOpen ? "▼" : "▶"}</span>
+                                    <span className="text-content-subtle mr-1">{isOpen ? "▼" : "▶"}</span>
                                     {shortKey(key)}
                                 </td>
                                 <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
@@ -335,28 +335,28 @@ const FrontendLoadsTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full overflow-auto">
-            <div className="px-3 py-2 border-b border-gray-800 bg-gray-900/40 flex flex-wrap items-center gap-3">
+            <div className="px-3 py-2 border-b border-edge bg-surface-0 flex flex-wrap items-center gap-3">
                 <div className="flex gap-1 text-sm">
                     <button
-                        className={`px-2 py-1 rounded-sm ${view === "loads" ? "bg-gray-700 text-white" : "text-gray-300 hover:bg-gray-800"}`}
+                        className={`px-2 py-1 rounded-sm ${view === "loads" ? "bg-surface-2 text-white" : "text-content pointer-fine:hover:bg-surface-0"}`}
                         onClick={() => setView("loads")}
                     >
                         Loads
                     </button>
                     <button
-                        className={`px-2 py-1 rounded-sm ${view === "render" ? "bg-gray-700 text-white" : "text-gray-300 hover:bg-gray-800"}`}
+                        className={`px-2 py-1 rounded-sm ${view === "render" ? "bg-surface-2 text-white" : "text-content pointer-fine:hover:bg-surface-0"}`}
                         onClick={() => setView("render")}
                     >
                         Render
                     </button>
                 </div>
                 <WindowPicker days={days} onChange={setDays}/>
-                <div className="text-[11px] text-gray-500 ml-auto">
+                <div className="text-[11px] text-content-subtle ml-auto">
                     Bottleneck:
-                    <span className="ml-2 text-amber-400">IO</span>
-                    <span className="ml-2 text-sky-400">network</span>
-                    <span className="ml-2 text-rose-400">CPU</span>
-                    <span className="ml-2 text-violet-400">GPU</span>
+                    <span className="ml-2 text-warn">IO</span>
+                    <span className="ml-2 text-info">network</span>
+                    <span className="ml-2 text-fail">CPU</span>
+                    <span className="ml-2 text-info">GPU</span>
                 </div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto">

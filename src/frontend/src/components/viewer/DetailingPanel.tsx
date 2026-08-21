@@ -29,9 +29,9 @@ import { clampField } from "@/utils/cellbuilder/detailingOptions";
  */
 
 const inputCls =
-  "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 w-20";
+  "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5 w-20";
 const btn =
-  "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
 
 const fieldLabel = (f: DetailingFieldSpec): string =>
   (f.label ?? f.name) + (f.unit ? ` (${f.unit})` : "");
@@ -43,7 +43,7 @@ const NumberField: React.FC<{
 }> = ({ jointSlug, field, value }) => {
   const setField = useCellBuilderStore((s) => s.setDetailingField);
   return (
-    <label className="flex items-center gap-1.5 text-gray-300">
+    <label className="flex items-center gap-1.5 text-content">
       <span className="min-w-[9rem]">{fieldLabel(field)}</span>
       <input
         type="number"
@@ -70,7 +70,7 @@ const BoolField: React.FC<{
 }> = ({ jointSlug, field, value }) => {
   const setField = useCellBuilderStore((s) => s.setDetailingField);
   return (
-    <label className="flex items-center gap-1.5 text-gray-300 cursor-pointer">
+    <label className="flex items-center gap-1.5 text-content cursor-pointer">
       <input
         type="checkbox"
         className="accent-blue-600"
@@ -90,7 +90,7 @@ const EnumField: React.FC<{
 }> = ({ jointSlug, field, value }) => {
   const setField = useCellBuilderStore((s) => s.setDetailingField);
   return (
-    <label className="flex items-center gap-1.5 text-gray-300">
+    <label className="flex items-center gap-1.5 text-content">
       <span className="min-w-[9rem]">{fieldLabel(field)}</span>
       <select
         className={inputCls + " w-auto"}
@@ -148,7 +148,7 @@ const JointTypeBlock: React.FC<{ spec: DetailingJointTypeSpec }> = ({
   const detected = counts?.[spec.slug];
 
   return (
-    <div className="border border-gray-600/50 rounded-md bg-black/10 p-2 flex flex-col gap-2">
+    <div className="border border-edge rounded-md bg-black/10 p-2 flex flex-col gap-2">
       <label
         className="flex items-center gap-1.5 cursor-pointer font-semibold"
         title={spec.description}
@@ -162,7 +162,7 @@ const JointTypeBlock: React.FC<{ spec: DetailingJointTypeSpec }> = ({
         />
         <span>{spec.name}</span>
         {detected != null && (
-          <span className="text-gray-400 text-[10px] ml-auto">
+          <span className="text-content-muted text-[10px] ml-auto">
             {detected} detected
           </span>
         )}
@@ -202,7 +202,7 @@ const DetailingPanel: React.FC = () => {
 
   if (selectedDetailing === "none") {
     return (
-      <div className="text-gray-400">
+      <div className="text-content-muted">
         No detailing engine selected. Pick one under Compile settings ▸ Detailing
         to add fabrication connection joints.
       </div>
@@ -214,24 +214,24 @@ const DetailingPanel: React.FC = () => {
       <div className="flex flex-col gap-0.5">
         <span className="font-semibold">{engine?.name ?? selectedDetailing}</span>
         {engine?.description && (
-          <span className="text-gray-400 text-[11px]">
+          <span className="text-content-muted text-[11px]">
             {engine.description}
           </span>
         )}
         {engine && !engine.inprocess && (
-          <span className="text-amber-400 text-[11px]">
+          <span className="text-warn text-[11px]">
             External engine — runs on its own worker pool.
           </span>
         )}
       </div>
 
       {jointTypes.length === 0 ? (
-        <div className="text-gray-400">
+        <div className="text-content-muted">
           This engine advertises no configurable joint types.
         </div>
       ) : (
         <>
-          <span className="text-gray-400 text-[11px]">
+          <span className="text-content-muted text-[11px]">
             Joint types advertised by the engine:
           </span>
           {jointTypes.map((jt) => (
@@ -241,7 +241,7 @@ const DetailingPanel: React.FC = () => {
       )}
 
       {totalDetected != null && (
-        <div className="text-gray-300 text-[11px]">
+        <div className="text-content text-[11px]">
           Detected joints: {totalDetected}
         </div>
       )}

@@ -1,5 +1,10 @@
 import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useRef, useState} from "react";
+import {Icon} from "@/components/icons";
+import {IconButton} from "@/components/ui";
+import {useFilesPanel} from "@/shell/filesPanel";
+import ScopePicker from "@/shell/ScopePicker";
+import {buttonClasses} from "@/components/ui";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
@@ -8,215 +13,56 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
-import {load_fea_with_defaults} from "@/utils/scene/handlers/load_fea_streaming";
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
-import ReloadIcon from "../icons/ReloadIcon";
-import PlusIcon from "../icons/PlusIcon";
-import ExpandIcon from "../icons/ExpandIcon";
-import FileTypeIcon from "../icons/FileTypeIcon";
 import ViewIcon from "../icons/ViewIcon";
 import FolderClosedIcon from "../icons/FolderClosedIcon";
-import FolderOpenIcon from "../icons/FolderOpenIcon";
-import ChevronRightIcon from "../icons/ChevronRightIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
-import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
-import {
-    buildFileTree,
-    collectFolderPaths,
-    FileTreeNode,
-    FolderNode,
-    loadExpandedFolders,
-    loadPendingFolders,
-    previewKeyList,
-    saveExpandedFolders,
-    savePendingFolders,
-} from "@/utils/storage/fileTree";
-import {RowKebabMenu} from "@/components/common/RowKebabMenu";
+import {useBuildSidecars} from "@/hooks/useBuildSidecars";
+import {buildFileTree, collectFolderPaths, loadExpandedFolders, loadPendingFolders, previewKeyList, saveExpandedFolders, savePendingFolders} from "@/utils/storage/fileTree";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
+import {alertText, confirm, promptText} from "@/ui/confirm";
+import {Checkbox} from "@/components/ui";
 import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
-import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {KEYS_MIME, FOLDER_MIME, basenameOf, countFiles, dirnameOf, formatBytes, type ServerFileTreeNode} from "./storageHelpers";
+import {Spinner} from "./Spinner";
+import {newProceduralModel} from "@/shell/buildActions";
+import {classifyFiles} from "./classifyFiles";
+import {FolderRow} from "./FolderRow";
+import {FileRow} from "./FileRow";
+import {VersionsTree} from "./VersionsTree";
 
-// Custom drag MIME for in-panel file moves. OS-file drops arrive as
-// ``dataTransfer.files`` instead; checking for this type tells the two
-// apart (types are readable during dragover, the payload only on drop).
-const KEYS_MIME = "application/x-adapy-keys";
-// Folder drags carry the folder path instead — the drop handler moves
-// the whole prefix (subfolders preserved via the grouped-move helper).
-const FOLDER_MIME = "application/x-adapy-folder";
 
-// Small inline CSS spinner. Uses border tricks rather than an SVG so
-// it scales with text size and stays crisp at 16px tall icons.
-const Spinner: React.FC<{className?: string}> = ({className = ""}) => (
-    <span
-        className={`inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin ${className}`}
-        aria-hidden="true"
-    />
-);
 
-function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+export interface StorageBrowserProps {
+    /**
+     * Drop the panel frame and the redundant title.
+     *
+     * The shell's dock already draws a border, a background and a header carrying this
+     * panel's name — so the classic frame produced a box inside a box with two
+     * scrollbars, and the <h2>Storage</h2> restated the dock tab directly above it. The
+     * SCOPE line stays in both: it is information about which space the list reflects,
+     * not decoration.
+     *
+     * Maximize survives in both, because "give this the whole window" is useful wherever
+     * the panel lives.
+     */
+    chromeless?: boolean;
 }
 
-function dirnameOf(key: string): string {
-    const i = key.lastIndexOf("/");
-    return i >= 0 ? key.slice(0, i) : "";
-}
-
-function basenameOf(key: string): string {
-    return key.split("/").pop() ?? key;
-}
-
-// CI uploads land at ``versions/<branch>/<commit>/<filename>``; the
-// helpers below split the storage list into "regular" files (treated
-// as before) and a tree grouped by branch + commit so the storage
-// browser can show a collapsible per-branch history with the latest
-// commit pinned.
-
-interface VersionLeaf {
-    file: ServerFileEntry;
-    artefactName: string;       // basename — last segment of the key
-}
-
-interface CommitGroup {
-    sha: string;                // <commit> path segment (full SHA, usually 40 chars)
-    leaves: VersionLeaf[];
-    /** Sort key. Prefers ``git.timestamp`` from the build.json sidecar;
-     *  falls back to S3 ``lastModified`` until the sidecar resolves.
-     *  Mtime is wrong for "latest" because re-running CI on an older
-     *  commit refreshes the mtime — the git timestamp is what actually
-     *  reflects commit order. */
-    sortKey: number;            // ms since epoch
-    /** True when ``sortKey`` came from the sidecar (authoritative). */
-    sortFromSidecar: boolean;
-}
-
-interface BranchGroup {
-    encodedBranch: string;      // path-safe form (slashes replaced with __)
-    displayBranch: string;      // human-friendly (slashes restored)
-    commits: CommitGroup[];     // sorted newest-first by sortKey
-    sortKey: number;            // max across commits
-}
-
-function parseLastModifiedMs(iso: string): number {
-    if (!iso) return 0;
-    const t = Date.parse(iso);
-    return Number.isFinite(t) ? t : 0;
-}
-
-function classifyFiles(
-    files: ServerFileEntry[],
-    sidecars: ReadonlyMap<string, BuildSidecar | null>,
-): {
-    regular: ServerFileEntry[];
-    branches: BranchGroup[];
-} {
-    const regular: ServerFileEntry[] = [];
-    // branch → sha → leaves
-    const tree = new Map<string, Map<string, VersionLeaf[]>>();
-    for (const f of files) {
-        const trimmed = f.name.replace(/^\/+/, "");
-        const parts = trimmed.split("/");
-        if (parts.length >= 4 && parts[0] === "versions") {
-            const [, encodedBranch, sha, ...rest] = parts;
-            const artefactName = rest.join("/");
-            // Hide the .build.json sidecars from the visible tree —
-            // they're metadata for the GLB artefact, not separately
-            // user-loadable. Clicking the GLB row will load the GLB;
-            // the sidecar comes along under the same prefix when we
-            // need it (e.g. for git-history view).
-            if (artefactName.endsWith(".build.json")) continue;
-            let perBranch = tree.get(encodedBranch);
-            if (!perBranch) {
-                perBranch = new Map();
-                tree.set(encodedBranch, perBranch);
-            }
-            let leaves = perBranch.get(sha);
-            if (!leaves) {
-                leaves = [];
-                perBranch.set(sha, leaves);
-            }
-            leaves.push({file: f, artefactName});
-        } else {
-            regular.push(f);
-        }
-    }
-
-    const branches: BranchGroup[] = [];
-    for (const [encodedBranch, perBranchMap] of tree) {
-        const commits: CommitGroup[] = [];
-        for (const [sha, leaves] of perBranchMap) {
-            const sidecar = sidecars.get(`${encodedBranch}/${sha}`);
-            const sidecarTs = sidecar?.git.timestamp
-                ? parseLastModifiedMs(sidecar.git.timestamp)
-                : 0;
-            const mtime = leaves.reduce(
-                (acc, l) => Math.max(acc, parseLastModifiedMs(l.file.lastModified)),
-                0,
-            );
-            const sortFromSidecar = sidecarTs > 0;
-            commits.push({
-                sha,
-                leaves,
-                sortKey: sortFromSidecar ? sidecarTs : mtime,
-                sortFromSidecar,
-            });
-        }
-        commits.sort((a, b) => b.sortKey - a.sortKey);
-        const branchLatest = commits.length > 0 ? commits[0].sortKey : 0;
-        branches.push({
-            encodedBranch,
-            displayBranch: encodedBranch.replace(/__/g, "/"),
-            commits,
-            sortKey: branchLatest,
-        });
-    }
-    branches.sort((a, b) => b.sortKey - a.sortKey);
-    return {regular, branches};
-}
-
-function shortSha(sha: string): string {
-    return sha.length > 8 ? sha.slice(0, 8) : sha;
-}
-
-// File-tree shape comes from ``@/utils/storage/fileTree``; here we
-// just specialise the generic to ``ServerFileEntry`` so existing call
-// sites read the same as before. The admin StorageTab uses the same
-// helpers with its own entry type.
-type ServerFileTreeNode = FileTreeNode<ServerFileEntry>;
-type ServerFolderNode = FolderNode<ServerFileEntry>;
-
-function countFiles(node: ServerFileTreeNode): number {
-    if (node.kind === "file") return 1;
-    return node.children.reduce((acc, c) => acc + countFiles(c), 0);
-}
-
-function formatRelative(iso: string): string {
-    const t = parseLastModifiedMs(iso);
-    if (t === 0) return "";
-    const dt = (Date.now() - t) / 1000;
-    if (dt < 60) return "just now";
-    if (dt < 3600) return `${Math.round(dt / 60)} min ago`;
-    if (dt < 86400) return `${Math.round(dt / 3600)} h ago`;
-    if (dt < 7 * 86400) return `${Math.round(dt / 86400)} d ago`;
-    return new Date(t).toISOString().slice(0, 10);
-}
-
-const StorageBrowser: React.FC = () => {
+const StorageBrowser: React.FC<StorageBrowserProps> = ({chromeless = false}) => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const {sidecars} = useBuildSidecars(files);
     const conversionJobs = useConversionStore((s) => s.jobs);
@@ -321,6 +167,7 @@ const StorageBrowser: React.FC = () => {
     // rename/move; delete archives the row server-side.
     const [proceduralModels, setProceduralModels] = useState<ProceduralModelSummary[]>([]);
     const activeProcedural = useCellBuilderStore((s) => s.active?.modelId ?? null);
+    const activeProceduralName = useCellBuilderStore((s) => s.active?.name ?? null);
     // Engine-picker prompt raised by the store when an imported workbook has no
     // _ADA_META engine (hand-made / legacy). Rendered here because import is now
     // triggered from the + menu, not the cellbuilder panel.
@@ -369,21 +216,21 @@ const StorageBrowser: React.FC = () => {
             // the storage overview so it doesn't sit on top of the freshly-opened model.
             useServerInfoStore.getState().setShowServerInfoBox(false);
         } catch (e) {
-            window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not open the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
+    // Delegates to the shared action, which the Build toolbar and the File menu also
+    // call. Creating a model is a File-menu operation everywhere else in software, and
+    // the mode you create one FOR is Build — this menu should not be its only home, and
+    // three doors onto three implementations is how they drift.
     const createProceduralModel = async () => {
-        const name = window.prompt("Name for the new procedural model:", "");
-        if (!name || !name.trim()) return;
-        try {
-            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            const store = useCellBuilderStore.getState();
-            store.open(detail.id, detail.name, detail.revision, detail.doc);
-            void refreshProceduralModels();
-        } catch (e) {
-            window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
-        }
+        await newProceduralModel();
+        void refreshProceduralModels();
     };
 
     // Instantiate a new model from a template: commit the template's document
@@ -394,7 +241,13 @@ const StorageBrowser: React.FC = () => {
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);
-        const name = window.prompt("Name for the new procedural model:", tpl.name);
+        const name = await promptText({
+            title: "New model from template",
+            body: [`Starting from "${tpl.name}" (${tpl.engine}).`],
+            label: "Name for the new procedural model",
+            initial: tpl.name,
+            confirmLabel: "Create",
+        });
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
@@ -412,19 +265,61 @@ const StorageBrowser: React.FC = () => {
                 .open(fresh.id, fresh.name, revision, fresh.doc);
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not create the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
+    /**
+     * The open model, when the saved list does not already contain it.
+     *
+     * `active.modelId` is the server id once committed; a model that has never been
+     * committed still has one locally (the create call assigns it) but the list will not
+     * carry it — and the dev/build fixture opens one that was never created server-side at
+     * all. Comparing against the fetched list is what covers both.
+     */
+    const unsavedProcedural = React.useMemo(() => {
+        if (!activeProceduralName) return null;
+        if (proceduralModels.some((m) => m.id === activeProcedural)) return null;
+        return {id: activeProcedural, name: activeProceduralName};
+    }, [activeProcedural, activeProceduralName, proceduralModels]);
+
+    const closeUnsavedProcedural = async () => {
+        const ok = await confirm({
+            title: "Close without saving?",
+            body: [
+                `"${unsavedProcedural?.name ?? "This model"}" has not been committed.`,
+                "Closing discards it — there is no copy on the server to reopen.",
+            ],
+            confirmLabel: "Discard",
+            tone: "danger",
+        });
+        if (!ok) return;
+        useCellBuilderStore.getState().close();
+    };
+
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
-        if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
+        const ok = await confirm({
+            title: "Delete procedural model?",
+            body: [`"${m.name}" will be removed from this scope.`],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.deleteProceduralModel(scopeKey, m.id);
             const st = useCellBuilderStore.getState();
             if (st.active?.modelId === m.id) st.close();
             void refreshProceduralModels();
         } catch (e) {
-            window.alert(`Failed to delete: ${e instanceof Error ? e.message : e}`);
+            void alertText({
+                title: "Could not delete the model",
+                body: [String(e instanceof Error ? e.message : e)],
+                tone: "danger",
+            });
         }
     };
 
@@ -493,18 +388,10 @@ const StorageBrowser: React.FC = () => {
         ) as HTMLElement | null;
         el?.scrollIntoView({block: "nearest"});
     }, [focusedKey]);
-    // Maximize: same component, restyled as a centered fixed overlay
-    // with a backdrop. Styling-only so every bit of panel state
-    // (selection, expansion, menus) survives the toggle.
-    const [maximized, setMaximized] = useState(false);
-    useEffect(() => {
-        if (!maximized) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMaximized(false);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [maximized]);
+    // Wide enough for the Modified column. Driven by the panel's real width rather
+    // than a mode flag: the column is a space question, and the user answers it by
+    // dragging the splitter.
+    const wide = useFilesPanel((s) => s.width) >= 420;
 
     // Mutating actions (delete / rename / move): personal scope for
     // everyone via the user endpoints, admins elsewhere via the admin
@@ -529,7 +416,11 @@ const StorageBrowser: React.FC = () => {
     };
 
     const alertError = (e: unknown) => {
-        window.alert(e instanceof Error ? e.message : String(e));
+        void alertText({
+            title: "Storage error",
+            body: [e instanceof Error ? e.message : String(e)],
+            tone: "danger",
+        });
     };
 
     // In-flight move status — a spinner line under the header so a
@@ -567,7 +458,11 @@ const StorageBrowser: React.FC = () => {
                     failed.push(...r.failed);
                 }
                 if (failed.length > 0) {
-                    window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    void alertText({
+                        title: "Some files could not be moved",
+                        body: failed.map((f) => `${f.key}: ${f.reason}`),
+                        tone: "danger",
+                    });
                 }
             }
             clearSelection();
@@ -597,7 +492,11 @@ const StorageBrowser: React.FC = () => {
         try {
             const r = await mutations.renameOrMoveFolder(folderPath, newPath, allKeys);
             if (r.failed.length > 0) {
-                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                void alertText({
+                    title: "Some files could not be moved",
+                    body: r.failed.map((f) => `${f.key}: ${f.reason}`),
+                    tone: "danger",
+                });
             }
             setExpandedFolders((prev) => {
                 const next = new Set(prev);
@@ -630,7 +529,10 @@ const StorageBrowser: React.FC = () => {
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name || name === basenameOf(folderPath)) return;
         if (name.includes("/")) {
-            window.alert("Rename must be a single name; use Move folder into… for nested moves");
+            void alertText({
+                title: "That name contains a path",
+                body: ["Rename takes a single name. Use “Move folder into…” to nest it."],
+            });
             return;
         }
         const parent = dirnameOf(folderPath);
@@ -654,7 +556,10 @@ const StorageBrowser: React.FC = () => {
         const name = rawName.trim();
         if (!name || name === basenameOf(f.name)) return;
         if (name.includes("/")) {
-            window.alert("Name must not contain '/' — use Move to folder… instead");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A file name cannot contain “/”. Use “Move to folder…” instead."],
+            });
             return;
         }
         const dir = dirnameOf(f.name);
@@ -676,7 +581,13 @@ const StorageBrowser: React.FC = () => {
     };
 
     const onDeleteFile = async (f: ServerFileEntry) => {
-        if (!window.confirm(`Delete "${f.name}"?\nConverted view caches are removed too.`)) return;
+        const ok = await confirm({
+            title: "Delete file?",
+            body: [`"${f.name}" will be deleted.`, "Converted view caches are removed too."],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await unloadIfLoaded(f.name);
             await mutations.deleteKey(f.name);
@@ -693,11 +604,19 @@ const StorageBrowser: React.FC = () => {
         }
         const prefix = path + "/";
         const targets = files.filter((x) => x.name.replace(/^\/+/, "").startsWith(prefix));
-        if (!window.confirm(
-            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(targets.map((t) => t.name)),
-        )) return;
+        const ok = await confirm({
+            title: "Delete folder?",
+            body: [
+                `"${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} will be deleted.`,
+                "Converted view caches are removed too.",
+                // previewKeyList returns one newline-joined string. Split it so each key
+                // is its own line rather than a paragraph that wraps mid-path.
+                ...previewKeyList(targets.map((t) => t.name)).split("\n").filter(Boolean),
+            ],
+            confirmLabel: "Delete folder",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             // Sequential: each delete cascades derived blobs server-side
             // and parallel calls would race on the storage listing.
@@ -722,12 +641,18 @@ const StorageBrowser: React.FC = () => {
         const name = rawName.trim().replace(/^\/+|\/+$/g, "");
         if (!name) return;
         if (name.includes("/")) {
-            window.alert("Folder name must not contain '/'");
+            void alertText({
+                title: "That name contains a path",
+                body: ["A folder name cannot contain “/”. Create the parent first."],
+            });
             return;
         }
         const path = parent ? `${parent}/${name}` : name;
         if (!parent && (name === "versions" || name === "_derived")) {
-            window.alert(`"${name}" is a reserved name`);
+            void alertText({
+                title: "Reserved name",
+                body: [`"${name}" is reserved by the storage layer — pick another.`],
+            });
             return;
         }
         setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
@@ -832,11 +757,16 @@ const StorageBrowser: React.FC = () => {
         if (bulkBusy !== null) return;
         const keys = Array.from(selection);
         if (keys.length === 0) return;
-        if (!window.confirm(
-            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.\n\n" +
-            previewKeyList(keys),
-        )) return;
+        const ok = await confirm({
+            title: `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?`,
+            body: [
+                "Converted view caches are removed too.",
+                ...previewKeyList(keys).split("\n").filter(Boolean),
+            ],
+            confirmLabel: "Delete",
+            tone: "danger",
+        });
+        if (!ok) return;
         setBulkBusy("delete");
         try {
             // Sequential: deletes cascade derived blobs server-side and
@@ -914,7 +844,12 @@ const StorageBrowser: React.FC = () => {
         setUploadName(null);
         setUploadLoaded(0);
         setUploadTotal(0);
-        if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
+        if (failures.length)
+            void alertText({
+                title: failures.length === 1 ? "Upload failed" : `${failures.length} uploads failed`,
+                body: failures,
+                tone: "danger",
+            });
     };
 
     const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1138,7 +1073,10 @@ const StorageBrowser: React.FC = () => {
                         k.replace(/^\/+/, "").startsWith("versions/"),
                     );
                     if (hasVersions) {
-                        window.alert("CI version files can't be deleted");
+                        void alertText({
+                            title: "Version files are protected",
+                            body: ["CI writes these; the server refuses to delete them."],
+                        });
                         break;
                     }
                     void onDeleteSelected();
@@ -1167,56 +1105,62 @@ const StorageBrowser: React.FC = () => {
             data-no-upload-menu
             // Compact: match ObjectInfoBox footprint (viewport-clamped
             // max-width so the panel self-contains on mobile).
-            // Maximized: same element restyled as a centered fixed
-            // overlay — styling-only so panel state survives the
-            // toggle. The host column has no transform ancestors, so
-            // position:fixed escapes it cleanly.
             className={
-                PANEL_CHROME + " " +
-                (maximized
-                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      // Same footprint as the floating admin panel
-                      // (InViewerPanelHost Rnd: 1100×720 capped to the
-                      // viewport). dvh not vh: on mobile 100vh includes
-                      // the area behind the browser chrome, so a
-                      // vh-sized panel ran past the visible bottom.
-                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : // Mobile: bound the panel to the viewport and SCROLL its
-                      // content (overflow-y-auto), so a long file list can't run
-                      // the panel past the bottom of the screen. Desktop keeps the
-                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
-                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
-                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
+                (chromeless ? "flex min-h-0 flex-1 flex-col " : PANEL_CHROME + " ") +
+                (chromeless
+                      ? // In a dock the host owns width and scrolling; imposing a
+                        // max-width here would leave a gap the user cannot close by
+                        // dragging the splitter, which reads as a broken panel.
+                        "min-w-0 overflow-y-auto scrollbar"
+                      : // Mobile: bound the panel to the viewport and SCROLL its
+                        // content (overflow-y-auto), so a long file list can't run
+                        // the panel past the bottom of the screen. Desktop keeps the
+                        // natural unbounded block layout (md:max-h-none md:overflow-visible).
+                        "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+                        "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
             }
         >
-            {maximized && createPortal(
-                // Light scrim — just enough to signal modality without
-                // blacking out the 3D scene. z-[5]: the panel lives in
-                // the menu overlay's `z-10` stacking context, so its
-                // own z-index can never exceed 10 at the root level —
-                // a body-portaled scrim above 10 paints OVER the panel
-                // and darkens it too (visibly so on mobile). Below 10
-                // it dims only the canvas underneath.
+            {/* In the flyout this IS the panel header, so it mirrors the dock's tab
+                strip exactly — same 32px bar, same bottom rule, same 6px icon+label
+                chip — because Storage sits one column away from Model and Outliner and
+                should read as their peer rather than as a differently-built thing.
+                Elsewhere (mobile sheet) the old two-column header stands. */}
+            <div
+                className={
+                    chromeless
+                        ? "flex items-center gap-0.5 shrink-0 h-8 px-1 border-b border-edge"
+                        : "flex justify-between items-center gap-2 mb-2"
+                }
+            >
                 <div
-                    className="fixed inset-0 z-[5] bg-black/25"
-                    onClick={() => setMaximized(false)}
-                    aria-hidden="true"
-                />,
-                document.body,
-            )}
-            <div className="flex justify-between items-center gap-2 mb-2">
-                <div className="min-w-0 flex-1">
-                    <h2 className="font-bold truncate">Storage</h2>
-                    {/* Show the active scope so it's clear which space
-                        this list reflects. Files uploaded under one
-                        scope are invisible to a list query under another
-                        — surfacing the name avoids the "I uploaded but
-                        nothing shows" confusion when scope drifts. */}
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 truncate"
-                         title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
-                        scope: {currentScope?.name ?? "Shared"}
-                    </div>
+                    className={
+                        chromeless
+                            ? "flex items-center gap-1.5 min-w-0 px-1 text-xs font-medium text-content"
+                            : "min-w-0 flex-1"
+                    }
+                >
+                    {chromeless && <Icon name="storage" size="sm" />}
+                    {chromeless ? (
+                        <span className="truncate">Storage</span>
+                    ) : (
+                        <h2 className="font-bold truncate">Storage</h2>
+                    )}
+                    {/* The scope PICKER, not just its name.
+                        
+                        It was in the title bar, which put it as far from the file list it
+                        governs as the window allows. Scope decides which files exist —
+                        upload under one and they are invisible under another — so it
+                        belongs at the top of the list it filters, the way a folder path
+                        does. The title bar kept it visible everywhere; but "visible
+                        everywhere" is worth less than "next to the thing it changes",
+                        and the Storage panel is reachable from every mode now.
+
+                        On its own line under the title, not beside it: a dropdown in the
+                        title bar makes the header a different height and shape from every
+                        other panel's, which is exactly the mismatch being fixed here. */}
+                    {!chromeless && <ScopePicker />}
                 </div>
+                {chromeless && <span className="flex-1 min-w-0" />}
                 <div className="flex items-center gap-1 shrink-0">
                     <input
                         ref={fileInputRef}
@@ -1242,10 +1186,12 @@ const StorageBrowser: React.FC = () => {
                         ref={plusBtnRef}
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center disabled:opacity-60 " +
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            // Ghost, not accent-filled. Two 40px accent squares in a
+                            // panel header read as the loudest thing in the panel, which
+                            // put "add a file" and "refresh" above the files themselves.
+                            // The 40px floor still applies under a coarse pointer — that
+                            // is what IconButton's size classes already do.
+                            buttonClasses("ghost", "sm") + " "
                         }
                         onClick={() => setPlusOpen((v) => !v)}
                         disabled={uploading}
@@ -1258,7 +1204,7 @@ const StorageBrowser: React.FC = () => {
                             same size as Refresh/Maximize whether it
                             shows the plus or the busy spinner. */}
                         <span className="inline-flex h-6 w-6 items-center justify-center">
-                            {uploading ? <Spinner/> : <PlusIcon width="24px" height="24px"/>}
+                            {uploading ? <Spinner/> : <Icon name="plus" size="sm" />}
                         </span>
                     </button>
                     {plusOpen && (
@@ -1371,21 +1317,14 @@ const StorageBrowser: React.FC = () => {
                     )}
                     <button
                         type="button"
-                        className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center " +
-                            // 40px+ tap target on mobile per WCAG; tighter
-                            // on desktop where the cursor is precise.
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                        }
+                        className={buttonClasses("ghost", "sm")}
                         onClick={onRefresh}
                         title={refreshing ? "Refreshing — tap again to retry" : "Refresh file list"}
                         aria-label="Refresh list"
                         aria-busy={refreshing}
                     >
                         <span className={"inline-flex h-6 w-6 items-center justify-center " + (refreshing ? "animate-spin" : "")}>
-                            <ReloadIcon/>
+                            <Icon name="reload" size="sm" />
                         </span>
                     </button>
                     {/* Clear: unload every loaded source. This is a
@@ -1400,7 +1339,7 @@ const StorageBrowser: React.FC = () => {
                         <button
                             type="button"
                             className={
-                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 cursor-pointer " +
+                                "bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 disabled:opacity-60 cursor-pointer " +
                                 "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
@@ -1413,31 +1352,40 @@ const StorageBrowser: React.FC = () => {
                             {bulkBusy === "clear" ? "Clearing…" : "Clear"}
                         </button>
                     )}
-                    <button
-                        type="button"
-                        className={
-                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center " +
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                        }
-                        onClick={() => setMaximized((v) => !v)}
-                        title={maximized ? "Restore compact panel" : "Maximize"}
-                        aria-label={maximized ? "Restore compact panel" : "Maximize"}
-                    >
-                        <span className="inline-flex h-6 w-6 items-center justify-center">
-                            <ExpandIcon expanded={maximized} width="24px" height="24px"/>
-                        </span>
-                    </button>
+                    {/* Close, not maximize.
+                    
+                        Maximize made sense when this was a floating panel over the 3D
+                        view. As a resizable column with a splitter it is redundant — you
+                        widen it by dragging — and it was the odd control out: every other
+                        panel header offers Close, so the one that offered Maximize
+                        instead had no way to put it away from its own header.
+                        
+                        Same size as the dock panels' buttons, via the same IconButton.
+                        Theirs are sm; these were hand-rolled at 40px, so the Files header
+                        was visibly chunkier than Model's or Outliner's right beside it. */}
+                    {chromeless && (
+                        <IconButton
+                            size="sm"
+                            tooltip="Close Storage"
+                            icon={<Icon name="close" size="sm" />}
+                            onClick={() => useFilesPanel.getState().setShown(false)}
+                        />
+                    )}
                 </div>
             </div>
+            {/* Scope, on its own row under the title — the folder path of this panel. */}
+            {chromeless && (
+                <div className="shrink-0 px-1.5 pt-1.5 pb-1">
+                    <ScopePicker />
+                </div>
+            )}
             {inSelectionMode && (() => {
                 const selectionHasVersions = Array.from(selection).some((k) =>
                     k.replace(/^\/+/, "").startsWith("versions/"),
                 );
                 const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
                 return (
-                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-edge bg-surface-0 flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-white whitespace-nowrap">
                             {selection.size} selected
                         </span>
@@ -1445,7 +1393,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={onLoadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
+                            className={`bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle ${btn}`}
                         >
                             Load
                         </button>
@@ -1453,7 +1401,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={onUnloadSelected}
                             disabled={bulkBusy !== null}
-                            className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                            className={`bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                         >
                             {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                         </button>
@@ -1463,7 +1411,7 @@ const StorageBrowser: React.FC = () => {
                                 onClick={onMoveSelected}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be moved" : "Move selected files to a folder"}
-                                className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                                className={`bg-surface-2 pointer-fine:hover:bg-surface-3 active:bg-surface-0 ${btn}`}
                             >
                                 Move…
                             </button>
@@ -1474,7 +1422,7 @@ const StorageBrowser: React.FC = () => {
                                 onClick={() => void onDeleteSelected()}
                                 disabled={bulkBusy !== null || selectionHasVersions}
                                 title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
-                                className={`bg-red-800 hover:bg-red-700 active:bg-red-900 ${btn}`}
+                                className={`bg-fail pointer-fine:hover:brightness-110 active:bg-fail-subtle ${btn}`}
                             >
                                 {bulkBusy === "delete" ? "Deleting…" : "Delete"}
                             </button>
@@ -1483,7 +1431,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             onClick={clearSelection}
                             disabled={bulkBusy !== null}
-                            className={`ml-auto bg-gray-600 hover:bg-gray-500 ${btn}`}
+                            className={`ml-auto bg-surface-3 pointer-fine:hover:bg-surface-2 ${btn}`}
                         >
                             Cancel
                         </button>
@@ -1491,7 +1439,7 @@ const StorageBrowser: React.FC = () => {
                 );
             })()}
             {opNote && (
-                <div className="mb-2 flex items-center gap-2 text-xs text-blue-300">
+                <div className="mb-2 flex items-center gap-2 text-xs text-accent">
                     <span
                         className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"
                         aria-hidden="true"
@@ -1511,10 +1459,10 @@ const StorageBrowser: React.FC = () => {
                                 : formatBytes(uploadLoaded)}
                         </span>
                     </div>
-                    <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
+                    <div className="mt-1 h-1 w-full bg-surface-2 rounded-sm overflow-hidden">
                         {uploadTotal > 0 ? (
                             <div
-                                className="h-full bg-blue-600 transition-[width] duration-200"
+                                className="h-full bg-accent transition-[width] duration-200"
                                 style={{
                                     width: `${Math.max(
                                         0,
@@ -1523,33 +1471,86 @@ const StorageBrowser: React.FC = () => {
                                 }}
                             />
                         ) : (
-                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                            <div className="h-full w-1/3 bg-accent animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
                         )}
                     </div>
                 </div>
             )}
-            {proceduralModels.length > 0 && (
+            {(proceduralModels.length > 0 || unsavedProcedural) && (
                 <div className="mb-1">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
+                    <div className="text-[10px] uppercase tracking-wide text-content-muted px-2">Procedural models</div>
+                    {/* The open model, when it is not one of the saved ones.
+
+                        A model created but not yet committed exists only in the cellbuilder
+                        store, so it appeared in no list anywhere — you could see it in the
+                        viewport and had no way to reach it from the file panel, including
+                        no way to put it away. Listing it here gives it the same handle
+                        every other model has, and says plainly that it is not saved. */}
+                    {unsavedProcedural && (
+                        <div
+                            className="flex items-center gap-1.5 rounded-sm bg-accent-subtle px-2 py-1"
+                            title="Open in the cellbuilder and not yet committed — it exists only in this tab"
+                        >
+                            <Checkbox
+                                className="shrink-0"
+                                checked
+                                aria-label={`Close ${unsavedProcedural.name}`}
+                                title="Open in the cellbuilder — untick to close it"
+                                onChange={() => void closeUnsavedProcedural()}
+                            />
+                            <ProceduralModelIcon className="shrink-0" />
+                            <span className="truncate text-sm">{unsavedProcedural.name}</span>
+                            <span className="rounded-sm border border-warn px-1 text-[10px] text-warn">
+                                unsaved
+                            </span>
+
+                        </div>
+                    )}
                     {proceduralModels.map((m) => (
                         <div
                             key={m.id}
                             className={
-                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
-                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
+                                "flex items-center gap-1.5 px-2 py-1 rounded-sm pointer-fine:hover:bg-surface-2 cursor-pointer " +
+                                (activeProcedural === m.id ? "bg-accent-subtle" : "")
                             }
                             onClick={() => void openProceduralModel(m)}
                             title="Procedural cell model (single database source) — click to open in the cellbuilder"
                         >
+                            {/* Same column, same meaning as the file rows above: ticked =
+                                this is in the viewer.
+
+                                For a file that means "loaded into the scene"; for a
+                                procedural model it means "open in the cellbuilder". Not
+                                identical operations, but the same question — is this thing
+                                in front of me — and answering it in two different shapes,
+                                one column apart, is what made the panel read as two lists
+                                that happened to share a border. */}
+                            <Checkbox
+                                className="shrink-0"
+                                checked={activeProcedural === m.id}
+                                aria-label={
+                                    activeProcedural === m.id ? `Close ${m.name}` : `Open ${m.name}`
+                                }
+                                title={
+                                    activeProcedural === m.id
+                                        ? "Open in the cellbuilder — untick to close it"
+                                        : "Open in the cellbuilder"
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => {
+                                    if (activeProcedural === m.id) useCellBuilderStore.getState().close();
+                                    else void openProceduralModel(m);
+                                }}
+                            />
                             <ProceduralModelIcon className="shrink-0"/>
                             <span className="truncate text-sm">{m.name}</span>
-                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+                            <span className="text-[10px] text-info border border-info rounded-sm px-1">
                                 r{m.revision}
                             </span>
                             <span className="ml-auto flex items-center gap-1">
                                 {m.latest_glb_key && (
                                     <button
-                                        className="px-1 rounded-sm hover:bg-gray-500/40"
+                                        className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                                         title="View compiled result"
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -1560,7 +1561,7 @@ const StorageBrowser: React.FC = () => {
                                     </button>
                                 )}
                                 <button
-                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    className="px-1 rounded-sm pointer-fine:hover:bg-surface-3"
                                     title="Delete procedural model"
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -1576,7 +1577,7 @@ const StorageBrowser: React.FC = () => {
             )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
                 <div
-                    className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
+                    className="text-xs italic text-content rounded-sm border border-dashed border-edge p-3"
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                         e.preventDefault();
@@ -1596,12 +1597,12 @@ const StorageBrowser: React.FC = () => {
                             onKeyDown={onListKeyDown}
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
-                                "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
-                                // Desktop compact keeps the fixed 20rem cap;
-                                // maximized fills. On mobile compact the whole
-                                // panel scrolls (root overflow-y-auto), so the
-                                // list itself is uncapped there (no double scroll).
-                                (maximized ? "flex-1 min-h-0" : "md:max-h-80")
+                                "focus-visible:ring-1 focus-visible:ring-accent rounded-sm " +
+                                // In the dock the list fills the column. Elsewhere,
+                                // desktop keeps the fixed 20rem cap; on mobile the whole
+                                // panel scrolls (root overflow-y-auto), so the list
+                                // itself is uncapped there (no double scroll).
+                                (chromeless ? "flex-1 min-h-0" : "md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files
@@ -1616,8 +1617,8 @@ const StorageBrowser: React.FC = () => {
                             {showRootDropStrip && (
                                 <div
                                     className={
-                                        "mb-1 px-2 py-1 text-[11px] text-gray-300 rounded-sm " +
-                                        "border border-dashed border-blue-500/60 bg-blue-900/20"
+                                        "mb-1 px-2 py-1 text-[11px] text-content rounded-sm " +
+                                        "border border-dashed border-accent bg-accent-subtle"
                                     }
                                     onDragOver={(e) => {
                                         e.preventDefault();
@@ -1634,7 +1635,7 @@ const StorageBrowser: React.FC = () => {
                             )}
                             {newFolderAt === "" && (
                                 <div className="flex items-center gap-1.5 px-2 py-1">
-                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                    <FolderClosedIcon className="shrink-0 text-accent"/>
                                     <InlineNameInput
                                         initial=""
                                         placeholder="New folder name"
@@ -1722,7 +1723,7 @@ const StorageBrowser: React.FC = () => {
                                                 renaming={renaming?.kind === "file" && renaming.path === node.file.name}
                                                 onRenameCommit={(v) => void onRenameFileCommit(node.file, v)}
                                                 onRenameCancel={() => setRenaming(null)}
-                                                showModified={maximized}
+                                                showModified={wide}
                                             />
                                         );
                                     }
@@ -1774,7 +1775,7 @@ const StorageBrowser: React.FC = () => {
                                                     className="flex items-center gap-1.5 px-2 py-1"
                                                     style={{paddingLeft: 8 + (depth + 1) * 12}}
                                                 >
-                                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                                    <FolderClosedIcon className="shrink-0 text-accent"/>
                                                     <InlineNameInput
                                                         initial=""
                                                         placeholder="New folder name"
@@ -1791,7 +1792,7 @@ const StorageBrowser: React.FC = () => {
                                     );
                                 };
                                 return (
-                                    <ul className="flex flex-col divide-y divide-gray-700/60">
+                                    <ul className="flex flex-col divide-y divide-edge">
                                         {tree.map((n) => renderNode(n, 0))}
                                     </ul>
                                 );
@@ -1812,7 +1813,7 @@ const StorageBrowser: React.FC = () => {
                                     onSelectToggle={toggleSelection}
                                     fileMenuItemsFor={versionFileMenuItems}
                                     onOpenContextMenu={openCtxMenu}
-                                    showModified={maximized}
+                                    showModified={wide}
                                 />
                             )}
                         </div>
@@ -1869,658 +1870,5 @@ const StorageBrowser: React.FC = () => {
 // re-implementing the toggle/expand/spinner machinery.
 // ──────────────────────────────────────────────────────────────────
 
-interface FolderRowProps {
-    folder: ServerFolderNode;
-    depth: number;
-    expanded: boolean;
-    fileCount: number;
-    /** Client-side pending folder (no server keys under it yet). */
-    isPending?: boolean;
-    /** Loaded-in-scene models anywhere under this folder — propagates
-     * the row-level eye marker up the tree so collapsed folders still
-     * show where the loaded models live. */
-    loadedCount?: number;
-    onToggle: () => void;
-    /** Shared with the right-click context menu — built once by the
-     * parent so kebab and context menu never diverge. Empty array
-     * hides the kebab. */
-    menuItems: KebabMenuItem[];
-    onOpenContextMenu?: (e: React.MouseEvent) => void;
-    /** Drop handler for in-panel moves + OS-file uploads into this
-     * folder. Hover highlight is local state. */
-    onDropInto?: (e: React.DragEvent) => void;
-    /** In-panel drag source (move the whole folder). */
-    draggable?: boolean;
-    onDragStartRow?: (e: React.DragEvent) => void;
-    onDragEndRow?: () => void;
-    renaming?: boolean;
-    onRenameCommit?: (newName: string) => void;
-    onRenameCancel?: () => void;
-    /** Keyboard-navigation identity + highlight. */
-    rowKey?: string;
-    focused?: boolean;
-}
-
-const FolderRow: React.FC<FolderRowProps> = ({
-    folder,
-    depth,
-    expanded,
-    fileCount,
-    isPending,
-    loadedCount,
-    onToggle,
-    menuItems,
-    onOpenContextMenu,
-    onDropInto,
-    draggable,
-    onDragStartRow,
-    onDragEndRow,
-    renaming,
-    onRenameCommit,
-    onRenameCancel,
-    rowKey,
-    focused,
-}) => {
-    const indentPx = depth * 12;
-    // dragenter/dragleave fire per child element; a counter survives
-    // the churn where a plain boolean would flicker.
-    const [dragHover, setDragHover] = useState(0);
-    const acceptsDrop = (e: React.DragEvent) =>
-        e.dataTransfer.types.includes(KEYS_MIME) ||
-        e.dataTransfer.types.includes(FOLDER_MIME) ||
-        e.dataTransfer.types.includes("Files");
-    return (
-        <li
-            data-rowkey={rowKey}
-            className={
-                "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none " +
-                "hover:bg-gray-800/80 " +
-                (dragHover > 0 ? "ring-1 ring-blue-400 bg-blue-900/30 " : "") +
-                (focused && dragHover === 0 ? "ring-1 ring-blue-400/70 " : "") +
-                (isPending ? "opacity-80 " : "")
-            }
-            style={{paddingLeft: 8 + indentPx}}
-            draggable={draggable || undefined}
-            onDragStart={draggable && onDragStartRow ? onDragStartRow : undefined}
-            onDragEnd={onDragEndRow}
-            onClick={onToggle}
-            onContextMenu={onOpenContextMenu}
-            role="button"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
-            onDragEnter={onDropInto ? (e) => {
-                if (acceptsDrop(e)) setDragHover((c) => c + 1);
-            } : undefined}
-            onDragLeave={onDropInto ? () => setDragHover((c) => Math.max(0, c - 1)) : undefined}
-            onDragOver={onDropInto ? (e) => {
-                if (!acceptsDrop(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = "move";
-            } : undefined}
-            onDrop={onDropInto ? (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDragHover(0);
-                onDropInto(e);
-            } : undefined}
-        >
-            {/* Chevron — single right-pointing icon rotated 90° on
-                expand. */}
-            <ChevronRightIcon
-                className={
-                    "shrink-0 text-blue-400 transition-transform duration-150 " +
-                    (expanded ? "rotate-90" : "")
-                }
-            />
-            {/* Folder glyph swaps closed↔open with the expand state.
-                Same blue tone so eye + chevron read as one
-                composite control. */}
-            {expanded ? (
-                <FolderOpenIcon className="shrink-0 text-blue-400"/>
-            ) : (
-                <FolderClosedIcon className="shrink-0 text-blue-400"/>
-            )}
-            {renaming && onRenameCommit && onRenameCancel ? (
-                <InlineNameInput
-                    initial={folder.name}
-                    onCommit={onRenameCommit}
-                    onCancel={onRenameCancel}
-                />
-            ) : (
-                <span className="text-xs flex-1 min-w-0 truncate font-semibold">
-                    {folder.name}/
-                </span>
-            )}
-            {(loadedCount ?? 0) > 0 && (
-                <span
-                    className="shrink-0 inline-flex items-center gap-0.5 text-blue-400"
-                    title={`${loadedCount} loaded model${loadedCount === 1 ? "" : "s"} inside`}
-                >
-                    <ViewIcon width="14px" height="14px"/>
-                    {(loadedCount ?? 0) > 1 && (
-                        <span className="text-[10px] tabular-nums">{loadedCount}</span>
-                    )}
-                </span>
-            )}
-            <span className="text-[10px] text-gray-400 shrink-0">
-                {isPending ? "empty" : fileCount}
-            </span>
-            {menuItems.length > 0 && (
-                <span
-                    className="shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <RowKebabMenu
-                        ariaLabel={`Organize folder ${folder.path}`}
-                        buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
-                        header={<span className="font-mono">{folder.path}/</span>}
-                        items={menuItems}
-                    />
-                </span>
-            )}
-        </li>
-    );
-};
-
-interface FileRowProps {
-    file: ServerFileEntry;
-    displayName: string;
-    indentLevel: number;
-    viewingName: string | null;
-    loadedSourceNames: ReadonlySet<string>;
-    conversionJobs: Record<string, {progress: number; status?: string}>;
-    expandedName: string | null;
-    setExpandedName: (n: string | null) => void;
-    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
-    setPickerName: (n: string | null) => void;
-    isSelected: boolean;
-    /** Waiting in the scene-load queue (untick to remove). */
-    isQueued?: boolean;
-    onSelectToggle: (name: string, shiftKey?: boolean) => void;
-    /** Row actions — shared between the kebab and the right-click
-     * context menu (parent builds both from one list). */
-    menuItems: KebabMenuItem[];
-    /** Desktop right-click AND touch long-press both land here. */
-    onOpenContextMenu?: (e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void}) => void;
-    /** Keyboard-navigation identity + highlight. */
-    rowKey?: string;
-    focused?: boolean;
-    /** In-panel drag source (move to folder). */
-    draggable?: boolean;
-    onDragStartRow?: (e: React.DragEvent) => void;
-    onDragEndRow?: () => void;
-    /** OS-file drops on this row (upload into the row's folder). */
-    onDropAt?: (e: React.DragEvent) => void;
-    /** Row is part of the in-flight drag payload. */
-    dimmed?: boolean;
-    renaming?: boolean;
-    onRenameCommit?: (newBasename: string) => void;
-    onRenameCancel?: () => void;
-    /** Maximized view: show the last-modified column. */
-    showModified?: boolean;
-}
-
-const FileRow: React.FC<FileRowProps> = ({
-    file: f,
-    displayName,
-    indentLevel,
-    viewingName,
-    loadedSourceNames,
-    conversionJobs,
-    expandedName,
-    setExpandedName,
-    onToggle,
-    setPickerName,
-    isSelected,
-    isQueued,
-    onSelectToggle,
-    menuItems,
-    onOpenContextMenu,
-    rowKey,
-    focused,
-    draggable,
-    onDragStartRow,
-    onDragEndRow,
-    onDropAt,
-    dimmed,
-    renaming,
-    onRenameCommit,
-    onRenameCancel,
-    showModified,
-}) => {
-    const isViewing = viewingName === f.name;
-    const otherViewing = viewingName !== null && !isViewing;
-    const isLoaded = loadedSourceNames.has(f.name);
-    const viewJob = isViewing ? conversionJobs[`${f.name}::glb`] : undefined;
-    const viewProgressPct = viewJob
-        ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
-        : 0;
-    const indentPx = indentLevel * 12;
-
-    // Long-press = the touch path to the context menu (desktop has
-    // right-click). 500 ms hold, cancelled by pointer move > 8 px
-    // (treats it as a scroll, not a hold) or by a drag starting.
-    const longPressTimer = useRef<number | null>(null);
-    const longPressStart = useRef<{x: number; y: number} | null>(null);
-    const longPressFired = useRef(false);
-    const cancelLongPress = () => {
-        if (longPressTimer.current !== null) {
-            window.clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-        }
-    };
-    const onPointerDown: React.PointerEventHandler = (e) => {
-        // Touch only — on mouse/pen the menu lives on right-click, and a
-        // held left button must stay free to start an HTML5 drag (which
-        // begins on movement; a timer firing mid-hold stole the gesture).
-        if (e.pointerType !== "touch") return;
-        const {clientX, clientY} = e;
-        longPressStart.current = {x: clientX, y: clientY};
-        longPressFired.current = false;
-        cancelLongPress();
-        longPressTimer.current = window.setTimeout(() => {
-            longPressFired.current = true;
-            onOpenContextMenu?.({clientX, clientY});
-        }, 500);
-    };
-    const onPointerMove: React.PointerEventHandler = (e) => {
-        if (!longPressStart.current) return;
-        const dx = e.clientX - longPressStart.current.x;
-        const dy = e.clientY - longPressStart.current.y;
-        if (dx * dx + dy * dy > 64) cancelLongPress();
-    };
-    const onPointerUp: React.PointerEventHandler = () => {
-        cancelLongPress();
-        longPressStart.current = null;
-    };
-    useEffect(() => () => cancelLongPress(), []);
-
-    return (
-        <li
-            data-rowkey={rowKey}
-            className={
-                "flex flex-col pr-1 py-1 text-xs rounded cursor-pointer select-none " +
-                (dimmed ? "opacity-40 " : "") +
-                (focused ? "ring-1 ring-blue-400/70 " : "") +
-                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ")
-            }
-            style={{paddingLeft: `${8 + indentPx}px`}}
-            draggable={draggable || undefined}
-            onDragStart={draggable && onDragStartRow ? (e) => {
-                cancelLongPress();
-                onDragStartRow(e);
-            } : undefined}
-            onDragEnd={onDragEndRow}
-            onDragOver={onDropAt ? (e) => e.preventDefault() : undefined}
-            onDrop={onDropAt ? (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onDropAt(e);
-            } : undefined}
-            onContextMenu={onOpenContextMenu}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={() => {
-                cancelLongPress();
-                longPressStart.current = null;
-            }}
-            onClick={(e) => {
-                if (longPressFired.current) {
-                    // The long-press already opened the context menu;
-                    // the synthetic click fires after pointerup and
-                    // would also toggle selection if let through.
-                    longPressFired.current = false;
-                    e.stopPropagation();
-                    return;
-                }
-                // Single click/tap = selection toggle (feeds the bulk
-                // toolbar); shift-click selects the visible range from
-                // the last toggled row. Context menu is right-click /
-                // long-press.
-                onSelectToggle(f.name, e.shiftKey);
-            }}
-        >
-            <div className="flex items-center justify-between gap-2">
-                {/* The checkbox IS the load toggle — checked (+ the
-                    eye marker) while the model is in the scene; clicking
-                    it loads/unloads directly. Row click = selection
-                    (amber highlight feeds the bulk toolbar). */}
-                {(
-                    <input
-                        type="checkbox"
-                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        checked={isLoaded || isQueued || isViewing}
-                        onChange={() => void onToggle(f, !(isLoaded || isQueued))}
-                        onClick={(e) => e.stopPropagation()}
-                        disabled={
-                            isViewing ||
-                            (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
-                        }
-                        aria-busy={isViewing || undefined}
-                        title={isLoaded
-                            ? "Unload from scene"
-                            : isQueued
-                                ? "Queued to load — untick to remove from the queue"
-                                : isStreamingFEAResult(f.name)
-                                    ? "Open in streaming FEA viewer (queues if another model is loading)"
-                                    : "Load into scene (queues if another model is loading)"}
-                    />
-                )}
-                <FileTypeIcon name={f.name}/>
-                {renaming && onRenameCommit && onRenameCancel ? (
-                    <InlineNameInput
-                        initial={displayName}
-                        selectStem
-                        onCommit={onRenameCommit}
-                        onCancel={onRenameCancel}
-                    />
-                ) : (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectToggle(f.name, e.shiftKey);
-                        }}
-                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
-                        title={f.name}
-                    >
-                        {displayName}
-                    </button>
-                )}
-                <div className="flex items-center gap-1 shrink-0">
-                    {showModified && (
-                        <span
-                            className="text-[10px] text-gray-400 tabular-nums whitespace-nowrap"
-                            title={f.lastModified}
-                        >
-                            {formatRelative(f.lastModified)}
-                        </span>
-                    )}
-                    {/* Explicit "in scene" marker. The checkbox is a
-                        selection control (bulk actions), so loaded
-                        state needs its own signal — the blue filename
-                        tint alone is easy to miss on mobile. */}
-                    {isQueued && (
-                        <span className="text-[10px] text-amber-400 uppercase tracking-wide shrink-0">
-                            queued
-                        </span>
-                    )}
-                    {isLoaded && !isViewing && (
-                        <ViewIcon
-                            width="16px"
-                            height="16px"
-                            className="text-blue-400"
-                            aria-label="Loaded in scene"
-                        />
-                    )}
-                    {isViewing && <Spinner/>}
-                    {/* Legacy single-shot (step, field) picker — kept
-                        only for hypothetical future non-streaming FEA
-                        formats. SIF goes through the streaming bake
-                        now (toggle the checkbox; refine field /
-                        reduction / step in SimulationControls), so
-                        the picker entry point would just confuse the
-                        user with two parallel ways to load the same
-                        file. Gated on ``!isStreamingFEAResult`` so
-                        the moment a new isFEAResult format that is
-                        NOT in the streaming set ships, the picker
-                        re-appears for it without code changes here. */}
-                    {isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
-                        <button
-                            className="p-1 rounded-sm text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setPickerName(f.name);
-                            }}
-                            disabled={otherViewing || isViewing}
-                            title="Pick step / field"
-                            aria-label="Pick step / field"
-                        >
-                            <span className="leading-none text-sm font-mono">⇅</span>
-                        </button>
-                    )}
-                    {menuItems.length > 0 && (
-                        <span onClick={(e) => e.stopPropagation()}>
-                            <RowKebabMenu
-                                ariaLabel={`Actions for ${displayName}`}
-                                buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-700"
-                                header={<span className="font-mono" title={f.name}>{f.name}</span>}
-                                items={menuItems}
-                            />
-                        </span>
-                    )}
-                </div>
-            </div>
-            {isViewing && (
-                <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
-                    {viewJob && viewJob.status !== 'queued' ? (
-                        <div
-                            className="h-full bg-blue-600 transition-[width] duration-200"
-                            style={{width: `${viewProgressPct}%`}}
-                        />
-                    ) : (
-                        <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
-                    )}
-                </div>
-            )}
-        </li>
-    );
-};
-
-// ──────────────────────────────────────────────────────────────────
-// VersionsTree: renders the CI-uploaded ``versions/<branch>/<sha>/…``
-// blobs as a 3-level collapsible list:
-//
-//   Versions
-//   ├ <branch>                   ← collapsible. Sorted newest-tip first.
-//   │  ├ <commit (relative t)>   ← Latest of branch is auto-expanded
-//   │  │  ├ welds_model.glb      ← <FileRow indentLevel=2/>
-//   │  │  └ welds_model.ifc
-//   │  └ <older commit>          ← collapsed by default
-//   └ <other branch>
-//
-// All branches collapse-by-default except the most recently active
-// one, whose latest commit is also auto-expanded. State is local to
-// the panel; refresh resets it.
-//
-// Version blobs are CI build outputs — read-only by design. Their
-// rows get load/download menus only: no rename/move/delete, no drag,
-// no drop targets.
-// ──────────────────────────────────────────────────────────────────
-
-interface VersionsTreeProps {
-    branches: BranchGroup[];
-    sidecars: ReadonlyMap<string, BuildSidecar | null>;
-    viewingName: string | null;
-    loadedSourceNames: ReadonlySet<string>;
-    conversionJobs: Record<string, {progress: number; status?: string}>;
-    expandedName: string | null;
-    setExpandedName: (n: string | null) => void;
-    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
-    setPickerName: (n: string | null) => void;
-    onOpenGitHistory: () => void;
-    selection: Set<string>;
-    onSelectToggle: (name: string) => void;
-    /** Read-only menu builder from the parent (load/streamer/download). */
-    fileMenuItemsFor: (file: ServerFileEntry) => KebabMenuItem[];
-    onOpenContextMenu: (
-        e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
-        items: KebabMenuItem[],
-    ) => void;
-    showModified?: boolean;
-}
-
-const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
-    const {branches} = props;
-    // Auto-expand: the freshest branch + its freshest commit.
-    //
-    // Why an effect instead of just useState's lazy initializer: on the
-    // first render sidecars haven't loaded yet, so classifyFiles sorts
-    // by S3 mtime and ``branches[0].commits[0]`` is the mtime-freshest
-    // commit, not the git-freshest one. Once sidecars arrive the
-    // sort flips and the "latest" pill moves — but a snapshot taken
-    // at construction time would leave the *wrong* commit auto-
-    // expanded, with the GLB-toggle row sitting under the previous
-    // mtime-freshest commit. Re-sync until the user has interacted;
-    // freeze after any manual toggle so we don't yank an opened
-    // panel shut on the next sidecar update.
-    const freshestBranch = branches.length > 0 ? branches[0].encodedBranch : null;
-    const freshestKey =
-        branches.length > 0 && branches[0].commits.length > 0
-            ? `${freshestBranch}/${branches[0].commits[0].sha}`
-            : null;
-    const userTouchedRef = useRef(false);
-    const [openBranches, setOpenBranches] = useState<Set<string>>(
-        () => new Set(freshestBranch ? [freshestBranch] : []),
-    );
-    const [openCommits, setOpenCommits] = useState<Set<string>>(
-        () => new Set(freshestKey ? [freshestKey] : []),
-    );
-
-    useEffect(() => {
-        if (userTouchedRef.current) return;
-        if (freshestBranch === null) return;
-        setOpenBranches(new Set([freshestBranch]));
-        setOpenCommits(freshestKey ? new Set([freshestKey]) : new Set());
-    }, [freshestBranch, freshestKey]);
-
-    const toggleBranch = (b: string) => {
-        userTouchedRef.current = true;
-        setOpenBranches((prev) => {
-            const next = new Set(prev);
-            if (next.has(b)) next.delete(b);
-            else next.add(b);
-            return next;
-        });
-    };
-    const toggleCommit = (key: string) => {
-        userTouchedRef.current = true;
-        setOpenCommits((prev) => {
-            const next = new Set(prev);
-            if (next.has(key)) next.delete(key);
-            else next.add(key);
-            return next;
-        });
-    };
-
-    return (
-        <div className="border-t border-gray-700/60 pt-1 mt-1">
-            <div className="flex items-center justify-between px-1 pb-1">
-                <div className="text-[10px] uppercase tracking-wide text-gray-400">
-                    Versions
-                </div>
-                <button
-                    type="button"
-                    onClick={props.onOpenGitHistory}
-                    className="text-[10px] px-1.5 py-0.5 rounded-sm bg-gray-700 hover:bg-gray-600 text-white"
-                    title="Open chronological commit timeline with author + parent links"
-                >
-                    Git history
-                </button>
-            </div>
-            <ul className="flex flex-col divide-y divide-gray-700/40">
-                {branches.map((b, bIdx) => {
-                    const branchOpen = openBranches.has(b.encodedBranch);
-                    return (
-                        <li key={b.encodedBranch} className="flex flex-col">
-                            <button
-                                type="button"
-                                onClick={() => toggleBranch(b.encodedBranch)}
-                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-800/80"
-                                aria-expanded={branchOpen}
-                                title={b.displayBranch}
-                            >
-                                <span className="w-3 inline-block text-gray-300">
-                                    {branchOpen ? "▾" : "▸"}
-                                </span>
-                                <span className="font-mono text-[11px] truncate flex-1 min-w-0">
-                                    {b.displayBranch}
-                                </span>
-                                <span className="text-[10px] text-gray-400 shrink-0">
-                                    {b.commits.length} commit{b.commits.length === 1 ? "" : "s"}
-                                </span>
-                            </button>
-                            {branchOpen && (
-                                <ul className="flex flex-col">
-                                    {b.commits.map((c, cIdx) => {
-                                        const commitKey = `${b.encodedBranch}/${c.sha}`;
-                                        const commitOpen = openCommits.has(commitKey);
-                                        const isLatest = bIdx === 0 && cIdx === 0;
-                                        return (
-                                            <li key={c.sha} className="flex flex-col">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleCommit(commitKey)}
-                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-800/80"
-                                                    style={{paddingLeft: "16px"}}
-                                                    aria-expanded={commitOpen}
-                                                >
-                                                    <span className="w-3 inline-block text-gray-300">
-                                                        {commitOpen ? "▾" : "▸"}
-                                                    </span>
-                                                    <span className="font-mono text-[11px] shrink-0">
-                                                        {shortSha(c.sha)}
-                                                    </span>
-                                                    {isLatest && (
-                                                        <span
-                                                            className="ml-1 px-1 rounded-sm text-[9px] uppercase tracking-wide bg-emerald-700 text-white shrink-0"
-                                                            title="Most recent commit on this branch"
-                                                        >
-                                                            latest
-                                                        </span>
-                                                    )}
-                                                    <span className="ml-auto text-[10px] text-gray-400 shrink-0">
-                                                        {formatRelative(
-                                                            // Prefer git timestamp from the sidecar
-                                                            // (commit time); fall back to the blob
-                                                            // mtime while sidecar is loading or
-                                                            // missing. Matches the sort key.
-                                                            props.sidecars.get(`${b.encodedBranch}/${c.sha}`)?.git.timestamp
-                                                            || c.leaves[0]?.file.lastModified
-                                                            || "",
-                                                        )}
-                                                    </span>
-                                                </button>
-                                                {commitOpen && (
-                                                    <ul className="flex flex-col divide-y divide-gray-700/30">
-                                                        {c.leaves.map((leaf) => {
-                                                            const items = props.fileMenuItemsFor(leaf.file);
-                                                            return (
-                                                                <FileRow
-                                                                    key={leaf.file.name}
-                                                                    file={leaf.file}
-                                                                    displayName={leaf.artefactName}
-                                                                    indentLevel={2}
-                                                                    viewingName={props.viewingName}
-                                                                    loadedSourceNames={props.loadedSourceNames}
-                                                                    conversionJobs={props.conversionJobs}
-                                                                    expandedName={props.expandedName}
-                                                                    setExpandedName={props.setExpandedName}
-                                                                    onToggle={props.onToggle}
-                                                                    setPickerName={props.setPickerName}
-                                                                    isSelected={props.selection.has(leaf.file.name)}
-                                                                    onSelectToggle={props.onSelectToggle}
-                                                                    menuItems={items}
-                                                                    onOpenContextMenu={(e) => props.onOpenContextMenu(e, items)}
-                                                                    showModified={props.showModified}
-                                                                />
-                                                            );
-                                                        })}
-                                                    </ul>
-                                                )}
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            )}
-                        </li>
-                    );
-                })}
-            </ul>
-        </div>
-    );
-};
 
 export default StorageBrowser;

@@ -9,13 +9,13 @@ export function ProcedureHeader({label, onRun, is_component}: {
     is_component: boolean
 }) {
     return (
-        <div className="bg-gray-800 flex flex-col justify-center items-center rounded-t">
+        <div className="bg-surface-0 flex flex-col justify-center items-center rounded-t">
             <div className="flex flex-row items-center">
                 <div className="flex px-1">{is_component ? <ComponentIcon/> : <ProcedureIcon/>}</div>
                 <div className="flex text-center text-xs">{label}</div>
             </div>
             <button
-                className="nodrag flex relative bg-blue-700 hover:bg-blue-700/50 text-white text-xs px-4 rounded-sm"
+                className="nodrag flex relative bg-accent pointer-fine:hover:bg-accent-subtle text-white text-xs px-4 rounded-sm"
                 onClick={onRun}
             >
                 Run

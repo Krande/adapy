@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import {versionInjectPlugin} from './version-plugin';
 import {adapyPluginsResolver} from './vite.plugin-resolver.mjs';
+import {buildScopedEmbedCss} from './vite.plugin-embed-css.mjs';
 
 // Embed bundle — produces a single self-contained ESM that exports
 // `mountViewer` for paradoc to consume from its `vendor/ada-viewer/`.
@@ -65,8 +66,13 @@ function inlineCssAtRuntime(): Plugin {
             // element — so the embed still styles itself but the host page
             // is unaffected. Browser support: Chrome 118+, Safari 17.4+,
             // Firefox 128+ (all current as of 2025).
-            const scopedCss =
-                `@scope (.ada-viewer-scope) {\n${css}\n}\n`;
+            // …with one exception, handled by buildScopedEmbedCss: custom-property
+            // carriers (`:root` / `:host` rules — Tailwind v4's @theme output and
+            // src/ui/tokens.css) are copied OUT of the wrapper. @scope only matches
+            // descendants of the scope root, and <html> is not one, so a :root rule
+            // inside the wrapper matches nothing and every design token would resolve
+            // to its fallback — i.e. an unstyled embed. See vite.plugin-embed-css.mjs.
+            const scopedCss = buildScopedEmbedCss(css);
             const injection =
                 `;globalThis.__adaViewerEmbedInjectCss=function(){` +
                 `if(typeof document==='undefined')return;` +
@@ -104,6 +110,14 @@ function inlineCssAtRuntime(): Plugin {
 
 export default defineConfig({
     publicDir: false,
+    // Lib-mode builds do not substitute process.env the way app builds do, so React's
+    // ~64 `process.env.NODE_ENV` guards survived into the bundle and the embed threw
+    // "process is not defined" the moment a host page imported it without a shim —
+    // i.e. it was never actually the self-contained ESM file it is documented to be.
+    // Pinning to production also drops React's dev-only warning paths from the bundle.
+    define: {
+        'process.env.NODE_ENV': JSON.stringify('production'),
+    },
     plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin(), adapyPluginsResolver()],
     resolve: {
         // Array form so the exact-match pyodide stub is checked BEFORE the

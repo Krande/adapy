@@ -77,7 +77,7 @@ const MeshStatsSection: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                className="flex items-center gap-1 text-[12px] text-gray-100 pointer-fine:hover:text-white"
                 aria-expanded={expanded}
                 aria-controls="object-mesh-stats"
             >

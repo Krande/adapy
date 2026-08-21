@@ -1,0 +1,300 @@
+import React, {Suspense} from "react";
+import {Splitter} from "@/components/ui";
+import {DOCK_LIMITS, type DockedId} from "./regions";
+import {useLayoutStore} from "./layoutStore";
+import {useModeStore} from "./modeStore";
+import {profileDef, type ProfileId} from "./profiles";
+import DockHost from "./DockHost";
+import FloatLayer from "./FloatLayer";
+import StatusBar from "./StatusBar";
+import TitleBar from "./TitleBar";
+import CommandPalette from "./CommandPalette";
+import MarkingMenu from "./MarkingMenu";
+import ToastHost from "./ToastHost";
+import {ConfirmHost} from "@/components/ui";
+import HelpDialogs from "./HelpDialogs";
+import {clampFilesWidth, useFilesPanel} from "./filesPanel";
+const StoragePanel = React.lazy(() => import("@/components/storage/StoragePanel"));
+const SettingsDialog = React.lazy(() => import("@/components/options/SettingsDialog"));
+import {useUrlParamLoad} from "@/hooks/useUrlParamLoad";
+import {runtime} from "@/runtime/config";
+
+// Ambient REST-mode UI: the conversion-progress toasts and the upload context menu.
+// Lazy so the desktop/WS build never pulls it in.
+const RestModeUI = React.lazy(() => import("@/components/rest_mode/RestModeUI"));
+
+// Convert mode's main area. Lazy so the viewer path never pulls the converter in.
+const ConvertPage = React.lazy(() => import("@/components/convert/ConvertPage"));
+import ToolRail from "./ToolRail";
+import ViewportHost from "./ViewportHost";
+import {usePanelReveal} from "./usePanelReveal";
+import RailCustomiseDialog from "./railCustomise";
+
+// The shell.
+//
+// A CSS grid with named areas, whose track sizes come from layoutStore. That is the
+// whole mechanism for the headline fix: dragging a splitter changes one number, the
+// grid reflows, ThreeCanvas's existing ResizeObserver fires, and three.js resizes. The
+// viewport is a TRACK, not a backdrop — so a panel can never cover the model, which was
+// the single most-cited complaint about the old UI.
+//
+//   titlebar   titlebar   titlebar   titlebar   titlebar
+//   rail       leftdock   split-l    viewport   rightdock
+//   rail       bottomdock bottomdock bottomdock bottomdock
+//   statusbar  statusbar  statusbar  statusbar  statusbar
+//
+// The bottom dock spans the full width on purpose: the FEA data table and the
+// conversion log are wide-and-short, and putting them across the bottom is what stops
+// them being floated over the geometry.
+
+export interface AppShellProps {
+    profile?: ProfileId;
+    /** Replaces the 3D canvas in the viewport track (the graph and page profiles). */
+    viewportOverride?: React.ReactNode;
+    /** Names the page in the reduced title bar — page profile only. */
+    pageTitle?: string;
+}
+
+export default function AppShell({profile = "viewer", viewportOverride, pageTitle}: AppShellProps) {
+    const p = profileDef(profile);
+
+    // Deep links: ?file= / ?scope= / ?derived= load a model at boot.
+    //
+    // This lived only in the classic AppBody. It is the fourth time this rewrite has
+    // found bootstrap work hiding inside a component the shell does not render — after
+    // the plugin top-bar regions, the legacy visibility flags and AuthGate. The pattern
+    // is always the same: a hook or a mount with a side effect, sitting in a layout
+    // component because that is where someone happened to be typing, invisible to any
+    // search for "what does the app do at startup".
+    //
+    // Called unconditionally so hook order is stable; the hook itself no-ops without the
+    // params, and a canvas-less profile simply never gets a model to show.
+    useUrlParamLoad();
+    const mode = useModeStore((s) => s.mode);
+    const layout = useLayoutStore((s) => s.perMode[mode]);
+    const setDockSize = useLayoutStore((s) => s.setDockSize);
+
+    // Keep the legacy per-panel visibility booleans in step with the docks; several
+    // Lets business logic ask for a panel — "focus this system" needs the Builder on
+    // screen. The shell answers; the panel does not gate itself. See usePanelReveal.
+    usePanelReveal();
+
+    // A dock occupies a track only when it has something to show. An empty or collapsed
+    // dock collapses to zero width rather than leaving a stripe of chrome.
+    const visible = (d: DockedId) =>
+        p.docks && Boolean(layout?.docks[d]?.tabs.length) && !layout?.docks[d]?.collapsed;
+
+    const size = (d: DockedId) => (visible(d) ? (layout?.docks[d]?.size ?? DOCK_LIMITS[d].default) : 0);
+    const SPLIT = 4;
+
+    // The Files flyout: its own column between the rail and the left dock, so opening it
+    // pushes rather than covering the model tree. Zero-width when closed, which keeps the
+    // grid template a fixed shape.
+    const filesShown = useFilesPanel((s) => s.shown) && p.docks && runtime.isRestMode();
+    const filesW = useFilesPanel((s) => s.width);
+    const setFilesWidth = useFilesPanel((s) => s.setWidth);
+
+    // Convert opens the Files flyout on entry: you convert a file you can see, and
+    // arriving here without the sources would mean toggling a panel before you could do
+    // the one thing the mode is for. Only on ENTERING — closing it then stays closed,
+    // because a panel that reopens itself is a panel you cannot dismiss.
+    const enteredConvert = React.useRef(false);
+    React.useEffect(() => {
+        if (mode === "convert" && !enteredConvert.current) {
+            enteredConvert.current = true;
+            if (runtime.isRestMode()) useFilesPanel.getState().setShown(true);
+        }
+        if (mode !== "convert") enteredConvert.current = false;
+    }, [mode]);
+
+    const leftW = size("left");
+    const rightW = size("right");
+    const bottomH = size("bottom");
+
+    return (
+        <div
+            className="grid w-full h-full min-w-0 min-h-0 overflow-hidden bg-surface-0 text-content font-ui text-base"
+            style={{
+                gridTemplateAreas: [
+                    '"titlebar titlebar titlebar titlebar titlebar titlebar"',
+                    '"rail files leftdock split-l viewport rightdock"',
+                    '"rail files bottomdock bottomdock bottomdock bottomdock"',
+                    '"statusbar statusbar statusbar statusbar statusbar statusbar"',
+                ].join(" "),
+                gridTemplateColumns: [
+                    p.toolRail ? "auto" : "0",
+                    filesShown ? `${filesW}px` : "0",
+                    `${leftW}px`,
+                    visible("left") ? `${SPLIT}px` : "0",
+                    "minmax(0, 1fr)",
+                    `${rightW}px`,
+                ].join(" "),
+                gridTemplateRows: [
+                    "auto",
+                    "minmax(0, 1fr)",
+                    `${bottomH}px`,
+                    p.statusBar ? "auto" : "0",
+                ].join(" "),
+            }}
+        >
+            <TitleBar
+                showModeSwitcher={p.modeSwitcher}
+                showMenus={p.menus}
+                pageTitle={pageTitle}
+                backToViewer={p.backToViewer}
+            />
+
+            {p.toolRail && <ToolRail />}
+
+            {/* Storage. Spans both body rows so it reaches the bottom of the window like
+                the rail does, rather than stopping at the bottom dock. */}
+            {filesShown && (
+                <section
+                    aria-label="Storage"
+                    style={{gridArea: "files"}}
+                    className="relative flex min-w-0 border-r border-edge bg-surface-1"
+                >
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                        <Suspense fallback={null}>
+                            <StoragePanel />
+                        </Suspense>
+                    </div>
+                    <div className="absolute inset-y-0 right-0 -mr-0.5 flex items-stretch">
+                        <Splitter
+                            orientation="vertical"
+                            label="Resize storage panel"
+                            side="after"
+                            value={filesW}
+                            min={220}
+                            max={560}
+                            onChange={(n) => setFilesWidth(clampFilesWidth(n))}
+                        />
+                    </div>
+                </section>
+            )}
+
+            {visible("left") && (
+                <div style={{gridArea: "leftdock"}} className="flex min-w-0 min-h-0">
+                    <DockHost dock="left" />
+                </div>
+            )}
+
+            {visible("left") && (
+                <div style={{gridArea: "split-l"}} className="flex items-stretch">
+                    <Splitter
+                        orientation="vertical"
+                        label="Resize left dock"
+                        value={leftW}
+                        min={DOCK_LIMITS.left.min}
+                        max={DOCK_LIMITS.left.max}
+                        onChange={(n) => setDockSize(mode, "left", n)}
+                    />
+                </div>
+            )}
+
+            {/*
+              ViewportHost is rendered UNCONDITIONALLY for canvas profiles and only
+              hidden via CSS. Unmounting it would orphan the imperatively-appended WebGL
+              canvas and, with it, the five headless controllers — which is what would
+              break the non-modality contract.
+            */}
+            {p.canvas || viewportOverride ? (
+                <ViewportHost
+                    visible
+                    // Convert has no use for the 3D view: you arrive to turn a file into
+                    // another format, and a model behind the form is decoration. It is
+                    // covered rather than unmounted — see ViewportHost's `overlay`.
+                    overlay={
+                        p.canvas && mode === "convert" ? (
+                            <Suspense fallback={null}>
+                                <ConvertPage inViewer />
+                            </Suspense>
+                        ) : undefined
+                    }
+                >
+                    {viewportOverride}
+                </ViewportHost>
+            ) : (
+                <div style={{gridArea: "viewport"}} className="min-w-0 min-h-0" />
+            )}
+
+            {/* The right splitter rides on the dock's own left border rather than
+                occupying a track, so the grid template stays four columns wide. */}
+            {visible("right") && (
+                <div style={{gridArea: "rightdock"}} className="relative flex min-w-0">
+                    <div className="absolute inset-y-0 left-0 -ml-0.5 flex items-stretch">
+                        <Splitter
+                            orientation="vertical"
+                            label="Resize right dock"
+                            side="after"
+                            value={rightW}
+                            min={DOCK_LIMITS.right.min}
+                            max={DOCK_LIMITS.right.max}
+                            onChange={(n) => setDockSize(mode, "right", n)}
+                        />
+                    </div>
+                    <DockHost dock="right" />
+                </div>
+            )}
+
+            {visible("bottom") && (
+                <div style={{gridArea: "bottomdock"}} className="relative flex flex-col min-h-0">
+                    <div className="absolute inset-x-0 top-0 -mt-0.5 flex justify-stretch">
+                        <Splitter
+                            orientation="horizontal"
+                            label="Resize bottom dock"
+                            side="after"
+                            value={bottomH}
+                            min={DOCK_LIMITS.bottom.min}
+                            max={DOCK_LIMITS.bottom.max}
+                            onChange={(n) => setDockSize(mode, "bottom", n)}
+                            className="w-full"
+                        />
+                    </div>
+                    <DockHost dock="bottom" />
+                </div>
+            )}
+
+            {p.statusBar && <StatusBar />}
+
+            {p.docks && <FloatLayer />}
+
+            {/* Ambient job/upload notifications. Outside the grid: they are transient
+                overlays, not a region, and must not reflow the layout when they appear. */}
+            <ToastHost />
+
+            {/* Whatever `confirm()` currently has pending. One host per shell; callers
+                await a promise rather than rendering their own dialog. */}
+            <ConfirmHost />
+            <RailCustomiseDialog />
+
+            {/* Conversion toasts and the upload context menu. Also classic-only until
+                now — a conversion started from the shell reported its progress nowhere. */}
+            {runtime.isRestMode() && (
+                <Suspense fallback={null}>
+                    <RestModeUI />
+                </Suspense>
+            )}
+
+            {/* Help ▸ Keyboard shortcuts / About. Rendered from shortcuts.ts rather
+                than a hand-kept list, so a bound key is a documented key. */}
+            <HelpDialogs />
+
+            {/* Settings. A dialog rather than a dock panel: a destination you open, use
+                and close, which also means it gets an opaque surface instead of the
+                panel theme's glass. */}
+            <Suspense fallback={null}>
+                <SettingsDialog />
+            </Suspense>
+
+            {/* Ctrl+K. Outside the grid — a modal overlay, not a region.
+                Menus and palette travel together: both index commands that act on a
+                scene a page profile does not have. */}
+            {p.menus && <CommandPalette />}
+
+            {/* Right-click in the viewport. Yields to the cellbuilder's own cell/port
+                menus, which claim the event by calling preventDefault. */}
+            {p.canvas && <MarkingMenu />}
+        </div>
+    );
+}

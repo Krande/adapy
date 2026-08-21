@@ -170,13 +170,13 @@ const CogRows: React.FC<{cog: {label: string} & Cog; muted?: boolean}> = ({cog, 
 const ModelStatsRow: React.FC<{ model: ModelStats }> = ({model}) => {
     const countsList = Object.entries(model.counts).filter(([, v]) => v > 0);
     return (
-        <div className="rounded-sm border border-gray-700/60 bg-gray-800/40 p-1.5 space-y-1">
+        <div className="rounded-sm border border-edge bg-surface-0 p-1.5 space-y-1">
             <div className="flex items-center gap-1.5 min-w-0">
                 <span className="font-semibold truncate" title={model.name}>{model.name}</span>
                 <span
                     className={
                         "shrink-0 px-1 rounded-sm text-[9px] uppercase tracking-wide text-white " +
-                        (model.kind === "FEA" ? "bg-violet-700" : "bg-sky-700")
+                        (model.kind === "FEA" ? "bg-info" : "bg-info")
                     }
                 >
                     {model.kind}
@@ -189,7 +189,7 @@ const ModelStatsRow: React.FC<{ model: ModelStats }> = ({model}) => {
                 </div>
             )}
             {countsList.length > 0 && (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pt-0.5 border-t border-gray-700/50">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pt-0.5 border-t border-edge">
                     {countsList.map(([k, v]) => (
                         <div key={k} className="flex items-baseline justify-between gap-2 min-w-0">
                             <span className="opacity-70 truncate" title={k}>{k}</span>

@@ -35,18 +35,18 @@ const ResizableTreeView: React.FC = () => {
     return (
         <div
             style={{ width: `${treeViewWidth}px` }}
-            className="absolute top-0 left-0 z-20 max-w-[85vw] flex flex-col h-full bg-gray-800 shadow-lg"
+            className="absolute top-0 left-0 z-20 max-w-[85vw] flex flex-col h-full bg-surface-0 shadow-lg"
         >
             {/* Header with title + close button. The top-bar tree button
                 also closes the drawer on desktop, but the in-panel close
                 gives mobile users an obvious way back to the viewer when
                 the drawer covers most of the screen. */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 text-white text-sm shrink-0">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-edge text-white text-sm shrink-0">
                 <span className="font-semibold">Selection</span>
                 <button
                     type="button"
                     onClick={() => setIsTreeCollapsed(true)}
-                    className="text-gray-300 hover:text-white text-xl leading-none px-2 -my-1"
+                    className="text-content pointer-fine:hover:text-white text-xl leading-none px-2 -my-1"
                     aria-label="Close selection tree"
                     title="Close (Shift+T)"
                 >
@@ -58,7 +58,7 @@ const ResizableTreeView: React.FC = () => {
             </div>
             {/* Resize handle — desktop only, no value on touch. */}
             <div
-                className="absolute top-0 right-0 w-2 h-full cursor-ew-resize bg-gray-600 hidden md:block"
+                className="absolute top-0 right-0 w-2 h-full cursor-ew-resize bg-surface-3 hidden md:block"
                 onMouseDown={handleMouseDown}
             />
         </div>

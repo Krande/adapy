@@ -81,16 +81,16 @@ export class ErrorBoundary extends React.Component<Props, State> {
     const title = label ? `${label} hit an error` : "Something went wrong";
     if (variant === "fullscreen") {
       return (
-        <div className="flex h-[100dvh] w-full items-center justify-center bg-gray-900 p-6 text-gray-100">
-          <div className="max-w-md rounded-md border border-red-700/60 bg-gray-800 p-4 text-sm">
-            <div className="mb-1 font-semibold text-red-300">{title}</div>
-            <div className="mb-3 break-words text-gray-300">
+        <div className="flex h-[100dvh] w-full items-center justify-center bg-surface-0 p-6 text-content">
+          <div className="max-w-md rounded-md border border-fail bg-surface-0 p-4 text-sm">
+            <div className="mb-1 font-semibold text-fail">{title}</div>
+            <div className="mb-3 break-words text-content">
               {error.message}
             </div>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-sm bg-blue-700 px-3 py-1 text-white hover:bg-blue-600 active:bg-blue-800"
+              className="rounded-sm bg-accent px-3 py-1 text-white pointer-fine:hover:bg-accent active:bg-accent-subtle"
             >
               Reload viewer
             </button>
@@ -99,15 +99,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
       );
     }
     return (
-      <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
-        <div className="font-semibold text-red-300">{title}</div>
-        <div className="mt-0.5 mb-1.5 break-words text-gray-400">
+      <div className="rounded-md border border-fail bg-surface-0 p-2 text-xs text-content">
+        <div className="font-semibold text-fail">{title}</div>
+        <div className="mt-0.5 mb-1.5 break-words text-content-muted">
           {error.message}
         </div>
         <button
           type="button"
           onClick={this.reset}
-          className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600 active:bg-gray-800"
+          className="rounded-sm bg-surface-2 px-2 py-1 text-white pointer-fine:hover:bg-surface-3 active:bg-surface-0"
         >
           Retry
         </button>

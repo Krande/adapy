@@ -64,12 +64,12 @@ const IssueTargetTab: React.FC = () => {
 
     if (loadErr) {
         return (
-            <div className="text-xs text-red-400 px-3 py-2">{loadErr}</div>
+            <div className="text-xs text-fail px-3 py-2">{loadErr}</div>
         );
     }
     if (!draft || !cfg) {
         return (
-            <div className="text-xs text-gray-500 italic px-3 py-2">Loading…</div>
+            <div className="text-xs text-content-subtle italic px-3 py-2">Loading…</div>
         );
     }
 
@@ -80,10 +80,10 @@ const IssueTargetTab: React.FC = () => {
         <div className="flex flex-col h-full overflow-auto">
             <div className="px-4 py-3 max-w-2xl space-y-4">
                 <div>
-                    <h2 className="text-sm font-semibold text-gray-100">
+                    <h2 className="text-sm font-semibold text-content">
                         Audit issue target
                     </h2>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-content-muted mt-1">
                         When an audit run finishes, the bot opens (or
                         comments on) issues in the configured forge —
                         one per failure fingerprint, with a dashboard
@@ -91,7 +91,7 @@ const IssueTargetTab: React.FC = () => {
                     </p>
                 </div>
 
-                <label className="block text-xs text-gray-300 space-y-1">
+                <label className="block text-xs text-content space-y-1">
                     <span className="block">Forge kind</span>
                     <select
                         value={draft.kind}
@@ -99,44 +99,44 @@ const IssueTargetTab: React.FC = () => {
                             ...draft,
                             kind: e.target.value as IssueTargetConfig["kind"],
                         })}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 w-60"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content w-60"
                     >
                         <option value="disabled">disabled (no issues)</option>
                         <option value="github">github</option>
                         <option value="forgejo">forgejo / gitea</option>
                     </select>
-                    <div className="text-[11px] text-gray-500">{KIND_HINTS[draft.kind]}</div>
+                    <div className="text-[11px] text-content-subtle">{KIND_HINTS[draft.kind]}</div>
                 </label>
 
-                <label className="block text-xs text-gray-300 space-y-1">
-                    <span className="block">Repository <span className="text-gray-500">(owner/name)</span></span>
+                <label className="block text-xs text-content space-y-1">
+                    <span className="block">Repository <span className="text-content-subtle">(owner/name)</span></span>
                     <input
                         type="text"
                         value={draft.repo}
                         onChange={(e) => setDraft({...draft, repo: e.target.value})}
                         placeholder="example-owner/audit-regressions"
                         disabled={isDisabled}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-full max-w-md disabled:opacity-50"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-full max-w-md disabled:opacity-50"
                     />
                 </label>
 
                 {draft.kind === "forgejo" && (
-                    <label className="block text-xs text-gray-300 space-y-1">
-                        <span className="block">Base URL <span className="text-gray-500">(forge API root)</span></span>
+                    <label className="block text-xs text-content space-y-1">
+                        <span className="block">Base URL <span className="text-content-subtle">(forge API root)</span></span>
                         <input
                             type="text"
                             value={draft.base_url}
                             onChange={(e) => setDraft({...draft, base_url: e.target.value})}
                             placeholder="https://git.example.com/api/v1"
-                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-full max-w-md"
+                            className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-full max-w-md"
                         />
                     </label>
                 )}
 
-                <label className="block text-xs text-gray-300 space-y-1">
+                <label className="block text-xs text-content space-y-1">
                     <span className="block">
                         Token environment variable name
-                        <span className="text-gray-500"> (k8s Secret → env)</span>
+                        <span className="text-content-subtle"> (k8s Secret → env)</span>
                     </span>
                     <input
                         type="text"
@@ -144,9 +144,9 @@ const IssueTargetTab: React.FC = () => {
                         onChange={(e) => setDraft({...draft, token_env_name: e.target.value})}
                         placeholder="ADA_AUDIT_GITHUB_TOKEN"
                         disabled={isDisabled}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-full max-w-md disabled:opacity-50"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono w-full max-w-md disabled:opacity-50"
                     />
-                    <div className="text-[11px] text-gray-500">
+                    <div className="text-[11px] text-content-subtle">
                         Tokens live in env vars sourced from k8s Secrets — never in this database.
                         Rotate via Secret update + deployment re-roll.
                     </div>
@@ -156,8 +156,8 @@ const IssueTargetTab: React.FC = () => {
                     <div className={
                         "text-xs px-3 py-2 rounded-sm border " +
                         (cfg.token_present
-                            ? "bg-emerald-950/40 border-emerald-700 text-emerald-200"
-                            : "bg-amber-950/40 border-amber-700 text-amber-200")
+                            ? "bg-pass-subtle border-pass text-pass"
+                            : "bg-warn-subtle border-warn text-warn")
                     }>
                         {cfg.token_present
                             ? `Token env var “${cfg.token_env_name}” is set on this API replica.`
@@ -173,7 +173,7 @@ const IssueTargetTab: React.FC = () => {
                         type="button"
                         onClick={save}
                         disabled={!dirty || busy}
-                        className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {busy ? "Saving…" : "Save"}
                     </button>
@@ -181,17 +181,17 @@ const IssueTargetTab: React.FC = () => {
                         type="button"
                         onClick={() => setDraft(cfg)}
                         disabled={!dirty || busy}
-                        className="text-sm text-gray-400 hover:text-gray-200 disabled:opacity-50"
+                        className="text-sm text-content-muted pointer-fine:hover:text-content disabled:opacity-50"
                     >
                         Discard
                     </button>
                     {savedAt && !dirty && (
-                        <span className="text-xs text-emerald-400">
+                        <span className="text-xs text-pass">
                             saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
                         </span>
                     )}
                     {saveErr && (
-                        <span className="text-xs text-red-400" role="alert">{saveErr}</span>
+                        <span className="text-xs text-fail" role="alert">{saveErr}</span>
                     )}
                 </div>
             </div>

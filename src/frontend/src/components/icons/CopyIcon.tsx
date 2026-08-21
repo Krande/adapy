@@ -1,7 +1,7 @@
 import React from 'react';
 
 const CopyIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg
+  <svg width="24" height="24"
     {...props}
     fill="none"
     viewBox="0 0 24 24"

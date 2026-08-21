@@ -21,7 +21,14 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
     pluginId,
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? pluginId}` },
     stores: {} as AdaPluginContext["stores"],
-    scene: { add() {}, remove() {}, requestRender() {}, paintField() {}, getActiveFeaMesh: () => null, getSelectedFeaRangeIds: () => [] },
+    // A stub, but a PRESENT one: the point of typing this as SceneHandle is that the
+    // handle gaining a method breaks here until the fake grows it too.
+    scene: {
+      add() {}, remove() {}, requestRender() {}, paintField() {},
+      getActiveFeaMesh: () => null,
+      getSelectedFeaRangeIds: () => [],
+      setSelectedFeaRanges: () => {},
+    },
     scope: () => "user:me",
     theme: {
       bg: "#111827",

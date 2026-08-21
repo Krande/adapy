@@ -54,9 +54,9 @@ export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
                 aria-haspopup="menu"
                 aria-expanded={open}
                 className={
-                    "inline-flex items-center justify-center rounded-sm text-gray-300 " +
-                    "hover:bg-gray-700 active:bg-gray-600 disabled:opacity-40 " +
-                    "focus:outline-hidden focus:ring-2 focus:ring-blue-400 " +
+                    "inline-flex items-center justify-center rounded-sm text-content " +
+                    "pointer-fine:hover:bg-surface-2 active:bg-surface-3 disabled:opacity-40 " +
+                    "focus:outline-hidden focus:ring-2 focus:ring-accent " +
                     (buttonClassName ?? "h-7 w-7 sm:h-6 sm:w-6")
                 }
                 title={disabled ? "busy…" : ariaLabel}

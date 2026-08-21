@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
+import {confirm} from "@/ui/confirm";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -47,7 +48,13 @@ const ProjectsTab: React.FC = () => {
     };
 
     const onArchive = async (p: AdminProject) => {
-        if (!confirm(`Archive "${p.name}"? Members will lose access.`)) return;
+        const ok = await confirm({
+            title: "Archive this project?",
+            body: [`"${p.name}" is archived and its members lose access.`],
+            confirmLabel: "Archive",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminArchiveProject(p.id);
             await reload();
@@ -62,13 +69,13 @@ const ProjectsTab: React.FC = () => {
         <div className="flex h-full">
             <div
                 className={
-                    "flex-col border-r border-gray-700 sm:flex sm:w-80 sm:min-w-[280px] sm:shrink-0 lg:w-96 " +
+                    "flex-col border-r border-edge sm:flex sm:w-80 sm:min-w-[280px] sm:shrink-0 lg:w-96 " +
                     (showDetailOnly ? "hidden sm:flex" : "flex w-full")
                 }
             >
                 <CreateProjectForm onCreate={onCreate}/>
                 {error && (
-                    <div className="px-3 py-2 text-red-300 text-xs border-b border-gray-700">
+                    <div className="px-3 py-2 text-fail text-xs border-b border-edge">
                         {error}
                     </div>
                 )}
@@ -77,8 +84,8 @@ const ProjectsTab: React.FC = () => {
                         <button
                             key={p.id}
                             className={
-                                "w-full text-left px-3 py-3 sm:py-2 border-b border-gray-800 hover:bg-gray-800 " +
-                                (selected?.id === p.id ? "bg-gray-800" : "")
+                                "w-full text-left px-3 py-3 sm:py-2 border-b border-edge pointer-fine:hover:bg-surface-0 " +
+                                (selected?.id === p.id ? "bg-surface-0" : "")
                             }
                             onClick={() => setSelected(p)}
                         >
@@ -87,18 +94,18 @@ const ProjectsTab: React.FC = () => {
                                     {p.name}
                                 </span>
                                 {p.archived_at && (
-                                    <span className="text-[10px] uppercase text-gray-500 ml-2">
+                                    <span className="text-[10px] uppercase text-content-subtle ml-2">
                                         archived
                                     </span>
                                 )}
                             </div>
-                            <div className="text-xs text-gray-400 truncate" title={p.slug}>
+                            <div className="text-xs text-content-muted truncate" title={p.slug}>
                                 {p.slug} · {p.member_count} member{p.member_count === 1 ? "" : "s"}
                             </div>
                         </button>
                     ))}
                     {!loading && projects.length === 0 && (
-                        <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                        <div className="px-4 py-8 text-center text-content-subtle text-sm">
                             No projects yet.
                         </div>
                     )}
@@ -117,7 +124,7 @@ const ProjectsTab: React.FC = () => {
                         onBack={() => setSelected(null)}
                     />
                 ) : (
-                    <div className="hidden sm:flex h-full items-center justify-center text-gray-500 text-sm">
+                    <div className="hidden sm:flex h-full items-center justify-center text-content-subtle text-sm">
                         Pick a project to manage its members.
                     </div>
                 )}
@@ -135,7 +142,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
     const effectiveSlug = touchedSlug ? slug : autoSlug(name);
     return (
         <form
-            className="px-3 py-3 border-b border-gray-700 space-y-2"
+            className="px-3 py-3 border-b border-edge space-y-2"
             onSubmit={(e) => {
                 e.preventDefault();
                 if (!name.trim() || !effectiveSlug) return;
@@ -146,13 +153,13 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             }}
         >
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-sm"
+                className="w-full bg-surface-0 border border-edge rounded-sm px-2 py-2 text-sm"
                 placeholder="Project name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
             />
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs text-gray-300"
+                className="w-full bg-surface-0 border border-edge rounded-sm px-2 py-2 text-xs text-content"
                 placeholder="slug"
                 value={effectiveSlug}
                 onChange={(e) => {
@@ -162,7 +169,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             />
             <button
                 type="submit"
-                className="w-full bg-blue-700 hover:bg-blue-600 px-2 py-2 rounded-sm text-sm disabled:opacity-50"
+                className="w-full bg-accent pointer-fine:hover:bg-accent-hover px-2 py-2 rounded-sm text-sm disabled:opacity-50"
                 disabled={!name.trim() || !effectiveSlug}
             >
                 Create project
@@ -216,7 +223,13 @@ const MemberPane: React.FC<{
     };
 
     const onRemove = async (sub: string) => {
-        if (!confirm(`Remove ${sub} from "${project.name}"?`)) return;
+        const ok = await confirm({
+            title: "Remove this member?",
+            body: [`${sub} loses access to "${project.name}".`],
+            confirmLabel: "Remove",
+            tone: "danger",
+        });
+        if (!ok) return;
         try {
             await viewerApi.adminRemoveMember(project.id, sub);
             await reload();
@@ -228,13 +241,16 @@ const MemberPane: React.FC<{
     const onMintCiBot = async () => {
         const existing = members.find((m) => m.role === "ci");
         const verb = existing ? "Rotate" : "Mint";
-        if (
-            !confirm(
-                `${verb} CI bot token for "${project.name}"? Any token previously issued to the bot stops working.`,
-            )
-        ) {
-            return;
-        }
+        const ok = await confirm({
+            title: `${verb} the CI bot token?`,
+            body: [
+                `For "${project.name}".`,
+                "Any token previously issued to the bot stops working.",
+            ],
+            confirmLabel: verb,
+            tone: "danger",
+        });
+        if (!ok) return;
         setCiBotBusy(true);
         setCiBotErr(null);
         try {
@@ -251,10 +267,10 @@ const MemberPane: React.FC<{
 
     return (
         <div className="flex flex-col h-full">
-            <div className="px-3 sm:px-4 py-3 border-b border-gray-700">
+            <div className="px-3 sm:px-4 py-3 border-b border-edge">
                 <div className="flex items-center gap-2 mb-1">
                     <button
-                        className="sm:hidden bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded-sm"
+                        className="sm:hidden bg-surface-0 pointer-fine:hover:bg-surface-2 text-xs px-2 py-1 rounded-sm"
                         onClick={onBack}
                     >
                         ← Projects
@@ -263,14 +279,14 @@ const MemberPane: React.FC<{
                         <div className="text-sm font-semibold truncate" title={project.name}>
                             {project.name}
                         </div>
-                        <div className="text-xs text-gray-400 truncate" title={project.id}>
+                        <div className="text-xs text-content-muted truncate" title={project.id}>
                             {project.slug} · {project.id}
                         </div>
                     </div>
                     {!project.archived_at && (
                         <div className="flex shrink-0 gap-1">
                             <button
-                                className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
+                                className="text-xs bg-surface-0 pointer-fine:hover:bg-surface-2 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
                                 onClick={() => void onMintCiBot()}
                                 disabled={ciBotBusy}
                                 title="Mint or rotate the CI bot bearer for this project"
@@ -282,7 +298,7 @@ const MemberPane: React.FC<{
                                         : "Mint CI bot"}
                             </button>
                             <button
-                                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm"
+                                className="text-xs bg-fail pointer-fine:hover:brightness-110 px-2 py-1 rounded-sm"
                                 onClick={onArchive}
                             >
                                 Archive
@@ -291,15 +307,15 @@ const MemberPane: React.FC<{
                     )}
                 </div>
                 {ciBotErr && (
-                    <div className="mt-2 text-red-300 text-xs bg-red-900/40 border border-red-700 rounded-sm px-2 py-1">
+                    <div className="mt-2 text-fail text-xs bg-fail-subtle border border-fail rounded-sm px-2 py-1">
                         {ciBotErr}
                     </div>
                 )}
             </div>
             {!project.archived_at && (
-                <div className="flex flex-col sm:flex-row gap-2 px-3 sm:px-4 py-2 border-b border-gray-700">
+                <div className="flex flex-col sm:flex-row gap-2 px-3 sm:px-4 py-2 border-b border-edge">
                     <input
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs"
+                        className="flex-1 bg-surface-0 border border-edge rounded-sm px-2 py-2 text-xs"
                         placeholder="user_sub (from OIDC token)"
                         value={newSub}
                         onChange={(e) => setNewSub(e.target.value)}
@@ -309,7 +325,7 @@ const MemberPane: React.FC<{
                     />
                     <div className="flex gap-2">
                         <select
-                            className="flex-1 sm:flex-initial bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs"
+                            className="flex-1 sm:flex-initial bg-surface-0 border border-edge rounded-sm px-2 py-2 text-xs"
                             value={newRole}
                             onChange={(e) => setNewRole(e.target.value)}
                         >
@@ -317,7 +333,7 @@ const MemberPane: React.FC<{
                             <option value="owner">owner</option>
                         </select>
                         <button
-                            className="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded-sm text-xs disabled:opacity-50"
+                            className="bg-accent pointer-fine:hover:bg-accent-hover px-3 py-2 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => void onAdd()}
                             disabled={adding || !newSub.trim()}
                         >
@@ -327,7 +343,7 @@ const MemberPane: React.FC<{
                 </div>
             )}
             {error && (
-                <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
+                <div className="px-3 sm:px-4 py-2 text-fail text-xs border-b border-edge">
                     {error}
                 </div>
             )}
@@ -342,7 +358,7 @@ const MemberPane: React.FC<{
                         <col className="w-48"/>
                         <col className="w-24"/>
                     </colgroup>
-                    <thead className="sticky top-0 bg-gray-800 text-left">
+                    <thead className="sticky top-0 bg-surface-0 text-left">
                     <tr>
                         <Th>Display name</Th>
                         <Th>Email</Th>
@@ -354,7 +370,7 @@ const MemberPane: React.FC<{
                     </thead>
                     <tbody>
                     {members.map((m) => (
-                        <tr key={m.user_sub} className="border-t border-gray-800">
+                        <tr key={m.user_sub} className="border-t border-edge">
                             <Td title={m.display_name || ""}>{m.display_name || ""}</Td>
                             <Td title={m.email || ""}>{m.email || ""}</Td>
                             <Td title={m.user_sub}>{shortSub(m.user_sub)}</Td>
@@ -365,7 +381,7 @@ const MemberPane: React.FC<{
                             <Td>
                                 {!project.archived_at && (
                                     <button
-                                        className="text-red-400 hover:text-red-300"
+                                        className="text-fail pointer-fine:hover:text-fail"
                                         onClick={() => onRemove(m.user_sub)}
                                     >
                                         remove
@@ -377,7 +393,7 @@ const MemberPane: React.FC<{
                     </tbody>
                 </table>
                 {/* Mobile cards */}
-                <ul className="sm:hidden divide-y divide-gray-800">
+                <ul className="sm:hidden divide-y divide-edge">
                     {members.map((m) => (
                         <li key={m.user_sub} className="px-3 py-3 text-xs">
                             <div className="flex items-center justify-between gap-2">
@@ -386,15 +402,15 @@ const MemberPane: React.FC<{
                                         {m.display_name || m.email || shortSub(m.user_sub)}
                                     </div>
                                     {m.email && m.display_name && (
-                                        <div className="text-gray-400 truncate">{m.email}</div>
+                                        <div className="text-content-muted truncate">{m.email}</div>
                                     )}
-                                    <div className="text-gray-500 text-[11px] truncate" title={m.user_sub}>
+                                    <div className="text-content-subtle text-[11px] truncate" title={m.user_sub}>
                                         {shortSub(m.user_sub)} · {m.role}
                                     </div>
                                 </div>
                                 {!project.archived_at && (
                                     <button
-                                        className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded-sm border border-red-900"
+                                        className="text-fail pointer-fine:hover:text-fail text-xs px-2 py-1 rounded-sm border border-fail"
                                         onClick={() => onRemove(m.user_sub)}
                                     >
                                         Remove
@@ -405,7 +421,7 @@ const MemberPane: React.FC<{
                     ))}
                 </ul>
                 {members.length === 0 && (
-                    <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                    <div className="px-4 py-8 text-center text-content-subtle text-sm">
                         No members yet.
                     </div>
                 )}
@@ -460,21 +476,21 @@ const CiBotTokenModal: React.FC<{
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-surface-0 border border-edge rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="CI bot token"
             >
-                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                <div className="flex items-start gap-3 border-b border-edge px-4 py-2">
                     <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold">CI bot token</div>
-                        <div className="text-xs text-gray-400 truncate" title={userSub}>
+                        <div className="text-xs text-content-muted truncate" title={userSub}>
                             {userSub} · expires {new Date(expiresAt * 1000).toLocaleString()}
                         </div>
                     </div>
                     <button
                         type="button"
-                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        className="shrink-0 text-content pointer-fine:hover:text-white text-xl leading-none px-2"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close (Esc)"
@@ -483,7 +499,7 @@ const CiBotTokenModal: React.FC<{
                     </button>
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4 text-sm">
-                    <div className="text-xs text-gray-300">
+                    <div className="text-xs text-content">
                         Copy now — the server does not store this token. Re-mint to rotate;
                         previous tokens for this bot stop validating immediately.
                     </div>
@@ -491,7 +507,7 @@ const CiBotTokenModal: React.FC<{
                         <button
                             type="button"
                             onClick={onCopy}
-                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
+                            className="shrink-0 bg-surface-0 pointer-fine:hover:bg-surface-2 text-content px-2 py-1 rounded-sm text-xs"
                         >
                             {copied ? "Copied" : "Copy"}
                         </button>
@@ -499,10 +515,10 @@ const CiBotTokenModal: React.FC<{
                     <textarea
                         readOnly
                         value={token}
-                        className="w-full h-32 bg-gray-950 border border-gray-700 rounded-sm p-2 font-mono text-xs break-all"
+                        className="w-full h-32 bg-surface-0 border border-edge rounded-sm p-2 font-mono text-xs break-all"
                         onFocus={(e) => e.currentTarget.select()}
                     />
-                    <pre className="text-[11px] text-gray-400 whitespace-pre-wrap">
+                    <pre className="text-[11px] text-content-muted whitespace-pre-wrap">
 {`# pixi / Forgejo secret
 export ADAPY_VIEWER_TOKEN=<paste>
 export ADAPY_VIEWER_URL=<viewer URL>
@@ -515,7 +531,7 @@ export ADAPY_VIEWER_URL=<viewer URL>
 };
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
+    <th className="px-3 py-2 font-medium text-content whitespace-nowrap">{children}</th>
 );
 
 const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (

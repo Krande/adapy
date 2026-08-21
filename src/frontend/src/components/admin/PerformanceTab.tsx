@@ -104,11 +104,11 @@ const ThresholdEditor: React.FC<{
     }, [draft, onSaved]);
 
     return (
-        <div className="border border-gray-800 rounded-sm bg-gray-900/40 p-3 text-xs text-gray-300 space-y-2">
-            <div className="font-medium text-gray-100 text-sm">
+        <div className="border border-edge rounded-sm bg-surface-0 p-3 text-xs text-content space-y-2">
+            <div className="font-medium text-content text-sm">
                 Streaming-candidate thresholds
             </div>
-            <div className="text-gray-500">
+            <div className="text-content-subtle">
                 A cell flags as a streaming candidate when ANY of these
                 thresholds is exceeded by the corresponding metric.
                 Empty field falls back to the shipped default.
@@ -116,15 +116,15 @@ const ThresholdEditor: React.FC<{
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {Object.entries(initial.defaults).map(([k, dflt]) => (
                     <label key={k} className="flex flex-col gap-1">
-                        <span className="text-gray-400 font-mono text-[11px]">
-                            {k} <span className="text-gray-600">(default {dflt})</span>
+                        <span className="text-content-muted font-mono text-[11px]">
+                            {k} <span className="text-content-subtle">(default {dflt})</span>
                         </span>
                         <input
                             type="text"
                             value={draft[k] ?? ""}
                             onChange={(e) => setDraft({...draft, [k]: e.target.value})}
                             placeholder={String(dflt)}
-                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono"
+                            className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content font-mono"
                         />
                     </label>
                 ))}
@@ -134,11 +134,11 @@ const ThresholdEditor: React.FC<{
                     type="button"
                     onClick={save}
                     disabled={busy}
-                    className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
+                    className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 text-white text-xs px-3 py-1 rounded-sm"
                 >
                     {busy ? "Saving…" : "Save thresholds"}
                 </button>
-                {err && <span className="text-red-400">{err}</span>}
+                {err && <span className="text-fail">{err}</span>}
             </div>
         </div>
     );
@@ -155,7 +155,7 @@ const FlagsBadges: React.FC<{
 }> = ({cell, reasons}) => {
     const signals = cell.streaming.signals;
     if (signals.length === 0) {
-        return <span className="text-gray-600">—</span>;
+        return <span className="text-content-subtle">—</span>;
     }
     const ioBound = signals.includes("cpu_fraction_max");
     const otherSignals = signals.filter((s) => s !== "cpu_fraction_max");
@@ -163,7 +163,7 @@ const FlagsBadges: React.FC<{
         <div className="flex gap-1 flex-wrap items-center">
             {otherSignals.length > 0 && (
                 <span
-                    className="inline-block px-1.5 py-0.5 bg-amber-900/50 border border-amber-600 text-amber-200 rounded-sm text-[10px]"
+                    className="inline-block px-1.5 py-0.5 bg-warn-subtle border border-warn text-warn rounded-sm text-[10px]"
                     title={otherSignals.map((s) => `• ${reasons[s] || s}`).join("\n")}
                 >
                     streaming
@@ -171,7 +171,7 @@ const FlagsBadges: React.FC<{
             )}
             {ioBound && (
                 <span
-                    className="inline-block px-1.5 py-0.5 bg-sky-900/50 border border-sky-600 text-sky-200 rounded-sm text-[10px]"
+                    className="inline-block px-1.5 py-0.5 bg-info-subtle border border-info text-info rounded-sm text-[10px]"
                     title={reasons["cpu_fraction_max"] || "IO-bound"}
                 >
                     IO-bound
@@ -216,16 +216,16 @@ const HotspotsPanel: React.FC<{
     }, [sourceExt, targetFormat, sinceDays]);
 
     if (loading) {
-        return <div className="text-xs text-gray-500 italic">Loading hotspots…</div>;
+        return <div className="text-xs text-content-subtle italic">Loading hotspots…</div>;
     }
     if (err) {
-        return <div className="text-xs text-red-400">Hotspots failed: {err}</div>;
+        return <div className="text-xs text-fail">Hotspots failed: {err}</div>;
     }
     if (!data || data.profiles_in_window === 0) {
         return (
-            <div className="text-xs text-gray-500 italic">
+            <div className="text-xs text-content-subtle italic">
                 No profile data in the window. Toggle{" "}
-                <code className="text-gray-400">profile_conversions</code>{" "}
+                <code className="text-content-muted">profile_conversions</code>{" "}
                 on (admin settings or per-job conversion options), run a few
                 conversions, then check back — the background parser indexes new
                 profiles every ~30 s.
@@ -234,7 +234,7 @@ const HotspotsPanel: React.FC<{
     }
     return (
         <div className="space-y-2">
-            <div className="text-[11px] text-gray-500">
+            <div className="text-[11px] text-content-subtle">
                 Top {data.functions.length} functions across {data.profiles_in_window} profiled run
                 {data.profiles_in_window === 1 ? "" : "s"} in the last {data.since_days} day
                 {data.since_days === 1 ? "" : "s"}.
@@ -242,7 +242,7 @@ const HotspotsPanel: React.FC<{
             </div>
             <div className="overflow-x-auto">
                 <table className="text-[11px] border-collapse w-full">
-                    <thead className="text-gray-400">
+                    <thead className="text-content-muted">
                         <tr>
                             <Th align="right">cumtime (s)</Th>
                             <Th align="right">ncalls</Th>
@@ -255,21 +255,21 @@ const HotspotsPanel: React.FC<{
                         {data.functions.map((row) => (
                             <tr
                                 key={`${row.file}:${row.line}:${row.func}`}
-                                className="border-t border-gray-800 hover:bg-gray-900"
+                                className="border-t border-edge pointer-fine:hover:bg-surface-0"
                             >
-                                <td className="px-2 py-1 text-right text-amber-200 font-mono">
+                                <td className="px-2 py-1 text-right text-warn font-mono">
                                     {row.agg_cumtime.toFixed(2)}
                                 </td>
-                                <td className="px-2 py-1 text-right text-gray-400 font-mono">
+                                <td className="px-2 py-1 text-right text-content-muted font-mono">
                                     {row.agg_ncalls.toLocaleString()}
                                 </td>
-                                <td className="px-2 py-1 text-right text-gray-500">
+                                <td className="px-2 py-1 text-right text-content-subtle">
                                     {row.profiles_seen}
                                 </td>
-                                <td className="px-2 py-1 font-mono text-gray-200">
+                                <td className="px-2 py-1 font-mono text-content">
                                     {row.func}
                                 </td>
-                                <td className="px-2 py-1 font-mono text-gray-500 truncate max-w-xs" title={`${row.file}:${row.line}`}>
+                                <td className="px-2 py-1 font-mono text-content-subtle truncate max-w-xs" title={`${row.file}:${row.line}`}>
                                     {row.file ? `${row.file}:${row.line}` : "—"}
                                 </td>
                             </tr>
@@ -413,25 +413,25 @@ const PerformanceTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full overflow-auto">
-            <div className="px-3 py-2 border-b border-gray-800 bg-gray-900/40 flex flex-wrap items-center gap-3">
-                <label className="text-xs text-gray-300 flex items-center gap-2">
+            <div className="px-3 py-2 border-b border-edge bg-surface-0 flex flex-wrap items-center gap-3">
+                <label className="text-xs text-content flex items-center gap-2">
                     <span>Window</span>
                     <select
                         value={windowDays}
                         onChange={(e) => setWindowDays(Number(e.target.value))}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content"
                     >
                         {TIME_WINDOWS.map((w) => (
                             <option key={w.days} value={w.days}>{w.label}</option>
                         ))}
                     </select>
                 </label>
-                <label className="text-xs text-gray-300 flex items-center gap-2">
+                <label className="text-xs text-content flex items-center gap-2">
                     <span>Source</span>
                     <select
                         value={trigger}
                         onChange={(e) => setTrigger(e.target.value as typeof trigger)}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content"
                     >
                         <option value="all">all jobs</option>
                         <option value="user">user-driven only</option>
@@ -439,14 +439,14 @@ const PerformanceTab: React.FC = () => {
                     </select>
                 </label>
                 <label
-                    className="text-xs text-gray-300 flex items-center gap-2"
+                    className="text-xs text-content flex items-center gap-2"
                     title="Lock the report to one audit sweep — avoids smearing measurements across worker image upgrades."
                 >
                     <span>Audit run</span>
                     <select
                         value={auditRunId}
                         onChange={(e) => setAuditRunId(e.target.value)}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-[22rem]"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content max-w-[22rem]"
                     >
                         <option value="">all runs</option>
                         {runs.map((r) => (
@@ -455,14 +455,14 @@ const PerformanceTab: React.FC = () => {
                     </select>
                 </label>
                 <label
-                    className="text-xs text-gray-300 flex items-center gap-2"
+                    className="text-xs text-content flex items-center gap-2"
                     title="Only count rows produced by this worker image. Use to compare two builds head-to-head, or to discard data from a known-broken worker."
                 >
                     <span>Worker SHA</span>
                     <select
                         value={workerTag}
                         onChange={(e) => setWorkerTag(e.target.value)}
-                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-[18rem]"
+                        className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content max-w-[18rem]"
                     >
                         <option value="">any worker</option>
                         {workers.map((w) => (
@@ -473,19 +473,19 @@ const PerformanceTab: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setShowThresholds(!showThresholds)}
-                    className="text-xs text-blue-400 hover:text-blue-300 ml-auto"
+                    className="text-xs text-accent pointer-fine:hover:text-accent ml-auto"
                 >
                     {showThresholds ? "hide" : "edit"} thresholds
                 </button>
                 {report && (
-                    <span className="text-[11px] text-gray-500">
+                    <span className="text-[11px] text-content-subtle">
                         {report.cells.length} cells · generated {new Date(report.generated_at).toLocaleTimeString()}
                     </span>
                 )}
             </div>
 
             {showThresholds && thresholds && (
-                <div className="px-3 py-3 border-b border-gray-800">
+                <div className="px-3 py-3 border-b border-edge">
                     <ThresholdEditor
                         initial={thresholds}
                         onSaved={(r) => {
@@ -499,15 +499,15 @@ const PerformanceTab: React.FC = () => {
             )}
 
             {err && (
-                <div className="text-xs text-red-400 px-3 py-2">{err}</div>
+                <div className="text-xs text-fail px-3 py-2">{err}</div>
             )}
 
             {loading && !report && (
-                <div className="text-xs text-gray-500 italic px-3 py-4">Loading…</div>
+                <div className="text-xs text-content-subtle italic px-3 py-4">Loading…</div>
             )}
 
             {report && report.cells.length === 0 && !loading && (
-                <div className="text-xs text-gray-500 italic px-3 py-4">
+                <div className="text-xs text-content-subtle italic px-3 py-4">
                     No convert jobs in the selected window.
                 </div>
             )}
@@ -515,8 +515,8 @@ const PerformanceTab: React.FC = () => {
             {report && report.cells.length > 0 && (
                 <div className="overflow-auto">
                     <table className="text-xs border-collapse w-full">
-                        <thead className="sticky top-0 bg-gray-900 z-10">
-                            <tr className="text-left text-gray-300">
+                        <thead className="sticky top-0 bg-surface-0 z-10">
+                            <tr className="text-left text-content">
                                 <Th align="center">…</Th>
                                 <Th onClick={() => onHeaderClick("cell")}>cell{sortArrow("cell")}</Th>
                                 <Th onClick={() => onHeaderClick("samples")} align="right">n{sortArrow("samples")}</Th>
@@ -540,42 +540,42 @@ const PerformanceTab: React.FC = () => {
                                     <React.Fragment key={key}>
                                         <tr
                                             className={
-                                                "border-t border-gray-800 hover:bg-gray-800/40 " +
-                                                (c.streaming.is_candidate ? "bg-amber-950/20" : "")
+                                                "border-t border-edge pointer-fine:hover:bg-surface-0 " +
+                                                (c.streaming.is_candidate ? "bg-warn-subtle" : "")
                                             }
                                         >
                                             <td className="px-2 py-1 text-center">
                                                 <button
                                                     type="button"
                                                     onClick={() => setExpanded(isOpen ? null : key)}
-                                                    className="text-blue-400 hover:text-blue-300 font-mono"
+                                                    className="text-accent pointer-fine:hover:text-accent font-mono"
                                                     title={isOpen ? "Hide hotspots" : "Show top functions by cumtime"}
                                                 >
                                                     {isOpen ? "▾" : "▸"}
                                                 </button>
                                             </td>
-                                            <td className="px-2 py-1 font-mono text-gray-200">
+                                            <td className="px-2 py-1 font-mono text-content">
                                                 {c.source_ext} → {c.target_format}
                                             </td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{c.sample_count}</td>
+                                            <td className="px-2 py-1 text-right text-content">{c.sample_count}</td>
                                             <td className={
                                                 "px-2 py-1 text-right " +
-                                                (c.failure_rate > 0.05 ? "text-red-400"
-                                                    : c.failure_rate > 0 ? "text-amber-300"
-                                                    : "text-gray-500")
+                                                (c.failure_rate > 0.05 ? "text-fail"
+                                                    : c.failure_rate > 0 ? "text-warn"
+                                                    : "text-content-subtle")
                                             }>
                                                 {fmtPct(c.failure_rate)}
                                             </td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p50)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p95)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_kb_p95)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_max_kb)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtRatio(c.peak_rss_per_source_mb_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-content">{fmtMs(c.duration_ms_p50)}</td>
+                                            <td className="px-2 py-1 text-right text-content">{fmtMs(c.duration_ms_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-content">{fmtKB(c.peak_rss_kb_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-content">{fmtKB(c.peak_rss_max_kb)}</td>
+                                            <td className="px-2 py-1 text-right text-content">{fmtRatio(c.peak_rss_per_source_mb_p95)}</td>
                                             <td className={
                                                 "px-2 py-1 text-right " +
-                                                (c.cpu_fraction == null ? "text-gray-600"
-                                                    : c.cpu_fraction < 0.3 ? "text-amber-300"
-                                                    : "text-gray-300")
+                                                (c.cpu_fraction == null ? "text-content-subtle"
+                                                    : c.cpu_fraction < 0.3 ? "text-warn"
+                                                    : "text-content")
                                             } title={
                                                 c.cpu_fraction == null
                                                     ? "no timing data"
@@ -583,14 +583,14 @@ const PerformanceTab: React.FC = () => {
                                             }>
                                                 {fmtPct(c.cpu_fraction)}
                                             </td>
-                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.read_bytes_avg)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.write_bytes_p50)}</td>
+                                            <td className="px-2 py-1 text-right text-content-subtle">{fmtBytes(c.read_bytes_avg)}</td>
+                                            <td className="px-2 py-1 text-right text-content-subtle">{fmtBytes(c.write_bytes_p50)}</td>
                                             <td className="px-2 py-1">
                                                 <FlagsBadges cell={c} reasons={report.signal_reasons}/>
                                             </td>
                                         </tr>
                                         {isOpen && (
-                                            <tr className="border-t border-gray-900 bg-gray-950">
+                                            <tr className="border-t border-edge bg-surface-0">
                                                 <td colSpan={13} className="px-3 py-2">
                                                     <HotspotsPanel
                                                         sourceExt={c.source_ext}
@@ -618,9 +618,9 @@ const Th: React.FC<{
 }> = ({children, onClick, align = "left"}) => (
     <th
         className={
-            "px-2 py-1 border-b border-gray-700 font-medium whitespace-nowrap " +
+            "px-2 py-1 border-b border-edge font-medium whitespace-nowrap " +
             (align === "right" ? "text-right " : align === "center" ? "text-center " : "") +
-            (onClick ? "cursor-pointer hover:text-blue-300" : "")
+            (onClick ? "cursor-pointer pointer-fine:hover:text-accent" : "")
         }
         onClick={onClick}
     >

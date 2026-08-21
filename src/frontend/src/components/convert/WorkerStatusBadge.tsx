@@ -19,8 +19,8 @@ const WorkerStatusBadge: React.FC = () => {
             className={
                 "inline-flex items-center gap-2 px-3 py-1 rounded-sm text-xs " +
                 (hasWorkers
-                    ? "bg-emerald-700/30 border border-emerald-600/50 text-emerald-200"
-                    : "bg-gray-700/40 border border-gray-600 text-gray-300")
+                    ? "bg-pass-subtle border border-pass text-pass"
+                    : "bg-surface-2 border border-edge text-content")
             }
             title={
                 hasWorkers
@@ -31,7 +31,7 @@ const WorkerStatusBadge: React.FC = () => {
             <span
                 className={
                     "w-2 h-2 rounded-full " +
-                    (hasWorkers ? "bg-emerald-400" : "bg-gray-500")
+                    (hasWorkers ? "bg-pass" : "bg-surface-3")
                 }
             />
             {hasWorkers

@@ -98,8 +98,15 @@ const SUPPORTED_EXTS = [
     ".zip",
     // FEA result formats consumed by the streaming-viewer bake:
     //   .sif  Sesam result database (text-based, gzip-compressible).
+    //   .sin  Sesam result database (Norsam binary) — same schema and converter as .sif.
     //   .rmed Code_Aster / Salome result file (HDF5).
+    //
+    // .sin was missing here while fileKinds.ts has always accepted it as a first-class
+    // streaming result. Two lists describing the same set, disagreeing: the file picker
+    // filtered .sin out of the dialog, and choosing "all files" then failed validation —
+    // so the format loaded fine once present but could not be uploaded in the first place.
     ".sif",
+    ".sin",
     ".rmed",
 ];
 

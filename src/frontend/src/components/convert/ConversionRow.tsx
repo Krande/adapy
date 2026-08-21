@@ -31,7 +31,7 @@ const OptionWidget: React.FC<{
     if (opt.type === "bool") {
         return (
             <label
-                className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs text-content cursor-pointer"
                 title={opt.description || opt.name}
             >
                 <input
@@ -48,12 +48,12 @@ const OptionWidget: React.FC<{
     if (opt.type === "enum" && opt.enum) {
         return (
             <label
-                className="inline-flex items-center gap-1 text-xs text-gray-300"
+                className="inline-flex items-center gap-1 text-xs text-content"
                 title={opt.description || opt.name}
             >
                 <span>{opt.name}:</span>
                 <select
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                    className="bg-surface-0 border border-edge rounded-sm px-1 py-0.5 text-xs text-content"
                     value={String(effective ?? "")}
                     onChange={(e) => onChange(e.target.value)}
                     disabled={disabled}
@@ -68,13 +68,13 @@ const OptionWidget: React.FC<{
     if (opt.type === "int") {
         return (
             <label
-                className="inline-flex items-center gap-1 text-xs text-gray-300"
+                className="inline-flex items-center gap-1 text-xs text-content"
                 title={opt.description || opt.name}
             >
                 <span>{opt.name}:</span>
                 <input
                     type="number"
-                    className="w-20 bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                    className="w-20 bg-surface-0 border border-edge rounded-sm px-1 py-0.5 text-xs text-content"
                     value={effective === null ? "" : String(effective)}
                     onChange={(e) => {
                         const n = parseInt(e.target.value, 10);
@@ -88,13 +88,13 @@ const OptionWidget: React.FC<{
     // string fallback (and unknown future types — best-effort).
     return (
         <label
-            className="inline-flex items-center gap-1 text-xs text-gray-300"
+            className="inline-flex items-center gap-1 text-xs text-content"
             title={opt.description || opt.name}
         >
             <span>{opt.name}:</span>
             <input
                 type="text"
-                className="w-32 bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                className="w-32 bg-surface-0 border border-edge rounded-sm px-1 py-0.5 text-xs text-content"
                 value={effective === null ? "" : String(effective)}
                 onChange={(e) => onChange(e.target.value || null)}
                 disabled={disabled}
@@ -285,16 +285,16 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
             runtime.conversionTargetsFor(target).includes("glb"));
 
     return (
-        <div className="rounded-md border border-gray-700 bg-gray-800/60 p-3 space-y-2">
+        <div className="rounded-md border border-edge bg-surface-0 p-3 space-y-2">
             <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="font-mono text-sm truncate">{row.sourceKey}</div>
-                    <div className="text-[11px] text-gray-400">{fmtSize(row.sizeBytes)}</div>
+                    <div className="text-[11px] text-content-muted">{fmtSize(row.sizeBytes)}</div>
                 </div>
                 <button
                     type="button"
                     onClick={onRemove}
-                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm border border-gray-600 bg-gray-700/60 text-gray-200 hover:bg-gray-600"
+                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm border border-edge bg-surface-2 text-content pointer-fine:hover:bg-surface-3"
                     aria-label={`Remove ${row.sourceKey}`}
                     title="Remove from list"
                 >
@@ -305,9 +305,9 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-                <label className="text-xs text-gray-400">convert to:</label>
+                <label className="text-xs text-content-muted">convert to:</label>
                 <select
-                    className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
+                    className="bg-surface-0 border border-edge rounded-sm px-2 py-1 text-sm text-content"
                     value={target}
                     onChange={(e) => setTarget(row.sourceKey, e.target.value as TargetFormat)}
                     disabled={isRunning || submitting}
@@ -322,7 +322,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         type="button"
                         onClick={onConvert}
                         disabled={isRunning || submitting}
-                        className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
+                        className="bg-accent pointer-fine:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm"
                     >
                         {isRunning ? "Converting…" : submitting ? "Submitting…" : "Convert"}
                     </button>
@@ -332,7 +332,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                         <button
                             type="button"
                             onClick={onDownload}
-                            className="bg-emerald-700 hover:bg-emerald-600 text-white text-sm px-3 py-1 rounded-sm"
+                            className="bg-pass pointer-fine:hover:brightness-110 text-white text-sm px-3 py-1 rounded-sm"
                         >
                             Download
                         </button>
@@ -340,7 +340,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                             <button
                                 type="button"
                                 onClick={onViewIn3D}
-                                className="bg-gray-700 hover:bg-gray-600 text-gray-100 text-sm px-3 py-1 rounded-sm"
+                                className="bg-surface-2 pointer-fine:hover:bg-surface-3 text-content text-sm px-3 py-1 rounded-sm"
                             >
                                 View in 3D ↗
                             </button>
@@ -350,8 +350,8 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
             </div>
 
             {optionSchema.length > 0 && !isDone && (
-                <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-gray-700/50">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-500">
+                <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-edge">
+                    <span className="text-[11px] uppercase tracking-wider text-content-subtle">
                         options
                     </span>
                     {/* serializer + tessellator are a dependent pair — rendered by the shared
@@ -379,23 +379,23 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
 
             {job && (
                 <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-gray-400">
+                    <div className="flex justify-between text-[11px] text-content-muted">
                         <span>{STATUS_LABEL[job.status] || job.status}{job.stage ? ` — ${job.stage}` : ""}</span>
                         {!isError && <span>{pct}%</span>}
                     </div>
                     {!isError && (
-                        <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+                        <div className="h-1 bg-surface-2 rounded-sm overflow-hidden">
                             <div
                                 className={
                                     "h-full transition-all " +
-                                    (isDone ? "bg-emerald-500" : "bg-blue-500")
+                                    (isDone ? "bg-pass" : "bg-accent")
                                 }
                                 style={{width: `${Math.max(pct, isDone ? 100 : 4)}%`}}
                             />
                         </div>
                     )}
                     {isError && (
-                        <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-32 overflow-auto m-0">
+                        <pre className="text-fail break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-32 overflow-auto m-0">
                             {job.error || "(no error message)"}
                         </pre>
                     )}

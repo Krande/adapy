@@ -26,6 +26,7 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
+import {EmptyState} from "@/components/ui";
 import type {
     FeaManifest,
     FeaManifestField,
@@ -55,7 +56,7 @@ const FeaNodalDataPanel: React.FC = () => {
     if (!manifest || !sourceName || !activeField) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-gray-800">
+                <h2 className="text-lg font-semibold text-content-subtle">
                     No FEA field selected
                 </h2>
             </PanelShell>
@@ -80,7 +81,7 @@ const FeaNodalDataPanel: React.FC = () => {
                     stepIndex={stepIndex}
                     reduction={reduction}
                 />
-                <div className="text-sm text-gray-700 mt-3 space-y-2">
+                <div className="text-sm text-content-subtle mt-3 space-y-2">
                     <p>
                         <span className="font-semibold">{activeField.name_canonical}</span>{" "}
                         is an element field — its values live on integration
@@ -88,14 +89,14 @@ const FeaNodalDataPanel: React.FC = () => {
                         coloured using the active layer + IP reduction shown
                         in the Sim Controls options panel.
                     </p>
-                    <p className="text-gray-500">
+                    <p className="text-content-subtle">
                         {totalElements.toLocaleString()} elements across{" "}
                         {activeField.per_type.length} type
                         {activeField.per_type.length === 1 ? "" : "s"}
                         {": "}
                         {activeField.per_type.map((bk) => `${bk.elem_type} (${bk.n_elements})`).join(", ")}.
                     </p>
-                    <p className="text-gray-500">
+                    <p className="text-content-subtle">
                         Pick a nodal field (e.g. displacement, reaction) above
                         to inspect raw per-node values here.
                     </p>
@@ -136,20 +137,20 @@ const FeaTableHeader: React.FC<{
 }> = ({manifest, sourceName, field, stepIndex, reduction}) => {
     const stepLabel = field.steps[stepIndex]?.label ?? `${stepIndex + 1}`;
     return (
-        <div className="text-xs text-gray-700 mb-2 space-y-0.5">
+        <div className="text-xs text-content-subtle mb-2 space-y-0.5">
             <div className="font-mono truncate" title={sourceName}>
                 {sourceName}
             </div>
             <div>
-                <span className="text-gray-500">Field:</span>{" "}
+                <span className="text-content-subtle">Field:</span>{" "}
                 {field.name_canonical}
-                <span className="text-gray-400"> ({field.name_native})</span>
+                <span className="text-content-muted"> ({field.name_native})</span>
                 {" · "}
-                <span className="text-gray-500">Step:</span> {stepLabel}
+                <span className="text-content-subtle">Step:</span> {stepLabel}
                 {" · "}
-                <span className="text-gray-500">Comp:</span> {reduction}
+                <span className="text-content-subtle">Comp:</span> {reduction}
                 {" · "}
-                <span className="text-gray-500">Nodes:</span> {manifest.mesh.n_points}
+                <span className="text-content-subtle">Nodes:</span> {manifest.mesh.n_points}
             </div>
         </div>
     );
@@ -369,14 +370,14 @@ const FeaNodalTable: React.FC<{
 
     if (error) {
         return (
-            <div className="text-xs text-red-600 font-mono whitespace-pre-wrap">
+            <div className="text-xs text-fail font-mono whitespace-pre-wrap">
                 Failed to load field data: {error}
             </div>
         );
     }
     if (loading || !stepValues) {
         return (
-            <div className="text-xs text-gray-500 italic">Loading nodal data…</div>
+            <div className="text-xs text-content-subtle italic">Loading nodal data…</div>
         );
     }
 
@@ -400,7 +401,7 @@ const FeaNodalTable: React.FC<{
             />
             <div
                 ref={parentRef}
-                className="flex-1 overflow-auto border border-gray-200 rounded-sm bg-white"
+                className="flex-1 overflow-auto border border-edge rounded-sm bg-white"
                 style={{maxHeight: 320}}
             >
                 <div style={{minWidth: minTableWidth, position: "relative"}}>
@@ -448,25 +449,25 @@ const TableToolbar: React.FC<{
     resultCount: number;
     totalCount: number;
 }> = ({filter, onFilter, idLabel, resultCount, totalCount}) => (
-    <div className="flex flex-row items-center gap-2 mb-1 text-xs text-gray-700">
-        <span className="text-gray-500">{idLabel}:</span>
+    <div className="flex flex-row items-center gap-2 mb-1 text-xs text-content-subtle">
+        <span className="text-content-subtle">{idLabel}:</span>
         <input
             type="text"
             inputMode="numeric"
             placeholder="filter…"
             value={filter}
             onChange={(e) => onFilter(e.target.value)}
-            className="border border-gray-300 rounded-sm px-1 py-0.5 w-24 font-mono"
+            className="border border-edge rounded-sm px-1 py-0.5 w-24 font-mono"
         />
         {filter && (
             <button
-                className="text-gray-500 hover:text-gray-800 underline"
+                className="text-content-subtle pointer-fine:hover:text-content-subtle underline"
                 onClick={() => onFilter("")}
             >
                 clear
             </button>
         )}
-        <span className="ml-auto text-gray-400">
+        <span className="ml-auto text-content-muted">
             {resultCount === totalCount
                 ? `${totalCount} rows`
                 : `${resultCount} / ${totalCount}`}
@@ -483,7 +484,7 @@ const FeaTableHead: React.FC<{
     // virtualizer scrolls; combined with the parent's horizontal
     // overflow it also moves left/right in lockstep with the rows.
     <div
-        className="grid border-b border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700 sticky top-0 z-10"
+        className="grid border-b border-edge bg-surface-3 text-xs font-semibold text-content-subtle sticky top-0 z-10"
         style={{gridTemplateColumns: gridCols(headerCols.length)}}
     >
         {headerCols.map((c, i) => {
@@ -495,7 +496,7 @@ const FeaTableHead: React.FC<{
                 return (
                     <div
                         key={`go-${i}`}
-                        className="px-2 py-1 border-gray-300"
+                        className="px-2 py-1 border-edge"
                         aria-hidden="true"
                     />
                 );
@@ -507,9 +508,9 @@ const FeaTableHead: React.FC<{
                     key={c}
                     onClick={() => onHeaderClick(i)}
                     className={
-                        "px-2 py-1 border-r border-gray-300 last:border-r-0 truncate " +
-                        "text-left hover:bg-gray-200 cursor-pointer flex items-center justify-between gap-1 " +
-                        (active ? "bg-blue-50 text-blue-800" : "")
+                        "px-2 py-1 border-r border-edge last:border-r-0 truncate " +
+                        "text-left pointer-fine:hover:bg-surface-3 cursor-pointer flex items-center justify-between gap-1 " +
+                        (active ? "bg-accent text-accent" : "")
                     }
                     title="Click to sort (asc → desc → off)"
                 >
@@ -547,15 +548,15 @@ const FeaTableRow: React.FC<{
     // generated stylesheet keeps them at the same specificity —
     // last-write-wins via source order.
     const rowBg = active
-        ? "bg-blue-100 ring-1 ring-inset ring-blue-400"
-        : "odd:bg-white even:bg-gray-50";
+        ? "bg-accent ring-1 ring-inset ring-accent"
+        : "odd:bg-white even:bg-surface-3";
     // Trailing data-col count for the gridCols template: 1 (id) +
     // n_components + (magnitude?) + 1 (go) — match FeaTableHead.
     const totalCols = 1 + n_components + (isVector ? 1 : 0) + 1;
     return (
         <div
             className={
-                "absolute left-0 right-0 grid text-xs font-mono text-gray-800 " + rowBg
+                "absolute left-0 right-0 grid text-xs font-mono text-content-subtle " + rowBg
             }
             style={{
                 top,
@@ -563,28 +564,28 @@ const FeaTableRow: React.FC<{
                 gridTemplateColumns: gridCols(totalCols),
             }}
         >
-            <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
+            <div className="px-2 py-0.5 border-b border-r border-edge truncate">
                 {nodeId}
             </div>
             {Array.from({length: n_components}, (_, c) => (
                 <div
                     key={c}
-                    className="px-2 py-0.5 border-b border-r border-gray-200 truncate"
+                    className="px-2 py-0.5 border-b border-r border-edge truncate"
                 >
                     {fmt(values[offset + c])}
                 </div>
             ))}
             {isVector && (
-                <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
+                <div className="px-2 py-0.5 border-b border-r border-edge truncate">
                     {fmt(mag)}
                 </div>
             )}
             <button
                 className={
-                    "px-1 border-b border-gray-200 flex items-center justify-center " +
+                    "px-1 border-b border-edge flex items-center justify-center " +
                     (active
-                        ? "text-blue-700 hover:text-blue-900"
-                        : "text-gray-400 hover:text-blue-600")
+                        ? "text-accent pointer-fine:hover:text-accent"
+                        : "text-content-muted pointer-fine:hover:text-accent")
                 }
                 onClick={() => onGoTo(nodeId)}
                 title={
@@ -690,21 +691,21 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
     ) ?? null;
 
     return (
-        <div className="mt-3 pt-3 border-t border-gray-300">
-            <div className="text-xs font-semibold text-gray-700 mb-2">
+        <div className="mt-3 pt-3 border-t border-edge">
+            <div className="text-xs font-semibold text-content-subtle mb-2">
                 History output
-                <span className="ml-2 font-normal text-gray-500">
+                <span className="ml-2 font-normal text-content-subtle">
                     ({history.regions.length} region
                     {history.regions.length === 1 ? "" : "s"}, {" "}
                     {history.variables.length} variable
                     {history.variables.length === 1 ? "" : "s"})
                 </span>
             </div>
-            <div className="flex flex-wrap gap-2 mb-2 text-xs text-gray-700">
+            <div className="flex flex-wrap gap-2 mb-2 text-xs text-content-subtle">
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                    <span className="text-gray-500 shrink-0">Region:</span>
+                    <span className="text-content-subtle shrink-0">Region:</span>
                     <select
-                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-56"
+                        className="border border-edge rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-56"
                         value={regionId}
                         onChange={(e) => setRegionId(e.target.value)}
                     >
@@ -716,9 +717,9 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
                     </select>
                 </label>
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                    <span className="text-gray-500 shrink-0">Variable:</span>
+                    <span className="text-content-subtle shrink-0">Variable:</span>
                     <select
-                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
+                        className="border border-edge rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
                         value={variable}
                         onChange={(e) => setVariable(e.target.value)}
                     >
@@ -731,9 +732,9 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
                     </select>
                 </label>
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                    <span className="text-gray-500 shrink-0">Step:</span>
+                    <span className="text-content-subtle shrink-0">Step:</span>
                     <select
-                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
+                        className="border border-edge rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
                         value={stepIdx}
                         onChange={(e) => setStepIdx(parseInt(e.target.value, 10))}
                     >
@@ -747,7 +748,7 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
             </div>
 
             {region && variableMeta && (
-                <div className="text-[11px] text-gray-500 mb-1">
+                <div className="text-[11px] text-content-subtle mb-1">
                     {region.instance && (
                         <span className="font-mono">{region.instance}</span>
                     )}
@@ -766,7 +767,7 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
             )}
 
             {!series ? (
-                <div className="text-xs italic text-gray-500">
+                <div className="text-xs italic text-content-subtle">
                     No samples for this combination.
                 </div>
             ) : (
@@ -785,26 +786,26 @@ const FeaHistoryTable: React.FC<{
     // overflow-y-auto with a capped height keeps it light.
     return (
         <div
-            className="border border-gray-200 rounded-sm bg-white overflow-auto"
+            className="border border-edge rounded-sm bg-white overflow-auto"
             style={{maxHeight: 160}}
         >
             <div
-                className="grid border-b border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700 sticky top-0 z-10"
+                className="grid border-b border-edge bg-surface-3 text-xs font-semibold text-content-subtle sticky top-0 z-10"
                 style={{gridTemplateColumns: "minmax(80px, 1fr) minmax(120px, 2fr)"}}
             >
-                <div className="px-2 py-1 border-r border-gray-300">Time</div>
+                <div className="px-2 py-1 border-r border-edge">Time</div>
                 <div className="px-2 py-1">Value</div>
             </div>
             {times.map((t, i) => (
                 <div
                     key={i}
-                    className="grid text-xs font-mono text-gray-800 odd:bg-white even:bg-gray-50"
+                    className="grid text-xs font-mono text-content-subtle odd:bg-white even:bg-surface-3"
                     style={{gridTemplateColumns: "minmax(80px, 1fr) minmax(120px, 2fr)"}}
                 >
-                    <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
+                    <div className="px-2 py-0.5 border-b border-r border-edge truncate">
                         {fmt(t)}
                     </div>
-                    <div className="px-2 py-0.5 border-b border-gray-200 truncate">
+                    <div className="px-2 py-0.5 border-b border-edge truncate">
                         {fmt(values[i])}
                     </div>
                 </div>
@@ -813,8 +814,14 @@ const FeaHistoryTable: React.FC<{
     );
 };
 
+// Tokens, not white.
+//
+// This was `bg-white bg-opacity-90` — pre-design-system styling the migration missed,
+// because noAdHocChrome's pattern requires a numeric suffix (`bg-gray-800`) and
+// `bg-white` has none. Worse, `bg-opacity-90` is Tailwind v3 syntax that v4 ignores, so
+// the panel was not even translucent: a solid white card in a dark viewer.
 const PanelShell: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <div className="p-3 border rounded-lg shadow-xs bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px] overflow-auto">
+    <div className="flex min-h-0 max-h-[420px] flex-col overflow-auto rounded-md border border-edge bg-surface-1 p-3">
         {children}
     </div>
 );
@@ -836,13 +843,10 @@ const LegacyGltfSimDataPanel: React.FC = () => {
     if (!simData) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-gray-800">
-                    No Simulation Loaded
-                </h2>
-                <p className="text-sm text-gray-500 mt-2">
-                    Load a GLB with the ADA simulation metadata extension, or
-                    open a streaming-FEA file from storage to view nodal data.
-                </p>
+                <EmptyState
+                    title="No simulation loaded"
+                    hint="Open a result file from Storage — a Sesam .sin, a Code_Aster .rmed, or a GLB carrying the ADA simulation extension."
+                />
             </PanelShell>
         );
     }
@@ -851,7 +855,10 @@ const LegacyGltfSimDataPanel: React.FC = () => {
     if (!steps || steps.length === 0) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-gray-800">No Simulation Steps</h2>
+                <EmptyState
+                    title="No steps in this result"
+                    hint="The file loaded, but its result set carries no time or mode steps to scrub through."
+                />
             </PanelShell>
         );
     }
@@ -861,7 +868,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
     if (fields.length === 0) {
         return (
             <PanelShell>
-                <h2 className="text-lg font-semibold text-gray-800">No Fields in Step</h2>
+                <h2 className="text-lg font-semibold text-content-subtle">No Fields in Step</h2>
             </PanelShell>
         );
     }
@@ -870,11 +877,11 @@ const LegacyGltfSimDataPanel: React.FC = () => {
 
     return (
         <PanelShell>
-            <h2 className="text-xl font-semibold text-gray-800">{simData.name}</h2>
-            <p className="text-sm text-gray-500 mt-1">
+            <h2 className="text-xl font-semibold text-content-subtle">{simData.name}</h2>
+            <p className="text-sm text-content-subtle mt-1">
                 {new Date(simData.date).toLocaleString()}
             </p>
-            <div className="mt-3 text-sm text-gray-700">
+            <div className="mt-3 text-sm text-content-subtle">
                 <div>
                     <strong>Software:</strong> {simData.fea_software}
                 </div>
@@ -884,7 +891,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
             </div>
             <div className="mt-4">
                 <div className="flex flex-row gap-4 items-center">
-                    <label className="flex items-center text-sm text-gray-700">
+                    <label className="flex items-center text-sm text-content-subtle">
                         <span>Step:</span>
                         <select
                             className="ml-2 p-1 border rounded-sm"
@@ -902,7 +909,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
                             ))}
                         </select>
                     </label>
-                    <label className="flex items-center text-sm text-gray-700">
+                    <label className="flex items-center text-sm text-content-subtle">
                         <span>Field:</span>
                         <select
                             className="ml-2 p-1 border rounded-sm"

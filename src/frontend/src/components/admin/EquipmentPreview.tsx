@@ -490,11 +490,11 @@ const EquipmentPreview: React.FC<{
     const selectedName = selPort !== null ? doc.ports[selPort]?.name : undefined;
 
     return (
-        <div className={expanded ? "fixed inset-0 z-50 bg-gray-900/90 p-4" : "relative w-full h-[200px]"}>
+        <div className={expanded ? "fixed inset-0 z-50 bg-surface-0 p-4" : "relative w-full h-[200px]"}>
             <div className="relative w-full h-full">
-                <div ref={mountRef} className="w-full h-full rounded-sm bg-gray-800/60 overflow-hidden" />
+                <div ref={mountRef} className="w-full h-full rounded-sm bg-surface-0 overflow-hidden" />
                 <button
-                    className="absolute right-2 top-2 px-1.5 py-0.5 rounded-sm text-[13px] leading-none bg-gray-900/80 text-gray-200 hover:bg-gray-700"
+                    className="absolute right-2 top-2 px-1.5 py-0.5 rounded-sm text-[13px] leading-none bg-surface-0 text-content pointer-fine:hover:bg-surface-2"
                     onClick={() => setExpanded((v) => !v)}
                     title={expanded ? "Collapse preview" : "Expand preview"}
                     aria-pressed={expanded}
@@ -503,13 +503,13 @@ const EquipmentPreview: React.FC<{
                 </button>
                 {selectedName === undefined ? (
                     doc.ports.length > 0 && (
-                        <div className="absolute left-2 bottom-2 text-[11px] text-gray-300 bg-gray-900/70 rounded px-1.5 py-0.5 pointer-events-none">
+                        <div className="absolute left-2 bottom-2 text-[11px] text-content bg-surface-0 rounded px-1.5 py-0.5 pointer-events-none">
                             Click a port arrow to align it
                         </div>
                     )
                 ) : (
-                    <div className="absolute left-2 bottom-2 flex items-center gap-1 text-[11px] bg-gray-900/80 rounded px-1.5 py-1">
-                        <span className="text-blue-300 font-medium max-w-[90px] truncate" title={selectedName}>
+                    <div className="absolute left-2 bottom-2 flex items-center gap-1 text-[11px] bg-surface-0 rounded px-1.5 py-1">
+                        <span className="text-accent font-medium max-w-[90px] truncate" title={selectedName}>
                             {selectedName}
                         </span>
                         {(
@@ -522,7 +522,7 @@ const EquipmentPreview: React.FC<{
                                 key={m}
                                 className={
                                     "px-1.5 py-0.5 rounded-sm " +
-                                    (mode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                                    (mode === m ? "bg-accent text-white" : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
                                 }
                                 onClick={() => setMode(m)}
                                 aria-pressed={mode === m}
@@ -531,14 +531,14 @@ const EquipmentPreview: React.FC<{
                             </button>
                         ))}
                         <label
-                            className="flex items-center gap-0.5 text-gray-300"
+                            className="flex items-center gap-0.5 text-content"
                             title="Snap the nozzle to the box corners / CAD vertices"
                         >
                             <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
                             snap
                         </label>
                         <button
-                            className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-300 hover:bg-gray-600"
+                            className="px-1.5 py-0.5 rounded-sm bg-surface-2 text-content pointer-fine:hover:bg-surface-3"
                             onClick={() => setSelPort(null)}
                             title="Finish editing this port"
                         >

@@ -5,6 +5,7 @@ import {comms} from '../utils/comms';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
 import {requestConnectedClients} from '../utils/websocket/requestConnectedClients';
 import {requestShutdownServer} from '../utils/websocket/requestShutdownServer';
+import {alertText} from "@/ui/confirm";
 
 export function WebsocketStatusMenu() {
     const {connected, toggleShowInfoBox} = useWebsocketStatusStore();
@@ -78,7 +79,10 @@ export function WebsocketStatusBox() {
     const saveEdit = useCallback(async () => {
         const parsed = Number(tempId);
         if (!Number.isFinite(parsed)) {
-            alert('Please enter a valid number for Instance ID.');
+            void alertText({
+                title: "That is not a number",
+                body: ["The instance ID must be a whole number."],
+            });
             return;
         }
         try {
@@ -86,7 +90,11 @@ export function WebsocketStatusBox() {
             // Server info will refresh after reconnect in handler.connect()
             setEditingId(false);
         } catch (e: any) {
-            alert(e?.message || 'Failed to set instance ID');
+            void alertText({
+                title: "Could not set the instance ID",
+                body: [String(e?.message || "The server refused the change.")],
+                tone: "danger",
+            });
         }
     }, [tempId]);
 
@@ -103,8 +111,8 @@ export function WebsocketStatusBox() {
     return (
         <div className={`${PANEL_CHROME} min-w-80`}>
             <h2 className="font-bold">WebSocket Status</h2>
-            <div className="text-xs text-gray-300 space-y-2 mb-2">
-                <div className="border-b border-gray-300 pb-2">
+            <div className="text-xs text-content space-y-2 mb-2">
+                <div className="border-b border-edge pb-2">
                     <div className="font-medium mb-1">Frontend Instance</div>
                     <div className="flex items-center justify-between gap-2">
                         {!editingId ? (
@@ -113,7 +121,7 @@ export function WebsocketStatusBox() {
                                     ID: {currentId}
                                 </span>
                                 <button
-                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent-hover text-xs px-2 py-1 rounded-sm"
                                     title="Edit Instance ID"
                                     onClick={startEdit}
                                 >
@@ -124,21 +132,21 @@ export function WebsocketStatusBox() {
                             <div className="flex items-center gap-2 flex-1">
                                 <input
                                     ref={inputRef}
-                                    className="flex-1 text-xs font-mono px-2 py-1 border rounded-sm outline-hidden focus:ring-2 focus:ring-blue-300"
+                                    className="flex-1 text-xs font-mono px-2 py-1 border rounded-sm outline-hidden focus:ring-2 focus:ring-accent"
                                     value={tempId}
                                     onChange={(e) => setTempId(e.target.value)}
                                     onKeyDown={onKeyDown}
                                     aria-label="Frontend Instance ID"
                                 />
                                 <button
-                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded-sm"
+                                    className="cursor-pointer text-white bg-accent pointer-fine:hover:bg-accent-hover text-xs px-2 py-1 rounded-sm"
                                     onClick={saveEdit}
                                     title="Save"
                                 >
                                     Save
                                 </button>
                                 <button
-                                    className="cursor-pointer text-gray-300 hover:text-gray-100 text-xs px-2 py-1 border border-gray-600 rounded-sm"
+                                    className="cursor-pointer text-content pointer-fine:hover:text-content text-xs px-2 py-1 border border-edge rounded-sm"
                                     onClick={cancelEdit}
                                     title="Cancel"
                                 >
@@ -149,11 +157,11 @@ export function WebsocketStatusBox() {
                     </div>
                 </div>
 
-                <div className="border-b border-gray-300 pb-2">
+                <div className="border-b border-edge pb-2">
                     <div className="font-medium mb-1">WebSocket Server</div>
                     <div className="flex justify-between">
                         <span className="font-medium">Status:</span>
-                        <span className={connected ? 'text-green-500 font-semibold' : 'text-red-400 font-semibold'}>
+                        <span className={connected ? 'text-pass font-semibold' : 'text-fail font-semibold'}>
                             {connected ? 'Connected' : 'Disconnected'}
                         </span>
                     </div>
@@ -161,7 +169,7 @@ export function WebsocketStatusBox() {
                         <div className="flex justify-between items-center mt-1">
                             <span className="font-medium">Connected Clients:</span>
                             <button
-                                className="cursor-pointer text-blue-400 hover:text-blue-300 font-medium"
+                                className="cursor-pointer text-accent pointer-fine:hover:text-accent font-medium"
                                 onClick={() => setShowClientsList(!showClientsList)}
                                 title="Click to show/hide client list"
                             >
@@ -173,20 +181,20 @@ export function WebsocketStatusBox() {
                         </div>
                     )}
                     {showClientsList && connectedClients.length > 0 && (
-                        <div className="mt-2 pl-2 border-l-2 border-blue-300">
-                            <div className="text-xs text-gray-400 mb-1">Client Instances:</div>
+                        <div className="mt-2 pl-2 border-l-2 border-accent">
+                            <div className="text-xs text-content-muted mb-1">Client Instances:</div>
                             {connectedClients.map((client) => (
                                 <div
                                     key={client.instanceId}
                                     className={`text-xs font-mono px-2 py-1 rounded mb-1 ${
                                         client.instanceId === comms.getInstanceId()
-                                            ? 'bg-blue-200 text-blue-900 font-semibold'
-                                            : 'bg-gray-700 text-gray-300'
+                                            ? 'bg-accent text-accent font-semibold'
+                                            : 'bg-surface-2 text-content'
                                     }`}
                                     title={String(client.instanceId)}
                                 >
                                     {client.instanceId === comms.getInstanceId() && (
-                                        <span className="text-blue-700 mr-1">●</span>
+                                        <span className="text-accent mr-1">●</span>
                                     )}
                                     {client.name || `Client ${client.instanceId}`}
                                 </div>
@@ -206,13 +214,13 @@ export function WebsocketStatusBox() {
                         </>
                     )}
                     {!processInfo && connected && (
-                        <div className="text-gray-700 italic mt-1">Loading server info...</div>
+                        <div className="text-content-subtle italic mt-1">Loading server info...</div>
                     )}
                 </div>
                 {(logFilePath || processInfo?.logFilePath) && (
-                    <div className="border-b border-gray-300 pb-2">
+                    <div className="border-b border-edge pb-2">
                         <div className="font-medium mb-1">Log File Path</div>
-                        <div className="text-xs font-mono text-gray-800 wrap-break-word">
+                        <div className="text-xs font-mono text-content-subtle wrap-break-word">
                             {logFilePath || processInfo?.logFilePath || 'N/A'}
                         </div>
                     </div>
@@ -220,7 +228,7 @@ export function WebsocketStatusBox() {
             </div>
             {connected && (
                 <button
-                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded-sm bg-red-600 text-white hover:bg-red-700 transition"
+                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded-sm bg-fail text-white pointer-fine:hover:bg-fail transition"
                     onClick={handleKillServer}
                 >
                     Shutdown Server

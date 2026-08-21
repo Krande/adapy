@@ -16,11 +16,11 @@ const FacePickingToggle: React.FC = () => {
 
     const btn = (active: boolean) =>
         "flex-1 px-2 py-0.5 text-xs rounded-sm transition-colors " +
-        (active ? "bg-blue-700 text-white" : "bg-gray-700 text-gray-200 hover:bg-gray-600");
+        (active ? "bg-accent text-white" : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3");
 
     return (
         <div className="flex items-center gap-2 py-1">
-            <span className="text-xs text-gray-300">Click picks:</span>
+            <span className="text-xs text-content">Click picks:</span>
             <div className="flex gap-1 flex-1" role="group" aria-label="Click picking mode">
                 <button
                     type="button"

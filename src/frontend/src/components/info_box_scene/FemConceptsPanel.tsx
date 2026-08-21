@@ -58,14 +58,14 @@ const FemConceptsPanel = () => {
             </label>
 
             {/* Load-scenario selector */}
-            <div className="border-t border-gray-500 pt-2">
+            <div className="border-t border-edge pt-2">
                 <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold">Load scenario</span>
                     <span className="text-xs opacity-70">{nScen ? `${nScen} total` : "none"}</span>
                 </div>
                 <div className="flex items-center gap-1">
                     <button
-                        className="px-2 py-0.5 rounded-sm bg-gray-600 text-white disabled:opacity-40"
+                        className="px-2 py-0.5 rounded-sm bg-surface-3 text-white disabled:opacity-40"
                         disabled={nScen < 1}
                         onClick={() => cycle(-1)}
                         title="Previous scenario"
@@ -73,7 +73,7 @@ const FemConceptsPanel = () => {
                         ‹
                     </button>
                     <select
-                        className="flex-1 text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 disabled:opacity-50"
+                        className="flex-1 text-sm rounded-sm px-1 py-0.5 bg-surface-2 text-content border border-edge disabled:opacity-50"
                         disabled={nScen < 1}
                         value={selectedScenario}
                         onChange={(e) => setSelectedScenario(parseInt(e.target.value, 10))}
@@ -86,7 +86,7 @@ const FemConceptsPanel = () => {
                         ))}
                     </select>
                     <button
-                        className="px-2 py-0.5 rounded-sm bg-gray-600 text-white disabled:opacity-40"
+                        className="px-2 py-0.5 rounded-sm bg-surface-3 text-white disabled:opacity-40"
                         disabled={nScen < 1}
                         onClick={() => cycle(1)}
                         title="Next scenario"

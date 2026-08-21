@@ -327,7 +327,7 @@ const GalleryControls: React.FC = () => {
             aria-label="Walk type"
             value={walk}
             onChange={(e) => setWalk(e.target.value as typeof walk)}
-            className="rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
+            className="rounded-sm border border-edge bg-surface-0 px-1 py-0.5 text-[11px] text-content"
         >
             <option value="files">Files</option>
             <option value="geoms">Geoms</option>
@@ -336,12 +336,12 @@ const GalleryControls: React.FC = () => {
 
     // Geom-walk sub-controls: order + isolate toggle + refresh.
     const geomControls = isGeomWalk && (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-content">
             <select
                 aria-label="Geom order"
                 value={geomOrder}
                 onChange={(e) => setGeomOrder(e.target.value as typeof geomOrder)}
-                className="rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
+                className="rounded-sm border border-edge bg-surface-0 px-1 py-0.5 text-[11px] text-content"
             >
                 <option value="scene">Order: scene</option>
                 <option value="density">Order: density</option>
@@ -359,7 +359,7 @@ const GalleryControls: React.FC = () => {
                     if (entries.length) void goGeom(Math.min(geomIndex, entries.length - 1), entries);
                 }}
                 title="Rebuild the geom list from the current scene"
-                className="rounded-sm border border-gray-600 px-1.5 py-0.5 hover:bg-gray-700"
+                className="rounded-sm border border-edge px-1.5 py-0.5 pointer-fine:hover:bg-surface-2"
             >
                 ⟳
             </button>
@@ -370,11 +370,11 @@ const GalleryControls: React.FC = () => {
     // files walk and the geoms walk — so the reconvert-path tools are available in either mode (a user
     // walking a model's geoms can still reconvert it via a different path, e.g. to pick up a fix).
     const toolsDrawer = (
-        <div className="border-t border-gray-700 pt-1">
+        <div className="border-t border-edge pt-1">
             <button
                 type="button"
                 onClick={() => setToolsOpen((v) => !v)}
-                className="flex w-full items-center justify-between text-[10px] uppercase tracking-wide text-gray-400 hover:text-gray-200"
+                className="flex w-full items-center justify-between text-[10px] uppercase tracking-wide text-content-muted pointer-fine:hover:text-content"
             >
                 <span>Tools</span>
                 <span>{toolsOpen ? "▾" : "▸"}</span>
@@ -417,11 +417,11 @@ const GalleryControls: React.FC = () => {
                         disabled={empty || reconverting}
                         onClick={() => void reconvert()}
                         title="Run a fresh conversion (throwaway; never overwrites the audit-run product)"
-                        className="rounded-sm border border-amber-600/60 px-2 py-0.5 text-amber-200 hover:bg-amber-900/30 disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-warn px-2 py-0.5 text-warn pointer-fine:hover:bg-warn-subtle disabled:opacity-40 disabled:cursor-default"
                     >
                         {reconverting ? "Re-converting…" : "↻ Re-convert"}
                     </button>
-                    {reconvertMsg && <span className="truncate text-[10px] text-gray-400">{reconvertMsg}</span>}
+                    {reconvertMsg && <span className="truncate text-[10px] text-content-muted">{reconvertMsg}</span>}
                 </div>
             )}
         </div>
@@ -430,7 +430,7 @@ const GalleryControls: React.FC = () => {
     return (
         <>
             {/* Desktop: compact top-right card. */}
-            <div className="hidden md:flex pointer-events-auto absolute right-3 top-3 z-20 max-w-[42vw] flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/85 px-2 py-1.5 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
+            <div className="hidden md:flex pointer-events-auto absolute right-3 top-3 z-20 max-w-[42vw] flex-col gap-1 rounded-md border border-edge bg-surface-0 px-2 py-1.5 text-xs text-content shadow-lg backdrop-blur-sm">
                 <div className="flex items-center gap-2">
                     {walkSelector}
                     <button
@@ -438,7 +438,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Previous"
                         disabled={empty || navBusy}
                         onClick={() => step(-1)}
-                        className="rounded-sm border border-gray-600 px-2 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-edge px-2 py-0.5 pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ‹ Prev
                     </button>
@@ -447,7 +447,7 @@ const GalleryControls: React.FC = () => {
                         onClick={() => setFilePickerOpen(true)}
                         disabled={files.length === 0}
                         title="Jump to a file…"
-                        className="tabular-nums text-gray-400 hover:text-gray-100 hover:underline disabled:cursor-default disabled:no-underline"
+                        className="tabular-nums text-content-muted pointer-fine:hover:text-content pointer-fine:hover:underline disabled:cursor-default disabled:no-underline"
                     >
                         {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
                     </button>
@@ -456,7 +456,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Next"
                         disabled={empty || navBusy}
                         onClick={() => step(1)}
-                        className="rounded-sm border border-gray-600 px-2 py-0.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+                        className="rounded-sm border border-edge px-2 py-0.5 pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         Next ›
                     </button>
@@ -467,7 +467,7 @@ const GalleryControls: React.FC = () => {
                     onClick={() => void copyName(primaryLabel)}
                     disabled={empty}
                     title={empty ? primaryLabel : `Click to copy: ${primaryLabel}`}
-                    className="truncate text-left font-mono text-[11px] text-gray-300 hover:text-gray-100 disabled:cursor-default"
+                    className="truncate text-left font-mono text-[11px] text-content pointer-fine:hover:text-content disabled:cursor-default"
                 >
                     {nameCopied ? "✓ copied" : primaryLabel}
                 </button>
@@ -475,7 +475,7 @@ const GalleryControls: React.FC = () => {
             </div>
 
             {/* Mobile: bottom bar, larger tap targets, clear of the top menu. */}
-            <div ref={mobileBarRef} className="flex md:hidden pointer-events-auto absolute inset-x-2 bottom-2 z-20 flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/90 px-2 py-2 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
+            <div ref={mobileBarRef} className="flex md:hidden pointer-events-auto absolute inset-x-2 bottom-2 z-20 flex-col gap-1 rounded-md border border-edge bg-surface-0 px-2 py-2 text-xs text-content shadow-lg backdrop-blur-sm">
                 <div className="flex items-center gap-2">
                     {walkSelector}
                     <button
@@ -483,7 +483,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Previous"
                         disabled={empty || navBusy}
                         onClick={() => step(-1)}
-                        className="shrink-0 rounded-sm border border-gray-600 px-3 py-2 text-base leading-none hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ‹
                     </button>
@@ -493,7 +493,7 @@ const GalleryControls: React.FC = () => {
                             onClick={() => void copyName(primaryLabel)}
                             disabled={empty}
                             title={empty ? primaryLabel : `Tap to copy: ${primaryLabel}`}
-                            className="w-full truncate font-mono text-[11px] text-gray-200 hover:text-white disabled:cursor-default"
+                            className="w-full truncate font-mono text-[11px] text-content pointer-fine:hover:text-white disabled:cursor-default"
                         >
                             {nameCopied ? "✓ copied" : primaryLabel}
                         </button>
@@ -501,7 +501,7 @@ const GalleryControls: React.FC = () => {
                             type="button"
                             onClick={() => setFilePickerOpen(true)}
                             disabled={files.length === 0}
-                            className="tabular-nums text-[10px] text-gray-500 hover:text-gray-300 disabled:cursor-default"
+                            className="tabular-nums text-[10px] text-content-subtle pointer-fine:hover:text-content disabled:cursor-default"
                         >
                             {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
                         </button>
@@ -511,7 +511,7 @@ const GalleryControls: React.FC = () => {
                         aria-label="Next"
                         disabled={empty || navBusy}
                         onClick={() => step(1)}
-                        className="shrink-0 rounded-sm border border-gray-600 px-3 py-2 text-base leading-none hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default"
+                        className="shrink-0 rounded-sm border border-edge px-3 py-2 text-base leading-none pointer-fine:hover:bg-surface-2 disabled:opacity-40 disabled:cursor-default"
                     >
                         ›
                     </button>

@@ -26,9 +26,9 @@ import {
 // tool panel (CellBuilderPanel), not here.
 
 const btn =
-  "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
+  "px-2 py-1 rounded-sm bg-accent text-white disabled:opacity-50 pointer-fine:hover:bg-accent";
 const inputCls =
-  "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
+  "text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5";
 
 // Editable per-cell parameters, mirrored from ada/topology/entities.py
 // (TopoSpace / TopoEquipment). Anything not listed still round-trips
@@ -96,7 +96,7 @@ const ParamRow: React.FC<{ cell: BuilderCell; field: ParamField }> = ({
   if (field.type === "select") {
     return (
       <label className="flex items-center gap-1">
-        <span className="text-gray-300">{field.label}</span>
+        <span className="text-content">{field.label}</span>
         <select
           className={inputCls}
           value={typeof value === "string" ? value : ""}
@@ -117,7 +117,7 @@ const ParamRow: React.FC<{ cell: BuilderCell; field: ParamField }> = ({
   if (field.type === "number") {
     return (
       <label className="flex items-center gap-1">
-        <span className="text-gray-300">{field.label}</span>
+        <span className="text-content">{field.label}</span>
         <input
           type="number"
           step={field.step ?? 0.1}
@@ -136,7 +136,7 @@ const ParamRow: React.FC<{ cell: BuilderCell; field: ParamField }> = ({
   }
   return (
     <label className="flex items-center gap-1">
-      <span className="text-gray-300">{field.label}</span>
+      <span className="text-content">{field.label}</span>
       <input
         type="text"
         className={`${inputCls} w-24`}
@@ -185,9 +185,9 @@ const EquipmentSystems: React.FC<{
   const unconnected = ports.filter((p) => !connectedPorts.has(p.name));
 
   return (
-    <div className="border-t border-gray-600/60 pt-1">
+    <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -195,9 +195,9 @@ const EquipmentSystems: React.FC<{
           ▸
         </span>
         <span className="font-semibold">Systems & I/O</span>
-        <span className="text-gray-400">({connected.length} wired)</span>
+        <span className="text-content-muted">({connected.length} wired)</span>
         {unconnected.some((p) => p.direction === "IN") && (
-          <span className="ml-1 text-red-400" title="Has unconnected input(s)">
+          <span className="ml-1 text-fail" title="Has unconnected input(s)">
             ⚠
           </span>
         )}
@@ -205,7 +205,7 @@ const EquipmentSystems: React.FC<{
       {open && (
         <div className="flex flex-col gap-1 px-1 pt-1">
           {connected.length === 0 ? (
-            <div className="text-gray-500 italic">
+            <div className="text-content-subtle italic">
               Not connected to any system.
             </div>
           ) : (
@@ -221,8 +221,8 @@ const EquipmentSystems: React.FC<{
                       style={{ background: SYSTEM_TYPE_COLOR[sys.type] }}
                     />
                     <span className="truncate">{sys.name}</span>
-                    <span className="text-gray-400">({sys.type})</span>
-                    <span className="ml-auto text-gray-400">
+                    <span className="text-content-muted">({sys.type})</span>
+                    <span className="ml-auto text-content-muted">
                       {cports.join(", ")}
                     </span>
                   </div>
@@ -233,8 +233,8 @@ const EquipmentSystems: React.FC<{
           {/* Unconnected ports — inputs (IN) are the "missing" ones the overlay
               warns about; outputs/signals are shown too but not flagged. */}
           {unconnected.length > 0 && (
-            <div className="flex flex-col gap-0.5 border-t border-gray-700/50 pt-1">
-              <span className="text-gray-400">Unconnected I/O</span>
+            <div className="flex flex-col gap-0.5 border-t border-edge pt-1">
+              <span className="text-content-muted">Unconnected I/O</span>
               {unconnected.map((p) => (
                 <div key={p.name} className="flex items-center gap-1">
                   <span
@@ -243,12 +243,12 @@ const EquipmentSystems: React.FC<{
                   />
                   <span
                     className={
-                      "truncate " + (p.direction === "IN" ? "text-red-300" : "")
+                      "truncate " + (p.direction === "IN" ? "text-fail" : "")
                     }
                   >
                     {p.name}
                   </span>
-                  <span className="ml-auto text-gray-500">
+                  <span className="ml-auto text-content-subtle">
                     {p.direction} · {p.category}
                     {p.direction === "IN" ? " · missing" : ""}
                   </span>
@@ -257,7 +257,7 @@ const EquipmentSystems: React.FC<{
             </div>
           )}
           {equipmentType && ports.length === 0 && (
-            <div className="text-gray-600 italic">
+            <div className="text-content-subtle italic">
               Port list unavailable (type not loaded).
             </div>
           )}
@@ -281,7 +281,7 @@ const LoftNumberField: React.FC<{
   const setLoftStationParam = useCellBuilderStore((s) => s.setLoftStationParam);
   return (
     <label className="flex items-center gap-1">
-      <span className="text-gray-400 w-12">{label}</span>
+      <span className="text-content-muted w-12">{label}</span>
       <input
         type="number"
         step={0.1}
@@ -306,10 +306,10 @@ const EditableStation: React.FC<{
   stationIndex: number;
   station: import("@/utils/cellbuilder/loft").LoftStation;
 }> = ({ label, member, stationIndex, station }) => (
-  <div className="flex flex-col gap-0.5 border border-gray-700/50 rounded-sm p-1">
+  <div className="flex flex-col gap-0.5 border border-edge rounded-sm p-1">
     <div className="flex items-center gap-1">
-      <span className="text-gray-300 font-medium">{label}</span>
-      <span className="text-gray-500">({station.TYPE})</span>
+      <span className="text-content font-medium">{label}</span>
+      <span className="text-content-subtle">({station.TYPE})</span>
     </div>
     <div className="flex flex-wrap gap-x-3 gap-y-0.5">
       <LoftNumberField
@@ -396,9 +396,9 @@ const LoftFaces: React.FC<{
       ? rows[pickedFaceIndex].id
       : undefined;
   return (
-    <div className="border border-gray-700/50 rounded-sm p-1">
+    <div className="border border-edge rounded-sm p-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -406,7 +406,7 @@ const LoftFaces: React.FC<{
           ▸
         </span>
         <span className="font-semibold">Faces</span>
-        <span className="text-gray-400">({excluded.size} excluded)</span>
+        <span className="text-content-muted">({excluded.size} excluded)</span>
       </button>
       {open && (
         <div className="flex flex-col gap-0.5 px-1 pt-1">
@@ -415,7 +415,7 @@ const LoftFaces: React.FC<{
               key={row.id}
               className={
                 "flex items-center gap-1 rounded-sm px-0.5 " +
-                (row.id === pickedId ? "bg-rose-500/25" : "")
+                (row.id === pickedId ? "bg-fail-subtle" : "")
               }
               title={`Loft face ${band.member}:${row.id} — exclude to omit its plate at build`}
             >
@@ -426,15 +426,15 @@ const LoftFaces: React.FC<{
                   setLoftFaceExcluded(band.member, row.id, e.target.checked)
                 }
               />
-              <span className={excluded.has(row.id) ? "text-gray-500" : ""}>
+              <span className={excluded.has(row.id) ? "text-content-subtle" : ""}>
                 {row.label}
               </span>
               {excluded.has(row.id) && (
-                <span className="ml-auto text-amber-400/80">removed</span>
+                <span className="ml-auto text-warn">removed</span>
               )}
             </label>
           ))}
-          <div className="text-gray-600 italic pt-0.5">
+          <div className="text-content-subtle italic pt-0.5">
             Exclude drops the face's plate on recompile (interior end caps are
             unplated — excluding them is a no-op).
           </div>
@@ -470,15 +470,15 @@ const LoftInfo: React.FC<{
   const atMin = band.bandCount <= 1;
   return (
     <div className="flex flex-col gap-1.5 px-1 pt-1">
-      <div className="text-gray-400">
-        Loft band — member <span className="text-gray-200">{member}</span>, bay{" "}
+      <div className="text-content-muted">
+        Loft band — member <span className="text-content">{member}</span>, bay{" "}
         {band.bay + 1} of {band.bandCount}
       </div>
       <div
         className="flex items-center gap-1"
         title="Move the whole loft member (drag the widget in the scene, or use the grid nudge)"
       >
-        <span className="text-gray-300">gizmo</span>
+        <span className="text-content">gizmo</span>
         {(
           [
             ["translate", "Move"],
@@ -490,8 +490,8 @@ const LoftInfo: React.FC<{
             className={
               "px-1.5 py-0.5 rounded-sm " +
               (gizmoMode === m
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                ? "bg-accent text-white"
+                : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
             }
             onClick={() => setGizmoMode(m)}
             aria-pressed={gizmoMode === m}
@@ -575,20 +575,20 @@ const MetadataFields: React.FC<{
   const remove = (key: string) => push(removeMetadataKey(meta, key));
   const add = () => push(addMetadataKey(meta));
   return (
-    <div className="border-t border-gray-600/60 pt-1">
+    <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
         <span className={"transition-transform " + (open ? "rotate-90" : "")}>▸</span>
         <span className="font-semibold">Metadata</span>
-        <span className="text-gray-400">({entries.length})</span>
+        <span className="text-content-muted">({entries.length})</span>
       </button>
       {open && (
         <div className="flex flex-col gap-1 px-1 pt-1">
           {entries.length === 0 && (
-            <div className="text-gray-500 italic">
+            <div className="text-content-subtle italic">
               No metadata. Add your own fields — kept in the DB, ignored by the compiler.
             </div>
           )}
@@ -619,7 +619,7 @@ const MetadataFields: React.FC<{
                 title="Value — numbers, true/false and JSON are stored typed; anything else stays text"
               />
               <button
-                className="px-1 rounded-sm text-gray-400 hover:bg-gray-600 hover:text-white"
+                className="px-1 rounded-sm text-content-muted pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-white"
                 onClick={() => remove(k)}
                 title="Remove field"
               >
@@ -663,8 +663,8 @@ const ShowAsCadToggle: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
       className={
         "self-start px-2 py-1 rounded-sm " +
         (on
-          ? "bg-blue-600 text-white"
-          : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+          ? "bg-accent text-white"
+          : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
       }
       onClick={() => toggleCadPreview(cell.id)}
       aria-pressed={on}
@@ -734,9 +734,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           : `Edge along ${axisLabel(edgeAxis ?? 0)} of ${cell.name}`;
 
   return (
-    <div className="border-t border-gray-600/60 pt-1">
+    <div className="border-t border-edge pt-1">
       <button
-        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -745,7 +745,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
         </span>
         <span className="font-semibold truncate">{title}</span>
         <span
-          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+          className="ml-auto px-1 rounded-sm pointer-fine:hover:bg-surface-3"
           title="Clear selection (Esc)"
           onClick={(e) => {
             e.stopPropagation();
@@ -764,7 +764,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
             className="flex items-center gap-1"
             title="Direct-manipulation gizmo for this cell (also via long-press / right-click in the scene)"
           >
-            <span className="text-gray-300">gizmo</span>
+            <span className="text-content">gizmo</span>
             {
               // Equipment is sized by its type — offer Move + Rotate, no Resize.
               (cell.kind === "cell"
@@ -784,8 +784,8 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   className={
                     "px-1.5 py-0.5 rounded-sm " +
                     (gizmoMode === m
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                      ? "bg-accent text-white"
+                      : "bg-surface-2 text-content pointer-fine:hover:bg-surface-3")
                   }
                   onClick={() => setGizmoMode(m)}
                   aria-pressed={gizmoMode === m}
@@ -801,7 +801,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   by its type. */}
               {cell.kind === "cell" && (
                 <div className="flex items-center gap-1">
-                  <span className="text-gray-300">Extend by</span>
+                  <span className="text-content">Extend by</span>
                   <input
                     type="number"
                     step={0.1}
@@ -845,7 +845,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               )}
               {cell.kind === "cell" && (
                 <div className="flex items-center gap-1">
-                  <span className="text-gray-300">Insert opening</span>
+                  <span className="text-content">Insert opening</span>
                   <button
                     className={btn}
                     onClick={() =>
@@ -876,7 +876,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
             edgeAxis !== undefined &&
             cell.kind === "cell" && (
               <div className="flex items-center gap-1">
-                <span className="text-gray-300">
+                <span className="text-content">
                   Length {axisLabel(edgeAxis)}
                 </span>
                 <input
@@ -896,9 +896,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
             <ShowAsCadToggle cell={cell} />
           )}
           {selection.kind === "cell" && (
-            <div className="border-t border-gray-600/60 pt-1">
+            <div className="border-t border-edge pt-1">
               <button
-                className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+                className="flex items-center gap-1 w-full text-left pointer-fine:hover:bg-surface-2 rounded-sm px-1"
                 onClick={() => setPropsOpen((v) => !v)}
                 aria-expanded={propsOpen}
               >
@@ -912,7 +912,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               {propsOpen && (
                 <div className="flex flex-col gap-1 px-1 pt-1">
                   <label className="flex items-center gap-1">
-                    <span className="text-gray-300">name</span>
+                    <span className="text-content">name</span>
                     <input
                       type="text"
                       className={`${inputCls} flex-1 min-w-0`}
@@ -929,7 +929,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                       }
                     />
                   </label>
-                  <div className="text-gray-400">
+                  <div className="text-content-muted">
                     origin {cell.origin.map((v) => v.toFixed(2)).join(", ")} · size{" "}
                     {cell.size.map((v) => v.toFixed(2)).join(", ")}
                   </div>
@@ -953,9 +953,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                       className="flex items-center gap-1"
                       title="Assign this cell to a group; each group compiles with its own blueprint. Manage groups in the Build tab."
                     >
-                      <span className="text-gray-300">group</span>
+                      <span className="text-content">group</span>
                       <select
-                        className="flex-1 min-w-0 text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5"
+                        className="flex-1 min-w-0 text-content bg-surface-2 border border-edge rounded-sm px-1 py-0.5"
                         value={cell.group ?? ""}
                         onChange={(e) =>
                           setCellGroup(cell.id, e.target.value || null)
@@ -1007,7 +1007,7 @@ const CellBuilderSelectionInfo: React.FC = () => {
   const selection = useCellBuilderStore((s) => s.selection);
   if (!active || !selection) return null;
   return (
-    <div className="mt-3 border-t border-gray-500/60 pt-2 text-xs text-white">
+    <div className="mt-3 border-t border-edge pt-2 text-xs text-white">
       <div className="font-bold mb-1">Procedural cell</div>
       <SelectionSection selection={selection} />
     </div>

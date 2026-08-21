@@ -1,51 +1,20 @@
 import React from 'react';
 import {Rnd} from 'react-rnd';
-import {Background, Controls, MiniMap, ReactFlow} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_of_nodes";
-import {useNodeEditorStore} from '@/state/useNodeEditorStore'; // Import the Zustand store
-import ProcedureNode from './nodes/procedure_node/ProcedureNode';
-import CustomFileObjectNode from './nodes/file_node/CustomFileObjectNode';
-import {onDelete} from "@/utils/node_editor/handlers/on_delete";
+import {useNodeEditorStore} from '@/state/useNodeEditorStore';
+import NodeEditorBody from './NodeEditorBody';
 import {start_new_node_editor} from "@/utils/node_editor/handlers/start_new_node_editor";
 import ReloadIcon from "../icons/ReloadIcon";
 import PopOutIcon from "../icons/PopOutIcon";
 
-const nodeTypes = {
-    procedure: ProcedureNode,
-    file_object: CustomFileObjectNode,
-};
 
 const NodeEditorComponent: React.FC = () => {
-    // Access Zustand state and actions using hooks
-    const {
-        nodes,
-        edges,
-        setNodes,
-        setEdges,
-        onNodesChange,
-        onEdgesChange,
-        onConnect,
-        use_node_editor_only
-    } = useNodeEditorStore();
+    // Only the frame decision is made here now; the editor's own state lives in
+    // NodeEditorBody, which both this window and the shell's dock panel render.
+    const {use_node_editor_only} = useNodeEditorStore();
 
-    const editorContent = (
-        <ReactFlow
-            colorMode={"dark"}
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={(changes) => onNodesChange(changes)}
-            onEdgesChange={(changes) => onEdgesChange(changes)}
-            onConnect={onConnect}
-            nodeTypes={nodeTypes}
-            onDelete={onDelete}
-            fitView
-        >
-            <Background/>
-            <Controls/>
-            <MiniMap/>
-        </ReactFlow>
-    );
+    // Shared with the shell's dock panel so the two cannot drift.
+    const editorContent = <NodeEditorBody />;
 
     return use_node_editor_only ? (
         <div style={{width: '100%', height: '100%', background: 'white', border: '1px solid #ccc'}}>
@@ -64,22 +33,22 @@ const NodeEditorComponent: React.FC = () => {
             dragHandleClassName="node-editor-drag-handle" // Restrict dragging to the header
         >
             {/* Header Area */}
-            <div className="node-editor-header node-editor-drag-handle bg-gray-800 text-white px-4 py-2 cursor-move">
+            <div className="node-editor-header node-editor-drag-handle bg-surface-0 text-white px-4 py-2 cursor-move">
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent pointer-fine:hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => request_list_of_nodes()}
                     >
                         <ReloadIcon />
                     </button>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
+                        className={"flex relative bg-accent pointer-fine:hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}
                         onClick={() => start_new_node_editor()}
                     >
                         <PopOutIcon />
                     </button>
-                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}>*/}
+                    {/*<div className={"flex relative bg-accent hover:bg-accent-subtle text-white p-1 ml-2 rounded-sm"}>*/}
                     {/*    <input type="file" onChange={handleFileUpload}/>*/}
                     {/*</div>*/}
                 </div>

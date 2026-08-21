@@ -20,9 +20,10 @@ import {
   useConversionStore,
   type ConversionJob,
 } from "@/state/conversionStore";
-import { useModelState } from "@/state/modelState";
+import { useModelState, loadedSourceGroups } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useStatsStore } from "@/state/statsStore";
+import { requestRender } from "@/state/perfStore";
 import { resolveSelectedBlueprint } from "@/utils/cellbuilder/blueprints";
 import {
   resolveDetailingOptions,
@@ -3403,22 +3404,44 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setRepMode: async (mode) => {
       if (get().repMode === mode) return;
       set({ repMode: mode });
+
+      // Switching representation HIDES the other layers; it never unloads them.
+      //
+      // It used to call hideResult()/hideDetail(), which unload the GLB and null the
+      // source name — so every trip through Topology threw the compiled model away and
+      // coming back recompiled it. Flipping between "what I drew" and "what the compiler
+      // made of it" is something you do constantly while modelling, and paying a compile
+      // each way made the comparison not worth doing.
+      //
+      // Visibility only. The GLBs stay in the scene's source map, so the round trip is
+      // instant and a compile happens exactly when there is nothing to show yet.
+      const setVisible = (name: string | null, visible: boolean) => {
+        if (!name) return;
+        const group = loadedSourceGroups.get(name);
+        if (!group || group.visible === visible) return;
+        group.visible = visible;
+        requestRender();
+      };
+
       if (mode === "topology") {
         get().setCellsVisible(true);
-        get().hideResult();
-        get().hideDetail();
+        setVisible(get().resultSourceName, false);
+        setVisible(get().detailSourceName, false);
         return;
       }
       // Result modes: the topology layer stays visible when superimposing OR
       // showing side-by-side (there it sits beside the result).
       get().setCellsVisible(get().superimpose || get().sideBySide);
       // Build the result as a PREVIEW of the current (uncommitted) state — opening
-      // a result view must never force a commit; the user commits when happy.
+      // a result view must never force a commit; the user commits when happy. Only
+      // when there is no GLB yet: an existing one is simply shown again.
       if (mode === "simulation") {
-        get().hideDetail();
+        setVisible(get().detailSourceName, false);
+        setVisible(get().resultSourceName, true);
         if (get().resultSourceName === null) await get().compilePreview(false, "sim");
       } else {
-        get().hideResult();
+        setVisible(get().resultSourceName, false);
+        setVisible(get().detailSourceName, true);
         if (get().detailSourceName === null)
           await get().compilePreview(false, "detail");
       }

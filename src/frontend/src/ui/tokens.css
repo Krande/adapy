@@ -1,0 +1,197 @@
+/* Static design tokens + Tailwind v4 @theme registration.
+ *
+ * Two things live here, and the split matters:
+ *
+ *   1. STATIC tokens (:root below) — radii, spacing, control heights, type scale,
+ *      icon sizes, elevation, motion, z-index. These have no dependency on the
+ *      user's theme, so declaring them in CSS is safe.
+ *
+ *   2. @theme registration — maps both the static tokens AND the runtime colour
+ *      vars into Tailwind's utility namespace, so components write
+ *      `bg-surface-1 rounded-md h-control-md` instead of
+ *      `bg-[var(--ada-panel-bg)] rounded-[5px] h-[28px]`.
+ *
+ * Runtime COLOUR tokens are deliberately NOT declared here. themeStore writes them
+ * onto an element's inline style, because the embed build wraps its CSS in
+ * `@scope (.ada-viewer-scope)` and a `:root {}` rule inside @scope matches nothing.
+ * See src/ui/themeTokens.ts. The @theme block below only *references* them via
+ * var(), which resolves through inheritance and works fine inside @scope.
+ *
+ * vite.config.embed.ts hoists this file's :root block outside the @scope wrapper so
+ * the static half survives there too.
+ */
+
+:root {
+    /* ---- radii ---------------------------------------------------------- */
+    /* Deliberately tight. This is a dense technical tool, not a consumer app;
+       large radii waste pixels and read as "web page" rather than "workbench". */
+    --ada-radius-sm: 3px;
+    --ada-radius-md: 5px;
+    --ada-radius-lg: 8px;
+    --ada-radius-pill: 999px;
+
+    /* ---- spacing -------------------------------------------------------- */
+    /* A 2px base step, tighter than Tailwind's 4px default: DCC apps pack far more
+       controls per screen than Tailwind's defaults assume. */
+    --ada-space-1: 2px;
+    --ada-space-2: 4px;
+    --ada-space-3: 6px;
+    --ada-space-4: 8px;
+    --ada-space-5: 12px;
+    --ada-space-6: 16px;
+
+    /* ---- control heights ------------------------------------------------ */
+    --ada-control-h-sm: 22px;
+    --ada-control-h-md: 28px;
+    --ada-control-h-lg: 34px;
+    /* Minimum comfortable touch target. */
+    --ada-touch-h: 40px;
+
+    /* ---- typography ----------------------------------------------------- */
+    --ada-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --ada-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --ada-fs-xs: 11px;
+    --ada-fs-sm: 12px;
+    --ada-fs-base: 13px;
+    --ada-fs-lg: 15px;
+    --ada-lh-tight: 1.25;
+    --ada-lh-base: 1.45;
+
+    /* ---- icons ---------------------------------------------------------- */
+    --ada-icon-sm: 14px;
+    --ada-icon-md: 16px;
+    --ada-icon-lg: 20px;
+    --ada-icon-xl: 24px;
+
+    /* ---- elevation ------------------------------------------------------ */
+    --ada-shadow-panel: 0 1px 3px rgb(0 0 0 / 0.28);
+    --ada-shadow-float: 0 8px 24px rgb(0 0 0 / 0.38);
+    --ada-shadow-popover: 0 4px 14px rgb(0 0 0 / 0.34);
+
+    /* ---- motion --------------------------------------------------------- */
+    --ada-dur-fast: 90ms;
+    --ada-dur-base: 150ms;
+    --ada-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+    /* ---- z-index -------------------------------------------------------- */
+    /* Mirrors src/shell/zIndex.ts. One ordering, two consumers (TS + CSS), so a
+       plugin stylesheet and a core component cannot disagree about layering. */
+    --ada-z-canvas: 0;
+    --ada-z-overlay-hud: 10;
+    --ada-z-dock: 20;
+    --ada-z-rail-flyout: 30;
+    --ada-z-float: 40;
+    --ada-z-context-menu: 50;
+    --ada-z-toast: 60;
+    --ada-z-dialog: 70;
+    --ada-z-drag-preview: 80;
+    --ada-z-dev-overlay: 90;
+}
+
+/* Respect the OS setting. Every primitive animates through these two durations, so
+   zeroing them here is enough — no per-component opt-out to forget. */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --ada-dur-fast: 0ms;
+        --ada-dur-base: 0ms;
+    }
+}
+
+/* Touch input: grow every control to a comfortable target.
+
+   Done at the token level rather than per component so nothing can opt out by
+   forgetting — `h-control-sm` resolves through these, so a dense toolbar button
+   designed for a mouse becomes tappable without its call site knowing. This
+   generalises what Menu.tsx already did by hand (w-10 h-10 on mobile only). */
+@media (pointer: coarse) {
+    :root {
+        --ada-control-h-sm: var(--ada-touch-h);
+        --ada-control-h-md: var(--ada-touch-h);
+        --ada-control-h-lg: var(--ada-touch-h);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Tailwind v4 utility namespace.
+ * Colours point at the runtime vars themeStore maintains, so `bg-surface-1`
+ * re-paints on theme switch with no re-render.
+ * ------------------------------------------------------------------------- */
+@theme inline {
+    --color-surface-0: var(--ada-surface-0);
+    --color-surface-1: var(--ada-surface-1);
+    --color-surface-2: var(--ada-surface-2);
+    --color-surface-3: var(--ada-surface-3);
+
+    --color-content: var(--ada-text);
+    --color-content-muted: var(--ada-text-muted);
+    --color-content-subtle: var(--ada-text-subtle);
+
+    --color-edge: var(--ada-border);
+    --color-edge-strong: var(--ada-border-strong);
+
+    --color-accent: var(--ada-accent);
+    --color-accent-hover: var(--ada-accent-hover);
+    --color-accent-fg: var(--ada-accent-fg);
+    --color-accent-subtle: var(--ada-accent-subtle);
+
+    --color-pass: var(--ada-pass);
+    --color-warn: var(--ada-warn);
+    --color-fail: var(--ada-fail);
+    --color-info: var(--ada-info);
+    --color-pass-subtle: var(--ada-pass-subtle);
+    --color-warn-subtle: var(--ada-warn-subtle);
+    --color-fail-subtle: var(--ada-fail-subtle);
+    --color-info-subtle: var(--ada-info-subtle);
+
+    --color-select: var(--ada-select);
+    --color-select-subtle: var(--ada-select-subtle);
+
+    --radius-sm: var(--ada-radius-sm);
+    --radius-md: var(--ada-radius-md);
+    --radius-lg: var(--ada-radius-lg);
+
+    --text-xs: var(--ada-fs-xs);
+    --text-sm: var(--ada-fs-sm);
+    --text-base: var(--ada-fs-base);
+    --text-lg: var(--ada-fs-lg);
+
+    --font-ui: var(--ada-font-ui);
+    --font-mono: var(--ada-font-mono);
+
+    --shadow-panel: var(--ada-shadow-panel);
+    --shadow-float: var(--ada-shadow-float);
+    --shadow-popover: var(--ada-shadow-popover);
+
+    /* Control heights as a spacing scale so `h-control-md` works. */
+    --spacing-control-sm: var(--ada-control-h-sm);
+    --spacing-control-md: var(--ada-control-h-md);
+    --spacing-control-lg: var(--ada-control-h-lg);
+    --spacing-touch: var(--ada-touch-h);
+
+    --spacing-icon-sm: var(--ada-icon-sm);
+    --spacing-icon-md: var(--ada-icon-md);
+    --spacing-icon-lg: var(--ada-icon-lg);
+    --spacing-icon-xl: var(--ada-icon-xl);
+}
+
+/* Focus ring, one definition. Primitives apply `.ada-focus`; nobody hand-rolls a
+ * ring and nobody ships `outline: none` without a replacement. */
+.ada-focus:focus-visible {
+    outline: 2px solid var(--ada-focus-ring);
+    outline-offset: 1px;
+}
+
+/* Native <select> popups.
+ *
+ * The dropdown list is drawn by the operating system, not by the page, and it does NOT
+ * inherit the <select>'s background — so a themed select opened to a list of unreadable
+ * options (dark text on the OS's white, or the reverse). The only thing that reaches it
+ * is styling `option` directly.
+ *
+ * surface-0, not surface-1: the panel surfaces carry alpha in the glass presets, and an
+ * OS popup composites against the desktop rather than the page. surface-0 is opaque by
+ * definition — it is the one colour that sits behind everything. */
+select option {
+    background-color: var(--ada-surface-0);
+    color: var(--ada-text);
+}

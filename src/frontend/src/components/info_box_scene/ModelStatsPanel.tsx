@@ -43,7 +43,7 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
     return <div className="text-xs italic opacity-60 px-1 py-2">No items.</div>;
   }
   return (
-    <div className="border border-gray-700/60 rounded-md overflow-auto max-h-64">
+    <div className="border border-edge rounded-md overflow-auto max-h-64">
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>
@@ -51,7 +51,7 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
               <th
                 key={c.key}
                 className={
-                  "sticky top-0 bg-gray-900/95 text-gray-400 font-semibold px-2.5 py-1.5 border-b border-gray-700/60 whitespace-nowrap " +
+                  "sticky top-0 bg-surface-0 text-content-muted font-semibold px-2.5 py-1.5 border-b border-edge whitespace-nowrap " +
                   (c.first ? "text-left" : "text-right")
                 }
               >
@@ -62,12 +62,12 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="hover:bg-gray-800/40">
+            <tr key={i} className="pointer-fine:hover:bg-surface-0">
               {cols.map((c) => (
                 <td
                   key={c.key}
                   className={
-                    "px-2.5 py-1.5 border-b border-gray-800/70 whitespace-nowrap " +
+                    "px-2.5 py-1.5 border-b border-edge whitespace-nowrap " +
                     (c.first ? "text-left font-medium" : "text-right font-mono tabular-nums")
                   }
                 >
@@ -77,7 +77,7 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
             </tr>
           ))}
           {total && (
-            <tr className="bg-gray-800/60 font-semibold text-gray-100">
+            <tr className="bg-surface-0 font-semibold text-content">
               {total.map((v, i) => (
                 <td
                   key={i}
@@ -96,11 +96,11 @@ function DataTable({ cols, rows, total }: { cols: Col[]; rows: Record<string, un
 
 function Tile({ label, value, unit }: { label: string; value: React.ReactNode; unit?: string }) {
   return (
-    <div className="bg-gray-800/50 border border-gray-700/60 rounded-md px-2.5 py-2 min-w-0">
-      <div className="text-[9.5px] uppercase tracking-wider text-gray-400 font-semibold">{label}</div>
+    <div className="bg-surface-1 border border-edge rounded-md px-2.5 py-2 min-w-0">
+      <div className="text-[9.5px] uppercase tracking-wider text-content-muted font-semibold">{label}</div>
       <div className="text-lg font-semibold font-mono tabular-nums mt-0.5 truncate">
         {value}
-        {unit && <span className="text-[11px] font-normal text-gray-400 ml-0.5">{unit}</span>}
+        {unit && <span className="text-[11px] font-normal text-content-muted ml-0.5">{unit}</span>}
       </div>
     </div>
   );
@@ -108,7 +108,7 @@ function Tile({ label, value, unit }: { label: string; value: React.ReactNode; u
 
 function PaneTitle({ label, color }: { label: string; color?: string }) {
   return (
-    <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider text-gray-400 font-bold">
+    <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider text-content-muted font-bold">
       {color && <span className="w-2 h-2 rounded-sm" style={{ background: color }} />}
       {label}
     </div>
@@ -138,7 +138,7 @@ function OverviewPane({ stats }: { stats: ModelStats }) {
       </Tiles>
       <div className="flex flex-col gap-2">
         <PaneTitle label="Mass by discipline" />
-        <div className="flex h-3 rounded-md overflow-hidden bg-gray-700/50">
+        <div className="flex h-3 rounded-md overflow-hidden bg-surface-2">
           {share.map((s) => (
             <span key={s.key} style={{ width: `${s.pct}%`, background: s.color }} title={s.name} />
           ))}
@@ -179,12 +179,12 @@ function CogsPane({ stats }: { stats: ModelStats }) {
   return (
     <div className="flex flex-col gap-4">
       <Tiles>
-        <div className="col-span-2 bg-gray-800/50 border border-gray-700/60 rounded-md px-2.5 py-2">
-          <div className="text-[9.5px] uppercase tracking-wider text-gray-400 font-semibold">Total model COG (m)</div>
+        <div className="col-span-2 bg-surface-1 border border-edge rounded-md px-2.5 py-2">
+          <div className="text-[9.5px] uppercase tracking-wider text-content-muted font-semibold">Total model COG (m)</div>
           <div className="flex gap-3 mt-1 font-mono tabular-nums text-sm">
             {(["X", "Y", "Z"] as const).map((ax, i) => (
               <span key={ax}>
-                <span className="text-gray-500 text-[10px] font-bold mr-1">{ax}</span>
+                <span className="text-content-subtle text-[10px] font-bold mr-1">{ax}</span>
                 {fmtCog(stats.total_cog[i])}
               </span>
             ))}
@@ -282,8 +282,8 @@ function FittingsGrid({ fittings }: { fittings: { name: string; count: number }[
       <PaneTitle label="Fittings" />
       <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
         {fittings.map((f) => (
-          <div key={f.name} className="bg-gray-800/50 border border-gray-700/60 rounded-md px-2.5 py-2">
-            <div className="text-[11px] text-gray-400">{f.name}</div>
+          <div key={f.name} className="bg-surface-1 border border-edge rounded-md px-2.5 py-2">
+            <div className="text-[11px] text-content-muted">{f.name}</div>
             <div className="text-base font-semibold font-mono tabular-nums mt-0.5">{fmt0(f.count)}</div>
           </div>
         ))}
@@ -466,10 +466,10 @@ const ModelStatsPanel = () => {
         }
       >
         {/* header */}
-        <div className="shrink-0 flex items-center gap-2.5 px-3 py-2.5 border-b border-gray-700/60">
+        <div className="shrink-0 flex items-center gap-2.5 px-3 py-2.5 border-b border-edge">
           <div>
             <div className="text-sm font-semibold leading-tight">Model Statistics</div>
-            <div className="text-[11px] text-gray-400">
+            <div className="text-[11px] text-content-muted">
               {(stats.source_name || "model")} · {fmt0(stats.objects)} objects
             </div>
           </div>
@@ -482,29 +482,29 @@ const ModelStatsPanel = () => {
               aria-haspopup="true"
               aria-expanded={exportMenuOpen}
               disabled={exporting}
-              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 bg-accent pointer-fine:hover:bg-accent-hover text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
             >
               <DownloadIcon /> Export <span aria-hidden="true" className="opacity-70">▾</span>
             </button>
             {exportMenuOpen && (
-              <div className="absolute right-0 top-[calc(100%+6px)] min-w-40 bg-gray-800 border border-gray-600 rounded-md shadow-xl p-1 z-10">
+              <div className="absolute right-0 top-[calc(100%+6px)] min-w-40 bg-surface-0 border border-edge rounded-md shadow-xl p-1 z-10">
                 <button
                   type="button"
                   onClick={() => void exportStats("xlsx")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs pointer-fine:hover:bg-surface-2 text-left"
                 >
-                  <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">XLSX</span>
+                  <span className="text-[10px] font-bold border border-edge rounded px-1 py-0.5 text-content">XLSX</span>
                   Excel workbook
                 </button>
                 <button
                   type="button"
                   onClick={() => void exportStats("csv")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs pointer-fine:hover:bg-surface-2 text-left"
                 >
-                  <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">CSV</span>
+                  <span className="text-[10px] font-bold border border-edge rounded px-1 py-0.5 text-content">CSV</span>
                   Comma-separated
                 </button>
-                <div className="text-[11px] text-gray-400 px-2 pt-1.5 mt-1 border-t border-gray-700">
+                <div className="text-[11px] text-content-muted px-2 pt-1.5 mt-1 border-t border-edge">
                   XLSX = whole model · CSV = active tab.
                 </div>
               </div>
@@ -515,7 +515,7 @@ const ModelStatsPanel = () => {
             onClick={closeDetail}
             title="Close"
             aria-label="Close"
-            className="shrink-0 grid place-items-center w-7 h-7 rounded-md border border-gray-700/70 bg-gray-800/60 text-gray-300 hover:text-white hover:bg-gray-700"
+            className="shrink-0 grid place-items-center w-7 h-7 rounded-md border border-edge bg-surface-0 text-content pointer-fine:hover:text-white pointer-fine:hover:bg-surface-2"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3.5 h-3.5">
               <path d="M6 6l12 12M18 6L6 18" />
@@ -524,7 +524,7 @@ const ModelStatsPanel = () => {
         </div>
 
         {/* tab strip */}
-        <div className="shrink-0 flex gap-0.5 px-2 border-b border-gray-700/60 overflow-x-auto" role="tablist">
+        <div className="shrink-0 flex gap-0.5 px-2 border-b border-edge overflow-x-auto" role="tablist">
           {STATS_TABS.map((t) => (
             <button
               key={t.key}
@@ -535,8 +535,8 @@ const ModelStatsPanel = () => {
               className={
                 "whitespace-nowrap px-3 py-2 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 " +
                 (activeTab === t.key
-                  ? "border-blue-400 text-[var(--ada-panel-text)]"
-                  : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+                  ? "border-accent text-[var(--ada-panel-text)]"
+                  : "border-transparent text-content-muted pointer-fine:hover:text-[var(--ada-panel-text)]")
               }
             >
               {t.color && <span className="w-1.5 h-1.5 rounded-sm" style={{ background: t.color }} />}

@@ -122,7 +122,7 @@ const fmtNu = (v: number | null | undefined): string => {
 
 const Row: React.FC<{label: string; children: React.ReactNode}> = ({label, children}) => (
     <div className="table-row">
-        <div className="table-cell w-24 align-top text-gray-200">{label}</div>
+        <div className="table-cell w-24 align-top text-content">{label}</div>
         <div className="table-cell w-48 break-all">{children}</div>
     </div>
 );
@@ -180,7 +180,7 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
                 <button
                     type="button"
                     onClick={() => void selectInOtherModel({file, nodeNames: [name]})}
-                    className="ml-2 bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-sm px-2 py-0.5"
+                    className="ml-2 bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
                     title={`Switch to ${file} and select ${name}`}
                 >
                     Select in CAD
@@ -202,7 +202,7 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
                     <button
                         type="button"
                         onClick={() => void selectInOtherModel({file: entry.file, nodeNames: entry.elementNames})}
-                        className="ml-2 bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-sm px-2 py-0.5"
+                        className="ml-2 bg-accent pointer-fine:hover:bg-accent-hover active:bg-accent-subtle text-white text-[11px] rounded-sm px-2 py-0.5"
                         title={`Switch to ${entry.file} and select all ${entry.elementNames.length} elements`}
                     >
                         Select FEA elements
@@ -243,7 +243,7 @@ const ClickedAtRow: React.FC = () => {
             <button
                 type="button"
                 onClick={onCopy}
-                className="text-left text-gray-100 hover:text-white cursor-pointer"
+                className="text-left text-content pointer-fine:hover:text-white cursor-pointer"
                 title="Copy coordinates as comma-separated floats"
             >
                 {copied ? `${display} ✓` : display}
@@ -273,7 +273,7 @@ const ClickedFaceRow: React.FC = () => {
             <button
                 type="button"
                 onClick={onCopy}
-                className="text-left text-gray-100 hover:text-white cursor-pointer"
+                className="text-left text-content pointer-fine:hover:text-white cursor-pointer"
                 title="Copy the source face id"
             >
                 {copied ? `${label} ✓` : label}
@@ -322,7 +322,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                 <button
                     type="button"
                     onClick={() => setExpanded((v) => !v)}
-                    className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                    className="flex items-center gap-1 text-[12px] text-content pointer-fine:hover:text-white"
                     aria-expanded={expanded}
                     aria-controls="object-properties"
                 >

@@ -31,7 +31,17 @@ function useEnsureUserScope(): void {
     }, [available, current, setCurrent]);
 }
 
-const ConvertPage: React.FC = () => {
+export interface ConvertPageProps {
+    /**
+     * Rendered inside the running viewer (Convert mode) rather than at /convert.
+     *
+     * Only affects the "back to the viewer" link — see the header. Defaulting to false
+     * keeps the standalone route's behaviour for every existing caller.
+     */
+    inViewer?: boolean;
+}
+
+const ConvertPage: React.FC<ConvertPageProps> = ({inViewer = false}) => {
     useEnsureUserScope();
     const rows = useConvertPageStore((s) => s.rows);
     const current = useScopeStore((s) => s.current);
@@ -41,22 +51,30 @@ const ConvertPage: React.FC = () => {
         // route wraps in ``h-[100dvh]``, in-viewer modal wraps in
         // an Rnd-sized container. ``overflow-y-auto`` so long
         // conversion lists scroll within the panel, not the page.
-        <div className="h-full w-full bg-gray-900 text-gray-100 overflow-y-auto">
-            <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+        <div className="h-full w-full bg-surface-0 text-content overflow-y-auto">
+            <header className="border-b border-edge px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-baseline gap-3">
                     <h1 className="text-xl font-semibold">adapy converter</h1>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-content-muted">
                         CAD &amp; FEA file conversion
                     </span>
                 </div>
                 <div className="flex items-center gap-3">
                     <WorkerStatusBadge/>
-                    <a
-                        href="/"
-                        className="text-sm text-blue-400 hover:text-blue-300"
-                    >
-                        ← back to viewer
-                    </a>
+                    {/* "Back to the viewer" only on the standalone /convert route.
+                    
+                        In Convert MODE this page fills the viewport of the running
+                        viewer, with the mode switcher directly above it — a link that
+                        navigates the whole window away is both redundant and worse than
+                        the control beside it, and it discards the session to get where
+                        one click already goes. The page profile is a different case: it
+                        is a deep link someone may have arrived at cold, with no switcher
+                        anywhere, so there the link is the only way back. */}
+                    {!inViewer && (
+                        <a href="/" className="text-sm text-accent pointer-fine:hover:text-accent">
+                            ← back to viewer
+                        </a>
+                    )}
                 </div>
             </header>
 
@@ -64,18 +82,18 @@ const ConvertPage: React.FC = () => {
                 <ConvertDropZone/>
 
                 {current ? (
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-content-subtle">
                         files land in your personal scope (<span className="font-mono">{current.name}</span>) — they're visible from the main viewer too
                     </div>
                 ) : (
-                    <div className="text-xs text-amber-400">
+                    <div className="text-xs text-warn">
                         Waiting for scope to load…
                     </div>
                 )}
 
                 {rows.length > 0 && (
                     <section className="space-y-2">
-                        <h2 className="text-xs uppercase tracking-wider text-gray-400">
+                        <h2 className="text-xs uppercase tracking-wider text-content-muted">
                             Uploads &amp; conversions
                         </h2>
                         <div className="space-y-2">

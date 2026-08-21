@@ -77,8 +77,8 @@ const ConvertDropZone: React.FC = () => {
             className={
                 "rounded-md border-2 border-dashed cursor-pointer p-8 text-center transition-colors " +
                 (dragging
-                    ? "border-blue-400 bg-blue-500/10 text-blue-100"
-                    : "border-gray-600 bg-gray-800/40 text-gray-300 hover:border-gray-500 hover:bg-gray-800/60")
+                    ? "border-accent bg-accent-subtle text-accent"
+                    : "border-edge bg-surface-0 text-content pointer-fine:hover:border-edge pointer-fine:hover:bg-surface-0")
             }
         >
             <input
@@ -93,11 +93,11 @@ const ConvertDropZone: React.FC = () => {
                 <div className="space-y-2">
                     <div className="text-sm">
                         Uploading <span className="font-mono">{uploading}</span> — {pct}%
-                        {batch && <span className="text-gray-400"> ({batch.done + 1} of {batch.total})</span>}
+                        {batch && <span className="text-content-muted"> ({batch.done + 1} of {batch.total})</span>}
                     </div>
-                    <div className="h-1 bg-gray-700 rounded-sm overflow-hidden max-w-md mx-auto">
+                    <div className="h-1 bg-surface-2 rounded-sm overflow-hidden max-w-md mx-auto">
                         <div
-                            className="h-full bg-blue-500 transition-all"
+                            className="h-full bg-accent transition-all"
                             style={{width: `${Math.max(pct, 4)}%`}}
                         />
                     </div>
@@ -107,7 +107,7 @@ const ConvertDropZone: React.FC = () => {
                     <div className="text-base font-medium">
                         Drop CAD or FEA files here
                     </div>
-                    <div className="text-xs text-gray-400">
+                    <div className="text-xs text-content-muted">
                         or click to pick (multiple allowed) — accepts CAD (.step .ifc
                         .glb …) and FEA (.rmed .sif …) sources advertised by the live
                         workers
@@ -115,7 +115,7 @@ const ConvertDropZone: React.FC = () => {
                 </div>
             )}
             {err && (
-                <div className="mt-3 text-xs text-red-400" role="alert">
+                <div className="mt-3 text-xs text-fail" role="alert">
                     {err}
                 </div>
             )}

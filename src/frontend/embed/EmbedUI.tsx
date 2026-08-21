@@ -12,7 +12,7 @@
 import React from "react"
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView"
 import ObjectInfoBox from "@/components/info_box_selected_object/ObjectInfoBoxComponent"
-import SceneInfoBox from "@/components/info_box_scene/SceneInfoBox"
+import SceneBody, { useSceneContextTabs } from "@/components/info_box_scene/SceneBody"
 import SimulationControls from "@/components/simulation/SimulationControls"
 import TreeViewIcon from "@/components/icons/TreeViewIcon"
 import InfoIcon from "@/components/icons/InfoIcon"
@@ -125,7 +125,7 @@ export const EmbedUI: React.FC = () => {
                 </div>
                 <div className="px-2 flex flex-col gap-2 pointer-events-auto max-w-[100vw]">
                     {showInfo && <ObjectInfoBox />}
-                    {showScene && <SceneInfoBox />}
+                    {showScene && <EmbeddedScenePanel />}
                     {animPanelAvailable && isControlsVisible && <SimulationControls />}
                 </div>
             </div>
