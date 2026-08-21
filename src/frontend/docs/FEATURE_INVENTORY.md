@@ -131,10 +131,10 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | D18 | Manifest bake polling | — | `services/feaManifestPoll.ts` | Verified (fetchFeaManifest tests ×7, and now exercised in dev) |
 | D19 | Plugin `fem-sidebar` panels + `asTab` | `PluginSlots.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
 | D20 | Plugin scene colour fields | `PluginColorFields.tsx` | `plugins/registry.ts` | Pending — needs an enabled plugin |
-| D21 | Result model info (node/element totals) | `results/ResultsModelPanel.tsx` | `read_sin_sets.read_sin_model_info` | Pending — browser check with a .SIN |
-| D22 | Super-element outliner | `results/ResultsModelPanel.tsx` | manifest `model_info.super_elements` | Pending — browser check with a .SIN |
-| D23 | Named set/group list, search + multi-select | `results/ResultsModelPanel.tsx`, `shell/feaSets.ts` | `read_sin_sets.read_sin_groups` | Pending — browser check with a .SIN |
-| D24 | Isolate set, show rest as wireframe | `shell/feaSetIsolation.ts` | `CustomBatchedMesh.hideBatchDrawRange(ids, keepEdges)` | Pending — browser check with a .SIN |
+| D21 | Result model info (node/element totals) | `tree_view/TreeViewComponent.tsx` (Outliner header) | `read_sin_sets.read_sin_model_info` | Verified (browser — 1,057 nodes · 2,461 elements from a Sesam deck) |
+| D22 | Named group list, shared search, multi-select | `tree_view/OutlinerGroups.tsx`, `shell/feaSets.ts` | `read_sin_sets.read_sin_groups` | Verified (browser — 32 groups, "btm" filters to one, ctrl-click unions) |
+| D23 | Isolate group; show rest as wireframe | `shell/feaSetIsolation.ts` | `CustomBatchedMesh.hideBatchDrawRange`, `fea-element-edges` overlay | Verified (browser — supports isolated, ghost on/off) |
+| D24 | Resizable Groups section | `tree_view/TreeViewComponent.tsx` + `ui/Splitter` | — | Verified (browser — pointer drag 640→520, ArrowUp/End) |
 
 ## E. Build mode
 

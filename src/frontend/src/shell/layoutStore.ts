@@ -91,11 +91,9 @@ function defaultLayout(mode: ModeId): ModeLayout {
             put("bottom", [], true);
             break;
         case "results":
-            // Open, unlike Inspect's collapsed left dock: the result's own description --
-            // node/element totals, super-elements, named sets -- is what you read FIRST,
-            // before picking a field. The outliner rides along as a second tab because a
-            // baked result's GLB tree answers a different question.
-            put("left", ["results-model", "outliner"], false);
+            // Open, unlike Inspect's collapsed left dock: a result's structure -- its tree
+            // and its named groups -- is what you read FIRST, before picking a field.
+            put("left", ["outliner"], false);
             put("right", ["properties"]);
             // The direct fix for "panels cover the 3D". Present but COLLAPSED: the table
             // is the thing you open when you want numbers, and defaulting it open would

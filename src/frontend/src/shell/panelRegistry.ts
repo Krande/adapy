@@ -56,7 +56,6 @@ export const PANEL_IDS = [
     "properties",
     "scene",
     "simulation",
-    "results-model",
     "component-build",
     "fea-table",
     "cellbuilder",
@@ -123,20 +122,6 @@ export const PANELS: Record<PanelId, PanelDef> = {
     // go, so the panel stays registered and simply is not offered when no plugin
     // contributes one. Deleting it outright would have dropped plugin panels silently,
     // which is inventory row B11 all over again.
-    // The Results counterpart to Build mode's Model panel. Left dock, open by default,
-    // because "what is in this deck, and can I look at just this part of it" is the first
-    // question asked of a result -- not something to go hunting for in a menu.
-    "results-model": {
-        id: "results-model",
-        title: "Model",
-        icon: "fem-data",
-        modes: ["results"],
-        defaultDock: "left",
-        defaultOpen: true,
-        pinnable: true,
-        hint: "Result contents, super-elements and sets",
-        component: lazy(() => import("@/components/results/ResultsModelPanel")),
-    },
     simulation: {
         id: "simulation",
         title: "Simulation",

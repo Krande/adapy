@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
@@ -7,6 +7,13 @@ import {useModeStore} from "@/shell/modeStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {filterRoots} from "@/shell/outlinerFilter";
+import {Splitter} from "@/components/ui";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {applyFeaGroupVisibility, clearFeaGroupVisibility} from "@/shell/feaSetIsolation";
+import {type FeaSet, unionMembers} from "@/shell/feaSets";
+import {OutlinerGroups} from "./OutlinerGroups";
+
+const nf = new Intl.NumberFormat();
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
@@ -14,7 +21,30 @@ const TreeViewComponent: React.FC = () => {
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const headerRef = useRef<HTMLDivElement | null>(null);
+    // The tree's own area is measured directly rather than derived as
+    // container-minus-header. The old arithmetic only re-ran when the CONTAINER resized,
+    // so anything that changed the header's height — the scope chip, the "N more loaded"
+    // button, and now the Groups section below — left the tree sized for a layout that no
+    // longer existed, either clipped or overflowing.
+    const treeAreaRef = useRef<HTMLDivElement | null>(null);
+
+    // Named sets from the loaded result. The whole manifest is already in this store, so
+    // the Groups section needs no store, no fetch and no loading state of its own.
+    const manifest = useFeaAnimationStore((s) => s.manifest);
+    const sets: FeaSet[] = useMemo(() => (manifest?.groups as FeaSet[] | undefined) ?? [], [manifest]);
+    const modelInfo = manifest?.model_info ?? null;
+    const [selectedGroups, setSelectedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
+    const [wireframeRest, setWireframeRest] = useState(true);
+    const [groupsCollapsed, setGroupsCollapsed] = useState(false);
+    const [groupsHeight, setGroupsHeight] = useState(240);
+
+    // A result swap must not leave the previous model's groups selected — the names would
+    // be meaningless against the new mesh and the isolation would survive as hidden
+    // geometry nobody could account for.
+    useEffect(() => {
+        setSelectedGroups(new Set());
+        clearFeaGroupVisibility();
+    }, [manifest]);
 
     // Top level = one root per loaded model (labelled by GLB filename). The
     // store keeps them under a synthetic container; render its children.
@@ -39,29 +69,16 @@ const TreeViewComponent: React.FC = () => {
         showAllRoots,
     );
 
-    // Update the tree height based on the container size using ResizeObserver
+    // react-arborist needs an explicit pixel height, so measure the flex track it sits in
+    // and hand back what the browser already worked out.
     useEffect(() => {
-        const updateTreeHeight = () => {
-            if (containerRef.current && headerRef.current) {
-                const containerHeight = containerRef.current.offsetHeight;
-                const headerHeight = headerRef.current.offsetHeight;
-                setTreeHeight(containerHeight - headerHeight);
-            }
-        };
-
-        // Create a ResizeObserver to watch for changes in the container size
-        const resizeObserver = new ResizeObserver(() => updateTreeHeight());
-        if (containerRef.current) {
-            resizeObserver.observe(containerRef.current);
-        }
-
-        // Set the initial height
-        updateTreeHeight();
-
-        // Cleanup the observer on component unmount
-        return () => {
-            resizeObserver.disconnect();
-        };
+        const el = treeAreaRef.current;
+        if (!el) return;
+        const update = () => setTreeHeight(el.clientHeight);
+        const resizeObserver = new ResizeObserver(update);
+        resizeObserver.observe(el);
+        update();
+        return () => resizeObserver.disconnect();
     }, []);
 
     useEffect(() => {
@@ -81,7 +98,7 @@ const TreeViewComponent: React.FC = () => {
 
     return (
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
-            <div ref={headerRef} className={"w-full pr-1 pt-1"}>
+            <div className={"w-full shrink-0 pr-1 pt-1"}>
                 <input
                     className={"w-full bg-surface-3 text-white rounded-sm pl-1"}
                     placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
@@ -90,6 +107,21 @@ const TreeViewComponent: React.FC = () => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
                 }/>
+                {/* What the analysis is made of. One line, under the search, because it is
+                    reference material you glance at -- not something worth a panel. Sizes
+                    the work before any group is picked: a mesh reports triangles, this
+                    reports the NODES and ELEMENTS the analysis actually had. */}
+                {modelInfo && (
+                    <p className="mt-1 truncate text-[10px] tabular-nums text-content-subtle"
+                       title={`${nf.format(modelInfo.n_nodes)} nodes, ${nf.format(modelInfo.n_elements)} elements${
+                           modelInfo.super_elements.length > 1
+                               ? `, ${modelInfo.super_elements.length} super-elements`
+                               : ""
+                       }`}>
+                        {nf.format(modelInfo.n_nodes)} nodes · {nf.format(modelInfo.n_elements)} elements
+                        {modelInfo.super_elements.length > 1 && ` · ${modelInfo.super_elements.length} SE`}
+                    </p>
+                )}
                 {/* A list that quietly drops rows is indistinguishable from one that
                     failed to load, so say how many and offer them back. */}
                 {hiddenRoots > 0 && (
@@ -129,7 +161,7 @@ const TreeViewComponent: React.FC = () => {
                     </div>
                 )}
             </div>
-            <div>
+            <div ref={treeAreaRef} className="min-h-0 flex-1">
                 <Tree
                     className={"text-white scrollbar"}
                     width={"100%"}
@@ -177,6 +209,35 @@ const TreeViewComponent: React.FC = () => {
                 </Tree>
             </div>
 
+            {/* Groups sits under the tree rather than inside it: a section can carry its
+                own controls, scroll independently of a 2,461-element tree, and be resized.
+                A tree row can do none of those. The search box above filters both. */}
+            {sets.length > 0 && (
+                <>
+                    {!groupsCollapsed && (
+                        <Splitter
+                            orientation="horizontal"
+                            side="after"
+                            value={groupsHeight}
+                            onChange={setGroupsHeight}
+                            min={96}
+                            max={640}
+                            label="Resize the Groups list"
+                        />
+                    )}
+                    <OutlinerGroups
+                        sets={sets}
+                        query={searchTerm ?? ""}
+                        collapsed={groupsCollapsed}
+                        onToggleCollapsed={() => setGroupsCollapsed((c) => !c)}
+                        selected={selectedGroups}
+                        onSelectedChange={setSelectedGroups}
+                        wireframeRest={wireframeRest}
+                        onWireframeRestChange={setWireframeRest}
+                        height={groupsHeight}
+                    />
+                </>
+            )}
         </div>
     );
 };
