@@ -2786,6 +2786,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
+    # Settings whose key begins with this prefix are readable by ANY
+    # authenticated user; every other key in app_settings stays admin-only.
+    # Writes are always admin-only (POST /api/admin/settings/{key}) — this is a
+    # read window, not a public key/value store.
+    #
+    # It exists because a plugin often has to publish one small piece of
+    # deployment configuration that its UI needs for EVERY user, not just
+    # admins: which feature is enabled where, which external catalog a project
+    # is bound to. Without this each such plugin would need its own core
+    # endpoint, and core would end up naming plugins. The prefix is the whole
+    # contract: an admin opting a key into `public.` is opting into it being
+    # world-readable within the deployment.
+    PUBLIC_SETTING_PREFIX = "public."
+
+    @api.get("/settings/{key}")
+    async def api_get_public_setting(key: str, request: Request) -> JSONResponse:
+        """Read a setting from the publicly-readable namespace. Returns
+        ``{"key": k, "value": v}`` with v=null when unset, exactly like the admin
+        getter. 403 for any key outside the namespace, so this can never be used
+        to read an admin-only setting."""
+        if not key.startswith(PUBLIC_SETTING_PREFIX):
+            raise HTTPException(
+                status_code=403,
+                detail=f"only {PUBLIC_SETTING_PREFIX}* settings are readable here",
+            )
+        pool = _require_pool(request)
+        value = await db_module.get_setting(pool, key)
+        return JSONResponse({"key": key, "value": value})
+
     @api.get("/plugins")
     async def api_plugins(request: Request) -> JSONResponse:
         """Backend plugins advertised to the viewer plugin system: the union of
@@ -4720,7 +4749,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if pool is None:
             raise HTTPException(
                 status_code=503,
-                detail="admin endpoints require a Postgres-backed deployment",
+                detail="this endpoint requires a Postgres-backed deployment",
             )
         return pool
 
@@ -4754,7 +4783,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
     ) -> JSONResponse:
         """Generic key/value get from app_settings. Returns
-        ``{"key": k, "value": v}`` with v=null when unset."""
+        ``{"key": k, "value": v}`` with v=null when unset. Admin-only; keys in
+        the ``public.`` namespace are additionally readable by any authenticated
+        user via ``GET /api/settings/{key}``."""
         pool = _require_pool(request)
         value = await db_module.get_setting(pool, key)
         return JSONResponse({"key": key, "value": value})
