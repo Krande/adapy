@@ -2,6 +2,21 @@
 
 
 
+## v0.39.0 (2026-08-22)
+
+### Chore
+
+* chore: migrate CI to deputy and publish to PyPI directly (#255)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`d8f6912`](https://github.com/Krande/adapy/commit/d8f6912398171f263daa12a0c1cddc20e295b371))
+
+### Feature
+
+* feat(worker): consume every advertised capability pool, not just the first (#254)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`4cff3f3`](https://github.com/Krande/adapy/commit/4cff3f37c803c35c9bd13f445eb25bfb6440a13c))
+
+
 ## v0.38.0 (2026-08-22)
 
 ### Feature
