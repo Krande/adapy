@@ -141,6 +141,7 @@ def _per_fetch_timeout(n_pools: int) -> float:
     """
     return max(0.5, FETCH_TIMEOUT / max(1, n_pools))
 
+
 # Liveness heartbeat. The worker touches this file whenever its JetStream pull loop iterates
 # (idle / between jobs) or an in-flight conversion reports progress. A k8s livenessProbe checks the
 # file's mtime is fresh: if the pull loop stalls — e.g. the durable consumer wedged after a NATS
