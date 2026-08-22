@@ -2,6 +2,15 @@
 
 
 
+## v0.40.0 (2026-08-22)
+
+### Feature
+
+* feat: UI-shell plugin system and the @/viewer-core contract (#256)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`f6c4529`](https://github.com/Krande/adapy/commit/f6c4529036efe9b3fe75452e759f215160786c8e))
+
+
 ## v0.39.0 (2026-08-22)
 
 ### Chore
