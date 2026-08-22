@@ -1,0 +1,17 @@
+{
+  "name": "@adapy-plugins/ui-alt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference UI-shell plugin — a whole alternative viewer UI contributed through the plugin system. Scaffold/template; not enabled in a stock build.",
+  "main": "./src/register.tsx",
+  "module": "./src/register.tsx",
+  "types": "./src/register.tsx",
+  "exports": {
+    ".": {
+      "types": "./src/register.tsx",
+      "import": "./src/register.tsx"
+    },
+    "./manifest": "./plugin.manifest.json"
+  }
+}

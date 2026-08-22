@@ -1,4 +1,6 @@
 {
   "$comment": "Build-time plugin registry config. Each entry is an npm package under packages/plugins/* that exports register(); the generated src/plugins/registry.generated.ts imports exactly these. Extra out-of-tree plugins are overlaid at build time via ADA_PLUGINS_EXTRA (see scripts/gen-plugin-registry.mjs), so they need not be listed here. The demo plugin (packages/plugins/demo) is kept as a scaffold reference but NOT enabled — it must not ship in the production viewer.",
-  "enabled": []
+  "enabled": [],
+  "$comment_defaultUi": "Build-time default UI shell id. null => the built-in `core` viewer UI. A plugin may register a whole alternative UI (src/plugins/uiShells.ts); set this (or ADA_UI_DEFAULT at build time) to boot into it. `?ui=core` always reaches the built-in UI.",
+  "defaultUi": null
 }

@@ -4,6 +4,12 @@
 // so the bundle includes exactly the enabled plugins and both ship paths (the
 // code-split hosted build and the inlined embed/desktop zip) carry the same set.
 //
+// It also stamps the build-time DEFAULT UI SHELL (plugins.json `defaultUi`,
+// overridable with ADA_UI_DEFAULT). A plugin may contribute a whole alternative
+// viewer UI (see src/plugins/uiShells.ts); which one an image boots into is a
+// property of the BUILD, not of core source — an image built with an alternative
+// UI overlaid defaults to it, while `?ui=core` still reaches the built-in UI.
+//
 // Run: `node scripts/gen-plugin-registry.mjs` (also wired as an npm script).
 // The generated file is committed so a plain `vite build` needs no pre-step.
 
@@ -43,10 +49,26 @@ if (extraEnv.length) {
   console.log(`[gen-plugin-registry] +${extraEnv.length} from ADA_PLUGINS_EXTRA`);
 }
 
+// Build-time default UI shell id. `null` (the committed default) means the
+// built-in `core` shell. ADA_UI_DEFAULT wins so an overlay build can pick the UI
+// it just overlaid without editing this repo's committed config.
+const defaultUi = (process.env.ADA_UI_DEFAULT || config.defaultUi || "").trim() || null;
+if (defaultUi) console.log(`[gen-plugin-registry] default UI shell: ${defaultUi}`);
+
+// A package may be named bare (`ui-alt`) or fully (`@adapy-plugins/ui-alt`).
+// Bare names are expanded to the workspace scope, which is what the Vite
+// resolver (vite.plugin-resolver.mjs) and the tsconfig path map understand — a
+// bare specifier would otherwise emit an unresolvable import and fail the build
+// only much later, in rollup.
+function normalizePkg(pkg) {
+  if (!pkg) return pkg;
+  return pkg.startsWith("@") || pkg.includes("/") ? pkg : `@adapy-plugins/${pkg}`;
+}
+
 const imports = [];
 const calls = [];
 enabled.forEach((entry, i) => {
-  const pkg = typeof entry === "string" ? entry : entry.package;
+  const pkg = normalizePkg(typeof entry === "string" ? entry : entry.package);
   const importName = (typeof entry === "object" && entry.importName) || "register";
   if (!pkg) throw new Error(`plugins.json entry ${i} has no package`);
   const local = `register_${i}`;
@@ -59,15 +81,24 @@ const banner =
   "// DO NOT EDIT BY HAND — re-run the generator to change the enabled plugin set.\n" +
   "//\n" +
   "// Core imports ONLY this file to load plugins; it never names a plugin\n" +
-  "// elsewhere. registerBuiltinPlugins() is invoked once at app bootstrap.\n";
+  "// elsewhere. registerBuiltinPlugins() is invoked once at app bootstrap.\n" +
+  "//\n" +
+  "// DEFAULT_UI_SHELL is the build-time UI-shell default (null => the built-in\n" +
+  "// `core` UI). Runtime precedence: ?ui= > localStorage > this > core.\n";
 
 const body =
   banner +
   "\n" +
   (imports.length ? imports.join("\n") + "\n\n" : "\n") +
+  "export const DEFAULT_UI_SHELL: string | null = " +
+  (defaultUi ? JSON.stringify(defaultUi) : "null") +
+  ";\n\n" +
   "export function registerBuiltinPlugins(): void {\n" +
   (calls.length ? calls.join("\n") + "\n" : "  /* no plugins enabled */\n") +
   "}\n";
 
 writeFileSync(outPath, body);
-console.log(`[gen-plugin-registry] wrote ${outPath} (${enabled.length} plugin(s))`);
+console.log(
+  `[gen-plugin-registry] wrote ${outPath} (${enabled.length} plugin(s), ` +
+    `default UI ${defaultUi ?? "core"})`,
+);

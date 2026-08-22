@@ -13,6 +13,7 @@
 
 import type React from "react";
 import type { AdaViewerStores } from "@/state/AdaViewerContext";
+import { registerUiShell, type UiShellSpec } from "./uiShells";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -194,6 +195,10 @@ export interface PluginSpec {
   sceneColorFields?: SceneColorFieldProvider[];
   resultSidecarLoaders?: ResultSidecarLoader[];
   urlParamHandlers?: UrlParamHandler[];
+  // Whole-UI contributions: a plugin may ship an entire alternative viewer UI
+  // that core mounts INSTEAD of its own shell (see `./uiShells`). Orthogonal to
+  // the slots above — a plugin can do either, both, or neither.
+  uiShells?: UiShellSpec[];
 }
 
 export interface RegisteredPlugin {
@@ -207,6 +212,9 @@ export interface RegisteredPlugin {
   sceneColorFields: SceneColorFieldProvider[];
   resultSidecarLoaders: ResultSidecarLoader[];
   urlParamHandlers: UrlParamHandler[];
+  // Ids of the UI shells this plugin contributed (the shells themselves live in
+  // the shell registry); kept for introspection / audit.
+  uiShellIds: string[];
   // Set when a slot callback threw during the session; a disabled plugin
   // contributes no slots until reload (failure isolation, Decision 4).
   disabled?: string;
@@ -293,6 +301,13 @@ export function registerPlugin(spec: PluginSpec): void {
     id: namespaced(id, l.id),
   }));
   const urlParamHandlers = spec.urlParamHandlers ?? [];
+  // UI shells go to their own registry (core mounts exactly one), but are
+  // registered here so a plugin still has ONE entry point: registerPlugin().
+  const uiShellIds: string[] = [];
+  for (const shell of spec.uiShells ?? []) {
+    registerUiShell(shell, id);
+    if (shell?.id) uiShellIds.push(shell.id);
+  }
 
   _registry.set(id, {
     id,
@@ -305,6 +320,7 @@ export function registerPlugin(spec: PluginSpec): void {
     sceneColorFields,
     resultSidecarLoaders,
     urlParamHandlers,
+    uiShellIds,
   });
 }
 

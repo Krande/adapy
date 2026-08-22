@@ -406,6 +406,14 @@ jobs:
           EXTRA_PLUGINS_REF: ${{ vars.EXTRA_PLUGINS_REF }}
           EXTRA_PLUGINS_SUBDIR: ${{ vars.EXTRA_PLUGINS_SUBDIR }}
           EXTRA_PLUGINS_ENABLE: ${{ vars.EXTRA_PLUGINS_ENABLE }}
+          # Which UI the image boots into. Empty → the built-in adapy UI. Set to a
+          # UI-shell id contributed by one of the overlaid plugin packages above to
+          # ship an alternative UI as the default (users can still reach the classic
+          # one with ?ui=core). Generic — names no UI here.
+          # NOTE: like EXTRA_PLUGINS_ENABLE, this is a build INPUT, not repo source,
+          # so changing it alone does not make `detect` choose a full build. Force a
+          # full viewer build (or delete the branch image) when flipping it.
+          UI_DEFAULT: ${{ vars.UI_DEFAULT }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
@@ -453,6 +461,12 @@ jobs:
               rm -rf /tmp/extra-plugins
               echo "packages/plugins now: $(ls src/frontend/packages/plugins)"
               EXTRA_BUILD_ARGS="--build-arg EXTRA_PLUGINS_ENABLE=${EXTRA_PLUGINS_ENABLE}"
+            fi
+            # Default UI shell — independent of the clone above (a shell may also
+            # come from an in-tree package), so it is appended unconditionally.
+            if [ -n "$UI_DEFAULT" ]; then
+              echo "Default UI shell: $UI_DEFAULT"
+              EXTRA_BUILD_ARGS="$EXTRA_BUILD_ARGS --build-arg UI_DEFAULT=${UI_DEFAULT}"
             fi
             # Default to the repo-pinned base when the secret is unset. READ the pin out
             # of deploy/Dockerfile.viewer rather than restating it: this line used to

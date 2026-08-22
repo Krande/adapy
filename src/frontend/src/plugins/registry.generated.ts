@@ -3,7 +3,12 @@
 //
 // Core imports ONLY this file to load plugins; it never names a plugin
 // elsewhere. registerBuiltinPlugins() is invoked once at app bootstrap.
+//
+// DEFAULT_UI_SHELL is the build-time UI-shell default (null => the built-in
+// `core` UI). Runtime precedence: ?ui= > localStorage > this > core.
 
+
+export const DEFAULT_UI_SHELL: string | null = null;
 
 export function registerBuiltinPlugins(): void {
   /* no plugins enabled */
