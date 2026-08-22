@@ -2,6 +2,15 @@
 
 
 
+## v0.41.0 (2026-08-22)
+
+### Feature
+
+* feat(engines): let a worker advertise a procedural engine it has installed (#257)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b38babc`](https://github.com/Krande/adapy/commit/b38babc1b03f59c20e3e359c67fd90172e472698))
+
+
 ## v0.40.0 (2026-08-22)
 
 ### Feature
