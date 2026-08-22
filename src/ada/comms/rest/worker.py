@@ -118,6 +118,29 @@ MAX_DELIVERIES = 3
 # stays free to fire these.
 IN_PROGRESS_REFRESH_SECONDS = 30
 
+
+def _pool_capabilities(capabilities: list[str]) -> list[str]:
+    """Capability pools this worker should subscribe to.
+
+    Lower-cased and de-duplicated while preserving order, so a repeated or
+    differently-cased entry in ``ADA_WORKER_CAPABILITIES`` cannot open two
+    consumers on the same subject. Falls back to ``["base"]`` so a worker is
+    never left subscribed to nothing.
+    """
+    pools = [c.strip().lower() for c in capabilities if c and c.strip()]
+    return list(dict.fromkeys(pools)) or ["base"]
+
+
+def _per_fetch_timeout(n_pools: int) -> float:
+    """Per-pool fetch timeout so one full round-robin cycle takes ~FETCH_TIMEOUT.
+
+    The pools are polled one at a time (see the poll loop for why), so without
+    dividing the timeout a worker's pickup latency would grow linearly with the
+    number of capabilities it serves. Floored so many pools cannot degenerate
+    into a busy-loop of near-instant fetches.
+    """
+    return max(0.5, FETCH_TIMEOUT / max(1, n_pools))
+
 # Liveness heartbeat. The worker touches this file whenever its JetStream pull loop iterates
 # (idle / between jobs) or an in-flight conversion reports progress. A k8s livenessProbe checks the
 # file's mtime is fresh: if the pull loop stalls — e.g. the durable consumer wedged after a NATS
@@ -4163,18 +4186,36 @@ async def _run() -> None:
             except Exception:
                 logger.exception("worker: package manifest capture failed")
 
-    # Subscribe to ONLY this pool's subject — NATS does the routing
-    # so this worker never sees jobs tagged for another capability.
-    # ``primary_capability`` is the first entry in ADA_WORKER_CAPABILITIES
-    # (defaults to ``base`` when the env is unset). Workers with
-    # multiple capabilities pick the first one as their pool — running
-    # a worker that bridges two pools needs two distinct deployments.
-    primary_capability = capabilities[0].lower() if capabilities else "base"
-    logger.info(
-        "worker: subscribing to capability pool %r (consumer durable suffix)",
-        primary_capability,
-    )
-    sub = await queue.pull_subscribe(primary_capability)
+    # Subscribe to every capability this worker advertises, one durable
+    # pull-subscriber each. NATS does the routing, so a worker only ever sees
+    # jobs tagged for a pool it actually serves.
+    #
+    # A consumer per pool -- rather than one consumer over a wildcard subject --
+    # is deliberate: see JobQueue.pull_subscribe, which documents why the
+    # shared-consumer design was abandoned (workers NAK'd other pools' messages,
+    # which burned the per-message delivery budget and surfaced as spurious
+    # "exceeded N delivery attempts" failures on valid jobs).
+    #
+    # Order is preserved but no longer meaningful. Previously only
+    # capabilities[0] was subscribed, so an image advertising several pools
+    # silently served just the first while the rest looked idle rather than
+    # broken. Serving them all is what lets one image cover several pools
+    # instead of needing a separate deployment per capability.
+    pool_capabilities = _pool_capabilities(capabilities)
+    logger.info("worker: subscribing to capability pools %s", pool_capabilities)
+    subs = [(cap, await queue.pull_subscribe(cap)) for cap in pool_capabilities]
+
+    # Poll the pools round-robin, one fetch at a time, rather than fetching them
+    # all concurrently. The ack keep-alive further down refreshes only the
+    # message currently being processed, so holding a second leased message
+    # would let its ack_wait lapse while the first job runs, and JetStream would
+    # redeliver a job that is not actually stuck. One leased message at a time.
+    #
+    # The per-fetch timeout is divided across the pools so a full cycle still
+    # takes about FETCH_TIMEOUT: pickup latency stays what it was for a
+    # single-pool worker instead of growing with the number of capabilities.
+    # The cost is more idle round-trips, which are cheap.
+    per_fetch_timeout = _per_fetch_timeout(len(subs))
 
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
     # loop below, so forked children inherit them copy-on-write instead of paying
@@ -4223,11 +4264,14 @@ async def _run() -> None:
     # pass it) but no longer create one here.
     logger.info("worker: ready, polling %s", settings.queue.subject)
     _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
+    rr = 0  # round-robin cursor over `subs`
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
+            cap, sub = subs[rr % len(subs)]
+            rr += 1
             try:
-                msgs = await sub.fetch(batch=FETCH_BATCH, timeout=FETCH_TIMEOUT)
+                msgs = await sub.fetch(batch=FETCH_BATCH, timeout=per_fetch_timeout)
             except asyncio.TimeoutError:
                 continue
             for msg in msgs:
@@ -4279,7 +4323,7 @@ async def _run() -> None:
                         can_handle = ext in source_ext_set or legacy_ok
                     if not can_handle:
                         misroute_msg = (
-                            f"misrouted: pool capability {primary_capability!r} "
+                            f"misrouted: pool capability {cap!r} "
                             f"can't handle .{ext.lstrip('.')} "
                             f"(supported here: {sorted(source_ext_set) or ['legacy convert']})"
                         )
