@@ -13,7 +13,7 @@ import {
   registerPlugin,
   type AdaPluginContext,
   type SceneColorFieldResult,
-} from "@/plugins/registry";
+} from "@/viewer-core";
 import { isDemoEnabled } from "./enabled";
 
 // A tiny inline icon so the top-bar button has a glyph without pulling a shared

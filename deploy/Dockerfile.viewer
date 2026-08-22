@@ -55,8 +55,20 @@ COPY src/frontend/ ./
 ARG EXTRA_PLUGINS_ENABLE=""
 ENV ADA_PLUGINS_EXTRA=${EXTRA_PLUGINS_ENABLE}
 
-# Regenerate the build-time plugin registry (picks up ADA_PLUGINS_EXTRA above).
-# No-op-equivalent when unset — reproduces the committed registry from plugins.json.
+# Which UI this image boots into. A plugin may contribute a whole alternative
+# viewer UI (a "UI shell" — src/frontend/src/plugins/uiShells.ts); the UI it
+# defaults to is a property of the BUILD, not of adapy source. Unset => the
+# built-in `core` UI, i.e. an unchanged build. Set it to a shell id contributed by
+# one of the overlaid packages above to ship that UI as the default; `?ui=core`
+# still reaches the built-in one, and the switcher in the menu bar appears as soon
+# as a second shell is registered. Like EXTRA_PLUGINS_ENABLE, the value lives in
+# the CI config — never in this repo.
+ARG UI_DEFAULT=""
+ENV ADA_UI_DEFAULT=${UI_DEFAULT}
+
+# Regenerate the build-time plugin registry (picks up ADA_PLUGINS_EXTRA and
+# ADA_UI_DEFAULT above). No-op-equivalent when unset — reproduces the committed
+# registry from plugins.json.
 RUN npm run gen:plugins
 
 # `build:serve` uses vite.config.serve.ts — split chunks (three/react/flow)

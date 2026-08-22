@@ -1,0 +1,11 @@
+{
+  "id": "ui-alt",
+  "version": "0.1.0",
+  "coreApiRange": ">=1.0 <2.0",
+  "schemaVersion": 1,
+  "frontend": "@adapy-plugins/ui-alt",
+  "backend": null,
+  "slots": ["uiShells"],
+  "uiShells": ["alt"],
+  "sidecarPrefix": "ui-alt"
+}

@@ -1,0 +1,69 @@
+// `@/viewer-core/scene` — the 3D half of the shell contract.
+//
+// Split from `@/viewer-core` by WEIGHT, not by taste: this entry point pulls the
+// canvas, the loaders and the FEA streaming path (hundreds of KB), so a shell
+// profile that never shows a model — a /convert or /admin page — must not import
+// it, exactly as core's own `app.tsx` keeps those routes off `CanvasWrapper`.
+//
+// Everything here assumes an enclosing `<AdaViewerProvider>` from `@/viewer-core`.
+//
+// See `@/viewer-core` for the contract rules (leaf re-exports only, no
+// `@/plugins` barrel, additions are contract decisions).
+
+// ---------------------------------------------------------------------------
+// The canvas. `CanvasWrapper` is the whole scene: renderer, camera, controls,
+// lights, gizmo, pointer handling and the feature controllers. A shell mounts it
+// and sizes its container — the canvas resizes itself via its ResizeObserver, so
+// it must never be re-parented or covered by a shell's layout.
+// ---------------------------------------------------------------------------
+export { default as CanvasWrapper } from "@/components/viewer/CanvasWrapper";
+
+// ---------------------------------------------------------------------------
+// Deep links. Handles `?file=`, `?gltf=`, procedural/sim params and routes FEA
+// results to the streaming path. A shell that skips this silently breaks every
+// shared viewer link.
+// ---------------------------------------------------------------------------
+export { useUrlParamLoad } from "@/hooks/useUrlParamLoad";
+
+// ---------------------------------------------------------------------------
+// Loading + unloading model sources.
+// ---------------------------------------------------------------------------
+export {
+  load_glb_by_url_rest,
+  load_glb_from_bytes,
+  view_file_object_from_server,
+} from "@/utils/scene/handlers/view_file_object_from_server";
+export { derivedKeyForGlb, overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
+export { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
+export { clear_loaded_model } from "@/utils/scene/handlers/clear_loaded_model";
+export { applySideBySideOffset } from "@/utils/scene/handlers/side_by_side";
+
+// ---------------------------------------------------------------------------
+// FEA streaming. The active mesh + its per-element selection: what a shell needs
+// to drive results UI off the same objects core paints and deforms.
+// ---------------------------------------------------------------------------
+export {
+  getActiveFeaMesh,
+  getActiveFeaSelectedRangeIds,
+  setActiveFeaSelectedRangeIds,
+} from "@/utils/scene/handlers/load_fea_streaming";
+
+// ---------------------------------------------------------------------------
+// Camera, selection and visibility ops. Use these rather than touching the
+// camera/controls refs directly: they carry the helper-exclusion and
+// draw-range bookkeeping that hand-rolled equivalents get wrong.
+// ---------------------------------------------------------------------------
+export { center_on_bounding_box, centerViewOnSelection } from "@/utils/scene/centerViewOnSelection";
+export { zoomToAll } from "@/components/viewer/sceneHelpers/setupCameraControlsHandlers";
+export { hideSelectedRanges, unhideAllRanges } from "@/utils/scene/visibility";
+export { selectInOtherModel } from "@/utils/scene/crossModelSelect";
+
+// ---------------------------------------------------------------------------
+// Reusable scene chrome. OPTIONAL: a shell is expected to build its own layout,
+// but these two are tightly coupled to the scene (the outliner drives selection;
+// the legend reads the active colour field), so re-implementing them is a
+// reliable source of drift. Core's menus, panels and info boxes are deliberately
+// NOT exported — a shell replaces those.
+// ---------------------------------------------------------------------------
+export { default as ResizableTreeView } from "@/components/tree_view/ResizableTreeView";
+export { default as ColorLegend } from "@/components/viewer/ColorLegend";
