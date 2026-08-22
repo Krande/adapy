@@ -21,7 +21,17 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
     pluginId,
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? pluginId}` },
     stores: {} as AdaPluginContext["stores"],
-    scene: { add() {}, remove() {}, requestRender() {}, paintField() {}, getActiveFeaMesh: () => null, getSelectedFeaRangeIds: () => [] },
+    scene: {
+      add() {},
+      remove() {},
+      requestRender() {},
+      paintField() {},
+      getActiveFeaMesh: () => null,
+      getSelectedFeaRangeIds: () => [],
+      setSelectedFeaRanges() {},
+      loadModelFromUrl: async () => {},
+      unloadModel() {},
+    },
     scope: () => "user:me",
     theme: {
       bg: "#111827",

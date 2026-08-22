@@ -15,6 +15,7 @@ import {
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
 } from "@/utils/scene/handlers/load_fea_streaming";
+import { useModelState } from "@/state/modelState";
 import { getSingletonViewerStores, type AdaViewerStores } from "@/state/AdaViewerContext";
 import type {
   AdaPluginContext,
@@ -85,6 +86,33 @@ function makeSceneHandle(): SceneHandle {
     getActiveFeaMesh: () => getActiveFeaMesh(),
     getSelectedFeaRangeIds: () => getActiveFeaSelectedRangeIds(),
     setSelectedFeaRanges: (rangeIds, additive) => setActiveFeaSelectedRangeIds(rangeIds, additive),
+    async loadModelFromUrl(owner, url, opts) {
+      // Dynamic import for the same reason overlay_file_in_scene is dynamically
+      // imported at its call sites: the loader pulls in three + GLTFLoader +
+      // the meshopt decoder, and this module is on the boot path.
+      const { setupModelLoaderAsync } = await import(
+        "@/components/viewer/sceneHelpers/setupModelLoader"
+      );
+      const sourceName =
+        opts?.sourceName || url.split("?")[0].split("/").pop() || `${owner}-model`;
+      const group = await setupModelLoaderAsync(
+        url,
+        opts?.translate ?? true,
+        undefined,
+        sourceName,
+        opts?.headers,
+      );
+      // Register the source -> group mapping so the model shows up in the
+      // loaded-sources list and `unloadModel` can drop just this one, exactly as
+      // core's own overlay path does.
+      useModelState.getState().registerLoadedSource(sourceName, group);
+      requestRender();
+    },
+    unloadModel(sourceName) {
+      void import("@/utils/scene/handlers/unload_source_from_scene").then(
+        ({ unload_source_from_scene }) => unload_source_from_scene(sourceName),
+      );
+    },
   };
 }
 
