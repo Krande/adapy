@@ -1,6 +1,8 @@
 import React, {useEffect, useState} from "react";
 import {AdminTab} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
+import ErrorBoundary from "@/components/common/ErrorBoundary";
+import {disablePlugin, getAdminTabs, makePluginContextStandalone} from "@/plugins";
 import AuditLogTab from "./AuditLogTab";
 import AuditRunsTab from "./AuditRunsTab";
 import CliTokenButton from "./CliTokenButton";
@@ -36,9 +38,12 @@ const VALID_TABS = new Set<AdminTab>([
     "equipment", "system", "engines",
 ]);
 
-function readTabFromHash(): AdminTab {
-    const raw = (window.location.hash || "").replace(/^#/, "").trim() as AdminTab;
-    return VALID_TABS.has(raw) ? raw : "audit";
+// A tab id is either one of the built-ins above or a plugin panel's namespaced
+// id (``{pluginId}:{panelId}``). ``extra`` carries the plugin ones so a deep link
+// to a plugin tab survives a reload instead of falling back to "audit".
+function readTabFromHash(extra: ReadonlySet<string>): string {
+    const raw = (window.location.hash || "").replace(/^#/, "").trim();
+    return VALID_TABS.has(raw as AdminTab) || extra.has(raw) ? raw : "audit";
 }
 
 interface AdminPanelProps {
@@ -55,14 +60,21 @@ interface AdminPanelProps {
 const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) => {
     const syncHash = !embedded;
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : (initialTab ?? "audit")));
+    // Plugin-contributed tabs. Recomputed each render (like PluginPanelRegion)
+    // so a plugin whose activation predicate flips shows/hides its tab live.
+    const pluginTabs = getAdminTabs(makePluginContextStandalone(""));
+    const pluginTabIds = new Set(pluginTabs.map((t) => t.panel.id));
+    const [tab, setTab] = useState<string>(() =>
+        syncHash ? readTabFromHash(pluginTabIds) : (initialTab ?? "audit"),
+    );
+    const activePlugin = pluginTabs.find((t) => t.panel.id === tab) ?? null;
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside
     // the page. setTab writes; popstate / hashchange reads back.
     useEffect(() => {
         if (!syncHash) return;
-        const onChange = () => setTab(readTabFromHash());
+        const onChange = () => setTab(readTabFromHash(pluginTabIds));
         window.addEventListener("hashchange", onChange);
         return () => window.removeEventListener("hashchange", onChange);
     }, [syncHash]);
@@ -153,6 +165,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "engines"} onClick={() => setTab("engines")}>
                         Engines
                     </TabButton>
+                    {pluginTabs.map(({panel, label}) => (
+                        <TabButton
+                            key={panel.id}
+                            active={tab === panel.id}
+                            onClick={() => setTab(panel.id)}
+                        >
+                            {label}
+                        </TabButton>
+                    ))}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
@@ -193,6 +214,44 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <div className="h-full overflow-y-auto p-3 sm:p-4">
                         <ProceduralEngineAdminPanel embedded/>
                     </div>
+                )}
+                {activePlugin && (
+                    // Same containment contract as every other plugin slot host:
+                    // a crashing panel disables its plugin for the session rather
+                    // than white-screening the admin page.
+                    <ErrorBoundary
+                        key={activePlugin.panel.id}
+                        label={`Plugin ${activePlugin.pluginId}`}
+                        fallback={(error, reset) => {
+                            disablePlugin(
+                                activePlugin.pluginId,
+                                `admin panel render threw: ${error.message}`,
+                            );
+                            return (
+                                <div className="p-4 text-sm">
+                                    <div className="font-semibold text-red-300">
+                                        Plugin “{activePlugin.pluginId}” hit an error
+                                    </div>
+                                    <div className="mt-1 mb-2 break-words text-gray-400 text-xs">
+                                        {error.message}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={reset}
+                                        className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
+                                    >
+                                        Retry
+                                    </button>
+                                </div>
+                            );
+                        }}
+                    >
+                        <div className="h-full overflow-y-auto">
+                            {activePlugin.panel.render(
+                                makePluginContextStandalone(activePlugin.pluginId),
+                            )}
+                        </div>
+                    </ErrorBoundary>
                 )}
             </main>
         </div>
