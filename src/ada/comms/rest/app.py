@@ -3519,6 +3519,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if eng is not None:
                 target_capability = (eng.get("doc") or {}).get("worker_capability")
+            else:
+                target_capability = await _advertised_engine_capability(engine)
 
         if is_external_detailing:
             # Two-stage pipeline. Stage 1: the structural build on the default (or
@@ -3675,6 +3677,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if eng is not None:
                 target_capability = (eng.get("doc") or {}).get("worker_capability")
+            else:
+                target_capability = await _advertised_engine_capability(engine)
 
         job = await queue.enqueue(
             f"_synthetic/procedural/{row['id']}/preview/{doc_hash}/{lod}",
@@ -3876,7 +3880,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         eng = await db_module.get_procedural_engine_by_slug(
             pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
         )
-        return (eng.get("doc") or {}).get("worker_capability") if eng else None
+        if eng is not None:
+            return (eng.get("doc") or {}).get("worker_capability")
+        return await _advertised_engine_capability(engine)
 
     @api.post("/scopes/{scope}/procedural-models/{model_id}/export-xlsx")
     async def api_procedural_export_xlsx(
@@ -4459,6 +4465,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="system template not found")
         return JSONResponse({"status": "archived"})
 
+    async def _advertised_engine_capability(slug: str | None) -> str | None:
+        """The worker capability of an engine a live worker advertises itself.
+
+        Complements the database lookup at every routing site: a self-advertising
+        engine has no row, so without this its jobs would silently route to the
+        DEFAULT pool -- the engine would appear in the list, be selectable, and
+        then run somewhere that does not have it.
+
+        A row always wins where one exists; this is only consulted when the
+        lookup came back empty.
+        """
+        if not slug:
+            return None
+        from ada.topo_model.engine_catalog import is_offerable
+
+        spec = (await _live_worker_specs("procedural_engine_specs")).get(slug)
+        if spec is None or not is_offerable(spec):
+            return None
+        return spec.get("worker_capability")
+
     # ── /api/scopes/{scope}/procedural-engines ──────────────────────
     #
     # Registry of pluggable procedural-modelling engines. The built-in
@@ -4521,7 +4547,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             summary["supports_grouping"] = bool(
                 spec.get("supports_grouping") if spec is not None else summary.get("supports_grouping", False)
             )
-        return JSONResponse({"procedural_engines": [*summaries, *engines]})
+
+        # Engines a live worker advertises in full. A worker can only honestly
+        # announce an engine whose code it has, so this is the authoritative
+        # answer to "what can actually run right now" -- and it removes the
+        # manual step of creating a row per scope for an engine that is already
+        # installed and already reachable.
+        #
+        # Only specs carrying a name AND an entrypoint qualify (see
+        # engine_catalog.is_offerable): older workers advertise capability flags
+        # alone, and surfacing one of those would offer an engine the viewer
+        # cannot dispatch to.
+        #
+        # Built-ins and DB rows win on slug collision. A row is an explicit
+        # admin decision -- possibly pinning a different entrypoint or revision --
+        # and must not be silently overridden by whatever a pod happens to run.
+        from ada.topo_model.engine_catalog import is_offerable
+
+        known = {*_BUILTIN_ENGINE_SLUGS, *(e.get("slug") for e in engines)}
+        advertised = [
+            {
+                "id": f"worker:{spec['slug']}",
+                "slug": spec["slug"],
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "revision": 0,
+                "origin": "worker",
+                "supports_grouping": bool(spec.get("supports_grouping", False)),
+            }
+            for slug, spec in sorted(engine_caps.items())
+            if slug not in known and is_offerable(spec)
+        ]
+        return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised]})
 
     @api.post("/scopes/{scope}/procedural-engines", status_code=201)
     async def api_procedural_engines_create(

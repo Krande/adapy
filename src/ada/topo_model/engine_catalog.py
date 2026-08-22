@@ -24,6 +24,7 @@ from .engines import BUILTIN_ENGINES
 __all__ = [
     "register_procedural_engine_capabilities",
     "procedural_engine_specs",
+    "is_offerable",
 ]
 
 # engine slug -> {"slug", "supports_grouping"}. Insertion-ordered; last writer per
@@ -35,14 +36,56 @@ def register_procedural_engine_capabilities(
     slug: str,
     *,
     supports_grouping: bool = False,
+    name: str | None = None,
+    description: str | None = None,
+    entrypoint: str | None = None,
+    worker_capability: str | None = None,
 ) -> None:
-    """Register (or replace) the capability flags an engine advertises. ``slug`` is
-    the engine slug (e.g. an external engine); ``supports_grouping`` advertises whether
-    the engine compiles per-group blueprints. Idempotent by ``slug``."""
-    _ENGINE_CAPABILITY_REGISTRY[slug] = {
+    """Register (or replace) what an engine advertises. Idempotent by ``slug``.
+
+    ``slug`` and ``supports_grouping`` alone register capability FLAGS for an
+    engine the viewer already knows about (a built-in, or a row an admin
+    created). That is the original behaviour and is unchanged.
+
+    Passing ``name`` AND ``entrypoint`` additionally makes the engine
+    SELF-ADVERTISING: the viewer will offer it wherever a live worker announces
+    it, with no database row and no admin step. This is the difference between
+    "an engine that exists supports grouping" and "this engine exists at all".
+
+    ``entrypoint`` is the usual ``module:callable``, resolved by the worker at
+    job time. ``worker_capability`` is the pool the job must be routed to; leave
+    it unset for an engine any worker can run.
+
+    A worker can only honestly advertise an engine whose code it has, so the
+    registration belongs in the engine package itself, run at import (see
+    ``ADA_WORKER_PRELOAD``). An engine that stops being installed stops being
+    offered when that worker's heartbeat goes stale, which is the point: the
+    list reflects what can actually run right now.
+    """
+    spec: dict = {
         "slug": slug,
         "supports_grouping": bool(supports_grouping),
     }
+    # Only a spec carrying BOTH a name and an entrypoint is offerable. Older
+    # workers advertise flags alone, and a half-filled descriptor would surface
+    # an engine the viewer cannot dispatch to -- worse than not offering it.
+    if name and entrypoint:
+        spec["name"] = name
+        spec["description"] = description or ""
+        spec["entrypoint"] = entrypoint
+        if worker_capability:
+            spec["worker_capability"] = worker_capability
+    _ENGINE_CAPABILITY_REGISTRY[slug] = spec
+
+
+def is_offerable(spec: dict) -> bool:
+    """Whether a heartbeat spec describes an engine the viewer can offer on its own.
+
+    Kept next to the writer so the two definitions cannot drift: a spec is
+    offerable exactly when :func:`register_procedural_engine_capabilities` was
+    given both a name and an entrypoint.
+    """
+    return bool(spec.get("name")) and bool(spec.get("entrypoint"))
 
 
 def procedural_engine_specs() -> list[dict]:

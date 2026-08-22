@@ -33,6 +33,7 @@ from .detailing_catalog import (
     register_detailing_engine,
 )
 from .engine_catalog import (
+    is_offerable,
     procedural_engine_specs,
     register_procedural_engine_capabilities,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "procedural_blueprint_specs",
     "procedural_cell_type_specs",
     "procedural_engine_specs",
+    "is_offerable",
     "procedural_opening_type_specs",
     "procedural_template_specs",
     "propose_relocations",
