@@ -1,0 +1,115 @@
+{
+  "version": 2,
+  "src": "cantilever_EIG_ccx_shell_o1_hqTrue_riTrue",
+  "mesh": {
+    "url": "fea.mesh.glb",
+    "n_points": 1530,
+    "n_cells": 616,
+    "edges_url": "fea.mesh.edges.bin",
+    "n_edges": 3521,
+    "elements_url": "fea.mesh.elements.bin",
+    "n_elements": 616
+  },
+  "fields": [
+    {
+      "name_canonical": "DISP",
+      "name_native": "DISP",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "blob": {
+        "url": "fea.DISP.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 11,
+      "steps": [
+        {
+          "i": 0,
+          "value": 14.25581406,
+          "label": "14.2558"
+        },
+        {
+          "i": 1,
+          "value": 53.26178564,
+          "label": "53.2618"
+        },
+        {
+          "i": 2,
+          "value": 87.91531272,
+          "label": "87.9153"
+        },
+        {
+          "i": 3,
+          "value": 121.8502907,
+          "label": "121.85"
+        },
+        {
+          "i": 4,
+          "value": 239.8042729,
+          "label": "239.804"
+        },
+        {
+          "i": 5,
+          "value": 262.8301263,
+          "label": "262.83"
+        },
+        {
+          "i": 6,
+          "value": 365.0999453,
+          "label": "365.1"
+        },
+        {
+          "i": 7,
+          "value": 431.7740646,
+          "label": "431.774"
+        },
+        {
+          "i": 8,
+          "value": 451.7449421,
+          "label": "451.745"
+        },
+        {
+          "i": 9,
+          "value": 464.4401243,
+          "label": "464.44"
+        },
+        {
+          "i": 10,
+          "value": 589.2395694,
+          "label": "589.24"
+        }
+      ],
+      "scalar_range": {
+        "D1": [
+          -0.04331149905920029,
+          0.10135599970817566
+        ],
+        "D2": [
+          -0.1915930062532425,
+          0.1501699984073639
+        ],
+        "D3": [
+          -0.15431000292301178,
+          0.15431000292301178
+        ],
+        "magnitude": [
+          1.0999500111378948e-19,
+          0.19159464538097382
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    }
+  ]
+}
