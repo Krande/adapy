@@ -2,6 +2,13 @@
 
 
 
+## v0.38.0 (2026-08-22)
+
+### Feature
+
+* feat: add an admin plugin region and a plugin model-load handle (#253) ([`d864467`](https://github.com/Krande/adapy/commit/d864467cfc01d3e01ead6cbc33f556305eb51ed7))
+
+
 ## v0.37.0 (2026-08-17)
 
 ### Feature
