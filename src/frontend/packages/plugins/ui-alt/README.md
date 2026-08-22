@@ -49,9 +49,14 @@ npm run dev
 ## What a shell may and may not do
 
 * **May** replace everything above the scene: layout, routing, panels, theming.
+* **Must** import core through `@/viewer-core` (+ `/app`, `/scene`, `/plugins`)
+  and nothing else. That facade is the contract; deep imports into core internals
+  fail `src/__tests__/plugins/viewerCoreFacade.test.ts`. Missing something? Add
+  it to the facade in a PR — that is the contract changing, deliberately.
 * **Should** reuse core's stores, services and `CanvasWrapper` rather than
   re-implementing the scene — that is the whole reason this is a shell and not a
-  fork.
+  fork — and should mount the plugin slot hosts, or feature plugins go invisible
+  in that UI.
 * **Must not** assume it is the only shell: `?ui=core` has to keep working, which
   it does as long as the shell does not persist global state the classic UI then
   chokes on.

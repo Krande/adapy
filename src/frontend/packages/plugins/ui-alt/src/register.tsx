@@ -16,11 +16,13 @@
 // `UI_DEFAULT=my-ui` (so the image boots into it). adapy itself never names the
 // repo — see deploy/Dockerfile.viewer.
 //
-// The UI imports core through the `@/…` alias exactly like in-tree code does:
-// stores, services, three.js controllers and the scene are the shared substrate,
-// and only the chrome is replaced.
+// The UI imports core through ONE named surface — `@/viewer-core` (+ its
+// `/scene` and `/plugins` entry points). That facade is the contract: stores,
+// services, the REST client and the canvas are the shared substrate, only the
+// chrome is replaced, and a shell never reaches into core internals (the fence
+// is enforced by src/__tests__/plugins/viewerCoreFacade.test.ts).
 
-import { registerPlugin } from "@/plugins/registry";
+import { registerPlugin } from "@/viewer-core";
 
 export function register(): void {
   registerPlugin({

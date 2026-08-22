@@ -24,10 +24,51 @@ So the alternative UI lives in its own repository, is overlaid into the image at
 build time, and is selected by build-time registration — with a guaranteed way
 back to the classic UI at runtime.
 
+## The contract: `@/viewer-core`
+
+A shell imports core through **one named surface** and nothing else. Without it,
+an out-of-tree UI repo would import whatever core file it happened to need, and
+every internal rename would silently become a breaking change for a repo we
+cannot grep.
+
+The facade is a **curated re-export barrel, not a wrapper**: core's own modules
+are the implementation, and `src/viewer-core/` is the promise about which of them
+are public. Nothing is adapted or re-implemented — wrapping the viewer would mean
+refactoring exactly the files a UI rewrite is already churning.
+
+Four entry points, split by **dependency weight**:
+
+| Entry point | Contents | Why separate |
+|---|---|---|
+| `@/viewer-core` | contract version, `registerPlugin` + every slot type, UI-shell registry APIs | **Dependency-free** — no DOM, no store, no three. A plugin that only declares itself stays unit-testable under `node --test`. |
+| `@/viewer-core/app` | `AdaViewerProvider`, stores/refs, `viewerApi`, `runtime`, scope, theme, `requestRender`, file classification, `ErrorBoundary`, `UiShellSwitcher` | Touches the DOM / creates stores at import. |
+| `@/viewer-core/scene` | `CanvasWrapper`, `useUrlParamLoad`, load/unload handlers, FEA mesh + selection, camera / visibility ops, `ResizableTreeView`, `ColorLegend` | Pulls the 3D + FEA-streaming code; a canvas-less shell profile (`/convert`, `/admin`) must be able to skip it. |
+| `@/viewer-core/plugins` | `PluginPanelRegion`, `PluginTopBarButtons`, `PluginColorFields`, `makePluginContext`, slot getters, sidecar loaders | Only a shell needs these — they let *other* plugins' panels appear in its chrome. The plugin context pulls the FEA module. |
+
+`VIEWER_CORE_API_VERSION` is bumped on a breaking change to anything exported
+from those four, the same way `PLUGIN_API_VERSION` covers the slot interfaces. A
+shell declares what it was built against via its plugin's `coreApiRange`.
+
+Two rules keep the facade honest, both enforced by
+`src/__tests__/plugins/viewerCoreFacade.test.ts`:
+
+* **Re-export leaf modules only** — never `@/plugins`, whose loader barrel imports
+  the plugin packages, which import the facade. That cycle would bite at
+  module-init time, in the browser, at boot.
+* **Adding an export is a contract decision**, not a convenience. Everything there
+  is something an out-of-tree repo may pin to.
+
+The fence itself — *plugin packages may import `@/viewer-core*` and nothing else
+from core* — is enforced by the same test, with an (empty) allowlist at
+`src/__tests__/plugins/viewerCoreImports.allowlist.json` for a reviewed exception.
+Core's own code does **not** import through the facade: core is the
+implementation, and the facade exists for consumers outside it.
+
 ## The moving parts
 
 ```
 src/frontend/
+  src/viewer-core/       the contract: index.ts (dep-free) + app.ts + scene.ts + plugins.ts
   src/plugins/
     uiShells.ts          registry + resolution (id -> shell, precedence, fallback)
     coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app)
@@ -91,10 +132,21 @@ export default register;
 ```
 
 `MyShell`'s default export is the root component. It owns providers, routing and
-layout, and reuses core through the `@/…` alias exactly like in-tree code:
-`AdaViewerProvider`, `CanvasWrapper`, `useUrlParamLoad`, the stores, the services
-and the three.js controllers. Re-implementing the scene would defeat the point —
-the shell is the chrome, not a second viewer.
+layout, and reuses core **through the facade**:
+
+```tsx
+import { AdaViewerProvider, UiShellSwitcher } from "@/viewer-core/app";
+import { PluginPanelRegion, PluginTopBarButtons } from "@/viewer-core/plugins";
+import { CanvasWrapper, ResizableTreeView, useUrlParamLoad } from "@/viewer-core/scene";
+```
+
+Re-implementing the scene would defeat the point — the shell is the chrome, not a
+second viewer. Mounting the plugin slot hosts matters too: skip them and every
+feature plugin's buttons and panels vanish in that UI.
+
+Need something core has but the facade does not export? Add it to
+`src/viewer-core/` in a PR (that is the contract changing, deliberately) rather
+than deep-importing around the fence.
 
 See `packages/plugins/ui-alt/` for a working minimal example, and its README for
 the out-of-repo repository layout.
