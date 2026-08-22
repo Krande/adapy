@@ -1213,10 +1213,11 @@ async def _run_procedural_build(
         eng_row = await db_module.get_procedural_engine_by_slug(
             db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
         )
-        if eng_row is None:
-            await _fail("build", f"procedural engine {engine!r} not found in scope")
+        eng_doc = ((eng_row or {}).get("doc") if eng_row else None) or _advertised_engine_doc(engine)
+        if eng_doc is None:
+            await _fail("build", f"procedural engine {engine!r} is neither registered in scope nor advertised here")
             return
-        external_entrypoint = (eng_row.get("doc") or {}).get("entrypoint")
+        external_entrypoint = eng_doc.get("entrypoint")
         if not external_entrypoint:
             await _fail("build", f"engine {engine!r} manifest has no entrypoint")
             return
@@ -1675,6 +1676,33 @@ async def _run_procedural_relocations(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+def _advertised_engine_doc(engine: str | None) -> dict | None:
+    """A manifest-shaped doc for an engine THIS worker advertises itself.
+
+    A self-advertising engine deliberately has no database row -- that is the
+    whole point of advertising -- so its manifest has to come from the registry
+    the engine populated at import (see ADA_WORKER_PRELOAD and
+    ``register_procedural_engine_capabilities``). Returns the same
+    ``{kind, entrypoint, worker_capability}`` shape a row's ``doc`` carries, so
+    every caller needs nothing beyond the fallback itself.
+
+    Only offerable specs qualify: a spec carrying capability flags alone
+    describes an engine the viewer already knows about, not one this worker can
+    dispatch to on its own.
+    """
+    if not engine:
+        return None
+    from ada.topo_model.engine_catalog import is_offerable, procedural_engine_specs
+
+    for spec in procedural_engine_specs():
+        if spec.get("slug") == engine and is_offerable(spec):
+            doc: dict = {"kind": "server", "entrypoint": spec["entrypoint"]}
+            if spec.get("worker_capability"):
+                doc["worker_capability"] = spec["worker_capability"]
+            return doc
+    return None
+
+
 async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: str | None) -> dict | None:
     """The registry manifest doc for a NON-default, non-builtin engine (its
     ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
@@ -1686,7 +1714,9 @@ async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: s
     eng_row = await db_module.get_procedural_engine_by_slug(
         db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
     )
-    return (eng_row or {}).get("doc") if eng_row else None
+    # A row wins when present -- it is an explicit admin registration and may
+    # pin a different entrypoint than whatever this pod happens to run.
+    return ((eng_row or {}).get("doc") if eng_row else None) or _advertised_engine_doc(engine)
 
 
 async def _run_procedural_export_xlsx(
@@ -1972,10 +2002,10 @@ async def _run_procedural_import_xlsx(
         eng_row = await db_module.get_procedural_engine_by_slug(
             db_pool, scope_kind=scope.kind, scope_id=scope.id, slug=engine
         )
-        if eng_row is None:
-            await _fail("import", f"procedural engine {engine!r} not found in scope")
+        manifest_doc = ((eng_row or {}).get("doc") if eng_row else None) or _advertised_engine_doc(engine)
+        if manifest_doc is None:
+            await _fail("import", f"procedural engine {engine!r} is neither registered in scope nor advertised here")
             return
-        manifest_doc = (eng_row or {}).get("doc")
 
     from ada.comms.rest.procedural import procedural_source_key, validate_doc
     from ada.topo_model.engines import (
