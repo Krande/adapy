@@ -4,6 +4,7 @@ import { beforeEach, test } from "node:test";
 import {
   _versionSatisfies,
   disablePlugin,
+  getAdminTabs,
   getPanelsForRegion,
   getRegisteredPlugins,
   getResultSidecarLoaders,
@@ -29,6 +30,9 @@ function fakeCtx(): AdaPluginContext {
       paintField() {},
       getActiveFeaMesh: () => null,
       getSelectedFeaRangeIds: () => [],
+      setSelectedFeaRanges() {},
+      loadModelFromUrl: async () => {},
+      unloadModel() {},
     },
     scope: () => "user:me",
     theme: {
@@ -96,6 +100,52 @@ test("orders panels within a region by (order, id)", () => {
   });
   const ids = getPanelsForRegion("fem-sidebar", fakeCtx()).map((p) => p.panel.id);
   assert.deepEqual(ids, ["a:early", "z:p", "a:late"]);
+});
+
+test("admin tabs: labelled from asTab, ordered, and gated by activation", () => {
+  registerPlugin({
+    id: "later",
+    panels: [
+      { id: "t", region: "admin", order: 20, asTab: { label: "Later" }, render: () => null },
+    ],
+  });
+  registerPlugin({
+    id: "first",
+    panels: [
+      { id: "t", region: "admin", order: 1, asTab: { label: "First" }, render: () => null },
+      // No asTab: an admin panel is always a tab, so it falls back to its id.
+      { id: "unlabelled", region: "admin", order: 5, render: () => null },
+      // Another region must not leak into the admin strip.
+      { id: "sidebar", region: "fem-sidebar", render: () => null },
+    ],
+  });
+  registerPlugin({
+    id: "off",
+    activationPredicate: () => false,
+    panels: [{ id: "t", region: "admin", asTab: { label: "Off" }, render: () => null }],
+  });
+
+  const tabs = getAdminTabs(fakeCtx());
+  assert.deepEqual(
+    tabs.map((t) => [t.panel.id, t.label]),
+    [
+      ["first:t", "First"],
+      ["first:unlabelled", "first:unlabelled"],
+      ["later:t", "Later"],
+    ],
+  );
+  assert.deepEqual(
+    tabs.map((t) => t.pluginId),
+    ["first", "first", "later"],
+  );
+});
+
+test("admin tabs are empty when no plugin contributes one", () => {
+  registerPlugin({
+    id: "nope",
+    panels: [{ id: "p", region: "top-panel", render: () => null }],
+  });
+  assert.deepEqual(getAdminTabs(fakeCtx()), []);
 });
 
 test("respects whole-plugin and per-slot activation predicates", () => {

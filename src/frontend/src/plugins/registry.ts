@@ -20,13 +20,15 @@ import type { AdaViewerStores } from "@/state/AdaViewerContext";
 export const PLUGIN_API_VERSION = "1.0.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
-// (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar);
-// more are added on demand rather than up-front.
+// (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
+// `admin` the /admin page's tab strip); more are added on demand rather than
+// up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
-  | "storage-detail";
+  | "storage-detail"
+  | "admin";
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -78,6 +80,26 @@ export interface SceneHandle {
   // ``additive`` false (default) replaces the selection; true unions. No-op when
   // no FEA model is loaded. Plain string ids — no three import, names no plugin.
   setSelectedFeaRanges: (rangeIds: string[], additive?: boolean) => void;
+  // Load a GLB/glTF from an arbitrary URL and overlay it in the scene, the same
+  // way core's own storage-browser load does — a plugin sourcing geometry from
+  // somewhere core knows nothing about (an external catalog, a signed URL) has no
+  // other way in: `add` takes an already-built Object3D, and core's loaders all
+  // resolve a key under a viewer scope. Resolves once the model is in the scene.
+  //
+  // `sourceName` is the identity the model is registered under (defaults to the
+  // URL's filename) and the handle `unloadModel` takes. `headers` are passed to
+  // the loader for a URL that needs auth; omit for an already-signed one.
+  // `translate` (default true) reuses the first-loaded model's recentering frame
+  // so an overlay lands aligned rather than re-derived from its own bbox.
+  loadModelFromUrl: (
+    owner: string,
+    url: string,
+    opts?: { sourceName?: string; headers?: Record<string, string>; translate?: boolean },
+  ) => Promise<void>;
+  // Remove a model previously loaded through `loadModelFromUrl` (or any source
+  // registered under that name), disposing its GPU resources. No-op when the
+  // name is not loaded.
+  unloadModel: (sourceName: string) => void;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
@@ -142,6 +164,10 @@ export interface PanelSlot {
   // Simulation panel (alongside the built-in "animation" tab) rather than
   // stacking it inline. Buttonless / non-`asTab` fem-sidebar panels keep
   // rendering inline via `PluginPanelRegion` — this is purely additive.
+  //
+  // `admin` panels are ALWAYS tabs (the admin page is a tab strip), so there
+  // `asTab` is optional and only supplies the label; without it the namespaced
+  // panel id is shown.
   asTab?: {
     label: string;
     order?: number;
@@ -412,6 +438,26 @@ export function findSimulationTabById(panelId: string): SimulationTabEntry | nul
     }
   }
   return null;
+}
+
+/** One plugin-contributed admin tab. */
+export interface AdminTabEntry {
+  pluginId: string;
+  panel: PanelSlot;
+  label: string;
+}
+
+/** `admin` panels, filtered by activation exactly like `getPanelsForRegion` and
+ * ordered by `(order ?? 0, id)`. Core appends these after the built-in admin
+ * tabs; each carries its owning `pluginId` so core can build a per-plugin ctx and
+ * ErrorBoundary-wrap the mount. Empty when no plugin advertises an admin tab (the
+ * page then looks byte-identical to the pre-plugin admin page). */
+export function getAdminTabs(ctx: AdaPluginContext): AdminTabEntry[] {
+  return getPanelsForRegion("admin", ctx).map(({ pluginId, panel }) => ({
+    pluginId,
+    panel,
+    label: panel.asTab?.label ?? panel.id,
+  }));
 }
 
 /** Color-field providers available under the given ctx, ordered by `id`. */
