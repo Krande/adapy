@@ -1,6 +1,22 @@
 name: Make Release on push of new tag
 
-# triggered on a tagged release
+# Publishes ada-py to PyPI when a vX.Y.Z tag is pushed. The tag itself is
+# created by tag-on-pr-merge.yaml (deputy), which has already bumped
+# pyproject.toml in the tagged commit — so this builds the tag as-is.
+#
+# Replaces a call into a reusable-workflow repository, whose release workflow
+# fanned out to four publish jobs (pypi / conda / docker / gitops) gated on
+# flags in action_config.toml. Only the PyPI one was ever enabled here: conda
+# was `enabled = false`, and the config declared no docker or gitops section at
+# all. What is left is that one job, inlined, with no config file to consult.
+#
+# Requires secrets.PYPI_API_TOKEN.
+#
+# A note on trusted publishing: PyPI's OIDC flow would remove the long-lived
+# token entirely (add `permissions: id-token: write` and drop the password
+# input). It needs a publisher configured on the PyPI project first, so it is
+# left as a follow-up rather than assumed here.
+
 on:
   workflow_dispatch:
   push:
@@ -8,22 +24,50 @@ on:
       - 'v*.*.*'
 
 permissions:
-  id-token: write
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-pypi-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    uses: AibelDevs/action-toolbox/.github/workflows/default-tool-release.yaml@main
-    secrets:
-      SOURCE_KEY: ${{ secrets.SOURCE_KEY }}
-      CONDA_API_TOKEN: ${{ secrets.CONDA_API_TOKEN }}
-      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-      CUSTOM_PYPI_USERNAME: ${{ secrets.CUSTOM_PYPI_USERNAME }}
-      CUSTOM_PYPI_PASSWORD: ${{ secrets.CUSTOM_PYPI_PASSWORD }}
-      CUSTOM_PYPI_URL: ${{ secrets.CUSTOM_PYPI_URL }}
-      QUETZ_API_KEY: ${{ secrets.QUETZ_API_KEY }}
-      QUETZ_URL: ${{ secrets.QUETZ_URL }}
-      CONTAINER_REGISTRY_URL: ${{ secrets.CONTAINER_REGISTRY_URL }}
-      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
-      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
-      GITOPS_KEY: ${{ secrets.GITOPS_KEY }}
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The previous implementation OVERWROTE pyproject.toml's version with the
+      # tag before building, which silently papered over any mismatch. deputy
+      # bumps the version in the commit it tags, so the two must already agree —
+      # check instead of overwrite, and fail loudly when they don't. A tag
+      # pointing at a commit whose version says something else means the release
+      # pipeline went wrong upstream, and publishing it would put a wrong
+      # version on PyPI permanently.
+      - name: Check the tag matches pyproject.toml's version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -eu
+          tag="${GITHUB_REF##*/}"
+          tag="${tag#v}"
+          proj="$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")"
+          echo "tag=$tag pyproject=$proj"
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::tag v$tag does not match pyproject.toml version $proj — refusing to publish."
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}

@@ -1,0 +1,37 @@
+# deputy CI config — https://github.com/Krande/deputy
+#
+# The pr-review / tag-on-merge workflows install deputy and call it; the static
+# config lives here so the workflows stay thin. Release behaviour otherwise
+# falls back to deputy's built-in semantic-release defaults (tag "v{version}",
+# angular parser, chore/feat/fix release tags, main branch, push over origin,
+# upload to the VCS release), so only the repo-specific bits are set below.
+
+[pr_review]
+# Marker for this repo's sticky PR comment; keeps deputy updating one thread
+# instead of posting a new comment on every run.
+marker = "<!-- ADAPY_PR_BOT -->"
+# Release label applied when a PR carries none. deputy's own default is
+# release-skip (no label => no release); release-auto instead lets
+# semantic-release derive the bump from the PR title, so a `fix:` PR cuts a
+# patch and a `feat:` PR cuts a minor with nobody hand-applying a label. An
+# explicit release-skip on a PR still wins. Requires deputy >= 0.4.0.
+default_label = "release-auto"
+
+[release]
+# The python package version.
+version_toml = ["pyproject.toml:project.version"]
+
+# The frontend package version, kept in lockstep with the python one.
+#
+# NOTE the quotes around "version": the pattern semantic-release builds is
+# `<variable>\s*[:=]\s*"<semver>"`, so the bare token `version` matches TOML
+# (`version = "..."`) but NOT JSON, where the key is followed by a closing
+# quote before the colon. The quoted form is what matches `"version": "..."`.
+#
+# src/frontend/package-lock.json is deliberately NOT listed here. Its version
+# appears once per dependency -- this pattern matches it 471 times across 230
+# distinct versions -- and semantic-release replaces every match, so adding it
+# would rewrite the whole dependency tree to the project version. The lock's
+# own version field needs `npm install --package-lock-only` (or `npm version`),
+# not a regex; it is stale today and tracked separately.
+version_variables = ['src/frontend/package.json:"version"']
