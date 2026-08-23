@@ -2,6 +2,15 @@
 
 
 
+## v0.42.1 (2026-08-23)
+
+### Fix
+
+* fix(viewer): reach is_offerable without importing ada.topo_model (#259)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b0b01c9`](https://github.com/Krande/adapy/commit/b0b01c96cf5f3352f3d83cfc65032d5e3d6e2fb0))
+
+
 ## v0.42.0 (2026-08-23)
 
 ### Feature
