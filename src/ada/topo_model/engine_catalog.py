@@ -19,6 +19,12 @@ any engine slug.
 
 from __future__ import annotations
 
+# The predicate lives under ada.comms so the REST API can reach it without
+# ada.topo_model, which the slim viewer runtime does not ship. Re-exported here
+# (and in ada.topo_model) so the two sides cannot drift and existing importers
+# keep working.
+from ada.comms.engine_specs import is_offerable
+
 from .engines import BUILTIN_ENGINES
 
 __all__ = [
@@ -76,16 +82,6 @@ def register_procedural_engine_capabilities(
         if worker_capability:
             spec["worker_capability"] = worker_capability
     _ENGINE_CAPABILITY_REGISTRY[slug] = spec
-
-
-def is_offerable(spec: dict) -> bool:
-    """Whether a heartbeat spec describes an engine the viewer can offer on its own.
-
-    Kept next to the writer so the two definitions cannot drift: a spec is
-    offerable exactly when :func:`register_procedural_engine_capabilities` was
-    given both a name and an entrypoint.
-    """
-    return bool(spec.get("name")) and bool(spec.get("entrypoint"))
 
 
 def procedural_engine_specs() -> list[dict]:
