@@ -3760,6 +3760,21 @@ export const viewerApi = {
     return r.text();
   },
 
+  /** Read a key from the publicly-readable `public.` settings namespace. Any
+   * authenticated user; 403 for a key outside that namespace. Use this (not
+   * `adminGetSetting`) for configuration a non-admin's UI has to see. Writes
+   * remain admin-only — there is no public setter. */
+  async getPublicSetting(key: string): Promise<string | null> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/settings/${encodeURIComponent(key)}`,
+    );
+    const body = await jsonOrThrow<{ key: string; value: string | null }>(
+      r,
+      `getPublicSetting(${key})`,
+    );
+    return body.value;
+  },
+
   /** Admin: read a key from app_settings. Value is null when unset. */
   async adminGetSetting(key: string): Promise<string | null> {
     const r = await authedFetch(
