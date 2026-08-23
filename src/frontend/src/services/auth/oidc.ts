@@ -41,6 +41,10 @@ const STORAGE_STATE = "ada-oidc-state";
 // picked up within the day.
 const STORAGE_DISCOVERY = "ada-oidc-discovery";
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
+// Treat a token as expired this long before it actually is, so we never hand
+// out an about-to-expire token to a request that takes more than zero ms to
+// ship. Applies to the primary token and to every per-resource token alike.
+const EXPIRY_SKEW_MS = 30_000;
 
 let discovery: DiscoveryDoc | null = null;
 let accessToken: string | null = null;
@@ -51,6 +55,16 @@ let userClaims: Record<string, unknown> | null = null;
 // One inflight refresh. If many fetches hit a 401 simultaneously we
 // don't want to fan out N concurrent token-refresh calls.
 let refreshInflight: Promise<boolean> | null = null;
+
+// Access tokens minted for a *different* resource than this app's own API
+// (see getAccessTokenForScope). Kept apart from `accessToken` because an
+// OAuth access token carries exactly one `aud` — these are not
+// interchangeable with the primary one, so they get their own cache and
+// their own expiry. Keyed by the requested scope string.
+const scopedTokens = new Map<string, {token: string; expiry: number}>();
+// Same idea as `refreshInflight`, one entry per scope: N concurrent callers
+// asking for the same resource produce one token request, not N.
+const scopedInflight = new Map<string, Promise<string>>();
 
 function redirectUri(): string {
     return `${window.location.origin}/auth/callback`;
@@ -137,6 +151,13 @@ function clearTokens(): void {
     accessTokenExpiry = 0;
     refreshToken = null;
     userClaims = null;
+    // Per-resource tokens were minted off the session we are dropping, so
+    // they die with it. The inflight map is cleared too — those requests
+    // will fail (or resolve into a cache we no longer trust), and leaving
+    // their entries behind would hand a post-sign-out caller a token from
+    // the previous session.
+    scopedTokens.clear();
+    scopedInflight.clear();
     sessionStorage.removeItem(STORAGE_REFRESH);
 }
 
@@ -146,9 +167,7 @@ export function isAuthEnabled(): boolean {
 
 export function isSignedIn(): boolean {
     if (!accessToken) return false;
-    // 30s skew so we don't hand out an about-to-expire token to a
-    // request that takes more than zero ms to ship.
-    return Date.now() < accessTokenExpiry - 30_000;
+    return Date.now() < accessTokenExpiry - EXPIRY_SKEW_MS;
 }
 
 export function getAccessToken(): string | null {
@@ -289,6 +308,158 @@ export async function refreshAccessToken(): Promise<boolean> {
         }
     })();
     return refreshInflight;
+}
+
+/** Raised when a per-resource token acquisition was attempted and failed:
+ *  the provider refused the scope, answered without an access token, or the
+ *  request never completed. Distinct from the `null` return of
+ *  {@link getAccessTokenForScope}, which means "there was no session to
+ *  exchange in the first place". */
+export class ScopedTokenError extends Error {
+    /** Status from the token endpoint, when the failure came with a response. */
+    readonly status?: number;
+
+    constructor(message: string, status?: number) {
+        super(message);
+        this.name = "ScopedTokenError";
+        this.status = status;
+    }
+}
+
+/** Take a rotated refresh token out of a token response — and nothing else.
+ *
+ *  Providers that rotate refresh tokens invalidate the one just redeemed, so
+ *  dropping the replacement would break the *primary* session at its next
+ *  refresh. We therefore adopt it. What we deliberately do not adopt is the
+ *  rest of the response: its access token, expiry and claims describe the
+ *  other resource, and writing them into `accessToken` / `accessTokenExpiry`
+ *  / `userClaims` would leave the app holding a token the API it talks to
+ *  will reject. (Note the inherent race with rotation: a per-resource
+ *  acquisition running concurrently with a primary refresh means two
+ *  redemptions of the same refresh token, and a rotating provider will
+ *  invalidate one of them. That is a property of rotation itself, not
+ *  something this function can paper over — the loser falls back to a
+ *  re-authorize round-trip.) */
+function adoptRotatedRefreshToken(body: TokenResponse): void {
+    if (!body.refresh_token || body.refresh_token === refreshToken) return;
+    refreshToken = body.refresh_token;
+    sessionStorage.setItem(STORAGE_REFRESH, refreshToken);
+}
+
+/** One acquisition attempt: redeem the refresh token for `scope`. Kept apart
+ *  from the public entry point so that caching, single-flight bookkeeping and
+ *  the network exchange stay separable. Always rejects with a
+ *  {@link ScopedTokenError}, never with a raw transport failure. */
+async function requestScopedToken(scope: string, rt: string): Promise<string> {
+    try {
+        const d = await loadDiscovery();
+        const r = await fetch(d.token_endpoint, {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: new URLSearchParams({
+                grant_type: "refresh_token",
+                refresh_token: rt,
+                client_id: runtime.authClientId(),
+                scope,
+            }).toString(),
+        });
+        if (!r.ok) {
+            // Note: no clearTokens() here, unlike refreshAccessToken. A
+            // provider refusing *this* scope says nothing about the session;
+            // signing the user out over it would be wrong.
+            throw new ScopedTokenError(
+                `identity provider refused scope "${scope}": ${r.status}`,
+                r.status,
+            );
+        }
+        const body = (await r.json()) as TokenResponse;
+        if (typeof body.access_token !== "string" || !body.access_token) {
+            throw new ScopedTokenError(
+                `token response for scope "${scope}" carried no access_token`,
+            );
+        }
+        // Note the absence of acceptTokenResponse(): everything in this
+        // response except a rotated refresh token belongs to the other
+        // resource and must stay out of the primary session's state.
+        adoptRotatedRefreshToken(body);
+        scopedTokens.set(scope, {
+            token: body.access_token,
+            expiry: Date.now() + (body.expires_in ?? 300) * 1000,
+        });
+        return body.access_token;
+    } catch (e) {
+        if (e instanceof ScopedTokenError) throw e;
+        // Discovery failure, transport error, unparseable body — wrapped so
+        // nothing raw escapes this module.
+        throw new ScopedTokenError(
+            `could not acquire a token for scope "${scope}": ${
+                e instanceof Error ? e.message : String(e)
+            }`,
+        );
+    }
+}
+
+/** Get an access token for a resource other than this app's own API.
+ *
+ *  Why a second token is needed at all: an OAuth access token carries
+ *  exactly one `aud`. The token obtained at sign-in is audienced at this
+ *  app's API — that is precisely what the configured extra scope is for (see
+ *  `signIn`) — so it cannot also be presented to a different API that
+ *  validates its own audience. A plugin or feature calling such an API must
+ *  therefore acquire its own token; the two coexist rather than replace one
+ *  another.
+ *
+ *  Mechanism: redeem the stored refresh token at the token endpoint with the
+ *  requested `scope`. That is an ordinary OAuth 2 refresh-token grant with a
+ *  changed scope, and providers that support it answer with an access token
+ *  for the other resource. This never disturbs the primary token.
+ *
+ *  Failure modes, deliberately split:
+ *    - Returns `null` when there is nothing to exchange — auth is disabled
+ *      for this deployment, or the user is not signed in (no stored refresh
+ *      token: never signed in, or signed out).
+ *    - Throws {@link ScopedTokenError} when an exchange was attempted and
+ *      failed — the provider refused the scope, replied without an access
+ *      token, or the request never completed. Transport rejections are
+ *      wrapped, so a caller only ever sees `null` or a ScopedTokenError,
+ *      never a bare fetch rejection and never an empty string.
+ *
+ *  Tokens are cached per scope with their own expiry (same skew as the
+ *  primary token), and concurrent callers asking for the same scope share a
+ *  single token request. */
+export async function getAccessTokenForScope(scope: string): Promise<string | null> {
+    const key = scope.trim();
+    if (!key) {
+        throw new ScopedTokenError("getAccessTokenForScope needs a non-empty scope");
+    }
+    if (!isAuthEnabled()) return null;
+    // Keyed off the refresh token rather than isSignedIn(): that reports on
+    // the *primary* access token's freshness, which is beside the point here.
+    // A session can be perfectly alive with a stale primary token, and this
+    // exchange only ever needs the refresh token.
+    const rt = refreshToken;
+    if (!rt) return null;
+
+    const cached = scopedTokens.get(key);
+    if (cached && Date.now() < cached.expiry - EXPIRY_SKEW_MS) return cached.token;
+
+    const pending = scopedInflight.get(key);
+    if (pending) return pending;
+
+    const inflight = requestScopedToken(key, rt);
+    scopedInflight.set(key, inflight);
+    // Retire the entry once it settles, but only if it is still ours:
+    // clearTokens() may have wiped the map and a later caller may already
+    // have registered a fresh request. The trailing catch is only there
+    // because `.finally()` returns a *derived* promise — without it a
+    // failed acquisition would surface as an unhandled rejection even
+    // though the caller handles the promise we return.
+    void inflight
+        .finally(() => {
+            if (scopedInflight.get(key) === inflight) scopedInflight.delete(key);
+        })
+        .catch(() => {});
+    return inflight;
 }
 
 /** Top-level sign-out: clears local state and redirects via the IdP's
