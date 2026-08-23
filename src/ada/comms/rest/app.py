@@ -4507,7 +4507,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not slug:
             return None
-        from ada.topo_model.engine_catalog import is_offerable
+        from ada.comms.engine_specs import is_offerable
 
         spec = (await _live_worker_specs("procedural_engine_specs")).get(slug)
         if spec is None or not is_offerable(spec):
@@ -4584,14 +4584,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # installed and already reachable.
         #
         # Only specs carrying a name AND an entrypoint qualify (see
-        # engine_catalog.is_offerable): older workers advertise capability flags
+        # ada.comms.engine_specs.is_offerable): older workers advertise capability flags
         # alone, and surfacing one of those would offer an engine the viewer
         # cannot dispatch to.
         #
         # Built-ins and DB rows win on slug collision. A row is an explicit
         # admin decision -- possibly pinning a different entrypoint or revision --
         # and must not be silently overridden by whatever a pod happens to run.
-        from ada.topo_model.engine_catalog import is_offerable
+        from ada.comms.engine_specs import is_offerable
 
         known = {*_BUILTIN_ENGINE_SLUGS, *(e.get("slug") for e in engines)}
         advertised = [
