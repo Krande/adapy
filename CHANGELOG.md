@@ -2,6 +2,15 @@
 
 
 
+## v0.42.0 (2026-08-23)
+
+### Feature
+
+* feat(viewer): acquire access tokens for other resources in the OIDC client (#258)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`9f2a6e4`](https://github.com/Krande/adapy/commit/9f2a6e4f026d8c9ee2eb857810c5e98618bc4581))
+
+
 ## v0.41.0 (2026-08-22)
 
 ### Feature
