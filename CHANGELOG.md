@@ -2,6 +2,13 @@
 
 
 
+## v0.43.0 (2026-08-23)
+
+### Feature
+
+* feat(viewer-api): add a publicly-readable settings namespace for plugin config (#260) ([`b128aa2`](https://github.com/Krande/adapy/commit/b128aa26b37c03ce36cdeccf1ec7a4ae63650416))
+
+
 ## v0.42.1 (2026-08-23)
 
 ### Fix
