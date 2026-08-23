@@ -84,8 +84,6 @@ def register_procedural_engine_capabilities(
     _ENGINE_CAPABILITY_REGISTRY[slug] = spec
 
 
-
-
 def procedural_engine_specs() -> list[dict]:
     """The registered engine capability specs (a fresh copy so callers can't mutate
     the registry) — the shape the worker advertises in its heartbeat."""
