@@ -34,6 +34,15 @@ the package; `UI_DEFAULT` (→ `ADA_UI_DEFAULT`) stamps `DEFAULT_UI_SHELL` into 
 generated registry. Omit `UI_DEFAULT` to ship both UIs with the classic one as
 the default and the alternative reachable from the switcher / `?ui=my-ui`.
 
+## ...or picking the default per deployment
+
+Which shells an image **carries** is a build decision. Which one it **boots
+into** does not have to be: set `ADA_VIEWER_UI_DEFAULT=my-ui` on the API pod
+(chart value `ui.default`) and the server hands it to the browser through
+`/config.js`. It outranks the build-time default and is outranked by the
+switcher and `?ui=`, so one image can serve several deployments and a UI
+rollback is a config edit plus a restart. Unset changes nothing.
+
 ## Trying this scaffold locally
 
 ```bash

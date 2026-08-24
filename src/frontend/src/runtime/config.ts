@@ -100,6 +100,11 @@ declare global {
             to: readonly string[];
             options?: Readonly<Record<string, readonly ConversionOption[]>>;
         }[];
+        // Default UI shell id for THIS deployment (see
+        // src/plugins/uiShells.ts). Absent when the server configures
+        // none, which means the build-time default still applies —
+        // read it through `resolveUiShell`, not from here.
+        ADA_UI_DEFAULT?: string;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;

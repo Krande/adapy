@@ -8022,6 +8022,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"
             f"window.CONVERSION_MATRIX = {_json.dumps(conversion_matrix)};\n"
         )
+
+        # Runtime default UI shell. Emitted ONLY when configured: the frontend
+        # treats an absent global as "no runtime opinion" and keeps whatever
+        # default was baked into the bundle at build time, so an image whose
+        # deployment sets nothing behaves exactly as it did before. An empty
+        # string would instead be a value, and a value has to mean something.
+        if settings.ui_default:
+            body += f"window.ADA_UI_DEFAULT = {_json.dumps(settings.ui_default)};\n"
+
         # config.js is the SPA's source of truth for runtime config
         # (worker registry → extraSourceExts / streamingOnlyExts, image
         # tags, auth) — content changes between requests as workers come

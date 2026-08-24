@@ -63,6 +63,13 @@ ENV ADA_PLUGINS_EXTRA=${EXTRA_PLUGINS_ENABLE}
 # still reaches the built-in one, and the switcher in the menu bar appears as soon
 # as a second shell is registered. Like EXTRA_PLUGINS_ENABLE, the value lives in
 # the CI config — never in this repo.
+#
+# This bakes the default into the image. A hosted deployment can instead set
+# ADA_VIEWER_UI_DEFAULT on the API pod (chart value `ui.default`), which the
+# server serves to the browser via /config.js and which outranks this — so one
+# image can serve deployments that want different UIs. Prefer that unless the
+# image is meant to be a one-UI artefact. EXTRA_PLUGINS_ENABLE has no runtime
+# equivalent: it decides what the image actually contains.
 ARG UI_DEFAULT=""
 ENV ADA_UI_DEFAULT=${UI_DEFAULT}
 

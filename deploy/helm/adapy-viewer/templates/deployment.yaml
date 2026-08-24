@@ -81,6 +81,10 @@ spec:
             - name: ADA_VIEWER_NATS_URL
               value: {{ $natsUrl | quote }}
             {{- end }}
+            {{- with .Values.ui.default }}
+            - name: ADA_VIEWER_UI_DEFAULT
+              value: {{ . | quote }}
+            {{- end }}
             {{- include "adapy-viewer.authEnv" . | nindent 12 }}
             {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
           {{- if eq .Values.storage.kind "local" }}
