@@ -1,0 +1,16 @@
+/* A shell's own stylesheet.
+ *
+ * `scripts/gen-plugin-registry.mjs` emits an @import for this file (into
+ * src/plugins/registry.generated.css) for every ENABLED plugin package that has
+ * one, and src/app.css imports that generated file. So this CSS joins the ONE
+ * Tailwind build — which is the only place a `@theme` block, a `@utility`, or a
+ * set of design tokens can take effect at all.
+ *
+ * A real alternative UI puts its design tokens and its `@theme` registration here
+ * (`@import "./ui/tokens.css";` or similar). This scaffold has none, so the file
+ * exists to prove the wiring rather than to style anything.
+ *
+ * What does NOT belong here: `@import 'tailwindcss'`. That lives in core's
+ * app.css, which every shell now gets from src/index.tsx — repeating it would
+ * emit a second copy of preflight and every utility.
+ */

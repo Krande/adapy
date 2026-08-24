@@ -1,5 +1,7 @@
 // src/App.tsx
-import "./app.css";
+// NB: the stylesheet is imported by index.tsx (the entry), not here. This module is
+// the built-in UI shell and is lazy-loaded, so a CSS import here reaches only builds
+// where this shell is the active one.
 import React, {useEffect, Suspense} from 'react'
 import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
