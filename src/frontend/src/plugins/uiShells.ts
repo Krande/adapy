@@ -11,9 +11,11 @@
 // shell slot it can live in its OWN repository, be cloned into
 // `packages/plugins/<name>/` during the image build (the exact mechanism the
 // external feature plugins already use — see deploy/Dockerfile.viewer), and be
-// selected as the default at BUILD time. Users can still flip back to the base
-// UI at runtime (`?ui=core`), which is what makes shipping an alternative UI a
-// low-risk operation instead of a fork.
+// selected as the default either at BUILD time or, for an image that carries
+// several shells, per DEPLOYMENT at runtime (`window.ADA_UI_DEFAULT`, served
+// from /config.js). Users can still flip back to the base UI at runtime
+// (`?ui=core`), which is what makes shipping an alternative UI a low-risk
+// operation instead of a fork.
 //
 // Like `registry.ts`, this module is deliberately free of heavy runtime imports
 // (no React runtime, no zustand, no three) so it can be unit-tested under plain
@@ -57,7 +59,7 @@ export interface RegisteredUiShell extends UiShellSpec {
 }
 
 /** Where the active shell id came from — surfaced for logging + the switcher. */
-export type UiShellSource = "url" | "storage" | "build-default" | "builtin";
+export type UiShellSource = "url" | "storage" | "runtime-default" | "build-default" | "builtin";
 
 export interface UiShellResolution {
   id: string;
@@ -142,6 +144,32 @@ function readUrlParam(search?: string): string | null {
   }
 }
 
+/**
+ * The server-supplied default, injected as `window.ADA_UI_DEFAULT` by
+ * `/config.js`. That script is a blocking, non-deferred classic script in
+ * index.html while the SPA entry is a deferred module, so the global is
+ * guaranteed to be set before any of this module runs — there is no async
+ * ordering problem to design around here.
+ *
+ * Absent (dev server, embed bundle, or a deployment that configures nothing)
+ * means *no runtime opinion*, and the build-time default below still applies.
+ * That is what keeps existing images behaving exactly as they did.
+ */
+function readRuntimeDefault(): string | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = (window as { ADA_UI_DEFAULT?: unknown }).ADA_UI_DEFAULT;
+    return typeof raw === "string" ? raw.trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The runtime default shell id, or null when the server configured none. */
+export function runtimeDefaultUiShellId(): string | null {
+  return readRuntimeDefault();
+}
+
 function readStorage(): string | null {
   try {
     if (typeof localStorage === "undefined") return null;
@@ -157,6 +185,8 @@ export interface ResolveUiShellOptions {
   search?: string;
   /** Injectable for tests; defaults to `localStorage[ada:ui]`. */
   stored?: string | null;
+  /** Injectable for tests; defaults to `window.ADA_UI_DEFAULT`. */
+  runtimeDefault?: string | null;
   /** Injectable for tests; defaults to the recorded build default. */
   buildDefault?: string | null;
 }
@@ -167,17 +197,32 @@ export interface ResolveUiShellOptions {
  *   1. `?ui=<id>`            — per-tab escape hatch. This is the "always a way
  *                              back to the base UI" guarantee: `?ui=core`.
  *   2. `localStorage ada:ui` — the user's sticky choice from the switcher.
- *   3. build-time default    — `ADA_UI_DEFAULT` baked into the image.
- *   4. `core`                — the built-in UI (or, if core somehow is not
+ *   3. runtime default       — `window.ADA_UI_DEFAULT` from /config.js, i.e.
+ *                              what THIS deployment configured. Above the
+ *                              build-time value so one image can serve several
+ *                              deployments with different UIs, and so changing
+ *                              the UI (or rolling one back) is a config edit
+ *                              and a restart rather than an image rebuild.
+ *                              Below the two user-driven sources so a
+ *                              deployment can never take `?ui=core` away.
+ *   4. build-time default    — `ADA_UI_DEFAULT` baked into the image.
+ *   5. `core`                — the built-in UI (or, if core somehow is not
  *                              registered, the first shell by order).
  *
  * A requested-but-unregistered id never blanks the viewer: it is reported in
- * `rejected` and resolution continues down the list.
+ * `rejected` and resolution continues down the list. That matters most for the
+ * runtime value: a typo there reaches a running deployment, where the same typo
+ * in the build-time value would have been caught at build time. The worst case
+ * is the next source down — ultimately the built-in UI — never a blank page.
  */
 export function resolveUiShell(opts: ResolveUiShellOptions = {}): UiShellResolution {
   const candidates: Array<{ id: string | null; source: UiShellSource }> = [
     { id: readUrlParam(opts.search), source: "url" },
     { id: opts.stored !== undefined ? opts.stored : readStorage(), source: "storage" },
+    {
+      id: opts.runtimeDefault !== undefined ? opts.runtimeDefault : readRuntimeDefault(),
+      source: "runtime-default",
+    },
     { id: opts.buildDefault !== undefined ? opts.buildDefault : _buildDefault, source: "build-default" },
   ];
 

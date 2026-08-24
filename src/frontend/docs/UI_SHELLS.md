@@ -21,8 +21,8 @@ different information architecture) is:
 * and something you want to be able to **turn off**, not fork.
 
 So the alternative UI lives in its own repository, is overlaid into the image at
-build time, and is selected by build-time registration — with a guaranteed way
-back to the classic UI at runtime.
+build time, and is selected either at build time or per deployment at runtime —
+with a guaranteed way back to the classic UI at runtime.
 
 ## The contract: `@/viewer-core`
 
@@ -76,6 +76,7 @@ src/frontend/
     UiShellSwitcher.tsx  the switcher; renders NOTHING when only one shell is registered
     registry.generated.ts  AUTO-GENERATED: enabled plugins + DEFAULT_UI_SHELL
   plugins.json           committed config: `enabled`, `defaultUi`
+  src/index.html         loads /config.js (blocking classic script) before the SPA
   scripts/gen-plugin-registry.mjs  generator (reads ADA_PLUGINS_EXTRA + ADA_UI_DEFAULT)
   packages/plugins/ui-alt/         reference shell plugin (template; not enabled)
 ```
@@ -85,14 +86,27 @@ src/frontend/
 ## Which UI mounts — precedence
 
 1. **`?ui=<id>`** — per-tab override. `?ui=core` is the guaranteed escape hatch
-   back to the built-in UI, whatever the image was built with.
+   back to the built-in UI, whatever the image was built or configured with.
 2. **`localStorage["ada:ui"]`** — the user's sticky choice from the switcher.
-3. **`DEFAULT_UI_SHELL`** — stamped into the bundle at build time from
-   `ADA_UI_DEFAULT` (build-arg `UI_DEFAULT`) or `plugins.json` `defaultUi`.
-4. **`core`** — the built-in UI.
+3. **`window.ADA_UI_DEFAULT`** — the **runtime** default, served per deployment
+   from `/config.js` (`ADA_VIEWER_UI_DEFAULT` on the API pod).
+4. **`DEFAULT_UI_SHELL`** — the **build-time** default, stamped into the bundle
+   from `ADA_UI_DEFAULT` (build-arg `UI_DEFAULT`) or `plugins.json` `defaultUi`.
+5. **`core`** — the built-in UI.
+
+**Runtime beats build time, and both lose to the user.** The runtime value is
+what makes one image serve two deployments with different UIs, and makes changing
+(or rolling back) the default a config edit and a pod restart instead of an image
+rebuild. It sits *below* `?ui=` and the switcher so a deployment can never take
+`?ui=core` away from a user.
+
+Unset means *unset*, not `core`: an image whose deployment configures nothing
+keeps whatever `UI_DEFAULT` it was built with, so this is purely additive.
 
 An id that is not registered in this build never blanks the viewer: it is logged
-and resolution continues down the list.
+and resolution continues down the list. That matters most for the runtime value,
+which is the one place a typo now reaches a live deployment rather than failing a
+build — the worst case is the next source down, ultimately the built-in UI.
 
 Switching from the switcher persists the choice and reloads — a shell owns the
 whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of
@@ -180,6 +194,10 @@ docker build -f deploy/Dockerfile.viewer \
   package (bare names are expanded to `@adapy-plugins/<name>`).
 * `UI_DEFAULT` → `ADA_UI_DEFAULT` → `DEFAULT_UI_SHELL` in the generated registry.
 
+`EXTRA_PLUGINS_ENABLE` is what decides which shells the image **carries** and is
+necessarily a build input. `UI_DEFAULT` only decides which of them it **boots
+into**, and that part does not have to be baked in — see below.
+
 In forgejo CI both are Action **variables** (`EXTRA_PLUGINS_*`, `UI_DEFAULT`); the
 UI repo is cloned into `src/frontend/packages/plugins/` by the workflow, so adapy's
 committed source never names it. Because they are build inputs rather than repo
@@ -188,6 +206,34 @@ one (or delete the branch image) when changing it.
 
 Omit `UI_DEFAULT` to ship **both** UIs with the classic one as the default; the
 switcher appears in the menu bar as soon as a second shell is registered.
+
+## Choosing the default at runtime instead
+
+For a hosted deployment, set `ADA_VIEWER_UI_DEFAULT` on the API pod:
+
+```bash
+ADA_VIEWER_UI_DEFAULT=my-ui   # a shell id the image carries
+```
+
+The server puts it on `window.ADA_UI_DEFAULT` in `/config.js`, which `index.html`
+loads as a **blocking, non-deferred classic script** while Vite emits the SPA
+entry as a (deferred) module — so the global is always set before any shell
+resolution runs. There is no async ordering to think about.
+
+Via the chart that is `ui.default`:
+
+```yaml
+ui:
+  default: my-ui
+```
+
+Leave it empty and nothing changes: the image's build-time default still applies.
+
+Prefer this over `UI_DEFAULT` whenever the image already carries the shell.
+One image then serves every deployment, deployments can disagree, and rolling a
+UI back is an edit plus a restart rather than a rebuild — which also sidesteps
+the "flipping `UI_DEFAULT` alone does not trigger a rebuild" trap above. Keep
+`UI_DEFAULT` for images that are meant to be one-UI artefacts.
 
 ## Trying it locally
 

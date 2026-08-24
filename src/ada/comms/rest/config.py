@@ -102,6 +102,11 @@ class Settings:
     # log) so the helm chart's ``postgres.enabled: false`` path stays
     # functional for tiny deployments.
     database_url: str
+    # Default UI shell id served to the browser via /config.js, letting one
+    # image boot into any UI shell it carries. Empty => not configured, and
+    # the frontend keeps whatever default was baked in at build time.
+    # Defaulted last so existing constructors stay valid.
+    ui_default: str = ""
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -150,6 +155,10 @@ def load_settings() -> Settings:
     # operators / sub-charts that already inject it (Bitnami Postgres,
     # CNPG, Render, etc.). Empty → shared-only mode.
     database_url = os.environ.get("DATABASE_URL", "").strip()
+    # Runtime override for the frontend's default UI shell. Unset (or blank)
+    # means "not configured" — NOT "the built-in UI" — so an image that was
+    # built with a default UI keeps it unless a deployment says otherwise.
+    ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
 
     if kind == "s3":
         s3 = S3Config(
@@ -172,6 +181,7 @@ def load_settings() -> Settings:
             queue=queue,
             auth=auth,
             database_url=database_url,
+            ui_default=ui_default,
         )
 
     if kind == "local":
@@ -189,6 +199,7 @@ def load_settings() -> Settings:
             queue=queue,
             auth=auth,
             database_url=database_url,
+            ui_default=ui_default,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

@@ -228,6 +228,21 @@ storage:
     hostPath: ""
     existingClaim: ""
 
+## Which UI this deployment boots into. A plugin can contribute a whole
+## alternative viewer UI ("UI shell"); an image that carries more than one
+## can be pointed at either of them here, so two deployments sharing an
+## image do not have to agree, and switching (or rolling back) a UI is an
+## edit here plus a pod restart rather than an image rebuild.
+##
+## Empty leaves the image's own build-time default in place — the setting is
+## additive, so a chart upgrade changes nothing until you set it. The value
+## is a shell id the image actually carries; an id it does not carry is
+## logged in the browser console and ignored, falling back to the built-in
+## UI rather than breaking the page. Users can always reach the built-in UI
+## with ``?ui=core``.
+ui:
+  default: ""
+
 ## OIDC bearer-token authentication. Provider-agnostic: works with any
 ## OIDC issuer that publishes a discovery document (Authentik, Azure
 ## AD direct, Auth0, Keycloak, etc.). When auth.enabled is false the
