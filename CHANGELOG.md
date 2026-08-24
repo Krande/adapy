@@ -2,6 +2,15 @@
 
 
 
+## v0.44.0 (2026-08-24)
+
+### Feature
+
+* feat(viewer): let a deployment pick the default UI shell at runtime (#262)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`80ea7dc`](https://github.com/Krande/adapy/commit/80ea7dc1e36aaf4e5cabf58184889d31ca4b37ab))
+
+
 ## v0.43.1 (2026-08-24)
 
 ### Fix
