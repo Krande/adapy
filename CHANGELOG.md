@@ -2,6 +2,15 @@
 
 
 
+## v0.43.1 (2026-08-24)
+
+### Fix
+
+* fix(plugins): make the plugin overlay reach the CSS pipeline (#261)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`1749219`](https://github.com/Krande/adapy/commit/174921976c337aebfb86fddb61115a23ed190654))
+
+
 ## v0.43.0 (2026-08-23)
 
 ### Feature
