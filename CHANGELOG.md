@@ -2,6 +2,15 @@
 
 
 
+## v0.44.1 (2026-08-24)
+
+### Fix
+
+* fix(cad): guard the native merge_cells against a single operand (#263)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b3aa5af`](https://github.com/Krande/adapy/commit/b3aa5afce6b13ab0ca46cc97ab4527a5a743d3b0))
+
+
 ## v0.44.0 (2026-08-24)
 
 ### Feature
