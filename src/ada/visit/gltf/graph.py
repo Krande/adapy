@@ -18,6 +18,10 @@ class GraphStore:
     draw_ranges: list[GroupReference] = field(default_factory=list, repr=False)
     merged_meshes: dict[int, MergedMesh] = field(default_factory=dict, repr=False)
     edge_mappings: dict[int, list[int]] = field(default_factory=dict, repr=False)
+    #: Who minted the ``stable_key`` values on this store's nodes. Opaque to adapy:
+    #: it is stored, emitted and compared, never parsed or interpreted (see
+    #: :attr:`GraphNode.stable_key`).
+    key_domain: str | None = None
 
     def __post_init__(self):
         self.num_meshes = sum(len(n.mesh_indices) for n in self.nodes.values())
@@ -25,9 +29,27 @@ class GraphStore:
             self.hash_map = {n.hash: n for n in self.nodes.values()}
 
     def to_json_hierarchy(self, suffix: str = "") -> dict[str, dict[str, tuple[str, str | int]]]:
+        """Emit the scene-extras hierarchy contract.
+
+        Always emits ``id_hierarchy`` (``{node_id: (name, parent_id)}``, root parent
+        ``"*"``) plus one ``draw_ranges_node<buffer_id>`` per merged mesh.
+
+        When at least one node carries a :attr:`GraphNode.stable_key`, two *parallel*
+        keys are added alongside::
+
+            "node_keys":       {"5": "<domain>:/SOME-ELEMENT-NAME"}
+            "node_key_domain": "<domain>"      # only when :attr:`key_domain` is set
+
+        They are deliberately a separate map rather than a third element on the
+        ``id_hierarchy`` tuple: every existing reader of that tuple — in this repo and
+        in the native writers/readers outside it — keeps working untouched, and a
+        reader that does not know about keys simply never looks at them. When no node
+        has a key, the returned dict is exactly what it was before keys existed.
+        """
         from ada.visit.gltf.store import create_id_sequence
 
         meta = dict()
+        node_keys: dict[str | int, str] = {}
         for n in self.nodes.values().__reversed__():
             if n.parent is not None:
                 p_id = n.parent.node_id
@@ -36,12 +58,41 @@ class GraphStore:
                 p_id = "*"
                 n_name = n.name + suffix
             meta[n.node_id] = (n_name, p_id)
+            if n.stable_key is not None:
+                node_keys[n.node_id] = n.stable_key
 
         data = {"id_hierarchy": meta}
+        if node_keys:
+            data["node_keys"] = node_keys
+            if self.key_domain is not None:
+                data["node_key_domain"] = self.key_domain
         for buffer_id, merged_mesh in self.merged_meshes.items():
             data[f"draw_ranges_node{buffer_id}"] = create_id_sequence(self, merged_mesh)
 
         return data
+
+    def assign_stable_keys_from_hash(self, domain: str, overwrite: bool = False) -> int:
+        """Opt in to using each node's ``hash`` (the object guid) as its stable key.
+
+        The guid is the natural identity for objects adapy created itself, and until
+        now :meth:`to_json_hierarchy` threw it away. This is the one-line way to keep
+        it, under a caller-chosen ``domain`` so the keys stay self-describing.
+
+        Deliberately opt-in rather than a default: turning it on unconditionally would
+        add ``node_keys`` to every export ever produced, and a guid is only a *stable*
+        identity when the model it came from persists guids across writes — which is
+        the caller's knowledge, not this class's.
+
+        Returns the number of nodes keyed.
+        """
+        self.key_domain = domain
+        keyed = 0
+        for n in self.nodes.values():
+            if n.stable_key is not None and not overwrite:
+                continue
+            n.stable_key = n.hash
+            keyed += 1
+        return keyed
 
     def add_node(self, node: GraphNode) -> GraphNode:
         self.nodes[node.node_id] = node
@@ -162,6 +213,12 @@ class GraphNode:
     parent: GraphNode | None = field(default=None, repr=False)
     mesh_indices: list[MeshRef] = field(default_factory=list, repr=False)
     hash: str = field(default_factory=create_guid, repr=False)
+    #: Optional domain-qualified identity for the real-world thing this node stands
+    #: for, e.g. ``"<domain>:/SOME-ELEMENT-NAME"``. Opaque to adapy — it is carried
+    #: and compared for equality, never parsed. Two nodes in two different models
+    #: sharing a stable key are the same thing; that is the whole of its meaning.
+    #: ``None`` (the default) means "no stable identity", and nothing is emitted.
+    stable_key: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         self.node_id = str(self.node_id)
