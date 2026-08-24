@@ -151,6 +151,22 @@ than deep-importing around the fence.
 See `packages/plugins/ui-alt/` for a working minimal example, and its README for
 the out-of-repo repository layout.
 
+## Styling a shell
+
+Every shell is styled by core's single Tailwind build. Three things make that work
+across the plugin overlay, and all three are asserted by
+`src/__tests__/plugins/pluginStyles.test.ts`:
+
+| where | what | why |
+|---|---|---|
+| `src/index.tsx` | imports `./app.css` | the entry is the only module every shell shares. While `app.tsx` owned the import, an image defaulting to an overlaid UI loaded **no** stylesheet — no preflight, no utilities, no `html/body/#root` sizing — because `app.tsx` is itself the built-in shell, and shells are lazy-loaded. |
+| `tailwind.config.js` | `content` covers `packages/plugins/**` | the JIT only emits classes it can see; a class name appearing only in a plugin package was silently dropped. |
+| `src/plugins/registry.generated.css` | one `@import` per enabled package that ships `src/styles.css`, imported by `app.css` | a plugin's `@theme` registration and design tokens only take effect inside the build that has `@import 'tailwindcss'` above them. |
+
+So a shell that wants its own tokens ships `src/styles.css` and nothing else — no
+config, no build step, and no `@import 'tailwindcss'` (that would emit a second
+preflight). `packages/plugins/ui-alt/src/styles.css` is the example.
+
 ## Shipping it
 
 ```bash

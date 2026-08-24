@@ -46,6 +46,24 @@ npm run dev
 
 `npm run gen:plugins` with no env restores the committed (plugin-free) registry.
 
+## Styling a shell
+
+A shell is styled by core's Tailwind build, not by one of its own:
+
+* `src/app.css` — the Tailwind entry — is imported by `src/index.tsx`, the entry
+  every shell boots through. (It used to be imported by `app.tsx`, which is itself
+  the built-in shell and therefore lazy-loaded, so an image defaulting to another
+  UI loaded no CSS at all.)
+* `tailwind.config.js` scans `packages/plugins/**`, so class names that appear
+  only in a plugin package are generated.
+* A package may ship `src/styles.css`. `gen:plugins` emits an `@import` for it
+  into `src/plugins/registry.generated.css`, which `app.css` imports — so a
+  shell's own design tokens and `@theme` registrations join the same Tailwind
+  build. See this package's `src/styles.css`.
+
+Do **not** put `@import 'tailwindcss'` in a plugin stylesheet: it would emit a
+second copy of preflight and of every utility.
+
 ## What a shell may and may not do
 
 * **May** replace everything above the scene: layout, routing, panels, theming.

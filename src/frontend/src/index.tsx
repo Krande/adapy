@@ -1,3 +1,11 @@
+// The stylesheet belongs to the ENTRY, not to core's UI.
+//
+// It used to be imported by app.tsx. Since app.tsx became the built-in UI SHELL it is
+// lazy-loaded, so an image whose default shell is a plugin-contributed UI never
+// evaluated it — and with it went Tailwind's preflight, every utility class and the
+// html/body/#root sizing rules. The alternative UI rendered unstyled, and `?ui=core`
+// was the only way to see a styled viewer.
+import "./app.css";
 import { createRoot } from "react-dom/client";
 import React from "react";
 import { initWebSocket } from "./utils/websocket/initWebSocket";
