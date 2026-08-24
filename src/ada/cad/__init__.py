@@ -1603,7 +1603,21 @@ class AdacppBackend:
         fn = getattr(self._cad, "merge_cells", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.merge_cells is not available in this build")
-        return list(fn(list(solids), float(tolerance)))
+        # CellsBuilder is a general-fuse of >= 2 operands; handed a single solid (or
+        # none) OCCT reports an error rather than a no-op. Merging one cell has
+        # nothing to fuse, so return the operands unchanged. OccBackend.merge_cells
+        # already guards this case, and the two backends must agree — without it a
+        # one-space model builds on OCC and dies on native with OCCT's generic
+        # "BOPAlgo_CellsBuilder reported errors".
+        if len(solids) <= 1:
+            return list(solids)
+        try:
+            return list(fn(list(solids), float(tolerance)))
+        except RuntimeError as e:
+            # OCCT's failure text names the algorithm but not the call that fed it.
+            # Re-raise with the operand count and tolerance so a report of this is
+            # actionable without a debugger attached to the worker.
+            raise RuntimeError(f"{e} (operands={len(solids)}, tolerance={float(tolerance)!r})") from e
 
     def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
         fn = getattr(self._cad, "non_manifold_merge", None)
