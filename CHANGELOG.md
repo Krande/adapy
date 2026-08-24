@@ -2,6 +2,15 @@
 
 
 
+## v0.45.0 (2026-08-24)
+
+### Feature
+
+* feat(visit): carry stable node identity through the scene hierarchy (#264)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`5305ea0`](https://github.com/Krande/adapy/commit/5305ea002884ba58c09be413b4dab4f2eae5c37c))
+
+
 ## v0.44.1 (2026-08-24)
 
 ### Fix
