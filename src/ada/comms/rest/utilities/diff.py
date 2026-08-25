@@ -37,12 +37,12 @@ import io
 import json
 import os
 import struct
-import tempfile
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from ada.comms.rest.utility import utility
+from ada.core.file_system import new_temp_path
 
 # Diff colours (hex). Common semantics: green add, red remove, orange modify.
 COLOR_ADDED = "#00c853"
@@ -196,7 +196,7 @@ def resolve_ref_glb_path(storage, compare_ref: str) -> str:
     # Arbitrary uploaded file: any .glb key in the scope that isn't a versions/
     # build path. Fetch it directly so two arbitrary models can be compared.
     if ref.endswith(".glb") and not ref.startswith("versions/"):
-        dest = tempfile.mkstemp(suffix=".glb")[1]
+        dest = str(new_temp_path(suffix=".glb"))
         try:
             storage.fetch_to_path(ref, dest)
         except Exception as exc:  # noqa: BLE001
@@ -223,7 +223,7 @@ def resolve_ref_glb_path(storage, compare_ref: str) -> str:
             )
         chosen = sorted(cand)[0]
 
-    dest = tempfile.mkstemp(suffix=".glb")[1]
+    dest = str(new_temp_path(suffix=".glb"))
     storage.fetch_to_path(chosen, dest)
     return dest
 

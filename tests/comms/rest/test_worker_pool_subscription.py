@@ -7,16 +7,14 @@ therefore served only the first: jobs for the rest sat in their subjects with
 nothing consuming them, which reads as an idle pool rather than a broken one.
 
 These cover the two decisions that turn a capability list into subscriptions.
-``ada.comms.rest.worker`` pulls in ``fcntl`` transitively, so it is importable
-on POSIX only.
+They are pure list arithmetic — nothing here forks or touches NATS — so they run
+on every platform now that ``ada.comms.rest.worker`` no longer drags a
+POSIX-only ``fcntl`` import in transitively (they were importorskip'd before).
 """
 
 import pytest
 
-worker = pytest.importorskip(
-    "ada.comms.rest.worker",
-    reason="ada.comms.rest.worker imports fcntl (POSIX only)",
-)
+from ada.comms.rest import worker
 
 
 def test_every_capability_becomes_a_pool():

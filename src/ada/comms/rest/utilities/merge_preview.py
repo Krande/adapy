@@ -21,9 +21,9 @@ achieved plates, actual-vs-ideal reduction, fell-back plates, % curved).
 from __future__ import annotations
 
 import pathlib
-import tempfile
 
 from ada.comms.rest.utility import utility
+from ada.core.file_system import new_temp_path
 
 # Auto-disposed overlay namespace (same lifecycle bucket the diff utility uses),
 # kept out of the persistent admin-managed _derived/ tree.
@@ -160,7 +160,7 @@ def merge_preview(
     )
 
     on_progress("rendering-preview", 0.8)
-    glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
+    glb_tmp = str(new_temp_path(suffix=".glb"))
     try:
         write_preview_glb(res, glb_tmp, mode=mode)
         overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-{mode}.glb"
@@ -402,7 +402,7 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
             mat["doubleSided"] = True
 
     on_progress("writing-glb", 0.9)
-    glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
+    glb_tmp = str(new_temp_path(suffix=".glb"))
     try:
         data = scene.export(file_type="glb", tree_postprocessor=_tree_pp)
         pathlib.Path(glb_tmp).write_bytes(data)

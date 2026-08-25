@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import pathlib
 import re
-import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+
+from ada.core.file_system import new_temp_path
 
 SIN_PATH = pathlib.Path(__file__).resolve().parents[3] / (
     "files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
@@ -75,7 +76,7 @@ def test_sin_source_uri_streams_byte_identical(range_server_url):
     key = f"fem/sin/{SIN_PATH.name}"
     local = result_bytes(convert(SIN_PATH, key, "glb"))
 
-    stub = pathlib.Path(tempfile.mkstemp(suffix=SIN_PATH.suffix)[1])
+    stub = new_temp_path(suffix=SIN_PATH.suffix)
     try:
         streamed = result_bytes(convert(stub, key, "glb", source_uri=range_server_url))
         assert stub.stat().st_size == 0

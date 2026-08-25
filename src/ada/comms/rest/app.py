@@ -6,7 +6,6 @@ import json
 import os
 import pathlib
 import re
-import tempfile
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -28,6 +27,7 @@ from fastapi.responses import (
 )
 
 from ada.config import logger
+from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
@@ -5600,7 +5600,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Failures get stamped on the audit_log row's
         ``profile_stats_error`` so the operator can debug, but the
         loop continues — one bad blob mustn't stop the queue."""
-        import pathlib as _pl
         import pstats
 
         audit_id = int(claimed["id"])
@@ -5626,7 +5625,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # pstats only reads from disk — stash bytes in a tempfile
         # rather than threading a BytesIO through it.
-        tmp_path = _pl.Path(tempfile.mkstemp(suffix=".prof")[1])
+        tmp_path = new_temp_path(suffix=".prof")
         try:
             tmp_path.write_bytes(data)
             try:
@@ -7542,10 +7541,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             data = await storage.get_bytes(scope, profile_key)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        import pathlib as _pl
         import pstats
 
-        tmp = _pl.Path(tempfile.mkstemp(suffix=".prof")[1])
+        tmp = new_temp_path(suffix=".prof")
         try:
             tmp.write_bytes(data)
             try:

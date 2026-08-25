@@ -37,6 +37,7 @@ from typing import Awaitable, Callable
 import asyncpg
 
 from ada.config import logger
+from ada.core.file_system import new_temp_path
 
 from . import db as db_module
 from . import source_cache
@@ -2574,7 +2575,7 @@ async def _run_component_build(
             name=component_name,
             **extra_kwargs,
         )
-        glb_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+        glb_path = new_temp_path(suffix=".glb")
         try:
             conn.to_gltf(glb_path)
             return glb_path.read_bytes()

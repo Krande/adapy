@@ -53,6 +53,76 @@ jobs:
         - name: Runs Tests
           run: pixi run -e tests test
 
+    # tests/comms/rest is excluded from the `test` task above (it needs the viewer-api stack, which
+    # the `tests` env does not carry), so before this job the entire REST/viewer-API suite — the
+    # largest single test directory in the repo — had NO presence in the pull_request workflow.
+    #
+    # It was not unrun: ci-branch-tests (.github/workflows/test.yml) has an identical job, and
+    # because that workflow triggers on bare `on: push`, a same-repo branch push produces a check
+    # run on the PR head SHA and it shows up in the PR's check list. That is what made the gap easy
+    # to miss. Two things it does not cover:
+    #
+    #   1. FORK PRs. `on: push` fires in the fork, not here — an outside contributor's PR gets the
+    #      pr-tests matrix (comms/rest excluded) and nothing else. Zero REST coverage, silently.
+    #   2. It only reports for branches pushed to this repo, so it is not something branch
+    #      protection can rely on being present on every PR.
+    #
+    # A `pull_request`-triggered job fixes both: it runs against the PR head for forks and same-repo
+    # alike, so it is safe to mark as a REQUIRED status check.
+    #
+    # Deliberately Linux-only, unlike the 3-platform matrix above. The suite now runs clean on
+    # Windows (it did not before this change), but two things make ubuntu the honest home for the
+    # gate: GitHub `services:` containers are Linux-only, so the ~46 Postgres-backed admin/audit
+    # tests can only really execute here, and the REST worker is Linux-only by construction
+    # (os.fork + fcntl in subprocess_convert). Paying for a viewer-api env solve on macOS to run a
+    # strictly smaller subset is not worth it.
+    #
+    # This duplicates test.yml's job on same-repo pushes, the same way test-core/test-full already
+    # duplicate the matrix here. It mirrors that job exactly — same envs, same two legs — so the PR
+    # gate and the branch job cannot drift into "green on the PR, red on the push".
+    test-rest:
+        name: Test viewer REST API (PR)
+        runs-on: ubuntu-latest
+        services:
+          postgres:
+            image: postgres:16
+            env:
+              POSTGRES_PASSWORD: test
+              POSTGRES_DB: adapytest
+            ports:
+              - 5432:5432
+            options: >-
+              --health-cmd pg_isready
+              --health-interval 10s
+              --health-timeout 5s
+              --health-retries 5
+        defaults:
+          run:
+            shell: bash -l {0}
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.10.1
+          with:
+            pixi-version: v0.68.0
+            environments: >-
+              viewer-api-tests
+              viewer-api-tests-adacpp
+            cache: true
+
+        - name: Run Tests
+          env:
+            ADA_TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/adapytest
+          run: pixi run -e viewer-api-tests test-rest
+
+        # Streaming-path coverage against the native ada-cpp backend (tessellate_stream / NGEOM
+        # libtess2), which the adacpp-less leg above can only reach via the OCC object-path
+        # fallback. No Postgres needed.
+        - name: Run streaming-path tests (ada-cpp backend)
+          run: pixi run -e viewer-api-tests-adacpp test-rest-adacpp
+
     # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
     # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the
     # viewer runtime ships a CURATED subset of it (see the COPY block in deploy/Dockerfile.viewer),

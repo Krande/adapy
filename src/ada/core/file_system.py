@@ -1,10 +1,37 @@
 import os
 import pathlib
 import shutil
+import tempfile
 import time
 from typing import List, Union
 
 from ada.config import logger
+
+
+def new_temp_path(suffix: str | None = None, prefix: str | None = None, dir: str | None = None) -> pathlib.Path:
+    """Reserve a unique temp file path and hand it back CLOSED.
+
+    ``tempfile.mkstemp`` returns ``(fd, path)`` and the fd is the caller's to
+    close. The idiom ``pathlib.Path(tempfile.mkstemp(suffix=...)[1])`` — which
+    this repo had in 20 places — drops the fd on the floor without closing it,
+    which is a descriptor leak, not a style nit:
+
+    * the REST worker is a long-lived process that mints one of these per
+      conversion, so the leak accumulates against RLIMIT_NOFILE for the
+      lifetime of the pod;
+    * on Windows the still-open handle also LOCKS the file, so the caller's own
+      ``unlink()``/``os.replace()`` of the path it was just given fails with
+      ``PermissionError: [WinError 32]``. That is what it looked like from the
+      outside: four "Windows-only" REST test failures that were really this
+      leak becoming visible on the one platform that enforces it.
+
+    Callers that want the fd should keep using ``mkstemp`` directly and close it
+    themselves; this helper is for the (overwhelmingly common) case of wanting
+    only a path that some writer will open by name.
+    """
+    fd, name = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=dir)
+    os.close(fd)
+    return pathlib.Path(name)
 
 
 class SIZE_UNIT:

@@ -23,6 +23,7 @@ import copy
 import io
 import pathlib
 
+from ada.core.file_system import new_temp_path
 from ada.fem.formats.sesam.results.read_sif import _RV_STEP_CARDS, Sif2Mesh, SifReader
 from ada.fem.formats.sesam.results.sif_index import (
     SifStepIndex,
@@ -78,9 +79,7 @@ class SifStreamReader:
             return
         # The header is the deck minus every step's RV data — it still carries
         # the mesh, sections, RDPOINTS and each RV block's control row.
-        import tempfile
-
-        hdr = pathlib.Path(tempfile.mkstemp(suffix=".SIF")[1])
+        hdr = new_temp_path(suffix=".SIF")
         try:
             assemble_reduced_local(self.path, self.index.header_ranges(), hdr)
             with open(hdr, "r") as f:
