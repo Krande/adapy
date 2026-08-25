@@ -433,6 +433,21 @@ def _doc_model():
         # blueprint compile options (whitelisted by the compiler), e.g.
         # {"reinforce_internal_walls": true}
         blueprint: dict = Field(default_factory=dict)
+        # The structural blueprint the user picked in the viewer's Blueprint
+        # dropdown, as a top-level scalar (kept OUT of the ``blueprint`` options
+        # dict, which is a whitelist of per-blueprint parameters).
+        #
+        # It MUST be declared here even though nothing in this module reads it.
+        # pydantic defaults to ``extra="ignore"``, so an undeclared key is
+        # silently dropped by ``validate_doc`` -- and that drop was invisible
+        # twice over. The compiler reads ``doc.get("blueprint_name")`` and, not
+        # finding it, fell back to the engine default; and ``doc_content_hash``
+        # hashes this normalized doc, so every blueprint produced the SAME
+        # preview cache key and the viewer served the previously built GLB back.
+        # The net effect was a Blueprint dropdown that changed nothing, with no
+        # error anywhere -- switching ENGINE appeared to work only because
+        # ``engine`` is declared.
+        blueprint_name: Optional[str] = None
         # named design ruleset (routing/penetration rules) resolved by the
         # compiler via ada.topo_model.resolve_design_rules; unknown -> standard
         design_rules: Optional[str] = None
@@ -470,6 +485,9 @@ def _validate_doc_shallow(doc: dict) -> dict:
     out = {
         "grid": doc.get("grid") or {},
         "blueprint": doc.get("blueprint") or {},
+        # Carried for the same reason as the pydantic field above: dropping it
+        # here would reintroduce the silent blueprint fallback on the slim image.
+        "blueprint_name": doc.get("blueprint_name"),
         "equipment_cad": bool(doc.get("equipment_cad")),
     }
     # Routing header — mirror EngineBinding's defaults here (ada isn't importable in
