@@ -2,6 +2,15 @@
 
 
 
+## v0.45.3 (2026-08-25)
+
+### Fix
+
+* fix(rest): stop doc normalizers deleting keys they do not declare (#268)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`f1f2624`](https://github.com/Krande/adapy/commit/f1f26243cf5fb09158d7641fd9a001988d31a136))
+
+
 ## v0.45.2 (2026-08-25)
 
 ### Fix
