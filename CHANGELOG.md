@@ -2,6 +2,21 @@
 
 
 
+## v0.45.1 (2026-08-25)
+
+### Chore
+
+* chore(frontend): clear the open npm security advisories in the lockfile (#265)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`5ceafc4`](https://github.com/Krande/adapy/commit/5ceafc46722261840cb1800f5217938c3100efe7))
+
+### Fix
+
+* fix(cad): make shape-distance queries work on the default backend (#266)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3f6564d`](https://github.com/Krande/adapy/commit/3f6564d258c03c83dd2d9f12c06389c772aa42a5))
+
+
 ## v0.45.0 (2026-08-24)
 
 ### Feature
