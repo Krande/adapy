@@ -2,6 +2,15 @@
 
 
 
+## v0.45.6 (2026-08-25)
+
+### Fix
+
+* fix: selecting a spatial container names it and describes it (#271)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c573ee4`](https://github.com/Krande/adapy/commit/c573ee49302fdcb42185d1fc5600ae39c812de4c))
+
+
 ## v0.45.5 (2026-08-25)
 
 ### Fix
