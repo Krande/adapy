@@ -407,7 +407,7 @@ def _doc_model():
     # on the first commit/compile, not at API boot.
     from typing import Optional
 
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, ConfigDict, Field
 
     from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
 
@@ -419,10 +419,40 @@ def _doc_model():
         TopoLoftMember,
         TopoOpening,
         TopoSpace,
+        TopoStructure,
         TopoSystem,
     )
 
+    class CellGroup(BaseModel):
+        """One cell GROUP — a named structure with its own blueprint. A space
+        names its group via ``STRUCTURE_NAME``; ungrouped spaces omit it. Only an
+        engine advertising ``supports_grouping`` acts on these."""
+
+        # extra="allow" for the same reason as ProceduralDoc below: a grouping
+        # engine may hang its own per-group settings here and we must not eat them.
+        model_config = ConfigDict(extra="allow")
+
+        name: str
+        blueprint: Optional[str] = None
+
     class ProceduralDoc(BaseModel):
+        # A procedural document is not adapy's private struct — it is authored by
+        # whichever engine owns the model (built-in or external) and round-tripped
+        # by the viewer, which stores UI state on it. pydantic's DEFAULT of
+        # extra="ignore" made this model a lossy filter over every such document:
+        # any key not declared below was deleted by validate_doc without a word.
+        #
+        # That silent delete is not a missing value, it is a CACHE COLLISION.
+        # doc_content_hash() hashes this normalized doc to key the preview blob, so
+        # two documents differing only in a dropped key hash IDENTICALLY and the
+        # viewer is served the previously built GLB — a control that changes
+        # nothing, and no error anywhere to say so. That is exactly how the
+        # Blueprint dropdown (``blueprint_name``) stayed broken.
+        #
+        # So: preserve what we do not understand. Unknown keys round-trip and
+        # participate in the hash. Declared fields below are still validated.
+        model_config = ConfigDict(extra="allow")
+
         # Routing/identity header (see ada.topo_model.engines.EngineBinding):
         # ``engine`` selects the procedural engine that compiles this model and
         # ``schema_version`` records the doc-schema it was authored against. Both
@@ -475,6 +505,35 @@ def _doc_model():
         # into inter-station band cells + plates (see ada.topo_model.builder)
         loft_members: list[TopoLoftMember] = Field(default_factory=list)
 
+        # --- fields the rest of the codebase READS off a normalized doc ------ #
+        # Everything below was already produced and/or consumed somewhere, but was
+        # never declared here — so validate_doc deleted each one on its way
+        # through. extra="allow" above now preserves them regardless; they are
+        # declared anyway so the shape is validated and the contract is written
+        # down. All are Optional/None-defaulted so exclude_none keeps a document
+        # that never used them BYTE-IDENTICAL — and therefore hash-identical, so
+        # no existing preview/revision cache key moves.
+
+        # Cell groups authored by the viewer's cellbuilder (``toDoc``) and read
+        # back by it on open (``groupsFromDoc``). Dropping these did not just lose
+        # the grouping: two docs that differed only in a group's blueprint hashed
+        # the SAME, so the preview served the other group's cached GLB.
+        groups: Optional[list[CellGroup]] = None
+        # Multi-structure models: one topology model per entry, each placed at its
+        # own origin (see ProceduralMultiBuilder). ProceduralBuilder.to_doc emits
+        # these and from_dict reads them back, so an xlsx import of a workbook with
+        # a ``Structures`` sheet went through validate_doc and came out single-
+        # structure.
+        structures: Optional[list[TopoStructure]] = None
+        # Block INTERIOR walls from in-plane routing as well as exterior ones
+        # (read by ada.topo_model.compile._build_systems, written by
+        # ProceduralBuilder.to_doc, carried by the workbook's NO_GO_WALLS column).
+        no_go_walls: Optional[bool] = None
+        # Per-joint detailing option map ``{slug: {enabled, <field>: value}}``.
+        # Normally threaded as a query param, but ProceduralBuilder.from_dict
+        # accepts it off the document as a fallback, which validate_doc removed.
+        detailing_options: Optional[dict] = None
+
     return ProceduralDoc
 
 
@@ -482,14 +541,25 @@ def _validate_doc_shallow(doc: dict) -> dict:
     """Structural check for slim API deployments where ada (numpy) is not
     installed: list fields hold objects with a string NAME. Full pydantic
     validation then happens on the worker at compile time."""
-    out = {
-        "grid": doc.get("grid") or {},
-        "blueprint": doc.get("blueprint") or {},
-        # Carried for the same reason as the pydantic field above: dropping it
-        # here would reintroduce the silent blueprint fallback on the slim image.
-        "blueprint_name": doc.get("blueprint_name"),
-        "equipment_cad": bool(doc.get("equipment_cad")),
-    }
+    # Start from the document itself so a key this shallow path does not know
+    # about SURVIVES, matching ProceduralDoc's extra="allow". Building `out` from
+    # scratch made this function a second, independent whitelist — so the slim API
+    # image silently dropped keys the full path kept, and (because
+    # doc_content_hash runs over the result) collided their cache keys. The
+    # validated values below overwrite these passthrough copies.
+    #
+    # This subsumes the explicit ``blueprint_name`` carry that fixed the Blueprint
+    # dropdown: passthrough keeps it when present and, unlike naming it here,
+    # leaves it ABSENT when it is not -- which is what the pydantic path does via
+    # exclude_none, so the two paths now hash identically either way.
+    out = dict(doc)
+    out.update(
+        {
+            "grid": doc.get("grid") or {},
+            "blueprint": doc.get("blueprint") or {},
+            "equipment_cad": bool(doc.get("equipment_cad")),
+        }
+    )
     # Routing header — mirror EngineBinding's defaults here (ada isn't importable in
     # the slim image, so the constants can't be pulled from ada.topo_model.engines).
     engine = doc.get("engine")
@@ -527,7 +597,10 @@ def _validate_doc_shallow(doc: dict) -> dict:
             if not isinstance(entry, dict) or not isinstance(entry.get("NAME"), str) or not entry["NAME"]:
                 raise ValueError(f"{key}[{i}] must be an object with a non-empty NAME")
         out[key] = entries
-    return out
+    # Mirror the full path's exclude_none so the two normalizers agree key-for-key
+    # on the same input (a null passed through would otherwise show up here and
+    # not there, moving the content hash between the slim and full images).
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def validate_doc(doc: dict) -> dict:

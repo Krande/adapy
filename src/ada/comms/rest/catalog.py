@@ -352,12 +352,14 @@ def _equipment_doc_model():
     import re
     from typing import List, Literal, Optional
 
-    from pydantic import BaseModel, Field, conlist, field_validator
+    from pydantic import BaseModel, ConfigDict, Field, conlist, field_validator
 
     Vec3 = conlist(float, min_length=3, max_length=3)
     _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
     class CatalogPort(BaseModel):
+        model_config = ConfigDict(extra="allow")
+
         name: str
         position: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
         direction_vector: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 1.0])
@@ -383,6 +385,13 @@ def _equipment_doc_model():
         lz: float = 1.0
 
     class EquipmentTypeDoc(BaseModel):
+        # See the note on ProceduralDoc in .procedural: a normalizer that DROPS
+        # what it does not recognise turns a stale field name into a no-op with
+        # no error, and (for anything keyed on the normalized dict) into a hash
+        # collision. Round-trip unknown keys instead; declared fields below are
+        # still validated, so a malformed known field is still a loud 422.
+        model_config = ConfigDict(extra="allow")
+
         bbox: BBox = Field(default_factory=BBox)
         mass: float = 1000.0
         # equipment-local centre of gravity; defaults to the bbox centroid at
@@ -403,9 +412,12 @@ def _equipment_doc_model():
 def _system_doc_model():
     from typing import Literal, Optional
 
-    from pydantic import BaseModel
+    from pydantic import BaseModel, ConfigDict
 
     class SystemTemplateDoc(BaseModel):
+        # Round-trip unknown keys rather than deleting them — see EquipmentTypeDoc.
+        model_config = ConfigDict(extra="allow")
+
         type: Literal["piping", "duct", "cable", "electrical"] = "piping"
         medium: Optional[str] = None
         # electrical service voltage in volts (informational; only meaningful
@@ -512,9 +524,14 @@ def validate_system_doc(doc: dict) -> dict:
 def _engine_doc_model():
     from typing import List, Literal, Optional
 
-    from pydantic import BaseModel, model_validator
+    from pydantic import BaseModel, ConfigDict, model_validator
 
     class ProceduralEngineDoc(BaseModel):
+        # An engine MANIFEST describes third-party code, so this model is the least
+        # entitled of all of them to decide which keys matter. Round-trip what we
+        # do not recognise — see EquipmentTypeDoc.
+        model_config = ConfigDict(extra="allow")
+
         # ``builtin`` = the in-repo adapy engine (no external code); ``wheel`` = an
         # external engine cloned+built into a pyodide wheel; ``server`` = an engine
         # with native deps that only runs in a server worker (never in the browser).
@@ -527,6 +544,14 @@ def _engine_doc_model():
         deploy_key_secret: Optional[str] = None
         # Dotted ``module:callable`` entrypoint with signature ``compile(doc) -> bytes``.
         entrypoint: Optional[str] = None
+        # Explicit xlsx export/import handlers. ada.topo_model.engines reads both
+        # off this manifest (engine_supports_excel / _xlsx_entrypoint) but neither
+        # was declared, so validate_engine_doc removed them and the resolver fell
+        # back to deriving siblings of ``entrypoint`` — silently exporting through
+        # the wrong handler, or reporting "no Excel format" for an engine that has
+        # one.
+        export_entrypoint: Optional[str] = None
+        import_entrypoint: Optional[str] = None
         # Extra deps the browser must micropip-install for this engine's wheel.
         pyodide_deps: List[str] = []
         # ``kind:server`` routing: the worker-pool capability tag that has this
@@ -549,8 +574,10 @@ def _engine_doc_model():
                     raise ValueError(f"{self.kind!r} engine requires 'repo_url'")
                 if not self.entrypoint:
                     raise ValueError(f"{self.kind!r} engine requires 'entrypoint' (module:callable)")
-            if self.entrypoint is not None and ":" not in self.entrypoint:
-                raise ValueError("entrypoint must be a dotted 'module:callable' path")
+            for name in ("entrypoint", "export_entrypoint", "import_entrypoint"):
+                value = getattr(self, name)
+                if value is not None and ":" not in value:
+                    raise ValueError(f"{name} must be a dotted 'module:callable' path")
             return self
 
     return ProceduralEngineDoc
