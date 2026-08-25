@@ -180,6 +180,8 @@ const IconOverlaySection: React.FC = () => {
 // AND failed compiles so engine errors are inspectable without server access.
 const CompileLogSection: React.FC = () => {
   const log = useCellBuilderStore((st) => st.compileLog);
+  const runId = useCellBuilderStore((st) => st.compileLogRunId);
+  const isCurrentRun = useCellBuilderStore((st) => st.compileLogIsCurrentRun);
   const [copied, setCopied] = React.useState(false);
   const onCopy = () => {
     if (!log) return;
@@ -203,8 +205,15 @@ const CompileLogSection: React.FC = () => {
             >
               {copied ? "Copied" : "Copy"}
             </button>
-            <span className="text-gray-500 text-[11px]">
-              engine messages from the last compile
+            <span
+              className="text-gray-500 text-[11px] truncate"
+              title={runId ? `compile run ${runId}` : undefined}
+            >
+              {runId
+                ? isCurrentRun
+                  ? `engine messages · run ${runId.slice(0, 8)}`
+                  : `from an earlier run (${runId.slice(0, 8)}) — this result was cached`
+                : "engine messages from the last compile"}
             </span>
           </div>
           <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words bg-black/40 border border-gray-700 rounded-sm p-1.5 text-[11px] font-mono text-gray-200">

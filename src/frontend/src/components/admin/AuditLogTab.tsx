@@ -17,9 +17,12 @@ import {
 // next_before_id) — that way the table doesn't shift while new audit
 // rows are inserted between pages.
 
-const ACTIONS = ["", "upload", "download", "convert", "view", "render"];
+// "compile" = one procedural compile RUN (app.py _audit_compile_run); its
+// worker attaches the run's log_key, so such a row's Log tab shows the engine
+// output for exactly that run.
+const ACTIONS = ["", "upload", "download", "convert", "compile", "view", "render"];
 const KINDS = ["", "shared", "project", "user"];
-const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat"];
+const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat", "procedural_build", "procedural_detail"];
 // Job states the queue writes (queue.py JOB_STATUS_*) — server-side filter.
 const STATUSES = ["", "queued", "running", "done", "error"];
 
@@ -32,6 +35,8 @@ const PROFILE_SETTING_KEY = "profile_conversions";
 // buttons.
 function hasDetails(e: AuditEntry): boolean {
     if (e.action === "convert") return true;
+    // A compile run always has a log to read, even when it succeeded.
+    if (e.action === "compile") return true;
     // Browser view/render rows always carry a client_metrics payload to
     // inspect (per-phase split + per-function frames), fetched lazily.
     if (e.action === "view" || e.action === "render") return true;
@@ -884,7 +889,8 @@ const MetricsTab: React.FC<{
             <div className="px-4 py-3 text-xs text-gray-400">
                 No metrics captured for this entry.
                 {entry.action !== "convert" ? (
-                    <span> Only conversion runs collect resource metrics.</span>
+                    <span> Only conversion runs collect resource metrics; a compile run records
+                        its wall time and its engine log.</span>
                 ) : (
                     <span> The worker that processed this job pre-dates the metrics column.</span>
                 )}

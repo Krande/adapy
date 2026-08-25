@@ -307,6 +307,15 @@ class Storage:
             entries.extend(await self._list_under(scope, str(cp)))
         return entries
 
+    async def list_prefix(self, scope: Scope, prefix: str) -> list[FileEntry]:
+        """Every object under a scope-relative key ``prefix`` (e.g. one procedural
+        model's ``_procedural/{id}/runs/``).
+
+        The bounded counterpart to :meth:`list`: the backend enumerates only that
+        sub-prefix, so a per-model retention sweep costs its own handful of keys
+        rather than a walk of the whole scope."""
+        return await self._list_under(scope, self._full_key(scope, prefix))
+
     async def _list_under(self, scope: Scope, prefix: str) -> list[FileEntry]:
         # obs.list returns a ListStream of pages; each page is a Sequence
         # of ObjectMeta dicts with keys "path", "size", "last_modified",
