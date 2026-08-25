@@ -2,6 +2,13 @@
 
 
 
+## v0.45.5 (2026-08-25)
+
+### Fix
+
+* fix: close leaked mkstemp fds and gate tests/comms/rest on pull requests (#270) ([`25269fb`](https://github.com/Krande/adapy/commit/25269fb978b14e6621478a44bb0203438790ac38))
+
+
 ## v0.45.4 (2026-08-25)
 
 ### Fix
