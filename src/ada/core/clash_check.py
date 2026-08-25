@@ -95,15 +95,32 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
                 nmap[n].append(bm2)
 
 
-def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
-    """Check if two plates are within tolerance of each other"""
-    from ada.occ.utils import compute_minimal_distance_between_shapes
+def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3) -> bool:
+    """Check if two plates are within tolerance of each other.
 
-    dss = compute_minimal_distance_between_shapes(pl1.solid_occ(), pl2.solid_occ())
-    if dss.Value() <= tol:
-        return dss
+    Delegates to ``plates_min_distance``, which is the same question already
+    answered against the active CAD backend -- and cached per plate-GUID pair.
+    This function used to duplicate that logic against pythonocc directly, which
+    is how it got left behind when the rest of the module moved to the backend:
+    it built its own distance from ``solid_occ()``, and ``solid_occ()`` returns
+    an active-backend handle (an adacpp ``ShapeHandle`` by default), which the
+    pythonocc ``BRepExtrema_DistShapeShape`` loaders reject with
+    ``TypeError: ... argument 2 of type 'TopoDS_Shape const &'``. So it raised on
+    every call under the default backend. Nothing in the repo calls it, which is
+    why nothing noticed.
 
-    return None
+    Returns a plain bool rather than the old ``BRepExtrema_DistShapeShape``
+    object, which exists only on the pythonocc path. Note that it deliberately
+    does NOT forward the distance: ``plates_min_distance`` returns ``0.0`` for
+    coincident plates, which is falsy, so a caller testing the result for
+    truthiness would read the most clearly-touching case as "not touching". A
+    bool has no such edge, and a caller reaching for the old ``.Value()`` gets a
+    loud ``AttributeError`` rather than a silently wrong number.
+    """
+    from ada.occ.occ_clash_check import plates_min_distance
+
+    # `is not None`, not truthiness -- see the 0.0 note above.
+    return plates_min_distance(pl1, pl2, tol) is not None
 
 
 def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> List[Beam]:
