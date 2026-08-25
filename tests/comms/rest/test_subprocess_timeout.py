@@ -19,18 +19,19 @@ test stays under 5 s by setting a 1 s timeout.
 from __future__ import annotations
 
 import pathlib
-import sys
 import time
 
 import pytest
 
-# subprocess_convert imports adapy heavily; gate the module-level
-# import so a missing dep doesn't crash collection.
-from ada.comms.rest.subprocess_convert import run_isolated_convert
+from ada.comms.rest.subprocess_convert import HAVE_POSIX_FORK, run_isolated_convert
 
+# This skipif used to be dead: subprocess_convert imported fcntl at module
+# scope, so on Windows the `from ... import` above raised during COLLECTION and
+# the marker was never reached — the file showed up as a collection error, not a
+# skip. The import is portable now, so the gate finally does what it says.
 pytestmark = pytest.mark.skipif(
-    sys.platform.startswith("win"),
-    reason="os.fork not available on Windows",
+    not HAVE_POSIX_FORK,
+    reason="run_isolated_convert needs os.fork + fcntl (POSIX only); the REST worker is Linux-only",
 )
 
 

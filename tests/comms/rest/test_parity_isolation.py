@@ -12,9 +12,18 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from ada.comms.rest.converter import ConverterRegistry
-from ada.comms.rest.subprocess_convert import run_isolated_convert
+from ada.comms.rest.subprocess_convert import HAVE_POSIX_FORK, run_isolated_convert
 from ada.comms.rest.worker import _parity_child
+
+# Every test here runs the parity check through the forking child wrapper, so
+# the whole module is POSIX-only. Gate on the capability flag, not sys.platform.
+pytestmark = pytest.mark.skipif(
+    not HAVE_POSIX_FORK,
+    reason="run_isolated_convert needs os.fork + fcntl (POSIX only); the REST worker is Linux-only",
+)
 
 
 def test_parity_child_runs_in_isolated_fork(fem_files):

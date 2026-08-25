@@ -146,6 +146,14 @@ COPY src/ada/comms/ /app/src/ada/comms/
 # correctly reports no tracks and the API publishes the static vocabulary — the adacpp tracks reach
 # the dropdown from the pools that actually run them, via each worker's advertised enum.
 COPY src/ada/cad/ /app/src/ada/cad/
+# ada.core.file_system — ada.comms.rest.{app,converter} import new_temp_path at MODULE level, so
+# without this the API crashloops on `No module named 'ada.core'` exactly the way it did on
+# `ada.cad` above. Only the one module ships, not the package: the rest of ada/core is numpy-bound
+# (vector_transforms, curve_utils, ...) and has no business in the slim runtime. file_system.py
+# itself is stdlib + ada.config only. ada/core/__init__.py is empty upstream, so it is copied as-is
+# rather than stubbed the way ada.sections has to be.
+COPY src/ada/core/__init__.py /app/src/ada/core/__init__.py
+COPY src/ada/core/file_system.py /app/src/ada/core/file_system.py
 # pyproject.toml is the single source of truth for the version. The viewer copies adapy source
 # (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
 # the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).

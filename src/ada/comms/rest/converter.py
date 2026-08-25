@@ -34,6 +34,8 @@ import re
 import tempfile
 from typing import TYPE_CHECKING, Callable, Iterable
 
+from ada.core.file_system import new_temp_path
+
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
@@ -1873,7 +1875,7 @@ def _via_ada(
     ``python`` serializer is chosen with the ``face_regions`` toggle on.
     """
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
+    out_path = new_temp_path(suffix=suffix)
     result: bytes | pathlib.Path = b""
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
@@ -2057,7 +2059,7 @@ def _via_bundle(
             opts.get("reconstruct_surfaces"),
         )
         suffix = ".glb" if target_format == "glb" else f".{target_format}"
-        out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
+        out_path = new_temp_path(suffix=suffix)
         result: bytes | pathlib.Path = b""
         try:
             result = _export_with_ada(
@@ -2232,7 +2234,7 @@ def _via_fea_result(
             raise UnsupportedFormat(f"field {field!r} has no data at step {step}; available: {avail_steps}")
 
     on_progress("tessellating", 0.65)
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+    out_path = new_temp_path(suffix=".glb")
     try:
         result.to_gltf(out_path, step=int(step), field=field)
         on_progress("ready", 1.0)
@@ -2264,7 +2266,7 @@ def _via_ada_to_trimesh(
     model = _load_with_ada(src_path, source_ext)
     fmt = target_ext.lstrip(".").lower()
     if fmt in ("obj", "stl"):
-        native_path = pathlib.Path(tempfile.mkstemp(suffix=f".{fmt}")[1])
+        native_path = new_temp_path(suffix=f".{fmt}")
         native_out = _native_ngeom_mesh_route(model, source_ext, fmt, native_path, on_progress)
         if native_out is not None:
             return native_out
@@ -2396,7 +2398,7 @@ def _via_ada_to_step(
         # (a no-op when there is no mesh) before the OCC writer runs.
         _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects, reconstruct_surfaces)
     on_progress("writing-step", 0.55)
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    out_path = new_temp_path(suffix=".step")
     returned_path = False
     try:
         if is_fem:
@@ -2668,7 +2670,7 @@ def _via_step_stream_to_step(
     """
     from ada.config import logger
 
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    out_path = new_temp_path(suffix=".step")
     from ada.cadit.step.native_step_to_step import (
         native_step_to_step,
         native_step_to_step_available,
@@ -2709,7 +2711,7 @@ def _via_ifc_to_step(
 
     if native_ifc_to_step_available():
         try:
-            out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+            out_path = new_temp_path(suffix=".step")
             stats = native_ifc_to_step(src_path, out_path, on_progress=on_progress)
             logger.info("native IFC->STEP: %s", stats)
             return out_path
@@ -2735,7 +2737,7 @@ def _via_step_stream_to_ifc(
     """
     from ada.config import logger
 
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".ifc")[1])
+    out_path = new_temp_path(suffix=".ifc")
     from ada.cadit.step.native_step_to_ifc import (
         native_ifc_available,
         native_step_to_ifc,
@@ -2770,7 +2772,7 @@ def _via_step_stream_to_xml(
     from ada.cadit.step.write.stream_step_to_xml import stream_step_to_xml
     from ada.config import logger
 
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".xml")[1])
+    out_path = new_temp_path(suffix=".xml")
     stats = stream_step_to_xml(src_path, out_path, on_progress=on_progress)
     logger.info("stream STEP->XML: %s", stats)
     return out_path
@@ -2796,7 +2798,7 @@ def _via_step_stream_to_mesh(
     Either way peak memory is O(one solid's mesh), never a whole-model buffer.
     ``step_glb_pipeline`` is accepted for signature compatibility but unused.
     """
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=target_ext)[1])
+    out_path = new_temp_path(suffix=target_ext)
     fmt = target_ext.lstrip(".")
     from ada.cadit.step.native_step_to_mesh import (
         native_mesh_available,
@@ -3297,7 +3299,7 @@ def _via_ifc_stream_to_glb(
 
     if not force_python and native_ifc_glb_available():
         try:
-            out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+            out_path = new_temp_path(suffix=".glb")
             # Same track plumbing as the STEP native path: the cpp serializer parks its chosen
             # track on the tess-engine axis, and this reverses it. Without forwarding it, picking a
             # track for an IFC source ran the default and reported the caller's choice back.

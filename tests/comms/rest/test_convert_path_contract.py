@@ -13,12 +13,23 @@ from __future__ import annotations
 import asyncio
 import pathlib
 
+import pytest
 from obstore.store import LocalStore
 
 from ada.comms.rest.converter import convert, result_bytes
 from ada.comms.rest.scope import Scope
 from ada.comms.rest.storage import Storage
-from ada.comms.rest.subprocess_convert import run_isolated_convert
+from ada.comms.rest.subprocess_convert import HAVE_POSIX_FORK, run_isolated_convert
+
+# The convert() half of this module is portable and runs everywhere. The two
+# full-chain tests drive run_isolated_convert, which forks — so they are POSIX
+# only. Gate on the module's own capability flag rather than on sys.platform:
+# it is the actual precondition, and it stays correct if another fork-less
+# platform shows up.
+requires_fork = pytest.mark.skipif(
+    not HAVE_POSIX_FORK,
+    reason="run_isolated_convert needs os.fork + fcntl (POSIX only); the REST worker is Linux-only",
+)
 
 
 def _fem(fem_files: pathlib.Path) -> pathlib.Path:
@@ -59,6 +70,7 @@ def test_result_bytes_normalises_both(fem_files):
             as_path.unlink(missing_ok=True)
 
 
+@requires_fork
 def test_full_chain_fork_to_put_path(tmp_path, fem_files):
     # Mirror what the worker does: run convert in the forked child, take the
     # returned out_path, stream it to storage with put_path, and read it back.
@@ -87,6 +99,7 @@ def test_full_chain_fork_to_put_path(tmp_path, fem_files):
     assert b"<" in data  # gzip stored, transparently inflated on read
 
 
+@requires_fork
 def test_full_chain_glb_bytes_path(tmp_path, fem_files):
     # The bytes branch still round-trips: child writes the bytes into the
     # result slot, parent streams that file up via put_path.

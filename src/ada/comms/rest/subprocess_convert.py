@@ -35,12 +35,10 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import fcntl
 import json
 import logging
 import os
 import pathlib
-import resource as _resource_mod  # noqa: F401 — imported for posterity
 import shutil
 import signal
 import sys
@@ -49,7 +47,45 @@ import time
 import traceback
 from typing import Any, Awaitable, Callable, Optional
 
+# fcntl/resource are POSIX-only, and so is everything in this module that uses
+# them (os.fork, os.wait4, /proc sampling) — the worker only ever runs on Linux.
+# They used to be plain top-level imports, which made the whole module, and
+# therefore ``ada.comms.rest.worker``, unimportable on Windows. That cost far
+# more than it looks: it took out five test modules at COLLECTION time, and with
+# them the pure-logic worker tests (_scope_of, capability gating, equipment
+# geometry, procedural detailing) that have nothing to do with forking. It also
+# silently disabled test_subprocess_timeout.py's own
+# ``skipif(sys.platform == "win32")`` — collection died on the import before the
+# marker could be read. Importing the module is now portable; CALLING the fork
+# path off POSIX still fails loudly via _require_posix().
+try:  # pragma: no cover - exercised by whichever platform is running
+    import fcntl
+except ModuleNotFoundError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - exercised by whichever platform is running
+    import resource as _resource_mod  # noqa: F401 — imported for posterity
+except ModuleNotFoundError:  # pragma: no cover - Windows
+    _resource_mod = None  # type: ignore[assignment]
+
+HAVE_POSIX_FORK = fcntl is not None and hasattr(os, "fork")
+
 logger = logging.getLogger("ada")
+
+
+def _require_posix() -> None:
+    """Guard the fork-based entry points.
+
+    Raising here rather than at import time is the whole point: a caller that
+    actually needs the isolated-fork machinery gets a clear error, while merely
+    importing the module (or ``ada.comms.rest.worker``, which pulls it in) stays
+    portable.
+    """
+    if not HAVE_POSIX_FORK:
+        raise RuntimeError(
+            "run_isolated_convert requires a POSIX platform (os.fork + fcntl); "
+            f"this is {sys.platform}. The REST worker is Linux-only."
+        )
 
 
 def _move_into_result(src: str, dst: pathlib.Path) -> None:
@@ -316,6 +352,7 @@ async def run_isolated_convert(
     "TIMEOUT"`` in that case so the worker can surface a clear,
     timeout-specific error rather than a generic "killed by signal".
     """
+    _require_posix()
     convert_kwargs = convert_kwargs or {}
 
     work_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-convert-"))
