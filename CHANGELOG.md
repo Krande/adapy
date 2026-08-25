@@ -2,6 +2,15 @@
 
 
 
+## v0.45.2 (2026-08-25)
+
+### Fix
+
+* fix(rest): keep blueprint_name through doc normalization (#267)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`7fcaad8`](https://github.com/Krande/adapy/commit/7fcaad8f70b1427b45545f37d109e45a01c86c6c))
+
+
 ## v0.45.1 (2026-08-25)
 
 ### Chore
