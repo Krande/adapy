@@ -1799,6 +1799,37 @@ def is_shape_handle(obj: Any) -> bool:
     return active_backend().is_handle(obj)
 
 
+def minimal_distance_between_shapes(shp1, shp2) -> float:
+    """Minimal distance between two shapes, whichever backend produced them.
+
+    Dual-use in the same shape as ``ada.occ.utils.get_points_from_occ_shape``:
+    callers pass either *final* backend handles (``plate.solid_occ()``) or
+    *construction-internal* raw pythonocc shapes. Handles route to the active
+    backend's ``distance`` verb; a raw ``TopoDS_Shape`` falls back to OCC.
+
+    This exists because ``solid_occ()`` returns an active-backend handle -- an
+    adacpp ``ShapeHandle`` under the default backend -- which the pythonocc
+    ``BRepExtrema_DistShapeShape`` loaders reject outright with a bare
+    ``TypeError`` naming ``TopoDS_Shape const &``. Passing one to
+    ``compute_minimal_distance_between_shapes`` is a hard failure on the default
+    backend, not a slow path.
+
+    It lives here rather than beside that function because ``ada.occ.utils``
+    imports pythonocc at module scope, so it cannot be imported at all in an
+    adacpp-only install -- exactly the install where this helper matters most.
+    The pythonocc fallback is therefore imported lazily, inside the branch.
+
+    Returns the distance rather than a ``BRepExtrema_DistShapeShape``, since the
+    adacpp path has no such object to hand back.
+    """
+    if is_shape_handle(shp1) or is_shape_handle(shp2):
+        return float(active_backend().distance(shp1, shp2))
+
+    from ada.occ.utils import compute_minimal_distance_between_shapes
+
+    return float(compute_minimal_distance_between_shapes(shp1, shp2).Value())
+
+
 def is_cad_body(obj: Any) -> bool:
     """True if ``obj`` is a pre-built CAD body of ANY available backend, not just the
     active one.
@@ -1843,6 +1874,7 @@ __all__ = [
     "ShapeHandle",
     "active_backend",
     "is_shape_handle",
+    "minimal_distance_between_shapes",
     "reset_active_backend",
     "select_backend",
     # registry / config

@@ -585,7 +585,17 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
 
 
 def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShapeShape:
-    """Compute the minimal distance between 2 shapes"""
+    """Compute the minimal distance between 2 raw pythonocc shapes.
+
+    This is the pythonocc primitive and takes ``TopoDS_Shape`` only. It cannot
+    accept an active-backend handle, because the value it returns *is* a
+    pythonocc object and there is no handle -> ``TopoDS_Shape`` bridge to build
+    one from. Anything holding geometry that came out of ``solid_occ()`` /
+    ``shell_occ()`` wants :func:`ada.cad.minimal_distance_between_shapes`
+    instead. That one lives in ``ada.cad`` and not here, because this module
+    imports pythonocc at module scope and so cannot be imported at all in an
+    adacpp-only install.
+    """
 
     dss = BRepExtrema_DistShapeShape()
     dss.LoadS1(shp1)
