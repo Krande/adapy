@@ -12,6 +12,7 @@ import {requestRender} from '@/state/perfStore';
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
 import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
+import TreeNodeInfoSection from './TreeNodeInfoSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
@@ -350,6 +351,11 @@ const ObjectInfoBox = () => {
                 extension's ``object_metadata`` field) AND hosts the
                 clicked-coordinate row that used to live above. */}
             {name && <ObjectMetadataPanel data={jsonData}/>}
+            {/* Structural facts about the selected hierarchy node. Renders for
+                any tree selection, and is the ONLY section a spatial container
+                can populate — everything above is keyed on geometry the
+                container does not have. */}
+            <TreeNodeInfoSection/>
             {/* Procedural cellbuilder selection detail — cell/equipment
                 parameters, gizmo toggles and connected systems. Lives here
                 (not in the busy cellbuilder tool panel) as its own section. */}

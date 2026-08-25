@@ -61,3 +61,66 @@ export function selectableParent(node: TreeNodeData, idx: TreeIndices): TreeNode
     if (!par || par === idx.root) return null;
     return par;
 }
+
+/** What the info panel can say about a selection-tree node from the client alone. */
+export interface NodeFacts {
+    /** The node's unique tree id. */
+    id: string;
+    /** Display name. Not unique — see ``id``. */
+    name: string;
+    /**
+     * Whether the node itself carries geometry. False for a spatial container:
+     * containers hold no draw range of their own, only descendants that do.
+     */
+    hasGeometry: boolean;
+    /** Direct children. */
+    childCount: number;
+    /** Geometry-bearing nodes at or below this one. */
+    descendantGeometryCount: number;
+    /** Ancestors, nearest first, excluding the node itself and the synthetic root. */
+    ancestry: TreeNodeData[];
+}
+
+/**
+ * Describe a node using only what the client already holds.
+ *
+ * This exists because selecting a **spatial container** used to leave the
+ * selected-object panel with nothing to render: that panel is driven by
+ * geometry metadata keyed on a physical object's display name, and a container
+ * has neither a draw range nor an entry in that map. Yet the interesting facts
+ * about a container — where it sits, how much it holds, whether it is a leaf
+ * that simply failed to resolve or a group that legitimately has no geometry of
+ * its own — are all already in the tree the client built.
+ *
+ * Deliberately generic: nodes carry no type in the hierarchy contract (which is
+ * ``(name, parent)`` per node and nothing else), so this reports *structure*,
+ * never a classification it would have to invent. Producers that do know a
+ * node's kind can attach it through the separate stable-key channel.
+ */
+export function describeNode(node: TreeNodeData, idx: TreeIndices): NodeFacts {
+    // Iterative, not recursive: a deep tree must not be able to blow the stack,
+    // and the visited guard keeps a malformed parent link from looping forever.
+    let descendantGeometryCount = 0;
+    const seen = new Set<string>();
+    const stack: TreeNodeData[] = [node];
+    while (stack.length) {
+        const cur = stack.pop()!;
+        if (seen.has(cur.id)) continue;
+        seen.add(cur.id);
+        if (cur.node_name) descendantGeometryCount++;
+        for (const child of cur.children ?? []) stack.push(child);
+    }
+    // ancestorChain is leaf-first and starts with the node itself; drop that,
+    // and drop the synthetic root, which is not a place in the model.
+    const ancestry = ancestorChain(node, idx)
+        .slice(1)
+        .filter((n) => n !== idx.root);
+    return {
+        id: node.id,
+        name: node.name,
+        hasGeometry: !!node.node_name,
+        childCount: node.children?.length ?? 0,
+        descendantGeometryCount,
+        ancestry,
+    };
+}
