@@ -2,6 +2,15 @@
 
 
 
+## v0.45.4 (2026-08-25)
+
+### Fix
+
+* fix: give a procedural compile log its own run identity (#269)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`88ba77a`](https://github.com/Krande/adapy/commit/88ba77a48295ad5bc1b454cb03cd2626dcf636f1))
+
+
 ## v0.45.3 (2026-08-25)
 
 ### Fix
