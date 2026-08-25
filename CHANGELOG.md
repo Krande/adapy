@@ -2,6 +2,15 @@
 
 
 
+## v0.45.7 (2026-08-25)
+
+### Fix
+
+* fix(occ): name OCCT&#39;s own alerts when a BOPAlgo run fails (#272)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3bd743a`](https://github.com/Krande/adapy/commit/3bd743a5c20e1384f9f02765a3c293e0d64e9018))
+
+
 ## v0.45.6 (2026-08-25)
 
 ### Fix
