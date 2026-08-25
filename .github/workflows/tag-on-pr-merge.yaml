@@ -22,7 +22,7 @@ name: Create Tag on PR Merge
 #   * Do not enable "Do not allow bypassing the above settings" in branch
 #     protection, or the deploy-key push is rejected and no tag is created.
 #
-# Pinned to deputy @v0.4.0.
+# Pinned to deputy @v0.5.2.
 
 on:
   pull_request_target:
@@ -61,15 +61,8 @@ jobs:
           git config user.email "semantic-release@users.noreply.github.com"
 
       - name: Install deputy
-        # TEMPORARY PIN (2026-08-25): GitPython 3.1.60 removed
-        # `git.Actor.name_email_regex`. python-semantic-release reads that
-        # attribute unconditionally at config load
-        # (semantic_release/cli/config.py:294 in the 8.5.1 that deputy pins), so
-        # with 3.1.60 every `semantic-release` subcommand dies with AttributeError
-        # and no release is cut. deputy v0.4.0 leaves gitpython unconstrained, so a
-        # fresh install resolves 3.1.60. Drop this pin once python-semantic-release
-        # guards the attribute, or once deputy pins gitpython upstream.
-        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.4.0" "gitpython<3.1.60"
+        # deputy pins gitpython<3.1.60 itself from v0.5.2 — do not re-add it here.
+        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.5.2"
 
       - name: Tag + release per the PR's release label
         run: deputy tag-on-merge
