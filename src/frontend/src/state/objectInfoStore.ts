@@ -3,6 +3,15 @@ import {create} from 'zustand';
 type ObjectInfoState = {
     name: string | null;
     setName: (name: string | null) => void;
+    // Which selection-tree node the name came from. A display name is not an
+    // identity — names repeat thousands of times in a real model, and a
+    // container and one of its children can share one. The node id is unique,
+    // so this is what lets a consumer look the selection back up in the tree
+    // (ancestry, children, whether it carries geometry at all) instead of
+    // re-deriving it from a string. null when the selection did not come from
+    // the tree, or when nothing is selected.
+    selectedNodeId: string | null;
+    setSelectedNodeId: (selectedNodeId: string | null) => void;
     faceIndex: number | null;
     setFaceIndex: (faceIndex: number | null) => void;
     clickCoordinate: { x: number; y: number, z: number } | null;
@@ -25,6 +34,8 @@ type ObjectInfoState = {
 export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
     name: null,
     setName: (name) => set(() => ({name})),
+    selectedNodeId: null,
+    setSelectedNodeId: (selectedNodeId) => set(() => ({selectedNodeId})),
     faceIndex: null,
     setFaceIndex: (faceIndex) => set(() => ({faceIndex})),
     clickCoordinate: null,

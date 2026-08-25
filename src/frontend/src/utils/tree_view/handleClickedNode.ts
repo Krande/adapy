@@ -57,11 +57,24 @@ export async function handleTreeSelectionChange(ids: NodeApi[]) {
 
         selectedObjectStore.clearSelectedObjects();
         selectedObjectStore.addBatchofMeshes(const_meshes_and_draw_ranges);
-        const last_node = nodes[nodes.length - 1];
-        const last_selected = last_node.data.name;
-        useObjectInfoStore.getState().setName(last_selected);
+        // Report the selected node itself, not `nodes[nodes.length-1]`. `nodes`
+        // is a DFS pre-order walk of the selection's whole subtree, so its last
+        // entry is the deepest-last DESCENDANT — select a container and the info
+        // panel would name some leaf buried several levels below it, never the
+        // container. `selectTreeNode` in ./treeNavigation already reports the
+        // node itself; these two paths simply disagreed.
+        //
+        // `ids[0]` for the same reason setScope above uses it: react-arborist
+        // hands back the selection in document order, not click order, so under
+        // multi-select there is no "the clicked one" to pick — and the panel
+        // already shows a count alongside the representative name. For a single
+        // selection, which this is nearly always, the choice does not arise.
+        const selected = ids[0];
+        useObjectInfoStore.getState().setName(selected.data.name);
+        useObjectInfoStore.getState().setSelectedNodeId(selected.id);
     } else {
         selectedObjectStore.clearSelectedObjects();
+        useObjectInfoStore.getState().setSelectedNodeId(null);
     }
 }
 

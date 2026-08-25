@@ -104,6 +104,7 @@ export async function selectTreeNode(node: TreeNodeData): Promise<void> {
     sel.addBatchofMeshes(batch);
 
     useObjectInfoStore.getState().setName(node.name);
+    useObjectInfoStore.getState().setSelectedNodeId(node.id);
     const tv = useTreeViewStore.getState();
     tv.setScope(node.id, node.name);
 
