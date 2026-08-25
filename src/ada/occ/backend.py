@@ -21,6 +21,46 @@ if TYPE_CHECKING:
     from ada.geom.points import Point
 
 
+def _bop_alert_names(algo) -> list[str]:
+    """The type names of the failure alerts OCCT recorded for a BOPAlgo run.
+
+    ``HasErrors()`` is only a boolean summary — the *reason* lives in the
+    algorithm's ``Message_Report`` as a list of typed alerts
+    (``BOPAlgo_AlertTooFewArguments``, ``BOPAlgo_AlertIntersectionFailed``,
+    ``BOPAlgo_AlertNullInputShapes``, ...). Reporting only the summary collapses
+    every distinct OCCT failure into one opaque string, which is how a plain
+    operand-count precondition read as a geometry-kernel bug in #263.
+
+    The list cannot simply be iterated: pythonocc exposes ``Message_ListOfAlert``
+    without its ``Message_ListIteratorOfListOfAlert``, so ``for a in alerts``
+    raises ``NameError``. Copy the list and drain the copy, which leaves the
+    algorithm's own report untouched.
+
+    Best-effort by construction: a diagnostic must never replace the failure it
+    is describing, so any problem reading the report yields no names rather than
+    an exception from the error path.
+    """
+    try:
+        from OCC.Core.Message import Message_Fail, Message_ListOfAlert
+
+        pending = Message_ListOfAlert()
+        pending.Assign(algo.GetReport().GetAlerts(Message_Fail))
+        names = []
+        while len(pending):
+            names.append(pending.First().DynamicType().Name())
+            pending.RemoveFirst()
+        return names
+    except Exception:  # noqa: BLE001 - diagnostics must not mask the real failure
+        return []
+
+
+def _bop_error(op: str, algo_name: str, algo) -> RuntimeError:
+    """The ``RuntimeError`` for a failed BOPAlgo run, naming OCCT's own alerts."""
+    alerts = _bop_alert_names(algo)
+    detail = f" [{', '.join(alerts)}]" if alerts else ""
+    return RuntimeError(f"{op}: {algo_name} reported errors{detail}")
+
+
 class OccBackend:
     """Backend backed by pythonocc-core. Native CPython only.
 
@@ -962,7 +1002,7 @@ class OccBackend:
             mv.SetFuzzyValue(tolerance)
         mv.Perform()
         if mv.HasErrors():
-            raise RuntimeError("make_volumes_from_faces: BOPAlgo_MakerVolume reported errors")
+            raise _bop_error("make_volumes_from_faces", "BOPAlgo_MakerVolume", mv)
         return list(self._TopologyExplorer(mv.Shape()).solids())
 
     def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]:
@@ -999,7 +1039,7 @@ class OccBackend:
             cb.SetFuzzyValue(tolerance)
         cb.Perform()
         if cb.HasErrors():
-            raise RuntimeError("merge_cells: BOPAlgo_CellsBuilder reported errors")
+            raise _bop_error("merge_cells", "BOPAlgo_CellsBuilder", cb)
         # Take each operand's region into the result (mirrors Topology::Merge's
         # per-operand AddToResult with an empty avoid-list).
         for s in solids:
@@ -1028,7 +1068,7 @@ class OccBackend:
             builder.SetFuzzyValue(tolerance)
         builder.Perform()
         if builder.HasErrors():
-            raise RuntimeError("non_manifold_merge: BOPAlgo_Builder reported errors")
+            raise _bop_error("non_manifold_merge", "BOPAlgo_Builder", builder)
         return builder.Shape()
 
     def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]:
@@ -1160,7 +1200,7 @@ class OccBackend:
             builder.SetRunParallel(True)
             builder.Perform()
             if builder.HasErrors():
-                raise RuntimeError("imprint_planar_faces: BOPAlgo_Builder reported errors")
+                raise _bop_error("imprint_planar_faces", "BOPAlgo_Builder", builder)
             res = builder.Shape()
 
         # Index every unique sub-shape. The map's hasher keys on TShape+Location
