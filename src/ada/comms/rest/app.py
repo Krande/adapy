@@ -3444,6 +3444,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None
         return spec
 
+    async def _audit_compile_run(
+        request: Request,
+        user: User,
+        scope: Scope,
+        *,
+        job_id: str | None,
+        derived_key: str,
+        target_format: str = "procedural_build",
+    ) -> None:
+        """Open the audit row for one compile RUN, at enqueue time.
+
+        Deliberately the same idiom as a conversion: ``job_id`` is the run id, so
+        the worker's existing terminal-status patch (``_audit_done`` →
+        ``update_audit_by_job``) fills in duration, error, traceback and the run's
+        ``log_key`` on the very same row. That makes a compile visible in the admin
+        audit log — with its log readable through the row's existing "Log" tab —
+        without a second audit surface for procedural runs."""
+        if not job_id:
+            return
+        await _audit(
+            request,
+            user,
+            scope,
+            "compile",
+            key=derived_key,
+            target_format=target_format,
+            status="queued",
+            job_id=job_id,
+        )
+
     def _parse_detailing_options(raw: str | None) -> dict:
         """Parse the ``?detailing_options=<json>`` query param — the per-joint-type
         option map ``{slug: {enabled, <field>: value}}`` the Detailing tab produced.
@@ -3464,6 +3494,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         from .procedural import (
             procedural_detailing_glb_key,
@@ -3605,6 +3636,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 force_rebuild=force,
                 target_capability=det_spec.get("worker_capability"),
             )
+            # Both stages are compile runs of their own (each writes its own log
+            # under its own job id), so both get an audit row.
+            await _audit_compile_run(request, user, scope_obj, job_id=structural_job.job_id, derived_key=structural_key)
+            await _audit_compile_run(
+                request,
+                user,
+                scope_obj,
+                job_id=detail_job.job_id,
+                derived_key=derived_key,
+                target_format="procedural_detail",
+            )
             return JSONResponse(
                 {
                     "job_id": detail_job.job_id,
@@ -3633,6 +3675,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             force_rebuild=force,
             target_capability=target_capability,
         )
+        await _audit_compile_run(request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
     @api.post("/scopes/{scope}/procedural-models/{model_id}/compile-preview")
@@ -3640,6 +3683,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         """Compile the CURRENT (uncommitted) document — a *preview* — without
         minting a revision. The body carries ``{doc, engine?, lod?}``; the doc is
@@ -3728,6 +3772,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             force_rebuild=force,
             target_capability=target_capability,
         )
+        await _audit_compile_run(request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash})
 
     @api.get("/scopes/{scope}/procedural-models/{model_id}/compile-log")
@@ -3736,34 +3781,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> PlainTextResponse:
-        """Return the engine log captured during a compile/preview as ``text/plain``.
+        """Return the engine log captured during one compile RUN as ``text/plain``.
 
-        The frontend passes the GLB ``derived_key`` (from the compile/preview
-        response) as ``?key=``; the log is that key's ``.log`` sibling
-        (:func:`procedural_log_key`), so committed / detail / preview / engine
-        variants are all covered by one rule. An empty body means the compile
-        produced no log (or the result was served from a pre-log cached blob).
-        503 when the procedural DB isn't configured, matching the sibling
-        procedural endpoints."""
-        from .procedural import PROCEDURAL_PREFIX, procedural_log_key
+        A log belongs to a RUN, not to a document. Pass ``?run=<job_id>`` — the id
+        the compile/preview response returned — and you get exactly that run's log
+        (:func:`procedural_run_log_key`) or an empty body; a second compile of the
+        very same document can therefore never hand back the first one's output.
+
+        ``?key=<derived GLB key>`` remains for the two lookups that have no run id
+        of their own: a result the endpoint served straight from cache (no run
+        happened just now), and an artifact built before runs existed. It resolves
+        through the key's ``.run`` pointer sidecar to the run that most recently
+        targeted that artifact, falling back to the legacy ``.log`` sibling.
+
+        The response carries ``X-Compile-Run`` naming the run actually served (empty
+        when it came from the legacy sibling), so a caller can tell whether the log
+        it is showing belongs to the run it just triggered. An empty body means that
+        run produced no log. 503 when the procedural DB isn't configured, matching
+        the sibling procedural endpoints."""
+        from .procedural import (
+            PROCEDURAL_PREFIX,
+            is_valid_run_id,
+            procedural_log_key,
+            procedural_run_log_key,
+            procedural_run_pointer_key,
+        )
 
         pool = _require_procedural_pool(request)
         # Scope + existence check (raises 404 when the model isn't in this scope).
         await _get_procedural_in_scope(pool, model_id, scope_obj)
+        run = (request.query_params.get("run") or "").strip()
         key = (request.query_params.get("key") or "").strip()
-        if not key:
-            raise HTTPException(status_code=400, detail="key (derived GLB key) query param is required")
+        if not run and not key:
+            raise HTTPException(status_code=400, detail="run (compile run id) or key (derived GLB key) is required")
+
+        async def _read(blob_key: str) -> str | None:
+            try:
+                data = await storage.get_bytes(scope_obj, blob_key)
+            except Exception:
+                return None
+            return data.decode("utf-8", errors="replace")
+
+        if run:
+            # The run id lands inside a blob key, so it is validated (not merely
+            # escaped) before use — the same confinement `key` gets below.
+            if not is_valid_run_id(run):
+                raise HTTPException(status_code=400, detail="run is not a valid compile run id")
+            text = await _read(procedural_run_log_key(model_id, run))
+            return PlainTextResponse(text or "", headers={"X-Compile-Run": run})
+
         # Confine reads to this model's hidden prefix so the endpoint can't be used
         # to fetch arbitrary blobs by handing it any key.
         if not key.startswith(f"{PROCEDURAL_PREFIX}{model_id}/"):
             raise HTTPException(status_code=400, detail="key is not a derived artifact of this model")
-        log_key = procedural_log_key(key)
-        try:
-            data = await storage.get_bytes(scope_obj, log_key)
-        except Exception:
-            # No log persisted (pre-log cached blob, or the compile never ran).
-            return PlainTextResponse("")
-        return PlainTextResponse(data.decode("utf-8", errors="replace"))
+        pointed = (await _read(procedural_run_pointer_key(key)) or "").strip()
+        if pointed and is_valid_run_id(pointed):
+            text = await _read(procedural_run_log_key(model_id, pointed))
+            return PlainTextResponse(text or "", headers={"X-Compile-Run": pointed})
+        # Legacy: an artifact whose compile predates run-keyed logs.
+        return PlainTextResponse(await _read(procedural_log_key(key)) or "", headers={"X-Compile-Run": ""})
 
     @api.get("/scopes/{scope}/procedural-models/{model_id}/stats")
     async def api_procedural_stats(

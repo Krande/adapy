@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ctypes
+import datetime
 import functools
 import io
 import logging
@@ -1105,6 +1106,114 @@ def _assemble_compile_log(handler: _CompileLogCapture, stdout_buf: io.StringIO, 
     return text
 
 
+def _compile_run_header(
+    *,
+    run_id: str,
+    model_id: str | None,
+    revision: object,
+    engine: str | None,
+    lod: str,
+    detailing: str | None,
+    is_preview: bool,
+    status: str,
+) -> str:
+    """The banner every compile-run log opens with.
+
+    It is what makes a run log SELF-IDENTIFYING: reading one you can tell which
+    run produced it, what it compiled and how it ended — so a log that IS stale
+    (an artifact served from cache, whose log belongs to the run that built it)
+    announces itself instead of masquerading as the run you just triggered."""
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    what = "preview" if is_preview else f"r{revision}"
+    bits = [
+        f"run {run_id}",
+        f"model {model_id}",
+        what,
+        f"lod={lod}",
+        f"engine={engine or 'adapy-default'}",
+    ]
+    if detailing and detailing != "none":
+        bits.append(f"detailing={detailing}")
+    return f"=== compile {status} · {when} · " + " · ".join(bits) + " ==="
+
+
+async def _put_run_log(storage: "Storage", scope, model_id: str | None, run_id: str, text: str) -> str | None:
+    """Persist ONE compile run's log at its run-stamped key, returning that key.
+
+    ALWAYS writes, even when the engine emitted nothing: an empty run still gets a
+    blob carrying its banner. The old code skipped the write on empty text, which
+    is precisely how a clean recompile left the previous run's failure sitting at
+    the shared artifact-derived key for the panel to show. Best-effort — a log
+    that fails to upload must not fail an otherwise-good compile."""
+    if not model_id:
+        return None
+    try:
+        from .procedural import procedural_run_log_key
+
+        key = procedural_run_log_key(model_id, run_id)
+    except ValueError:
+        logger.warning("worker: refusing to write a compile log for unsafe run id %r", run_id)
+        return None
+    try:
+        await storage.put_bytes(scope, key, text.encode("utf-8"), content_encoding="gzip")
+        return key
+    except Exception:
+        logger.exception("worker: procedural compile-run log upload failed for %s", model_id)
+        return None
+
+
+async def _put_run_pointer(storage: "Storage", scope, derived_key: str, run_id: str) -> None:
+    """Point an artifact key at the run that most recently targeted it (a ``.run``
+    sibling — see procedural.procedural_run_pointer_key).
+
+    Written when the run STARTS, so it is already in place for a run that fails
+    before producing bytes; that failure's log is then what the viewer finds for
+    the artifact, rather than the last SUCCESS's log. Best-effort: without the
+    pointer the log lookup simply falls back to the legacy sibling."""
+    try:
+        from .procedural import procedural_run_pointer_key
+
+        await storage.put_bytes(scope, procedural_run_pointer_key(derived_key), run_id.encode("utf-8"))
+    except Exception:
+        logger.warning("worker: failed to write run-pointer sidecar for %s", derived_key)
+
+
+async def _prune_run_logs(storage: "Storage", scope, model_id: str | None, keep_key: str = "") -> None:
+    """Drop all but the newest ``RUN_LOG_RETENTION`` run logs for one model.
+
+    Run-keyed logs accumulate where the old artifact-keyed log overwrote itself, so
+    the prefix needs a bound. Bounded listing (one model's ``runs/`` prefix only)
+    and best-effort throughout: a pruning failure is never worth failing a compile
+    over, and losing an old run's log only costs its admin audit row the Log tab."""
+    if not model_id:
+        return
+    try:
+        from .procedural import (
+            RUN_LOG_RETENTION,
+            procedural_run_dir,
+            prune_run_log_keys,
+        )
+
+        entries = await storage.list_prefix(scope, procedural_run_dir(model_id))
+        if len(entries) <= RUN_LOG_RETENTION:
+            return
+        # Newest first. last_modified is ISO-8601 (lexicographically sortable) when
+        # the backend reports one; entries without it sort oldest so they go first.
+        ordered = sorted(entries, key=lambda e: (e.last_modified or "", e.key), reverse=True)
+        keys = [e.key for e in ordered if e.key != keep_key]
+        # The run that just finished heads the list whatever the backend reported
+        # for last_modified: the log the caller is about to be handed must survive.
+        if keep_key:
+            keys.insert(0, keep_key)
+        for key in prune_run_log_keys(keys):
+            try:
+                await storage.delete(scope, key)
+            except Exception:
+                logger.debug("worker: could not prune stale compile-run log %s", key)
+    except Exception:
+        logger.warning("worker: compile-run log retention sweep failed for %s", model_id)
+
+
 async def _write_catalog_fp_sidecar(storage: "Storage", scope, derived_key: str, opts: dict | None) -> None:
     """Record the catalog fingerprint a procedural artifact was built from, as a
     ``.catfp`` sibling of ``derived_key`` (see procedural.procedural_catalog_fp_key).
@@ -1171,13 +1280,57 @@ async def _run_procedural_build(
     preview_doc = opts.get("preview_doc")
     is_preview = isinstance(preview_doc, dict)
 
+    # ── This compile's RUN identity ─────────────────────────────────
+    # The queue job id IS the run id. It is minted per compile ATTEMPT (where the
+    # derived key is content-addressed and therefore shared by every attempt of an
+    # unchanged input), it is the id the compile response already hands the
+    # viewer, and it is the ``audit_log`` join key — so one id names this run's log
+    # blob, the panel's current run, and the admin audit entry for it.
+    run_log: dict[str, str] = {"key": "", "body": ""}
+
+    async def _write_run_log(status: str, body: str | None = None) -> None:
+        """(Re)write THIS run's log with the given outcome. Called on every exit
+        path, so a run always leaves a log behind — including one that fails before
+        the engine is ever entered, which used to leave the panel showing whatever
+        the previous run wrote."""
+        if body is not None:
+            run_log["body"] = body
+        header = _compile_run_header(
+            run_id=job_id,
+            model_id=model_id,
+            revision=revision,
+            engine=engine,
+            lod=lod,
+            detailing=detailing,
+            is_preview=is_preview,
+            status=status,
+        )
+        text = f"{header}\n{run_log['body']}" if run_log["body"] else header
+        run_log["key"] = await _put_run_log(storage, scope, model_id, job_id, text) or ""
+
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+        # Rewrite the run log with the failure banner, keeping whatever the engine
+        # had already emitted — a failed run's log must stay retrievable and must
+        # read as a FAILURE, distinguishable from the success that may follow it.
+        await _write_run_log(f"failed at {stage}: {msg}")
+        await _audit_done(
+            db_pool,
+            job_id,
+            "error",
+            msg,
+            started_at,
+            traceback=trace,
+            metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+        )
 
     if not model_id or not isinstance(revision, int):
         await _fail("build", "conversion_options.model_id and revision are required for procedural_build")
         return
+    # Claim the artifact key for this run BEFORE any work: a lookup that has only
+    # the derived key to go on (a cache hit, or a run that dies before writing
+    # bytes) then resolves to this run rather than to whichever ran last.
+    await _put_run_pointer(storage, scope, job.derived_key, job_id)
     if db_pool is None:
         await _fail("build", "procedural build requires DATABASE_URL on the worker")
         return
@@ -1332,25 +1485,14 @@ async def _run_procedural_build(
 
     loop = asyncio.get_running_loop()
     # Capture the engine's logging (and stdout) DURING the compile so the messages
-    # are inspectable from the viewer — persisted as a ``.log`` sibling of the GLB
-    # (procedural_log_key) on BOTH success and failure so errors stay diagnosable.
-    from .procedural import procedural_log_key
-
-    log_key = procedural_log_key(job.derived_key)
+    # are inspectable from the viewer — persisted under THIS RUN's key
+    # (procedural_run_log_key) on BOTH success and failure so errors stay
+    # diagnosable and no run can ever be handed another run's output.
     stdout_buf = io.StringIO()
 
     def _do_compile_captured() -> bytes:
         with contextlib.redirect_stdout(stdout_buf):
             return _do_compile()
-
-    async def _persist_log(handler: _CompileLogCapture, extra: str | None = None) -> None:
-        text = _assemble_compile_log(handler, stdout_buf, extra)
-        if not text:
-            return
-        try:
-            await storage.put_bytes(scope, log_key, text.encode("utf-8"), content_encoding="gzip")
-        except Exception:
-            logger.exception("worker: procedural_build log upload failed for %s", model_id)
 
     with _capture_compile_logs() as log_handler:
         try:
@@ -1358,10 +1500,14 @@ async def _run_procedural_build(
             glb_bytes = await loop.run_in_executor(None, _do_compile_captured)
         except Exception as exc:
             logger.exception("worker: procedural_build failed for %s", model_id)
-            await _persist_log(log_handler, extra=tb_module.format_exc())
+            await _write_run_log(
+                "failed at build", _assemble_compile_log(log_handler, stdout_buf, tb_module.format_exc())
+            )
             await _fail("build", str(exc), tb_module.format_exc())
             return
-        await _persist_log(log_handler)
+        # Unconditional: an engine that logged nothing still gets a blob (its banner
+        # alone), so the next reader sees THIS run and not a leftover from an older one.
+        await _write_run_log("ok", _assemble_compile_log(log_handler, stdout_buf, None))
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
@@ -1414,8 +1560,19 @@ async def _run_procedural_build(
             await _fail("artifact", str(exc), tb_module.format_exc())
             return
 
+    await _prune_run_logs(storage, scope, model_id, run_log["key"])
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-    await _audit_done(db_pool, job_id, "done", None, started_at)
+    # Hand the run's log to the audit row, so the admin panel's existing per-row
+    # "Log" tab (GET /admin/audit/{id}/log) serves a compile exactly as it serves
+    # a conversion — no parallel surface for procedural runs.
+    await _audit_done(
+        db_pool,
+        job_id,
+        "done",
+        None,
+        started_at,
+        metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+    )
 
 
 def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":
@@ -1492,9 +1649,41 @@ async def _run_procedural_detail(
     structural_sections_key = opts.get("structural_sections_key")
     lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
 
+    # This stage owns ``derived_key``, so it is the run the viewer's log lookup for
+    # that artifact must find — same run identity (the job id) as the structural
+    # stage, just a different key.
+    run_log: dict[str, str] = {"key": "", "body": ""}
+
+    async def _write_run_log(status: str, body: str | None = None) -> None:
+        if body is not None:
+            run_log["body"] = body
+        header = _compile_run_header(
+            run_id=job_id,
+            model_id=model_id,
+            revision=opts.get("revision"),
+            engine=opts.get("engine"),
+            lod=lod,
+            detailing=opts.get("detailing"),
+            is_preview=False,
+            status=status,
+        )
+        text = f"{header}\n{run_log['body']}" if run_log["body"] else header
+        run_log["key"] = await _put_run_log(storage, scope, model_id, job_id, text) or ""
+
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+        await _write_run_log(f"failed at {stage}: {msg}")
+        await _audit_done(
+            db_pool,
+            job_id,
+            "error",
+            msg,
+            started_at,
+            traceback=trace,
+            metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+        )
+
+    await _put_run_pointer(storage, scope, job.derived_key, job_id)
 
     if not entrypoint or ":" not in str(entrypoint):
         await _fail(
@@ -1564,18 +1753,25 @@ async def _run_procedural_detail(
         options[k] = v
 
     loop = asyncio.get_running_loop()
+    stdout_buf = io.StringIO()
 
     def _do_detail() -> bytes:
         fn = load_entrypoint(entrypoint)
-        return fn(model_bytes, options)
+        with contextlib.redirect_stdout(stdout_buf):
+            return fn(model_bytes, options)
 
-    try:
-        await queue.update(job_id, stage="detail", progress=0.50)
-        glb_bytes = await loop.run_in_executor(None, _do_detail)
-    except Exception as exc:
-        logger.exception("worker: procedural_detail failed for %s", model_id)
-        await _fail("detail", str(exc), tb_module.format_exc())
-        return
+    with _capture_compile_logs() as log_handler:
+        try:
+            await queue.update(job_id, stage="detail", progress=0.50)
+            glb_bytes = await loop.run_in_executor(None, _do_detail)
+        except Exception as exc:
+            logger.exception("worker: procedural_detail failed for %s", model_id)
+            await _write_run_log(
+                "failed at detail", _assemble_compile_log(log_handler, stdout_buf, tb_module.format_exc())
+            )
+            await _fail("detail", str(exc), tb_module.format_exc())
+            return
+        await _write_run_log("ok", _assemble_compile_log(log_handler, stdout_buf, None))
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
@@ -1589,8 +1785,16 @@ async def _run_procedural_detail(
     # stage; stamp its own sidecar so the endpoint's staleness check on derived_key works.
     await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
 
+    await _prune_run_logs(storage, scope, model_id, run_log["key"])
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-    await _audit_done(db_pool, job_id, "done", None, started_at)
+    await _audit_done(
+        db_pool,
+        job_id,
+        "done",
+        None,
+        started_at,
+        metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+    )
 
 
 async def _run_procedural_relocations(

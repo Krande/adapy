@@ -389,6 +389,12 @@ interface CellBuilderState {
    * stdout), fetched once the job reaches done/cached/error. null = no log yet
    * (nothing compiled this session); "" = compiled but the engine emitted nothing. */
   compileLog: string | null;
+  // The compile RUN the shown log belongs to (the job id), and whether that run
+  // is the one just triggered. A cache hit shows the log of the run that BUILT
+  // the artifact — still a real run, but not this one, so the panel says so
+  // instead of passing off an old failure as the current build's.
+  compileLogRunId: string | null;
+  compileLogIsCurrentRun: boolean;
   /** Source name of the compiled SIMULATION result currently loaded in the scene. */
   resultSourceName: string | null;
   /** Source name of the compiled DETAIL result currently loaded in the scene. */
@@ -1194,20 +1200,25 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       startedAt: Date.now(),
     });
     // Clear any prior log while this build runs; it's refetched on completion.
-    set({ compileLog: null });
+    set({ compileLog: null, compileLogRunId: null, compileLogIsCurrentRun: false });
     // Fetch the engine-compile log for a finished (or failed) build and stash it
     // so the panel's "Compile log" section can show the engine's messages. Best
     // effort — a missing log resolves to "" and never blocks the result.
-    const fetchCompileLog = async (derivedKey: string) => {
+    const fetchCompileLog = async (derivedKey: string, runId?: string | null) => {
       const active = get().active;
-      if (!active || !derivedKey) return;
+      if (!active || (!derivedKey && !runId)) return;
       try {
-        const text = await viewerApi.proceduralCompileLog(
+        const res = await viewerApi.proceduralCompileLog(
           currentScopePart(),
           active.modelId,
           derivedKey,
+          runId,
         );
-        set({ compileLog: text });
+        set({
+          compileLog: res.text,
+          compileLogRunId: res.runId || null,
+          compileLogIsCurrentRun: Boolean(runId) && res.runId === runId,
+        });
       } catch {
         // Leave compileLog as-is; the log is a diagnostic, not load-bearing.
       }
@@ -1293,7 +1304,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         });
         autoShow();
         broadcast(res.derived_key);
-        void fetchCompileLog(res.derived_key);
+        void fetchCompileLog(res.derived_key, null);
         fetchStats(res.derived_key);
         return;
       }
@@ -1322,7 +1333,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             });
             autoShow();
             broadcast(st.derived_key || cur.derivedKey || "");
-            void fetchCompileLog(st.derived_key || cur.derivedKey || "");
+            void fetchCompileLog(st.derived_key || cur.derivedKey || "", jobId);
             fetchStats(st.derived_key || cur.derivedKey || "");
             return;
           }
@@ -1336,7 +1347,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               error: st.error ?? "compile failed",
             });
             // A failed compile still persists its log (errors are inspectable).
-            void fetchCompileLog(cur.derivedKey || "");
+            void fetchCompileLog(cur.derivedKey || "", jobId);
             return;
           }
           set({ compileJob: { ...cur, status: "running" } });
@@ -1490,6 +1501,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     systemTypes: [],
     compileJob: null,
     compileLog: null,
+    compileLogRunId: null,
+    compileLogIsCurrentRun: false,
     resultSourceName: null,
     detailSourceName: null,
     repMode: "topology",
@@ -1563,6 +1576,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         conflict: null,
         compileJob: null,
         compileLog: null,
+        compileLogRunId: null,
+        compileLogIsCurrentRun: false,
         panelVisible: true,
         hiddenCellIds: [],
         // Reset the VIEW state to a clean topology view. Without this, a session
@@ -1623,6 +1638,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         panelVisible: false,
         compileJob: null,
         compileLog: null,
+        compileLogRunId: null,
+        compileLogIsCurrentRun: false,
         hiddenCellIds: [],
         // Clean view state on close so it can't taint the next open (see open()).
         repMode: "topology",

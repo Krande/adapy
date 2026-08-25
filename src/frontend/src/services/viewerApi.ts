@@ -2236,21 +2236,31 @@ export const viewerApi = {
     );
   },
 
-  /** Fetch the engine-compile log captured for a compiled/previewed GLB.
-   * `derivedKey` is the GLB key returned by compile/preview; the server reads
-   * that key's `.log` sibling. Returns the log text ("" when none was
-   * persisted — e.g. a pre-log cached blob). Never throws on a missing log. */
+  /** Fetch the log of ONE compile run. Pass `runId` — the `job_id` the
+   * compile/preview response returned — and you get exactly that run's log, so a
+   * recompile of an unchanged document can never be handed the previous run's
+   * output. `derivedKey` is the fallback for a result served from cache (no run
+   * happened just now): the server resolves the artifact's `.run` pointer to
+   * whichever run last targeted it. Returns `{text, runId}` — `runId` is the run
+   * the server actually served ("" for a pre-runs artifact), so the caller can
+   * tell a fresh log from an inherited one. Never throws on a missing log. */
   async proceduralCompileLog(
     scope: ScopeUrl,
     modelId: string,
     derivedKey: string,
-  ): Promise<string> {
-    const qs = `?key=${encodeURIComponent(derivedKey)}`;
+    runId?: string | null,
+  ): Promise<{ text: string; runId: string }> {
+    const qs = runId
+      ? `?run=${encodeURIComponent(runId)}`
+      : `?key=${encodeURIComponent(derivedKey)}`;
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-log${qs}`,
     );
-    if (!r.ok) return "";
-    return await r.text();
+    if (!r.ok) return { text: "", runId: "" };
+    return {
+      text: await r.text(),
+      runId: r.headers.get("X-Compile-Run") || runId || "",
+    };
   },
 
   /** Fetch the quantity take-off computed alongside a compiled GLB (the data

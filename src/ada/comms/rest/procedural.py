@@ -14,6 +14,8 @@ from functools import lru_cache
 PROCEDURAL_PREFIX = "_procedural/"
 # Hidden prefix for built external-engine wheels (see HIDDEN_PREFIXES).
 ENGINE_PREFIX = "_engines/"
+# How many compile-run logs to retain per procedural model (see procedural_run_dir).
+RUN_LOG_RETENTION = 50
 
 
 def engine_wheel_dir(engine_id: str) -> str:
@@ -176,17 +178,86 @@ def procedural_preview_glb_key(
 
 
 def procedural_log_key(glb_key: str) -> str:
-    """Blob key for the engine-compile LOG captured alongside a procedural GLB.
+    """LEGACY blob key for the engine-compile log: a ``.log`` sibling of the GLB
+    derived key (the same path with ``.log`` swapped in for ``.glb``).
 
-    The log is a *sibling* of the GLB derived key — the same path with ``.log``
-    swapped in for ``.glb`` — so a single rule covers every GLB variant (the
-    committed ``r{rev}.glb``, its ``_detail`` LOD, an engine-suffixed key, and a
-    ``preview/{hash}.glb``) and the log key can never drift from the key the
-    worker actually wrote the GLB to. Deriving it from the GLB key (rather than
-    re-deriving from model/revision/engine/lod) keeps a single source of truth."""
+    Superseded by :func:`procedural_run_log_key` and kept only so artifacts built
+    before compile runs existed still surface their log. Do NOT write here: the
+    derived key is content-addressed, so every compile of the same input shares
+    this one key — the reason a fresh run used to read back an older run's log."""
     if glb_key.endswith(".glb"):
         return f"{glb_key[: -len('.glb')]}.log"
     return f"{glb_key}.log"
+
+
+# ── Compile RUNS ──────────────────────────────────────────────────────
+#
+# A compile LOG belongs to a RUN, not to a document. The derived-artifact keys
+# above are deliberately CONTENT-ADDRESSED (a revision stamp, or the doc's
+# content hash for a preview) so an unchanged input is served from cache for
+# free — which means two different compile ATTEMPTS of the same input share one
+# key. Deriving the log key from the artifact key therefore made a fresh run read
+# back the PREVIOUS run's log: a forced recompile of an unchanged document,
+# whose own log happened to be empty, still showed yesterday's failure.
+#
+# So the log gets its own identity: the queue job id, minted per compile attempt.
+# It is already the id the compile response hands the viewer and the join key of
+# the ``audit_log`` row, so one id names the log blob, the panel's current run and
+# the admin audit entry.
+
+RUN_ID_MAX_LEN = 64
+
+
+def procedural_run_dir(model_id: str) -> str:
+    """Blob-key prefix holding one model's compile-RUN logs. Lives under the
+    model's hidden ``_procedural/`` prefix (never listed) and, like the preview
+    prefix, is GC-able as a group — see :func:`prune_run_log_keys`."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/runs/"
+
+
+def is_valid_run_id(run_id: str) -> bool:
+    """Whether ``run_id`` is safe to interpolate into a blob key. Queue job ids are
+    ``uuid4().hex``; the WASM path prefixes them. Anything outside
+    ``[A-Za-z0-9_-]`` (notably ``/`` and ``.``) is rejected so a caller-supplied
+    id can never escape :func:`procedural_run_dir`."""
+    if not run_id or len(run_id) > RUN_ID_MAX_LEN:
+        return False
+    return all(c.isalnum() or c in "-_" for c in run_id)
+
+
+def procedural_run_log_key(model_id: str, run_id: str) -> str:
+    """Blob key for ONE compile run's log — ``_procedural/{id}/runs/{run}.log``.
+
+    Keyed by the RUN, not by the artifact: every attempt writes its own blob, so a
+    second compile of the very same document can never serve the first's log, and
+    a failed run's log survives alongside the successful run that follows it.
+    Raises on a run id that isn't key-safe (:func:`is_valid_run_id`)."""
+    if not is_valid_run_id(run_id):
+        raise ValueError(f"invalid compile run id: {run_id!r}")
+    return f"{procedural_run_dir(model_id)}{run_id}.log"
+
+
+def procedural_run_pointer_key(derived_key: str) -> str:
+    """Blob key for the RUN-POINTER sidecar of a compiled artifact: a ``.run``
+    sibling of the derived key (one rule for every variant, mirroring
+    :func:`procedural_catalog_fp_key`) holding the id of the run that most
+    recently targeted that key.
+
+    It exists because two lookups have only the artifact key to go on: a compile
+    the endpoint served straight from cache (no run happened now, but the panel
+    still wants the log of the run that built those bytes) and an old artifact
+    from before runs existed. The pointer is written when the run STARTS, not when
+    it succeeds, so a run that fails before producing bytes is still findable."""
+    return f"{derived_key}.run"
+
+
+def prune_run_log_keys(keys_newest_first: list[str], keep: int = RUN_LOG_RETENTION) -> list[str]:
+    """Split a model's run-log keys (already ordered newest-first) into the ones to
+    delete. Retention is per model and generous — a run log is a few KB — but
+    bounded, because runs accumulate without limit where the old artifact-keyed
+    log overwrote itself in place. Pruning an old run's log only costs the admin
+    audit row its "Log" tab; the row itself, with status/duration/error, remains."""
+    return list(keys_newest_first[max(keep, 0) :])
 
 
 def procedural_stats_key(glb_key: str) -> str:
