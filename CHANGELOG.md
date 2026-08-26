@@ -2,6 +2,15 @@
 
 
 
+## v0.46.2 (2026-08-26)
+
+### Fix
+
+* fix: resolve a part&#39;s absolute placement once, not once per element (#277)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`5f5964d`](https://github.com/Krande/adapy/commit/5f5964d51bbba623212bffef064dcf271da9d926))
+
+
 ## v0.46.1 (2026-08-26)
 
 ### Chore
