@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from math import isfinite
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -276,6 +277,64 @@ def _unit_vector_cached(vec_tup: tuple[float, ...]) -> tuple[float, ...]:
     if np.isnan(norm_arr).any():
         raise VectorNormalizeError(f'Error trying to normalize vector "{arr}"')
     return tuple(norm_arr)
+
+
+# ---------------------------------------------------------------------------
+# Small fixed-size comparisons.
+#
+# ``np.allclose`` costs ~12 us on a 3x3 no matter how trivially it answers: the
+# array protocol, the rtol/atol broadcast and the boolean reduction all pay full
+# dispatch price on nine numbers. The placement/transform paths run these
+# comparisons once per element, so the dispatch - not the arithmetic - is what
+# shows up in a profile. Written out as plain Python floats the same predicates
+# are ~20x cheaper.
+#
+# The semantics are numpy's, deliberately, so these are drop-in: the tolerance
+# is asymmetric (``rtol`` scales the *second* argument), non-finite values
+# compare by equality only, and NaN is never close to anything.
+# ---------------------------------------------------------------------------
+
+_IDENTITY_ROWS = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+
+def scalars_are_close(x: float, y: float, rtol: float = 1e-05, atol: float = 1e-08) -> bool:
+    """``np.isclose(x, y, rtol, atol)`` for a single pair of Python floats."""
+    if x == y:  # also the inf == inf case numpy special-cases
+        return True
+    if not (isfinite(x) and isfinite(y)):
+        return False
+    return abs(x - y) <= atol + rtol * abs(y)
+
+
+def vectors_are_close(a: Iterable[float], b: Iterable[float], rtol: float = 1e-05, atol: float = 1e-08) -> bool:
+    """``np.allclose(a, b, rtol, atol)`` for two 3-component vectors."""
+    a0, a1, a2 = a
+    b0, b1, b2 = b
+    return (
+        scalars_are_close(a0, b0, rtol, atol)
+        and scalars_are_close(a1, b1, rtol, atol)
+        and scalars_are_close(a2, b2, rtol, atol)
+    )
+
+
+def is_identity_rot_matrix(rot_matrix: np.ndarray, rtol: float = 1e-05, atol: float = 1e-08) -> bool:
+    """``np.allclose(rot_matrix, np.identity(3), rtol, atol)`` for a 3x3 rotation."""
+    rows = rot_matrix.tolist()
+    for row, ident_row in zip(rows, _IDENTITY_ROWS):
+        for value, ident in zip(row, ident_row):
+            if not scalars_are_close(value, ident, rtol, atol):
+                return False
+    return True
+
+
+def is_exact_identity_rot_matrix(rot_matrix: np.ndarray) -> bool:
+    """``True`` only when the 3x3 holds the identity to the last bit.
+
+    Used to skip work that is provably a no-op rather than to decide geometry:
+    inverting the identity returns it unchanged and multiplying by it is exact,
+    so a caller that takes this branch gets bit-identical numbers out.
+    """
+    return rot_matrix.tolist() == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 
 
 def unit_vector(vector: np.ndarray | list | tuple) -> Direction:

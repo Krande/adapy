@@ -8,6 +8,7 @@ import ada.geom.curves
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada.core.vector_transforms import transform_csys_to_csys
+from ada.core.vector_utils import is_identity_rot_matrix
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Circle, Edge
@@ -32,7 +33,7 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
         ident_place = ada.Placement()
         place_abs = beam.placement.get_absolute_placement(include_rotations=True)
 
-        if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
+        if not is_identity_rot_matrix(place_abs.rot_matrix):
             ori_vectors = place_abs.transform_array_from_other_place(
                 np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
             )
