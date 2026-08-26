@@ -3,6 +3,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {sceneRef} from "@/state/refs";
 import {runtime} from "@/runtime/config";
 import {dispatchPluginUrlParams} from "@/plugins/urlParams";
+import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -90,15 +91,30 @@ export function useUrlParamLoad(): void {
                 await new Promise((r) => setTimeout(r, SCENE_WAIT_INTERVAL_MS));
             }
             try {
-                const {overlay_file_in_scene} = await import(
-                    "@/utils/scene/handlers/overlay_file_in_scene"
-                );
-                // ``derivedParam`` (e.g. ``_derived/foo.step.glb``) is
-                // the explicit derived-blob hand-off from /convert's
-                // "View in 3D" button. Pass it through so the loader
-                // can fetch the blob directly without a second
-                // ``/convert`` round-trip to re-resolve the path.
-                await overlay_file_in_scene(fileParam, derivedParam ?? undefined);
+                // Streaming-FEA sources (.sin/.sif/.rmed/...) have no legacy GLB
+                // target — they load from their baked `_derived/<src>.fea/`
+                // artefacts. Routing them through overlay_file_in_scene made the
+                // deep link a no-op ("non-GLB source but conversion disabled")
+                // on any deployment without a conversion queue, even though the
+                // bake was already on storage. Go through the same load queue the
+                // storage browser uses, which picks the streaming loader for
+                // those and the overlay for everything else.
+                if (!derivedParam && isStreamingFEAResult(fileParam)) {
+                    const {load_fea_with_defaults} = await import(
+                        "@/utils/scene/handlers/load_fea_streaming"
+                    );
+                    await load_fea_with_defaults(fileParam);
+                } else {
+                    const {overlay_file_in_scene} = await import(
+                        "@/utils/scene/handlers/overlay_file_in_scene"
+                    );
+                    // ``derivedParam`` (e.g. ``_derived/foo.step.glb``) is
+                    // the explicit derived-blob hand-off from /convert's
+                    // "View in 3D" button. Pass it through so the loader
+                    // can fetch the blob directly without a second
+                    // ``/convert`` round-trip to re-resolve the path.
+                    await overlay_file_in_scene(fileParam, derivedParam ?? undefined);
+                }
             } catch (err) {
                 // eslint-disable-next-line no-console
                 console.warn("[useUrlParamLoad] load failed for", fileParam, err);
