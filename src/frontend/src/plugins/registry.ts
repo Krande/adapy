@@ -47,8 +47,14 @@ export type PluginRegion =
 // before; core itself does exactly that.
 // ---------------------------------------------------------------------------
 
-/** Named regions of a shell's chrome. A shell that has no such thing ignores it. */
-export type PluginDockId = "left" | "right" | "bottom" | "float" | "overlay";
+/** Named regions of a shell's chrome. A shell that has no such thing ignores it.
+ *
+ * `right-aux` is a SECOND right-hand column, beside the first rather than tabbed
+ * into it. A panel you read WHILE reading another one — a detail view for the row
+ * selected in a table — belongs there: sharing one dock means the two take turns,
+ * and stacking them means scrolling between them. A shell with only one right
+ * column can treat it as `right`. */
+export type PluginDockId = "left" | "right" | "right-aux" | "bottom" | "float" | "overlay";
 
 /**
  * A mode id. Core's own UI has no modes, so this is an open string: the four a
