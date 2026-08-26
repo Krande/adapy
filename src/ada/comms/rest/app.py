@@ -48,6 +48,7 @@ from .converter import (
     merge_option_into,
     supported_targets_for,
 )
+from . import local_jobs
 from .handlers import dispatch
 from .queue import JobQueue
 from .scope import Scope
@@ -175,6 +176,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Plugin backends, the same two ways the worker finds them:
+        # ADA_WORKER_PRELOAD (explicit, fatal on failure — a process that exists
+        # BECAUSE of those imports should not start half-configured) and the
+        # ``ada.plugins`` entry-point group (per-plugin isolated).
+        #
+        # The API never needed this while every plugin job went to a worker: it
+        # only had to ROUTE by capability, which it reads off worker heartbeats.
+        # It needs it now because a viewer with no queue runs those jobs itself
+        # (see `local_jobs`), and it can only run a plugin it has imported.
+        preload = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
+        if preload:
+            import importlib as _importlib
+
+            for mod_name in (m.strip() for m in preload.split(",") if m.strip()):
+                logger.info("api: preloading %s", mod_name)
+                _importlib.import_module(mod_name)
+        try:
+            from ada.plugins import discover_plugins
+
+            discover_plugins()
+        except Exception:
+            logger.exception("api: ada.plugins discovery failed (non-fatal)")
+
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
             try:
@@ -2423,6 +2447,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Job status is identified by a globally unique job_id, so the
         # URL doesn't carry a scope. We still enforce that the caller
         # could access the job's recorded scope before returning it.
+        #
+        # In-process plugin jobs first: they exist whether or not a queue does,
+        # and their ids are namespaced so they can never collide with a queued
+        # job's. Checking them before the `queue.enabled` gate is what lets one
+        # polling loop in the frontend serve both paths.
+        local = local_jobs.registry.get(job_id)
+        if local is not None:
+            local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
+            if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
+                raise HTTPException(status_code=403, detail="forbidden")
+            return JSONResponse(local.as_json())
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
         job = await queue.get(job_id)
@@ -2781,8 +2816,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ``derived_key`` and the plugin writes its sidecar bundle under its reserved
         prefix (``derived_prefix``). Poll via ``GET /api/convert/{job_id}``.
         """
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="plugin jobs disabled (no NATS configured)")
         body = await request.json()
         options = body.get("options") or {}
         if not isinstance(options, dict):
@@ -2818,6 +2851,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     if isinstance(cap, str) and cap.strip():
                         target_capability = cap.strip().lower()
                     break
+
+        # No queue: run it here, in a thread, and hand back a job id the status
+        # endpoint below can serve. A single-node viewer (the examples, a laptop)
+        # otherwise has no way to run a plugin job at all — the button was dead in
+        # exactly the setup that puts the model in front of you. The plugin sees an
+        # identical contract either way, so nothing about it knows which path ran.
+        if not queue.enabled:
+            try:
+                local = local_jobs.start_plugin_job(
+                    plugin_id=plugin_id,
+                    options=options,
+                    derived_prefix=body.get("derived_prefix"),
+                    derived_key=derived_key,
+                    storage=storage,
+                    scope=scope_obj,
+                )
+            except LookupError as exc:
+                # The plugin's backend is not importable in THIS process. With a
+                # worker that is the pool's problem; here it is the answer.
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            return JSONResponse({"job_id": local.job_id, "derived_key": derived_key})
 
         job = await queue.enqueue(
             source_key,
