@@ -92,10 +92,23 @@ export interface SceneHandle {
   // the loader for a URL that needs auth; omit for an already-signed one.
   // `translate` (default true) reuses the first-loaded model's recentering frame
   // so an overlay lands aligned rather than re-derived from its own bbox.
+  //
+  // `sourceUpAxis` names the up axis of the file's OWN coordinates. It defaults
+  // to "z", meaning the content already matches this viewer's Z-up world — what
+  // adapy's own exports carry. Pass "y" for a glTF that follows the glTF 2.0
+  // spec's Y-up convention (most third-party producers), and core rotates it
+  // upright on load instead of laying it on its side. The rotation is applied
+  // before the recentering frame is measured, so it composes correctly with
+  // `translate` and leaves a "y" model sharing one frame with a "z" one.
   loadModelFromUrl: (
     owner: string,
     url: string,
-    opts?: { sourceName?: string; headers?: Record<string, string>; translate?: boolean },
+    opts?: {
+      sourceName?: string;
+      headers?: Record<string, string>;
+      translate?: boolean;
+      sourceUpAxis?: "z" | "y";
+    },
   ) => Promise<void>;
   // Remove a model previously loaded through `loadModelFromUrl` (or any source
   // registered under that name), disposing its GPU resources. No-op when the
