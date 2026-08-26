@@ -18,7 +18,7 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
 // skipped with a visible log rather than loaded half-way (Decision 5 / lifecycle).
-export const PLUGIN_API_VERSION = "1.0.0";
+export const PLUGIN_API_VERSION = "1.1.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -30,6 +30,67 @@ export type PluginRegion =
   | "scene-info"
   | "storage-detail"
   | "admin";
+
+// ---------------------------------------------------------------------------
+// Placement (1.1.0)
+//
+// A region names a HOST. It says which of core's containers mounts the panel,
+// which is all a panel needed while the UI was one fixed layout. A UI shell with
+// docks and modes needs the other half of the question — WHERE in its chrome, and
+// WHEN — and there was no way for a plugin to say it. A shell had to guess, which
+// in practice meant plugin panels piled into whichever single host the shell
+// happened to mount.
+//
+// These two fields are that answer, and they are deliberately thin: core does not
+// own docks or modes, it only carries the words between a plugin and the shell
+// that has them. A shell with no docks ignores `dock` and mounts by region as
+// before; core itself does exactly that.
+// ---------------------------------------------------------------------------
+
+/** Named regions of a shell's chrome. A shell that has no such thing ignores it. */
+export type PluginDockId = "left" | "right" | "bottom" | "float" | "overlay";
+
+/**
+ * A mode id. Core's own UI has no modes, so this is an open string: the four a
+ * shell ships (`inspect`/`results`/`build`/`convert` in the docked UI) and any a
+ * plugin contributes through `modes` are the same kind of thing, and core has no
+ * business ranking them.
+ */
+export type PluginModeId = string;
+
+/**
+ * A whole activity a plugin contributes — a mode, in a shell that has modes.
+ *
+ * The slot exists because a mode is the one contribution no other field can carry.
+ * A panel can say `modes: ["capacity"]`, but nothing tells the shell what
+ * "capacity" IS: its name, its glyph, where it sits in the switcher. Without that
+ * the shell would have to invent a label from an id, which is how you end up with
+ * a mode button reading "capacity-manager:capacity".
+ *
+ * Contributing one does not make it exist: a shell with no modes ignores this
+ * list, and the plugin's panels fall back to their region as they always did.
+ */
+export interface PluginModeSpec {
+  /** Globally unique, kebab-case. What a panel's `modes` names. */
+  id: PluginModeId;
+  /** Short name for the mode switcher. */
+  label: string;
+  /** One line: what you DO here. Tooltip / palette text. */
+  hint?: string;
+  /** Sort key among the shell's own modes; ties broken by id. */
+  order?: number;
+  /** The mode's glyph. A plugin ships the component — it cannot name one from a
+   * shell's icon registry, which it has never heard of. */
+  icon?: React.FC;
+  /**
+   * The mode's toolbar: the controls that belong to this activity and no other.
+   *
+   * A mode without one is a switcher entry that changes which panels are offered.
+   * With one, it is a place to work — which is the difference between a feature
+   * living in a panel and a feature having a home.
+   */
+  toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+}
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -170,6 +231,16 @@ export interface PanelSlot {
   // Local id; namespaced to `${pluginId}:${id}` on register.
   id: string;
   region: PluginRegion;
+  /**
+   * Which of the shell's docks this panel wants (1.1.0). Ignored by a shell with
+   * no docks — core's own UI mounts by `region` regardless.
+   */
+  dock?: PluginDockId;
+  /**
+   * Which modes offer this panel (1.1.0). Omitted means every mode. Names a
+   * shell's own mode or one this plugin contributed through `modes`.
+   */
+  modes?: readonly PluginModeId[];
   order?: number;
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;
@@ -234,6 +305,9 @@ export interface PluginSpec {
   sceneColorFields?: SceneColorFieldProvider[];
   resultSidecarLoaders?: ResultSidecarLoader[];
   urlParamHandlers?: UrlParamHandler[];
+  // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
+  // that does not, including core's own UI.
+  modes?: PluginModeSpec[];
   // Whole-UI contributions: a plugin may ship an entire alternative viewer UI
   // that core mounts INSTEAD of its own shell (see `./uiShells`). Orthogonal to
   // the slots above — a plugin can do either, both, or neither.
@@ -251,6 +325,7 @@ export interface RegisteredPlugin {
   sceneColorFields: SceneColorFieldProvider[];
   resultSidecarLoaders: ResultSidecarLoader[];
   urlParamHandlers: UrlParamHandler[];
+  modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.
   uiShellIds: string[];
@@ -359,6 +434,11 @@ export function registerPlugin(spec: PluginSpec): void {
     sceneColorFields,
     resultSidecarLoaders,
     urlParamHandlers,
+    // NOT namespaced, unlike panels and colour fields. A mode id is user-facing —
+    // a panel writes `modes: ["capacity"]` and a shell may accept `?mode=capacity`
+    // — so it has to be the word the author chose. Collisions are the same
+    // first-writer-wins as everywhere else in this registry.
+    modes: spec.modes ?? [],
     uiShellIds,
   });
 }
@@ -401,6 +481,29 @@ function isActive(p: RegisteredPlugin, ctx: AdaPluginContext): boolean {
  * by whole-plugin + per-slot activation predicates against the given ctx. Each
  * entry carries its owning `pluginId` so core can build a per-plugin ctx + wrap
  * the render in an ErrorBoundary keyed on the plugin. */
+/**
+ * Every mode contributed by an enabled plugin, in switcher order.
+ *
+ * Context-free: a shell needs this to build its mode switcher, which exists before
+ * any model is loaded and long before a plugin context is worth constructing. So
+ * `activationPredicate` is NOT consulted — a mode is a place you can go, not a
+ * thing that comes and goes. A mode whose panels are all inactive is an empty
+ * mode, which is a smaller failure than a switcher button that appears and
+ * disappears under the pointer.
+ */
+export function getPluginModes(): Array<{ pluginId: string; mode: PluginModeSpec }> {
+  const out: Array<{ pluginId: string; mode: PluginModeSpec; order: number }> = [];
+  for (const p of _registry.values()) {
+    if (p.disabled) continue;
+    for (const mode of p.modes) {
+      if (!mode?.id) continue;
+      out.push({ pluginId: p.id, mode, order: mode.order ?? 0 });
+    }
+  }
+  out.sort((a, b) => a.order - b.order || a.mode.id.localeCompare(b.mode.id));
+  return out.map(({ pluginId, mode }) => ({ pluginId, mode }));
+}
+
 export function getPanelsForRegion(
   region: PluginRegion,
   ctx: AdaPluginContext,
