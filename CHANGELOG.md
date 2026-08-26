@@ -2,6 +2,15 @@
 
 
 
+## v0.46.1 (2026-08-26)
+
+### Chore
+
+* chore: document the `ada` CLI and pin it against drift (#275)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`f10c924`](https://github.com/Krande/adapy/commit/f10c924eac109798e22e7b960cf9c601be2d68ee))
+
+
 ## v0.46.0 (2026-08-26)
 
 ### Feature
