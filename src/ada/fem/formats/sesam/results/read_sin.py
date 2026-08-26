@@ -440,6 +440,7 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
+    from ada.fem.formats.sesam.results.case_names import result_case_names
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
     sin = open_sin(sin_file)
@@ -453,6 +454,10 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     # not carrying them here means the only way to get them back is a second full
     # parse of the file, which on a 400 MB SIN is not a thing to do for a picker.
     result.sesam_groups = manifest_groups(reader)
+    # And what the deck calls its result cases. Same reasoning as the sets: read
+    # from records this parse already walked, and unreachable afterwards without
+    # opening the file again.
+    result.sesam_case_names = result_case_names(sin)
     return result
 
 
@@ -675,6 +680,16 @@ class SinStreamReader:
             self._reader = SinReader(sin=self.sin)
             self._reader._load_static()
         return manifest_groups(self._reader)
+
+    def try_step_names(self):
+        """What the deck calls each result case, for the manifest's steps.
+
+        Straight off the open file — these are text records, not the numeric
+        blocks the reader indexes, so no reader needs to exist for them.
+        """
+        from ada.fem.formats.sesam.results.case_names import result_case_names
+
+        return result_case_names(self.sin)
 
 
 __all__ = [

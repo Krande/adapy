@@ -402,3 +402,33 @@ def test_sin_registered_in_stream_readers():
         assert any(s.support == "nodal" for s in specs), "no nodal field surfaced for the streaming bake"
     finally:
         reader.close()
+
+
+def test_result_case_names_from_the_deck(sin_file):
+    """The deck's own name for each result case, keyed by case number.
+
+    Without this the viewer labels a step by its VALUE — "1", "2", "3" — which
+    is an index where the deck has a load case. The cantilever fixture names one
+    result case via ``TDRESREF``; a deck that names none returns ``None`` rather
+    than an empty dict, so a caller can tell "no names" from "no cases".
+    """
+    from ada.fem.formats.sesam.results.case_names import result_case_names
+
+    assert result_case_names(sin_file) == {1: "LC1"}
+    assert result_case_names(None) is None
+
+
+def test_result_case_names_reach_the_manifest_steps():
+    """`build_manifest` carries the names onto each step, additively.
+
+    `name` sits BESIDE `i` / `value` / `label` rather than replacing any of
+    them: every existing reader keys off those three, so a manifest baked by an
+    adapy without this — or from a deck that names nothing — is unchanged.
+    """
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader, open_sin
+
+    reader = SinStreamReader(open_sin(SIN_PATH))
+    try:
+        assert reader.try_step_names() == {1: "LC1"}
+    finally:
+        reader.close()
