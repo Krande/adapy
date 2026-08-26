@@ -303,6 +303,17 @@ calculix = "*"
 [feature.fem-deps.target.linux-64.dependencies]
 code-aster = ">=17.3.16"
 
+# Cross-backend CAD parity gate. Declared on `tests-core` rather than on either backend
+# feature because the check is only worth running where BOTH kernels import, and no
+# backend feature gives you that: `pyocc` and `adacpp` are alternatives by design.
+# `viewer-api-tests-adacpp` is the environment that carries both (pyocc + adacpp-runtime
+# on the same occt), so that is where CI runs this. Anywhere else the cross-backend
+# comparisons skip and only the single-backend invariants execute — which is exactly why
+# it is an explicit task in an explicit environment rather than something the ordinary
+# suite is trusted to cover.
+[feature.tests-core.tasks]
+test-cad-parity = { cmd = "pytest tests/core/cad/test_backend_parity.py --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 [feature.tests-core.dependencies]
 pytest = "*"
 pytest-benchmark = "*"

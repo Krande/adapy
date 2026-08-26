@@ -311,6 +311,24 @@ class OccBackend:
         self._breptools.Clean(shape)
         return self._breptools.WriteToString(shape)
 
+    def deserialize(self, data: str) -> ShapeHandle:
+        """Rebuild a shape from the BREP text ``serialize`` produces.
+
+        Deliberately NOT on the CadBackend protocol: both backends *write* the same
+        CASCADE Topology BREP text, but only this one can read it back, so promoting
+        it would put a verb on the interface that adacpp cannot answer. It is an
+        OCC-side extra in the same sense as ``AdacppBackend.from_topods_pointer`` —
+        and it is what lets :func:`ada.cad.to_occ_shape` carry a shape from either
+        kernel into pythonocc without one kernel reinterpreting the other's pointers.
+
+        OCCT reports an unreadable payload by handing back a null shape rather than
+        raising, so the null check below is the only error signal there is.
+        """
+        shape = self._breptools.ReadFromString(data)
+        if shape is None or shape.IsNull():
+            raise ValueError("deserialize: the given text is not readable BREP (OCCT returned a null shape)")
+        return shape
+
     def is_valid(self, shape: ShapeHandle) -> bool:
         # Topological validity (BRepCheck). geom_props=True checks geometric
         # consistency too.

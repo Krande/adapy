@@ -17,6 +17,18 @@ Surface kept intentionally narrow — mirrors `adacpp.cad` (primitives +
 tessellate + pyocc bridge). Grow as the migration progresses; do not
 add operations here that don't have a working implementation in at
 least one backend.
+
+Two verbs answering the same question on the two kernels must answer it
+the SAME way — a caller that has to know which backend is loaded gets no
+portability out of the abstraction. That is asserted, not assumed: see
+`tests/core/cad/test_backend_parity.py`, which runs each operation under
+both kernels and compares.
+
+For operations the abstraction has no verb for yet, `to_occ_shape()` is
+the escape hatch — it carries a handle from either backend into a
+pythonocc `TopoDS_Shape` (the direction `AdacppBackend.adopt_occ_shape`
+does not go), so needing a raw pythonocc call no longer means pinning the
+process to the OCC backend.
 """
 
 from __future__ import annotations
@@ -1522,7 +1534,30 @@ class AdacppBackend:
         fn = getattr(self._cad, "edges", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.edges is not available in this build")
-        return list(fn(shape))
+        edges = list(fn(shape))
+        # adacpp.cad.edges walks the shape face by face, so an edge shared by N faces
+        # comes back N times — a box reports 24 entries for its 12 edges, a cylinder 6
+        # for 3. OccBackend's TopologyExplorer.edges() yields each edge exactly once,
+        # and the two backends must agree: an edge count is a topology answer, and any
+        # caller that counts edges or walks a wire frame doubles every result on this
+        # backend alone. Collapse the incidences on the same orientation-independent
+        # topological identity `face_id` uses (a TShape+Location hash, defined for every
+        # sub-shape type, so two incidences of one edge hash equal), keeping first-seen
+        # order so the sequence still starts where the native walk starts. A build
+        # without `face_id` has no identity to collapse on, so it passes through
+        # unfiltered rather than guessing.
+        ident = getattr(self._cad, "face_id", None)
+        if ident is None:
+            return edges
+        seen = set()
+        unique = []
+        for edge in edges:
+            key = ident(edge)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(edge)
+        return unique
 
     def to_topods_pointer(self, shape: ShapeHandle) -> int:
         fn = getattr(self._cad, "to_topods_pointer", None)
@@ -1830,6 +1865,40 @@ def minimal_distance_between_shapes(shp1, shp2) -> float:
     return float(compute_minimal_distance_between_shapes(shp1, shp2).Value())
 
 
+def to_occ_shape(shape, backend: "CadBackend | None" = None):
+    """Return ``shape`` as a pythonocc ``TopoDS_Shape``, whichever backend built it.
+
+    The missing half of the kernel bridge. ``AdacppBackend.adopt_occ_shape`` already
+    carries a pythonocc shape *into* adacpp (via ``from_topods_pointer``); nothing
+    carried one back out, so any code holding a handle from ``solid_occ()`` or
+    ``loft_profiles()`` and needing a pythonocc call had only one option: force the
+    whole process onto the OCC backend. This is the way back, so the kernel choice
+    stops being load-bearing for the caller.
+
+    Reach for it only where the abstraction has no verb yet. Face and solid
+    iteration, boolean cut, distance, and the area/volume/centroid diagnostics all
+    have backend verbs that run natively on both kernels, and those stay both faster
+    and portable: the crossing here goes through BREP text — the one serialisation
+    both kernels agree on — so it costs a full write and re-parse of the shape and
+    drops any triangulation cached on it.
+
+    ``backend`` overrides the process-wide ``active_backend()`` and MUST be the
+    backend that built ``shape``; a shape is only readable by its own kernel.
+
+    Needs pythonocc-core, since a pythonocc object is what it returns — in an
+    adacpp-only install (pyodide) instantiating the OCC backend raises ImportError,
+    and that is the honest answer rather than a shape of the wrong kernel.
+    """
+    # Local import: ada.occ pulls the whole pythonocc closure at module scope, so an
+    # adacpp-only install must not pay for it merely by importing ada.cad.
+    from ada.occ.backend import OccBackend
+
+    occ = OccBackend()
+    if occ.is_handle(shape):
+        return shape
+    return occ.deserialize((backend or active_backend()).serialize(shape))
+
+
 def is_cad_body(obj: Any) -> bool:
     """True if ``obj`` is a pre-built CAD body of ANY available backend, not just the
     active one.
@@ -1877,6 +1946,7 @@ __all__ = [
     "minimal_distance_between_shapes",
     "reset_active_backend",
     "select_backend",
+    "to_occ_shape",
     # registry / config
     "CadBackendName",
     "CadConfig",
