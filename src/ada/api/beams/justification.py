@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
+from ada.core.vector_utils import is_identity_rot_matrix, vectors_are_close
 from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
@@ -126,14 +127,15 @@ class OffsetHelper:
     def __init__(self, beam: Beam):
         self.beam = beam
 
-    def _local_axes_in_absolute(self, place_abs: "Placement" = None):
+    def _local_axes_in_absolute(self, place_abs: "Placement" = None, ident_place: "Placement" = None):
         """
         Returns (xvec, yvec, up) expressed in the absolute/global system,
         respecting self.placement rotations (same logic as exporter).
 
         ``place_abs`` optionally supplies the beam's precomputed absolute
         placement so callers that already resolved it (the shared COG/length
-        path) don't walk the ancestry again.
+        path) don't walk the ancestry again. ``ident_place`` likewise supplies
+        the global reference frame, which is the same object for every beam.
         """
         from ada import Placement
 
@@ -142,12 +144,13 @@ class OffsetHelper:
         up = self.beam.up
 
         if self.beam.placement is not None:
-            ident_place = Placement()
+            if ident_place is None:
+                ident_place = Placement()
             if place_abs is None:
                 place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
             # Only transform if rotation differs
-            if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
+            if not is_identity_rot_matrix(place_abs.rot_matrix):
                 ori_vectors = place_abs.transform_array_from_other_place(
                     np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
                 )
@@ -157,20 +160,24 @@ class OffsetHelper:
 
         return xvec, yvec, up
 
-    def _point_to_absolute(self, p: np.ndarray, place_abs: "Placement" = None) -> np.ndarray:
+    def _point_to_absolute(
+        self, p: np.ndarray, place_abs: "Placement" = None, ident_place: "Placement" = None
+    ) -> np.ndarray:
         """
         Transforms a point p from the beam's local system into absolute/global,
         using self.placement. If identity, returns p unchanged.
 
-        ``place_abs`` optionally supplies the beam's precomputed absolute
-        placement (see _local_axes_in_absolute).
+        ``place_abs`` and ``ident_place`` optionally supply the beam's
+        precomputed absolute placement and the shared global reference frame
+        (see _local_axes_in_absolute).
         """
         from ada import Placement
 
         if self.beam.placement is None:
             return p
 
-        ident_place = Placement()
+        if ident_place is None:
+            ident_place = Placement()
         if place_abs is None:
             place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
@@ -313,7 +320,7 @@ class OffsetHelper:
         off1 = off1 + add_local
         off2 = off2 + add_local
 
-        is_varying = not np.allclose(off1, off2)
+        is_varying = not vectors_are_close(off1, off2)
         avg = 0.5 * (off1 + off2)
 
         return CurveOffsetResult(
@@ -338,16 +345,23 @@ class OffsetHelper:
         beam's absolute placement is resolved a single time here and threaded
         into the helpers rather than re-walking the ancestry in each.
         """
+        from ada import Placement
+
         place_abs = None
+        ident_place = Placement()
         if self.beam.placement is not None:
             place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
         # Endpoints of the *beam line* in absolute/global coordinates
-        p1_abs = np.asarray(self._point_to_absolute(self.beam.n1.p.copy(), place_abs=place_abs), dtype=float)
-        p2_abs = np.asarray(self._point_to_absolute(self.beam.n2.p.copy(), place_abs=place_abs), dtype=float)
+        p1_abs = np.asarray(
+            self._point_to_absolute(self.beam.n1.p.copy(), place_abs=place_abs, ident_place=ident_place), dtype=float
+        )
+        p2_abs = np.asarray(
+            self._point_to_absolute(self.beam.n2.p.copy(), place_abs=place_abs, ident_place=ident_place), dtype=float
+        )
 
         # Local beam basis expressed in absolute/global coords (placement rotation applied)
-        axes = self._local_axes_in_absolute(place_abs=place_abs)
+        axes = self._local_axes_in_absolute(place_abs=place_abs, ident_place=ident_place)
         x_abs = np.asarray(axes[0], dtype=float)
         y_abs = np.asarray(axes[1], dtype=float)
         up_abs = np.asarray(axes[2], dtype=float)

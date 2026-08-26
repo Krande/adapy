@@ -14,7 +14,12 @@ from ada.api.transforms import Placement
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.core.utils import Counter
-from ada.core.vector_utils import is_between_endpoints, unit_vector, vector_length
+from ada.core.vector_utils import (
+    is_between_endpoints,
+    is_identity_rot_matrix,
+    unit_vector,
+    vector_length,
+)
 from ada.fem.concept.constraints import DofType
 from ada.geom import Geometry
 from ada.geom.direction import Direction
@@ -520,7 +525,7 @@ class Beam(BackendGeom):
 
         ident = Placement()
         abs_place = self.placement.get_absolute_placement(include_rotations=True)
-        if not np.allclose(abs_place.rot_matrix, ident.rot_matrix):
+        if not is_identity_rot_matrix(abs_place.rot_matrix):
             moved = abs_place.transform_array_from_other_place(np.asarray([p1, p2]), ident)
             return moved[0], moved[1]
         return abs_place.origin + p1, abs_place.origin + p2

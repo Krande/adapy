@@ -10,7 +10,12 @@ import pyquaternion as pq
 
 import ada
 from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
-from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
+from ada.core.vector_utils import (
+    calc_xvec,
+    calc_yvec,
+    is_exact_identity_rot_matrix,
+    unit_vector,
+)
 from ada.geom.direction import Direction
 from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, O
 from ada.geom.points import Point
@@ -44,6 +49,21 @@ class Rotation:
         return res
 
 
+def _fingerprints_match(a: tuple, b: tuple) -> bool:
+    """Identity-compare two ancestry fingerprints.
+
+    ``is`` rather than ``==`` on purpose: the members are ndarrays, whose
+    ``==`` is elementwise, and object identity is exactly the guarantee wanted
+    here (see :meth:`Placement._ancestry_fingerprint`).
+    """
+    if len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        if x is not y:
+            return False
+    return True
+
+
 class Placement:
     def __init__(self, origin: Iterable | Point = None, xdir=None, ydir=None, zdir=None, scale=1.0, parent=None):
         from ada.api.computed_placement import ComputedPlacement
@@ -71,6 +91,7 @@ class Placement:
 
         self._is_identity: bool = None
         self._computed_placement: ComputedPlacement = None
+        self._abs_memo: dict[bool, tuple[tuple, Placement]] | None = None
 
     def _init_computed_placement(self):
         """Lazy initialization of computed placement."""
@@ -154,16 +175,104 @@ class Placement:
             zdir=matrix[2, :3],
         )
 
+    def _is_local_identity(self) -> bool:
+        """``True`` when this placement contributes nothing to an ancestry accumulation.
+
+        That is: a zero origin and an identity rotation. Both are exact no-ops
+        in IEEE-754 arithmetic (``0.0 + x == x`` and ``R @ I == R``), which is
+        what lets :meth:`get_absolute_placement` skip the walk outright rather
+        than merely shorten it.
+
+        The rotation test leans on ``Direction`` being value-interned: a
+        placement built from the global axes holds *the* ``XV()``/``YV()``/``ZV()``
+        objects, so three pointer comparisons settle it. The far more common
+        case -- no direction given at all, i.e. the default ``Placement()``
+        every element gets -- is settled without resolving the directions.
+        """
+        origin = self._origin
+        if getattr(origin, "shape", None) != (3,):
+            return False
+        if origin[0] != 0.0 or origin[1] != 0.0 or origin[2] != 0.0:
+            return False
+        if self._xdir is None and self._ydir is None and self._zdir is None:
+            return True
+        return self.xdir is XV() and self.ydir is YV() and self.zdir is ZV()
+
     def get_absolute_placement(self, include_rotations=False) -> Placement:
+        """This placement accumulated through its owner's ancestry.
+
+        Treat the result as read-only. It was already free to be ``self`` (an
+        unparented placement is its own absolute placement), and the fast paths
+        below widen that: elements sharing a container can be handed the same
+        resolved object.
+        """
         if self.parent is None:
             return self
+
+        # Every element in a part walks the same ancestry to reach the same
+        # answer. An element whose own placement is the local identity adds a
+        # zero origin and multiplies by an identity rotation, so the accumulation
+        # below collapses -- to the last bit -- onto its container's. Resolve
+        # that once for the container instead of once per element.
+        if self._is_local_identity():
+            container = self.parent.parent
+            container_placement = getattr(container, "placement", None) if container is not None else None
+            # The collapse only holds if the container's placement walks the
+            # container's own ancestry. A placement assigned through the
+            # ``placement`` setter is left unparented, and then resolves to
+            # itself rather than to an accumulation -- walk in that case.
+            if container_placement is not None and container_placement.parent is container:
+                absolute = container_placement.get_absolute_placement(include_rotations)
+                if include_rotations:
+                    return absolute
+                # Without rotations only the origin accumulates: the result
+                # carries this placement's own axes, not the container's.
+                return Placement(origin=absolute.origin, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
+
+        return self._resolve_absolute_placement(include_rotations)
+
+    def _ancestry_fingerprint(self, ancestry: list) -> tuple | None:
+        """Every object :meth:`_resolve_absolute_placement` reads, for cache validation.
+
+        A placement's rotation is fixed at construction -- ``rot_matrix`` is
+        already a ``cached_property``, so the codebase relies on this -- which
+        means a placement's *object identity* pins its rotation. ``origin`` is
+        the one piece with a setter, so it is recorded separately.
+
+        Returns ``None`` -- meaning "do not cache" -- if any origin on the chain
+        is not a :class:`~ada.geom.points.Point`. Point is immutable and
+        interned, so recording the object is enough to notice any change; a
+        plain ndarray origin could be written through in place behind us, and
+        no fingerprint could catch that.
+        """
+        origin = self._origin
+        if type(origin) is not Point:
+            return None
+        fingerprint = [origin]
+        for ancestor in ancestry:
+            ancestor_placement = ancestor.placement
+            ancestor_origin = ancestor_placement._origin
+            if type(ancestor_origin) is not Point:
+                return None
+            fingerprint.append(ancestor_placement)
+            fingerprint.append(ancestor_origin)
+        return tuple(fingerprint)
+
+    def _resolve_absolute_placement(self, include_rotations: bool) -> Placement:
+        ancestry = self.parent.get_ancestors(include_self=False)
+        fingerprint = self._ancestry_fingerprint(ancestry)
+
+        memo = self._abs_memo
+        if memo is not None and fingerprint is not None:
+            cached = memo.get(include_rotations)
+            if cached is not None and _fingerprints_match(cached[0], fingerprint):
+                return cached[1]
 
         current_location = self.origin.copy()
 
         if include_rotations:
             # Accumulate rotation matrices instead of quaternions
             accumulated_rot_matrix = self.rot_matrix.copy()
-            ancestry = self.parent.get_ancestors(include_self=False)
 
             for ancestor in ancestry:
                 current_location += ancestor.placement.origin
@@ -171,19 +280,25 @@ class Placement:
                 accumulated_rot_matrix = ancestor.placement.rot_matrix @ accumulated_rot_matrix
 
             # Extract direction vectors directly from the final rotation matrix
-            return Placement(
+            result = Placement(
                 origin=current_location,
                 xdir=accumulated_rot_matrix[0],
                 ydir=accumulated_rot_matrix[1],
                 zdir=accumulated_rot_matrix[2],
             )
+        else:
+            # For non-rotation case, just accumulate origins
+            for ancestor in ancestry:
+                current_location += ancestor.placement.origin
 
-        # For non-rotation case, just accumulate origins
-        ancestry = self.parent.get_ancestors(include_self=False)
-        for ancestor in ancestry:
-            current_location += ancestor.placement.origin
+            result = Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
-        return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
+        if fingerprint is not None:
+            if memo is None:
+                memo = self._abs_memo = {}
+            memo[include_rotations] = (fingerprint, result)
+
+        return result
 
     def rotate(self, axis: Iterable[float], angle: float) -> Placement:
         """Rotate the placement around an axis. Returns a new placement."""
@@ -241,6 +356,17 @@ class Placement:
         # Fallback to original implementation
         return np.array([self.xdir, self.ydir, self.zdir])
 
+    @cached_property
+    def rot_matrix_inv(self):
+        """Inverse of :attr:`rot_matrix`, resolved once per placement.
+
+        One placement is the reference frame for every element transformed
+        against it, so the inverse of a single small constant matrix was being
+        recomputed once per element. Cached on the same grounds as
+        ``rot_matrix`` itself: a placement's rotation is fixed once built.
+        """
+        return np.linalg.inv(self.rot_matrix)
+
     def get_matrix4x4(self):
         t = np.array([[self.origin[0]], [self.origin[1]], [self.origin[2]]])
         Rt = np.hstack([self.rot_matrix, t])
@@ -269,7 +395,14 @@ class Placement:
     def transform_array_from_other_place(
         self, arr: np.ndarray, other_place: Placement, ignore_translation=False
     ) -> np.ndarray:
-        rotation_mat = self.rot_matrix @ np.linalg.inv(other_place.rot_matrix)
+        other_rot_matrix = other_place.rot_matrix
+        if is_exact_identity_rot_matrix(other_rot_matrix):
+            # inv(I) is I and ``M @ I`` is bit-exact M, so both are pure cost.
+            # Transforming out of the global frame is the overwhelmingly common
+            # case, and it took the inverse of the identity every single time.
+            rotation_mat = self.rot_matrix
+        else:
+            rotation_mat = self.rot_matrix @ other_place.rot_matrix_inv
 
         if ignore_translation:
             transformed_vec = arr @ rotation_mat.T

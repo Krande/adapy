@@ -10,7 +10,7 @@ from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Config, logger
-from ada.core.vector_utils import poly2d_center_of_gravity
+from ada.core.vector_utils import is_identity_rot_matrix, poly2d_center_of_gravity
 from ada.geom import Geometry
 from ada.geom.direction import Direction
 from ada.geom.points import Point
@@ -195,9 +195,7 @@ class Plate(BackendGeom):
         if not self.placement.is_identity():
             ident_place = Placement()
             place_abs = self.placement.get_absolute_placement(include_rotations=True)
-            place_abs_rot_mat = place_abs.rot_matrix
-            ident_rot_mat = ident_place.rot_matrix
-            if not np.allclose(place_abs_rot_mat, ident_rot_mat):
+            if not is_identity_rot_matrix(place_abs.rot_matrix):
                 new_vectors = place_abs.transform_array_from_other_place(
                     np.asarray([normal, xdir]), ident_place, ignore_translation=True
                 )

@@ -87,6 +87,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element, sw: SatWriter = None):
     import numpy as np
 
     from ada import Placement
+    from ada.core.vector_utils import is_identity_rot_matrix
 
     structure_elem = ET.SubElement(xml_root, "structure")
     straight_beam = ET.SubElement(structure_elem, "straight_beam", {"name": beam.name})
@@ -99,7 +100,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element, sw: SatWriter = None):
     if beam.placement.is_identity() is False:
         ident_place = Placement()
         place_abs = beam.placement.get_absolute_placement(include_rotations=True)
-        if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
+        if not is_identity_rot_matrix(place_abs.rot_matrix):
             ori_vectors = place_abs.transform_array_from_other_place(
                 np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
             )
