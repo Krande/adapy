@@ -504,6 +504,15 @@ def is_derived_key(key: str) -> bool:
 # hidden?", and storage.list(skip_prefixes=...) uses the same tuple to avoid ENUMERATING them —
 # a listing that skipped a different set than it filtered would be a silent correctness bug (a real
 # file vanishing from the browser), so the two must not drift.
+#
+# DO NOT add PUBLISHED_ASSET_PREFIX ("assets/") to this tuple. It looks like it belongs — those
+# blobs are machine-published rather than hand-uploaded, and a scope can hold thousands of them —
+# but they are the *only* record of what has been published: clients project a browsable hierarchy
+# out of the key listing returned by GET /api/scopes/{scope}/files, because that route is the sole
+# index of the prefix (it returns no per-prefix filter and no pagination, so one listing is the
+# whole answer). Hiding them would not degrade such a client, it would silently blank it — every
+# published dataset would read as "never published" with no error anywhere. If the listing really
+# has to shrink, add a prefix filter to the route rather than making the keys invisible.
 HIDDEN_PREFIXES: tuple[str, ...] = (
     "_derived/",
     "_overlays/",
@@ -525,6 +534,35 @@ def is_versions_artefact_key(key: str) -> bool:
     still does.
     """
     return key.lstrip("/").startswith("versions/")
+
+
+# Prefix for published dataset blobs, written under an opaque
+# ``assets/<collection>/<subject>/<revision>/<file>`` convention. Core attaches no meaning to any
+# segment: they are opaque tokens owned by whoever publishes them.
+PUBLISHED_ASSET_PREFIX = "assets/"
+
+
+def is_published_asset_key(key: str) -> bool:
+    """``assets/<collection>/<subject>/<revision>/<file>`` blobs are published
+    datasets — index/manifest JSON and packed data files — rather than
+    conversion sources, so the supported-source extension whitelist doesn't
+    apply to them. The ``_derived/`` guard still does.
+
+    Deliberately a **separate** predicate from :func:`is_versions_artefact_key`
+    rather than one more prefix inside it, because the two differ on
+    *deletability*, not just on the write gate:
+
+    * ``versions/`` blobs are pushed by CI and are admin-managed for their
+      whole life — a user must not be able to remove a build output.
+    * These are published by a user, so whoever published them must be able to
+      remove them, including (especially) when they published the wrong bytes.
+
+    ``_reject_protected_key`` in :mod:`ada.comms.rest.app` reads
+    ``is_versions_artefact_key``, so folding ``assets/`` into it would buy the
+    write exemption at the cost of making every published dataset permanently
+    undeletable by its own publisher — a one-way door on every byte written.
+    """
+    return key.lstrip("/").startswith(PUBLISHED_ASSET_PREFIX)
 
 
 def is_supported_source(key: str) -> bool:

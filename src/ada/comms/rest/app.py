@@ -978,14 +978,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        from .converter import is_derived_key, is_versions_artefact_key
+        from .converter import (
+            is_derived_key,
+            is_published_asset_key,
+            is_versions_artefact_key,
+        )
 
         clean = key.lstrip("/")
         if not clean:
             raise HTTPException(status_code=400, detail="empty key")
         if is_derived_key(clean):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(clean) and not await _is_accepted_source(clean):
+        # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
+        # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
+        # to them. Two predicates rather than one because they part company on deletability — see
+        # is_published_asset_key. The is_derived_key guard above applies to both.
+        if (
+            not is_versions_artefact_key(clean)
+            and not is_published_asset_key(clean)
+            and not await _is_accepted_source(clean)
+        ):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
 
         # Reject before reading the body so a multi-GB upload doesn't
@@ -1034,10 +1046,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── User-level file management (personal scope only) ────────────
     # Regular users manage their own files; shared/project scopes stay
     # admin-managed (project scopes mix the CI versions/ tree with
-    # regular files and get their own treatment later). CI version
-    # blobs and the bake cache are protected even inside the personal
-    # scope — deleting a source still cascades its derived blobs via
-    # the shared storage_ops helpers.
+    # regular files), with one carve-out: a project member may DELETE a
+    # published dataset blob under ``assets/`` in that project, because
+    # such a publish targets the project scope and would otherwise be
+    # irreversible for everyone but an admin. See _member_may_delete.
+    # CI version blobs and the bake cache are protected even inside the
+    # personal scope — deleting a source still cascades its derived
+    # blobs via the shared storage_ops helpers.
 
     def _require_personal(scope_obj: Scope) -> None:
         if scope_obj.kind != "user":
@@ -1047,6 +1062,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
     def _reject_protected_key(key: str) -> None:
+        # Note the absence of is_published_asset_key here, and keep it absent.
+        # ``assets/`` blobs are exempt from the upload extension whitelist the same way
+        # ``versions/`` blobs are, but they are user-published rather than CI-pushed, so
+        # whoever wrote one has to be able to remove it. Adding the prefix here would make
+        # every published dataset a one-way door: writable once, never deletable, not even
+        # by its publisher in their own personal scope.
         from .converter import is_derived_key, is_versions_artefact_key
 
         if is_derived_key(key) or is_versions_artefact_key(key):
@@ -1055,6 +1076,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="versions/ and _derived/ keys are admin-managed",
             )
 
+    def _member_may_delete(scope_obj: Scope, key: str) -> bool:
+        """The one carve-out from "non-personal scopes are admin-managed".
+
+        A published dataset is written into the scope it describes, which is
+        usually a shared project scope rather than the publisher's personal one.
+        Without this, a project-scoped publish is irreversible for everyone
+        except an admin, which is the exact failure mode ``assets/`` exists to
+        avoid. Membership is not re-checked here: ``_scope_from_path`` has
+        already run ``scope.can_access``, which for a project scope is a
+        ``project_members`` lookup, so reaching this code at all means the
+        caller is a member of this project.
+
+        Delete only — deliberately NOT extended to rename / move-to-folder.
+        Those take a *destination* key, so allowing them would let a member move
+        bytes out of ``assets/`` and land arbitrary content at an unvalidated
+        key in a shared scope, bypassing the upload extension gate that only
+        exempts the prefix itself. They also rewrite the key, and the key is the
+        published dataset's identity and provenance; the correct fix for a wrong
+        key is to delete and publish again, which this allows.
+        """
+        from .converter import is_published_asset_key
+
+        return scope_obj.kind == "project" and is_published_asset_key(key)
+
     @api.delete("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_delete(
         key: str,
@@ -1062,8 +1107,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        _require_personal(scope_obj)
         clean = key.lstrip("/")
+        if not _member_may_delete(scope_obj, clean):
+            _require_personal(scope_obj)
         if not clean:
             raise HTTPException(status_code=400, detail="empty key")
         _reject_protected_key(clean)
@@ -1677,7 +1723,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Returns 503 on local-backed deployments — operator must provide
         an S3-compatible backend with CORS configured for browser PUTs.
         """
-        from .converter import is_derived_key, is_versions_artefact_key
+        from .converter import (
+            is_derived_key,
+            is_published_asset_key,
+            is_versions_artefact_key,
+        )
 
         if not storage.supports_presigned_uploads:
             raise HTTPException(
@@ -1690,7 +1740,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(key) and not await _is_accepted_source(key):
+        # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
+        # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
+        # to them. Two predicates rather than one because they part company on deletability — see
+        # is_published_asset_key. The is_derived_key guard above applies to both.
+        if not is_versions_artefact_key(key) and not is_published_asset_key(key) and not await _is_accepted_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         try:
             url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=3600)
@@ -1731,7 +1785,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         succeeds; if it doesn't, the file lands but no audit / convert
         happens (storage list still surfaces it).
         """
-        from .converter import is_derived_key, is_versions_artefact_key
+        from .converter import (
+            is_derived_key,
+            is_published_asset_key,
+            is_versions_artefact_key,
+        )
 
         body = await request.json()
         key = (body.get("key") or "").strip().lstrip("/")
@@ -1739,7 +1797,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(key) and not await _is_accepted_source(key):
+        # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
+        # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
+        # to them. Two predicates rather than one because they part company on deletability — see
+        # is_published_asset_key. The is_derived_key guard above applies to both.
+        if not is_versions_artefact_key(key) and not is_published_asset_key(key) and not await _is_accepted_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         meta = await storage.head(scope_obj, key)
         if meta is None:
