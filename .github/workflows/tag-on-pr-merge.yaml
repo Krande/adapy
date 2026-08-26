@@ -22,7 +22,7 @@ name: Create Tag on PR Merge
 #   * Do not enable "Do not allow bypassing the above settings" in branch
 #     protection, or the deploy-key push is rejected and no tag is created.
 #
-# Pinned to deputy @v0.5.2.
+# Pinned to deputy @v0.5.3.
 
 on:
   pull_request_target:

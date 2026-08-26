@@ -18,7 +18,7 @@ name: Review Pull Request
 # pull_request_target so the job (and GITHUB_TOKEN) can comment and label even
 # on fork PRs. It checks out the BASE ref only and never runs any PR-head code.
 #
-# Pinned to deputy @v0.5.2.
+# Pinned to deputy @v0.5.3.
 
 on:
   pull_request_target:
