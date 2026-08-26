@@ -62,7 +62,7 @@ _EXT_TO_TYPE: dict[str, FileTypeDC] = {
 # conversion" branch fires; the actual format is recoverable from the
 # filename extension if needed.
 #
-# .sif and .rmed land here so the FEA picker buttons in the storage
+# .sif, .sin and .rmed land here so the FEA picker buttons in the storage
 # browser are reachable. FileTypeDC has no FEA-specific value, so
 # they ride on IFC like the other convertable sources; the frontend
 # discriminates off the extension (isFEAResult / isStreamingFEAResult)
@@ -82,6 +82,7 @@ _CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
         ".dae",
         ".off",
         ".sif",
+        ".sin",
         ".rmed",
     }
 )
