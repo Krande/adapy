@@ -19,6 +19,7 @@ IFC and various Finite Element formats.
     documents/topology_engine
     documents/path_to_software_agnosticism
     documents/meshing
+    documents/cli
 
 .. toctree::
     :hidden:

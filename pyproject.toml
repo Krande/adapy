@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
-description = "Assembly for Design & Analysis - A python library for structural analysis and design"
+description = "Assembly for Design & Analysis - A python library and 'ada' command line tool for structural analysis and design"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -23,6 +23,11 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Utilities",
 ]
+# The distribution is `ada-py`; the console script it installs is `ada`. The
+# conda recipe lives out of tree (conda-forge/ada-py-feedstock) and restates
+# this entry point by hand, so the two must be kept in step — see
+# tests/core/test_cli_surface_docs.py, which pins the name against every
+# in-repo surface that documents it.
 [project.scripts]
 ada = "ada_cli.main:main"
 

@@ -13,7 +13,13 @@ Subcommand layout:
     ada build run|upload|run-and-upload
                                       build artefacts and push to viewer
     ada files list|download|upload|delete   list / transfer / remove blobs in a scope
+    ada audit runs|run|log|perf|profile|fetch|logfile|repro|wasm-sweep|parity
+                                      query / re-run viewer audit conversions
     ada serve api|worker              run the REST API / worker process
+
+This listing is the CLI's own claim about its surface, so it is checked against
+the parser in tests/core/test_cli_surface_docs.py — as are the README table and
+the docs page (docs/documents/cli.rst).
 """
 
 from __future__ import annotations
