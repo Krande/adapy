@@ -95,6 +95,19 @@ export function setBeamSolidsVisible(visible: boolean): void {
     }
 }
 
+/**
+ * Does the loaded FEA model carry beam section geometry at all?
+ *
+ * `setBeamSolidsVisible` is a no-op without it — the bake only emits
+ * ``beam_solids_url`` for a reader with section + axis info per beam, and only
+ * when it was asked to. A UI that offers "beams as solid" needs to tell the two
+ * cases apart: a toggle that flips and changes nothing reads as broken, where a
+ * greyed one with a reason reads as a property of the model.
+ */
+export function hasBeamSolids(): boolean {
+    return active?.beamSolidMesh != null;
+}
+
 /** The active FEA mesh (a custom-batch THREE.Mesh carrying per-element
  *  ``drawRanges``), or null when no FEA model is loaded. Exposed so a plugin can
  *  drive element-level scene ops (isolate / highlight / attach overlays) off the

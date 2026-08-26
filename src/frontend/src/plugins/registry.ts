@@ -52,9 +52,18 @@ export type PluginRegion =
  * `right-aux` is a SECOND right-hand column, beside the first rather than tabbed
  * into it. A panel you read WHILE reading another one — a detail view for the row
  * selected in a table — belongs there: sharing one dock means the two take turns,
- * and stacking them means scrolling between them. A shell with only one right
- * column can treat it as `right`. */
-export type PluginDockId = "left" | "right" | "right-aux" | "bottom" | "float" | "overlay";
+ * and stacking them means scrolling between them. `right-aux2` is a third such
+ * column, for the case where reading one panel means comparing it against two
+ * others at once. A shell with fewer right columns than a plugin asks for can
+ * treat the extras as `right`. */
+export type PluginDockId =
+  | "left"
+  | "right"
+  | "right-aux"
+  | "right-aux2"
+  | "bottom"
+  | "float"
+  | "overlay";
 
 /**
  * A mode id. Core's own UI has no modes, so this is an open string: the four a
