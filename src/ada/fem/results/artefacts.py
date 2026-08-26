@@ -705,8 +705,9 @@ class FEAResultStreamAdapter:
         # deck so the Scene > FEM panel can draw the glyph overlay.
         self._fem_concepts: dict | None = None
         # Optional FEM node/element sets as manifest group dicts ({name, members, fe_object_type}).
-        # Populated by the FEM reader so the Scene > FEM groups picker works for design models.
-        self._groups: list[dict] | None = None
+        # Populated by the FEM reader for design models, and carried on the result by
+        # the Sesam readers, which decode TDSETNAM / GSETMEMB while parsing the deck.
+        self._groups: list[dict] | None = getattr(result, "sesam_groups", None)
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -2518,8 +2519,9 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         fem_concepts = None
 
-    # FEM node/element sets -> manifest groups (Scene > FEM groups picker). Readers without the
-    # method (SIF/SIN/RMED) contribute nothing.
+    # FEM node/element sets -> manifest groups (Scene > FEM groups picker, and the
+    # Outliner's Groups branch). Sesam decks (SIF/SIN) report their TDSETNAM /
+    # GSETMEMB sets; a reader without the method contributes nothing.
     try:
         groups = reader.try_groups()
     except (AttributeError, NotImplementedError):
