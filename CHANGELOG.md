@@ -2,6 +2,21 @@
 
 
 
+## v0.45.8 (2026-08-26)
+
+### Chore
+
+* chore(ci): bump deputy to v0.5.2 and drop the inline gitpython pin (#273)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`7e391bf`](https://github.com/Krande/adapy/commit/7e391bf7cbc52766c6a479d8870a06a0677b8f01))
+
+### Fix
+
+* fix(viewer): stand spec-conformant Y-up glTF upright in the Z-up scene (#276)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`7a557b6`](https://github.com/Krande/adapy/commit/7a557b69d2cbe8e0ceb56ccd5ce8352efa0c10b4))
+
+
 ## v0.45.7 (2026-08-25)
 
 ### Fix
