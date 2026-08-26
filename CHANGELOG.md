@@ -2,6 +2,15 @@
 
 
 
+## v0.46.0 (2026-08-26)
+
+### Feature
+
+* feat: put the CAD backends under a parity gate and bridge handles into pythonocc (#274)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`1cd1303`](https://github.com/Krande/adapy/commit/1cd1303843b4ecc0352443b748ef44f3e349e21a))
+
+
 ## v0.45.8 (2026-08-26)
 
 ### Chore
