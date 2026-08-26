@@ -409,14 +409,23 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
     # ((pointer_table_offset - payload) - 4*SLOT_STRIDE) / SLOT_STRIDE
     # = number of dim slots = 2 * NDIM
     dim_bytes = pointer_table_offset - payload - 4 * SLOT_STRIDE
-    if ptr_table_word > 0 and dim_bytes >= 0 and dim_bytes % (2 * SLOT_STRIDE) == 0:
+    # Is ptr_table_word usable at all? It names the first pointer's value field
+    # directly, so when it lands past the fixed header it is the best evidence in
+    # the block about where the table starts — better than any walk over the
+    # slots in between.
+    anchored = ptr_table_word > 0 and dim_bytes >= 0
+    if anchored and dim_bytes % (2 * SLOT_STRIDE) == 0:
         ndim = dim_bytes // (2 * SLOT_STRIDE)
         if ndim > 4:
             # Defensive — well-formed SIF types have ndim ≤ 2.
             ndim = 0
     else:
-        # ptr_table_word missing or implausible — fall back to the
-        # cap/pop heuristic so malformed/older SIN files still parse.
+        # The gap does not divide into (capacity, populated) pairs, so NDIM
+        # cannot be derived from it. That does NOT make the anchor wrong: some
+        # writers put an extra header slot between the dims and the table (a
+        # TDRESREF block observed with (cap=10, pop=10, 8) where TDLOAD in the
+        # same file has (cap=8, pop=8)). Deriving NDIM by walking instead is
+        # fine; throwing the anchor away with it is not.
         ndim = 0
 
     if ndim == 0:
@@ -434,7 +443,15 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
             if (dim_slot - 4) // 2 >= 4:
                 break
         ndim = (dim_slot - 4) // 2
-        pointer_table_offset = payload + dim_slot * SLOT_STRIDE
+        # Only when there was no anchor to keep. Where the walk stopped short of
+        # the anchor, it stopped on a header slot, and reading the table from
+        # there takes that slot's value as the first pointer — which is not one.
+        # It fails the NFIELD validity check, truncates the table to nothing, and
+        # the block reads as empty: present in the file, ten records deep, and
+        # invisible. That is how a deck's result-case names went missing while
+        # every other tool could see them.
+        if not anchored:
+            pointer_table_offset = payload + dim_slot * SLOT_STRIDE
 
     caps: list[int] = []
     dims: list[int] = []

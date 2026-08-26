@@ -440,7 +440,10 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
-    from ada.fem.formats.sesam.results.case_names import result_case_names
+    from ada.fem.formats.sesam.results.case_names import (
+        result_case_names,
+        selectable_result_cases,
+    )
     from ada.fem.formats.sesam.results.sets import manifest_groups
 
     sin = open_sin(sin_file)
@@ -458,6 +461,7 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     # from records this parse already walked, and unreachable afterwards without
     # opening the file again.
     result.sesam_case_names = result_case_names(sin)
+    result.sesam_result_cases = selectable_result_cases(sin)
     return result
 
 
@@ -690,6 +694,17 @@ class SinStreamReader:
         from ada.fem.formats.sesam.results.case_names import result_case_names
 
         return result_case_names(self.sin)
+
+    def try_result_cases(self):
+        """Every result case the deck OFFERS, which is not the same as its steps.
+
+        A "smart load combination" deck stores only its basic cases as RV*
+        records, so the manifest's steps miss the combinations — which are the
+        design cases anyone actually checks.
+        """
+        from ada.fem.formats.sesam.results.case_names import selectable_result_cases
+
+        return selectable_result_cases(self.sin)
 
 
 __all__ = [

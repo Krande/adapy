@@ -712,6 +712,11 @@ class FEAResultStreamAdapter:
         # otherwise labelled with its value — "1", "2", "3" — which is an index,
         # where the deck's own `unit_acc_x` is a load case.
         self._step_names: dict[int, str] | None = getattr(result, "sesam_case_names", None)
+        # Every case the deck OFFERS — which is more than it stores. A "smart
+        # load combination" deck records the basic cases and defines the design
+        # cases as combinations of them, so a picker built from the steps offers
+        # the cases nobody checks and omits the ones they do.
+        self._result_cases: list[dict] | None = getattr(result, "sesam_result_cases", None)
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -728,6 +733,9 @@ class FEAResultStreamAdapter:
 
     def try_step_names(self) -> dict[int, str] | None:
         return self._step_names
+
+    def try_result_cases(self) -> list[dict] | None:
+        return self._result_cases
 
     # ----- protocol -------------------------------------------------------
 
@@ -1778,6 +1786,7 @@ def build_manifest(
     fem_concepts: dict | None = None,
     groups: list[dict] | None = None,
     step_names: dict[int, str] | None = None,
+    result_cases: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -2021,6 +2030,14 @@ def build_manifest(
     # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
     if groups:
         manifest["groups"] = groups
+    # Every result case the source OFFERS, which is more than its field steps
+    # list. A "smart load combination" deck stores only its basic cases as RV*
+    # records and defines the design cases as combinations of them, so a picker
+    # built from steps offers the cases nobody checks and omits the ones they do.
+    # Separate from `fields[].steps` rather than folded into it: a step is
+    # something the colour machinery can read, and a combination is not.
+    if result_cases:
+        manifest["result_cases"] = result_cases
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 
@@ -2559,6 +2576,12 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         step_names = None
 
+    # And every case it offers, stored or superposed.
+    try:
+        result_cases = reader.try_result_cases()
+    except (AttributeError, NotImplementedError):
+        result_cases = None
+
     manifest = build_manifest(
         src=src,
         source_sha256=source_sha256,
@@ -2584,6 +2607,7 @@ def bake_artefacts(
         fem_concepts=fem_concepts,
         groups=groups,
         step_names=step_names,
+        result_cases=result_cases,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"
