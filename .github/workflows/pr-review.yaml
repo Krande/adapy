@@ -22,7 +22,7 @@ name: Review Pull Request
 
 on:
   pull_request_target:
-    types: [opened, synchronize, edited, unlabeled]
+    types: [opened, synchronize, edited, labeled, unlabeled]
     branches: [main, develop]
 
 permissions:
@@ -50,7 +50,7 @@ jobs:
 
       - name: Install deputy
         # deputy pins gitpython<3.1.60 itself from v0.5.2 — do not re-add it here.
-        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.5.2"
+        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.5.3"
 
       - name: Review the PR (checks + sticky comment); fails if a check fails
         run: deputy pr-review
