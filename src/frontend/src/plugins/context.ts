@@ -101,6 +101,9 @@ function makeSceneHandle(): SceneHandle {
         undefined,
         sourceName,
         opts?.headers,
+        undefined,
+        undefined,
+        opts?.sourceUpAxis ?? "z",
       );
       // Register the source -> group mapping so the model shows up in the
       // loaded-sources list and `unloadModel` can drop just this one, exactly as

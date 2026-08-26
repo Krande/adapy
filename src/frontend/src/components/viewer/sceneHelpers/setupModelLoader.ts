@@ -14,7 +14,7 @@ import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
-import {fastSceneBox} from "@/utils/scene/boundsFast";
+import {DEFAULT_SOURCE_UP_AXIS, uprightSceneBox, type SourceUpAxis} from "@/utils/scene/sourceUpAxis";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -41,6 +41,13 @@ export async function setupModelLoaderAsync(
     // config toggle (optionsStore.autoFit); false = never fit (e.g. a procedural
     // recompile, which must not move the camera on every ⇧↵).
     autoFitOverride?: boolean,
+    // Which axis points up in the source file's own coordinates. Defaults to
+    // "z" — the content already matches this viewer's Z-up world, which is what
+    // adapy's own exports do and what every caller before this option assumed.
+    // Pass "y" for a glTF that follows the spec's Y-up convention; the loader
+    // then rotates it upright BEFORE measuring the bounding box the recentering
+    // frame is derived from (see utils/scene/sourceUpAxis).
+    sourceUpAxis: SourceUpAxis = DEFAULT_SOURCE_UP_AXIS,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -125,7 +132,16 @@ export async function setupModelLoaderAsync(
     // fastComputeBounds) — avoids setFromObject's per-vertex iteration on large
     // models. This is the LOCAL (pre-translation) box; the world box we store
     // below shifts it by the applied position.
-    const localBox = fastSceneBox(gltf_scene);
+    //
+    // uprightSceneBox rotates the model into this viewer's Z-up world first when
+    // the source says it is Y-up, so the box — and therefore the recentering
+    // frame derived from it just below, which every later model reuses — is in
+    // scene axes. Measuring before rotating would put the frame in the source's
+    // axes and silently displace the model relative to everything else. Nothing
+    // above this point depends on the root's orientation: prepareLoadedModel
+    // bakes edge overlays from each mesh's LOCAL matrix, and the tree cache is
+    // built from userData.
+    const localBox = uprightSceneBox(gltf_scene, sourceUpAxis);
     if (modelStore.translation && translate) {
         console.log("Model already translated");
         gltf_scene.position.add(modelStore.translation);
