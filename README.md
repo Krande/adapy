@@ -24,6 +24,29 @@ Here are some of the goals with `ada-py`:
 * Provide the building blocks for advanced parametric and procedural 3d model design and simulation workflows
 * The library should always strive for user ergonomics.
 
+## Command line
+
+Installing the package also installs a console script. Note that the distribution is named `ada-py`
+but the command is `ada` — there is no `ada-py` command:
+
+```
+ada --help
+```
+
+| Command | What it does |
+| --- | --- |
+| `ada convert` | Convert a model between CAD/FEM formats (ifc, step, xml, inp, fem, sat → ifc, step, gltf/glb, xml, inp). Local. |
+| `ada view` | Open the built-in web viewer on a file, with the `react`, `pygfx` or `trimesh` renderer. Local. |
+| `ada build` | Run the entrypoints declared in an `ada_config.toml` and push the artefacts to a viewer (`run`, `upload`, `run-and-upload`). |
+| `ada files` | List, download, upload and delete blobs in a viewer scope (`list`, `download`, `upload`, `delete`). |
+| `ada audit` | Query, fetch and locally re-run viewer audit conversions (`runs`, `run`, `log`, `perf`, `profile`, `fetch`, `logfile`, `repro`, `wasm-sweep`, `parity`). |
+| `ada serve` | Run the REST API or the conversion worker (`api`, `worker`). |
+
+The `build`, `files` and `audit` groups talk to a hosted viewer and read their base URL and token
+from the environment (a `.env` in the working directory is picked up too; real environment variables
+win). Every command and subcommand takes `--help`, and the full reference is in
+[the docs](https://krande.github.io/adapy/documents/cli.html).
+
 ## Quick Links
 
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).

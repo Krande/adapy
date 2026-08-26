@@ -8,12 +8,16 @@ helpers:
     ada audit run <run_id> [--failed]  show a run's per-cell jobs
     ada audit log [--target step ...]  query the per-conversion audit log
     ada audit perf [--source-ext .fem] function-level hot paths in a cell
+    ada audit profile <audit_id>       one audit row's cProfile, function stats
     ada audit fetch <audit_id>         download a conversion's source blob
+    ada audit logfile <audit_id>       download a conversion's captured output
     ada audit repro <audit_id>         run that conversion locally (the local
                                        run option for a given audit)
     ada audit wasm-sweep <run_id>      re-run a run's cells locally through the
                                        in-browser WASM engine (node-pyodide),
                                        producing a local pass/fail report
+    ada audit parity [path]            cross-format visual-parity check on a
+                                       local model
 
 Auth: ``ADAPY_API_TOKEN`` (a CLI token from the admin panel). Base URL:
 ``ADAPY_API_BASE`` or ``ADAPY_BASE_URL`` (host or full URL) — same env pair
