@@ -53,6 +53,31 @@ jobs:
         - name: Runs Tests
           run: pixi run -e tests test
 
+    test-cad-parity:
+        name: Test CAD backend parity (PR)
+        runs-on: ubuntu-latest
+        # Mirrors test.yml's job of the same name. The cross-backend comparisons in
+        # tests/core/cad/test_backend_parity.py skip unless pythonocc-core and ada-cpp are
+        # both importable, and the `test` job above carries only pythonocc — so without this
+        # leg the parity assertions would be green on a PR without ever having run.
+        defaults:
+          run:
+            shell: bash -l {0}
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.10.1
+          with:
+            pixi-version: v0.68.0
+            environments: >-
+              viewer-api-tests-adacpp
+            cache: true
+
+        - name: Run Tests
+          run: pixi run -e viewer-api-tests-adacpp test-cad-parity
+
     # tests/comms/rest is excluded from the `test` task above (it needs the viewer-api stack, which
     # the `tests` env does not carry), so before this job the entire REST/viewer-API suite — the
     # largest single test directory in the repo — had NO presence in the pull_request workflow.

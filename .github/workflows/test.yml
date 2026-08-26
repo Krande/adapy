@@ -95,6 +95,31 @@ jobs:
       - name: Run Tests
         run: pixi run -e tests-adacpp test-core
 
+  test-cad-parity:
+    name: Test CAD backend parity
+    runs-on: ubuntu-latest
+    # The one leg that can catch the two CAD backends drifting apart. test-core and
+    # test-adacpp each carry a single kernel, so the cross-backend comparisons in
+    # tests/core/cad/test_backend_parity.py skip in both — they need an environment with
+    # pythonocc-core AND ada-cpp present at once, which is what viewer-api-tests-adacpp is.
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: prefix-dev/setup-pixi@v0.10.1
+        with:
+          pixi-version: v0.68.0
+          environments: >-
+            viewer-api-tests-adacpp
+          cache: true
+
+      - name: Run Tests
+        run: pixi run -e viewer-api-tests-adacpp test-cad-parity
+
   test-rest:
     name: Test viewer REST API
     runs-on: ubuntu-latest
