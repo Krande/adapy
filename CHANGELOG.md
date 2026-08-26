@@ -2,6 +2,13 @@
 
 
 
+## v0.47.0 (2026-08-26)
+
+### Feature
+
+* feat: accept and manage published dataset blobs under assets/ (#278) ([`68eb3c1`](https://github.com/Krande/adapy/commit/68eb3c1605599e4faba9ca88d4592467f6d35a02))
+
+
 ## v0.46.2 (2026-08-26)
 
 ### Fix
