@@ -61,6 +61,7 @@ export const VIEWER_CORE_API_VERSION = "1.0.0";
 export {
   disablePlugin,
   getPlugin,
+  getPluginModes,
   getRegisteredPlugins,
   PLUGIN_API_VERSION,
   registerPlugin,
@@ -69,6 +70,9 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  PluginDockId,
+  PluginModeId,
+  PluginModeSpec,
   PluginApiClient,
   PluginLogLevel,
   PluginRegion,
