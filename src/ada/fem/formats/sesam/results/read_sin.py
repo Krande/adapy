@@ -440,12 +440,20 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
     # source's display name (basename) for the FEAResult / convert path.
+    from ada.fem.formats.sesam.results.sets import manifest_groups
+
     sin = open_sin(sin_file)
     name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
     reader = SinReader(sin=sin, step=step)
     reader.load()
     s2m = Sif2Mesh(reader)
-    return s2m.convert(name_path)
+    result = s2m.convert(name_path)
+    # The deck's named sets travel with the result. They are decoded from records
+    # this reader has already parsed, and the reader is discarded on return — so
+    # not carrying them here means the only way to get them back is a second full
+    # parse of the file, which on a 400 MB SIN is not a thing to do for a picker.
+    result.sesam_groups = manifest_groups(reader)
+    return result
 
 
 def iter_sin_step_results(sin_file: str | pathlib.Path, steps, *, forces_elements: set[int] | None = None):
@@ -655,7 +663,18 @@ class SinStreamReader:
         return None
 
     def try_groups(self):
-        return None
+        """The deck's named sets, for the manifest's ``groups`` block.
+
+        Reads through the persistent reader, which already holds the parsed
+        ``TDSETNAM`` / ``GSETMEMB`` records — the step-invariant blocks are read
+        once for the whole bake, so this costs nothing beyond the decode.
+        """
+        from ada.fem.formats.sesam.results.sets import manifest_groups
+
+        if self._reader is None:
+            self._reader = SinReader(sin=self.sin)
+            self._reader._load_static()
+        return manifest_groups(self._reader)
 
 
 __all__ = [
