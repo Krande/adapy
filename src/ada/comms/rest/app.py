@@ -177,21 +177,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Plugin backends, the same two ways the worker finds them:
-        # ADA_WORKER_PRELOAD (explicit, fatal on failure — a process that exists
-        # BECAUSE of those imports should not start half-configured) and the
-        # ``ada.plugins`` entry-point group (per-plugin isolated).
+        # ADA_WORKER_PRELOAD (explicit) and the ``ada.plugins`` entry-point group.
         #
         # The API never needed this while every plugin job went to a worker: it
         # only had to ROUTE by capability, which it reads off worker heartbeats.
         # It needs it now because a viewer with no queue runs those jobs itself
         # (see `local_jobs`), and it can only run a plugin it has imported.
+        #
+        # Both are per-module isolated HERE, which is the opposite of the worker,
+        # and deliberately so. A worker exists BECAUSE of its preload, so a failed
+        # import there means the pool would sit on the queue answering nothing —
+        # better to die loudly. The API exists to serve the viewer; plugin jobs are
+        # one endpoint out of dozens. Letting an ImportError out of the lifespan
+        # would take the whole viewer down — a crashloop, no storage browser, no
+        # scene, no way to even see the error — because one optional plugin backend
+        # could not find one of its dependencies. So: log it with the module name
+        # and carry on. The failure then degrades to what it actually is, "that
+        # capability is missing", and shows up as a 501 from the plugin-job
+        # endpoint rather than as an API that will not start.
         preload = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
         if preload:
             import importlib as _importlib
 
             for mod_name in (m.strip() for m in preload.split(",") if m.strip()):
                 logger.info("api: preloading %s", mod_name)
-                _importlib.import_module(mod_name)
+                try:
+                    _importlib.import_module(mod_name)
+                except Exception:
+                    logger.exception("api: preloading %s failed (non-fatal); its plugin jobs will 501", mod_name)
         try:
             from ada.plugins import discover_plugins
 
