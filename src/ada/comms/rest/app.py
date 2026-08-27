@@ -31,6 +31,7 @@ from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
+from . import local_jobs
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -48,7 +49,6 @@ from .converter import (
     merge_option_into,
     supported_targets_for,
 )
-from . import local_jobs
 from .handlers import dispatch
 from .queue import JobQueue
 from .scope import Scope
