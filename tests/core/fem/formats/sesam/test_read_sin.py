@@ -429,10 +429,7 @@ def test_combination_label_describes_the_recipe():
 
     names = {1: "girder_local", 2: "deck", 8: "selfweight"}
     # float32 widening noise must not reach the label.
-    assert (
-        combination_label({1: 1.2000000476837158, 2: 1.1}, names)
-        == "1.2·girder_local + 1.1·deck"
-    )
+    assert combination_label({1: 1.2000000476837158, 2: 1.1}, names) == "1.2·girder_local + 1.1·deck"
     # Ordered by case number, not by factor, so two combinations line up by eye.
     assert combination_label({8: 1.0, 1: 2.0}, names) == "2·girder_local + 1·selfweight"
     # A basic case nobody named still appears — dropping it would misdescribe
@@ -478,8 +475,8 @@ def test_pointer_table_anchor_survives_an_extra_header_slot():
     from ada.fem.formats.sesam.results.sin_reader import (
         NAME_LEN,
         SLOT_STRIDE,
-        _decode_type_block,
         MmapSource,
+        _decode_type_block,
     )
 
     # One synthetic block: 4 fixed header slots, (cap, pop), an EXTRA slot, then
