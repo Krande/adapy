@@ -705,8 +705,18 @@ class FEAResultStreamAdapter:
         # deck so the Scene > FEM panel can draw the glyph overlay.
         self._fem_concepts: dict | None = None
         # Optional FEM node/element sets as manifest group dicts ({name, members, fe_object_type}).
-        # Populated by the FEM reader so the Scene > FEM groups picker works for design models.
-        self._groups: list[dict] | None = None
+        # Populated by the FEM reader for design models, and carried on the result by
+        # the Sesam readers, which decode TDSETNAM / GSETMEMB while parsing the deck.
+        self._groups: list[dict] | None = getattr(result, "sesam_groups", None)
+        # What the deck calls each result case, keyed by case number. A step is
+        # otherwise labelled with its value — "1", "2", "3" — which is an index,
+        # where the deck's own `unit_acc_x` is a load case.
+        self._step_names: dict[int, str] | None = getattr(result, "sesam_case_names", None)
+        # Every case the deck OFFERS — which is more than it stores. A "smart
+        # load combination" deck records the basic cases and defines the design
+        # cases as combinations of them, so a picker built from the steps offers
+        # the cases nobody checks and omits the ones they do.
+        self._result_cases: list[dict] | None = getattr(result, "sesam_result_cases", None)
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -720,6 +730,12 @@ class FEAResultStreamAdapter:
 
     def try_groups(self) -> list[dict] | None:
         return self._groups
+
+    def try_step_names(self) -> dict[int, str] | None:
+        return self._step_names
+
+    def try_result_cases(self) -> list[dict] | None:
+        return self._result_cases
 
     # ----- protocol -------------------------------------------------------
 
@@ -1769,6 +1785,8 @@ def build_manifest(
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
     groups: list[dict] | None = None,
+    step_names: dict[int, str] | None = None,
+    result_cases: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -1802,9 +1820,7 @@ def build_manifest(
         # Convert tuple → list for JSON-friendly shape.
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
 
-        steps = [
-            {"i": i, "value": float(v), "label": _format_step_label(spec, i, v)} for i, v in enumerate(spec.step_values)
-        ]
+        steps = [_step_entry(i, v, _format_step_label(spec, i, v), step_names) for i, v in enumerate(spec.step_values)]
 
         fields_payload.append(
             {
@@ -1877,7 +1893,7 @@ def build_manifest(
             scalar_range_payload["magnitude"] = list(roll_mag)
 
         steps = [
-            {"i": i, "value": float(v), "label": _format_step_label_simple(primary.n_steps, primary.name, v)}
+            _step_entry(i, v, _format_step_label_simple(primary.n_steps, primary.name, v), step_names)
             for i, v in enumerate(primary.step_values)
         ]
 
@@ -2011,6 +2027,14 @@ def build_manifest(
     # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
     if groups:
         manifest["groups"] = groups
+    # Every result case the source OFFERS, which is more than its field steps
+    # list. A "smart load combination" deck stores only its basic cases as RV*
+    # records and defines the design cases as combinations of them, so a picker
+    # built from steps offers the cases nobody checks and omits the ones they do.
+    # Separate from `fields[].steps` rather than folded into it: a step is
+    # something the colour machinery can read, and a combination is not.
+    if result_cases:
+        manifest["result_cases"] = result_cases
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 
@@ -2088,6 +2112,22 @@ def build_history_payload(history: "HistoryRecords") -> dict:
             for s in history.series
         ],
     }
+
+
+def _step_entry(i: int, v: float, label: str, step_names: "dict[int, str] | None") -> dict:
+    """One step of a field, plus the deck's name for it when there is one.
+
+    `name` is additive and optional: every existing reader of `steps` keys off
+    `i` / `value` / `label`, so a manifest without it is unchanged. Keyed on the
+    step VALUE rather than the index because that is the deck's case number —
+    step 0 is case 1 — and the names come from the deck.
+    """
+    entry = {"i": i, "value": float(v), "label": label}
+    if step_names:
+        name = step_names.get(int(v))
+        if name:
+            entry["name"] = name
+    return entry
 
 
 def _format_step_label(spec: FieldSpec, i: int, v: float) -> str:
@@ -2518,12 +2558,26 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         fem_concepts = None
 
-    # FEM node/element sets -> manifest groups (Scene > FEM groups picker). Readers without the
-    # method (SIF/SIN/RMED) contribute nothing.
+    # FEM node/element sets -> manifest groups (Scene > FEM groups picker, and the
+    # Outliner's Groups branch). Sesam decks (SIF/SIN) report their TDSETNAM /
+    # GSETMEMB sets; a reader without the method contributes nothing.
     try:
         groups = reader.try_groups()
     except (AttributeError, NotImplementedError):
         groups = None
+
+    # What the deck calls each result case; a reader without the method leaves
+    # the steps labelled by value, as before.
+    try:
+        step_names = reader.try_step_names()
+    except (AttributeError, NotImplementedError):
+        step_names = None
+
+    # And every case it offers, stored or superposed.
+    try:
+        result_cases = reader.try_result_cases()
+    except (AttributeError, NotImplementedError):
+        result_cases = None
 
     manifest = build_manifest(
         src=src,
@@ -2549,6 +2603,8 @@ def bake_artefacts(
         lineage=lineage,
         fem_concepts=fem_concepts,
         groups=groups,
+        step_names=step_names,
+        result_cases=result_cases,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

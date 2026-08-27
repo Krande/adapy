@@ -402,3 +402,116 @@ def test_sin_registered_in_stream_readers():
         assert any(s.support == "nodal" for s in specs), "no nodal field surfaced for the streaming bake"
     finally:
         reader.close()
+
+
+def test_result_case_names_from_the_deck(sin_file):
+    """The deck's own name for each result case, keyed by case number.
+
+    Without this the viewer labels a step by its VALUE — "1", "2", "3" — which
+    is an index where the deck has a load case. The cantilever fixture names one
+    result case via ``TDRESREF``; a deck that names none returns ``None`` rather
+    than an empty dict, so a caller can tell "no names" from "no cases".
+    """
+    from ada.fem.formats.sesam.results.case_names import result_case_names
+
+    assert result_case_names(sin_file) == {1: "LC1"}
+    assert result_case_names(None) is None
+
+
+def test_combination_label_describes_the_recipe():
+    """A combination's makeup, for a UI that offers it as supporting detail.
+
+    Not its name — the deck names combinations in TDRESREF like any other result
+    case (`lcc1`), and a label spelling out five weighted terms would be
+    unreadable everywhere a case is listed. This is what you show on demand.
+    """
+    from ada.fem.formats.sesam.results.case_names import combination_label
+
+    names = {1: "girder_local", 2: "deck", 8: "selfweight"}
+    # float32 widening noise must not reach the label.
+    assert combination_label({1: 1.2000000476837158, 2: 1.1}, names) == "1.2·girder_local + 1.1·deck"
+    # Ordered by case number, not by factor, so two combinations line up by eye.
+    assert combination_label({8: 1.0, 1: 2.0}, names) == "2·girder_local + 1·selfweight"
+    # A basic case nobody named still appears — dropping it would misdescribe
+    # the combination.
+    assert combination_label({5: 1.0}, names) == "1·case 5"
+    assert combination_label({}, names) == ""
+
+
+def test_result_case_names_reach_the_manifest_steps():
+    """`build_manifest` carries the names onto each step, additively.
+
+    `name` sits BESIDE `i` / `value` / `label` rather than replacing any of
+    them: every existing reader keys off those three, so a manifest baked by an
+    adapy without this — or from a deck that names nothing — is unchanged.
+    """
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader, open_sin
+
+    reader = SinStreamReader(open_sin(SIN_PATH))
+    try:
+        assert reader.try_step_names() == {1: "LC1"}
+    finally:
+        reader.close()
+
+
+def test_pointer_table_anchor_survives_an_extra_header_slot():
+    """``ptr_table_word`` is kept even when NDIM cannot be derived from the gap.
+
+    Some writers put an extra header slot between a block's dims and its pointer
+    table. The gap then does not divide into (capacity, populated) pairs, so NDIM
+    has to be found by walking the pairs instead — but the block still says
+    exactly where its table starts, and that anchor was being discarded along
+    with the failed NDIM derivation.
+
+    The cost was silent and total: the walk stops on the extra header slot, the
+    table is read from one slot early, that slot's value is taken as the first
+    pointer, it fails the NFIELD check, the table truncates to nothing, and a
+    block with ten records reads as empty. On the reference deck that block was
+    TDRESREF — so a model whose result cases every other tool could name came
+    back with no names at all.
+    """
+    import numpy as np
+
+    from ada.fem.formats.sesam.results.sin_reader import (
+        NAME_LEN,
+        SLOT_STRIDE,
+        MmapSource,
+        _decode_type_block,
+    )
+
+    # One synthetic block: 4 fixed header slots, (cap, pop), an EXTRA slot, then
+    # two pointers. Slot values live in the second u32 of each 8-byte slot.
+    preamble = 0
+    payload = preamble + 4 + NAME_LEN
+    header_slots = [0, 5, 41, 0, 2, 2, 8]  # [3] (ptr_table_word) filled in below
+    first_ptr_slot = len(header_slots)
+    ptr_value_off = payload + first_ptr_slot * SLOT_STRIDE + 4
+    header_slots[3] = ptr_value_off // SLOT_STRIDE
+
+    # Two records, each starting with its NFIELD word so the pointers validate.
+    rec_words = [200, 240]
+    slots = header_slots + [w + 1 for w in rec_words]
+
+    buf = bytearray(4 + NAME_LEN + len(slots) * SLOT_STRIDE)
+    buf[0:4] = (2051).to_bytes(4, "little")
+    buf[4 : 4 + NAME_LEN] = b"TDRESREF"
+    for i, value in enumerate(slots):
+        at = payload + i * SLOT_STRIDE + 4
+        buf[at : at + 4] = int(value).to_bytes(4, "little")
+    # Room for the records the pointers name, each with a valid NFIELD.
+    buf.extend(b"\x00" * (max(rec_words) * 4 + 64))
+    for w in rec_words:
+        buf[w * 4 : w * 4 + 4] = np.float32(5.0).tobytes()
+
+    block = _decode_type_block(MmapSource(memoryview(bytes(buf))), preamble)
+    assert block.name == "TDRESREF"
+    # The anchor wins: the table starts where the block said, not where the walk
+    # over (cap, pop) pairs stopped.
+    assert block.pointer_table_offset == ptr_value_off - 4
+    # Both records are reachable, and the extra header slot is not among them —
+    # read one slot early it would be pointer[0], and being invalid it would
+    # truncate the table to nothing. (Trailing zero slots are the reader's
+    # documented tolerance: a zero pointer is empty, not invalid.)
+    got = block.pointer_table.tolist()
+    assert got[:2] == [w + 1 for w in rec_words]
+    assert 8 not in got

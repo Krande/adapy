@@ -296,4 +296,14 @@ class SifStreamReader:
         return None
 
     def try_groups(self):
-        return None
+        """The deck's named sets, for the manifest's ``groups`` block.
+
+        The static reader carries the parsed ``TDSETNAM`` / ``GSETMEMB`` records;
+        a deck read without one (nothing has asked for geometry yet) simply has
+        no sets to report rather than forcing a read for them.
+        """
+        from ada.fem.formats.sesam.results.sets import manifest_groups
+
+        if self._static is None:
+            return None
+        return manifest_groups(self._static)
