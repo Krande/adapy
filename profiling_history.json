@@ -1,116 +1,5 @@
 [
   {
-    "commit": "919e0903d8f0c48d7cd47ae4db2e37982915f1b5",
-    "commit_short": "919e090",
-    "message": "0.19.0",
-    "author": "semantic-release",
-    "date": "2026-06-11T04:33:34Z",
-    "total_duration": 124.7523,
-    "total_calls": 802455,
-    "stats": [
-      {
-        "function": "<built-in method builtins.exec> (~:0)",
-        "calls": 1986,
-        "duration": 23.444581505000002
-      },
-      {
-        "function": "<module> (<string>:1)",
-        "calls": 1,
-        "duration": 23.444541741000002
-      },
-      {
-        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
-        "calls": 1,
-        "duration": 6.499143014
-      },
-      {
-        "function": "to_ifc (src/ada/api/spatial/assembly.py:220)",
-        "calls": 5,
-        "duration": 6.02690561
-      },
-      {
-        "function": "sync (src/ada/cadit/ifc/store.py:158)",
-        "calls": 5,
-        "duration": 5.897614139000001
-      },
-      {
-        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
-        "calls": 5,
-        "duration": 5.842670903
-      },
-      {
-        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:493)",
-        "calls": 2200,
-        "duration": 5.764504857
-      },
-      {
-        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
-        "calls": 1,
-        "duration": 5.037926679
-      },
-      {
-        "function": "__truediv__ (src/ada/api/spatial/part.py:1682)",
-        "calls": 8,
-        "duration": 4.976789441
-      },
-      {
-        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
-        "calls": 6,
-        "duration": 4.620624337000001
-      },
-      {
-        "function": "batch_tessellate (src/ada/occ/tessellating.py:339)",
-        "calls": 1446,
-        "duration": 4.619421223000001
-      },
-      {
-        "function": "add_object (src/ada/api/spatial/part.py:309)",
-        "calls": 1201,
-        "duration": 3.985994481
-      },
-      {
-        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
-        "calls": 200,
-        "duration": 3.966871101
-      },
-      {
-        "function": "add_section (src/ada/api/spatial/part.py:294)",
-        "calls": 801,
-        "duration": 3.303911917
-      },
-      {
-        "function": "add (src/ada/api/containers/sections.py:139)",
-        "calls": 805,
-        "duration": 3.299243053
-      },
-      {
-        "function": "tessellate_geom (src/ada/occ/tessellating.py:306)",
-        "calls": 1440,
-        "duration": 3.2244937300000003
-      },
-      {
-        "function": "equal_props (src/ada/sections/concept.py:92)",
-        "calls": 241399,
-        "duration": 3.075589212
-      },
-      {
-        "function": "unique_props (src/ada/sections/concept.py:99)",
-        "calls": 482798,
-        "duration": 2.7651643150000003
-      },
-      {
-        "function": "create_entity (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/file.py:693)",
-        "calls": 67947,
-        "duration": 2.5023465430000003
-      },
-      {
-        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
-        "calls": 200,
-        "duration": 2.4539485020000003
-      }
-    ]
-  },
-  {
     "commit": "72d9a3d231af48846bba12b84b5b7029a7ec4df4",
     "commit_short": "72d9a3d",
     "message": "feat: storage panel revamp with user file management and viewer UX fixes (#220)",
@@ -11096,6 +10985,117 @@
         "function": "tessellate_shape (src/ada/occ/tessellating.py:554)",
         "calls": 1440,
         "duration": 2.366948335
+      }
+    ]
+  },
+  {
+    "commit": "b8e477421b6f516f5bba3532ab719e4bd6edc342",
+    "commit_short": "b8e4774",
+    "message": "fix: SIN pointer-table truncation, .SIN deep links, and an additive plugin API (1.1.0) (#286)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-08-27T18:42:54+02:00",
+    "total_duration": 120.528,
+    "total_calls": 737347,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2145,
+        "duration": 22.279353403000002
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 22.279312077
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.151143313
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:2042)",
+        "calls": 8,
+        "duration": 5.850525350000001
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:292)",
+        "calls": 5,
+        "duration": 5.531777904
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 5.089042831
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:200)",
+        "calls": 5,
+        "duration": 5.051229363
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 4.9917820100000005
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:582)",
+        "calls": 2200,
+        "duration": 4.910219168
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 4.873301938
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:1030)",
+        "calls": 1446,
+        "duration": 4.872126508
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 3.99951275
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 3.9810617390000003
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.3732240630000003
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.3719517050000003
+      },
+      {
+        "function": "tessellate_geom (src/ada/occ/tessellating.py:830)",
+        "calls": 1440,
+        "duration": 3.335083437
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:100)",
+        "calls": 241399,
+        "duration": 3.068416725
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:107)",
+        "calls": 482798,
+        "duration": 2.749164759
+      },
+      {
+        "function": "tessellate_occ_geom (src/ada/occ/tessellating.py:684)",
+        "calls": 1440,
+        "duration": 2.3959167050000003
+      },
+      {
+        "function": "tessellate_shape (src/ada/occ/tessellating.py:554)",
+        "calls": 1440,
+        "duration": 2.373903266
       }
     ]
   }
