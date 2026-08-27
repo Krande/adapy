@@ -1,7 +1,27 @@
 name: PR Profiling
 
+# Runs the profiling suite against a PR's own code, and does nothing else: no
+# write permissions, no secrets, no comment. Posting the result needs
+# `pull-requests: write`, so it lives in pr-profiling-comment.yml, which runs in
+# the base repository's context instead.
+#
+# This was one `pull_request_target` workflow that checked out the PR head and
+# commented itself. That is the "pwn request" shape — a fork's code executing
+# with the base repo's GITHUB_TOKEN, secrets and default-branch cache scope,
+# where editing any profiled file is enough to read them. actions/checkout@v7
+# began refusing it outright (see its `allow-unsafe-pr-checkout` input), which is
+# how it surfaced: every fork PR's profiling job failed at the checkout step.
+#
+# The split below is the shape GitHub documents for this. Untrusted code runs
+# here under `pull_request`, whose token is read-only and scoped to the PR; the
+# result reaches the trusted half as an artifact, which is read as data and
+# never executed.
+#
+# Do NOT restore `pull_request_target`, and do NOT set
+# `allow-unsafe-pr-checkout: true` — either one reopens the hole.
+
 on:
-  pull_request_target:
+  pull_request:
     branches:
       - main
     paths:
@@ -14,16 +34,22 @@ concurrency:
   group: pr-profiling-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   profile:
     name: Profile and Track Performance
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
       contents: read
     steps:
       - uses: actions/checkout@v7
         with:
+          # The PR head rather than the merge commit, so the profiled SHA is the
+          # one the report and artifact name refer to. Safe to check out here in
+          # a way it was not under pull_request_target: this job holds nothing
+          # worth stealing.
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
@@ -36,6 +62,12 @@ jobs:
           cache: true
 
       - name: Restore Profiling History
+        # Note the scope change that came with `pull_request`: a fork PR's cache
+        # is isolated to that PR and can no longer be written to the default
+        # branch's scope. `restore-keys` still reaches the base branch's entries,
+        # and the authoritative main-branch baseline lives in the profiling_data
+        # branch (see main-profiling.yml), not here — so the worst case is a
+        # first run with no per-PR history rather than a lost baseline.
         uses: actions/cache@v6
         with:
           path: output/profiling_history.json
@@ -58,23 +90,18 @@ jobs:
           path: output/profiling_history.json
           key: profiling-history-${{ github.event.pull_request.number }}-${{ github.run_id }}
 
+      - name: Record the PR number for the comment workflow
+        # `workflow_run` does not carry the PR number when the head repo is a
+        # fork — `workflow_run.pull_requests` comes back empty — so it travels in
+        # the artifact. The consumer treats this as untrusted input and verifies
+        # it against the run's head SHA before commenting on anything.
+        run: |
+          set -eu
+          mkdir -p output
+          echo "${{ github.event.pull_request.number }}" > output/pr-number.txt
+
       - name: Upload Profiling Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: profiling-results-${{ github.event.pull_request.head.sha }}
           path: output/
-          # Alternatively list files explicitly if we don't want everything in output/
-          # path: |
-          #   output/profiling_report.html
-          #   output/profiling_data.prof
-          #   output/top_20_stats.json
-          #   output/profiling_comment.md
-
-      - name: Post Comment
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: output/profiling_comment.md
-          comment-tag: profiling-results
-          mode: upsert
-          create-if-not-exists: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
