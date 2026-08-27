@@ -53,9 +53,7 @@ def combination_label(components: dict[int, float], names: dict[int, str]) -> st
     """
     if not components:
         return ""
-    return " + ".join(
-        f"{_factor(f)}\u00b7{names.get(n) or f'case {n}'}" for n, f in sorted(components.items())
-    )
+    return " + ".join(f"{_factor(f)}\u00b7{names.get(n) or f'case {n}'}" for n, f in sorted(components.items()))
 
 
 def _text_records(sin_file: Any, card: str) -> dict[int, str]:

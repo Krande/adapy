@@ -1820,10 +1820,7 @@ def build_manifest(
         # Convert tuple → list for JSON-friendly shape.
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
 
-        steps = [
-            _step_entry(i, v, _format_step_label(spec, i, v), step_names)
-            for i, v in enumerate(spec.step_values)
-        ]
+        steps = [_step_entry(i, v, _format_step_label(spec, i, v), step_names) for i, v in enumerate(spec.step_values)]
 
         fields_payload.append(
             {
