@@ -6,12 +6,12 @@ cases (`girder_local`, `unit_acc_x`, `lcc1`), and those names are how an enginee
 recognises which case they are looking at. "Case 3" is an index; "Case 3
 (unit_acc_x)" is a load case.
 
-The names were already reachable — codecheck's viewer export reads exactly these
-records when it writes its own case labels — but only after a code check had run.
+The names were already reachable — a downstream code-check tool reads exactly
+these records when it writes its own case labels — but only after a check had run.
 Anything that wanted them BEFORE one (a picker for choosing which cases to check)
 had nothing but the numbers.
 
-Two records, in the precedence codecheck established:
+Two records, in the precedence those consumers established:
 
 * ``TDRESREF`` names a RESULT case, and wins where present.
 * ``TDLOAD`` names a LOAD case, and fills in where the deck named no result case

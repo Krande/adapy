@@ -80,7 +80,7 @@ export type PluginModeId = string;
  * A panel can say `modes: ["capacity"]`, but nothing tells the shell what
  * "capacity" IS: its name, its glyph, where it sits in the switcher. Without that
  * the shell would have to invent a label from an id, which is how you end up with
- * a mode button reading "capacity-manager:capacity".
+ * a mode button reading "my-plugin:review".
  *
  * Contributing one does not make it exist: a shell with no modes ignores this
  * list, and the plugin's panels fall back to their region as they always did.
