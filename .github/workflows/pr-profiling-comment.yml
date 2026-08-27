@@ -1,0 +1,83 @@
+name: PR Profiling Comment
+
+# The trusted half of the profiling split (see pr-profiling.yml for why it is
+# split at all). Posting a comment needs `pull-requests: write`, which is exactly
+# the permission the job running a fork's code must not have.
+#
+# `workflow_run` runs in the BASE repository's context, and always uses the copy
+# of this file on the DEFAULT branch — a PR cannot change what runs here, not
+# even a PR that edits this file. Nothing from the artifact is executed: the
+# markdown is posted verbatim as a comment body, and the PR number is validated
+# before use.
+
+on:
+  workflow_run:
+    workflows: ["PR Profiling"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  comment:
+    name: Post profiling comment
+    runs-on: ubuntu-latest
+    # A failed or cancelled profiling run has nothing worth posting. The event
+    # guard keeps this from firing on a re-run dispatched some other way.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download the profiling output
+        uses: actions/download-artifact@v7
+        with:
+          # The artifact belongs to a different workflow's run, so it has to be
+          # named explicitly — the default would look in this run.
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: profiling-results-*
+          merge-multiple: true
+          path: output
+
+      - name: Resolve the PR this belongs to
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          # Everything in the artifact was produced by a job running a fork's
+          # code, so it is attacker-controlled. Strip the PR number to digits,
+          # then confirm that PR's head really is the commit that was profiled —
+          # without that check, a fork could name any number here and have the
+          # comment posted onto somebody else's PR.
+          if [ ! -f output/pr-number.txt ]; then
+            echo "::error::no pr-number.txt in the profiling artifact"
+            exit 1
+          fi
+          NUM="$(tr -cd '0-9' < output/pr-number.txt | head -c 12)"
+          if [ -z "$NUM" ]; then
+            echo "::error::pr-number.txt carried no digits"
+            exit 1
+          fi
+          ACTUAL="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUM}" --jq .head.sha)"
+          if [ "$ACTUAL" != "$RUN_HEAD_SHA" ]; then
+            # Also the benign case: the PR was pushed to while profiling ran, so
+            # these results describe superseded code. Declining to post is the
+            # right answer to both.
+            echo "::error::PR #${NUM} head is ${ACTUAL}, but this run profiled ${RUN_HEAD_SHA} — refusing to comment."
+            exit 1
+          fi
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Post Comment
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: output/profiling_comment.md
+          pr-number: ${{ steps.pr.outputs.number }}
+          comment-tag: profiling-results
+          mode: upsert
+          create-if-not-exists: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
