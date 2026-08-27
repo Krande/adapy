@@ -113,6 +113,27 @@ export function effectivePluginTheme(
     return {...effectivePanelTheme(s), ...SEMANTIC_TOKENS};
 }
 
+/** The plugin theme, as a SUBSCRIPTION rather than a snapshot.
+ *
+ * `effectivePluginTheme(useThemeStore.getState())` reads the store without
+ * subscribing, so a component using it repaints only when something else
+ * happens to re-render it. Core's own chrome does not notice, because it paints
+ * from the `--ada-*` CSS variables, which the store writes to the document
+ * element and the browser applies immediately. A plugin panel handed the token
+ * OBJECT has no such luck: it keeps whatever values were current at its last
+ * render, so switching theme repaints core and leaves plugin panels behind.
+ *
+ * The four fields below are exactly the ones `effectivePluginTheme` derives
+ * from, and all four are primitives — so this subscribes precisely, with no
+ * equality function and no re-render on unrelated store writes. */
+export function usePluginTheme(): PluginTheme {
+    const preset = useThemeStore((s) => s.preset);
+    const customBg = useThemeStore((s) => s.customBg);
+    const customText = useThemeStore((s) => s.customText);
+    const bgOpacity = useThemeStore((s) => s.bgOpacity);
+    return effectivePluginTheme({preset, customBg, customText, bgOpacity});
+}
+
 function applyPanelThemeVars(theme: PanelTheme): void {
     const root = document.documentElement.style;
     root.setProperty("--ada-panel-bg", theme.bg);
