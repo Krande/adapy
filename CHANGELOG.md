@@ -2,6 +2,21 @@
 
 
 
+## v0.47.1 (2026-08-27)
+
+### Chore
+
+* chore(ci): profile PRs without pull_request_target (#281) ([`7ee21d1`](https://github.com/Krande/adapy/commit/7ee21d18fcaccf2cf25969b0168193b042552fde))
+
+* chore: bump deputy to v0.5.3 and trigger pr-review on labeled (#279) ([`256bb3f`](https://github.com/Krande/adapy/commit/256bb3fe45e29372e3b290651038f8dc9f062f13))
+
+### Fix
+
+* fix(plugins): repaint plugin panels when the theme changes (#283) ([`75b3bba`](https://github.com/Krande/adapy/commit/75b3bba4efb7b4f0590b86551c3364abe3d72437))
+
+* fix(frontend): give dependency pre-bundling the same esnext target as the build (#282) ([`a01ecd7`](https://github.com/Krande/adapy/commit/a01ecd752e3e1e3c33236ee4ab98c4729caec0d3))
+
+
 ## v0.47.0 (2026-08-26)
 
 ### Feature
