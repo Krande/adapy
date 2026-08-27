@@ -39,3 +39,5 @@ src/frontend/public/wasm/
 
 # CI-staged adacpp branch overlay source (built by Dockerfile.worker)
 adacpp-src/
+
+.claude/
