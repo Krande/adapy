@@ -11,7 +11,7 @@ statement of the gap rather than of a design.
 
 That is what this closes. It matters beyond the Groups picker: a set is how you
 say WHICH PART of a model an operation applies to — scoping a capacity check to
-``Pl_H000``, isolating a deck — and without the names reaching the browser, every
+one plate group, isolating a deck — and without the names reaching the browser, every
 such control had to be a text box you typed a name into from memory.
 
 Member ids are the deck's own element and node numbers, prefixed the way the
