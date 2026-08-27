@@ -7,6 +7,7 @@ import React from "react";
 
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { usePluginTheme } from "@/state/themeStore";
 import { makePluginContext } from "./context";
 import { usePluginUiStore } from "./pluginUiStore";
 import {
@@ -40,8 +41,11 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
   const stores = useViewerStores();
   // Subscribe to visibility so a top-bar toggle re-renders this region.
   const visible = usePluginUiStore((s) => s.visible);
+  // ...and to the theme, so a theme switch repaints plugin panels with core's
+  // own chrome rather than a render or two later.
+  const theme = usePluginTheme();
 
-  const baseCtx = makePluginContext("", stores);
+  const baseCtx = makePluginContext("", stores, theme);
   const panels = getPanelsForRegion(region, baseCtx).filter(
     ({ panel }) => !excludeTabs || !panel.asTab,
   );
@@ -52,7 +56,7 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
       {panels
         .filter(({ panel }) => !panel.topBarButton || visible[panel.id])
         .map(({ pluginId, panel }) => {
-          const ctx = makePluginContext(pluginId, stores);
+          const ctx = makePluginContext(pluginId, stores, theme);
           return (
             <ErrorBoundary
               key={panel.id}
@@ -94,8 +98,9 @@ export const PluginTopBarButtons: React.FC<{ navBtnClass: (active: boolean) => s
   const stores = useViewerStores();
   const visible = usePluginUiStore((s) => s.visible);
   const toggle = usePluginUiStore((s) => s.toggle);
+  const theme = usePluginTheme();
 
-  const baseCtx = makePluginContext("", stores);
+  const baseCtx = makePluginContext("", stores, theme);
   const panels = getPanelsForRegion("top-panel", baseCtx).filter(
     ({ panel }) => panel.topBarButton,
   );
@@ -115,7 +120,7 @@ export const PluginTopBarButtons: React.FC<{ navBtnClass: (active: boolean) => s
               toggle(panel.id);
               if (btn.onClick) {
                 try {
-                  btn.onClick(makePluginContext(pluginId, stores));
+                  btn.onClick(makePluginContext(pluginId, stores, theme));
                 } catch (err) {
                   disablePlugin(pluginId, `top-bar onClick threw: ${String(err)}`);
                 }
