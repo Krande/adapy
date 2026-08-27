@@ -24,6 +24,23 @@ export default defineConfig({
             // pre-bundle for the workspace symlink). Enabled set is in plugins.json.
         },
     },
+    // Dependency PRE-BUNDLING is a separate esbuild pass from the build below,
+    // with its own target — `build.target` does not reach it. Without this,
+    // `vite --force` lowers node_modules for vite's default browser list
+    // (es2020/edge88/firefox78/chrome87/safari14 + vite's two `supported`
+    // overrides) and the pinned esbuild 0.28.1 dies on a dependency's
+    // destructured function parameter:
+    //
+    //   ERROR Transforming destructuring to the configured target environment
+    //   is not supported yet
+    //
+    // Same root cause as `build.target` below and the same answer: the viewer
+    // already requires a modern WebGL2 browser, so nothing needs lowering.
+    optimizeDeps: {
+        esbuildOptions: {
+            target: 'esnext',
+        },
+    },
     build: {
         outDir: path.resolve(__dirname, 'dist'), // Output directory outside of 'src'
         sourcemap: false,
