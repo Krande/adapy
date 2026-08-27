@@ -1,0 +1,80 @@
+# Baselined orphans for tools/check_bundle_provenance.py.
+#
+# WHAT AN ENTRY HERE MEANS
+# ------------------------
+# The check asserts that every UI-looking string in the committed viewer bundle
+# also occurs somewhere in src/frontend. A few legitimately do not, because the
+# bundler ASSEMBLED them and no single place in the tree ever spells them out:
+#
+#   * prose or a class list that the source builds by concatenating fragments,
+#     or that JSX writes across several lines and the bundler joins;
+#   * text the source writes with an escape or an HTML entity, which the bundler
+#     emits decoded;
+#   * a run of minified code that the string regex mistakes for a literal.
+#
+# Every line below was traced to a real source location before it was added, and
+# the location is named in the comment above it. That is the bar.
+#
+# ADDING A LINE IS A DECISION, NOT A FORMALITY
+# --------------------------------------------
+# This file is the only thing standing between "the bundle contains a string
+# from another repository" and a green check. Do not add an entry to make CI
+# pass. Add one only after you have opened the file and line the string is
+# assembled from and can write that reference down here. If you cannot find the
+# source, the finding is real: the bundle was built somewhere it should not have
+# been, and the fix is to rebuild it, not to edit this file.
+#
+# Entries are compared whitespace-normalised, so trailing spaces in a class
+# fragment below are not load-bearing here (they are in the source).
+#
+# Regenerate the candidate list with:
+#     python tools/check_bundle_provenance.py -v --limit 500
+
+# --- JSX text nodes: written across lines, with `&amp;` for the ampersand.
+# The bundler joins the lines and decodes the entity, so the tree contains
+# "CAD &amp; FEA file conversion" split over two lines and never the result.
+# src/frontend/src/components/convert/ConvertPage.tsx:49
+CAD & FEA file conversion
+# src/frontend/src/components/convert/ConvertPage.tsx:79
+Uploads & conversions
+
+# --- Prose concatenated with `+` across two source lines.
+# src/frontend/src/components/admin/StorageTab.tsx:659-660
+Delete every cached derived product (GLB / FEA blob set) in this scope. Sources are preserved.
+
+# --- Vendored strings written with a backslash-escaped apostrophe.
+# node_modules holds `Draggable\'s` and `Couldn\'t`; the bundler re-quotes them
+# with double quotes and drops the backslash, so the emitted text differs from
+# every byte sequence on disk. Both are dependency internals, not our copy.
+# node_modules/react-draggable/build/cjs/DraggableCore.js:326
+Draggable's offsetParent must be a DOM Node.
+# node_modules/three/examples/jsm/loaders/GLTFLoader.js:3442
+THREE.GLTFLoader: Couldn't load texture
+
+# --- Tailwind class lists concatenated from `+`-joined fragments.
+# In each case the source spells out the pieces and the bundler folds the
+# constant fragments into one literal.
+# src/frontend/src/components/storage/StorageBrowser.tsx:1598-1599
+flex flex-col overflow-auto focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm 
+# src/frontend/src/components/admin/FileTreeView.tsx:587-588
+flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none hover:bg-gray-800/80 
+# src/frontend/src/components/InViewerPanelHost.tsx:60-61
+flex items-center gap-2 bg-gray-800 text-gray-100 px-3 py-2 border-b border-gray-700 shrink-0
+# src/frontend/src/components/common/InlineNameInput.tsx:35-36
+flex-1 min-w-0 bg-gray-800 border border-blue-500 rounded-sm px-1 py-0.5 text-xs text-gray-100 focus:outline-hidden
+# src/frontend/src/components/admin/CorpusTab.tsx:1245-1246
+md:w-72 md:shrink-0 md:flex-none md:border-r md:border-b-0 flex-1 min-h-0 border-b border-gray-800 overflow-auto 
+# src/frontend/src/components/admin/AuditRunsTab.tsx:1266-1267
+md:w-80 md:shrink-0 md:flex-none md:border-r md:border-b-0 flex-1 min-h-0 border-b border-gray-800 overflow-auto 
+# src/frontend/src/components/info_box_scene/LoadedModelsSection.tsx:92-93
+shrink-0 px-1.5 py-0.5 rounded-sm cursor-pointer text-gray-400 hover:text-red-300 hover:bg-gray-700 disabled:opacity-50
+
+# --- Not string literals at all: minified code between two quoted keys.
+# The bundle contains the type guards
+#     ore=n=>"id"in n&&"position"in n&&!("source"in n)&&!("target"in n)
+# and STRING_RE matches the operators BETWEEN the closing quote of one key and
+# the opening quote of the next. Widening the regex to exclude these would cost
+# real coverage; naming them is cheaper and honest. Emitted by the minifier from
+# @xyflow/react's node/edge predicates.
+in n&&!(
+in n)&&!(
