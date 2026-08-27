@@ -2,6 +2,24 @@
 
 
 
+## v0.47.2 (2026-08-27)
+
+### Chore
+
+* chore(ci): gate the committed viewer bundle on where its strings came from (#285)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`a124d40`](https://github.com/Krande/adapy/commit/a124d4049fb75bb4294d3bf41583300a4486cc2e))
+
+* chore: ignore claude (#284) ([`a69cff8`](https://github.com/Krande/adapy/commit/a69cff8791396b5beab21f37d307ca5ab9123b31))
+
+### Fix
+
+* fix: SIN pointer-table truncation, .SIN deep links, and an additive plugin API (1.1.0) (#286)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`b8e4774`](https://github.com/Krande/adapy/commit/b8e477421b6f516f5bba3532ab719e4bd6edc342))
+
+
 ## v0.47.1 (2026-08-27)
 
 ### Chore
