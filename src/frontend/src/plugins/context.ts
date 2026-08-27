@@ -10,6 +10,7 @@ import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
+import type { PluginTheme } from "./registry";
 import {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
@@ -122,7 +123,11 @@ function makeSceneHandle(): SceneHandle {
 /** Build a plugin context bound to a specific plugin id. Stores are the live
  * viewer singletons (via the provider's shape); scope + api are read lazily so
  * the context stays valid across scope switches without rebuilding. */
-export function makePluginContext(pluginId: string, stores: AdaViewerStores): AdaPluginContext {
+export function makePluginContext(
+  pluginId: string,
+  stores: AdaViewerStores,
+  theme?: PluginTheme,
+): AdaPluginContext {
   const log = (level: PluginLogLevel, msg: string, ...args: unknown[]) => {
     const line = `[plugin:${pluginId}] ${msg}`;
     if (level === "error") console.error(line, ...args);
@@ -136,11 +141,16 @@ export function makePluginContext(pluginId: string, stores: AdaViewerStores): Ad
     stores,
     scene: makeSceneHandle(),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
-    // Snapshot the active theme tokens. makePluginContext is rebuilt on every
-    // slot-host render, so a theme switch (which re-renders subscribers) re-reads
-    // the current values; plugin panels that also want live updates can read the
-    // `--ada-*` CSS vars this mirrors.
-    theme: effectivePluginTheme(useThemeStore.getState()),
+    // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
+    // what makes a plugin panel repaint on a theme switch. The fallback is a
+    // snapshot, for the callers that have no React tree to subscribe in — the
+    // sidecar-loader run-point and url-param dispatch below.
+    //
+    // This used to be the snapshot unconditionally, justified by "the slot host
+    // re-renders on a theme switch". It does not: the hosts subscribed to the
+    // viewer stores and the plugin-visibility store, never to the theme, so a
+    // panel kept whatever tokens were current at its last unrelated render.
+    theme: theme ?? effectivePluginTheme(useThemeStore.getState()),
     log,
   };
 }

@@ -59,6 +59,10 @@ export {
   PANEL_CHROME,
   SEMANTIC_TOKENS,
   THEME_PRESETS,
+  // The subscribing counterpart of `effectivePluginTheme`. A shell or panel
+  // that paints from the token OBJECT needs this to repaint on a theme
+  // switch; one that paints from the `--ada-*` CSS variables does not.
+  usePluginTheme,
   useThemeStore,
 } from "@/state/themeStore";
 export type { PanelTheme, ThemePresetId } from "@/state/themeStore";
