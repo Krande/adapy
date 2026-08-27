@@ -41,3 +41,17 @@ src/frontend/public/wasm/
 adacpp-src/
 
 .claude/
+
+# Out-of-tree plugin overlays. A local build can drop extra plugin packages in
+# here and point ADA_PLUGINS_EXTRA at them (src/frontend/scripts/gen-plugin-registry.mjs);
+# those belong to their own repositories and must never be committed to this one.
+# The in-repo plugins are re-included by name, so adding a genuine one here is a
+# one-line change and an overlay is not something `git add -A` can sweep up.
+#
+# NOTE this is a different mitigation from tools/check_bundle_provenance.py, not
+# a substitute for it: in the incident that prompted both, no overlay directory
+# was ever committed — the tracked index.zip was rebuilt around one. This rule
+# would not have caught that.
+src/frontend/packages/plugins/*
+!src/frontend/packages/plugins/demo/
+!src/frontend/packages/plugins/ui-alt/

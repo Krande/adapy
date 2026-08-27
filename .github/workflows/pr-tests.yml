@@ -148,6 +148,59 @@ jobs:
         - name: Run streaming-path tests (ada-cpp backend)
           run: pixi run -e viewer-api-tests-adacpp test-rest-adacpp
 
+    # The committed viewer bundle (src/ada/visit/rendering/resources/index.zip) is a compiled
+    # binary shipped as package data inside every wheel, and it is the one file in the tree that a
+    # text diff cannot show you: a pull request that rebuilt it on a machine with out-of-tree plugin
+    # overlays enabled absorbed the compiled source of packages from other repositories, and the
+    # diff read `Bin 776265 -> 1002877 bytes`. Nobody reviews that.
+    #
+    # This asserts every UI string in the blob traces back to src/frontend. It needs node_modules
+    # for the corpus (vendored strings are legitimately in the bundle and absent from src/), which
+    # is why it installs first and why it is its own job rather than a step bolted onto a pixi one.
+    bundle-provenance:
+        name: Viewer bundle provenance
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            # The scope check below diffs against the PR base, which needs real history.
+            fetch-depth: 0
+
+        # Only the bundle, the frontend sources it is checked against, or the checker itself can
+        # change the answer. Done inline rather than as an `on: pull_request: paths:` filter so the
+        # job always reports a status and can be a required check.
+        - name: Does this PR touch the bundle or its corpus?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if echo "$CHANGED" | grep -qE '^(src/frontend/|src/ada/visit/rendering/resources/index\.zip$|tools/(check_bundle_provenance\.py|bundle_provenance_baseline\.txt)$)'; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "Neither the bundle nor src/frontend changed; nothing to re-verify."
+            fi
+
+        - uses: actions/setup-node@v7
+          if: steps.scope.outputs.run == 'true'
+          with:
+            node-version: '20'   # matches the frontend-build stage of deploy/Dockerfile.viewer
+            cache: npm
+            cache-dependency-path: src/frontend/package-lock.json
+
+        # --ignore-scripts because the corpus only needs the packages' source text on disk; no
+        # postinstall output is read, and skipping them keeps this the cheap job it should be.
+        - name: Install frontend dependencies
+          if: steps.scope.outputs.run == 'true'
+          working-directory: src/frontend
+          run: npm ci --no-audit --no-fund --ignore-scripts
+
+        - name: Check bundle provenance
+          if: steps.scope.outputs.run == 'true'
+          run: python3 tools/check_bundle_provenance.py -v
+
     # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
     # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the
     # viewer runtime ships a CURATED subset of it (see the COPY block in deploy/Dockerfile.viewer),
