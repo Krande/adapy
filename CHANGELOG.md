@@ -2,6 +2,15 @@
 
 
 
+## v0.48.0 (2026-08-28)
+
+### Feature
+
+* feat(plugins): external-model API with a built-in object-store provider (#287)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`daffa10`](https://github.com/Krande/adapy/commit/daffa10c69ba5fc62d50959a5d2fb4b9cde78534))
+
+
 ## v0.47.2 (2026-08-27)
 
 ### Chore
