@@ -2025,6 +2025,39 @@ export const viewerApi = {
     return jsonOrThrow<ConvertResponse>(r, `convertStatus(${jobId})`);
   },
 
+  /** Enqueue an on-demand backend job for a plugin. Generic — core names no
+   *  plugin here; `options` is passed opaquely to the plugin's job_entrypoint.
+   *
+   *  Returns `{job_id, derived_key}` only (NOT a status): poll via
+   *  `convertStatus(job_id)` and, on `done`, read the JSON summary with
+   *  `getBlob(scope, derived_key)`. Core hashes `options` into the job's
+   *  synthetic source key, so an identical repeat request cache-hits a finished
+   *  job — add a `refresh` token to the options to deliberately miss that. */
+  async pluginJob(
+    pluginId: string,
+    body: {
+      options: Record<string, unknown>;
+      derived_key?: string;
+      derived_prefix?: string;
+      capability?: string;
+    },
+    opts?: { scope?: ScopeUrl },
+  ): Promise<{ job_id: string; derived_key: string }> {
+    const base = `${runtime.apiBase()}/plugins/${encodeURIComponent(pluginId)}/jobs`;
+    const url = opts?.scope
+      ? `${base}?scope=${encodeURIComponent(opts.scope)}`
+      : base;
+    const r = await authedFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return jsonOrThrow<{ job_id: string; derived_key: string }>(
+      r,
+      `pluginJob(${pluginId})`,
+    );
+  },
+
   /** Enqueue a worker utility against a loaded scene model. Returns the job
    * (poll via ``convertStatus``; on ``done`` fetch ``derived_key`` for the
    * viewer-ops JSON). Mirrors :func:`convert` but hits the utility endpoint. */
