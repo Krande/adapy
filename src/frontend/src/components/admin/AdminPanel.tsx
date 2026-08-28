@@ -12,6 +12,7 @@ import EquipmentAdminPanel from "./EquipmentAdminPanel";
 import FrontendLoadsTab from "./FrontendLoadsTab";
 import IssueTargetTab from "./IssueTargetTab";
 import PerformanceTab from "./PerformanceTab";
+import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
 import SchedulesTab from "./SchedulesTab";
 import StorageTab from "./StorageTab";
@@ -34,7 +35,7 @@ import WorkersTab from "./WorkersTab";
 
 const VALID_TABS = new Set<AdminTab>([
     "audit", "audit_runs", "schedules", "issues", "performance",
-    "frontend_loads", "corpus", "projects", "storage", "workers", "conversion",
+    "frontend_loads", "corpus", "projects", "external_models", "storage", "workers", "conversion",
     "equipment", "system", "engines",
 ]);
 
@@ -147,6 +148,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
                         Projects
                     </TabButton>
+                    <TabButton active={tab === "external_models"} onClick={() => setTab("external_models")}>
+                        External Models
+                    </TabButton>
                     <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
                         Storage
                     </TabButton>
@@ -197,6 +201,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "frontend_loads" && <FrontendLoadsTab/>}
                 {tab === "corpus" && <CorpusTab/>}
                 {tab === "projects" && <ProjectsTab/>}
+                {tab === "external_models" && <ExternalModelsTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
