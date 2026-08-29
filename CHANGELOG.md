@@ -2,6 +2,15 @@
 
 
 
+## v0.49.0 (2026-08-29)
+
+### Feature
+
+* feat: UI for the external-model API — scope binding and a model list (#288)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`56aac04`](https://github.com/Krande/adapy/commit/56aac0473489ea63fbb87fb4c388c8e08c4742f4))
+
+
 ## v0.48.0 (2026-08-28)
 
 ### Feature
