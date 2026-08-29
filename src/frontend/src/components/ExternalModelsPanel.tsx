@@ -123,8 +123,11 @@ const ExternalModelsPanel: React.FC = () => {
 
     if (!visible) return null;
 
+    // text-gray-100 is not decoration: the panel sets a dark background but
+    // inherited nothing for the foreground, so model names rendered dark on dark
+    // and were effectively invisible.
     return (
-        <div className="absolute top-12 right-2 z-20 w-80 max-h-[70vh] overflow-auto rounded-sm border border-gray-700 bg-gray-900/95 shadow-lg">
+        <div className="absolute top-12 right-2 z-20 w-80 max-h-[70vh] overflow-auto rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 shadow-lg">
             <div className="px-3 py-2 border-b border-gray-700">
                 <div className="text-sm font-medium">External models</div>
                 <div className="text-xs text-gray-400 truncate">
@@ -154,10 +157,10 @@ const ExternalModelsPanel: React.FC = () => {
                     const isLoaded = loaded.has(m.id);
                     return (
                         <li key={m.id} className="flex items-center gap-2 px-3 py-2 border-t border-gray-800">
-                            <span className="flex-1 truncate text-sm" title={m.name}>{m.name}</span>
+                            <span className="flex-1 truncate text-sm text-gray-100" title={m.name}>{m.name}</span>
                             <button
                                 type="button"
-                                className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                className="text-xs px-2 py-1 rounded-sm border border-gray-700 text-gray-200 hover:bg-gray-800 disabled:opacity-50"
                                 disabled={busy === m.id}
                                 onClick={() => (isLoaded ? onUnload(m) : void onLoad(m))}
                             >
