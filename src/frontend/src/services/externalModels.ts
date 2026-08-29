@@ -78,6 +78,22 @@ interface JobOptions {
   refresh?: string;
 }
 
+/** Derived summaries are stored GZIPPED above a size threshold, so a small
+ *  payload arrives as plain JSON and a large one does not. Decoding blindly as
+ *  text works until a catalogue grows — the first big collection fails with
+ *  `Unexpected token '\x1f'`, which reads like a corrupt response rather than a
+ *  compressed one. Sniff the magic number instead of guessing from size. */
+async function decodeSummary(buf: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(buf);
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const stream = new Blob([buf]).stream().pipeThrough(
+      new DecompressionStream("gzip"),
+    );
+    return await new Response(stream).text();
+  }
+  return new TextDecoder().decode(buf);
+}
+
 const POLL_INTERVAL_MS = 800;
 const POLL_TIMEOUT_MS = 60_000;
 
@@ -123,7 +139,7 @@ async function runAction<T>(
   // derived_key too, but the enqueue's is the one core wrote the options hash
   // into, so it is the authoritative one for a cache-hit.
   const buf = await viewerApi.getBlob(scope, derived_key);
-  const text = new TextDecoder().decode(buf);
+  const text = await decodeSummary(buf);
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -204,6 +220,11 @@ export async function modelUrl(
       collection,
       model_id: modelId,
       expires_in_seconds: opts?.expiresInSeconds,
+      // ALWAYS bust the cache. The result is a short-lived signed URL, so a
+      // cache hit returns one minted for an earlier request — which the store
+      // then rejects as expired. Unlike the listing actions this is never
+      // cacheable, so the token is unconditional rather than a caller's choice.
+      refresh: catalogueNonce(),
     },
     scope,
     opts?.signal,
