@@ -75,6 +75,15 @@ class ExternalModelCatalog(Protocol):
 
     def model_download_url(self, collection: str, model_id: str, *, expires_in_seconds: int = 900) -> str: ...
 
+    # OPTIONAL, and intentionally not part of the Protocol's required surface: a
+    # provider whose download URL carries its own signature needs nothing here,
+    # while one whose fetch must be authenticated (a direct-read client against a
+    # vendor API, say) returns the headers the browser should send. Absent means
+    # "no headers", so an object-store provider implements nothing.
+    #
+    # Resolved with getattr at the call site rather than declared here, so a
+    # provider written before this existed keeps satisfying the Protocol.
+
 
 def _model_name(key: str) -> str:
     base = key.rsplit("/", 1)[-1]

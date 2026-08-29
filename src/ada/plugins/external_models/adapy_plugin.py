@@ -114,13 +114,23 @@ def run_job(
         raise ValueError("action 'model_url' requires a 'model_id' option")
     expires = int(options.get("expires_in_seconds") or 900)
     url = cat.model_download_url(collection, model_id, expires_in_seconds=expires)
+
+    # A provider whose URL carries its own signature needs no headers; one whose
+    # fetch must be authenticated returns them. getattr rather than a required
+    # Protocol method, so a provider written before this keeps working.
+    headers: dict[str, str] = {}
+    getter = getattr(cat, "model_download_headers", None)
+    if callable(getter):
+        headers = dict(getter(collection, model_id) or {})
+
     _progress(action, 0.9)
-    # The URL is presigned and short-lived; it is the payload, so it necessarily
-    # reaches the browser. Never logged.
+    # URL and headers are short-lived credentials; they are the payload, so they
+    # necessarily reach the browser. Never logged.
     return {
         "action": action,
         "provider": provider,
         "collection": collection,
         "model_id": model_id,
         "url": url,
+        "headers": headers,
     }

@@ -76,10 +76,16 @@ const ExternalModelsPanel: React.FC = () => {
             setBusy(m.id);
             setError(null);
             try {
-                const url = await modelUrl(binding.provider, binding.collection, m.id, scope);
+                const {url, headers} = await modelUrl(
+                    binding.provider, binding.collection, m.id, scope,
+                );
                 const ctx = makePluginContextStandalone(OWNER);
                 await ctx.scene.loadModelFromUrl(OWNER, url, {
                     sourceName: sourceNameFor(m),
+                    // Empty for a presigned URL; populated for a provider whose
+                    // fetch must be authenticated. Passing them through means the
+                    // panel works for both without branching on provider.
+                    headers: Object.keys(headers).length ? headers : undefined,
                     // Third-party glTF follows the spec's Y-up convention while
                     // this viewer's world is Z-up, and the convention is baked
                     // into the vertex data with no node transform to detect it,

@@ -183,8 +183,8 @@ export async function modelUrl(
   modelId: string,
   scope: ScopeUrl,
   opts?: { expiresInSeconds?: number; signal?: AbortSignal },
-): Promise<string> {
-  const out = await runAction<{ url: string }>(
+): Promise<{ url: string; headers: Record<string, string> }> {
+  const out = await runAction<{ url: string; headers?: Record<string, string> }>(
     {
       action: "model_url",
       provider,
@@ -196,7 +196,10 @@ export async function modelUrl(
     opts?.signal,
   );
   if (!out.url) throw new ExternalModelsError("provider returned no url");
-  return out.url;
+  // Headers are empty for a provider whose URL carries its own signature, and
+  // populated for one whose fetch must be authenticated. Returning them beside
+  // the URL is what lets a single call site serve both without knowing which.
+  return { url: out.url, headers: out.headers ?? {} };
 }
 
 // --- scope binding ----------------------------------------------------------
