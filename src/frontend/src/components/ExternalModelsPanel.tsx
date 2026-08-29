@@ -6,6 +6,7 @@ import {useExternalModelsStore} from "@/state/externalModelsStore";
 import {
     ExternalModel,
     bindingFor,
+    catalogueNonce,
     listModels,
     loadBindingMap,
     modelUrl,
@@ -48,7 +49,13 @@ const ExternalModelsPanel: React.FC = () => {
                 if (cancelled) return;
                 setBinding(b);
                 if (!b) return;
-                const ms = await listModels(b.provider, b.collection, scope, {signal: abort.signal});
+                // Fresh each time the panel opens or the scope changes: core
+                // caches an identical request indefinitely, so without this the
+                // list could never reflect a changed catalogue.
+                const ms = await listModels(b.provider, b.collection, scope, {
+                    signal: abort.signal,
+                    refresh: catalogueNonce(),
+                });
                 if (!cancelled) setModels(ms);
             } catch (e) {
                 // The provider's own message is passed through: a refusal here

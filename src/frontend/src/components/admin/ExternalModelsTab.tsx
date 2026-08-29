@@ -4,6 +4,7 @@ import {AdminProject, viewerApi} from "@/services/viewerApi";
 import {
     ExternalCollection,
     ExternalModelProvider,
+    catalogueNonce,
     listCollections,
     listProviders,
 } from "@/services/externalModels";
@@ -52,6 +53,10 @@ const ExternalModelsTab: React.FC = () => {
     // would write an incomplete binding, which `setBinding` correctly treats as
     // "unbind", so the control snapped straight back to none.
     const [pendingProvider, setPendingProvider] = useState<Record<string, string>>({});
+    // Cache-busting token, refreshed on mount and on demand. Without it the
+    // catalogue reads cache-hit forever and this tab cannot show a deployment
+    // whose provider configuration changed after the first ever read.
+    const [nonce, setNonce] = useState(catalogueNonce);
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
@@ -59,7 +64,9 @@ const ExternalModelsTab: React.FC = () => {
         setError(null);
         try {
             const [provs, projs, raw] = await Promise.all([
-                listProviders(CATALOGUE_SCOPE).catch(() => [] as ExternalModelProvider[]),
+                listProviders(CATALOGUE_SCOPE, {refresh: nonce}).catch(
+                    () => [] as ExternalModelProvider[],
+                ),
                 viewerApi.adminListProjects().catch(() => [] as AdminProject[]),
                 viewerApi.getPublicSetting(EXTERNAL_MODELS_BINDING_KEY).catch(() => null),
             ]);
@@ -80,7 +87,7 @@ const ExternalModelsTab: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [nonce]);
 
     useEffect(() => {
         void refresh();
@@ -90,14 +97,14 @@ const ExternalModelsTab: React.FC = () => {
         async (provider: string) => {
             if (!provider || collections[provider]) return;
             try {
-                const cols = await listCollections(provider, CATALOGUE_SCOPE);
+                const cols = await listCollections(provider, CATALOGUE_SCOPE, {refresh: nonce});
                 setCollections((prev) => ({...prev, [provider]: cols}));
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
                 setCollections((prev) => ({...prev, [provider]: []}));
             }
         },
-        [collections],
+        [collections, nonce],
     );
 
     const rows: ScopeRow[] = useMemo(() => {
@@ -147,9 +154,23 @@ const ExternalModelsTab: React.FC = () => {
         <div className="h-full overflow-auto">
             <div className="px-3 py-3 border-b border-gray-700 space-y-1">
                 <div className="text-sm font-medium">External model bindings</div>
-                <div className="text-xs text-gray-400">
-                    A scope with a binding gets an external-model list in the viewer. An unbound
-                    scope sees no change.
+                <div className="flex items-center gap-2">
+                    <div className="text-xs text-gray-400 flex-1">
+                        A scope with a binding gets an external-model list in the viewer. An unbound
+                        scope sees no change.
+                    </div>
+                    <button
+                        type="button"
+                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800"
+                        onClick={() => {
+                            // New token AND drop the collection cache: both are
+                            // keyed on the old one.
+                            setCollections({});
+                            setNonce(catalogueNonce());
+                        }}
+                    >
+                        Refresh
+                    </button>
                 </div>
             </div>
 

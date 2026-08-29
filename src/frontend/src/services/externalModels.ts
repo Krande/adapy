@@ -138,14 +138,27 @@ async function runAction<T>(
  *  is present is a deployment choice. */
 export async function listProviders(
   scope: ScopeUrl,
-  signal?: AbortSignal,
+  opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalModelProvider[]> {
   const out = await runAction<{ providers: ExternalModelProvider[] }>(
-    { action: "list_providers" },
+    { action: "list_providers", refresh: opts?.refresh },
     scope,
-    signal,
+    opts?.signal,
   );
   return out.providers ?? [];
+}
+
+/** A cache-busting token for one read of the catalogue.
+ *
+ *  Core hashes a job's `options` into its source key, so an identical request
+ *  cache-hits a finished job FOREVER — which means a UI that never varies its
+ *  options can never observe a configuration change. A deployment switched from
+ *  the stub to a real bucket kept serving the stub's fixtures indefinitely.
+ *
+ *  One token per mount (or per explicit refresh), reused across that view's
+ *  calls: fresh data when a view opens, and the cache still absorbs re-renders. */
+export function catalogueNonce(): string {
+  return Date.now().toString(36);
 }
 
 export async function listCollections(
