@@ -376,9 +376,13 @@ const basename = (key: string) => key.split("/").pop() ?? key;
 // Conversion rows WITHOUT an outer box — the top (newest) job plus a "+N"
 // expansion for the rest. Composed inside UnifiedToast so conversion and
 // scene-load share one toast box.
+/** A job plus the key it is stored under. The two differ (`sourceKey` vs
+ *  `${sourceKey}::${target}`) and only the latter can address the entry. */
+type ToastJob = ConversionJob & {storeKey: string};
+
 const ConversionRows: React.FC<{
-    jobs: ConversionJob[];
-    onClearJob: (sourceKey: string) => void;
+    jobs: ToastJob[];
+    onClearJob: (storeKey: string) => void;
 }> = ({jobs, onClearJob}) => {
     const [expanded, setExpanded] = useState(false);
     if (jobs.length === 0) return null;
@@ -393,7 +397,7 @@ const ConversionRows: React.FC<{
         <div className="space-y-1">
             <JobRow
                 job={top}
-                onCancel={() => onClearJob(top.sourceKey)}
+                onCancel={() => onClearJob(top.storeKey)}
                 showCancel={true}
             />
             {extras.length > 0 && (
@@ -422,7 +426,7 @@ const ConversionRows: React.FC<{
                                 >
                                     <JobRow
                                         job={j}
-                                        onCancel={() => onClearJob(j.sourceKey)}
+                                        onCancel={() => onClearJob(j.storeKey)}
                                         showCancel={true}
                                     />
                                 </div>
@@ -479,8 +483,8 @@ const LoadRow: React.FC<{name: string; job?: ConversionJob}> = ({name, job}) => 
 // second LoadQueueToast box) makes the "Loading" counter replace the
 // conversion counter in place instead of popping a separate toast.
 const UnifiedToast: React.FC<{
-    conversionJobs: ConversionJob[];
-    onClearJob: (sourceKey: string) => void;
+    conversionJobs: ToastJob[];
+    onClearJob: (storeKey: string) => void;
     loadName: string | null;
     loadJob?: ConversionJob;
     loadQueued: LoadTask[];
@@ -691,19 +695,26 @@ const ConversionProgress = () => {
     // traceback + copy button is reachable. Excluded from the conversion rows:
     // (a) the conversion/bake job driving the current scene load, and (b) the
     // model-load GLB-download job — both surface on the single load row.
+    // `storeKey` is carried, not dropped. The store is keyed by
+    // `${sourceKey}::${target}` (see serverPipeline / useRestoreInflightJobs) and
+    // `job.sourceKey` is the bare key — so dismissing by sourceKey deletes
+    // nothing and the toast stays on screen forever, which is exactly what it
+    // did. The key that addresses the entry has to reach the button.
     const inProgress = Object.entries(jobs)
         .filter(([k, j]) =>
             (j.status === "queued" || j.status === "running") &&
             k !== MODEL_LOAD_KEY &&
             !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
-        .map(([, j]) => j);
+        .map(([k, j]) => ({...j, storeKey: k}));
     // Load-row progress: the conversion/bake job still feeding the load if one is
     // running, else the GLB download job — so the bar runs queue→convert→upload→load.
     const loadJob =
         (loadCurrentName
             ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
             : undefined) ?? (modelLoadActive ? modelLoadJob : undefined);
-    const errored = Object.values(jobs).filter((j) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY);
+    const errored = Object.entries(jobs)
+        .filter(([, j]) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY)
+        .map(([k, j]) => ({...j, storeKey: k}));
     const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);
 
@@ -753,7 +764,7 @@ const ConversionProgress = () => {
             />
             {errored.map((job) => (
                 <div
-                    key={job.sourceKey}
+                    key={job.storeKey}
                     className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
                 >
                     <div className="flex justify-between items-center mb-1">
@@ -765,7 +776,7 @@ const ConversionProgress = () => {
                     <ErrorRow
                         sourceKey={job.sourceKey}
                         message={job.error || "(no error message)"}
-                        onClear={() => clearJob(job.sourceKey)}
+                        onClear={() => clearJob(job.storeKey)}
                     />
                 </div>
             ))}
