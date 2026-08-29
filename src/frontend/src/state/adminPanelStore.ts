@@ -11,6 +11,7 @@ export type AdminTab =
     | "frontend_loads"
     | "corpus"
     | "projects"
+    | "external_models"
     | "storage"
     | "workers"
     | "conversion"
