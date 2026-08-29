@@ -47,6 +47,11 @@ const ExternalModelsTab: React.FC = () => {
     const [collections, setCollections] = useState<Record<string, ExternalCollection[]>>({});
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState<string | null>(null);
+    // Provider chosen for a scope but not yet persisted, because a binding needs
+    // BOTH halves. Without this the provider <select> appears dead: choosing one
+    // would write an incomplete binding, which `setBinding` correctly treats as
+    // "unbind", so the control snapped straight back to none.
+    const [pendingProvider, setPendingProvider] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
@@ -163,7 +168,9 @@ const ExternalModelsTab: React.FC = () => {
                 <tbody>
                 {rows.map((row) => {
                     const bound = bindingFor(map, row.scope);
-                    const provider = bound?.provider ?? "";
+                    // A persisted binding wins; otherwise show what the operator
+                    // just picked and has not finished.
+                    const provider = bound?.provider ?? pendingProvider[row.scope] ?? "";
                     const collection = bound?.collection ?? "";
                     const known = collections[provider] ?? [];
                     // A binding whose collection is no longer listed still
@@ -186,11 +193,16 @@ const ExternalModelsTab: React.FC = () => {
                                     onFocus={() => void loadCollections(provider)}
                                     onChange={(e) => {
                                         const p = e.target.value;
+                                        setPendingProvider((prev) => ({...prev, [row.scope]: p}));
                                         void loadCollections(p);
-                                        // Changing provider clears the collection:
-                                        // a collection id is only meaningful within
-                                        // the provider it came from.
-                                        void setBinding(row.scope, p, "");
+                                        // Only touch storage when the scope was
+                                        // already bound: switching provider
+                                        // invalidates the old collection (an id is
+                                        // only meaningful within its provider), and
+                                        // clearing to none means unbind. Choosing a
+                                        // provider for an UNBOUND scope writes
+                                        // nothing until a collection follows.
+                                        if (bound) void setBinding(row.scope, "", "");
                                     }}
                                 >
                                     <option value="">— none —</option>
@@ -206,6 +218,7 @@ const ExternalModelsTab: React.FC = () => {
                                     disabled={!provider || busy === row.scope}
                                     onFocus={() => void loadCollections(provider)}
                                     onChange={(e) => void setBinding(row.scope, provider, e.target.value)}
+                                    title={provider ? undefined : "Choose a provider first"}
                                 >
                                     <option value="">— none —</option>
                                     {missing && (
