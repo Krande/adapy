@@ -44,6 +44,16 @@ __all__ = [
 # bucket" — otherwise a stray README.md shows up in the dropdown as a model.
 MODEL_SUFFIXES = (".glb", ".gltf")
 
+# Optional per-collection sidecar mapping model id -> display label, so a
+# catalogue can show a meaningful name where the object key is an opaque
+# identifier (an E3D ref, say). One GET per listing regardless of model count,
+# which is why it is a single file rather than per-object metadata: S3 listings
+# do not carry user metadata, so that shape would cost one HEAD per model.
+#
+# Absent, unreadable or malformed is NOT an error -- every model simply falls
+# back to its filename, which is what an unlabelled collection should look like.
+LABELS_FILENAME = "_labels.json"
+
 
 @dataclass(frozen=True)
 class Collection:
@@ -62,6 +72,10 @@ class ExternalModel:
     collection: str
     key: str
     size: int | None = None
+    # True when `name` came from the collection's label manifest rather than
+    # from the filename. Lets a UI show that a name is curated instead of
+    # derived, and lets a scan job find what is still unlabelled.
+    labelled: bool = False
 
 
 @runtime_checkable
@@ -203,10 +217,35 @@ class S3ExternalModelCatalog:
                 seen.add(head)
         return [Collection(id=c, name=c) for c in sorted(seen)]
 
+    def _labels(self, collection: str) -> dict[str, str]:
+        """The collection's id -> label map, or empty.
+
+        Every failure mode here is deliberately silent: a collection with no
+        manifest is the normal case, and a malformed one should degrade to
+        filenames rather than break the listing it decorates.
+        """
+        import json
+
+        import obstore as obs
+
+        try:
+            raw = obs.get(self._store, f"{collection}/{LABELS_FILENAME}").bytes()
+        except Exception:
+            return {}
+        try:
+            parsed = json.loads(bytes(raw).decode("utf-8"))
+        except Exception:
+            logger.warning("external-models: %s/%s is not valid JSON", collection, LABELS_FILENAME)
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {str(k): str(v) for k, v in parsed.items() if isinstance(v, (str, int, float))}
+
     def list_models(self, collection: str) -> list[ExternalModel]:
         collection = collection.strip("/")
         if not collection:
             return []
+        labels = self._labels(collection)
         models: list[ExternalModel] = []
         for key in self._list_keys(f"{collection}/"):
             rest = key[len(collection) + 1 :]
@@ -214,14 +253,19 @@ class S3ExternalModelCatalog:
             # collection. Ignoring it beats flattening it into a bogus name.
             if "/" in rest:
                 continue
-            if not rest.lower().endswith(MODEL_SUFFIXES):
+            if rest == LABELS_FILENAME or not rest.lower().endswith(MODEL_SUFFIXES):
                 continue
+            model_id = _model_name(rest)
+            label = labels.get(model_id)
             models.append(
                 ExternalModel(
-                    id=_model_name(rest),
-                    name=_model_name(rest),
+                    id=model_id,
+                    # The id stays the filename-derived value: it addresses the
+                    # object and must not move when someone edits a label.
+                    name=label or model_id,
                     collection=collection,
                     key=key,
+                    labelled=label is not None,
                 )
             )
         return sorted(models, key=lambda m: m.name)
