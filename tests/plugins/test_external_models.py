@@ -342,3 +342,63 @@ def test_the_manifest_is_not_itself_listed_as_a_model():
     # unloadable entry named after the file.
     cat = _LabelledS3([f"plant/{LABELS_FILENAME}", "plant/a.glb"], {})
     assert [m.id for m in cat.list_models("plant")] == ["a"]
+
+
+# --- upload: a provider opts in by implementing it --------------------------
+
+
+def test_a_read_only_provider_offers_no_upload_and_says_which():
+    """The stub publishes nothing, so it implements nothing.
+
+    The refusal names the provider rather than saying "unsupported", because
+    the useful fact is WHICH catalogue declined.
+    """
+    cat = StubExternalModelCatalog()
+    out = run_job({"action": "list_models", "collection": "demo"}, catalog=cat)
+    assert out["can_upload"] is False
+    with pytest.raises(ValueError, match="does not accept uploads"):
+        run_job(
+            {"action": "model_upload_url", "collection": "demo", "model_id": "x.glb"},
+            catalog=cat,
+        )
+
+
+def test_an_object_store_declares_upload_by_implementing_it():
+    # Asked through `list_collections`, which the fake answers from its own key
+    # list — `list_models` reaches for the labels object and so wants obstore,
+    # which this fixture deliberately does without.
+    cat = _FakeS3(["demo/a.glb"])
+    out = run_job({"action": "list_collections"}, catalog=cat)
+    assert out["can_upload"] is True
+
+
+def test_the_upload_key_is_derived_never_taken_from_the_caller():
+    """A presigned URL grants exactly the write it names.
+
+    So the key is built from (collection, model_id) here. Accepting one would
+    let a request choose where its bytes land — over another collection's
+    model, or outside the two-level layout this catalogue promises.
+    """
+    cat = _FakeS3([])
+    assert cat._upload_key("plant-a", "unit-a.glb") == "plant-a/unit-a.glb"
+    for bad in ["../escape.glb", "nested/deep.glb", ".hidden.glb", "", "notamodel.txt"]:
+        with pytest.raises(ValueError):
+            cat._upload_key("plant-a", bad)
+    with pytest.raises(ValueError, match="one path segment"):
+        cat._upload_key("plant-a/sneaky", "a.glb")
+
+
+def test_the_store_asks_for_gzip_and_a_type_together():
+    """The pair is inseparable on purpose.
+
+    Gzipped bytes stored without `Content-Encoding` reach the viewer as gzip
+    where it expects glTF and fail as a JSON parse error naming neither the
+    file nor compression. This catalogue was found with exactly one object in
+    that state out of forty, so an uploader that obeys these headers cannot
+    store one without the other.
+    """
+    cat = _FakeS3([])
+    glb = cat.model_upload_headers("plant-a", "unit-a.glb")
+    assert glb["Content-Encoding"] == "gzip"
+    assert glb["Content-Type"] == "model/gltf-binary"
+    assert cat.model_upload_headers("plant-a", "scene.gltf")["Content-Type"] == "model/gltf+json"
