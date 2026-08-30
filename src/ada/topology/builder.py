@@ -64,9 +64,7 @@ class TopologyBuilder:
             a.ifc_store.sync()
         return a.show(stream_from_ifc_store=stream_from_ifc_store)
 
-    def show_output_model(
-        self, output_glb: str | pathlib.Path | None = None, stream_from_ifc_store: bool = False
-    ):
+    def show_output_model(self, output_glb: str | pathlib.Path | None = None, stream_from_ifc_store: bool = False):
         """Show the built model, optionally writing the GLB to ``output_glb``.
 
         The parameter names what it does rather than who consumes it: this
