@@ -2,6 +2,13 @@
 
 
 
+## v0.51.2 (2026-08-30)
+
+### Fix
+
+* fix(queue): write the audit row before a worker can see the job (#296) ([`63c62bc`](https://github.com/Krande/adapy/commit/63c62bca7586b0b97872099b40f508b7034d4988))
+
+
 ## v0.51.1 (2026-08-30)
 
 ### Fix
