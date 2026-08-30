@@ -19,7 +19,7 @@
 // before auth is ready — guarded by the scope's truthiness.
 
 import {useEffect} from "react";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, ApiError} from "@/services/viewerApi";
 import {useConversionStore} from "@/state/conversionStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
@@ -30,6 +30,7 @@ const MAX_POLL_ATTEMPTS = 60 * 30; // ~45 min ceiling, generous for big bakes.
 async function pollUntilTerminal(
     jobId: string,
     storeKey: string,
+    scopeUrl: string,
     signal: {aborted: boolean},
 ): Promise<void> {
     const store = useConversionStore.getState();
@@ -55,9 +56,35 @@ async function pollUntilTerminal(
                 status.status === "cancelled"
             ) return;
         } catch (err) {
-            // Network blip — log and keep polling; the next tick
-            // typically succeeds. Don't poison the toast with a
-            // false error state.
+            // A 404 is not a blip: the job is GONE server-side. Its status
+            // row lives in the queue's KV, which expires, while the audit row
+            // that /my-jobs reads does not -- so a job whose KV entry aged out
+            // (or was never written) leaves an audit row stuck at `queued`
+            // forever. Treating that as a blip polls it for the full
+            // MAX_POLL_ATTEMPTS ceiling and the toast never resolves; worse,
+            // the row survives reload, so it comes back on every refresh.
+            // Mark it terminal here and cancel the row, exactly as the wasm-
+            // branch below does for its own orphans.
+            if (err instanceof ApiError && err.status === 404) {
+                const prev = useConversionStore.getState().jobs[storeKey];
+                if (prev) {
+                    store.setJob(storeKey, {
+                        ...prev,
+                        status: "cancelled",
+                        error: "job is no longer known to the server",
+                    });
+                }
+                void viewerApi
+                    .auditLocalUpdate(scopeUrl, jobId, {
+                        status: "cancelled",
+                        error: "job no longer known to the server",
+                    })
+                    .catch(() => {});
+                return;
+            }
+            // Anything else is a genuine blip — log and keep polling; the next
+            // tick typically succeeds. Don't poison the toast with a false
+            // error state.
             // eslint-disable-next-line no-console
             console.warn(`[restore-jobs] poll ${jobId} blip`, err);
         }
@@ -136,7 +163,7 @@ export function useRestoreInflightJobs(): void {
                     error: j.error,
                     startedAt: Date.now(),
                 });
-                void pollUntilTerminal(j.job_id, storeKey, cancel);
+                void pollUntilTerminal(j.job_id, storeKey, scopeUrl, cancel);
             }
         })();
 
