@@ -18,6 +18,7 @@ from ada.plugins.external_models import (
 )
 from ada.plugins.external_models.adapy_plugin import run_job
 from ada.plugins.external_models.catalog import (
+    LABELS_FILENAME,
     Collection,
     ExternalModel,
     ExternalModelCatalog,
@@ -291,3 +292,54 @@ def test_run_job_defaults_to_the_demo_provider():
     register()
     out = run_job({"action": "list_collections"})
     assert out["provider"] == DEMO_PROVIDER_ID
+
+
+# --- label manifest -----------------------------------------------------------
+
+
+class _LabelledS3(S3ExternalModelCatalog):
+    """Exercises the label path without obstore or a bucket."""
+
+    def __init__(self, keys, labels=None):
+        self._keys = keys
+        self._labels_data = labels
+
+    def _list_keys(self, prefix: str = "") -> list[str]:
+        return [k for k in self._keys if k.startswith(prefix)]
+
+    def _labels(self, collection: str):
+        return self._labels_data or {}
+
+
+def test_label_from_the_manifest_replaces_the_displayed_name():
+    cat = _LabelledS3(["plant/$X100-PIPE.glb"], {"$X100-PIPE": "X100 Piping"})
+    m = cat.list_models("plant")[0]
+    assert m.name == "X100 Piping"
+    assert m.labelled is True
+    # The id must NOT move: it addresses the object, so a renamed label would
+    # otherwise break every existing binding and load.
+    assert m.id == "$X100-PIPE"
+    assert m.key == "plant/$X100-PIPE.glb"
+
+
+def test_unlabelled_model_falls_back_to_its_filename():
+    cat = _LabelledS3(["plant/$X100-PIPE.glb"], {})
+    m = cat.list_models("plant")[0]
+    assert m.name == "$X100-PIPE"
+    assert m.labelled is False
+
+
+def test_partial_manifest_labels_only_what_it_names():
+    cat = _LabelledS3(
+        ["plant/a.glb", "plant/b.glb"],
+        {"a": "Alpha"},
+    )
+    got = {m.id: (m.name, m.labelled) for m in cat.list_models("plant")}
+    assert got == {"a": ("Alpha", True), "b": ("b", False)}
+
+
+def test_the_manifest_is_not_itself_listed_as_a_model():
+    # It lives beside the models and is not one; listing it would offer an
+    # unloadable entry named after the file.
+    cat = _LabelledS3([f"plant/{LABELS_FILENAME}", "plant/a.glb"], {})
+    assert [m.id for m in cat.list_models("plant")] == ["a"]

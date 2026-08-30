@@ -194,6 +194,14 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- include "adapy-viewer.databaseEnv" $ctx | nindent 12 }}
+          {{- /* Whole-secret env for a pool, for values that must not appear in
+               a values file: credentials for a bucket the worker reads that is
+               NOT the viewer's own storage. Keys are used verbatim, so the
+               secret must already name them as the variables the code reads. */}}
+          {{- with $w.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if eq $ctx.Values.storage.kind "local" }}
           volumeMounts:
             - name: data

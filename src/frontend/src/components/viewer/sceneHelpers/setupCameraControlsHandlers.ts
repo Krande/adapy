@@ -13,6 +13,7 @@ import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_v
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
+import {useModelState} from "@/state/modelState";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -145,7 +146,21 @@ export function setupCameraControlsHandlers(
 
     window.addEventListener("keydown", handleKeyDown);
 
+    // An emptied scene returns the camera to its starting pose. Subscribed to
+    // the model state rather than hooked into the unload handlers because there
+    // are several ways to unload -- the Scene panel's x, a plugin's
+    // `ctx.scene.unloadModel`, a scene-wide clear -- and this is the one place
+    // that sees all of them. Only the transition INTO empty resets, so a user
+    // who framed a detail and unloaded nothing keeps their view.
+    let wasLoaded = useModelState.getState().loadedSourceNames.size > 0;
+    const unsubscribeLoaded = useModelState.subscribe((state) => {
+        const isLoaded = state.loadedSourceNames.size > 0;
+        if (wasLoaded && !isLoaded) resetCameraHome(camera, controls);
+        wasLoaded = isLoaded;
+    });
+
     return () => {
+        unsubscribeLoaded();
         window.removeEventListener("keydown", handleKeyDown);
         if (scopeEl) {
             if (onEnter) scopeEl.removeEventListener("mouseenter", onEnter);
@@ -203,6 +218,49 @@ export const frameBox = (
         controls.setLookAt(newPosition.x, newPosition.y, newPosition.z, center.x, center.y, center.z, true);
         camera.updateProjectionMatrix();
     }
+};
+
+/** The pose `setupCamera` starts every viewer at, and the clipping it starts
+ *  with. Kept here beside the code that overwrites them. */
+const HOME_POSITION = new THREE.Vector3(-5, 5, 5);
+const HOME_TARGET = new THREE.Vector3(0, 0, 0);
+const HOME_NEAR = 0.1;
+const HOME_FAR = 10000;
+
+/** Put the camera back where the viewer started.
+ *
+ * WHY THIS IS NEEDED AT ALL. `zoomToAll` returns early on a scene with no
+ * meshes -- correctly, since there is nothing to frame -- so unloading the last
+ * model leaves the camera wherever the user had dragged it, and "fit all" then
+ * does nothing because there is still nothing to fit. The viewer is empty and
+ * unrecoverable except by reloading the page.
+ *
+ * NEAR AND FAR ARE RESET TOO, and that is the part that is easy to miss.
+ * `applyAdaptiveClipping` scales them to the model being framed, so after a
+ * large model they are left wide -- and the next small model loads clipped into
+ * invisibility, which reads as "the load failed" rather than "the clipping is
+ * stale". Position without clipping would be a half reset. */
+export const resetCameraHome = (
+    camera: THREE.PerspectiveCamera,
+    controls: OrbitControls | CameraControls,
+) => {
+    camera.near = HOME_NEAR;
+    camera.far = HOME_FAR;
+    camera.position.copy(HOME_POSITION);
+    camera.updateProjectionMatrix();
+    if (controls instanceof CameraControls) {
+        // setLookAt with no transition already applies the pose; CameraControls'
+        // own update() takes a frame delta and is driven by the render loop.
+        void controls.setLookAt(
+            HOME_POSITION.x, HOME_POSITION.y, HOME_POSITION.z,
+            HOME_TARGET.x, HOME_TARGET.y, HOME_TARGET.z,
+            false,
+        );
+    } else {
+        controls.target.copy(HOME_TARGET);
+        controls.update();
+    }
+    requestRender();
 };
 
 export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
