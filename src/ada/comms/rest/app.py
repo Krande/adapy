@@ -2898,6 +2898,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             derived_key=derived_key,
             target_capability=target_capability,
+            # Hold the publish until the audit row exists. A plugin_job is short
+            # (tens of ms — often just the cached-blob short circuit), which is
+            # well inside the time this handler takes to get its INSERT in, and
+            # the worker's terminal write is UPDATE ... WHERE job_id with no
+            # upsert. Publishing first is what strands a row at "queued" with no
+            # message and no KV entry left to recover it from.
+            publish=False,
         )
         # Register as a first-class audit task (row keyed by job_id). Without this
         # the worker's mark_audit_running/_audit_done no-op, /my-jobs shows nothing,
@@ -2913,6 +2920,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="queued",
             job_id=job.job_id,
         )
+        await queue.publish(job)
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
     # Settings whose key begins with this prefix are readable by ANY
