@@ -30,12 +30,15 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-race
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from ada.comms.rest import db as db_module  # noqa: E402
 from ada.comms.rest import worker as worker_module  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 from ada.comms.rest.queue import JobQueue  # noqa: E402
-
 
 # ---------------------------------------------------------------- fake DB ---
 #
