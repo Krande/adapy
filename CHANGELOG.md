@@ -2,6 +2,13 @@
 
 
 
+## v0.51.1 (2026-08-30)
+
+### Fix
+
+* fix(restore-jobs): end the poll when the server no longer knows the job (#295) ([`be9fdaf`](https://github.com/Krande/adapy/commit/be9fdaf93aef6509cd569373458ffb5cb9db2873))
+
+
 ## v0.51.0 (2026-08-30)
 
 ### Feature
