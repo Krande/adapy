@@ -223,12 +223,19 @@ class S3ExternalModelCatalog:
         Every failure mode here is deliberately silent: a collection with no
         manifest is the normal case, and a malformed one should degrade to
         filenames rather than break the listing it decorates.
+
+        THE IMPORT IS INSIDE THE TRY for that reason. Left outside it, an
+        environment without obstore raised straight through `list_models` --
+        which is a listing failing because its DECORATION is unavailable, and
+        the opposite of what this docstring promises. It also broke the test
+        fake, which overrides `_list_keys` precisely so it can exercise the
+        key-walking without a bucket or the dependency.
         """
         import json
 
-        import obstore as obs
-
         try:
+            import obstore as obs
+
             raw = obs.get(self._store, f"{collection}/{LABELS_FILENAME}").bytes()
         except Exception:
             return {}

@@ -331,7 +331,8 @@ def test_unlabelled_model_falls_back_to_its_filename():
 
 def test_partial_manifest_labels_only_what_it_names():
     cat = _LabelledS3(
-        ["plant/a.glb", "plant/b.glb"], {"a": "Alpha"},
+        ["plant/a.glb", "plant/b.glb"],
+        {"a": "Alpha"},
     )
     got = {m.id: (m.name, m.labelled) for m in cat.list_models("plant")}
     assert got == {"a": ("Alpha", True), "b": ("b", False)}
