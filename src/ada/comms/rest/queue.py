@@ -267,6 +267,7 @@ class JobQueue:
         derived_key: str | None = None,
         target_capability: str | None = None,
         force_rebuild: bool = False,
+        publish: bool = True,
     ) -> Job:
         # ``derived_key`` lets callers pin an explicit produced-blob
         # path. The convert flow leaves it None and lets
@@ -322,10 +323,29 @@ class JobQueue:
         # (component_build) lost the record and the worker saw the
         # job_id from NATS but couldn't look it up.
         await self._put(job)
-        cap = (target_capability or self.DEFAULT_CAPABILITY).strip().lower()
+        # ``publish=False`` hands the caller the persisted Job without letting a
+        # worker see it yet, so the caller can write its audit row first.
+        if publish:
+            await self.publish(job)
+        return job
+
+    async def publish(self, job: Job) -> None:
+        """Hand an already-persisted job to its pool's subject.
+
+        Split out of :meth:`enqueue` so a caller that ALSO records the job in
+        Postgres can insert that row BEFORE any worker can see the message. The
+        worker's audit writes are ``UPDATE audit_log ... WHERE job_id = $1``
+        (:func:`db.mark_audit_running`, :func:`db.update_audit_by_job`) with no
+        upsert — they silently affect zero rows when the row is not there yet.
+        A job the worker finishes in tens of milliseconds (a ``plugin_job``, or
+        anything hitting the cached-derived-blob short circuit) can outrun the
+        API's INSERT, and the row is then created as ``queued`` and stays there
+        forever: no message left in the work queue, and the KV entry gone once
+        the terminal-status cleanup sweep runs.
+        """
+        cap = (job.target_capability or self.DEFAULT_CAPABILITY).strip().lower()
         subject = f"{self._cfg.subject}.{cap}"
         await self._js.publish(subject, job.job_id.encode("utf-8"))
-        return job
 
     async def _capability_for_ext(self, source_key: str, engine: str | None = None) -> str:
         """Look up the capability tag of the online worker pool that should handle this job.
