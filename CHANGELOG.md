@@ -2,6 +2,15 @@
 
 
 
+## v0.51.0 (2026-08-30)
+
+### Feature
+
+* feat(external-models): upload, declared by the provider and gzipped on the way (#294)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`5a65e07`](https://github.com/Krande/adapy/commit/5a65e07c8e28ecd7a23e78273ab669c6774837ca))
+
+
 ## v0.50.0 (2026-08-30)
 
 ### Chore
