@@ -378,13 +378,9 @@ class S3ExternalModelCatalog:
         if not name:
             raise ValueError("a model id is required")
         if "/" in name or "\\" in name or name.startswith("."):
-            raise ValueError(
-                f"invalid model id {model_id!r}: no path separators, and it may not start with '.'"
-            )
+            raise ValueError(f"invalid model id {model_id!r}: no path separators, and it may not start with '.'")
         if not name.lower().endswith(MODEL_SUFFIXES):
-            raise ValueError(
-                f"invalid model id {model_id!r}: expected one of {', '.join(MODEL_SUFFIXES)}"
-            )
+            raise ValueError(f"invalid model id {model_id!r}: expected one of {', '.join(MODEL_SUFFIXES)}")
         return f"{col}/{name}"
 
 
