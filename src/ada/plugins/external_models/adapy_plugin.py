@@ -34,11 +34,22 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["run_job", "ACTIONS", "DEFAULT_PROVIDER"]
 
-ACTIONS = ("list_providers", "list_collections", "list_models", "model_url")
+ACTIONS = ("list_providers", "list_collections", "list_models", "model_url", "model_upload_url")
 
 # Kept so a single-provider deployment need not thread an id through every call.
 # Multi-provider deployments should always pass one explicitly.
 DEFAULT_PROVIDER = "demo"
+
+
+def _can_upload(cat: ExternalModelCatalog) -> bool:
+    """Does this provider accept models?
+
+    Presence of `model_upload_url` IS the declaration -- see the note in
+    catalog.py. Reported alongside every listing so a UI can decide whether to
+    offer upload at all, rather than offering it everywhere and letting the
+    unlucky provider raise.
+    """
+    return callable(getattr(cat, "model_upload_url", None))
 
 
 def run_job(
@@ -92,6 +103,7 @@ def run_job(
         return {
             "action": action,
             "provider": provider,
+            "can_upload": _can_upload(cat),
             "collections": [asdict(c) for c in collections],
         }
 
@@ -106,12 +118,49 @@ def run_job(
             "action": action,
             "provider": provider,
             "collection": collection,
+            "can_upload": _can_upload(cat),
             "models": [asdict(m) for m in models],
         }
 
     model_id = (options.get("model_id") or "").strip()
     if not model_id:
-        raise ValueError("action 'model_url' requires a 'model_id' option")
+        raise ValueError(f"action {action!r} requires a 'model_id' option")
+
+    if action == "model_upload_url":
+        signer = getattr(cat, "model_upload_url", None)
+        if not callable(signer):
+            # Not a fault in the request. This provider does not accept models,
+            # and saying which one refuses is more use than "unsupported".
+            raise ValueError(
+                f"provider {provider!r} does not accept uploads; it publishes through its own "
+                "pipeline, so there is nothing for the viewer to upload to"
+            )
+        url = signer(
+            collection,
+            model_id,
+            expires_in_seconds=int(options.get("expires_in_seconds") or 900),
+            content_type=(options.get("content_type") or None),
+        )
+        # How the provider wants it stored. The uploader obeys these rather
+        # than choosing for itself -- see the note in catalog.py on why the
+        # content type and the encoding have to travel together.
+        put_headers: dict[str, str] = {}
+        header_getter = getattr(cat, "model_upload_headers", None)
+        if callable(header_getter):
+            put_headers = dict(header_getter(collection, model_id) or {})
+
+        _progress(action, 0.9)
+        # Short-lived write credential. The payload, and never logged.
+        return {
+            "action": action,
+            "provider": provider,
+            "collection": collection,
+            "model_id": model_id,
+            "url": url,
+            "method": "PUT",
+            "headers": put_headers,
+        }
+
     expires = int(options.get("expires_in_seconds") or 900)
     url = cat.model_download_url(collection, model_id, expires_in_seconds=expires)
 

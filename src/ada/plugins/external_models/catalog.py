@@ -97,6 +97,32 @@ class ExternalModelCatalog(Protocol):
     #
     # Resolved with getattr at the call site rather than declared here, so a
     # provider written before this existed keeps satisfying the Protocol.
+    #
+    # ALSO OPTIONAL, and the same convention:
+    #
+    #   model_upload_url(collection, model_id, *, expires_in_seconds, content_type)
+    #   model_upload_headers(collection, model_id) -> dict[str, str]
+    #
+    # A provider that can ACCEPT a model returns a URL the browser may PUT to.
+    # Implementing it is how a provider opts IN -- presence is the declaration,
+    # there is no flag to set and nothing to configure. A read-only catalogue
+    # (a vendor API that owns its own publishing pipeline, say) implements
+    # nothing and the viewer never offers upload for it, which is the correct
+    # outcome rather than a button that fails.
+    #
+    # Symmetric with the download on purpose: the bytes go browser -> store
+    # directly, never through the worker, so a 5 GB model does not become a job
+    # payload. The consequence is that the store must accept a cross-origin PUT
+    # from the viewer, which is a deployment fact about the bucket, not
+    # something this code can assert.
+    #
+    # `model_upload_headers` is how a provider states how it wants a model
+    # STORED -- the content type, and whether the body should be compressed.
+    # The uploader obeys it rather than deciding for itself, because getting
+    # this wrong is silent: a gzipped body stored without `Content-Encoding`
+    # reaches the viewer as gzip bytes and fails as a JSON parse error, with
+    # nothing anywhere naming compression. One catalogue was found in exactly
+    # that state, one object among forty.
 
 
 def _model_name(key: str) -> str:
@@ -284,6 +310,82 @@ class S3ExternalModelCatalog:
             if m.id == model_id:
                 return obs.sign(self._presign_store, "GET", m.key, timedelta(seconds=expires_in_seconds))
         raise KeyError(f"no model {model_id!r} in collection {collection!r}")
+
+    def model_upload_url(
+        self,
+        collection: str,
+        model_id: str,
+        *,
+        expires_in_seconds: int = 900,
+        content_type: str | None = None,
+    ) -> str:
+        """A URL the browser may PUT one model to.
+
+        Implementing this is how this catalogue declares it can accept models;
+        see the note on the Protocol. An object store can, so it does.
+
+        The key is DERIVED here from `(collection, model_id)` and never taken
+        from the caller. A caller-supplied key would let a request choose where
+        in the bucket its bytes land -- including over another collection's
+        model, or outside the two-level layout this catalogue promises -- and a
+        presigned URL grants exactly the write it names.
+
+        Overwrite is deliberately allowed. The alternative is refusing to
+        re-upload a corrected export under the name everything already
+        references, which is the common case; `list_models` shows what is there
+        and the caller is choosing the name.
+        """
+        import obstore as obs
+
+        key = self._upload_key(collection, model_id)
+        # `content_type` is accepted for symmetry with what a caller knows and
+        # is deliberately NOT signed into the URL: obstore signs the method and
+        # path, and binding a header would make the PUT fail whenever the
+        # browser normalised it differently.
+        del content_type
+        return obs.sign(self._presign_store, "PUT", key, timedelta(seconds=expires_in_seconds))
+
+    def model_upload_headers(self, collection: str, model_id: str) -> dict[str, str]:
+        """How this store wants a model stored: typed, and gzipped.
+
+        GZIPPED BECAUSE A GLB IS HIGHLY COMPRESSIBLE and is fetched over the
+        network every time it is opened -- several MB of float arrays that
+        halve, routinely better. The store keeps the compressed bytes and the
+        browser inflates them transparently, so nothing downstream changes.
+
+        `Content-Encoding` is the half that must not be forgotten. Storing
+        gzipped bytes WITHOUT it hands the viewer gzip where it expects glTF,
+        which surfaces as a JSON parse error naming neither compression nor the
+        file -- a fault this catalogue has already been found in, on one object
+        out of forty. Returning both together is what makes the pair
+        inseparable: an uploader obeying these headers cannot store one without
+        the other.
+        """
+        _, _, ext = model_id.rpartition(".")
+        content_type = "model/gltf+json" if ext.lower() == "gltf" else "model/gltf-binary"
+        return {"Content-Type": content_type, "Content-Encoding": "gzip"}
+
+    def _upload_key(self, collection: str, model_id: str) -> str:
+        """`collection/model_id.glb`, or a refusal naming what was wrong.
+
+        Every rejection here is a request that could otherwise write outside the
+        collection it named.
+        """
+        col = (collection or "").strip().strip("/")
+        name = (model_id or "").strip()
+        if not col or "/" in col:
+            raise ValueError(f"invalid collection {collection!r}: expected one path segment")
+        if not name:
+            raise ValueError("a model id is required")
+        if "/" in name or "\\" in name or name.startswith("."):
+            raise ValueError(
+                f"invalid model id {model_id!r}: no path separators, and it may not start with '.'"
+            )
+        if not name.lower().endswith(MODEL_SUFFIXES):
+            raise ValueError(
+                f"invalid model id {model_id!r}: expected one of {', '.join(MODEL_SUFFIXES)}"
+            )
+        return f"{col}/{name}"
 
 
 def demo_catalog_from_env() -> ExternalModelCatalog:

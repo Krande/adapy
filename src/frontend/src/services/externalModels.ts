@@ -72,6 +72,7 @@ interface JobOptions {
   provider?: string;
   collection?: string;
   model_id?: string;
+  content_type?: string;
   expires_in_seconds?: number;
   /** Opaque token folded into the options hash to deliberately MISS the job
    *  cache. Pass one when the user explicitly asked to re-read the source. */
@@ -190,18 +191,32 @@ export async function listCollections(
   return out.collections ?? [];
 }
 
+/** The models, AND what the provider will let you do with them.
+ *
+ * Split from `listModels` rather than widening it: the models are what almost
+ * every caller wants, and a call site that only lists should not have to
+ * unwrap a capability it never asks about. */
+export async function listModelsDetailed(
+  provider: string,
+  collection: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<{ models: ExternalModel[]; canUpload: boolean }> {
+  const out = await runAction<{ models: ExternalModel[]; can_upload?: boolean }>(
+    { action: "list_models", provider, collection, refresh: opts?.refresh },
+    scope,
+    opts?.signal,
+  );
+  return { models: out.models ?? [], canUpload: canUpload(out) };
+}
+
 export async function listModels(
   provider: string,
   collection: string,
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalModel[]> {
-  const out = await runAction<{ models: ExternalModel[] }>(
-    { action: "list_models", provider, collection, refresh: opts?.refresh },
-    scope,
-    opts?.signal,
-  );
-  return out.models ?? [];
+  return (await listModelsDetailed(provider, collection, scope, opts)).models;
 }
 
 /** A short-lived, presigned URL for one model. Not cached beyond its expiry —
@@ -234,6 +249,72 @@ export async function modelUrl(
   // populated for one whose fetch must be authenticated. Returning them beside
   // the URL is what lets a single call site serve both without knowing which.
   return { url: out.url, headers: out.headers ?? {} };
+}
+
+// --- upload -----------------------------------------------------------------
+
+// Re-exported so call sites keep one import, and imported because a re-export
+// does not bind the name locally — both halves are used just below.
+import { canUpload, prepareUploadBody } from "@/services/externalModelUpload";
+
+export { canUpload, isGzipped, prepareUploadBody } from "@/services/externalModelUpload";
+
+/** A short-lived URL to PUT one model to, with the headers the provider wants
+ *  it stored under. Mint it at upload time; it expires. */
+export async function modelUploadUrl(
+  provider: string,
+  collection: string,
+  modelId: string,
+  scope: ScopeUrl,
+  opts?: { expiresInSeconds?: number; contentType?: string; signal?: AbortSignal },
+): Promise<{ url: string; method: string; headers: Record<string, string> }> {
+  const out = await runAction<{
+    url: string;
+    method?: string;
+    headers?: Record<string, string>;
+  }>(
+    {
+      action: "model_upload_url",
+      provider,
+      collection,
+      model_id: modelId,
+      content_type: opts?.contentType,
+      expires_in_seconds: opts?.expiresInSeconds,
+      // Signed and short-lived, so never cacheable — the same reason model_url
+      // busts unconditionally.
+      refresh: catalogueNonce(),
+    },
+    scope,
+    opts?.signal,
+  );
+  if (!out.url) throw new ExternalModelsError("provider returned no upload url");
+  return { url: out.url, method: out.method || "PUT", headers: out.headers ?? {} };
+}
+
+/** Upload one model. Returns nothing; throws with the store's status on failure. */
+export async function uploadModel(
+  provider: string,
+  collection: string,
+  modelId: string,
+  file: Blob,
+  scope: ScopeUrl,
+  opts?: { signal?: AbortSignal },
+): Promise<void> {
+  const target = await modelUploadUrl(provider, collection, modelId, scope, {
+    signal: opts?.signal,
+  });
+  const { body, headers } = await prepareUploadBody(file, target.headers);
+  const res = await fetch(target.url, {
+    method: target.method,
+    body,
+    headers,
+    signal: opts?.signal,
+  });
+  if (!res.ok) {
+    throw new ExternalModelsError(
+      `uploading ${modelId} failed: HTTP ${res.status} ${res.statusText}`.trim(),
+    );
+  }
 }
 
 // --- scope binding ----------------------------------------------------------
