@@ -7,9 +7,10 @@ import {
     ExternalModel,
     bindingFor,
     catalogueNonce,
-    listModels,
+    listModelsDetailed,
     loadBindingMap,
     modelUrl,
+    uploadModel,
 } from "@/services/externalModels";
 
 // The menu-bar list of externally-stored models for the current scope.
@@ -35,6 +36,12 @@ const ExternalModelsPanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [loaded, setLoaded] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState<string | null>(null);
+    // Whether THIS provider accepts models. Declared by the provider, not
+    // configured here, so a read-only catalogue never shows the control at all
+    // rather than showing one that fails when pressed.
+    const [uploadable, setUploadable] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const fileRef = React.useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
         if (!visible) return;
@@ -52,11 +59,14 @@ const ExternalModelsPanel: React.FC = () => {
                 // Fresh each time the panel opens or the scope changes: core
                 // caches an identical request indefinitely, so without this the
                 // list could never reflect a changed catalogue.
-                const ms = await listModels(b.provider, b.collection, scope, {
+                const listing = await listModelsDetailed(b.provider, b.collection, scope, {
                     signal: abort.signal,
                     refresh: catalogueNonce(),
                 });
-                if (!cancelled) setModels(ms);
+                if (!cancelled) {
+                    setModels(listing.models);
+                    setUploadable(listing.canUpload);
+                }
             } catch (e) {
                 // The provider's own message is passed through: a refusal here
                 // may be a correct answer (no access to that collection), and it
@@ -71,6 +81,34 @@ const ExternalModelsPanel: React.FC = () => {
             abort.abort();
         };
     }, [visible, scope]);
+
+    const onUpload = useCallback(
+        async (file: File) => {
+            if (!binding) return;
+            setUploading(true);
+            setError(null);
+            try {
+                // The FILE NAME is the model id. It is what the catalogue keys
+                // on and what every consumer will reference, so inventing one
+                // here would make the uploader the only place that knows the
+                // real name.
+                await uploadModel(binding.provider, binding.collection, file.name, file, scope);
+                // Re-read rather than splice the new model in: the catalogue is
+                // the authority on what it now holds, and a locally invented row
+                // would be the one thing on screen nobody had confirmed.
+                const listing = await listModelsDetailed(binding.provider, binding.collection, scope, {
+                    refresh: catalogueNonce(),
+                });
+                setModels(listing.models);
+                setUploadable(listing.canUpload);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setUploading(false);
+            }
+        },
+        [binding, scope],
+    );
 
     const sourceNameFor = useCallback(
         (m: ExternalModel) => `${OWNER}:${m.collection}/${m.id}`,
@@ -130,8 +168,38 @@ const ExternalModelsPanel: React.FC = () => {
         <div className="absolute top-12 right-2 z-20 w-80 max-h-[70vh] overflow-auto rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 shadow-lg">
             <div className="px-3 py-2 border-b border-gray-700">
                 <div className="text-sm font-medium">External models</div>
-                <div className="text-xs text-gray-400 truncate">
-                    {binding ? `${binding.provider} / ${binding.collection}` : "not bound for this scope"}
+                <div className="flex items-center gap-2">
+                    <div className="text-xs text-gray-400 truncate flex-1">
+                        {binding ? `${binding.provider} / ${binding.collection}` : "not bound for this scope"}
+                    </div>
+                    {binding && uploadable && (
+                        <>
+                            <input
+                                ref={fileRef}
+                                type="file"
+                                accept=".glb,.gltf"
+                                className="hidden"
+                                onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    // Cleared so choosing the SAME file twice
+                                    // fires again — a re-upload after a failed
+                                    // one is the obvious next action.
+                                    e.target.value = "";
+                                    if (f) void onUpload(f);
+                                }}
+                            />
+                            <button
+                                type="button"
+                                data-testid="external-models-upload"
+                                disabled={uploading}
+                                onClick={() => fileRef.current?.click()}
+                                title="Upload a .glb or .gltf into this collection. It is compressed on the way up."
+                                className="shrink-0 rounded-sm border border-gray-600 px-2 py-0.5 text-xs text-gray-300 hover:bg-gray-800 disabled:opacity-40"
+                            >
+                                {uploading ? "Uploading…" : "Upload…"}
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
