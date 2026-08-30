@@ -398,15 +398,15 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
-weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
+detailing capability pools run foreign images (an old abaqus
+base; a third-party capability runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
 Make the heartbeat probe opt-in: the helper emits it only when a pool sets
 `heartbeatLiveness: true` (now the default on the adapy `worker` pool) or supplies
 its own `livenessProbe:`. Capability pools that do neither get no liveness probe.
-helm template verified: main worker keeps the heartbeat probe, abaqus + weld-gen
+helm template verified: main worker keeps the heartbeat probe, the capability pools
 render with none.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`b606c1d`](https://github.com/Krande/adapy/commit/b606c1d7cbf7175f159eb9f2217d6f6615a8e211))
