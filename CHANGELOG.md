@@ -2,6 +2,13 @@
 
 
 
+## v0.55.0 (2026-08-31)
+
+### Feature
+
+* feat(external-models): providers that read as the signed-in user (#301) ([`971f78f`](https://github.com/Krande/adapy/commit/971f78f7e06f5183bc8ad51ff3388a52701d5363))
+
+
 ## v0.54.0 (2026-08-31)
 
 ### Feature

@@ -84,3 +84,20 @@ export { default as ErrorBoundary } from "@/components/common/ErrorBoundary";
 // a shell can mount it unconditionally in its chrome.
 // ---------------------------------------------------------------------------
 export { UiShellSwitcher } from "@/plugins/UiShellSwitcher";
+
+// The admin tab that BINDS a scope to an external-model provider + collection.
+//
+// On the facade so a shell mounts core's tab rather than forking it. Every other
+// admin tab in the one existing shell IS a fork, and that is exactly how this
+// feature went missing there: core gained the tab, the fork was a snapshot taken
+// before it, and nothing failed -- the shell simply had one fewer tab than core,
+// invisibly, for several releases. A re-export cannot drift.
+//
+// Here rather than in `/scene`: it is REST-client UI with no canvas dependency,
+// so an admin-only shell profile can mount it without pulling in three.
+//
+// It renders with core's own palette rather than a shell's design tokens. That
+// is the honest trade for not forking it, and the reason to prefer it anyway:
+// a tab that looks slightly foreign is a smaller problem than a tab that
+// silently does not exist.
+export { default as ExternalModelsTab } from "@/components/admin/ExternalModelsTab";

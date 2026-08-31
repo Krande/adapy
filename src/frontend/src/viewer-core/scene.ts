@@ -67,3 +67,21 @@ export { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 // ---------------------------------------------------------------------------
 export { default as ResizableTreeView } from "@/components/tree_view/ResizableTreeView";
 export { default as ColorLegend } from "@/components/viewer/ColorLegend";
+// The external-model browser, with the store that toggles it.
+//
+// On the facade because a shell replaces the whole UI, so a shell that does not
+// mount this has no external-model feature at all -- the admin tab can bind a
+// scope and nothing can then load from it. Core mounts it from its own menu bar;
+// a shell puts it wherever its chrome keeps "open something from elsewhere".
+//
+// The panel reads the binding and the provider itself and renders its own empty
+// and unbound states, so a shell mounts it unconditionally and does not have to
+// know whether the current scope is bound.
+//
+// The ICON is deliberately not exported. A shell names an icon from its own set
+// for its own panels; the only way a core glyph helps is if a shell imports it
+// into its panel registry at module scope, and importing anything from this
+// entry point there drags the scene graph -- and the model worker -- into every
+// test that touches the registry.
+export { default as ExternalModelsPanel } from "@/components/ExternalModelsPanel";
+export { useExternalModelsStore } from "@/state/externalModelsStore";
