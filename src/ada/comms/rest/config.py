@@ -57,6 +57,18 @@ class QueueConfig:
     password: str = ""
     token: str = ""
     nkey_seed_file: str = ""
+    # The nkey seed ITSELF, not a path to it.
+    #
+    # Both forms exist because secret-injection differs: some systems mount a
+    # file, others populate the environment. Without this field the second kind
+    # has no route at all — writing the seed to a temp file just to hand back a
+    # path would put it on disk for no reason.
+    #
+    # The naming is asymmetric (`ADA_VIEWER_NATS_NKEY_SEED` is the *file*, and
+    # `..._VALUE` is the seed) because the file form shipped first. Flipping the
+    # meaning of an env var that is already released would be a silent
+    # credential change, which is a worse outcome than an odd pair of names.
+    nkey_seed: str = ""
     # PEM bundle for verifying the server certificate. Only needed when
     # the server presents a cert signed by a private CA — with a public
     # CA (or with plaintext) leave it empty and the default trust store /
@@ -157,6 +169,11 @@ def load_settings() -> Settings:
         password=os.environ.get("ADA_VIEWER_NATS_PASSWORD", ""),
         token=os.environ.get("ADA_VIEWER_NATS_TOKEN", ""),
         nkey_seed_file=os.environ.get("ADA_VIEWER_NATS_NKEY_SEED", "").strip(),
+        # Stripped: an nkey seed is base32 with no leading or trailing
+        # whitespace, and a secret store that appends a newline is common
+        # enough that not stripping would turn a correct secret into an auth
+        # failure. (Unlike a password, where the whitespace may be the secret.)
+        nkey_seed=os.environ.get("ADA_VIEWER_NATS_NKEY_SEED_VALUE", "").strip(),
         tls_ca=os.environ.get("ADA_VIEWER_NATS_TLS_CA", "").strip(),
     )
 

@@ -24,6 +24,26 @@ from ada.comms.rest.config import QueueConfig, load_settings
 from ada.comms.rest.queue import JobQueue
 
 
+def _nkeys_present(monkeypatch) -> None:
+    """Assume the optional `nkeys` package is installed.
+
+    The credential forms below map straight onto nats-py kwargs, but two of
+    them need `nkeys` to sign the server's nonce, and `_connect_options`
+    refuses early when it is absent (see test_queue_transport_deps). `nkeys` is
+    PyPI-only and is genuinely missing from some environments, so a test about
+    MAPPING states the assumption rather than inheriting it from whichever
+    machine runs it.
+    """
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **kw: object() if name == "nkeys" else real(name, *a, **kw),
+    )
+
+
 def _cfg(**over) -> QueueConfig:
     base = dict(url="nats://localhost:4222", stream="S", subject="subj", kv_bucket="kv", durable="d")
     base.update(over)
@@ -51,7 +71,8 @@ def test_connection_name_is_passed_through():
         ("token", "t0ken", "token"),
     ],
 )
-def test_each_credential_form_maps_to_its_nats_kwarg(field, value, kwarg):
+def test_each_credential_form_maps_to_its_nats_kwarg(monkeypatch, field, value, kwarg):
+    _nkeys_present(monkeypatch)
     opts = JobQueue(_cfg(**{field: value}))._connect_options(None)
     assert opts == {kwarg: value}
 
@@ -158,6 +179,7 @@ async def test_manage_false_raises_a_named_cause_when_the_api_never_appears(monk
 
 @pytest.mark.asyncio
 async def test_credentials_reach_nats_connect(monkeypatch):
+    _nkeys_present(monkeypatch)
     js = _FakeJS()
     seen = _patch_connect(monkeypatch, js)
     q = JobQueue(_cfg(creds_file="/secrets/ext-01.creds"))

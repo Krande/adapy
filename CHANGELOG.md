@@ -2,6 +2,15 @@
 
 
 
+## v0.54.0 (2026-08-31)
+
+### Feature
+
+* feat(queue): make WebSocket and nkey auth actually reachable (#303)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`00ce40c`](https://github.com/Krande/adapy/commit/00ce40c397d0429ec4c9e7c69b445290dc513309))
+
+
 ## v0.53.0 (2026-08-31)
 
 ### Feature
