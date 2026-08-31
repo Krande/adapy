@@ -41,6 +41,27 @@ class QueueConfig:
     subject: str
     kv_bucket: str
     durable: str
+    # --- credentials -------------------------------------------------
+    # All empty (the default) is an unauthenticated connection, which is
+    # what every deployment does today and what a `nats -js` server with
+    # no accounts block expects. Set at most one of creds_file /
+    # user+password / token / nkey_seed_file; they map straight onto the
+    # matching ``nats.connect()`` kwargs.
+    #
+    # The point of having them is least privilege: once the server has an
+    # accounts block, the API connects as a principal that may administer
+    # the stream and a worker as one that may only pull its own pool's
+    # subject. See ``deploy/worker-trust.md``.
+    creds_file: str = ""
+    user: str = ""
+    password: str = ""
+    token: str = ""
+    nkey_seed_file: str = ""
+    # PEM bundle for verifying the server certificate. Only needed when
+    # the server presents a cert signed by a private CA — with a public
+    # CA (or with plaintext) leave it empty and the default trust store /
+    # no-TLS path applies.
+    tls_ca: str = ""
 
 
 @dataclass(frozen=True)
@@ -128,6 +149,15 @@ def load_settings() -> Settings:
         subject=os.environ.get("ADA_VIEWER_NATS_SUBJECT", "ada.viewer.jobs.convert"),
         kv_bucket=os.environ.get("ADA_VIEWER_NATS_KV_BUCKET", "ada-viewer-jobs"),
         durable=os.environ.get("ADA_VIEWER_NATS_DURABLE", "ada-viewer-worker"),
+        creds_file=os.environ.get("ADA_VIEWER_NATS_CREDS", "").strip(),
+        user=os.environ.get("ADA_VIEWER_NATS_USER", "").strip(),
+        # Not stripped: a password may legitimately begin or end with
+        # whitespace, and silently trimming it turns a working secret
+        # into an auth failure nobody can explain.
+        password=os.environ.get("ADA_VIEWER_NATS_PASSWORD", ""),
+        token=os.environ.get("ADA_VIEWER_NATS_TOKEN", ""),
+        nkey_seed_file=os.environ.get("ADA_VIEWER_NATS_NKEY_SEED", "").strip(),
+        tls_ca=os.environ.get("ADA_VIEWER_NATS_TLS_CA", "").strip(),
     )
 
     auth_enabled = _bool(os.environ.get("ADA_VIEWER_AUTH_ENABLED"), default=False)

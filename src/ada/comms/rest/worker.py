@@ -121,6 +121,25 @@ MAX_DELIVERIES = 3
 IN_PROGRESS_REFRESH_SECONDS = 30
 
 
+def _bool_env(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _worker_id() -> str:
+    """This worker's registry key.
+
+    Self-asserted today: whatever ``$HOSTNAME`` says, which in k8s is the
+    pod name and off-cluster is whatever the operator exports. Once NATS
+    credentials pin the registry KV key (``__meta_worker__<id>``) the
+    server enforces the match and this becomes an authenticated identity
+    rather than a claim — see deploy/worker-trust.md.
+    """
+    return os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
+
+
 def _pool_capabilities(capabilities: list[str]) -> list[str]:
     """Capability pools this worker should subscribe to.
 
@@ -4090,8 +4109,18 @@ async def _run() -> None:
     storage = Storage.from_settings(settings)
     queue = JobQueue(settings.queue)
     logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
-    await queue.connect()
-    logger.info("worker: connected to NATS")
+    # A worker only ever *uses* the JetStream topology; the API creates
+    # it. Not administering it is what lets a worker be issued a
+    # credential with no stream-admin rights — the whole point of
+    # deploy/worker-trust.md. If the API has not started yet, connect()
+    # waits for the KV bucket rather than racing to create it.
+    #
+    # ADA_WORKER_MANAGE_STREAM=true restores the old self-provisioning
+    # behaviour for the one setup that needs it: a worker running against
+    # a bare NATS with no API in the picture at all.
+    manage = _bool_env("ADA_WORKER_MANAGE_STREAM", default=False)
+    await queue.connect(manage=manage, name=f"adapy-worker-{_worker_id()}")
+    logger.info("worker: connected to NATS (manage_stream=%s)", manage)
 
     # Optional importer hook: capability workers built FROM the base
     # image often need to populate the connection-spec registry (or
@@ -4138,7 +4167,7 @@ async def _run() -> None:
     # onto every audit_log row without threading through callers.
     global _WORKER_IMAGE_TAG
     _WORKER_IMAGE_TAG = image_tag or None
-    worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
+    worker_id = _worker_id()
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
     # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)

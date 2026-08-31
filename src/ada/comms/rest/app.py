@@ -215,7 +215,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
             try:
-                await queue.connect()
+                # manage=True: the API owns the JetStream topology
+                # (stream + KV bucket) and brings it forward on deploy.
+                # Workers connect with manage=False so their credentials
+                # need no stream-admin rights.
+                await queue.connect(manage=True, name="adapy-viewer-api")
                 logger.info("queue connected to %s", settings.queue.url)
             except Exception as exc:
                 logger.warning("queue connect failed (%s); convert endpoints will return 503", exc)
