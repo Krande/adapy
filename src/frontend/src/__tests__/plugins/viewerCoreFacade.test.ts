@@ -20,7 +20,7 @@
 
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -52,7 +52,11 @@ function importSpecifiers(src: string): string[] {
   return out;
 }
 
-const rel = (p: string) => p.slice(frontendRoot.length + 1);
+// Normalised to forward slashes: `join`/`walk` hand back the platform separator,
+// so on Windows every path here came out `src\viewer-core\index.ts` and the
+// assertions -- which spell the expected paths the POSIX way, as the repo does
+// everywhere else -- failed on a tree with nothing wrong with it.
+const rel = (p: string) => p.slice(frontendRoot.length + 1).split(sep).join("/");
 
 test("plugin packages import core only through @/viewer-core", () => {
   const offenders: string[] = [];
