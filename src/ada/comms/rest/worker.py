@@ -43,6 +43,7 @@ from . import db as db_module
 from . import source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
+from .qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
 from .queue import (
     JOB_STATUS_DONE,
     JOB_STATUS_ERROR,
@@ -4416,6 +4417,58 @@ async def _run() -> None:
         logger.exception("worker: failed to list backend plugins (non-fatal)")
         plugin_specs = []
 
+    # --- capability qualification ------------------------------------------
+    #
+    # Advertise a capability only if this environment can be shown to satisfy
+    # the requirements declared for it, instead of defending a correctness
+    # property with an env var somebody has to remember. See
+    # deploy/worker-trust.md §4.
+    #
+    # EVALUATED ONCE, HERE, and used for BOTH what is advertised and what is
+    # subscribed to. Those two must not be able to disagree: an unfit worker
+    # that still held a consumer would keep winning jobs with the evidence
+    # removed, which is worse than not gating at all.
+    #
+    # Once at startup, deliberately: a requirement change takes effect when the
+    # worker restarts. Re-deciding subscriptions mid-life would mean tearing
+    # down consumers under load, and "take this pool out of service NOW" is a
+    # different job with a different tool. This gate is for correctness drift,
+    # which is a deploy-time property.
+    import json as _json
+
+    worker_packages = _capture_worker_packages()
+    try:
+        _raw_reqs = await queue.get_meta(CAPABILITY_REQUIREMENTS_KEY)
+        requirements = _json.loads(_raw_reqs) if _raw_reqs else {}
+    except Exception:
+        # Being unable to READ the requirements is our plumbing failing, not
+        # evidence of unfitness, so it must not take a fleet offline. Fail
+        # open — loudly.
+        logger.exception("worker: could not read capability requirements; advertising unqualified")
+        requirements = {}
+
+    _verdict = evaluate(capabilities, requirements, worker_packages)
+    for _w in _verdict.withheld:
+        # WARNING: a capability this worker was configured for is not being
+        # served. Silence here is the support ticket this design exists to
+        # prevent.
+        logger.warning("worker: withholding capability %s — %s", _w["capability"], _w["reason"])
+    capabilities = _verdict.kept
+    withheld = _verdict.withheld
+
+    # Only the packages some requirement actually names. The full manifest is
+    # ~24 kB (197 entries, mostly repeated channel URLs) and this row is
+    # rewritten on every heartbeat — a recurring cost with no reader. What the
+    # row needs to carry is enough for an operator, and the admin panel, to
+    # corroborate a withheld reason.
+    _named = {
+        str(n).lower()
+        for e in (requirements or {}).values()
+        if isinstance(e, dict)
+        for n in list((e.get("requires") or {})) + list((e.get("build_match") or {}))
+    }
+    reported_packages = [p for p in worker_packages if str(p.get("name") or "").lower() in _named]
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -4423,6 +4476,12 @@ async def _run() -> None:
                 {
                     "image_tag": image_tag or None,
                     "capabilities": capabilities,
+                    # What this worker declined to serve, and why. Read by the
+                    # API so a withheld capability surfaces as unavailable WITH
+                    # A REASON rather than simply absent — those two are
+                    # indistinguishable to every consumer otherwise.
+                    "withheld": withheld,
+                    "packages": reported_packages,
                     "source_exts": source_exts,
                     "conversions": conversions,
                     "utilities": utilities,

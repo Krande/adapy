@@ -50,6 +50,7 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
+from .qualification import CAPABILITY_REQUIREMENTS_KEY
 from .queue import JobQueue, capability_token
 from .scope import Scope
 from .scope import can_access as scope_can_access
@@ -123,6 +124,11 @@ async def _parse_rename_body(request: Request) -> tuple[str, str]:
 
 def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
+
+
+#: The `app_settings` key an admin edits. Mirrored into the KV meta keyspace
+#: under `CAPABILITY_REQUIREMENTS_KEY` so workers without a database can read it.
+CAPABILITY_REQUIREMENTS_SETTING = "capability_requirements"
 
 
 def _merge_spec(base: dict, other: dict) -> None:
@@ -279,6 +285,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+
+        # Reconcile the capability requirements from the database into KV. The
+        # admin write publishes directly, but best-effort; doing it again here
+        # means a restart repairs a publish that failed, rather than leaving
+        # workers gating against a document older than the one an admin sees.
+        if app.state.db_pool is not None and queue.enabled:
+            try:
+                await _publish_capability_requirements(
+                    await db_module.get_setting(app.state.db_pool, CAPABILITY_REQUIREMENTS_SETTING)
+                )
+            except Exception:
+                logger.exception("could not reconcile capability requirements at startup")
+
         # Built-in audit scheduler (M4). Skip when the DB pool failed
         # or when the queue is disabled — without either we have no
         # way to fire a sweep, so spinning the loop would just log
@@ -424,6 +443,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _worker_registry["workers"] = workers
         _worker_registry["image_tag"] = image_tag
         _worker_registry["ts"] = time.time()
+
+    async def _publish_capability_requirements(value: str | None) -> None:
+        """Mirror the requirement document into the NATS KV meta keyspace.
+
+        Workers read it from there, not from Postgres — deliberately. The worker
+        this gate exists for is the one least likely to have a database
+        connection: an off-cluster machine has no reason to be given one, and
+        making qualification depend on Postgres would leave exactly that worker
+        ungated. KV is already how it learns everything else about the
+        deployment.
+
+        Best-effort. Failing to publish must not fail the admin's write: the
+        setting is stored either way, and the next successful publish (or a
+        restart) reconciles. Workers that cannot read it fail OPEN, so the
+        blast radius of this not landing is "the gate is not yet enforced",
+        never "the fleet stopped".
+        """
+        if not queue.enabled:
+            return
+        try:
+            await queue.set_meta(CAPABILITY_REQUIREMENTS_KEY, value or "")
+        except Exception:
+            logger.exception("could not publish capability requirements to the job queue")
 
     async def _is_accepted_source(key: str) -> bool:
         """``is_supported_source`` plus a check against the workers'
@@ -2874,15 +2916,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             hb = w.get("last_heartbeat")
             if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
                 continue
+            # What this worker declined to serve, and why. A spec whose
+            # capability is withheld is carried through as UNAVAILABLE rather
+            # than dropped: a withheld capability and an absent one look
+            # identical to every consumer otherwise, and the consumer then
+            # tells the operator to start a worker that is already running.
+            # See deploy/worker-trust.md §4.
+            withheld = {
+                str(x.get("capability", "")).strip().lower(): str(x.get("reason") or "")
+                for x in (w.get("withheld") or [])
+                if isinstance(x, dict) and x.get("capability")
+            }
             specs = w.get(field)
             if isinstance(specs, list):
                 for s in specs:
                     if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]:
                         slug = s["slug"]
+                        cap = str(s.get("worker_capability") or "").strip().lower()
+                        reason = withheld.get(cap) if cap else None
+                        entry = dict(s)
+                        if reason:
+                            entry["available"] = False
+                            entry["unavailable_reason"] = reason
                         if slug not in out:
-                            out[slug] = dict(s)
+                            out[slug] = entry
+                        elif reason is None and out[slug].get("available") is False:
+                            # A FIT worker overrides an unfit one's verdict: the
+                            # capability is available from somewhere, which is
+                            # what the caller actually needs to know. Order of
+                            # workers must not decide this.
+                            merged = dict(out[slug])
+                            merged.pop("available", None)
+                            merged.pop("unavailable_reason", None)
+                            out[slug] = merged
+                            _merge_spec(out[slug], entry)
                         else:
-                            _merge_spec(out[slug], s)
+                            _merge_spec(out[slug], entry)
             elif fallback_field:
                 bare = w.get(fallback_field)
                 if isinstance(bare, list):
@@ -5179,6 +5248,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="value required")
         value = "" if body["value"] is None else str(body["value"])
         await db_module.set_setting(pool, key, value, updated_by=user.sub)
+        if key == CAPABILITY_REQUIREMENTS_SETTING:
+            await _publish_capability_requirements(value)
         return JSONResponse({"key": key, "value": value})
 
     @admin.post("/auth/cli-token")
