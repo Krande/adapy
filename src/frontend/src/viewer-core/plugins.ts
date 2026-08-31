@@ -18,13 +18,19 @@ export { makePluginContext, makePluginContextStandalone } from "@/plugins/contex
 export { usePluginUiStore } from "@/plugins/pluginUiStore";
 export {
   findSimulationTabById,
+  // A shell's admin page is its own; without this it can render core's tabs and
+  // NONE of the plugin-contributed ones, and a plugin that declares an admin tab
+  // is simply invisible there with nothing raised. `getSimulationTabs` is the
+  // same idea for the results sidebar and was already on the contract; this is
+  // the admin half that was missed.
+  getAdminTabs,
   getPanelsForRegion,
   getResultSidecarLoaders,
   getSceneColorFieldProviders,
   getSimulationTabs,
   getUrlParamHandlers,
 } from "@/plugins/registry";
-export type { SimulationTabEntry } from "@/plugins/registry";
+export type { AdminTabEntry, SimulationTabEntry } from "@/plugins/registry";
 export {
   disposeResultSidecarLoaders,
   makeManifestFetcher,
