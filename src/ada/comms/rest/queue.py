@@ -19,6 +19,7 @@ safe.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -26,7 +27,12 @@ from dataclasses import asdict, dataclass
 
 import nats
 from nats.js.api import ConsumerConfig, RetentionPolicy, StreamConfig
-from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundError
+from nats.js.errors import (
+    BadRequestError,
+    BucketNotFoundError,
+    KeyNotFoundError,
+    NotFoundError,
+)
 
 from ada.config import logger
 
@@ -148,11 +154,68 @@ class JobQueue:
     # routing view and the UI view agree on which pools are live.
     WORKER_STALE_AFTER_S = 60.0
 
-    async def connect(self) -> None:
+    # How long ``connect(manage=False)`` waits for the KV bucket the API
+    # is responsible for creating. A non-managing client that starts
+    # before the API has nothing to bind to; rather than fail on the
+    # first attempt (crash-loop on ordering alone) or wait forever (a
+    # worker that looks healthy but is bound to nothing), poll for a
+    # window that comfortably covers a rolling restart and then raise
+    # with a message that names the real cause.
+    _BIND_WAIT_SECONDS = 60.0
+    _BIND_POLL_SECONDS = 2.0
+
+    def _connect_options(self, name: str | None) -> dict:
+        """Build the ``nats.connect()`` kwargs for the configured credentials.
+
+        Everything is optional and everything defaults to absent, so a
+        server with no accounts block behaves exactly as it did before
+        these fields existed.
+        """
+        opts: dict = {}
+        if name:
+            # Shows up in `nats server report connections` / monitoring.
+            # Worth setting: during an auth rollout the useful question is
+            # "which principal is this connection", and an unnamed client
+            # answers it with an ip:port.
+            opts["name"] = name
+        cfg = self._cfg
+        if cfg.creds_file:
+            opts["user_credentials"] = cfg.creds_file
+        if cfg.nkey_seed_file:
+            opts["nkeys_seed"] = cfg.nkey_seed_file
+        if cfg.user:
+            opts["user"] = cfg.user
+        if cfg.password:
+            opts["password"] = cfg.password
+        if cfg.token:
+            opts["token"] = cfg.token
+        if cfg.tls_ca:
+            import ssl
+
+            ctx = ssl.create_default_context()
+            ctx.load_verify_locations(cafile=cfg.tls_ca)
+            opts["tls"] = ctx
+        return opts
+
+    async def connect(self, manage: bool = True, name: str | None = None) -> None:
+        """Connect, and when ``manage`` is set, create the stream and bucket.
+
+        ``manage=True`` is the API: it owns the JetStream topology and
+        brings it forward on deploy. ``manage=False`` is a worker: it
+        only ever *uses* the topology, so its credential needs no
+        stream-admin rights. That split is the prerequisite for granting
+        workers a narrower permission set than the API — until it existed
+        a worker's first act was ``add_stream``, which meant nothing in
+        the design distinguished a worker from an administrator.
+        """
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
-        self._nc = await nats.connect(self._cfg.url)
+        self._nc = await nats.connect(self._cfg.url, **self._connect_options(name))
         self._js = self._nc.jetstream()
+
+        if not manage:
+            await self._bind_existing()
+            return
 
         # Stream — idempotent. Carries both the legacy bare subject
         # (so messages already in flight at the moment of upgrade
@@ -206,6 +269,37 @@ class JobQueue:
             self._kv = await self._js.create_key_value(bucket=self._cfg.kv_bucket, history=1)
         except BadRequestError:
             self._kv = await self._js.key_value(self._cfg.kv_bucket)
+
+    async def _bind_existing(self) -> None:
+        """Bind to the API-created KV bucket without creating anything.
+
+        Waiting on the bucket also covers the stream: ``connect(manage=True)``
+        creates the stream first and the bucket last, so a bucket that
+        exists implies a stream that exists. Keep that order if you touch
+        the managing path — a worker that binds the bucket then finds no
+        stream to ``pull_subscribe`` on is a much worse failure than
+        waiting a little longer here.
+        """
+        deadline = time.monotonic() + self._BIND_WAIT_SECONDS
+        while True:
+            try:
+                self._kv = await self._js.key_value(self._cfg.kv_bucket)
+                return
+            # BucketNotFoundError subclasses NotFoundError; the plain
+            # form also covers "the backing KV_<bucket> stream is absent".
+            except NotFoundError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"KV bucket {self._cfg.kv_bucket!r} does not exist after "
+                        f"{self._BIND_WAIT_SECONDS:.0f}s. It is created by the API on startup — "
+                        "either the API has not come up yet, or this client's credentials "
+                        "cannot see the bucket."
+                    ) from None
+                logger.info(
+                    "queue: waiting for KV bucket %s to be created by the API",
+                    self._cfg.kv_bucket,
+                )
+                await asyncio.sleep(self._BIND_POLL_SECONDS)
 
     async def close(self) -> None:
         if self._nc is not None:
