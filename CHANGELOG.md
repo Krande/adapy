@@ -2,6 +2,15 @@
 
 
 
+## v0.52.1 (2026-08-31)
+
+### Fix
+
+* fix(worker): a plugin job must not die because `resource` is POSIX-only (#299)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3038c55`](https://github.com/Krande/adapy/commit/3038c55c8bb44090490f72dd98b933f6bb20d79b))
+
+
 ## v0.52.0 (2026-08-31)
 
 ### Feature
