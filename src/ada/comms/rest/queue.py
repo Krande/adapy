@@ -109,6 +109,44 @@ class QueueDisabled(RuntimeError):
     """Raised when queue operations are attempted but no NATS URL is configured."""
 
 
+class MissingTransportDependency(RuntimeError):
+    """A connection option needs a package this environment does not have."""
+
+
+#: Optional packages ``nats-py`` imports lazily, and what each one buys.
+#: ``nats-py`` itself declares neither, so an environment can be perfectly
+#: healthy and still be unable to do these two things.
+_TRANSPORT_EXTRAS = {
+    "aiohttp": "WebSocket transport (ws:// and wss:// URLs)",
+    "nkeys": "nkey and credentials-file authentication",
+}
+
+
+def _require(package: str, feature: str, setting: str) -> None:
+    """Fail early, and in a sentence, when a configured option cannot work.
+
+    ``nats-py`` imports ``aiohttp`` and ``nkeys`` lazily, deep inside connect —
+    so without this the operator gets a bare ``ImportError`` (or, for
+    websockets, ``Could not import aiohttp transport``) raised from inside a
+    library they did not configure, at the bottom of a stack that mentions
+    neither the setting they set nor the package to install.
+
+    It matters most for exactly the deployment this exists to serve: a worker
+    on a machine somebody assembled by hand, where the environment is not the
+    one CI tested. The check is cheap and it runs before any socket is opened.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec(package) is not None:
+        return
+    raise MissingTransportDependency(
+        f"{setting} is set, which needs {_TRANSPORT_EXTRAS.get(package, package)}, "
+        f"but the {package!r} package is not installed in this environment. "
+        f"Install it (adapy's viewer-api environment carries it; a hand-built env may not) "
+        f"or unset {setting}."
+    )
+
+
 #: Longest a single capability token may be. Generous for a project code or a
 #: device name, short enough that a pasted paragraph cannot become a subject.
 MAX_CAPABILITY_TOKEN_LEN = 48
@@ -215,7 +253,20 @@ class JobQueue:
         Everything is optional and everything defaults to absent, so a
         server with no accounts block behaves exactly as it did before
         these fields existed.
+
+        Raises :class:`MissingTransportDependency` when the configuration asks
+        for something the installed environment cannot do. See :func:`_require`
+        for why that check is here rather than left to nats-py.
         """
+        # A ws:// or wss:// URL selects nats-py's WebSocket transport, which
+        # needs aiohttp. Checked off the URL rather than off a credential
+        # because that is what actually chooses the transport — and a
+        # WebSocket URL is the shape an off-cluster worker uses when the bus is
+        # reached through an HTTPS ingress rather than a raw TCP port.
+        url = (self._cfg.url or "").strip().lower()
+        if url.startswith("ws://") or url.startswith("wss://"):
+            _require("aiohttp", "the WebSocket transport", "ADA_VIEWER_NATS_URL")
+
         opts: dict = {}
         if name:
             # Shows up in `nats server report connections` / monitoring.
@@ -225,9 +276,28 @@ class JobQueue:
             opts["name"] = name
         cfg = self._cfg
         if cfg.creds_file:
+            _require("nkeys", "a credentials file", "ADA_VIEWER_NATS_CREDS")
             opts["user_credentials"] = cfg.creds_file
+        if cfg.nkey_seed_file and cfg.nkey_seed:
+            # Both point at the same principal in any sane deployment, so this
+            # is redundancy rather than danger — not worth refusing to start
+            # over. Deterministic and said out loud beats a silent coin flip:
+            # the wrong pick would surface as an auth failure that reads like a
+            # network problem.
+            logger.warning(
+                "queue: both ADA_VIEWER_NATS_NKEY_SEED (file) and "
+                "ADA_VIEWER_NATS_NKEY_SEED_VALUE (inline) are set; using the file"
+            )
         if cfg.nkey_seed_file:
+            _require("nkeys", "nkey authentication", "ADA_VIEWER_NATS_NKEY_SEED")
             opts["nkeys_seed"] = cfg.nkey_seed_file
+        elif cfg.nkey_seed:
+            # The seed itself rather than a path to it. Secret-injection systems
+            # that populate the environment (rather than mounting files) have no
+            # way to use the path form, and writing the seed to a temp file just
+            # to hand back a path would put it on disk for no reason.
+            _require("nkeys", "nkey authentication", "ADA_VIEWER_NATS_NKEY_SEED_VALUE")
+            opts["nkeys_seed_str"] = cfg.nkey_seed
         if cfg.user:
             opts["user"] = cfg.user
         if cfg.password:
