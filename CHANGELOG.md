@@ -2,6 +2,28 @@
 
 
 
+## v0.56.0 (2026-08-31)
+
+### Chore
+
+* chore(worker-trust): a withheld capability must not look like an absent one (#304)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`8a42c59`](https://github.com/Krande/adapy/commit/8a42c59df366e185b4c4281c137ad5f81e4d1617))
+
+### Feature
+
+* feat(worker): advertise a capability only when fit to serve it (#305)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`2bc25cf`](https://github.com/Krande/adapy/commit/2bc25cfa7246b0bdba12d8885a6c7af40f8298e2))
+
+
+## v0.55.0 (2026-08-31)
+
+### Feature
+
+* feat(external-models): providers that read as the signed-in user (#301) ([`971f78f`](https://github.com/Krande/adapy/commit/971f78f7e06f5183bc8ad51ff3388a52701d5363))
+
+
 ## v0.54.0 (2026-08-31)
 
 ### Feature

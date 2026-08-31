@@ -101,11 +101,66 @@ def test_disabling_is_logged_at_warning(monkeypatch, warnings_visible):
 
 def test_disabling_everything_falls_back_to_base(monkeypatch, warnings_visible):
     # A worker advertising nothing is not a configuration anyone wants; scaling
-    # to zero is how a pool is idled.
-    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "capacity,abaqus")
-    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "capacity,abaqus")
+    # to zero is how a pool is idled. `base` was declared here, so it is this
+    # worker's to fall back to.
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base,capacity,abaqus")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "base,capacity,abaqus")
     assert worker._declared_capabilities() == ["base"]
     assert "falling back to 'base'" in warnings_visible.text
+
+
+def test_a_worker_that_never_served_base_does_not_acquire_it_by_subtraction(monkeypatch, warnings_visible):
+    """The fallback must not hand `base` to a worker that never had it.
+
+    An off-cluster machine joins for one capability it alone can serve. If
+    disabling that capability made it fall back to `base`, an
+    independently-installed adapy would start pulling ordinary conversion jobs
+    from the cluster's queue -- the hazard ADA_WORKER_BASE_CONVERSIONS exists to
+    prevent, reached through an incident switch.
+    """
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "cad")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "cad")
+
+    assert worker._declared_capabilities() == []
+    assert "does not serve 'base'" in warnings_visible.text
+
+
+def test_disabling_a_bare_token_leaves_its_shards_and_says_so(monkeypatch, warnings_visible):
+    """A sharded capability is only partly disabled, and silently.
+
+    One plugin can address several pools by suffixing the capability with an
+    option value, so a worker holds `cad` and `cad-alpha`. Those are distinct
+    tokens: disabling `cad` leaves `cad-alpha` serving, and the "names nothing
+    this worker advertises" warning does not fire because `cad` did match. Under
+    incident pressure the operator gets a confirmation line and believes the
+    pool is out of service while half of it still pulls jobs.
+
+    Prefix-matching by default would be worse -- `web3d` must not vanish because
+    somebody disabled `web` -- so the shard is named and left to be disabled
+    deliberately.
+    """
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "cad,cad-alpha")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "cad")
+
+    assert worker._declared_capabilities() == ["cad-alpha"]
+    assert "cad-alpha is still advertised" in warnings_visible.text
+
+
+def test_an_unrelated_capability_sharing_a_prefix_is_not_reported_as_a_shard(monkeypatch, warnings_visible):
+    # `web3d` is not a shard of `web`; only a `<token>-` prefix counts.
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "web3d,base")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "web")
+
+    assert worker._declared_capabilities() == ["web3d", "base"]
+    assert "still advertised" not in warnings_visible.text
+
+
+def test_a_blank_capability_list_still_means_unset(monkeypatch):
+    # An empty ADA_WORKER_CAPABILITIES is "unset", not "serve nothing", so that
+    # an empty set further down can only ever be a deliberate verdict.
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "")
+    assert worker._declared_capabilities() == ["base"]
 
 
 def test_the_subtraction_reaches_the_subscribed_pools(monkeypatch):
