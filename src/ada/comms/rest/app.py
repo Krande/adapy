@@ -50,7 +50,7 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
-from .queue import JobQueue
+from .queue import JobQueue, capability_token
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
@@ -123,6 +123,53 @@ async def _parse_rename_body(request: Request) -> tuple[str, str]:
 
 def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
+
+
+def _merge_spec(base: dict, other: dict) -> None:
+    """Fold a second worker's advertisement of the same slug into ``base``.
+
+    Only the keys named in ``union_fields`` are combined, and only where both
+    sides hold lists; everything else keeps the value the first worker supplied
+    (see :func:`_live_worker_specs` for why "first" is well-defined). Order is
+    preserved and duplicates dropped, so the result reads like one list somebody
+    wrote rather than a concatenation.
+
+    ``union_fields`` is itself unioned. That is what makes a rolling upgrade
+    work: while half the pool runs a build that declares the key and half does
+    not, the half that does still gets its fields merged instead of the
+    behaviour flipping on whichever worker sorted first.
+    """
+
+    def _union(dst: list, src: list) -> list:
+        seen = {json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v for v in dst}
+        for v in src:
+            marker = json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v
+            if marker not in seen:
+                seen.add(marker)
+                dst.append(v)
+        return dst
+
+    fields = base.get("union_fields")
+    fields = list(fields) if isinstance(fields, list) else []
+    incoming = other.get("union_fields")
+    if isinstance(incoming, list):
+        fields = _union(fields, [f for f in incoming if isinstance(f, str)])
+        base["union_fields"] = fields
+
+    for key in fields:
+        if not isinstance(key, str) or key == "union_fields":
+            continue
+        add = other.get(key)
+        if not isinstance(add, list):
+            continue
+        have = base.get(key)
+        if not isinstance(have, list):
+            # The first worker did not carry the key at all (older build, or it
+            # genuinely has nothing to contribute). Start from what this one
+            # has rather than dropping it.
+            base[key] = list(add)
+        else:
+            _union(have, add)
 
 
 _ADAPY_VERSION: str | None = None
@@ -2791,16 +2838,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(row, status_code=201)
 
     async def _live_worker_specs(field: str, fallback_field: str | None = None) -> dict[str, dict]:
-        """Catalog-shaped specs advertised by non-stale workers, keyed by slug
-        (last writer wins). Falls back to a bare slug-list field for older
-        workers that advertise only names, synthesizing a minimal spec."""
+        """Catalog-shaped specs advertised by non-stale workers, keyed by slug.
+        Falls back to a bare slug-list field for older workers that advertise
+        only names, synthesizing a minimal spec.
+
+        WHEN SEVERAL WORKERS ADVERTISE ONE SLUG, two rules apply:
+
+        * **Deterministic, not last-writer-wins.** Workers are visited in
+          worker-id order and the first spec for a slug supplies the scalars.
+          Previously this followed KV listing order, so with two workers on one
+          plugin the advertised version and capability could differ between two
+          consecutive requests for no visible reason.
+        * **Declared list fields are unioned.** A spec may name keys in
+          ``union_fields``; those are combined across every worker advertising
+          the slug instead of one worker's copy winning. That is what lets a
+          sharded pool say what it collectively covers — several workers on the
+          same plugin, each serving a different project, produce one spec
+          listing every project that is online.
+
+        Only the named keys are unioned. A blanket "merge every list" would
+        quietly combine things that are per-worker facts rather than collective
+        ones (a worker's own conversions, its own extension allowlist), and
+        produce a spec describing a worker that does not exist.
+        """
         import time as _time
 
         out: dict[str, dict] = {}
         if not queue.enabled:
             return out
         now = _time.time()
-        for w in await queue.list_workers():
+        # Sorted so the winner is stable across requests. `worker_id` is always
+        # present — list_workers derives it from the KV key.
+        workers = sorted(await queue.list_workers(), key=lambda w: str(w.get("worker_id") or ""))
+        for w in workers:
             hb = w.get("last_heartbeat")
             if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
                 continue
@@ -2808,7 +2878,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if isinstance(specs, list):
                 for s in specs:
                     if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]:
-                        out[s["slug"]] = s
+                        slug = s["slug"]
+                        if slug not in out:
+                            out[slug] = dict(s)
+                        else:
+                            _merge_spec(out[slug], s)
             elif fallback_field:
                 bare = w.get(fallback_field)
                 if isinstance(bare, list):
@@ -2859,14 +2933,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # (e.g. a capacity worker) picks the job up.
         target_capability = body.get("capability")
         if isinstance(target_capability, str) and target_capability.strip():
-            target_capability = target_capability.strip().lower()
+            target_capability = capability_token(target_capability)
         else:
             target_capability = None
             for spec in (await _live_worker_specs("plugin_specs")).values():
                 if spec.get("slug") == plugin_id or spec.get("id") == plugin_id:
                     cap = spec.get("worker_capability")
                     if isinstance(cap, str) and cap.strip():
-                        target_capability = cap.strip().lower()
+                        target_capability = capability_token(cap)
+                    # SHARDED POOLS. A plugin may advertise `capability_option`
+                    # naming one of its own options; when the request supplies
+                    # that option the job routes to `<capability>-<value>`
+                    # instead of `<capability>`.
+                    #
+                    # This exists because a pool is one durable consumer: every
+                    # worker in it competes for the same messages, so workers
+                    # that are NOT interchangeable — each holding a different
+                    # licence, dataset or device — cannot share one. Routing
+                    # them apart by NAKing the wrong ones is the design this
+                    # replaced; it burned the delivery budget and dead-lettered
+                    # valid jobs (see the note on `pull_subscribe`).
+                    #
+                    # Subject routing does it instead, and the worker needs no
+                    # new code: it just lists the sharded token in
+                    # ADA_WORKER_CAPABILITIES. Core still names no plugin and
+                    # knows nothing about what the option MEANS.
+                    #
+                    # An absent or unusable option falls back to the bare
+                    # capability rather than erroring, so a worker that
+                    # subscribes to both serves unqualified requests too, and a
+                    # single-worker deployment never has to qualify anything.
+                    opt_name = spec.get("capability_option")
+                    if target_capability and isinstance(opt_name, str) and opt_name:
+                        shard = capability_token(options.get(opt_name))
+                        if shard:
+                            target_capability = f"{target_capability}-{shard}"
                     break
 
         # No queue: run it here, in a thread, and hand back a job id the status
