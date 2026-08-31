@@ -147,6 +147,71 @@ def _worker_id() -> str:
     return os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
 
 
+def _declared_capabilities() -> list[str]:
+    """What this worker advertises, after subtracting any disabled by env.
+
+    ``ADA_WORKER_CAPABILITIES`` is the positive list, and normally comes from
+    the IMAGE rather than from a deployment: the image is what actually carries
+    the packages behind each capability, so it is the only place that can state
+    the set correctly. A deployment repeating the list is a second copy of a
+    fact it does not own, and it drifts -- one such copy sat a capability behind
+    its image for weeks, advertising a pool that the image had and the manifest
+    did not mention, with no error anywhere because a job for a pool nobody
+    subscribes to is accepted and then simply never runs.
+
+    ``ADA_WORKER_DISABLED_CAPABILITIES`` is the subtractive half, and is what a
+    deployment SHOULD reach for. It is for one job: taking a misbehaving pool
+    out of service without rebuilding or rolling back an image, which would
+    revert every other capability and the adapy version along with it. Normally
+    absent.
+
+    Subtraction happens BEFORE the capability is advertised, not only before it
+    is subscribed. Advertising a pool this worker will not serve recreates
+    exactly the failure above -- the API routes to it and the job waits out its
+    timeout -- so the two must never disagree.
+
+    Compared through :func:`capability_token`, so ``Abaqus`` disables
+    ``abaqus``: an operator typing a capability under incident pressure should
+    not have to match case.
+
+    Disabling everything falls back to ``base`` with a warning rather than
+    leaving a worker that advertises nothing: a worker subscribed to nothing is
+    not a configuration anyone wants, and scaling the deployment to zero is how
+    you idle a pool.
+    """
+    declared = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    raw_disabled = [c.strip() for c in os.environ.get("ADA_WORKER_DISABLED_CAPABILITIES", "").split(",") if c.strip()]
+    if not raw_disabled:
+        return declared
+
+    disabled = {t for t in (capability_token(c) for c in raw_disabled) if t}
+    kept = [c for c in declared if capability_token(c) not in disabled]
+
+    dropped = [c for c in declared if capability_token(c) in disabled]
+    if dropped:
+        # WARNING, not info: this is a deliberate reduction in service, and the
+        # symptom of forgetting to remove it later is jobs that queue forever.
+        logger.warning(
+            "worker: capabilities disabled by ADA_WORKER_DISABLED_CAPABILITIES: %s",
+            ",".join(dropped),
+        )
+    unmatched = sorted(disabled - {capability_token(c) for c in declared})
+    if unmatched:
+        # Names nothing this worker has. Usually a typo, and a typo here is
+        # silent -- the pool it was meant to stop stays up.
+        logger.warning(
+            "worker: ADA_WORKER_DISABLED_CAPABILITIES names %s, which this worker does not advertise",
+            ",".join(unmatched),
+        )
+    if not kept:
+        logger.warning(
+            "worker: every advertised capability was disabled; falling back to 'base'. "
+            "Scale the deployment to zero to idle a pool instead."
+        )
+        return ["base"]
+    return kept
+
+
 def _pool_capabilities(capabilities: list[str]) -> list[str]:
     """Capability pools this worker should subscribe to.
 
@@ -4210,7 +4275,7 @@ async def _run() -> None:
     global _WORKER_IMAGE_TAG
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = _worker_id()
-    capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    capabilities = _declared_capabilities()
     # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
