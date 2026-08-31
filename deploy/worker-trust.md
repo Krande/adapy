@@ -331,13 +331,33 @@ Each step is independently shippable and backwards compatible.
    nothing changes until a deployment sets them.
 3. **Turn auth on in the cluster**, all pools, api included. Now network
    position grants nothing.
-4. **Capability qualification** (§4), in three parts that must ship together:
+4. **Capability qualification** (§4) ✅ **Landed.** Shipped as the three parts
+   below, which had to go together:
    package data into the registry row (it goes only to Postgres today, and not
    at all on a worker without one), the worker-side gate with `withheld`, and
    the API surfacing withheld capabilities as *unavailable-with-a-reason*
    rather than absent. Shipping the gate without the last part trades a silent
    wrong answer for a silent missing one. Pays for itself immediately on the
    *existing* extra-worker pools, external workers or not.
+
+   Two things the implementation settled that the design had left vague:
+
+   * **The comparator carries no `packaging` dependency.** It is absent from the
+     `viewer-api` environment, and a gate that needed it would have had to fail
+     open on a hand-assembled machine — the one it is most for. Comparison is
+     self-contained, orders dotted numeric releases, and *refuses* anything else
+     rather than guessing at `1.0.0rc1` vs `1.0.0`.
+   * **The API-side re-check is weaker than this document implied.** It was
+     justified as covering a worker too old to gate itself, but such a worker
+     also reports no packages, so there is nothing to re-check. Against a worker
+     that *lies*, the answer is admission (§3), not this. What the API does do
+     is surface the worker's own verdict, which is the part that matters.
+
+   Requirements reach workers through the KV meta keyspace rather than the
+   database, because the worker this is most for has no database connection.
+   Evaluated once at startup and used for both advertisement and subscription,
+   so the two cannot disagree; changing a requirement takes effect on restart.
+   Taking a pool out of service *now* is a different job with a different tool.
 5. **Admission list** (§3), default-allow until an operator opts in, with the
    Admit button in the admin panel.
 6. **Only then** issue an external worker its credentials and admit it.
