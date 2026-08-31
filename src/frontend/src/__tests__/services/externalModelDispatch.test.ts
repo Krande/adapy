@@ -64,6 +64,23 @@ function readOnlyClient(
   };
 }
 
+/** Stub a job that is accepted and then never finishes — what a deployment
+ *  whose worker pool does not advertise this capability actually does. */
+function stubNeverFinishingJob() {
+  const original = {
+    pluginJob: api.pluginJob,
+    convertStatus: api.convertStatus,
+    getBlob: api.getBlob,
+  };
+  api.pluginJob = async () => ({ job_id: "j", derived_key: "d" });
+  api.convertStatus = async () => ({ status: "queued" });
+  return {
+    restore() {
+      Object.assign(api, original);
+    },
+  };
+}
+
 /** Stub the viewerApi calls `runAction` makes so a job resolves to `payload`
  *  (or rejects with an Error). Returns a restore handle. */
 function stubJob(payload: unknown) {
@@ -309,6 +326,26 @@ test("listProviders propagates the worker's error when this page has none", asyn
   const stub = stubJob(new Error("no worker advertises external-models"));
   try {
     await assert.rejects(() => mod.listProviders(SCOPE), /no worker advertises/);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a stuck worker does not hold the listing for the full poll timeout", async () => {
+  // The job is accepted and never runs, which is what a pool that does not
+  // advertise this capability does. Waiting the full 60s for that renders
+  // exactly what the page had at the start, one minute later.
+  mod.registerExternalModelClient("vendor", readOnlyClient(), { label: "Vendor" });
+  const stub = stubNeverFinishingJob();
+  const started = Date.now();
+  try {
+    assert.deepEqual(await mod.listProviders(SCOPE), [
+      { id: "vendor", label: "Vendor" },
+    ]);
+    const waited = Date.now() - started;
+    // Comfortably inside the 60s full timeout, and at least long enough to show
+    // the bounded wait was a real wait rather than a skipped call.
+    assert.ok(waited < 30_000, `waited ${waited}ms, expected the bounded timeout`);
   } finally {
     stub.restore();
   }

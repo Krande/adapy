@@ -116,6 +116,22 @@ async function decodeSummary(buf: ArrayBuffer): Promise<string> {
 
 const POLL_INTERVAL_MS = 800;
 const POLL_TIMEOUT_MS = 60_000;
+// How long to wait on the WORKER's provider list when this page already has
+// providers of its own.
+//
+// A plugin job is enqueued on the subject for its capability, and if no live
+// worker advertises that capability nothing is subscribed: the job is accepted,
+// never runs, and the poll simply expires. Waiting the full minute for that is
+// right when the worker is the only possible source of an answer, and wrong
+// when it is not -- a page that could have rendered its own providers instantly
+// instead shows "Loading" for a minute and then renders exactly what it had at
+// the start. Observed on a deployment whose worker pool did not advertise this
+// capability at all.
+//
+// Long enough for a healthy worker plus a cold NATS round trip, short enough
+// not to read as a hang. A worker slower than this loses its entry from THIS
+// listing only; the next refresh asks again.
+const PROVIDER_FALLBACK_TIMEOUT_MS = 8_000;
 
 /** Enqueue one catalogue action, poll to completion, return the parsed summary.
  *
@@ -127,6 +143,7 @@ async function runAction<T>(
   options: JobOptions,
   scope: ScopeUrl,
   signal?: AbortSignal,
+  timeoutMs: number = POLL_TIMEOUT_MS,
 ): Promise<T> {
   // The enqueue returns only {job_id, derived_key} — no status — so the first
   // real status has to come from a poll. A cache-hit job is already `done` on
@@ -137,13 +154,13 @@ async function runAction<T>(
     { scope },
   );
 
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   let status = await viewerApi.convertStatus(job_id);
   while (status.status !== "done" && status.status !== "error") {
     if (signal?.aborted) throw new ExternalModelsError("aborted");
     if (Date.now() > deadline) {
       throw new ExternalModelsError(
-        `external-models ${options.action} timed out after ${POLL_TIMEOUT_MS / 1000}s`,
+        `external-models ${options.action} timed out after ${timeoutMs / 1000}s`,
       );
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -200,6 +217,9 @@ export async function listProviders(
       { action: "list_providers", refresh: opts?.refresh },
       scope,
       opts?.signal,
+      // Bounded only when this page can answer without the worker. With nothing
+      // registered here the worker IS the answer, so it gets the full wait.
+      local.length > 0 ? PROVIDER_FALLBACK_TIMEOUT_MS : POLL_TIMEOUT_MS,
     );
     remote = out.providers ?? [];
   } catch (e) {
