@@ -2,6 +2,15 @@
 
 
 
+## v0.53.0 (2026-08-31)
+
+### Feature
+
+* feat(plugins): let one plugin address several non-interchangeable pools (#300)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`d516bc7`](https://github.com/Krande/adapy/commit/d516bc7560ef5633a10ae8fe51f4ad333f9694cb))
+
+
 ## v0.52.1 (2026-08-31)
 
 ### Fix
