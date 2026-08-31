@@ -20,6 +20,24 @@
 // enqueue -> poll -> read the derived blob. Core hashes `options` into the job's
 // synthetic source key, so an identical repeat request cache-hits a finished job
 // and costs one round-trip rather than a rebuild.
+//
+// TWO KINDS OF PROVIDER, ONE SET OF CALLS. The job path above resolves a
+// provider on the WORKER, which authenticates as the deployment's own service
+// identity. That is right for a catalogue the deployment owns, and structurally
+// wrong for one that authorises PER END USER: a worker identity is not the user,
+// so a catalogue deriving access from the caller's own entitlements serves the
+// worker whatever an unentitled principal gets — commonly an empty or partial
+// listing, or an outright refusal. No grant fixes that; the worker is not the
+// person, and for some catalogues it never can be.
+//
+// So a provider may instead register a BROWSER-SIDE implementation
+// (`registerExternalModelClient`), which reads the catalogue from the page, as
+// the signed-in user, using whatever token that user's session can mint. Every
+// function below dispatches to one if it is registered for the named provider
+// and falls through to the job otherwise, so a CONSUMER never learns which kind
+// it is talking to — the same property the worker-side registry already has
+// across catalogues, extended across identities. If a consumer ever has to know,
+// this abstraction has failed.
 
 import {
   bindingFor,
@@ -28,6 +46,16 @@ import {
   type ExternalModelBindingMap,
 } from "./externalModelsBinding";
 import { viewerApi, type ScopeUrl } from "./viewerApi";
+import {
+  ExternalModelsError,
+  externalModelClient,
+  externalModelClientProviders,
+} from "./externalModelClients";
+import type {
+  ExternalCollection,
+  ExternalModel,
+  ExternalModelProvider,
+} from "./externalModelTypes";
 
 export {
   bindingFor,
@@ -36,36 +64,27 @@ export {
   type ExternalModelBindingMap,
 };
 
-/** A top-level grouping in a provider — a bucket prefix, a vendor project. */
-export interface ExternalCollection {
-  id: string;
-  name: string;
-}
-
-/** One loadable model. `key` is provider-internal; consumers should treat it as
- *  opaque and address a model by `(collection, id)`. */
-export interface ExternalModel {
-  id: string;
-  name: string;
-  collection: string;
-  key: string;
-  size?: number | null;
-}
-
-export interface ExternalModelProvider {
-  id: string;
-  label: string;
-}
+// The vocabulary and the browser-side registry both live in leaf modules (see
+// their headers), and are re-exported here so a consumer has one import to
+// remember and never has to know which half of the API a name came from.
+export type {
+  ExternalCollection,
+  ExternalModel,
+  ExternalModelProvider,
+} from "./externalModelTypes";
+export {
+  ExternalModelsError,
+  externalModelClient,
+  externalModelClientProviders,
+  registerExternalModelClient,
+  resetExternalModelClients,
+  unregisterExternalModelClient,
+  type ExternalModelClient,
+  type ExternalModelClientOpts,
+} from "./externalModelClients";
 
 /** The plugin id core's built-in external-model backend registers under. */
 export const EXTERNAL_MODELS_PLUGIN_ID = "external-models";
-
-export class ExternalModelsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ExternalModelsError";
-  }
-}
 
 interface JobOptions {
   action: string;
@@ -150,19 +169,52 @@ async function runAction<T>(
   }
 }
 
-/** Providers registered on the worker serving this capability. A UI that offers
- *  a picker should call this rather than assuming a provider exists — which one
- *  is present is a deployment choice. */
+/** Every provider this viewer can reach — those registered on the worker serving
+ *  this capability, plus those registered in this page. A UI that offers a
+ *  picker should call this rather than assuming a provider exists: which ones
+ *  are present is a deployment choice, and now also a bundle choice.
+ *
+ *  A BROWSER-SIDE PROVIDER WINS a shared id. The pair arises on purpose — a
+ *  catalogue may register both halves, the worker's serving whatever it can read
+ *  as the deployment and the page's serving the user's own entitlements — and
+ *  the browser-side one is the more capable of the two by construction, since it
+ *  has an identity the worker cannot obtain. Preferring it silently is right;
+ *  offering the same label twice and letting the user pick the crippled one is
+ *  not.
+ *
+ *  The job failing does NOT fail the call when this page has providers of its
+ *  own: a deployment can legitimately run no worker for this capability at all,
+ *  and a browser-side catalogue must keep working when it does. With nothing
+ *  registered here, the error propagates — it is then the only answer there is,
+ *  and it names what the worker has, which is what a misconfigured deployment
+ *  needs to see. */
 export async function listProviders(
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalModelProvider[]> {
-  const out = await runAction<{ providers: ExternalModelProvider[] }>(
-    { action: "list_providers", refresh: opts?.refresh },
-    scope,
-    opts?.signal,
-  );
-  return out.providers ?? [];
+  const local: ExternalModelProvider[] = externalModelClientProviders();
+
+  let remote: ExternalModelProvider[] = [];
+  try {
+    const out = await runAction<{ providers: ExternalModelProvider[] }>(
+      { action: "list_providers", refresh: opts?.refresh },
+      scope,
+      opts?.signal,
+    );
+    remote = out.providers ?? [];
+  } catch (e) {
+    if (local.length === 0) throw e;
+    // Not silent: a worker that was expected to answer and did not is worth
+    // seeing, even though the page can carry on without it.
+    console.warn(
+      "[external-models] the worker did not answer list_providers; " +
+        "listing only the providers registered in this page",
+      e,
+    );
+  }
+
+  const seen = new Set(local.map((p) => p.id));
+  return [...local, ...remote.filter((p) => !seen.has(p.id))];
 }
 
 /** A cache-busting token for one read of the catalogue.
@@ -183,6 +235,9 @@ export async function listCollections(
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalCollection[]> {
+  const impl = externalModelClient(provider);
+  if (impl) return (await impl.listCollections(opts)) ?? [];
+
   const out = await runAction<{ collections: ExternalCollection[] }>(
     { action: "list_collections", provider, refresh: opts?.refresh },
     scope,
@@ -202,6 +257,15 @@ export async function listModelsDetailed(
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<{ models: ExternalModel[]; canUpload: boolean }> {
+  const impl = externalModelClient(provider);
+  if (impl) {
+    return {
+      models: (await impl.listModels(collection, opts)) ?? [],
+      // Presence is the declaration, same rule as the worker's `can_upload`.
+      canUpload: typeof impl.modelUploadUrl === "function",
+    };
+  }
+
   const out = await runAction<{ models: ExternalModel[]; can_upload?: boolean }>(
     { action: "list_models", provider, collection, refresh: opts?.refresh },
     scope,
@@ -228,6 +292,16 @@ export async function modelUrl(
   scope: ScopeUrl,
   opts?: { expiresInSeconds?: number; signal?: AbortSignal },
 ): Promise<{ url: string; headers: Record<string, string> }> {
+  const impl = externalModelClient(provider);
+  if (impl) {
+    const got = await impl.modelUrl(collection, modelId, {
+      expiresInSeconds: opts?.expiresInSeconds,
+      signal: opts?.signal,
+    });
+    if (!got?.url) throw new ExternalModelsError("provider returned no url");
+    return { url: got.url, headers: got.headers ?? {} };
+  }
+
   const out = await runAction<{ url: string; headers?: Record<string, string> }>(
     {
       action: "model_url",
@@ -268,6 +342,31 @@ export async function modelUploadUrl(
   scope: ScopeUrl,
   opts?: { expiresInSeconds?: number; contentType?: string; signal?: AbortSignal },
 ): Promise<{ url: string; method: string; headers: Record<string, string> }> {
+  const impl = externalModelClient(provider);
+  if (impl) {
+    if (typeof impl.modelUploadUrl !== "function") {
+      // Same refusal the worker gives, and for the same reason: this is not a
+      // malformed request, it is a catalogue that does not accept models.
+      throw new ExternalModelsError(
+        `provider '${provider}' does not accept uploads; it publishes through its own ` +
+          "pipeline, so there is nothing for the viewer to upload to",
+      );
+    }
+    const got = await impl.modelUploadUrl(collection, modelId, {
+      expiresInSeconds: opts?.expiresInSeconds,
+      contentType: opts?.contentType,
+      signal: opts?.signal,
+    });
+    if (!got?.url) {
+      throw new ExternalModelsError("provider returned no upload url");
+    }
+    return {
+      url: got.url,
+      method: got.method || "PUT",
+      headers: got.headers ?? {},
+    };
+  }
+
   const out = await runAction<{
     url: string;
     method?: string;
