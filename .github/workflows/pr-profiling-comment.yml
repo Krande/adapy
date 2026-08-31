@@ -31,7 +31,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Download the profiling output
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           # The artifact belongs to a different workflow's run, so it has to be
           # named explicitly — the default would look in this run.
