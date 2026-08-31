@@ -2800,6 +2800,35 @@ def _read_self_vmhwm_kb() -> int:
     return 0
 
 
+def _read_self_rusage() -> "tuple[float, float, int] | None":
+    """``(user_seconds, sys_seconds, max_rss_kb)`` for this process and its
+    children, or ``None`` where the counters cannot be read.
+
+    ``resource`` is POSIX-only and does not exist on Windows. That matters
+    because the plugin-job profiling harness runs IN-PROCESS — unlike the
+    convert path, which does its accounting in a forked child that only ever
+    exists on POSIX — so an unguarded ``import resource`` there would fail the
+    JOB, not just the measurement, on any Windows worker with profiling on.
+    Best-effort, like the ``/proc`` readers above: a counter we cannot read is
+    a poorer audit row, never a failed conversion.
+
+    Whole-process by construction: the executor model cannot isolate one
+    thread's counters, so the numbers include any concurrent work on this
+    worker.
+    """
+    try:
+        import resource
+    except ModuleNotFoundError:  # Windows
+        return None
+    me = resource.getrusage(resource.RUSAGE_SELF)
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return (
+        me.ru_utime + kids.ru_utime,
+        me.ru_stime + kids.ru_stime,
+        int(max(me.ru_maxrss, kids.ru_maxrss)),
+    )
+
+
 async def _run_plugin_job(
     *,
     job: Job,
@@ -2945,31 +2974,38 @@ async def _run_plugin_job(
             return fn(opts.get("options") or {}, **kwargs)
 
         # Harness: cProfile + rusage/VmHWM/proc-io deltas around the call. All
-        # readings are whole-process (see note above).
+        # readings are whole-process (see note above), and every one of them is
+        # best-effort — cProfile is the only part that works everywhere, and a
+        # counter this platform cannot produce must cost a measurement, not the
+        # job that was being measured.
         import cProfile
-        import resource
 
         prof = cProfile.Profile()
-        ru0_self = resource.getrusage(resource.RUSAGE_SELF)
-        ru0_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+        ru0 = _read_self_rusage()
         rd0, wr0 = _read_self_proc_io()
         prof.enable()
         try:
             result = fn(opts.get("options") or {}, **kwargs)
         finally:
             prof.disable()
-            ru1_self = resource.getrusage(resource.RUSAGE_SELF)
-            ru1_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+            ru1 = _read_self_rusage()
             rd1, wr1 = _read_self_proc_io()
-            cpu_user_ms = int(
-                ((ru1_self.ru_utime - ru0_self.ru_utime) + (ru1_child.ru_utime - ru0_child.ru_utime)) * 1000
-            )
-            cpu_sys_ms = int(
-                ((ru1_self.ru_stime - ru0_self.ru_stime) + (ru1_child.ru_stime - ru0_child.ru_stime)) * 1000
-            )
-            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is the
-            # fallback when /proc is unavailable.
-            peak_rss_kb = _read_self_vmhwm_kb() or int(max(ru1_self.ru_maxrss, ru1_child.ru_maxrss))
+            metrics: dict = {
+                "read_bytes": max(0, rd1 - rd0),
+                "write_bytes": max(0, wr1 - wr0),
+            }
+            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is
+            # the fallback when /proc is unavailable.
+            peak_rss_kb = _read_self_vmhwm_kb() or (ru1[2] if ru1 else 0)
+            if peak_rss_kb:
+                metrics["peak_rss_kb"] = peak_rss_kb
+            if ru0 is not None and ru1 is not None:
+                # Omitted rather than zeroed where rusage is unavailable. A
+                # zero would be indistinguishable from a job that genuinely
+                # burned no CPU, and the audit panel reads exactly that ratio
+                # to decide a task is "mostly waiting on IO".
+                metrics["cpu_user_ms"] = int((ru1[0] - ru0[0]) * 1000)
+                metrics["cpu_sys_ms"] = int((ru1[1] - ru0[1]) * 1000)
             prof_bytes: bytes | None = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".prof", delete=False) as tf:
@@ -2979,13 +3015,7 @@ async def _run_plugin_job(
                 os.unlink(_prof_path)
             except Exception:
                 logger.debug("worker: plugin_job profile dump failed for %s", job_id, exc_info=True)
-            prof_holder["metrics"] = {
-                "cpu_user_ms": cpu_user_ms,
-                "cpu_sys_ms": cpu_sys_ms,
-                "peak_rss_kb": peak_rss_kb,
-                "read_bytes": max(0, rd1 - rd0),
-                "write_bytes": max(0, wr1 - wr0),
-            }
+            prof_holder["metrics"] = metrics
             prof_holder["profile_bytes"] = prof_bytes
         return result
 
