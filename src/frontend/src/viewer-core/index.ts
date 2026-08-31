@@ -51,7 +51,14 @@
 //  * `src/__tests__/plugins/viewerCoreFacade.test.ts` enforces both rules plus
 //    the "shells import only the facade" fence.
 
-export const VIEWER_CORE_API_VERSION = "1.0.0";
+// Also bumped on an ADDITIVE export a shell can DEPEND on, for the reason
+// `PLUGIN_API_VERSION` is: without a version to name in `coreApiRange`, a shell
+// built against the newer facade fails on an older core at an undefined import,
+// from inside the shell, with nothing naming the mismatch.
+//
+//   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
+//          `@/viewer-core/scene`
+export const VIEWER_CORE_API_VERSION = "1.1.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
