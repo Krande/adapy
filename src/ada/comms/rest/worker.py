@@ -43,7 +43,14 @@ from . import db as db_module
 from . import source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
-from .queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, JOB_STATUS_RUNNING, Job, JobQueue
+from .queue import (
+    JOB_STATUS_DONE,
+    JOB_STATUS_ERROR,
+    JOB_STATUS_RUNNING,
+    Job,
+    JobQueue,
+    capability_token,
+)
 from .scope import Scope
 from .storage import Storage
 from .subprocess_convert import (
@@ -143,12 +150,17 @@ def _worker_id() -> str:
 def _pool_capabilities(capabilities: list[str]) -> list[str]:
     """Capability pools this worker should subscribe to.
 
-    Lower-cased and de-duplicated while preserving order, so a repeated or
-    differently-cased entry in ``ADA_WORKER_CAPABILITIES`` cannot open two
-    consumers on the same subject. Falls back to ``["base"]`` so a worker is
-    never left subscribed to nothing.
+    Normalised through :func:`capability_token` and de-duplicated while
+    preserving order, so a repeated or differently-cased entry in
+    ``ADA_WORKER_CAPABILITIES`` cannot open two consumers on the same subject.
+    Falls back to ``["base"]`` so a worker is never left subscribed to nothing.
+
+    Deliberately the same normaliser the API uses to build the subject it
+    PUBLISHES on. A sharded capability like ``cad-Site A`` has to reduce to an
+    identical token on both sides, or the job is published to a subject nothing
+    is subscribed to and sits in the stream looking merely slow.
     """
-    pools = [c.strip().lower() for c in capabilities if c and c.strip()]
+    pools = [t for t in (capability_token(c) for c in capabilities) if t]
     return list(dict.fromkeys(pools)) or ["base"]
 
 

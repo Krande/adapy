@@ -109,6 +109,42 @@ class QueueDisabled(RuntimeError):
     """Raised when queue operations are attempted but no NATS URL is configured."""
 
 
+#: Longest a single capability token may be. Generous for a project code or a
+#: device name, short enough that a pasted paragraph cannot become a subject.
+MAX_CAPABILITY_TOKEN_LEN = 48
+
+
+def capability_token(value: object) -> str:
+    """Normalise ``value`` into one NATS subject token, or ``""``.
+
+    A capability becomes a subject segment (``ada.viewer.jobs.convert.<cap>``)
+    and a durable-consumer name suffix, so it may not contain ``.``, ``*``,
+    ``>`` or whitespace — a project code with a dot in it would silently create
+    a *deeper* subject that no consumer filters on, and the job would sit in the
+    stream forever looking merely slow.
+
+    THIS FUNCTION IS THE CONTRACT between the API and the worker. The API
+    derives the subject it publishes on and the worker derives the subject it
+    subscribes to; if the two normalised differently — one lower-casing, the
+    other not — every sharded job would be published to a subject nobody is
+    listening on. Both call this.
+
+    Returns ``""`` when nothing usable survives, which callers must read as "no
+    shard", never as a token.
+    """
+    text = str(value or "").strip().lower()
+    out: list[str] = []
+    for ch in text:
+        if ch.isascii() and (ch.isalnum() or ch == "-"):
+            out.append(ch)
+        elif out and out[-1] != "-":
+            # Collapse any run of separators (dots, spaces, slashes) into one
+            # dash rather than dropping them: `site-a/2` and `site-a 2` should
+            # not both become `site-a2`, which would merge two distinct pools.
+            out.append("-")
+    return "".join(out).strip("-")[:MAX_CAPABILITY_TOKEN_LEN].strip("-")
+
+
 def _worker_advertises_engine(w: dict, ext: str, engine: str) -> bool:
     """True if worker registry entry ``w`` lists ``engine`` in its step_glb_pipeline enum for the
     ``ext`` → glb conversion — i.e. that pool can actually run the requested STEP→GLB engine."""
@@ -802,6 +838,8 @@ __all__ = [
     "Job",
     "JobQueue",
     "QueueDisabled",
+    "capability_token",
+    "MAX_CAPABILITY_TOKEN_LEN",
     "JOB_STATUS_QUEUED",
     "JOB_STATUS_RUNNING",
     "JOB_STATUS_DONE",
