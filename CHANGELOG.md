@@ -2,6 +2,15 @@
 
 
 
+## v0.57.0 (2026-08-31)
+
+### Feature
+
+* feat(worker): let a deployment disable a capability without a rebuild (#302)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`cfa3858`](https://github.com/Krande/adapy/commit/cfa3858ee672e81aff534e3313f3fa34b6f54f53))
+
+
 ## v0.56.0 (2026-08-31)
 
 ### Chore
