@@ -236,3 +236,21 @@ def test_capability_case_does_not_change_the_verdict():
 def test_the_verdict_preserves_declaration_order():
     v = evaluate(["meshing", "base"], REQS, GOOD)
     assert v.kept == ["meshing", "base"]
+
+
+# --- a fully-withheld worker -----------------------------------------------
+
+
+def test_withholding_everything_yields_an_empty_kept_set():
+    """And the worker must NOT fall back to `base` from it.
+
+    `_pool_capabilities` turns an empty list into `["base"]`, which is right for
+    an unset env var and catastrophic for a verdict: the worker would advertise
+    nothing, report `withheld: [base]`, and then quietly keep pulling base jobs.
+    That is the disagreement between advertisement and subscription this whole
+    design exists to prevent, so the worker bypasses that fallback rather than
+    reaching it. Caught by asking what happens when the last capability goes.
+    """
+    v = evaluate(["base"], {"base": {"requires": {"ada-py": ">=99.0"}}}, [pkg("ada-py", "0.54.0")])
+    assert v.kept == []
+    assert v.withheld_reasons["base"].startswith("ada-py 0.54.0 does not satisfy")

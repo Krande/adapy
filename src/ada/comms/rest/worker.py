@@ -4212,6 +4212,12 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = _worker_id()
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    # An explicitly blank ADA_WORKER_CAPABILITIES means "unset", not "serve
+    # nothing" -- normalised here so that after qualification an empty list can
+    # only mean every capability was WITHHELD, which is a verdict and must not
+    # be quietly turned back into `base`.
+    if not capabilities:
+        capabilities = ["base"]
     # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
@@ -4567,7 +4573,23 @@ async def _run() -> None:
     # silently served just the first while the rest looked idle rather than
     # broken. Serving them all is what lets one image cover several pools
     # instead of needing a separate deployment per capability.
-    pool_capabilities = _pool_capabilities(capabilities)
+    #
+    # An EMPTY set here means qualification withheld everything (the env default
+    # was normalised above). `_pool_capabilities` falls back to `["base"]` for an
+    # unset env var, and letting that fallback apply to a verdict would make the
+    # worker subscribe to the very pool it just declared itself unfit for --
+    # advertising nothing while quietly still pulling base jobs. That is exactly
+    # the disagreement between advertisement and subscription this design exists
+    # to prevent, so the fallback is bypassed rather than reached.
+    if capabilities:
+        pool_capabilities = _pool_capabilities(capabilities)
+    else:
+        pool_capabilities = []
+        logger.error(
+            "worker: every capability was withheld; subscribing to nothing. "
+            "The registry row records why, per capability. Fix the environment "
+            "or the requirements and restart."
+        )
     logger.info("worker: subscribing to capability pools %s", pool_capabilities)
     subs = [(cap, await queue.pull_subscribe(cap)) for cap in pool_capabilities]
 
@@ -4634,6 +4656,15 @@ async def _run() -> None:
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
+            if not subs:
+                # Qualification withheld everything. Stay up and keep
+                # heartbeating rather than exiting: the registry row is the only
+                # place that says WHY, and a worker that exits is indistinguishable
+                # from one that was never started — which is the confusion this
+                # whole design is meant to remove. Idle at the same cadence a
+                # fetch would have taken, so the liveness file stays fresh.
+                await asyncio.sleep(FETCH_TIMEOUT)
+                continue
             cap, sub = subs[rr % len(subs)]
             rr += 1
             try:

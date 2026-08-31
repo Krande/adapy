@@ -168,3 +168,26 @@ def test_a_stale_worker_is_still_excluded_entirely(monkeypatch, tmp_path):
     w = _worker("w1", withheld=[{"capability": "cad", "reason": "stale"}])
     w["last_heartbeat"] = time.time() - 10_000
     assert _entry(_plugins(monkeypatch, tmp_path, [w])) is None
+
+
+def test_a_worker_serving_nothing_still_reports_why(monkeypatch, tmp_path):
+    """The reason a fully-withheld worker stays up instead of exiting.
+
+    A worker that exited would leave no registry row, and "unfit" would be
+    indistinguishable from "never started" — the confusion this design removes.
+    """
+    plugins = _plugins(
+        monkeypatch,
+        tmp_path,
+        [
+            _worker(
+                "w1",
+                capabilities=[],
+                withheld=[{"capability": "cad", "reason": "occt build vtk_0 does not match novtk_*"}],
+            )
+        ],
+    )
+    e = _entry(plugins)
+    assert e is not None
+    assert e["available"] is False
+    assert "novtk_*" in e["unavailable_reason"]
