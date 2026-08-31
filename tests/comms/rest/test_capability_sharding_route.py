@@ -219,3 +219,39 @@ def test_the_advertised_spec_is_stable_across_requests(monkeypatch, tmp_path):
         return next(p for p in payload if p["slug"] == PLUGIN)["version"]
 
     assert version_of(first) == version_of(second) == "1.0.0"  # worker id w1 sorts first
+
+
+# --- every producer converges on one subject --------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("weld_gen", "ada.viewer.jobs.convert.weld_gen"),
+        ("Fem Solver", "ada.viewer.jobs.convert.fem-solver"),
+        ("abaqus", "ada.viewer.jobs.convert.abaqus"),
+        (None, "ada.viewer.jobs.convert.base"),
+    ],
+)
+def test_publish_normalises_whatever_producer_set_the_capability(raw, expected):
+    """`target_capability` is set from a dozen call sites and only one of them
+    goes through the plugin route. The worker derives its subscription with
+    `capability_token`, so `publish` has to as well or a job from any other
+    producer lands on a subject nothing is listening to — silently."""
+    import asyncio
+
+    published: list[str] = []
+
+    class _JS:
+        async def publish(self, subject, payload):
+            published.append(subject)
+
+    q = JobQueue(
+        QueueConfig(url="nats://x", stream="ada", subject="ada.viewer.jobs.convert", kv_bucket="kv", durable="d")
+    )
+    q._js = _JS()
+    job = Job(job_id="j", source_key="s", derived_key="d", status="queued", target_capability=raw)
+
+    asyncio.run(q.publish(job))
+
+    assert published == [expected]

@@ -196,3 +196,28 @@ def test_merging_does_not_mutate_the_incoming_spec():
     b = _spec(projects=["beta"])
     _merge_spec(a, b)
     assert b["projects"] == ["beta"]
+
+
+# --- existing pools must not move -------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["base", "weld_gen", "fem_solver", "abaqus", "cad-export", "a1"])
+def test_capability_names_already_in_use_are_unchanged(name):
+    """The compatibility guard.
+
+    `_pool_capabilities` now normalises, so any name this function REWRITES
+    moves a live worker to a different subject. Underscore is the realistic
+    case: it is legal in a NATS subject and pools are named with it. If this
+    test ever has to change, a deployment somewhere silently stops receiving
+    jobs.
+    """
+    assert capability_token(name) == name
+    assert _pool_capabilities([name]) == [name]
+
+
+def test_the_token_is_idempotent():
+    # Applied at both the publish and the subscribe end, so a value that has
+    # already been through it must survive a second pass unchanged.
+    for raw in ["ALPHA", "site a/2", "weld_gen", "  x  ", "a.b.c", ""]:
+        once = capability_token(raw)
+        assert capability_token(once) == once

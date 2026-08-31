@@ -129,13 +129,22 @@ def capability_token(value: object) -> str:
     other not — every sharded job would be published to a subject nobody is
     listening on. Both call this.
 
+    Underscore is kept, not rewritten to a dash. It is a legal subject
+    character and existing pools are named with it (``fem_solver``), so
+    rewriting it would move those workers to a new subject while some job
+    producers still published to the old one — a silent delivery failure caused
+    by a normaliser meant to prevent exactly that.
+
+    Idempotent: ``capability_token(capability_token(x)) == capability_token(x)``,
+    which is what makes it safe to apply at more than one point on the path.
+
     Returns ``""`` when nothing usable survives, which callers must read as "no
     shard", never as a token.
     """
     text = str(value or "").strip().lower()
     out: list[str] = []
     for ch in text:
-        if ch.isascii() and (ch.isalnum() or ch == "-"):
+        if ch.isascii() and (ch.isalnum() or ch in "-_"):
             out.append(ch)
         elif out and out[-1] != "-":
             # Collapse any run of separators (dots, spaces, slashes) into one
@@ -473,7 +482,15 @@ class JobQueue:
         forever: no message left in the work queue, and the KV entry gone once
         the terminal-status cleanup sweep runs.
         """
-        cap = (job.target_capability or self.DEFAULT_CAPABILITY).strip().lower()
+        # Normalised HERE rather than at each producer. `target_capability` is
+        # set from a dozen places — the plugin route, the audit dispatcher, a
+        # detailing spec, a procedural engine lookup, a manifest — and several
+        # of them pass a value straight through from a worker's advertisement.
+        # The worker derives its subscription subject through the same function,
+        # so converging here is what guarantees the two agree no matter which
+        # producer built the job. Doing it per-producer would mean the next one
+        # added is a silent delivery failure nobody notices.
+        cap = capability_token(job.target_capability) or self.DEFAULT_CAPABILITY
         subject = f"{self._cfg.subject}.{cap}"
         await self._js.publish(subject, job.job_id.encode("utf-8"))
 
