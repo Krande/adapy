@@ -207,6 +207,22 @@ The input already exists: `_capture_worker_packages()` reads `conda-meta/*.json`
 a DB pool *and* an image tag are present; make it unconditional and cache it —
 it cannot change within a process lifetime.
 
+Two details about "currently" that matter more than they look:
+
+* Its output goes to **Postgres**, so audit rows can link to a toolchain. It is
+  **not** in the registry row — `register_worker` sends `image_tag`,
+  `capabilities`, `plugin_specs`, `conversions`, `source_exts` and no packages.
+  So the API cannot see a worker's dependencies at all today, and the API-side
+  check below has nothing to check against until this moves.
+* An off-cluster worker typically has **no** `DATABASE_URL` (there is no reason
+  to expose Postgres to it), so `_capture_worker_packages()` is never called
+  there. The machine whose dependencies are least under our control is the one
+  currently reporting nothing about them — a box carrying a two-year-old
+  `ada-py` is indistinguishable from a current one.
+
+Making it unconditional and registry-borne is therefore the *first* step of this
+design, not an implementation detail of it.
+
 The registry row gains a `withheld` field so the reason is visible instead of the
 capability merely being absent:
 
@@ -217,6 +233,51 @@ capability merely being absent:
 
 A capability silently missing is a support ticket; a capability that says why it
 withheld itself is a fixed deployment.
+
+#### Withheld is not absent, and the API must not conflate them
+
+Writing the reason into the registry row is necessary and **not sufficient** —
+an earlier draft of this document stopped there. The consuming endpoints
+(`/api/plugins` and the sibling unions) list only what live workers *advertise*.
+A worker that withholds a capability therefore vanishes from them entirely, and
+every consumer sees precisely what it would see if the machine were switched off.
+
+That is worse than unhelpful when the pool has one member. A viewer dialog
+reading the plugin list says:
+
+> no worker providing this capability is online — start one
+
+which is false: one *is* running, it is simply unfit. The operator's next action
+is to start a second, which will be unfit for the same reason, and nothing on the
+path from symptom to cause mentions a version.
+
+So the union endpoints must carry withheld capabilities as **present but
+unavailable, with the reason**, rather than omitting them:
+
+```json
+{ "slug": "…", "online": true, "available": false,
+  "unavailable_reason": "ada-py 0.44.1 does not satisfy >=0.51.0" }
+```
+
+The rule worth holding onto: **anything that can disable a capability must also
+be able to say so to whoever is waiting for it.** A gate whose only externally
+visible effect is an absence has re-created, one level up, the failure it was
+built to prevent — work queued against a pool that will never serve it, looking
+like slowness rather than misconfiguration.
+
+#### The asymmetry this creates
+
+Withholding is not equally cheap across capabilities, and the design should not
+pretend otherwise:
+
+* For **`base`**, withholding is strictly better than serving. A stale base
+  worker produces *silently wrong output* — `worker.py`'s own comment cites
+  non-manifold meshes — and other pool members remain to take the work.
+* For a **capability with a single provider** (a licensed host, a machine with a
+  device attached), withholding removes that capability from the deployment
+  outright. Still the right call against wrong output written under a permanent
+  key, but the whole justification rests on the failure being legible — which is
+  why the paragraph above is a requirement and not a nicety.
 
 **API side (defence in depth).** The union endpoints apply the same check
 against the packages the worker reported. This covers the worker running code
@@ -263,13 +324,20 @@ Each step is independently shippable and backwards compatible.
 1. **`connect(manage=False)` for workers.** ✅ **Landed.** No behaviour change;
    unlocks least privilege later.
 2. **Credentials plumbed through `QueueConfig`.** ✅ **Landed** (Python side;
-   see the chart gap below). Still optional — nothing changes until a
-   deployment sets them.
+   see the chart gap below). 0.54.0 completed it: the optional `aiohttp` and
+   `nkeys` packages nats-py imports lazily, and the inline seed form
+   (`ADA_VIEWER_NATS_NKEY_SEED_VALUE`) that a secret store populating the
+   environment — rather than mounting a file — requires. Still optional;
+   nothing changes until a deployment sets them.
 3. **Turn auth on in the cluster**, all pools, api included. Now network
    position grants nothing.
-4. **Capability qualification** (§4) — worker-side gate, `withheld` in the
-   registry, admin panel surfacing it. This one pays for itself immediately on
-   the *existing* extra-worker pools, external workers or not.
+4. **Capability qualification** (§4), in three parts that must ship together:
+   package data into the registry row (it goes only to Postgres today, and not
+   at all on a worker without one), the worker-side gate with `withheld`, and
+   the API surfacing withheld capabilities as *unavailable-with-a-reason*
+   rather than absent. Shipping the gate without the last part trades a silent
+   wrong answer for a silent missing one. Pays for itself immediately on the
+   *existing* extra-worker pools, external workers or not.
 5. **Admission list** (§3), default-allow until an operator opts in, with the
    Admit button in the admin panel.
 6. **Only then** issue an external worker its credentials and admit it.
