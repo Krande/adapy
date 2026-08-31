@@ -2,6 +2,15 @@
 
 
 
+## v0.52.0 (2026-08-31)
+
+### Feature
+
+* feat(queue): let a worker connect without the right to administer JetStream (#298)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`e6110c9`](https://github.com/Krande/adapy/commit/e6110c9cace6409dfa894f1e83724cc46d47f9e7))
+
+
 ## v0.51.2 (2026-08-30)
 
 ### Fix
