@@ -628,7 +628,7 @@ const AuditActivityBadge: React.FC = () => {
                 "text-blue-100 rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
                 "pointer-events-auto cursor-pointer"
             }
-            title="Open Audit Runs in the panel"
+            title="Open the audit runs in the panel"
         >
             <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="font-medium truncate">

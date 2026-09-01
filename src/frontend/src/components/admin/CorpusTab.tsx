@@ -20,7 +20,7 @@ import {scopeUrlPart} from "@/state/scopeStore";
 // corpus slug. RBAC is admin-only on every axis: scope_can_access
 // rejects non-admin reads on the backend.
 //
-// The trigger form on the Audit Runs tab picks a corpus by slug from
+// The trigger form on the audit Runs sub-tab picks a corpus by slug from
 // the same /admin/corpora list this tab maintains.
 //
 // Tree mode carries the storage panel's organize affordances (via the
@@ -1059,7 +1059,7 @@ const CorpusFiles: React.FC<{
                     <div className="text-xs text-gray-500 italic px-3 py-4">
                         No files yet. Upload representative source files (STEP /
                         IFC / RMED / etc.) to drive regression sweeps from the
-                        Audit Runs tab.
+                        Runs sub-tab.
                     </div>
                 )}
                 {files.length > 0 && viewMode === "flat" && (

@@ -3338,7 +3338,7 @@ export const viewerApi = {
   },
 
   /** Admin: ambient summary of currently-running audit sweeps.
-   * Drives the bottom-right badge that links into the Audit Runs
+   * Drives the bottom-right badge that links into the audit Runs
    * tab; intentionally cheap so it polls cleanly every 15s.
    * ``current_cell`` surfaces what's actively converting right now
    * (most-recently-touched ``running`` or ``queued`` audit_log row
