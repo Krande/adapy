@@ -2,6 +2,15 @@
 
 
 
+## v0.58.0 (2026-09-01)
+
+### Feature
+
+* feat(queue): let the worker registry live in its own KV bucket (#310)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`891470c`](https://github.com/Krande/adapy/commit/891470c934ddba20e4c33959cbf740c4348f8990))
+
+
 ## v0.57.0 (2026-08-31)
 
 ### Feature
