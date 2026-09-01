@@ -474,7 +474,7 @@ def test_compile_opens_an_audit_row_for_the_run(monkeypatch, tmp_path: pathlib.P
 
     monkeypatch.setattr(JobQueue, "enqueue", _fake_enqueue)
     monkeypatch.setattr(JobQueue, "list_workers", lambda self: _noop())
-    monkeypatch.setattr(JobQueue, "connect", lambda self: _noop())
+    monkeypatch.setattr(JobQueue, "connect", lambda self, **kwargs: _noop())
     monkeypatch.setattr(db_module, "get_procedural_model", _get_model)
     monkeypatch.setattr(db_module, "insert_audit", _insert_audit)
 

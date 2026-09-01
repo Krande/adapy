@@ -19,6 +19,7 @@ safe.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -26,7 +27,12 @@ from dataclasses import asdict, dataclass
 
 import nats
 from nats.js.api import ConsumerConfig, RetentionPolicy, StreamConfig
-from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundError
+from nats.js.errors import (
+    BadRequestError,
+    BucketNotFoundError,
+    KeyNotFoundError,
+    NotFoundError,
+)
 
 from ada.config import logger
 
@@ -103,6 +109,89 @@ class QueueDisabled(RuntimeError):
     """Raised when queue operations are attempted but no NATS URL is configured."""
 
 
+class MissingTransportDependency(RuntimeError):
+    """A connection option needs a package this environment does not have."""
+
+
+#: Optional packages ``nats-py`` imports lazily, and what each one buys.
+#: ``nats-py`` itself declares neither, so an environment can be perfectly
+#: healthy and still be unable to do these two things.
+_TRANSPORT_EXTRAS = {
+    "aiohttp": "WebSocket transport (ws:// and wss:// URLs)",
+    "nkeys": "nkey and credentials-file authentication",
+}
+
+
+def _require(package: str, feature: str, setting: str) -> None:
+    """Fail early, and in a sentence, when a configured option cannot work.
+
+    ``nats-py`` imports ``aiohttp`` and ``nkeys`` lazily, deep inside connect —
+    so without this the operator gets a bare ``ImportError`` (or, for
+    websockets, ``Could not import aiohttp transport``) raised from inside a
+    library they did not configure, at the bottom of a stack that mentions
+    neither the setting they set nor the package to install.
+
+    It matters most for exactly the deployment this exists to serve: a worker
+    on a machine somebody assembled by hand, where the environment is not the
+    one CI tested. The check is cheap and it runs before any socket is opened.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec(package) is not None:
+        return
+    raise MissingTransportDependency(
+        f"{setting} is set, which needs {_TRANSPORT_EXTRAS.get(package, package)}, "
+        f"but the {package!r} package is not installed in this environment. "
+        f"Install it (adapy's viewer-api environment carries it; a hand-built env may not) "
+        f"or unset {setting}."
+    )
+
+
+#: Longest a single capability token may be. Generous for a project code or a
+#: device name, short enough that a pasted paragraph cannot become a subject.
+MAX_CAPABILITY_TOKEN_LEN = 48
+
+
+def capability_token(value: object) -> str:
+    """Normalise ``value`` into one NATS subject token, or ``""``.
+
+    A capability becomes a subject segment (``ada.viewer.jobs.convert.<cap>``)
+    and a durable-consumer name suffix, so it may not contain ``.``, ``*``,
+    ``>`` or whitespace — a project code with a dot in it would silently create
+    a *deeper* subject that no consumer filters on, and the job would sit in the
+    stream forever looking merely slow.
+
+    THIS FUNCTION IS THE CONTRACT between the API and the worker. The API
+    derives the subject it publishes on and the worker derives the subject it
+    subscribes to; if the two normalised differently — one lower-casing, the
+    other not — every sharded job would be published to a subject nobody is
+    listening on. Both call this.
+
+    Underscore is kept, not rewritten to a dash. It is a legal subject
+    character and existing pools are named with it (``fem_solver``), so
+    rewriting it would move those workers to a new subject while some job
+    producers still published to the old one — a silent delivery failure caused
+    by a normaliser meant to prevent exactly that.
+
+    Idempotent: ``capability_token(capability_token(x)) == capability_token(x)``,
+    which is what makes it safe to apply at more than one point on the path.
+
+    Returns ``""`` when nothing usable survives, which callers must read as "no
+    shard", never as a token.
+    """
+    text = str(value or "").strip().lower()
+    out: list[str] = []
+    for ch in text:
+        if ch.isascii() and (ch.isalnum() or ch in "-_"):
+            out.append(ch)
+        elif out and out[-1] != "-":
+            # Collapse any run of separators (dots, spaces, slashes) into one
+            # dash rather than dropping them: `site-a/2` and `site-a 2` should
+            # not both become `site-a2`, which would merge two distinct pools.
+            out.append("-")
+    return "".join(out).strip("-")[:MAX_CAPABILITY_TOKEN_LEN].strip("-")
+
+
 def _worker_advertises_engine(w: dict, ext: str, engine: str) -> bool:
     """True if worker registry entry ``w`` lists ``engine`` in its step_glb_pipeline enum for the
     ``ext`` → glb conversion — i.e. that pool can actually run the requested STEP→GLB engine."""
@@ -148,11 +237,100 @@ class JobQueue:
     # routing view and the UI view agree on which pools are live.
     WORKER_STALE_AFTER_S = 60.0
 
-    async def connect(self) -> None:
+    # How long ``connect(manage=False)`` waits for the KV bucket the API
+    # is responsible for creating. A non-managing client that starts
+    # before the API has nothing to bind to; rather than fail on the
+    # first attempt (crash-loop on ordering alone) or wait forever (a
+    # worker that looks healthy but is bound to nothing), poll for a
+    # window that comfortably covers a rolling restart and then raise
+    # with a message that names the real cause.
+    _BIND_WAIT_SECONDS = 60.0
+    _BIND_POLL_SECONDS = 2.0
+
+    def _connect_options(self, name: str | None) -> dict:
+        """Build the ``nats.connect()`` kwargs for the configured credentials.
+
+        Everything is optional and everything defaults to absent, so a
+        server with no accounts block behaves exactly as it did before
+        these fields existed.
+
+        Raises :class:`MissingTransportDependency` when the configuration asks
+        for something the installed environment cannot do. See :func:`_require`
+        for why that check is here rather than left to nats-py.
+        """
+        # A ws:// or wss:// URL selects nats-py's WebSocket transport, which
+        # needs aiohttp. Checked off the URL rather than off a credential
+        # because that is what actually chooses the transport — and a
+        # WebSocket URL is the shape an off-cluster worker uses when the bus is
+        # reached through an HTTPS ingress rather than a raw TCP port.
+        url = (self._cfg.url or "").strip().lower()
+        if url.startswith("ws://") or url.startswith("wss://"):
+            _require("aiohttp", "the WebSocket transport", "ADA_VIEWER_NATS_URL")
+
+        opts: dict = {}
+        if name:
+            # Shows up in `nats server report connections` / monitoring.
+            # Worth setting: during an auth rollout the useful question is
+            # "which principal is this connection", and an unnamed client
+            # answers it with an ip:port.
+            opts["name"] = name
+        cfg = self._cfg
+        if cfg.creds_file:
+            _require("nkeys", "a credentials file", "ADA_VIEWER_NATS_CREDS")
+            opts["user_credentials"] = cfg.creds_file
+        if cfg.nkey_seed_file and cfg.nkey_seed:
+            # Both point at the same principal in any sane deployment, so this
+            # is redundancy rather than danger — not worth refusing to start
+            # over. Deterministic and said out loud beats a silent coin flip:
+            # the wrong pick would surface as an auth failure that reads like a
+            # network problem.
+            logger.warning(
+                "queue: both ADA_VIEWER_NATS_NKEY_SEED (file) and "
+                "ADA_VIEWER_NATS_NKEY_SEED_VALUE (inline) are set; using the file"
+            )
+        if cfg.nkey_seed_file:
+            _require("nkeys", "nkey authentication", "ADA_VIEWER_NATS_NKEY_SEED")
+            opts["nkeys_seed"] = cfg.nkey_seed_file
+        elif cfg.nkey_seed:
+            # The seed itself rather than a path to it. Secret-injection systems
+            # that populate the environment (rather than mounting files) have no
+            # way to use the path form, and writing the seed to a temp file just
+            # to hand back a path would put it on disk for no reason.
+            _require("nkeys", "nkey authentication", "ADA_VIEWER_NATS_NKEY_SEED_VALUE")
+            opts["nkeys_seed_str"] = cfg.nkey_seed
+        if cfg.user:
+            opts["user"] = cfg.user
+        if cfg.password:
+            opts["password"] = cfg.password
+        if cfg.token:
+            opts["token"] = cfg.token
+        if cfg.tls_ca:
+            import ssl
+
+            ctx = ssl.create_default_context()
+            ctx.load_verify_locations(cafile=cfg.tls_ca)
+            opts["tls"] = ctx
+        return opts
+
+    async def connect(self, manage: bool = True, name: str | None = None) -> None:
+        """Connect, and when ``manage`` is set, create the stream and bucket.
+
+        ``manage=True`` is the API: it owns the JetStream topology and
+        brings it forward on deploy. ``manage=False`` is a worker: it
+        only ever *uses* the topology, so its credential needs no
+        stream-admin rights. That split is the prerequisite for granting
+        workers a narrower permission set than the API — until it existed
+        a worker's first act was ``add_stream``, which meant nothing in
+        the design distinguished a worker from an administrator.
+        """
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
-        self._nc = await nats.connect(self._cfg.url)
+        self._nc = await nats.connect(self._cfg.url, **self._connect_options(name))
         self._js = self._nc.jetstream()
+
+        if not manage:
+            await self._bind_existing()
+            return
 
         # Stream — idempotent. Carries both the legacy bare subject
         # (so messages already in flight at the moment of upgrade
@@ -206,6 +384,37 @@ class JobQueue:
             self._kv = await self._js.create_key_value(bucket=self._cfg.kv_bucket, history=1)
         except BadRequestError:
             self._kv = await self._js.key_value(self._cfg.kv_bucket)
+
+    async def _bind_existing(self) -> None:
+        """Bind to the API-created KV bucket without creating anything.
+
+        Waiting on the bucket also covers the stream: ``connect(manage=True)``
+        creates the stream first and the bucket last, so a bucket that
+        exists implies a stream that exists. Keep that order if you touch
+        the managing path — a worker that binds the bucket then finds no
+        stream to ``pull_subscribe`` on is a much worse failure than
+        waiting a little longer here.
+        """
+        deadline = time.monotonic() + self._BIND_WAIT_SECONDS
+        while True:
+            try:
+                self._kv = await self._js.key_value(self._cfg.kv_bucket)
+                return
+            # BucketNotFoundError subclasses NotFoundError; the plain
+            # form also covers "the backing KV_<bucket> stream is absent".
+            except NotFoundError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"KV bucket {self._cfg.kv_bucket!r} does not exist after "
+                        f"{self._BIND_WAIT_SECONDS:.0f}s. It is created by the API on startup — "
+                        "either the API has not come up yet, or this client's credentials "
+                        "cannot see the bucket."
+                    ) from None
+                logger.info(
+                    "queue: waiting for KV bucket %s to be created by the API",
+                    self._cfg.kv_bucket,
+                )
+                await asyncio.sleep(self._BIND_POLL_SECONDS)
 
     async def close(self) -> None:
         if self._nc is not None:
@@ -343,7 +552,15 @@ class JobQueue:
         forever: no message left in the work queue, and the KV entry gone once
         the terminal-status cleanup sweep runs.
         """
-        cap = (job.target_capability or self.DEFAULT_CAPABILITY).strip().lower()
+        # Normalised HERE rather than at each producer. `target_capability` is
+        # set from a dozen places — the plugin route, the audit dispatcher, a
+        # detailing spec, a procedural engine lookup, a manifest — and several
+        # of them pass a value straight through from a worker's advertisement.
+        # The worker derives its subscription subject through the same function,
+        # so converging here is what guarantees the two agree no matter which
+        # producer built the job. Doing it per-producer would mean the next one
+        # added is a silent delivery failure nobody notices.
+        cap = capability_token(job.target_capability) or self.DEFAULT_CAPABILITY
         subject = f"{self._cfg.subject}.{cap}"
         await self._js.publish(subject, job.job_id.encode("utf-8"))
 
@@ -708,6 +925,8 @@ __all__ = [
     "Job",
     "JobQueue",
     "QueueDisabled",
+    "capability_token",
+    "MAX_CAPABILITY_TOKEN_LEN",
     "JOB_STATUS_QUEUED",
     "JOB_STATUS_RUNNING",
     "JOB_STATUS_DONE",

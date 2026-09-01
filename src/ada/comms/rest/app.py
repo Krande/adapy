@@ -50,7 +50,8 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
-from .queue import JobQueue
+from .qualification import CAPABILITY_REQUIREMENTS_KEY
+from .queue import JobQueue, capability_token
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
@@ -123,6 +124,58 @@ async def _parse_rename_body(request: Request) -> tuple[str, str]:
 
 def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
+
+
+#: The `app_settings` key an admin edits. Mirrored into the KV meta keyspace
+#: under `CAPABILITY_REQUIREMENTS_KEY` so workers without a database can read it.
+CAPABILITY_REQUIREMENTS_SETTING = "capability_requirements"
+
+
+def _merge_spec(base: dict, other: dict) -> None:
+    """Fold a second worker's advertisement of the same slug into ``base``.
+
+    Only the keys named in ``union_fields`` are combined, and only where both
+    sides hold lists; everything else keeps the value the first worker supplied
+    (see :func:`_live_worker_specs` for why "first" is well-defined). Order is
+    preserved and duplicates dropped, so the result reads like one list somebody
+    wrote rather than a concatenation.
+
+    ``union_fields`` is itself unioned. That is what makes a rolling upgrade
+    work: while half the pool runs a build that declares the key and half does
+    not, the half that does still gets its fields merged instead of the
+    behaviour flipping on whichever worker sorted first.
+    """
+
+    def _union(dst: list, src: list) -> list:
+        seen = {json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v for v in dst}
+        for v in src:
+            marker = json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v
+            if marker not in seen:
+                seen.add(marker)
+                dst.append(v)
+        return dst
+
+    fields = base.get("union_fields")
+    fields = list(fields) if isinstance(fields, list) else []
+    incoming = other.get("union_fields")
+    if isinstance(incoming, list):
+        fields = _union(fields, [f for f in incoming if isinstance(f, str)])
+        base["union_fields"] = fields
+
+    for key in fields:
+        if not isinstance(key, str) or key == "union_fields":
+            continue
+        add = other.get(key)
+        if not isinstance(add, list):
+            continue
+        have = base.get(key)
+        if not isinstance(have, list):
+            # The first worker did not carry the key at all (older build, or it
+            # genuinely has nothing to contribute). Start from what this one
+            # has rather than dropping it.
+            base[key] = list(add)
+        else:
+            _union(have, add)
 
 
 _ADAPY_VERSION: str | None = None
@@ -215,7 +268,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
             try:
-                await queue.connect()
+                # manage=True: the API owns the JetStream topology
+                # (stream + KV bucket) and brings it forward on deploy.
+                # Workers connect with manage=False so their credentials
+                # need no stream-admin rights.
+                await queue.connect(manage=True, name="adapy-viewer-api")
                 logger.info("queue connected to %s", settings.queue.url)
             except Exception as exc:
                 logger.warning("queue connect failed (%s); convert endpoints will return 503", exc)
@@ -228,6 +285,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+
+        # Reconcile the capability requirements from the database into KV. The
+        # admin write publishes directly, but best-effort; doing it again here
+        # means a restart repairs a publish that failed, rather than leaving
+        # workers gating against a document older than the one an admin sees.
+        if app.state.db_pool is not None and queue.enabled:
+            try:
+                await _publish_capability_requirements(
+                    await db_module.get_setting(app.state.db_pool, CAPABILITY_REQUIREMENTS_SETTING)
+                )
+            except Exception:
+                logger.exception("could not reconcile capability requirements at startup")
+
         # Built-in audit scheduler (M4). Skip when the DB pool failed
         # or when the queue is disabled — without either we have no
         # way to fire a sweep, so spinning the loop would just log
@@ -373,6 +443,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _worker_registry["workers"] = workers
         _worker_registry["image_tag"] = image_tag
         _worker_registry["ts"] = time.time()
+
+    async def _publish_capability_requirements(value: str | None) -> None:
+        """Mirror the requirement document into the NATS KV meta keyspace.
+
+        Workers read it from there, not from Postgres — deliberately. The worker
+        this gate exists for is the one least likely to have a database
+        connection: an off-cluster machine has no reason to be given one, and
+        making qualification depend on Postgres would leave exactly that worker
+        ungated. KV is already how it learns everything else about the
+        deployment.
+
+        Best-effort. Failing to publish must not fail the admin's write: the
+        setting is stored either way, and the next successful publish (or a
+        restart) reconciles. Workers that cannot read it fail OPEN, so the
+        blast radius of this not landing is "the gate is not yet enforced",
+        never "the fleet stopped".
+        """
+        if not queue.enabled:
+            return
+        try:
+            await queue.set_meta(CAPABILITY_REQUIREMENTS_KEY, value or "")
+        except Exception:
+            logger.exception("could not publish capability requirements to the job queue")
 
     async def _is_accepted_source(key: str) -> bool:
         """``is_supported_source`` plus a check against the workers'
@@ -2787,24 +2880,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(row, status_code=201)
 
     async def _live_worker_specs(field: str, fallback_field: str | None = None) -> dict[str, dict]:
-        """Catalog-shaped specs advertised by non-stale workers, keyed by slug
-        (last writer wins). Falls back to a bare slug-list field for older
-        workers that advertise only names, synthesizing a minimal spec."""
+        """Catalog-shaped specs advertised by non-stale workers, keyed by slug.
+        Falls back to a bare slug-list field for older workers that advertise
+        only names, synthesizing a minimal spec.
+
+        WHEN SEVERAL WORKERS ADVERTISE ONE SLUG, two rules apply:
+
+        * **Deterministic, not last-writer-wins.** Workers are visited in
+          worker-id order and the first spec for a slug supplies the scalars.
+          Previously this followed KV listing order, so with two workers on one
+          plugin the advertised version and capability could differ between two
+          consecutive requests for no visible reason.
+        * **Declared list fields are unioned.** A spec may name keys in
+          ``union_fields``; those are combined across every worker advertising
+          the slug instead of one worker's copy winning. That is what lets a
+          sharded pool say what it collectively covers — several workers on the
+          same plugin, each serving a different project, produce one spec
+          listing every project that is online.
+
+        Only the named keys are unioned. A blanket "merge every list" would
+        quietly combine things that are per-worker facts rather than collective
+        ones (a worker's own conversions, its own extension allowlist), and
+        produce a spec describing a worker that does not exist.
+        """
         import time as _time
 
         out: dict[str, dict] = {}
         if not queue.enabled:
             return out
         now = _time.time()
-        for w in await queue.list_workers():
+        # Sorted so the winner is stable across requests. `worker_id` is always
+        # present — list_workers derives it from the KV key.
+        workers = sorted(await queue.list_workers(), key=lambda w: str(w.get("worker_id") or ""))
+        for w in workers:
             hb = w.get("last_heartbeat")
             if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
                 continue
+            # What this worker declined to serve, and why. A spec whose
+            # capability is withheld is carried through as UNAVAILABLE rather
+            # than dropped: a withheld capability and an absent one look
+            # identical to every consumer otherwise, and the consumer then
+            # tells the operator to start a worker that is already running.
+            # See deploy/worker-trust.md §4.
+            withheld = {
+                str(x.get("capability", "")).strip().lower(): str(x.get("reason") or "")
+                for x in (w.get("withheld") or [])
+                if isinstance(x, dict) and x.get("capability")
+            }
             specs = w.get(field)
             if isinstance(specs, list):
                 for s in specs:
                     if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]:
-                        out[s["slug"]] = s
+                        slug = s["slug"]
+                        cap = str(s.get("worker_capability") or "").strip().lower()
+                        reason = withheld.get(cap) if cap else None
+                        entry = dict(s)
+                        if reason:
+                            entry["available"] = False
+                            entry["unavailable_reason"] = reason
+                        if slug not in out:
+                            out[slug] = entry
+                        elif reason is None and out[slug].get("available") is False:
+                            # A FIT worker overrides an unfit one's verdict: the
+                            # capability is available from somewhere, which is
+                            # what the caller actually needs to know. Order of
+                            # workers must not decide this.
+                            merged = dict(out[slug])
+                            merged.pop("available", None)
+                            merged.pop("unavailable_reason", None)
+                            out[slug] = merged
+                            _merge_spec(out[slug], entry)
+                        else:
+                            _merge_spec(out[slug], entry)
             elif fallback_field:
                 bare = w.get(fallback_field)
                 if isinstance(bare, list):
@@ -2855,14 +3002,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # (e.g. a capacity worker) picks the job up.
         target_capability = body.get("capability")
         if isinstance(target_capability, str) and target_capability.strip():
-            target_capability = target_capability.strip().lower()
+            target_capability = capability_token(target_capability)
         else:
             target_capability = None
             for spec in (await _live_worker_specs("plugin_specs")).values():
                 if spec.get("slug") == plugin_id or spec.get("id") == plugin_id:
                     cap = spec.get("worker_capability")
                     if isinstance(cap, str) and cap.strip():
-                        target_capability = cap.strip().lower()
+                        target_capability = capability_token(cap)
+                    # SHARDED POOLS. A plugin may advertise `capability_option`
+                    # naming one of its own options; when the request supplies
+                    # that option the job routes to `<capability>-<value>`
+                    # instead of `<capability>`.
+                    #
+                    # This exists because a pool is one durable consumer: every
+                    # worker in it competes for the same messages, so workers
+                    # that are NOT interchangeable — each holding a different
+                    # licence, dataset or device — cannot share one. Routing
+                    # them apart by NAKing the wrong ones is the design this
+                    # replaced; it burned the delivery budget and dead-lettered
+                    # valid jobs (see the note on `pull_subscribe`).
+                    #
+                    # Subject routing does it instead, and the worker needs no
+                    # new code: it just lists the sharded token in
+                    # ADA_WORKER_CAPABILITIES. Core still names no plugin and
+                    # knows nothing about what the option MEANS.
+                    #
+                    # An absent or unusable option falls back to the bare
+                    # capability rather than erroring, so a worker that
+                    # subscribes to both serves unqualified requests too, and a
+                    # single-worker deployment never has to qualify anything.
+                    opt_name = spec.get("capability_option")
+                    if target_capability and isinstance(opt_name, str) and opt_name:
+                        shard = capability_token(options.get(opt_name))
+                        if shard:
+                            target_capability = f"{target_capability}-{shard}"
                     break
 
         # No queue: run it here, in a thread, and hand back a job id the status
@@ -5074,6 +5248,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="value required")
         value = "" if body["value"] is None else str(body["value"])
         await db_module.set_setting(pool, key, value, updated_by=user.sub)
+        if key == CAPABILITY_REQUIREMENTS_SETTING:
+            await _publish_capability_requirements(value)
         return JSONResponse({"key": key, "value": value})
 
     @admin.post("/auth/cli-token")

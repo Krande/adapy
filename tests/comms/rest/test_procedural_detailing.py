@@ -132,7 +132,7 @@ def test_external_detailing_engine_discovered_from_live_worker(monkeypatch, tmp_
     from ada.comms.rest.queue import JobQueue
 
     monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
-    monkeypatch.setattr(JobQueue, "connect", lambda self: _async_none())
+    monkeypatch.setattr(JobQueue, "connect", lambda self, **kwargs: _async_none())
     monkeypatch.setattr(JobQueue, "list_workers", lambda self: _async_val(_live_worker_advertising_ext_detail()))
 
     app = create_app(_settings(tmp_path))
@@ -310,7 +310,7 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
         # the heartbeat, not from any hardcoded adapy seed).
         return _live_worker_advertising_ext_detail()
 
-    async def _fake_connect(self):
+    async def _fake_connect(self, **kwargs):
         return None
 
     fake_row = {

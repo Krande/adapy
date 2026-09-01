@@ -357,6 +357,12 @@ fastapi = "*"
 uvicorn = "*"
 obstore = "*"
 nats-py = "*"
+# nats-py imports this lazily for its WebSocket transport and declares it
+# nowhere, so without it a `ws://` / `wss://` NATS URL fails at connect with
+# "Could not import aiohttp transport". That URL shape is how a client reaches
+# the bus through an HTTPS ingress rather than a raw TCP port — i.e. how a
+# worker outside the cluster reaches it at all.
+aiohttp = "*"
 pydantic = "*"
 python-flatbuffers = "*"
 pyjwt = "*"
@@ -369,6 +375,21 @@ croniter = "*"
 # single-threaded zlib at level 9 was ~85% of the large-assembly STEP->obj job wall. pigz emits
 # a standard gzip stream (Content-Encoding: gzip) across all cores — see storage._gzip_file.
 pigz = "*"
+
+# nkey / credentials-file authentication to NATS. nats-py imports this lazily
+# when signing the server's nonce and, like aiohttp, declares it nowhere.
+#
+# PyPI rather than conda: there is no `nkeys` on conda-forge (checked). It is a
+# small pure-python package, so the cost is the pypi/conda mix rather than
+# anything at runtime.
+#
+# Why carry it at all when user/password needs nothing: with nkeys the client
+# proves possession of a key by signing a nonce, so the secret never crosses
+# the wire AND the server's config holds only PUBLIC keys — which means the
+# server config is not itself a secret. That is the difference between a NATS
+# auth config that can live in plain version control and one that cannot.
+[feature.viewer-api.pypi-dependencies]
+nkeys = "*"
 
 # Pin the slim API image's python (it has no `prod`, so it would otherwise float to
 # the newest cpython). Pinned to what it currently resolves to (3.14) for a

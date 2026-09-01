@@ -41,6 +41,39 @@ class QueueConfig:
     subject: str
     kv_bucket: str
     durable: str
+    # --- credentials -------------------------------------------------
+    # All empty (the default) is an unauthenticated connection, which is
+    # what every deployment does today and what a `nats -js` server with
+    # no accounts block expects. Set at most one of creds_file /
+    # user+password / token / nkey_seed_file; they map straight onto the
+    # matching ``nats.connect()`` kwargs.
+    #
+    # The point of having them is least privilege: once the server has an
+    # accounts block, the API connects as a principal that may administer
+    # the stream and a worker as one that may only pull its own pool's
+    # subject. See ``deploy/worker-trust.md``.
+    creds_file: str = ""
+    user: str = ""
+    password: str = ""
+    token: str = ""
+    nkey_seed_file: str = ""
+    # The nkey seed ITSELF, not a path to it.
+    #
+    # Both forms exist because secret-injection differs: some systems mount a
+    # file, others populate the environment. Without this field the second kind
+    # has no route at all — writing the seed to a temp file just to hand back a
+    # path would put it on disk for no reason.
+    #
+    # The naming is asymmetric (`ADA_VIEWER_NATS_NKEY_SEED` is the *file*, and
+    # `..._VALUE` is the seed) because the file form shipped first. Flipping the
+    # meaning of an env var that is already released would be a silent
+    # credential change, which is a worse outcome than an odd pair of names.
+    nkey_seed: str = ""
+    # PEM bundle for verifying the server certificate. Only needed when
+    # the server presents a cert signed by a private CA — with a public
+    # CA (or with plaintext) leave it empty and the default trust store /
+    # no-TLS path applies.
+    tls_ca: str = ""
 
 
 @dataclass(frozen=True)
@@ -128,6 +161,20 @@ def load_settings() -> Settings:
         subject=os.environ.get("ADA_VIEWER_NATS_SUBJECT", "ada.viewer.jobs.convert"),
         kv_bucket=os.environ.get("ADA_VIEWER_NATS_KV_BUCKET", "ada-viewer-jobs"),
         durable=os.environ.get("ADA_VIEWER_NATS_DURABLE", "ada-viewer-worker"),
+        creds_file=os.environ.get("ADA_VIEWER_NATS_CREDS", "").strip(),
+        user=os.environ.get("ADA_VIEWER_NATS_USER", "").strip(),
+        # Not stripped: a password may legitimately begin or end with
+        # whitespace, and silently trimming it turns a working secret
+        # into an auth failure nobody can explain.
+        password=os.environ.get("ADA_VIEWER_NATS_PASSWORD", ""),
+        token=os.environ.get("ADA_VIEWER_NATS_TOKEN", ""),
+        nkey_seed_file=os.environ.get("ADA_VIEWER_NATS_NKEY_SEED", "").strip(),
+        # Stripped: an nkey seed is base32 with no leading or trailing
+        # whitespace, and a secret store that appends a newline is common
+        # enough that not stripping would turn a correct secret into an auth
+        # failure. (Unlike a password, where the whitespace may be the secret.)
+        nkey_seed=os.environ.get("ADA_VIEWER_NATS_NKEY_SEED_VALUE", "").strip(),
+        tls_ca=os.environ.get("ADA_VIEWER_NATS_TLS_CA", "").strip(),
     )
 
     auth_enabled = _bool(os.environ.get("ADA_VIEWER_AUTH_ENABLED"), default=False)

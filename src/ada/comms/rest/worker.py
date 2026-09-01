@@ -43,7 +43,15 @@ from . import db as db_module
 from . import source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
-from .queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, JOB_STATUS_RUNNING, Job, JobQueue
+from .qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
+from .queue import (
+    JOB_STATUS_DONE,
+    JOB_STATUS_ERROR,
+    JOB_STATUS_RUNNING,
+    Job,
+    JobQueue,
+    capability_token,
+)
 from .scope import Scope
 from .storage import Storage
 from .subprocess_convert import (
@@ -121,15 +129,148 @@ MAX_DELIVERIES = 3
 IN_PROGRESS_REFRESH_SECONDS = 30
 
 
+def _bool_env(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _worker_id() -> str:
+    """This worker's registry key.
+
+    Self-asserted today: whatever ``$HOSTNAME`` says, which in k8s is the
+    pod name and off-cluster is whatever the operator exports. Once NATS
+    credentials pin the registry KV key (``__meta_worker__<id>``) the
+    server enforces the match and this becomes an authenticated identity
+    rather than a claim — see deploy/worker-trust.md.
+    """
+    return os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
+
+
+def _declared_capabilities() -> list[str]:
+    """What this worker advertises, after subtracting any disabled by env.
+
+    ``ADA_WORKER_CAPABILITIES`` is the positive list, and normally comes from
+    the IMAGE rather than from a deployment: the image is what actually carries
+    the packages behind each capability, so it is the only place that can state
+    the set correctly. A deployment repeating the list is a second copy of a
+    fact it does not own, and it drifts -- one such copy sat a capability behind
+    its image for weeks, advertising a pool that the image had and the manifest
+    did not mention, with no error anywhere because a job for a pool nobody
+    subscribes to is accepted and then simply never runs.
+
+    ``ADA_WORKER_DISABLED_CAPABILITIES`` is the subtractive half, and is what a
+    deployment SHOULD reach for. It is for one job: taking a misbehaving pool
+    out of service without rebuilding or rolling back an image, which would
+    revert every other capability and the adapy version along with it. Normally
+    absent.
+
+    Subtraction happens BEFORE the capability is advertised, not only before it
+    is subscribed. Advertising a pool this worker will not serve recreates
+    exactly the failure above -- the API routes to it and the job waits out its
+    timeout -- so the two must never disagree.
+
+    Compared through :func:`capability_token`, so ``Abaqus`` disables
+    ``abaqus``: an operator typing a capability under incident pressure should
+    not have to match case.
+
+    Disabling everything falls back to ``base`` with a warning rather than
+    leaving a worker that advertises nothing: a worker subscribed to nothing is
+    not a configuration anyone wants, and scaling the deployment to zero is how
+    you idle a pool.
+    """
+    declared = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    # An explicitly blank ADA_WORKER_CAPABILITIES means "unset", not "serve
+    # nothing". Normalised here so that an empty list further down the pipeline
+    # can only mean a deliberate verdict -- disabled here, or withheld by
+    # qualification -- and never a variable somebody left empty.
+    if not declared:
+        declared = ["base"]
+    raw_disabled = [c.strip() for c in os.environ.get("ADA_WORKER_DISABLED_CAPABILITIES", "").split(",") if c.strip()]
+    if not raw_disabled:
+        return declared
+
+    disabled = {t for t in (capability_token(c) for c in raw_disabled) if t}
+    kept = [c for c in declared if capability_token(c) not in disabled]
+
+    dropped = [c for c in declared if capability_token(c) in disabled]
+    if dropped:
+        # WARNING, not info: this is a deliberate reduction in service, and the
+        # symptom of forgetting to remove it later is jobs that queue forever.
+        logger.warning(
+            "worker: capabilities disabled by ADA_WORKER_DISABLED_CAPABILITIES: %s",
+            ",".join(dropped),
+        )
+    # A capability may be SHARDED: one plugin addressing several pools by
+    # suffixing the capability with an option value (`cad`, `cad-alpha`), so a
+    # worker can hold both. Those are distinct tokens, so disabling `cad` leaves
+    # `cad-alpha` serving -- and the "names nothing this worker advertises"
+    # warning below does not fire, because `cad` did match. The operator gets a
+    # line confirming a capability was disabled and reasonably believes the pool
+    # is out of service while half of it still pulls jobs.
+    #
+    # Prefix-matching by default would be worse (`web3d` must not vanish because
+    # somebody disabled `web`), so the shards are named instead and left for the
+    # operator to disable deliberately.
+    for token in sorted(disabled):
+        siblings = sorted(c for c in kept if capability_token(c).startswith(f"{token}-"))
+        if siblings:
+            logger.warning(
+                "worker: disabled %s, but %s %s still advertised — disable %s separately",
+                token,
+                ",".join(siblings),
+                "is" if len(siblings) == 1 else "are",
+                "it" if len(siblings) == 1 else "them",
+            )
+
+    unmatched = sorted(disabled - {capability_token(c) for c in declared})
+    if unmatched:
+        # Names nothing this worker has. Usually a typo, and a typo here is
+        # silent -- the pool it was meant to stop stays up.
+        logger.warning(
+            "worker: ADA_WORKER_DISABLED_CAPABILITIES names %s, which this worker does not advertise",
+            ",".join(unmatched),
+        )
+    if not kept:
+        # Falling back to `base` rather than serving nothing is right for the
+        # deployments this exists for -- but only if `base` was ever this
+        # worker's to serve. A worker that never declared it must not ACQUIRE
+        # it by subtraction: an off-cluster machine joining for one capability
+        # would start pulling ordinary conversion jobs from the cluster's
+        # queue on an independently-installed adapy, which is the hazard
+        # ADA_WORKER_BASE_CONVERSIONS exists to prevent. Reaching it through an
+        # incident switch would be a particularly unpleasant route to it.
+        if any(capability_token(c) == "base" for c in declared):
+            logger.warning(
+                "worker: every advertised capability was disabled; falling back to 'base'. "
+                "Scale the deployment to zero to idle a pool instead."
+            )
+            return ["base"]
+        logger.warning(
+            "worker: every advertised capability was disabled and this worker does not serve "
+            "'base', so it will subscribe to nothing. It stays up and keeps reporting, because a "
+            "worker that exits is indistinguishable from one that was never started. Scale the "
+            "deployment to zero to idle a pool instead."
+        )
+        return []
+    return kept
+
+
 def _pool_capabilities(capabilities: list[str]) -> list[str]:
     """Capability pools this worker should subscribe to.
 
-    Lower-cased and de-duplicated while preserving order, so a repeated or
-    differently-cased entry in ``ADA_WORKER_CAPABILITIES`` cannot open two
-    consumers on the same subject. Falls back to ``["base"]`` so a worker is
-    never left subscribed to nothing.
+    Normalised through :func:`capability_token` and de-duplicated while
+    preserving order, so a repeated or differently-cased entry in
+    ``ADA_WORKER_CAPABILITIES`` cannot open two consumers on the same subject.
+    Falls back to ``["base"]`` so a worker is never left subscribed to nothing.
+
+    Deliberately the same normaliser the API uses to build the subject it
+    PUBLISHES on. A sharded capability like ``cad-Site A`` has to reduce to an
+    identical token on both sides, or the job is published to a subject nothing
+    is subscribed to and sits in the stream looking merely slow.
     """
-    pools = [c.strip().lower() for c in capabilities if c and c.strip()]
+    pools = [t for t in (capability_token(c) for c in capabilities) if t]
     return list(dict.fromkeys(pools)) or ["base"]
 
 
@@ -2781,6 +2922,35 @@ def _read_self_vmhwm_kb() -> int:
     return 0
 
 
+def _read_self_rusage() -> "tuple[float, float, int] | None":
+    """``(user_seconds, sys_seconds, max_rss_kb)`` for this process and its
+    children, or ``None`` where the counters cannot be read.
+
+    ``resource`` is POSIX-only and does not exist on Windows. That matters
+    because the plugin-job profiling harness runs IN-PROCESS — unlike the
+    convert path, which does its accounting in a forked child that only ever
+    exists on POSIX — so an unguarded ``import resource`` there would fail the
+    JOB, not just the measurement, on any Windows worker with profiling on.
+    Best-effort, like the ``/proc`` readers above: a counter we cannot read is
+    a poorer audit row, never a failed conversion.
+
+    Whole-process by construction: the executor model cannot isolate one
+    thread's counters, so the numbers include any concurrent work on this
+    worker.
+    """
+    try:
+        import resource
+    except ModuleNotFoundError:  # Windows
+        return None
+    me = resource.getrusage(resource.RUSAGE_SELF)
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return (
+        me.ru_utime + kids.ru_utime,
+        me.ru_stime + kids.ru_stime,
+        int(max(me.ru_maxrss, kids.ru_maxrss)),
+    )
+
+
 async def _run_plugin_job(
     *,
     job: Job,
@@ -2926,31 +3096,38 @@ async def _run_plugin_job(
             return fn(opts.get("options") or {}, **kwargs)
 
         # Harness: cProfile + rusage/VmHWM/proc-io deltas around the call. All
-        # readings are whole-process (see note above).
+        # readings are whole-process (see note above), and every one of them is
+        # best-effort — cProfile is the only part that works everywhere, and a
+        # counter this platform cannot produce must cost a measurement, not the
+        # job that was being measured.
         import cProfile
-        import resource
 
         prof = cProfile.Profile()
-        ru0_self = resource.getrusage(resource.RUSAGE_SELF)
-        ru0_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+        ru0 = _read_self_rusage()
         rd0, wr0 = _read_self_proc_io()
         prof.enable()
         try:
             result = fn(opts.get("options") or {}, **kwargs)
         finally:
             prof.disable()
-            ru1_self = resource.getrusage(resource.RUSAGE_SELF)
-            ru1_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+            ru1 = _read_self_rusage()
             rd1, wr1 = _read_self_proc_io()
-            cpu_user_ms = int(
-                ((ru1_self.ru_utime - ru0_self.ru_utime) + (ru1_child.ru_utime - ru0_child.ru_utime)) * 1000
-            )
-            cpu_sys_ms = int(
-                ((ru1_self.ru_stime - ru0_self.ru_stime) + (ru1_child.ru_stime - ru0_child.ru_stime)) * 1000
-            )
-            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is the
-            # fallback when /proc is unavailable.
-            peak_rss_kb = _read_self_vmhwm_kb() or int(max(ru1_self.ru_maxrss, ru1_child.ru_maxrss))
+            metrics: dict = {
+                "read_bytes": max(0, rd1 - rd0),
+                "write_bytes": max(0, wr1 - wr0),
+            }
+            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is
+            # the fallback when /proc is unavailable.
+            peak_rss_kb = _read_self_vmhwm_kb() or (ru1[2] if ru1 else 0)
+            if peak_rss_kb:
+                metrics["peak_rss_kb"] = peak_rss_kb
+            if ru0 is not None and ru1 is not None:
+                # Omitted rather than zeroed where rusage is unavailable. A
+                # zero would be indistinguishable from a job that genuinely
+                # burned no CPU, and the audit panel reads exactly that ratio
+                # to decide a task is "mostly waiting on IO".
+                metrics["cpu_user_ms"] = int((ru1[0] - ru0[0]) * 1000)
+                metrics["cpu_sys_ms"] = int((ru1[1] - ru0[1]) * 1000)
             prof_bytes: bytes | None = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".prof", delete=False) as tf:
@@ -2960,13 +3137,7 @@ async def _run_plugin_job(
                 os.unlink(_prof_path)
             except Exception:
                 logger.debug("worker: plugin_job profile dump failed for %s", job_id, exc_info=True)
-            prof_holder["metrics"] = {
-                "cpu_user_ms": cpu_user_ms,
-                "cpu_sys_ms": cpu_sys_ms,
-                "peak_rss_kb": peak_rss_kb,
-                "read_bytes": max(0, rd1 - rd0),
-                "write_bytes": max(0, wr1 - wr0),
-            }
+            prof_holder["metrics"] = metrics
             prof_holder["profile_bytes"] = prof_bytes
         return result
 
@@ -4090,8 +4261,18 @@ async def _run() -> None:
     storage = Storage.from_settings(settings)
     queue = JobQueue(settings.queue)
     logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
-    await queue.connect()
-    logger.info("worker: connected to NATS")
+    # A worker only ever *uses* the JetStream topology; the API creates
+    # it. Not administering it is what lets a worker be issued a
+    # credential with no stream-admin rights — the whole point of
+    # deploy/worker-trust.md. If the API has not started yet, connect()
+    # waits for the KV bucket rather than racing to create it.
+    #
+    # ADA_WORKER_MANAGE_STREAM=true restores the old self-provisioning
+    # behaviour for the one setup that needs it: a worker running against
+    # a bare NATS with no API in the picture at all.
+    manage = _bool_env("ADA_WORKER_MANAGE_STREAM", default=False)
+    await queue.connect(manage=manage, name=f"adapy-worker-{_worker_id()}")
+    logger.info("worker: connected to NATS (manage_stream=%s)", manage)
 
     # Optional importer hook: capability workers built FROM the base
     # image often need to populate the connection-spec registry (or
@@ -4138,8 +4319,8 @@ async def _run() -> None:
     # onto every audit_log row without threading through callers.
     global _WORKER_IMAGE_TAG
     _WORKER_IMAGE_TAG = image_tag or None
-    worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
-    capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    worker_id = _worker_id()
+    capabilities = _declared_capabilities()
     # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
@@ -4345,6 +4526,58 @@ async def _run() -> None:
         logger.exception("worker: failed to list backend plugins (non-fatal)")
         plugin_specs = []
 
+    # --- capability qualification ------------------------------------------
+    #
+    # Advertise a capability only if this environment can be shown to satisfy
+    # the requirements declared for it, instead of defending a correctness
+    # property with an env var somebody has to remember. See
+    # deploy/worker-trust.md §4.
+    #
+    # EVALUATED ONCE, HERE, and used for BOTH what is advertised and what is
+    # subscribed to. Those two must not be able to disagree: an unfit worker
+    # that still held a consumer would keep winning jobs with the evidence
+    # removed, which is worse than not gating at all.
+    #
+    # Once at startup, deliberately: a requirement change takes effect when the
+    # worker restarts. Re-deciding subscriptions mid-life would mean tearing
+    # down consumers under load, and "take this pool out of service NOW" is a
+    # different job with a different tool. This gate is for correctness drift,
+    # which is a deploy-time property.
+    import json as _json
+
+    worker_packages = _capture_worker_packages()
+    try:
+        _raw_reqs = await queue.get_meta(CAPABILITY_REQUIREMENTS_KEY)
+        requirements = _json.loads(_raw_reqs) if _raw_reqs else {}
+    except Exception:
+        # Being unable to READ the requirements is our plumbing failing, not
+        # evidence of unfitness, so it must not take a fleet offline. Fail
+        # open — loudly.
+        logger.exception("worker: could not read capability requirements; advertising unqualified")
+        requirements = {}
+
+    _verdict = evaluate(capabilities, requirements, worker_packages)
+    for _w in _verdict.withheld:
+        # WARNING: a capability this worker was configured for is not being
+        # served. Silence here is the support ticket this design exists to
+        # prevent.
+        logger.warning("worker: withholding capability %s — %s", _w["capability"], _w["reason"])
+    capabilities = _verdict.kept
+    withheld = _verdict.withheld
+
+    # Only the packages some requirement actually names. The full manifest is
+    # ~24 kB (197 entries, mostly repeated channel URLs) and this row is
+    # rewritten on every heartbeat — a recurring cost with no reader. What the
+    # row needs to carry is enough for an operator, and the admin panel, to
+    # corroborate a withheld reason.
+    _named = {
+        str(n).lower()
+        for e in (requirements or {}).values()
+        if isinstance(e, dict)
+        for n in list((e.get("requires") or {})) + list((e.get("build_match") or {}))
+    }
+    reported_packages = [p for p in worker_packages if str(p.get("name") or "").lower() in _named]
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -4352,6 +4585,12 @@ async def _run() -> None:
                 {
                     "image_tag": image_tag or None,
                     "capabilities": capabilities,
+                    # What this worker declined to serve, and why. Read by the
+                    # API so a withheld capability surfaces as unavailable WITH
+                    # A REASON rather than simply absent — those two are
+                    # indistinguishable to every consumer otherwise.
+                    "withheld": withheld,
+                    "packages": reported_packages,
                     "source_exts": source_exts,
                     "conversions": conversions,
                     "utilities": utilities,
@@ -4437,7 +4676,23 @@ async def _run() -> None:
     # silently served just the first while the rest looked idle rather than
     # broken. Serving them all is what lets one image cover several pools
     # instead of needing a separate deployment per capability.
-    pool_capabilities = _pool_capabilities(capabilities)
+    #
+    # An EMPTY set here means qualification withheld everything (the env default
+    # was normalised above). `_pool_capabilities` falls back to `["base"]` for an
+    # unset env var, and letting that fallback apply to a verdict would make the
+    # worker subscribe to the very pool it just declared itself unfit for --
+    # advertising nothing while quietly still pulling base jobs. That is exactly
+    # the disagreement between advertisement and subscription this design exists
+    # to prevent, so the fallback is bypassed rather than reached.
+    if capabilities:
+        pool_capabilities = _pool_capabilities(capabilities)
+    else:
+        pool_capabilities = []
+        logger.error(
+            "worker: every capability was withheld; subscribing to nothing. "
+            "The registry row records why, per capability. Fix the environment "
+            "or the requirements and restart."
+        )
     logger.info("worker: subscribing to capability pools %s", pool_capabilities)
     subs = [(cap, await queue.pull_subscribe(cap)) for cap in pool_capabilities]
 
@@ -4504,6 +4759,15 @@ async def _run() -> None:
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
+            if not subs:
+                # Qualification withheld everything. Stay up and keep
+                # heartbeating rather than exiting: the registry row is the only
+                # place that says WHY, and a worker that exits is indistinguishable
+                # from one that was never started — which is the confusion this
+                # whole design is meant to remove. Idle at the same cadence a
+                # fetch would have taken, so the liveness file stays fresh.
+                await asyncio.sleep(FETCH_TIMEOUT)
+                continue
             cap, sub = subs[rr % len(subs)]
             rr += 1
             try:

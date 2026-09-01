@@ -91,7 +91,7 @@ def _wire(monkeypatch, *, doc: dict, live_fp: str):
     async def _fake_list_workers(self):
         return []
 
-    async def _fake_connect(self):
+    async def _fake_connect(self, **kwargs):
         return None
 
     fake_row = {

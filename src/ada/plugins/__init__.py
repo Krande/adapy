@@ -82,7 +82,29 @@ def register_plugin_backend(
     the globally-unique kebab-case id that namespaces everything (routes, sidecar
     prefix, manifest map). Idempotent by ``plugin_id``. ``**extra`` is folded into
     the spec verbatim so a plugin can advertise its own flags without a core
-    change (mirrors the engine catalogs)."""
+    change (mirrors the engine catalogs).
+
+    Two ``extra`` keys core *does* act on, both opt-in and both absent by
+    default:
+
+    ``capability_option: str``
+        Names one of the plugin's own options. When a job request supplies it,
+        ``POST /api/plugins/{id}/jobs`` routes to ``<worker_capability>-<value>``
+        instead of ``<worker_capability>``, letting one plugin address several
+        pools whose workers are *not* interchangeable — each holding a different
+        licence, dataset or device. Core never learns what the option means; it
+        only normalises the value into a subject token. Workers opt in by
+        listing the sharded token in ``ADA_WORKER_CAPABILITIES``, and a worker
+        listing both the bare and the sharded form serves unqualified requests
+        too. An absent or unusable value falls back to the bare capability.
+
+    ``union_fields: list[str]``
+        Names spec keys that should be COMBINED across every worker advertising
+        this plugin rather than taken from one of them. Without it, several
+        workers advertising one slug means one worker's copy wins and the others
+        are invisible — so a sharded pool cannot say what it collectively
+        covers. Only list-valued keys are merged, and only the named ones.
+    """
     if not plugin_id or not isinstance(plugin_id, str):
         raise ValueError("plugin_id must be a non-empty string")
     spec: dict = {

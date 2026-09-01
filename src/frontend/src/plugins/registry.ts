@@ -18,7 +18,17 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
 // skipped with a visible log rather than loaded half-way (Decision 5 / lifecycle).
-export const PLUGIN_API_VERSION = "1.1.0";
+//
+// Also bumped on an ADDITIVE capability a plugin can DEPEND on — which 1.1.0 and
+// 1.2.0 both are. Without a version to name in `coreApiRange`, a plugin built
+// against the newer core fails on an older one at an undefined import, from
+// inside the plugin, with nothing naming the mismatch. A minor bump turns that
+// into the registry's own "built against x, this core is y — skipped" line.
+//
+//   1.1.0  placement (`dock` / `modes`) — see the section below
+//   1.2.0  browser-side external-model providers
+//          (`registerExternalModelClient`, @/services/externalModels)
+export const PLUGIN_API_VERSION = "1.2.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

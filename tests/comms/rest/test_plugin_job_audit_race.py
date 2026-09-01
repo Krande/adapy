@@ -210,7 +210,7 @@ def _build(monkeypatch, tmp_path, on_publish):
         if on_publish is not None:
             await on_publish(holder["pool"], job_id)
 
-    async def fake_connect(self):
+    async def fake_connect(self, **kwargs):
         self._js = FakeJS(_hook)
         self._kv = FakeKV()
 

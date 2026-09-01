@@ -2,6 +2,73 @@
 
 
 
+## v0.57.0 (2026-08-31)
+
+### Feature
+
+* feat(worker): let a deployment disable a capability without a rebuild (#302)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`cfa3858`](https://github.com/Krande/adapy/commit/cfa3858ee672e81aff534e3313f3fa34b6f54f53))
+
+
+## v0.56.0 (2026-08-31)
+
+### Chore
+
+* chore(worker-trust): a withheld capability must not look like an absent one (#304)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`8a42c59`](https://github.com/Krande/adapy/commit/8a42c59df366e185b4c4281c137ad5f81e4d1617))
+
+### Feature
+
+* feat(worker): advertise a capability only when fit to serve it (#305)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`2bc25cf`](https://github.com/Krande/adapy/commit/2bc25cfa7246b0bdba12d8885a6c7af40f8298e2))
+
+
+## v0.55.0 (2026-08-31)
+
+### Feature
+
+* feat(external-models): providers that read as the signed-in user (#301) ([`971f78f`](https://github.com/Krande/adapy/commit/971f78f7e06f5183bc8ad51ff3388a52701d5363))
+
+
+## v0.54.0 (2026-08-31)
+
+### Feature
+
+* feat(queue): make WebSocket and nkey auth actually reachable (#303)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`00ce40c`](https://github.com/Krande/adapy/commit/00ce40c397d0429ec4c9e7c69b445290dc513309))
+
+
+## v0.53.0 (2026-08-31)
+
+### Feature
+
+* feat(plugins): let one plugin address several non-interchangeable pools (#300)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`d516bc7`](https://github.com/Krande/adapy/commit/d516bc7560ef5633a10ae8fe51f4ad333f9694cb))
+
+
+## v0.52.1 (2026-08-31)
+
+### Fix
+
+* fix(worker): a plugin job must not die because `resource` is POSIX-only (#299)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3038c55`](https://github.com/Krande/adapy/commit/3038c55c8bb44090490f72dd98b933f6bb20d79b))
+
+
+## v0.52.0 (2026-08-31)
+
+### Feature
+
+* feat(queue): let a worker connect without the right to administer JetStream (#298)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`e6110c9`](https://github.com/Krande/adapy/commit/e6110c9cace6409dfa894f1e83724cc46d47f9e7))
+
+
 ## v0.51.2 (2026-08-30)
 
 ### Fix
