@@ -2,6 +2,15 @@
 
 
 
+## v0.59.0 (2026-09-01)
+
+### Feature
+
+* feat: an API-side env hook, so a deployment can authenticate its own API (#311)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c87b106`](https://github.com/Krande/adapy/commit/c87b10611cd6d3ef3edc08be210ba157c880c408))
+
+
 ## v0.58.0 (2026-09-01)
 
 ### Feature
