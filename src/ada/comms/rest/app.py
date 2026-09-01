@@ -2249,13 +2249,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
           * the KV bucket entry is updated best-effort so any active
             poll loop sees the new status on its next tick.
 
-        Limitation: the worker process isn't notified, so a bake that
-        was actively mid-run will continue to completion. The
-        resulting derived blob lands on storage as orphaned data; a
-        future iteration could add a worker-side cancel-flag poll to
-        bail mid-stage. For the toast UX this is enough — the user
-        sees the row disappear and is unblocked.
+        An IN-PROCESS plugin job is cancelled for real: its entry in the
+        local registry carries a ``cancel_event``, the job entrypoint is
+        already handed that event, and setting it is what lets a
+        cooperative plugin stop between units of work. These jobs exist
+        whether or not a queue or a database does, so they are handled
+        before the pool is required — otherwise the one deployment where
+        cancelling CAN work (a local server, no NATS, no DB) is the one
+        where the endpoint 500s.
+
+        For a QUEUED job the worker process still is not notified, so a
+        bake that was actively mid-run continues to completion. The
+        resulting derived blob lands on storage as orphaned data. For the
+        toast UX this is enough — the user sees the row disappear and is
+        unblocked.
         """
+        local = local_jobs.registry.get(job_id)
+        if local is not None:
+            # Same access check the read route makes on the same job:
+            # stopping someone else's work must not be easier than looking
+            # at it.
+            local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
+            if not await scope_can_access(
+                user, local_scope, getattr(request.app.state, "db_pool", None)
+            ):
+                raise HTTPException(status_code=403, detail="forbidden")
+            return JSONResponse(
+                {"job_id": job_id, "cancelled": local_jobs.registry.cancel(job_id)}
+            )
         pool = _require_pool(request)
         cancelled = await db_module.cancel_audit_by_job(
             pool,
