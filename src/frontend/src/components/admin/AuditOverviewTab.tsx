@@ -52,11 +52,23 @@ const TILES: {status: string; label: string; hint: string; fg: string; border: s
     },
 ];
 
+/** The job lifecycle, in reading order. ``cancelled`` is here and has no tile
+ * of its own: it is a real outcome (an aborted sweep cell) and must be visible,
+ * but it is not the question the tiles answer. It shows in the bar and legend.
+ *
+ * NOT every status in audit_log. ``ok`` marks instantaneous, non-job actions —
+ * download, delete, view, upload — and ``presigned`` a URL grant; on a real
+ * deployment those outnumber the jobs. Counting them as job states would put a
+ * huge unexplained block in the bar; ignoring them entirely would make the bar
+ * fail to fill. They are reported separately, below. */
+const JOB_STATUSES = ["queued", "running", "done", "error", "cancelled"] as const;
+
 const BAR_COLOR: Record<string, string> = {
     done: "bg-emerald-500",
     error: "bg-red-500",
     running: "bg-blue-500",
     queued: "bg-amber-500",
+    cancelled: "bg-gray-500",
 };
 
 const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) => {
@@ -104,7 +116,11 @@ const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) =>
     const counts = summary?.by_status ?? {};
     const settled = (counts.done ?? 0) + (counts.error ?? 0);
     const passRate = settled > 0 ? ((counts.done ?? 0) / settled) * 100 : null;
-    const total = summary?.total ?? 0;
+    // The bar's denominator is the JOBS, not every audit row — otherwise the
+    // non-job activity below leaves it two-thirds empty and reading as though
+    // most of the sweep were unaccounted for.
+    const jobTotal = JOB_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0);
+    const otherActivity = Math.max(0, (summary?.total ?? 0) - jobTotal);
 
     return (
         <div className="h-full overflow-y-auto p-3 sm:p-4 flex flex-col gap-4">
@@ -168,27 +184,34 @@ const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) =>
                     </span>
                 </div>
                 <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-900">
-                    {["done", "error", "running", "queued"].map((s) => {
+                    {["done", "error", "cancelled", "running", "queued"].map((s) => {
                         const n = counts[s] ?? 0;
-                        if (!n || !total) return null;
+                        if (!n || !jobTotal) return null;
                         return (
                             <div
                                 key={s}
                                 className={BAR_COLOR[s]}
-                                style={{width: `${(n / total) * 100}%`}}
+                                style={{width: `${(n / jobTotal) * 100}%`}}
                                 title={`${s}: ${n.toLocaleString()}`}
                             />
                         );
                     })}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-400">
-                    {["queued", "running", "done", "error"].map((s) => (
+                    {JOB_STATUSES.map((s) => (
                         <span key={s} className="flex items-center gap-1.5">
                             <span className={`inline-block w-2 h-2 rounded-full ${BAR_COLOR[s]}`}/>
                             {s} <span className="tabular-nums">{(counts[s] ?? 0).toLocaleString()}</span>
                         </span>
                     ))}
                 </div>
+                {otherActivity > 0 && (
+                    <div className="mt-2 text-[11px] text-gray-500">
+                        Plus <span className="tabular-nums">{otherActivity.toLocaleString()}</span> non-job
+                        rows in this range — downloads, uploads, views and the like. They are in the log,
+                        but they never queue, so they are not part of the figures above.
+                    </div>
+                )}
             </div>
 
             <div className="grid gap-4" style={{gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))"}}>

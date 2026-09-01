@@ -147,6 +147,43 @@ def test_top_errors_are_ranked(db):
     ]
 
 
+def test_reports_states_beyond_the_job_lifecycle(db):
+    """Real deployments carry more than queued/running/done/error.
+
+    ``ok`` marks instantaneous actions (download, delete, view) and
+    ``presigned`` a URL grant — on a live instance they outnumbered the jobs
+    3:1 — while ``cancelled`` is a genuine job outcome. The summary must report
+    every state it finds, not just the four it zero-fills, or the caller cannot
+    tell that its tiles fail to account for the total.
+    """
+    pool, run = db
+    run(_seed(pool, n=5, status="done"))
+    run(_seed(pool, n=2, status="cancelled"))
+    run(_seed(pool, n=7, status="ok", action="download", target=None))
+
+    s = run(db_module.summarize_audit(pool))
+    assert s["total"] == 14
+    assert s["by_status"]["cancelled"] == 2, "a real job outcome went missing"
+    assert s["by_status"]["ok"] == 7, "non-job rows went missing"
+    # The four the queue writes are still guaranteed present for the tiles.
+    for k in ("queued", "running", "done", "error"):
+        assert k in s["by_status"]
+    # And they do NOT account for the whole population, which is exactly why
+    # the UI reports non-job activity separately.
+    lifecycle = sum(s["by_status"][k] for k in ("queued", "running", "done", "error", "cancelled"))
+    assert lifecycle < s["total"]
+
+
+def test_rows_without_a_target_are_still_counted(db):
+    """A download has no target_format. Grouping must not drop those rows."""
+    pool, run = db
+    run(_seed(pool, n=3, status="ok", action="download", target=None))
+
+    s = run(db_module.summarize_audit(pool))
+    assert s["total"] == 3
+    assert [r["target"] for r in s["by_target"]] == ["—"]
+
+
 # ── filters: shared with the log, except status ────────────────────
 
 

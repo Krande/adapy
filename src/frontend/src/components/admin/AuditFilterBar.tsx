@@ -36,8 +36,24 @@ export const AUDIT_TARGETS = [
     "procedural_build",
     "procedural_detail",
 ];
-// Job states the queue writes (queue.py JOB_STATUS_*) — server-side filter.
-export const AUDIT_STATUSES = ["", "queued", "running", "done", "error"];
+// States that actually occur on audit_log rows — server-side filter.
+//
+// The first five are the job lifecycle (queue.py JOB_STATUS_*). ``ok`` and
+// ``presigned`` are not jobs at all: they mark instantaneous actions
+// (download, delete, view, upload) and URL grants, and on a real deployment
+// they outnumber the jobs several times over. They are selectable because they
+// are in the log and an operator may want exactly them; the Overview counts
+// them separately for the same reason.
+export const AUDIT_STATUSES = [
+    "",
+    "queued",
+    "running",
+    "done",
+    "error",
+    "cancelled",
+    "ok",
+    "presigned",
+];
 
 /** Label shown on a chip. The store key is the API's name; these are the
  * operator's. */
