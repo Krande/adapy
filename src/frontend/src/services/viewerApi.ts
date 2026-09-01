@@ -968,6 +968,15 @@ export interface AuditFilters {
   limit?: number;
 }
 
+/** Aggregate counts behind the Audit tab's Overview. */
+export interface AuditSummary {
+  total: number;
+  /** Always carries the four states the queue writes, zero-filled. */
+  by_status: Record<string, number>;
+  by_target: { target: string; counts: Record<string, number>; total: number }[];
+  top_errors: { error: string; count: number }[];
+}
+
 export interface DerivedBlob {
   format: string;
   key: string;
@@ -3126,6 +3135,22 @@ export const viewerApi = {
     const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
     const r = await authedFetch(url);
     return jsonOrThrow(r, "adminAudit");
+  },
+
+  /** Admin: aggregate counts for the audit Overview, under the same filter
+   * the log uses. ``status`` is intentionally not sent — the summary shows how
+   * a population splits across states, and the tiles are what set that filter,
+   * so honouring it would zero every tile but the selected one. */
+  async adminAuditSummary(filters: AuditFilters = {}): Promise<AuditSummary> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) {
+      if (k === "status" || k === "limit" || k === "before_id") continue;
+      if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+    }
+    const qs = params.toString();
+    const url = `${runtime.apiBase()}/admin/audit/summary${qs ? `?${qs}` : ""}`;
+    const r = await authedFetch(url);
+    return jsonOrThrow(r, "adminAuditSummary");
   },
 
   /** Admin: the captured package manifest ("pixi list") for a worker image

@@ -1,0 +1,229 @@
+"""Aggregate counts behind the Audit tab's Overview (live Postgres).
+
+The Overview turns each count into a control: click "Failed", land on those
+rows. That only holds if the summary and the log agree about what the filter
+means, and if the summary counts the whole population rather than the page the
+client happens to be holding — the log is keyset-paginated at 100, so a sweep
+of several hundred would otherwise under-report every number on the screen.
+
+The one deliberate asymmetry is ``status``: the summary ignores it, because the
+status tiles are what SET it. Honouring it would mean clicking a tile zeroes
+the other three — the act of drilling in would destroy the context you drilled
+in from. That is asserted here rather than left to a comment.
+
+Live-Postgres only (opt-in via ``ADA_TEST_POSTGRES_URL``) — audit rows are
+DB-backed and the aggregation is SQL.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import pathlib
+import tempfile
+
+import pytest
+
+os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from ada.comms.rest import db as db_module  # noqa: E402
+from ada.comms.rest.app import create_app  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
+
+POSTGRES_URL = os.environ.get("ADA_TEST_POSTGRES_URL", "").strip()
+needs_postgres = pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="ADA_TEST_POSTGRES_URL not set; skipping live Postgres tests",
+)
+
+pytestmark = needs_postgres
+
+
+def _settings(tmp_path: pathlib.Path) -> Settings:
+    return Settings(
+        storage_kind="local",
+        s3=None,
+        local=LocalConfig(path=str(tmp_path), prefix=""),
+        host="127.0.0.1",
+        port=0,
+        static_path="",
+        queue=QueueConfig(url=None, stream="ada", subject="s", kv_bucket="kv", durable="d"),
+        auth=AuthConfig(enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""),
+        database_url=POSTGRES_URL,
+    )
+
+
+@pytest.fixture
+def db():
+    """``(pool, run)`` on one event loop, with the audit tables truncated."""
+    loop = asyncio.new_event_loop()
+
+    def run(coro):
+        return loop.run_until_complete(coro)
+
+    p = run(db_module.init_pool(POSTGRES_URL))
+    assert p is not None, "init_pool returned None for ADA_TEST_POSTGRES_URL"
+    run(p.execute("TRUNCATE audit_log, audit_parity, audit_runs RESTART IDENTITY CASCADE"))
+    try:
+        yield p, run
+    finally:
+        run(p.close())
+        loop.close()
+
+
+async def _seed(
+    p, *, n, status, target="glb", key_prefix="models/f", action="convert", error=None, scope_kind="shared"
+):
+    for i in range(n):
+        await db_module.insert_audit(
+            p,
+            user_sub=None,
+            scope_kind=scope_kind,
+            scope_id=None,
+            action=action,
+            key=f"{key_prefix}{i}.step",
+            target_format=target,
+            status=status,
+            error=error,
+        )
+
+
+# ── the counts themselves ──────────────────────────────────────────
+
+
+def test_counts_every_state_and_zero_fills_the_rest(db):
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    run(_seed(pool, n=2, status="error", error="boom"))
+
+    s = run(db_module.summarize_audit(pool))
+    assert s["total"] == 5
+    # The four states the queue writes are always present, so the UI never has
+    # to invent a missing key to render a tile.
+    assert s["by_status"] == {"queued": 0, "running": 0, "done": 3, "error": 2}
+
+
+def test_counts_the_population_not_a_page(db):
+    """The log pages at 100; the summary must not."""
+    pool, run = db
+    run(_seed(pool, n=150, status="queued"))
+
+    s = run(db_module.summarize_audit(pool))
+    assert s["by_status"]["queued"] == 150, "summary counted a page, not the population"
+
+
+def test_by_target_splits_by_state(db):
+    pool, run = db
+    run(_seed(pool, n=4, status="done", target="glb"))
+    run(_seed(pool, n=1, status="error", target="glb", error="boom"))
+    run(_seed(pool, n=2, status="error", target="step", error="boom"))
+
+    s = run(db_module.summarize_audit(pool))
+    by_target = {r["target"]: r for r in s["by_target"]}
+    assert by_target["glb"]["counts"] == {"done": 4, "error": 1}
+    assert by_target["step"]["counts"] == {"error": 2}
+    # Ordered by volume, so the busiest format is the one you read first.
+    assert s["by_target"][0]["target"] == "glb"
+
+
+def test_top_errors_are_ranked(db):
+    pool, run = db
+    run(_seed(pool, n=3, status="error", error="out of memory", key_prefix="a/"))
+    run(_seed(pool, n=1, status="error", error="timeout", key_prefix="b/"))
+    run(_seed(pool, n=5, status="done"))
+
+    s = run(db_module.summarize_audit(pool))
+    assert [(e["error"], e["count"]) for e in s["top_errors"]] == [
+        ("out of memory", 3),
+        ("timeout", 1),
+    ]
+
+
+# ── filters: shared with the log, except status ────────────────────
+
+
+def test_filters_narrow_the_counts(db):
+    pool, run = db
+    run(_seed(pool, n=3, status="done", target="glb"))
+    run(_seed(pool, n=2, status="done", target="ifc"))
+
+    s = run(db_module.summarize_audit(pool, target_format="ifc"))
+    assert s["total"] == 2
+    assert s["by_status"]["done"] == 2
+
+
+def test_key_filter_is_a_case_insensitive_substring(db):
+    """Same semantics as list_audit's ``key_like`` — one filter, two surfaces."""
+    pool, run = db
+    run(_seed(pool, n=2, status="done", key_prefix="Beams/part"))
+    run(_seed(pool, n=3, status="done", key_prefix="plates/part"))
+
+    assert run(db_module.summarize_audit(pool, key_like="beams"))["total"] == 2
+    assert run(db_module.summarize_audit(pool, key_like="PLATES"))["total"] == 3
+
+
+def test_status_is_not_a_summary_filter(db):
+    """The tiles set the status filter, so the summary must ignore it.
+
+    If it did not, clicking "Failed" would zero Queued, Running and Succeeded —
+    the drill-down would destroy the very context it was launched from.
+    """
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    run(_seed(pool, n=2, status="error", error="boom"))
+
+    # summarize_audit takes no ``statuses`` argument at all; passing one is a
+    # TypeError, which is the guarantee this test is pinning.
+    with pytest.raises(TypeError):
+        run(db_module.summarize_audit(pool, statuses=["error"]))
+
+
+# ── the route ──────────────────────────────────────────────────────
+
+
+def test_route_returns_the_summary(db, tmp_path):
+    pool, run = db
+    run(_seed(pool, n=2, status="done"))
+    run(_seed(pool, n=1, status="error", error="boom"))
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        r = client.get("/api/admin/audit/summary")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["total"] == 3
+        assert body["by_status"]["done"] == 2
+        assert body["by_status"]["error"] == 1
+        assert body["top_errors"] == [{"error": "boom", "count": 1}]
+
+
+def test_route_ignores_status_but_honours_the_rest(db, tmp_path):
+    pool, run = db
+    run(_seed(pool, n=2, status="done", target="glb"))
+    run(_seed(pool, n=1, status="error", target="glb", error="boom"))
+    run(_seed(pool, n=4, status="done", target="ifc"))
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        # status is accepted (the UI sends one filter object) and ignored.
+        r = client.get("/api/admin/audit/summary", params={"status": "error", "target": "glb"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["total"] == 3, "status leaked into the summary"
+        assert body["by_status"] == {"queued": 0, "running": 0, "done": 2, "error": 1}
+
+
+def test_route_normalises_target_like_the_log_does(db, tmp_path):
+    """``.GLB`` and ``glb`` are the same target — admin_audit strips and
+    lower-cases, and the summary must not disagree with it."""
+    pool, run = db
+    run(_seed(pool, n=2, status="done", target="glb"))
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        assert client.get("/api/admin/audit/summary", params={"target": ".GLB"}).json()["total"] == 2

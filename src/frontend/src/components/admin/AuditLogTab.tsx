@@ -1,4 +1,6 @@
 import React, {useEffect, useMemo, useState} from "react";
+
+import {useAuditFilterStore} from "@/state/auditFilterStore";
 import {
     ApiError,
     AuditEntry,
@@ -20,11 +22,6 @@ import {
 // "compile" = one procedural compile RUN (app.py _audit_compile_run); its
 // worker attaches the run's log_key, so such a row's Log tab shows the engine
 // output for exactly that run.
-const ACTIONS = ["", "upload", "download", "convert", "compile", "view", "render"];
-const KINDS = ["", "shared", "project", "user"];
-const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat", "procedural_build", "procedural_detail"];
-// Job states the queue writes (queue.py JOB_STATUS_*) — server-side filter.
-const STATUSES = ["", "queued", "running", "done", "error"];
 
 const PROFILE_SETTING_KEY = "profile_conversions";
 
@@ -60,17 +57,18 @@ function hasMetrics(e: AuditEntry): boolean {
 }
 
 const AuditLogTab: React.FC = () => {
-    const [filters, setFilters] = useState<AuditFilters>({limit: 100});
+    // The filter is owned by the Audit tab, not by this sub-tab: Overview
+    // counts the same population and the operator drills from one into the
+    // other. See state/auditFilterStore.
+    const filters = useAuditFilterStore((st) => st.filters);
     const [entries, setEntries] = useState<AuditEntry[]>([]);
     const [nextBeforeId, setNextBeforeId] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [filtersOpen, setFiltersOpen] = useState(false);
     const [detailsEntry, setDetailsEntry] = useState<AuditEntry | null>(null);
     const [profileEnabled, setProfileEnabled] = useState(false);
     const [profileSaving, setProfileSaving] = useState(false);
     const [clearing, setClearing] = useState(false);
-    const activeFilterCount = countActive(filters);
 
     // Initial fetch of the profile-conversions toggle. Failures are
     // non-fatal — the row still renders, the toggle just stays off.
@@ -149,88 +147,18 @@ const AuditLogTab: React.FC = () => {
         }
     };
 
+    // Reacts to the shared filter rather than owning it: the bar lives in
+    // AuditTab, and Overview's tiles write to the same store, so a drill-down
+    // arrives here as a filter change like any other.
     useEffect(() => {
         void reload(filters);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [filters]);
 
-    const onFilter = (next: Partial<AuditFilters>) => {
-        const merged = {...filters, ...next};
-        setFilters(merged);
-        void reload(merged);
-    };
 
     return (
         <div className="flex flex-col h-full">
             <div className="border-b border-gray-700">
-                <div className="flex items-center gap-2 px-3 py-2 sm:hidden">
-                    <button
-                        className="bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm text-xs"
-                        onClick={() => setFiltersOpen((v) => !v)}
-                    >
-                        Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
-                    </button>
-                    <button
-                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs"
-                        onClick={() => reload(filters)}
-                        disabled={loading}
-                    >
-                        {loading ? "Loading…" : "Refresh"}
-                    </button>
-                </div>
-                <div
-                    className={
-                        (filtersOpen ? "flex" : "hidden") +
-                        " sm:flex flex-wrap gap-2 px-3 sm:px-4 pb-2 sm:py-2 text-xs"
-                    }
-                >
-                    <FilterInput
-                        placeholder="user_sub"
-                        value={filters.user_sub || ""}
-                        onChange={(v) => onFilter({user_sub: v || undefined})}
-                    />
-                    <FilterSelect
-                        options={KINDS}
-                        value={filters.scope_kind || ""}
-                        onChange={(v) => onFilter({scope_kind: v || undefined})}
-                        placeholder="any kind"
-                    />
-                    <FilterInput
-                        placeholder="scope_id"
-                        value={filters.scope_id || ""}
-                        onChange={(v) => onFilter({scope_id: v || undefined})}
-                    />
-                    <FilterSelect
-                        options={ACTIONS}
-                        value={filters.action || ""}
-                        onChange={(v) => onFilter({action: v || undefined})}
-                        placeholder="any action"
-                    />
-                    <FilterSelect
-                        options={TARGETS}
-                        value={filters.target || ""}
-                        onChange={(v) => onFilter({target: v || undefined})}
-                        placeholder="any target"
-                    />
-                    <FilterSelect
-                        options={STATUSES}
-                        value={filters.status || ""}
-                        onChange={(v) => onFilter({status: v || undefined})}
-                        placeholder="any state"
-                    />
-                    <FilterInput
-                        placeholder="filename / path…"
-                        value={filters.key || ""}
-                        onChange={(v) => onFilter({key: v || undefined})}
-                    />
-                    <button
-                        className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded-sm"
-                        onClick={() => reload(filters)}
-                        disabled={loading}
-                    >
-                        Refresh
-                    </button>
-                </div>
                 {/* Per-deployment knobs that affect future runs.
                     Profile toggle persists in app_settings; Clear
                     metrics nulls out columns + deletes blobs.
@@ -1510,52 +1438,6 @@ function formatBytes(n: number | null): string {
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GiB`;
 }
 
-const FilterInput: React.FC<{
-    placeholder: string;
-    value: string;
-    onChange: (v: string) => void;
-}> = ({placeholder, value, onChange}) => {
-    const [local, setLocal] = useState(value);
-    useEffect(() => setLocal(value), [value]);
-    return (
-        <input
-            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
-            placeholder={placeholder}
-            value={local}
-            onChange={(e) => setLocal(e.target.value)}
-            onBlur={() => onChange(local.trim())}
-            onKeyDown={(e) => {
-                if (e.key === "Enter") onChange(local.trim());
-            }}
-        />
-    );
-};
-
-const FilterSelect: React.FC<{
-    options: string[];
-    value: string;
-    onChange: (v: string) => void;
-    placeholder: string;
-}> = ({options, value, onChange, placeholder}) => (
-    <select
-        className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white w-full sm:w-auto"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-    >
-        {options.map((o) =>
-            o === "" ? (
-                <option key="" value="">
-                    {placeholder}
-                </option>
-            ) : (
-                <option key={o} value={o}>
-                    {o}
-                </option>
-            ),
-        )}
-    </select>
-);
-
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
     <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
 );
@@ -1695,16 +1577,6 @@ function statusClass(s: string | null): string {
     if (s === "error") return "text-red-400";
     if (s === "queued") return "text-yellow-300";
     return "text-gray-300";
-}
-
-function countActive(f: AuditFilters): number {
-    let n = 0;
-    if (f.user_sub) n++;
-    if (f.scope_kind) n++;
-    if (f.scope_id) n++;
-    if (f.action) n++;
-    if (f.key) n++;
-    return n;
 }
 
 export default AuditLogTab;

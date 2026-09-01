@@ -759,6 +759,58 @@ async def append_metrics_sample_by_job(
 # ── Admin queries ────────────────────────────────────────────────────
 
 
+def _audit_predicates(
+    *,
+    user_sub: str | None = None,
+    scope_kind: str | None = None,
+    scope_id: str | None = None,
+    action: str | None = None,
+    target_format: str | None = None,
+    statuses: list[str] | None = None,
+    key_like: str | None = None,
+    before_id: int | None = None,
+    exclude_audit_dispatched: bool = False,
+) -> tuple[list[str], list]:
+    """Build the shared ``audit_log`` WHERE fragments and their arguments.
+
+    Extracted so ``list_audit`` and ``summarize_audit`` cannot drift: the
+    admin Audit tab shows a summary and a log side by side under ONE filter,
+    and a predicate honoured by one but not the other reads as a counting bug
+    rather than as the mismatch it is. Placeholders are numbered from the
+    running length of ``args``, so a caller may append its own (a LIMIT, say)
+    afterwards.
+    """
+    where: list[str] = []
+    args: list = []
+    if user_sub:
+        args.append(user_sub)
+        where.append(f"user_sub = ${len(args)}")
+    if scope_kind:
+        args.append(scope_kind)
+        where.append(f"scope_kind = ${len(args)}")
+    if scope_id:
+        args.append(scope_id)
+        where.append(f"scope_id = ${len(args)}")
+    if action:
+        args.append(action)
+        where.append(f"action = ${len(args)}")
+    if target_format:
+        args.append(target_format)
+        where.append(f"target_format = ${len(args)}")
+    if statuses:
+        args.append(statuses)
+        where.append(f"status = ANY(${len(args)})")
+    if key_like:
+        args.append(f"%{key_like}%")
+        where.append(f"key ILIKE ${len(args)}")
+    if before_id is not None:
+        args.append(before_id)
+        where.append(f"id < ${len(args)}")
+    if exclude_audit_dispatched:
+        where.append("audit_run_id IS NULL")
+    return where, args
+
+
 async def list_audit(
     pool: asyncpg.Pool,
     *,
@@ -794,34 +846,17 @@ async def list_audit(
     flood the bottom-right toast — the Audit Runs admin tab is
     the proper surface for that work.
     """
-    where: list[str] = []
-    args: list = []
-    if user_sub:
-        args.append(user_sub)
-        where.append(f"user_sub = ${len(args)}")
-    if scope_kind:
-        args.append(scope_kind)
-        where.append(f"scope_kind = ${len(args)}")
-    if scope_id:
-        args.append(scope_id)
-        where.append(f"scope_id = ${len(args)}")
-    if action:
-        args.append(action)
-        where.append(f"action = ${len(args)}")
-    if target_format:
-        args.append(target_format)
-        where.append(f"target_format = ${len(args)}")
-    if statuses:
-        args.append(statuses)
-        where.append(f"status = ANY(${len(args)})")
-    if key_like:
-        args.append(f"%{key_like}%")
-        where.append(f"key ILIKE ${len(args)}")
-    if before_id is not None:
-        args.append(before_id)
-        where.append(f"id < ${len(args)}")
-    if exclude_audit_dispatched:
-        where.append("audit_run_id IS NULL")
+    where, args = _audit_predicates(
+        user_sub=user_sub,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        action=action,
+        target_format=target_format,
+        statuses=statuses,
+        key_like=key_like,
+        before_id=before_id,
+        exclude_audit_dispatched=exclude_audit_dispatched,
+    )
     args.append(min(max(limit, 1), 500))
     sql = (
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
@@ -871,6 +906,85 @@ async def list_audit(
         }
         for r in rows
     ]
+
+
+async def summarize_audit(
+    pool: asyncpg.Pool,
+    *,
+    user_sub: str | None = None,
+    scope_kind: str | None = None,
+    scope_id: str | None = None,
+    action: str | None = None,
+    target_format: str | None = None,
+    key_like: str | None = None,
+    reason_limit: int = 10,
+) -> dict:
+    """Aggregate counts for the Audit tab's Overview, under the same filter
+    the log uses.
+
+    NOTE THE MISSING ``statuses`` PARAMETER — it is deliberate, not an
+    oversight. Overview's whole job is to show how a filtered population
+    splits ACROSS states, and the tiles double as the control that sets the
+    status filter. Honouring that filter here would mean clicking "Failed"
+    zeroes the other three tiles, i.e. the act of drilling in destroys the
+    context you drilled in from. So every other predicate applies and status
+    does not; the caller renders the active status as a selection instead.
+
+    Returns ``by_status`` (every state present, plus explicit zeros for the
+    four the queue writes, so the UI never has to invent a missing key),
+    ``by_target`` (per target format, split by state — this is what makes
+    "glb is fine, step is failing" visible at a glance), and
+    ``top_errors`` (the most common failure messages, so the usual next
+    question — *which* failure — is answered without opening a single row).
+    """
+    where, args = _audit_predicates(
+        user_sub=user_sub,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        action=action,
+        target_format=target_format,
+        key_like=key_like,
+    )
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    # One pass yields both breakdowns: summing over target gives the status
+    # totals, so the tiles and the per-target table can never disagree.
+    grid = await pool.fetch(
+        "SELECT status, target_format, count(*) AS n FROM audit_log" + clause + " GROUP BY status, target_format",
+        *args,
+    )
+
+    by_status: dict[str, int] = {"queued": 0, "running": 0, "done": 0, "error": 0}
+    by_target: dict[str, dict[str, int]] = {}
+    total = 0
+    for r in grid:
+        status = r["status"] or "unknown"
+        n = int(r["n"])
+        total += n
+        by_status[status] = by_status.get(status, 0) + n
+        tgt = r["target_format"] or "—"
+        bucket = by_target.setdefault(tgt, {})
+        bucket[status] = bucket.get(status, 0) + n
+
+    err_where = list(where) + ["status = 'error'", "error IS NOT NULL"]
+    err_args = list(args)
+    err_args.append(min(max(reason_limit, 1), 50))
+    top_errors = await pool.fetch(
+        "SELECT error, count(*) AS n FROM audit_log WHERE "
+        + " AND ".join(err_where)
+        + f" GROUP BY error ORDER BY n DESC, error ASC LIMIT ${len(err_args)}",
+        *err_args,
+    )
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_target": [
+            {"target": tgt, "counts": counts, "total": sum(counts.values())}
+            for tgt, counts in sorted(by_target.items(), key=lambda kv: -sum(kv[1].values()))
+        ],
+        "top_errors": [{"error": r["error"], "count": int(r["n"])} for r in top_errors],
+    }
 
 
 def _loads_jsonb(v):

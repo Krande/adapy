@@ -7673,6 +7673,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    # REGISTERED BEFORE ``/audit/{audit_id}`` ON PURPOSE. Starlette matches in
+    # declaration order, so a static segment that could also parse as a path
+    # parameter has to come first — otherwise this lands on the row-detail
+    # route, which tries to read "summary" as an int and 422s. Moving it below
+    # is a silent breakage: the URL still exists, it just answers wrong.
+    @admin.get("/audit/summary")
+    async def admin_audit_summary(
+        request: Request,
+        user_sub: str | None = None,
+        scope_kind: str | None = None,
+        scope_id: str | None = None,
+        action: str | None = None,
+        target: str | None = None,
+        key: str | None = None,
+    ) -> JSONResponse:
+        """Counts behind the Audit tab's Overview, under the log's own filter.
+
+        Takes the same query parameters as ``GET /admin/audit`` and normalises
+        them identically, so one filter drives both surfaces. ``status`` is
+        accepted-and-ignored by omission: the summary exists to show how a
+        population splits across states, and the status tiles are the control
+        that sets that filter — honouring it would zero the other tiles the
+        moment you clicked one. See ``db.summarize_audit``.
+
+        Counting is done in the database rather than over a page of rows: the
+        log is keyset-paginated at 100, so summing what the client happens to
+        be holding would report "13 failed" for a sweep with hundreds.
+        """
+        pool = _require_pool(request)
+        key_like = (key or "").strip() or None
+        target_format = (target or "").strip().lstrip(".").lower() or None
+        summary = await db_module.summarize_audit(
+            pool,
+            user_sub=user_sub,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            action=action,
+            target_format=target_format,
+            key_like=key_like,
+        )
+        return JSONResponse(summary)
+
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
         audit_id: int,
