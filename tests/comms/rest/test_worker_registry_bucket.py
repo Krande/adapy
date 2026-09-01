@@ -126,9 +126,7 @@ def test_naming_the_same_bucket_is_not_a_split():
     leaving it unset — otherwise the merge path below would scan one bucket
     twice and report every worker as its own duplicate."""
     q = JobQueue(
-        QueueConfig(
-            url=None, stream="s", subject="subj", kv_bucket="jobs", durable="d", registry_kv_bucket="jobs"
-        )
+        QueueConfig(url=None, stream="s", subject="subj", kv_bucket="jobs", durable="d", registry_kv_bucket="jobs")
     )
     assert q.registry_is_separate is False
 

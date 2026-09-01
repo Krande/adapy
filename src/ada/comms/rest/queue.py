@@ -421,9 +421,7 @@ class JobQueue:
         # that exists has to imply everything created before it exists too.
         if self.registry_is_separate:
             try:
-                self._registry_kv = await self._js.create_key_value(
-                    bucket=self._cfg.registry_kv_bucket, history=1
-                )
+                self._registry_kv = await self._js.create_key_value(bucket=self._cfg.registry_kv_bucket, history=1)
             except BadRequestError:
                 self._registry_kv = await self._js.key_value(self._cfg.registry_kv_bucket)
 
