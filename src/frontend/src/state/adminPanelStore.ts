@@ -8,20 +8,28 @@ export type AdminTab =
     // see LEGACY_AUDIT_HASHES in AdminPanel.
     | "audit"
     | "issues"
+    // "performance" absorbed frontend_loads; "procedural" absorbed equipment,
+    // system and engines. The retired ids still resolve — see the LEGACY_*
+    // maps in AdminPanel.
     | "performance"
-    | "frontend_loads"
     | "projects"
     | "external_models"
     | "storage"
     | "workers"
     | "conversion"
-    | "equipment"
-    | "system"
-    | "engines";
+    | "procedural";
 
 // Ids that may appear in a deep link: the current tabs, plus the three that
 // became sub-tabs of "audit". The retired ids are still live in bookmarks,
 // browser history and in-app triggers (the audit-sweep toast opens
 // "audit_runs"), so they stay accepted and are resolved to the right sub-tab
 // rather than quietly landing on the wrong panel.
-export type AdminTabDeepLink = AdminTab | "audit_runs" | "corpus" | "schedules";
+export type AdminTabDeepLink =
+    | AdminTab
+    | "audit_runs"
+    | "corpus"
+    | "schedules"
+    | "frontend_loads"
+    | "equipment"
+    | "system"
+    | "engines";

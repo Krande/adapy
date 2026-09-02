@@ -1,5 +1,8 @@
 import React, {useState} from "react";
 
+import AdminSubTabs from "./AdminSubTabs";
+import {AUDIT_SUB_TABS} from "./adminTabs";
+import type {AuditSubTab} from "./adminTabs";
 import AuditFilterBar from "./AuditFilterBar";
 import AuditLogTab from "./AuditLogTab";
 import AuditOverviewTab from "./AuditOverviewTab";
@@ -19,15 +22,6 @@ import SchedulesTab from "./SchedulesTab";
 // what makes the Overview's counts clickable: narrow, see the number, click it,
 // land on those exact rows.
 
-export type AuditSubTab = "overview" | "log" | "runs" | "corpora" | "schedules";
-
-export const AUDIT_SUB_TABS: {id: AuditSubTab; label: string}[] = [
-    {id: "overview", label: "Overview"},
-    {id: "log", label: "Log"},
-    {id: "runs", label: "Runs"},
-    {id: "corpora", label: "Corpora"},
-    {id: "schedules", label: "Schedules"},
-];
 
 /** Sub-tabs the shared job filter applies to.
  *
@@ -38,24 +32,6 @@ export const AUDIT_SUB_TABS: {id: AuditSubTab; label: string}[] = [
  * The filter itself is kept, so leaving and coming back restores it. */
 const FILTERABLE: ReadonlySet<AuditSubTab> = new Set<AuditSubTab>(["overview", "log", "runs"]);
 
-const SubTabButton: React.FC<{
-    active: boolean;
-    onClick: () => void;
-    children: React.ReactNode;
-}> = ({active, onClick, children}) => (
-    <button
-        className={
-            "px-3 py-1.5 rounded-t-sm whitespace-nowrap border-b-2 " +
-            (active
-                ? "bg-gray-800 text-white border-blue-600"
-                : "text-gray-400 hover:text-gray-200 border-transparent")
-        }
-        onClick={onClick}
-        aria-current={active ? "page" : undefined}
-    >
-        {children}
-    </button>
-);
 
 const AuditTab: React.FC<{initialSubTab?: AuditSubTab}> = ({initialSubTab}) => {
     const [sub, setSub] = useState<AuditSubTab>(initialSubTab ?? "overview");
@@ -65,13 +41,7 @@ const AuditTab: React.FC<{initialSubTab?: AuditSubTab}> = ({initialSubTab}) => {
         <div className="h-full flex flex-col">
             {showFilter && <AuditFilterBar/>}
 
-            <div className="flex gap-1 px-3 sm:px-4 pt-2 text-xs border-b border-gray-800 shrink-0 overflow-x-auto">
-                {AUDIT_SUB_TABS.map((t) => (
-                    <SubTabButton key={t.id} active={sub === t.id} onClick={() => setSub(t.id)}>
-                        {t.label}
-                    </SubTabButton>
-                ))}
-            </div>
+            <AdminSubTabs tabs={AUDIT_SUB_TABS} active={sub} onSelect={setSub}/>
 
             <div className="flex-1 min-h-0 overflow-hidden">
                 {sub === "overview" && <AuditOverviewTab onDrillDown={() => setSub("log")}/>}

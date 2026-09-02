@@ -3,19 +3,17 @@ import {AdminTab, AdminTabDeepLink} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {disablePlugin, getAdminTabs, makePluginContextStandalone} from "@/plugins";
-import AuditTab, {AUDIT_SUB_TABS} from "./AuditTab";
-import type {AuditSubTab} from "./AuditTab";
+import AuditTab from "./AuditTab";
+import PerformanceTab from "./PerformanceTab";
+import ProceduralTab from "./ProceduralTab";
+import {parseTabId} from "./adminTabs";
+import type {AuditSubTab, PerformanceSubTab, ProceduralSubTab} from "./adminTabs";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
-import EquipmentAdminPanel from "./EquipmentAdminPanel";
-import FrontendLoadsTab from "./FrontendLoadsTab";
 import IssueTargetTab from "./IssueTargetTab";
-import PerformanceTab from "./PerformanceTab";
 import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
 import StorageTab from "./StorageTab";
-import SystemAdminPanel from "./SystemAdminPanel";
-import ProceduralEngineAdminPanel from "./ProceduralEngineAdminPanel";
 import WorkersTab from "./WorkersTab";
 
 // Path-mounted admin page (``/admin``) — full-screen on every
@@ -31,45 +29,8 @@ import WorkersTab from "./WorkersTab";
 // specific tab without touching state, e.g. the conversion-toast
 // info icon hard-codes ``/admin#audit``.
 
-const VALID_TABS = new Set<AdminTab>([
-    "audit", "issues", "performance",
-    "frontend_loads", "projects", "external_models", "storage", "workers", "conversion",
-    "equipment", "system", "engines",
-]);
 
-// Hashes that used to be top-level tabs and are now sub-tabs of "audit".
-//
-// Kept as redirects rather than dropped: these are in browser history, in
-// bookmarks, and hard-coded in anchor links across the SPA. A deep link that
-// silently lands on the wrong panel is worse than one that 404s, because
-// nothing tells the operator it happened.
-const LEGACY_AUDIT_HASHES: Record<string, AuditSubTab> = {
-    audit_runs: "runs",
-    corpus: "corpora",
-    schedules: "schedules",
-};
-
-/** Split a hash into a tab and, for ``audit``, its sub-tab.
- *
- * A tab id is either one of the built-ins above or a plugin panel's namespaced
- * id (``{pluginId}:{panelId}``). ``extra`` carries the plugin ones so a deep
- * link to a plugin tab survives a reload instead of falling back to "audit".
- *
- * Plugin ids contain a colon and never a slash, so splitting on "/" cannot
- * corrupt one. */
-function parseTabId(raw: string, extra: ReadonlySet<string>): {tab: string; sub?: AuditSubTab} {
-    const legacy = LEGACY_AUDIT_HASHES[raw];
-    if (legacy) return {tab: "audit", sub: legacy};
-    const [head, rest] = raw.split("/", 2);
-    if (head === "audit") {
-        const sub = AUDIT_SUB_TABS.find((t) => t.id === rest)?.id;
-        return {tab: "audit", sub};
-    }
-    if (VALID_TABS.has(raw as AdminTab) || extra.has(raw)) return {tab: raw};
-    return {tab: "audit"};
-}
-
-function readTabFromHash(extra: ReadonlySet<string>): {tab: string; sub?: AuditSubTab} {
+function readTabFromHash(extra: ReadonlySet<string>): {tab: string; sub?: string} {
     return parseTabId((window.location.hash || "").replace(/^#/, "").trim(), extra);
 }
 
@@ -103,7 +64,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
     // Sub-tab is only read FROM the hash (a legacy deep link, or #audit/runs).
     // AuditTab owns it thereafter; re-serialising every sub-tab click into the
     // URL would mean this component re-rendered the whole panel on each one.
-    const [auditSub] = useState<AuditSubTab | undefined>(initial.sub);
+    const [initialSub] = useState<string | undefined>(initial.sub);
     const activePlugin = pluginTabs.find((t) => t.panel.id === tab) ?? null;
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
@@ -169,9 +130,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "performance"} onClick={() => setTab("performance")}>
                         Performance
                     </TabButton>
-                    <TabButton active={tab === "frontend_loads"} onClick={() => setTab("frontend_loads")}>
-                        Frontend Loads
-                    </TabButton>
                     <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
                         Projects
                     </TabButton>
@@ -187,14 +145,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
                         Conversion
                     </TabButton>
-                    <TabButton active={tab === "equipment"} onClick={() => setTab("equipment")}>
-                        Equipment
-                    </TabButton>
-                    <TabButton active={tab === "system"} onClick={() => setTab("system")}>
-                        System
-                    </TabButton>
-                    <TabButton active={tab === "engines"} onClick={() => setTab("engines")}>
-                        Engines
+                    <TabButton active={tab === "procedural"} onClick={() => setTab("procedural")}>
+                        Procedural Engine
                     </TabButton>
                     {pluginTabs.map(({panel, label}) => (
                         <TabButton
@@ -220,29 +172,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 </div>
             </header>
             <main className="flex-1 min-h-0 overflow-hidden">
-                {tab === "audit" && <AuditTab initialSubTab={auditSub}/>}
+                {tab === "audit" && <AuditTab initialSubTab={initialSub as AuditSubTab | undefined}/>}
                 {tab === "issues" && <IssueTargetTab/>}
-                {tab === "performance" && <PerformanceTab/>}
-                {tab === "frontend_loads" && <FrontendLoadsTab/>}
+                {tab === "performance" && (
+                    <PerformanceTab initialSubTab={initialSub as PerformanceSubTab | undefined}/>
+                )}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "external_models" && <ExternalModelsTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
-                {tab === "equipment" && (
-                    <div className="h-full overflow-y-auto p-3 sm:p-4">
-                        <EquipmentAdminPanel embedded/>
-                    </div>
-                )}
-                {tab === "system" && (
-                    <div className="h-full overflow-y-auto p-3 sm:p-4">
-                        <SystemAdminPanel embedded/>
-                    </div>
-                )}
-                {tab === "engines" && (
-                    <div className="h-full overflow-y-auto p-3 sm:p-4">
-                        <ProceduralEngineAdminPanel embedded/>
-                    </div>
+                {tab === "procedural" && (
+                    <ProceduralTab initialSubTab={initialSub as ProceduralSubTab | undefined}/>
                 )}
                 {activePlugin && (
                     // Same containment contract as every other plugin slot host:
