@@ -186,6 +186,7 @@ class FieldSpec:
     category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -245,6 +246,7 @@ class ElementFieldSpec:
     support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
     dtype: np.dtype = np.dtype(np.float32)
     presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -1763,6 +1765,8 @@ def _infer_analysis_kind(spec: FieldSpec) -> str:
     sign).
     """
 
+    if spec.analysis_kind is not None:
+        return spec.analysis_kind
     if spec.n_steps == 0:
         return "static"
     first = float(spec.step_values[0])
@@ -1964,7 +1968,7 @@ def build_manifest(
                 "kind": kind,
                 "category": primary.category,
                 "support": primary.support,
-                "analysis_kind": "static",
+                "analysis_kind": primary.analysis_kind or "static",
                 "components": primary.components,
                 "n_steps": primary.n_steps,
                 "steps": steps,

@@ -1074,6 +1074,22 @@ def test_build_manifest_carries_optional_field_presentation():
     assert field["default_view"]["reduction"] == "SIGMX"
 
 
+def test_explicit_static_analysis_kind_overrides_monotonic_case_numbers():
+    from ada.fem.results.artefacts import FieldSpec, _infer_analysis_kind
+
+    spec = FieldSpec(
+        name="DISPLACEMENT",
+        components=["X", "Y", "Z"],
+        n_steps=3,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0, 2.0, 3.0],
+        analysis_kind="static",
+    )
+
+    assert _infer_analysis_kind(spec) == "static"
+
+
 def test_classify_field_by_name():
     """Spot-check the name-based fallback so unfamiliar solvers get a
     sensible category. The bake-level test asserts the manifest

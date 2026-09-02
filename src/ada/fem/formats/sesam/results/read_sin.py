@@ -746,7 +746,19 @@ class SinStreamReader:
         import dataclasses
 
         labels = self._step_values()
-        return [dataclasses.replace(s, n_steps=len(labels), step_values=labels) for s in specs]
+        # A real-valued RDRESCMB recipe is conclusive static-case metadata.
+        # Do not let the generic monotonic-step heuristic reinterpret case
+        # numbers 1..N as eigen frequencies merely because they increase.
+        analysis_kind = "static" if self._combinations else None
+        return [
+            dataclasses.replace(
+                s,
+                n_steps=len(labels),
+                step_values=labels,
+                analysis_kind=analysis_kind or s.analysis_kind,
+            )
+            for s in specs
+        ]
 
     # ── FEAStreamReader protocol ──────────────────────────────────────
     def read_mesh_geometry(self):
