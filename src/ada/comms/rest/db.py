@@ -3281,6 +3281,35 @@ async def create_procedural_model(
     return out
 
 
+async def rename_procedural_model(pool: asyncpg.Pool, model_id: str, name: str) -> dict | None | bool:
+    """Rename a model, which is also how it MOVES between folders.
+
+    The name carries the folder path (see procedural.normalize_model_name), so
+    there is one operation rather than two that could disagree about where a
+    model lives.
+
+    Returns the updated summary, ``False`` when the target name is taken (the
+    scope-unique index — the same collision a filesystem would report), or
+    ``None`` when the model does not exist or is archived.
+    """
+    try:
+        row = await pool.fetchrow(
+            """
+            UPDATE procedural_models
+            SET name = $2, updated_at = now()
+            WHERE id = $1::uuid AND NOT archived
+            RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
+            """,
+            model_id,
+            name,
+        )
+    except asyncpg.UniqueViolationError:
+        return False
+    if row is None:
+        return None
+    return _procedural_row_summary(row)
+
+
 async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:
     rows = await pool.fetch(
         """

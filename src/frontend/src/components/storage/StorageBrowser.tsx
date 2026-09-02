@@ -427,6 +427,26 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Moving a model IS renaming it: the name carries the folder path, so
+    // there is one operation rather than two that could disagree about where a
+    // model lives. The prompt shows the full current path because that is what
+    // is being edited — offering only the leaf would hide the move.
+    const moveProceduralModel = async (m: ProceduralModelSummary) => {
+        const next = window.prompt(
+            "Move procedural model — full path, folders separated by \"/\":",
+            m.name,
+        );
+        if (next === null || next.trim() === "" || next.trim() === m.name) return;
+        try {
+            await viewerApi.renameProceduralModel(scopeKey, m.id, next.trim());
+            void refreshProceduralModels();
+        } catch (e) {
+            // A 409 here is the scope-unique index: the same collision a
+            // filesystem would report for two files at one path.
+            window.alert(`Failed to move: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
         if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
         try {
@@ -1055,7 +1075,31 @@ const StorageBrowser: React.FC = () => {
     // ── Keyboard navigation over the visible (regular) tree ────────
     // Flattened render order of the rows currently on screen; versions
     // subtree is excluded (its own collapsing structure).
-    const {regular: regularFiles, branches: versionBranches} = classifyFiles(files, sidecars);
+    const {regular: classifiedRegular, branches: versionBranches} = classifyFiles(files, sidecars);
+
+    // Procedural models are database rows, not blobs — but an operator files
+    // them beside real sources and reasonably wants them in the same folders.
+    // Their NAME carries the path (see procedural.normalize_model_name), so
+    // feeding them through the same tree builder puts them exactly where the
+    // name says, with no second hierarchy to keep in step.
+    //
+    // Synthesised AFTER classifyFiles: they are not version-branch artefacts,
+    // and nothing downstream reads fileType on them — the renderer switches on
+    // the name being a known model and draws a model row instead.
+    const proceduralByName = useMemo(
+        () => new Map(proceduralModels.map((m) => [m.name, m])),
+        [proceduralModels],
+    );
+    const regularFiles = useMemo(() => {
+        const synthetic: ServerFileEntry[] = proceduralModels.map((m) => ({
+            name: m.name,
+            fileType: 0 as ServerFileEntry["fileType"],
+            filepath: m.name,
+            lastModified: "",
+        }));
+        return [...classifiedRegular, ...synthetic];
+    }, [classifiedRegular, proceduralModels]);
+    const regular = regularFiles;
     const visibleTree = buildFileTree(regularFiles, (f) => f.name, pendingFolders);
     type FlatRow =
         | {kind: "folder"; path: string; depth: number; parent: string}
@@ -1554,52 +1598,6 @@ const StorageBrowser: React.FC = () => {
                     </div>
                 </div>
             )}
-            {proceduralModels.length > 0 && (
-                <div className="mb-1">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
-                    {proceduralModels.map((m) => (
-                        <div
-                            key={m.id}
-                            className={
-                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
-                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
-                            }
-                            onClick={() => void openProceduralModel(m)}
-                            title="Procedural cell model (single database source) — click to open in the cellbuilder"
-                        >
-                            <ProceduralModelIcon className="shrink-0"/>
-                            <span className="truncate text-sm">{m.name}</span>
-                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
-                                r{m.revision}
-                            </span>
-                            <span className="ml-auto flex items-center gap-1">
-                                {m.latest_glb_key && (
-                                    <button
-                                        className="px-1 rounded-sm hover:bg-gray-500/40"
-                                        title="View compiled result"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            void useCellBuilderStore.getState().viewResult(m.latest_glb_key!);
-                                        }}
-                                    >
-                                        <ViewIcon/>
-                                    </button>
-                                )}
-                                <button
-                                    className="px-1 rounded-sm hover:bg-gray-500/40"
-                                    title="Delete procedural model"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void deleteProceduralModel(m);
-                                    }}
-                                >
-                                    🗑
-                                </button>
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
                 <div
                     className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
@@ -1676,6 +1674,21 @@ const StorageBrowser: React.FC = () => {
                                     depth: number,
                                 ): React.ReactNode => {
                                     if (node.kind === "file") {
+                                        const model = proceduralByName.get(node.file.name);
+                                        if (model) {
+                                            return (
+                                                <ProceduralModelRow
+                                                    key={`procedural:${model.id}`}
+                                                    model={model}
+                                                    displayName={node.displayName}
+                                                    indentLevel={depth}
+                                                    active={activeProcedural === model.id}
+                                                    onOpen={() => void openProceduralModel(model)}
+                                                    onMove={() => void moveProceduralModel(model)}
+                                                    onDelete={() => void deleteProceduralModel(model)}
+                                                />
+                                            );
+                                        }
                                         const items = fileMenuItems(node.file, node.displayName);
                                         const fileDir = dirnameOf(node.file.name);
                                         return (
@@ -1889,6 +1902,68 @@ const StorageBrowser: React.FC = () => {
 };
 
 // ──────────────────────────────────────────────────────────────────
+// ProceduralModelRow: a procedural model rendered as a leaf of the storage
+// tree.
+//
+// A model is a database row, not a blob, so it deliberately does NOT get a
+// FileRow: there is nothing to load into the scene, convert, or select for a
+// bulk delete, and offering those controls would promise operations that
+// cannot work. In particular it carries no selection checkbox, which is what
+// keeps a model out of `selection` and therefore out of every bulk file
+// operation — the rows simply cannot be swept in.
+//
+// What it shares with a file is its PLACE: the name carries the folder path,
+// so the tree puts it exactly where an operator filed it.
+const ProceduralModelRow: React.FC<{
+    model: ProceduralModelSummary;
+    displayName: string;
+    indentLevel: number;
+    active: boolean;
+    onOpen: () => void;
+    onMove: () => void;
+    onDelete: () => void;
+}> = ({model, displayName, indentLevel, active, onOpen, onMove, onDelete}) => (
+    <div
+        className={
+            "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
+            (active ? "bg-blue-900/40" : "")
+        }
+        style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
+        onClick={onOpen}
+        title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
+    >
+        <ProceduralModelIcon className="shrink-0"/>
+        {/* The LEAF, not the whole path: the folders are already the tree rows
+            above it, and repeating them in every label is noise. */}
+        <span className="truncate text-sm">{displayName}</span>
+        <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+            r{model.revision}
+        </span>
+        <span className="ml-auto flex items-center gap-1">
+            <button
+                className="px-1 rounded-sm hover:bg-gray-500/40 text-xs"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onMove();
+                }}
+                title="Move to another folder (renames the model — the name is its path)"
+            >
+                ⇄
+            </button>
+            <button
+                className="px-1 rounded-sm hover:bg-gray-500/40 text-xs"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                }}
+                title="Delete this procedural model"
+            >
+                ✕
+            </button>
+        </span>
+    </div>
+);
+
 // FileRow: one storage entry, optionally indented (for use inside
 // the per-commit subtree). Pulled out of the main component so the
 // versions tree can render the same row at indent 2 without

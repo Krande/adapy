@@ -2177,6 +2177,27 @@ export const viewerApi = {
     );
   },
 
+  /** Rename a procedural model — which is also how it MOVES between folders.
+   *
+   * The name carries the folder path; a model is addressed by UUID everywhere,
+   * so a "/" in it is a label, not a route. One operation rather than two that
+   * could disagree about where a model lives. */
+  async renameProceduralModel(
+    scope: ScopeUrl,
+    modelId: string,
+    name: string,
+  ): Promise<ProceduralModelSummary> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/name`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      },
+    );
+    return jsonOrThrow<ProceduralModelSummary>(r, `renameProceduralModel(${name})`);
+  },
+
   async getProceduralModel(
     scope: ScopeUrl,
     modelId: string,

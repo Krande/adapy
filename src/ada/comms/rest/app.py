@@ -2868,16 +2868,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         pool = _require_procedural_pool(request)
+        from .procedural import normalize_model_name
+
         body = await request.json()
-        name = body.get("name")
-        if not isinstance(name, str) or not name.strip():
+        raw_name = body.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
             raise HTTPException(status_code=400, detail="name (str) is required")
+        # The name may carry a folder path — models are filed alongside real
+        # files in the storage browser and a UUID is what actually addresses
+        # them, so "decks/level-3/module-a" is a name, not a route.
+        try:
+            name = normalize_model_name(raw_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         row = await db_module.create_procedural_model(
-            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name.strip(), created_by=user.sub
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name, created_by=user.sub
         )
         if row is None:
-            raise HTTPException(status_code=409, detail=f"a procedural model named {name.strip()!r} already exists")
+            raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
         return JSONResponse(row, status_code=201)
+
+    @api.patch("/scopes/{scope}/procedural-models/{model_id}/name")
+    async def api_procedural_rename(
+        model_id: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Rename a model — which is also how it is MOVED between folders.
+
+        One operation, because the name IS the path: a separate move would be a
+        second way to say where a model lives, and two of those eventually
+        disagree.
+        """
+        from .procedural import normalize_model_name
+
+        pool = _require_procedural_pool(request)
+        body = await request.json()
+        raw_name = body.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        try:
+            name = normalize_model_name(raw_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        row = await db_module.rename_procedural_model(pool, model_id, name)
+        if row is False:
+            raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
+        if row is None:
+            raise HTTPException(status_code=404, detail="procedural model not found")
+        return JSONResponse(row)
 
     async def _live_worker_specs(field: str, fallback_field: str | None = None) -> dict[str, dict]:
         """Catalog-shaped specs advertised by non-stale workers, keyed by slug.
