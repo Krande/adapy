@@ -2241,8 +2241,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         """Mark a queued/running conversion as cancelled.
 
-        Caller must own the job (audit_log.user_sub matches). Side
-        effects:
+        Who may cancel depends on which branch answers, and the two
+        differ deliberately. A QUEUED job is owner-checked: the SQL
+        filters on ``audit_log.user_sub``, so only the caller who
+        started it can stop it. An IN-PROCESS job is scope-checked
+        instead — ``LocalJob`` records no owner, and the path only runs
+        when no queue is configured, which is the single-node shape
+        where ``current_user`` is the one synthetic ``local-dev``
+        principal and the two checks coincide. Note that a ``shared``
+        scope grants every authenticated user, so on a no-queue server
+        that DOES have auth enabled this is a weaker guarantee than the
+        queued branch gives.
+
+        Side effects:
           * audit_log row flipped to ``status='cancelled'`` (only if
             it was still queued or running — terminal rows are left
             alone);
@@ -2270,13 +2281,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # stopping someone else's work must not be easier than looking
             # at it.
             local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
-            if not await scope_can_access(
-                user, local_scope, getattr(request.app.state, "db_pool", None)
-            ):
+            if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
                 raise HTTPException(status_code=403, detail="forbidden")
-            return JSONResponse(
-                {"job_id": job_id, "cancelled": local_jobs.registry.cancel(job_id)}
-            )
+            return JSONResponse({"job_id": job_id, "cancelled": local_jobs.registry.cancel(job_id)})
         pool = _require_pool(request)
         cancelled = await db_module.cancel_audit_by_job(
             pool,
