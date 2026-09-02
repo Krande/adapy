@@ -10,6 +10,12 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
 import {load_fea_with_defaults} from "@/utils/scene/handlers/load_fea_streaming";
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
+import {
+    getSourceOffset,
+    placeNextToExisting,
+    resetSourceOffset,
+    setSourceOffset,
+} from "@/utils/scene/handlers/model_translate";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import ReloadIcon from "../icons/ReloadIcon";
@@ -513,10 +519,42 @@ const StorageBrowser: React.FC = () => {
         });
     };
 
+    // Placement acts on a SCENE SOURCE, so one implementation serves both row
+    // kinds: a file's source name is its key, a model's is procedural:<name>.
+    const placementItems = (sourceName: string, label: string) => {
+        const loaded = loadedSourceNames.has(sourceName);
+        const offset = loaded ? getSourceOffset(sourceName) : {x: 0, y: 0, z: 0};
+        const isOffset = loaded && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0);
+        return {
+            isLoaded: loaded,
+            isOffset,
+            onPlaceNextTo: () => {
+                const x = placeNextToExisting(sourceName);
+                if (x === null) window.alert(`"${label}" is not in the scene.`);
+            },
+            onTranslate: () => {
+                const cur = getSourceOffset(sourceName);
+                const raw = window.prompt(
+                    `Offset for "${label}" from the shared origin, as "x, y, z" in metres:`,
+                    `${cur.x}, ${cur.y}, ${cur.z}`,
+                );
+                if (raw === null) return;
+                const parts = raw.split(",").map((v) => Number(v.trim()));
+                if (parts.length !== 3 || parts.some((v) => !Number.isFinite(v))) {
+                    window.alert('Expected three numbers, e.g. "25, 0, 0".');
+                    return;
+                }
+                setSourceOffset(sourceName, {x: parts[0], y: parts[1], z: parts[2]});
+            },
+            onResetPlacement: () => resetSourceOffset(sourceName),
+        };
+    };
+
     const proceduralMenuItems = (m: ProceduralModelSummary, displayName: string): KebabMenuItem[] =>
         buildProceduralMenuItems(displayName, {
             canMutate,
             onOpen: () => void openProceduralModel(m),
+            ...placementItems(proceduralSourceName(m), m.name),
             isActive: activeProcedural === m.id,
             onMakeActive: () => void openProceduralModel(m, {collapsePanel: false}),
             onDeactivate: () => useCellBuilderStore.getState().close(),
@@ -1184,6 +1222,7 @@ const StorageBrowser: React.FC = () => {
     const fileMenuItems = (f: ServerFileEntry, displayName: string): KebabMenuItem[] => {
         const busy = viewingName === f.name;
         return buildFileMenuItems(f, {
+            ...placementItems(f.name, displayName),
             isLoaded: loadedSourceNames.has(f.name),
             busy,
             loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),

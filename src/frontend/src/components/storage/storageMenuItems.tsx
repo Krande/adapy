@@ -11,7 +11,7 @@
 import {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {ServerFileEntry} from "@/state/serverInfoStore";
 
-export interface FileMenuContext {
+export interface FileMenuContext extends PlacementMenuContext {
     isLoaded: boolean;
     /** This row (or another) is busy loading into the scene. */
     busy: boolean;
@@ -29,6 +29,52 @@ export interface FileMenuContext {
     onRename?: () => void;
     onMoveToFolder?: () => void;
     onDelete?: () => void;
+}
+
+/** Placement entries shared by file rows and procedural-model rows.
+ *
+ * Any loaded scene source can be moved — an uploaded GLB, a converted file, a
+ * model's compiled result — so "put this one over there" must not have a
+ * different answer depending on what produced the geometry. Both entries appear
+ * only when the thing is actually IN the scene; offering them for something
+ * unloaded would be a control with nothing to act on. */
+export interface PlacementMenuContext {
+    /** True when this row's geometry is currently loaded. */
+    isLoaded?: boolean;
+    onPlaceNextTo?: () => void;
+    onTranslate?: () => void;
+    onResetPlacement?: () => void;
+    /** True when it has been moved off the shared origin. */
+    isOffset?: boolean;
+}
+
+function pushPlacementItems(items: KebabMenuItem[], ctx: PlacementMenuContext): void {
+    if (!ctx.isLoaded) return;
+    if (ctx.onPlaceNextTo) {
+        items.push({
+            key: "place-next-to",
+            label: "Place next to existing",
+            title: "Move this beside whatever else is loaded, along +X, with a gap.",
+            separatorBefore: true,
+            onClick: ctx.onPlaceNextTo,
+        });
+    }
+    if (ctx.onTranslate) {
+        items.push({
+            key: "translate",
+            label: "Translate…",
+            title: "Set this item's offset from the shared origin.",
+            onClick: ctx.onTranslate,
+        });
+    }
+    if (ctx.isOffset && ctx.onResetPlacement) {
+        items.push({
+            key: "reset-placement",
+            label: "Reset placement",
+            title: "Return this item to the shared origin.",
+            onClick: ctx.onResetPlacement,
+        });
+    }
 }
 
 export function buildFileMenuItems(
@@ -69,6 +115,7 @@ export function buildFileMenuItems(
             onClick: ctx.onCopyPath,
         });
     }
+    pushPlacementItems(items, ctx);
     if (ctx.canMutate && ctx.onRename) {
         items.push({
             key: "rename",
@@ -106,7 +153,7 @@ export interface FolderMenuContext {
     onDelete?: () => void;
 }
 
-export interface ProceduralMenuContext {
+export interface ProceduralMenuContext extends PlacementMenuContext {
     canMutate: boolean;
     onOpen: () => void;
     /** True when this model is the one the cellbuilder is editing. */
@@ -181,6 +228,7 @@ export function buildProceduralMenuItems(
             onClick: ctx.onCopyPath,
         });
     }
+    pushPlacementItems(items, ctx);
     if (ctx.canMutate && ctx.onRename) {
         items.push({
             key: "rename",
