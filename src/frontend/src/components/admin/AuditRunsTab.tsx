@@ -3,6 +3,7 @@ import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow, Corpus} from "@/s
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
 import {runtime} from "@/runtime/config";
 import {useAuditToastStore} from "@/state/auditToastStore";
+import {ImagePool, describeImagePool, groupWorkersByImage} from "./auditPools";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
@@ -541,11 +542,12 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [sweep, setSweep] = useState<WasmSweepProgress | null>(null);
     const [sweepErr, setSweepErr] = useState<string | null>(null);
     const isWasmPool = workerPool.trim().toLowerCase() === WASM_POOL;
-    // Distinct capability tags advertised by every currently-online
-    // worker (M2). Used to populate the pool picker so the operator
-    // can't typo a tag — if a regression pod isn't registered yet,
-    // its tag won't show up here either, which is the honest signal.
-    const [capabilities, setCapabilities] = useState<string[]>([]);
+    // Online workers grouped by IMAGE (see auditPools). The picker used to
+    // list capability tags, which chose a fleet back when each capability was
+    // its own image; with one combined image, six tags resolve to the same
+    // pods. If a pod isn't registered yet its image won't show up here either,
+    // which is the honest signal.
+    const [imagePools, setImagePools] = useState<ImagePool[]>([]);
     // Available corpora (M3). Audit sweeps against a curated corpus
     // are the release-gate flow; sweeping shared/user scopes is
     // mostly for ad-hoc debugging.
@@ -557,15 +559,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             try {
                 const r = await viewerApi.adminListWorkers();
                 if (cancelled) return;
-                const tags = new Set<string>();
-                for (const w of r.workers) {
-                    if (!w.online) continue;
-                    for (const c of w.capabilities || []) {
-                        const v = c.trim().toLowerCase();
-                        if (v) tags.add(v);
-                    }
-                }
-                setCapabilities(Array.from(tags).sort());
+                setImagePools(groupWorkersByImage(r.workers));
             } catch {
                 // No-op: the picker just falls back to "any" + a free
                 // hint. Failure to list workers shouldn't break audit
@@ -653,16 +647,30 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                     onChange={(e) => setWorkerPool(e.target.value)}
                     className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-40"
                     title={
-                        capabilities.length === 0
+                        imagePools.length === 0
                             ? "No online workers found; pool restriction won't take effect"
-                            : "Restrict the sweep to workers advertising this capability tag"
+                            : "Which fleet runs the sweep. Images are what an operator " +
+                              "reasons about — routing is still by capability subject, so " +
+                              "an image is only bindable while it is the sole provider of " +
+                              "the capability it serves."
                     }
                 >
                     <option value="">any pool</option>
                     <option value={WASM_POOL}>WASM (in-browser)</option>
-                    {capabilities.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                    ))}
+                    {imagePools.length > 0 && (
+                        <optgroup label="Worker images">
+                            {imagePools.map((p) => (
+                                <option
+                                    key={p.imageTag || "(untagged)"}
+                                    value={p.routeCapability}
+                                    title={`serves: ${p.capabilities.join(", ") || "nothing"}`}
+                                >
+                                    {describeImagePool(p)}
+                                    {p.enforceable ? "" : " (shared — cannot bind)"}
+                                </option>
+                            ))}
+                        </optgroup>
+                    )}
                 </select>
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1 flex-1 min-w-[200px]">

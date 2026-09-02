@@ -161,6 +161,61 @@ const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) =>
                 })}
             </div>
 
+            {/* Queue pressure. Placed above the composition because a backlog is
+                actionable NOW, while the pass rate is a verdict on work already
+                done — and a growing wait is visible here before anything fails. */}
+            {(() => {
+                const c = summary?.congestion;
+                const waiting = c?.queued ?? 0;
+                const fmt = (v: number | null | undefined) => {
+                    if (v == null) return "—";
+                    if (v < 90) return `${Math.round(v)}s`;
+                    if (v < 5400) return `${(v / 60).toFixed(1)}m`;
+                    return `${(v / 3600).toFixed(1)}h`;
+                };
+                // A long-waiting queue is the signal worth colouring; the
+                // thresholds are deliberately coarse, since "how long is too
+                // long" depends on the corpus.
+                const hot = (c?.oldest_wait_s ?? 0) > 900;
+                return (
+                    <div className="rounded-md bg-gray-800 border border-gray-700 p-4">
+                        <div className="flex items-baseline justify-between mb-2 gap-3 flex-wrap">
+                            <span className="text-xs uppercase tracking-wide text-gray-400">Queue pressure</span>
+                            <span className="text-xs text-gray-500">
+                                {waiting === 0
+                                    ? "nothing waiting"
+                                    : `${waiting.toLocaleString()} waiting, ${(c?.running ?? 0).toLocaleString()} in flight`}
+                            </span>
+                        </div>
+                        <div className="grid gap-3" style={{gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))"}}>
+                            {[
+                                {label: "Longest wait", v: c?.oldest_wait_s, hot},
+                                {label: "Median wait", v: c?.median_wait_s, hot: false},
+                                {label: "Mean wait", v: c?.mean_wait_s, hot: false},
+                            ].map((m) => (
+                                <div key={m.label}>
+                                    <div className="text-[11px] uppercase tracking-wide text-gray-500">{m.label}</div>
+                                    <div
+                                        className={
+                                            "tabular-nums text-xl font-semibold " +
+                                            (m.v == null ? "text-gray-600" : m.hot ? "text-amber-300" : "text-gray-100")
+                                        }
+                                    >
+                                        {fmt(m.v)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="text-[11px] text-gray-500 mt-2">
+                            {waiting === 0
+                                ? "No jobs are queued, so there is no wait to report."
+                                : "How long the jobs currently queued have been waiting. Jobs that already " +
+                                  "ran are not included — the instant a worker picked one up is not recorded."}
+                        </div>
+                    </div>
+                );
+            })()}
+
             <div className="rounded-md bg-gray-800 border border-gray-700 p-4">
                 <div className="flex items-baseline justify-between mb-2 gap-3 flex-wrap">
                     <span className="text-xs uppercase tracking-wide text-gray-400">Composition</span>

@@ -224,6 +224,75 @@ def test_status_is_not_a_summary_filter(db):
         run(db_module.summarize_audit(pool, statuses=["error"]))
 
 
+# ── congestion ─────────────────────────────────────────────────────
+
+
+def test_queue_ages_report_how_long_work_has_waited(db):
+    """``ts`` is the ENQUEUE time, so a queued row's age is its wait so far.
+
+    This is the congestion signal: a growing oldest-wait means the pool is not
+    keeping up, and it is visible before anything fails.
+    """
+    pool, run = db
+    run(_seed(pool, n=3, status="queued"))
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '10 minutes' WHERE id = (SELECT min(id) FROM audit_log)"
+        )
+    )
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '2 minutes' WHERE id = (SELECT max(id) FROM audit_log)"
+        )
+    )
+
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["queued"] == 3
+    assert 590 < c["oldest_wait_s"] < 610, c["oldest_wait_s"]
+    assert c["median_wait_s"] is not None
+    assert c["mean_wait_s"] < c["oldest_wait_s"]
+
+
+def test_only_queued_rows_count_as_waiting(db):
+    """A finished job is not waiting. Counting it would make a healthy pool
+    look congested in proportion to how much work it had already done."""
+    pool, run = db
+    run(_seed(pool, n=5, status="done"))
+    run(_seed(pool, n=2, status="queued"))
+
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["queued"] == 2
+
+
+def test_an_empty_queue_reports_no_wait_rather_than_zero(db):
+    """None, not 0.0 — "nothing is waiting" and "everything is served
+    instantly" are different states and the UI renders them differently."""
+    pool, run = db
+    run(_seed(pool, n=4, status="done"))
+
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["queued"] == 0
+    assert c["oldest_wait_s"] is None
+    assert c["median_wait_s"] is None
+
+
+def test_congestion_honours_the_filter(db):
+    pool, run = db
+    run(_seed(pool, n=2, status="queued", target="glb"))
+    run(_seed(pool, n=3, status="queued", target="ifc"))
+
+    assert run(db_module.summarize_audit(pool, target_format="ifc"))["congestion"]["queued"] == 3
+
+
+def test_running_is_carried_alongside_the_queue(db):
+    pool, run = db
+    run(_seed(pool, n=2, status="running"))
+    run(_seed(pool, n=1, status="queued"))
+
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["running"] == 2 and c["queued"] == 1
+
+
 # ── the time window ────────────────────────────────────────────────
 
 

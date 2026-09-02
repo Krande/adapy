@@ -976,8 +976,23 @@ export interface AuditFilters {
 }
 
 /** Aggregate counts behind the Audit tab's Overview. */
+/** Queue pressure right now. Ages are of jobs still WAITING — `ts` is the
+ * enqueue time, so a queued row's age is its wait so far. Jobs that already ran
+ * are absent on purpose: nothing records when a worker picked one up, so a
+ * historical wait would have to be invented. */
+export interface AuditCongestion {
+  queued: number;
+  running: number;
+  /** Null when nothing is queued — distinct from 0, which would mean
+   * "served instantly". */
+  oldest_wait_s: number | null;
+  mean_wait_s: number | null;
+  median_wait_s: number | null;
+}
+
 export interface AuditSummary {
   total: number;
+  congestion: AuditCongestion;
   /** Always carries the four states the queue writes, zero-filled. */
   by_status: Record<string, number>;
   by_target: { target: string; counts: Record<string, number>; total: number }[];

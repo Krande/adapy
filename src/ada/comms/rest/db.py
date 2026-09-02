@@ -1033,6 +1033,26 @@ async def summarize_audit(
         bucket = by_target.setdefault(tgt, {})
         bucket[status] = bucket.get(status, 0) + n
 
+    # CONGESTION. ``ts`` is the ENQUEUE time — insert_audit writes the row with
+    # status='queued' before a worker can see the job, and the completion update
+    # never rewrites it. So for a row still queued, ``now() - ts`` is exactly how
+    # long that job has been waiting, which is the question "are we backed up?"
+    #
+    # What this deliberately does NOT report is the wait of jobs that already
+    # ran. Nothing records when a worker picked a job up: the row carries
+    # enqueue time and processing duration, and the instant between them is
+    # simply not stored. A historical average would have to be invented, and an
+    # invented latency is worse than an absent one. Adding a ``started_at``
+    # column is the honest way to get it.
+    queue_row = await pool.fetchrow(
+        "SELECT count(*) AS n,"
+        " EXTRACT(EPOCH FROM max(now() - ts)) AS oldest_s,"
+        " EXTRACT(EPOCH FROM avg(now() - ts)) AS mean_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY now() - ts)) AS median_s"
+        " FROM audit_log" + (clause + " AND " if clause else " WHERE ") + "status = 'queued'",
+        *args,
+    )
+
     err_where = list(where) + ["status = 'error'", "error IS NOT NULL"]
     err_args = list(args)
     err_args.append(min(max(reason_limit, 1), 50))
@@ -1043,9 +1063,21 @@ async def summarize_audit(
         *err_args,
     )
 
+    def _sec(v):
+        return round(float(v), 1) if v is not None else None
+
     return {
         "total": total,
         "by_status": by_status,
+        "congestion": {
+            "queued": int(queue_row["n"] or 0),
+            "running": by_status.get("running", 0),
+            # Ages of the jobs waiting RIGHT NOW, in seconds. None when the
+            # queue is empty — which is not the same as zero, and the UI says so.
+            "oldest_wait_s": _sec(queue_row["oldest_s"]),
+            "mean_wait_s": _sec(queue_row["mean_s"]),
+            "median_wait_s": _sec(queue_row["median_s"]),
+        },
         "by_target": [
             {"target": tgt, "counts": counts, "total": sum(counts.values())}
             for tgt, counts in sorted(by_target.items(), key=lambda kv: -sum(kv[1].values()))
