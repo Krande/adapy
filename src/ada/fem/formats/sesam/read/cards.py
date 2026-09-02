@@ -94,6 +94,8 @@ MAT_MAP = {
 UNITS = DataCard("UNITS", ("nfield", "id", "lenfac", "forfac", "tempfac"))
 GNODE = DataCard("GNODE", ("nodex", "nodeno", "ndof", "odof"))
 GCOORD = DataCard("GCOORD", ("id", "x", "y", "z"))
+BNDOF = DataCard("BNDOF", ("nodeno", "transd", "transr"))
+BNTRCOS = DataCard("BNTRCOS", ("transno", "c11", "c21", "c31", "c12", "c22", "c32", "c13", "c23", "c33"))
 
 # Elements
 GELMNT1 = DataCard("GELMNT1", ("elnox", "elno", "eltyp", "eltyad", "nids"))

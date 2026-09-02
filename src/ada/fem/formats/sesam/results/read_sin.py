@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 # the SIN block index is routed to the same bucket Sif2Mesh expects.
 _OTHER_CARDS = (
     cards.UNITS,
+    cards.BNDOF,
+    cards.BNTRCOS,
     cards.GUNIVEC,
     cards.GELTH,
     cards.TDSECT,

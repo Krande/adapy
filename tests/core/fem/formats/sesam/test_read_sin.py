@@ -229,6 +229,44 @@ def test_sif_reader_selects_documented_fem_unit_set():
     assert reader.get_unit_factors() == (0.001, 1000.0, 1.0)
 
 
+def test_nodal_transform_records_map_local_vectors_to_model_coordinates():
+    from ada.fem.formats.sesam.results.read_sif import SifReader, get_nodal_reactions, get_nodal_results
+
+    # Local x -> model y and local y -> model -x. BNTRCOS stores matrix
+    # columns in record order, not row-major order.
+    rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    reader = SifReader(iter(()))
+    reader._other["BNTRCOS"] = [[7.0, *rotation.reshape(-1, order="F")]]
+    reader._other["BNDOF"] = [[10.0, 7.0, 7.0]]
+    transforms = reader.get_nodal_transforms()
+
+    displacement_rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [11.0, 4.0, 10.0, 6.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+    displacement = get_nodal_results(displacement_rows, transforms)[0]
+    assert np.allclose(displacement.values[0, 1:], [-2.0, 1.0, 3.0, -5.0, 4.0, 6.0])
+
+    reaction_rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [12.0, 4.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+    reaction = get_nodal_reactions(reaction_rows, {7: (1, 2, 3, 4, 5, 6)}, np.array([10]), transforms)[0]
+    assert np.allclose(reaction.values[0, 1:], [-2.0, 1.0, 3.0, -5.0, 4.0, 6.0])
+
+
+def test_transformed_nodal_result_requires_transform_records():
+    from ada.fem.formats.sesam.results.read_sif import get_nodal_results
+
+    rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [11.0, 4.0, 10.0, 6.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+
+    with pytest.raises(ValueError, match="no BNDOF/BNTRCOS definition"):
+        get_nodal_results(rows)
+
+
 def test_rv_combination_accumulates_values_not_metadata():
     from ada.fem.formats.sesam.read import cards
     from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination

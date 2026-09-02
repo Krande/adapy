@@ -88,6 +88,8 @@ INT_LOCATIONS = {
 }
 OTHER_CARDS = [
     cards.UNITS,
+    cards.BNDOF,
+    cards.BNTRCOS,
     cards.GUNIVEC,
     cards.GELTH,
     cards.TDSECT,
@@ -434,6 +436,37 @@ class SifReader:
             if int(row[id_i]) == 1 and all(np.isfinite(value) and value > 0.0 for value in factors):
                 return factors
         return None
+
+    def get_nodal_transforms(self) -> dict[int, tuple[np.ndarray | None, np.ndarray | None]]:
+        """Map internal node numbers to local-to-global translation/rotation matrices."""
+
+        transform_rows = self._other.get(cards.BNTRCOS.name, []) or []
+        transform_id_i = cards.BNTRCOS.get_indices_from_names(["transno"])
+        first_cosine_i = cards.BNTRCOS.get_indices_from_names(["c11"])
+        matrices: dict[int, np.ndarray] = {}
+        for row in transform_rows:
+            # BNTRCOS stores c11,c21,c31,c12,... (columns of C). The
+            # interface equation is global = C @ local.
+            matrix = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
+            matrices[int(row[transform_id_i])] = matrix
+
+        node_rows = self._other.get(cards.BNDOF.name, []) or []
+        node_i, translation_i, rotation_i = cards.BNDOF.get_indices_from_names(["nodeno", "transd", "transr"])
+        out: dict[int, tuple[np.ndarray | None, np.ndarray | None]] = {}
+        for row in node_rows:
+            node_id = int(row[node_i])
+            refs = (int(row[translation_i]), int(row[rotation_i]))
+            resolved: list[np.ndarray | None] = []
+            for reference in refs:
+                if reference == 0:
+                    resolved.append(None)
+                    continue
+                matrix = matrices.get(reference)
+                if matrix is None:
+                    raise ValueError(f"BNDOF node {node_id} references missing BNTRCOS {reference}")
+                resolved.append(matrix)
+            out[node_id] = (resolved[0], resolved[1])
+        return out
 
     def get_shell_thickness_map(self) -> dict[int, float]:
         rows = self._other.get(cards.GELTH.name, []) or []
@@ -938,9 +971,10 @@ class Sif2Mesh:
         # a STRESS/FORCES-only pass has no RVNODDIS block — return no nodal data
         # rather than IndexError on an empty get_result.
         fields: list[NodalFieldData] = []
+        nodal_transforms = self.sif.get_nodal_transforms()
         res = self.sif.get_result(cards.RVNODDIS.name)
         if res:
-            fields.extend(get_nodal_results(res[0][1]))
+            fields.extend(get_nodal_results(res[0][1], nodal_transforms))
 
         reactions = self.sif.get_result(cards.RVNODREA.name)
         if reactions:
@@ -949,6 +983,7 @@ class Sif2Mesh:
                     reactions[0][1],
                     self.sif.get_rdnodrea_map(),
                     np.asarray(self.mesh.nodes.identifiers, dtype=int),
+                    nodal_transforms,
                 )
             )
         return fields
@@ -1111,18 +1146,50 @@ class Sif2Mesh:
         return INT_LOCATIONS[el_type]
 
 
-def get_nodal_results(res) -> list[NodalFieldData]:
+def _nodal_vector_to_model(
+    values,
+    node_id: int,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None,
+) -> np.ndarray:
+    """Transform six local nodal components to the super-element system."""
+
+    matrices = (transforms or {}).get(node_id)
+    if matrices is None or all(matrix is None for matrix in matrices):
+        raise ValueError(f"transformed nodal result at node {node_id} has no BNDOF/BNTRCOS definition")
+    result = np.asarray(values, dtype=float).copy()
+    if result.shape != (6,):
+        raise ValueError(f"transformed nodal result at node {node_id} must contain six components")
+    translation, rotation = matrices
+    if translation is not None:
+        result[:3] = translation @ result[:3]
+    if rotation is not None:
+        result[3:] = rotation @ result[3:]
+    return result
+
+
+def get_nodal_results(
+    res,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None = None,
+) -> list[NodalFieldData]:
     from ada.fem.results.common import NodalFieldData
     from ada.fem.results.field_data import NodalFieldType
 
     comps = "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
-    indices = cards.RVNODDIS.get_indices_from_names(["inod", *comps])
+    indices = cards.RVNODDIS.get_indices_from_names(["inod", "itrans|", *comps])
     nid = indices[0]
-    start = indices[1]
+    itrans_i = indices[1]
+    start = indices[2]
     stop = indices[-1] + 1
     results = []
     for ires, data in groupby(res[1:], key=lambda x: x[1]):
-        field_data = np.asarray([(x[nid], *x[start:stop]) for x in data], dtype=float)
+        rows = []
+        for row in data:
+            node_id = int(row[nid])
+            values = np.asarray(row[start:stop], dtype=float)
+            if int(row[itrans_i]) != 0:
+                values = _nodal_vector_to_model(values, node_id, transforms)
+            rows.append((node_id, *values))
+        field_data = np.asarray(rows, dtype=float)
 
         fd = NodalFieldData(
             name=cards.RVNODDIS.name,
@@ -1136,7 +1203,12 @@ def get_nodal_results(res) -> list[NodalFieldData]:
     return results
 
 
-def get_nodal_reactions(res, descriptors: dict[int, tuple[int, ...]], node_ids: np.ndarray) -> list[NodalFieldData]:
+def get_nodal_reactions(
+    res,
+    descriptors: dict[int, tuple[int, ...]],
+    node_ids: np.ndarray,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None = None,
+) -> list[NodalFieldData]:
     """Expand sparse ``RVNODREA`` rows to a dense six-component nodal field.
 
     Xtract lists reactions for every model node and displays zero at nodes
@@ -1145,10 +1217,9 @@ def get_nodal_reactions(res, descriptors: dict[int, tuple[int, ...]], node_ids: 
     This function reconstructs that dense, stable node order without treating
     an inapplicable/missing descriptor as a shifted value vector.
 
-    Non-zero ``ITRANS`` requires the full nodal transformation definition.
-    That record family is not represented by ``GUNIVEC`` (which is an element
-    orientation vector), so fail explicitly instead of returning reactions in
-    the wrong coordinate system.
+    Non-zero ``ITRANS`` values are transformed from their BNDOF/BNTRCOS local
+    system into the model (super-element) system, independently for forces and
+    moments.
     """
 
     from ada.fem.results.common import NodalFieldData
@@ -1170,11 +1241,6 @@ def get_nodal_reactions(res, descriptors: dict[int, tuple[int, ...]], node_ids: 
             target = node_index.get(node_id)
             if target is None:
                 continue
-            itrans = int(row[itrans_i])
-            if itrans != 0:
-                raise NotImplementedError(
-                    f"RVNODREA node {node_id} uses ITRANS={itrans}; nodal reaction transformation is not implemented"
-                )
             codes = descriptors.get(int(row[irrea_i]))
             if codes is None:
                 raise ValueError(f"RVNODREA references unknown reaction descriptor IRREA={int(row[irrea_i])}")
@@ -1183,9 +1249,13 @@ def get_nodal_reactions(res, descriptors: dict[int, tuple[int, ...]], node_ids: 
                 raise ValueError(
                     f"RVNODREA node {node_id} has {len(values)} values for {len(codes)} descriptor components"
                 )
+            local = np.zeros(6, dtype=float)
             for code, value in zip(codes, values):
                 if 1 <= code <= 6:
-                    dense[target, code] = float(value)
+                    local[code - 1] = float(value)
+            if int(row[itrans_i]) != 0:
+                local = _nodal_vector_to_model(local, node_id, transforms)
+            dense[target, 1:] = local
 
         results.append(
             NodalFieldData(
