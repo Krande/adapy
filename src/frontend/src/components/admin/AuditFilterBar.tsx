@@ -4,6 +4,7 @@ import type {AuditFilters} from "@/services/viewerApi";
 import {
     AUDIT_FILTER_KEYS,
     AUDIT_RANGES,
+    AUDIT_REFRESH_INTERVALS,
     countActiveAuditFilters,
     useAuditFilterStore,
 } from "@/state/auditFilterStore";
@@ -180,15 +181,55 @@ function isCustomRange(since?: string, until?: string): boolean {
     return !AUDIT_RANGES.some((r) => r.value === since);
 }
 
+/** "12s ago", for the freshness line. Coarse on purpose: the point is whether
+ * the numbers are current, not the exact age. */
+function agoLabel(sinceMs: number): string {
+    const s = Math.max(0, Math.round(sinceMs / 1000));
+    if (s < 5) return "just now";
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    return `${Math.round(s / 3600)}h ago`;
+}
+
 const AuditFilterBar: React.FC<{
     /** Shown next to Refresh; the owning sub-tab reports its own busy state. */
     loading?: boolean;
-    onRefresh?: () => void;
-}> = ({loading = false, onRefresh}) => {
+}> = ({loading = false}) => {
     const filters = useAuditFilterStore((s) => s.filters);
     const patch = useAuditFilterStore((s) => s.patch);
     const reset = useAuditFilterStore((s) => s.reset);
+    const refresh = useAuditFilterStore((s) => s.refresh);
+    const autoRefreshMs = useAuditFilterStore((s) => s.autoRefreshMs);
+    const setAutoRefreshMs = useAuditFilterStore((s) => s.setAutoRefreshMs);
+    const lastRefreshedAt = useAuditFilterStore((s) => s.lastRefreshedAt);
     const [open, setOpen] = useState(defaultOpen);
+    // Re-render on a slow tick so the freshness line ages even when nothing
+    // else changes. Cheap, and independent of whether auto-refresh is on.
+    const [, setNow] = useState(Date.now());
+    useEffect(() => {
+        const t = window.setInterval(() => setNow(Date.now()), 5_000);
+        return () => window.clearInterval(t);
+    }, []);
+
+    // Auto-refresh. Paused while the document is hidden: a background tab
+    // polling an aggregate query for hours is load nobody is looking at, and
+    // the first thing on return is a refresh anyway.
+    useEffect(() => {
+        if (!autoRefreshMs) return;
+        let timer = 0;
+        const tick = () => {
+            if (!document.hidden) refresh();
+        };
+        timer = window.setInterval(tick, autoRefreshMs);
+        const onVisible = () => {
+            if (!document.hidden) refresh();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [autoRefreshMs, refresh]);
     const active = countActiveAuditFilters(filters);
     const custom = isCustomRange(filters.since, filters.until);
     const [showCustom, setShowCustom] = useState(custom);
@@ -273,15 +314,30 @@ const AuditFilterBar: React.FC<{
                         Clear
                     </button>
                 )}
-                {onRefresh && (
+                <span className="ml-auto flex items-center gap-2 shrink-0">
+                    <span className="text-gray-500 hidden sm:inline" title="When these figures were last fetched">
+                        {loading ? "updating…" : agoLabel(Date.now() - lastRefreshedAt)}
+                    </span>
+                    <select
+                        className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white"
+                        value={autoRefreshMs}
+                        onChange={(e) => setAutoRefreshMs(Number(e.target.value))}
+                        title="Refresh automatically. Off by default; paused while this tab is in the background."
+                    >
+                        {AUDIT_REFRESH_INTERVALS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                                {o.value === 0 ? "Auto: off" : `Auto: ${o.label}`}
+                            </option>
+                        ))}
+                    </select>
                     <button
-                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm shrink-0"
-                        onClick={onRefresh}
+                        className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm disabled:opacity-50"
+                        onClick={refresh}
                         disabled={loading}
                     >
                         {loading ? "Loading…" : "Refresh"}
                     </button>
-                )}
+                </span>
             </div>
 
             {open && (

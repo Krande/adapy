@@ -73,6 +73,7 @@ const BAR_COLOR: Record<string, string> = {
 
 const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) => {
     const filters = useAuditFilterStore((s) => s.filters);
+    const refreshNonce = useAuditFilterStore((s) => s.refreshNonce);
     const toggleStatus = useAuditFilterStore((s) => s.toggleStatus);
     const patch = useAuditFilterStore((s) => s.patch);
     const [summary, setSummary] = useState<AuditSummary | null>(null);
@@ -91,9 +92,12 @@ const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) =>
         }
     }, [filters]);
 
+    // ``refreshNonce`` is the manual/auto refresh signal: a reload is the same
+    // effect as a filter change, with one more dependency.
     useEffect(() => {
         void reload();
-    }, [reload]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reload, refreshNonce]);
 
     // Clicking a tile both narrows and navigates: the operator asked "which
     // ones failed", and a number that only highlights itself has not answered.

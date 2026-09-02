@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   AUDIT_FILTER_KEYS,
   AUDIT_RANGES,
+  AUDIT_REFRESH_INTERVALS,
   countActiveAuditFilters,
   useAuditFilterStore,
 } from "@/state/auditFilterStore";
@@ -155,4 +156,48 @@ test("switching to a preset drops a custom upper bound", () => {
   s().patch({ since: "6h", until: undefined });
   assert.equal(s().filters.since, "6h");
   assert.equal(s().filters.until, undefined);
+});
+
+test("refresh bumps a nonce the sub-tabs can depend on", () => {
+  reset();
+  const s = () => useAuditFilterStore.getState();
+  const before = s().refreshNonce;
+  s().refresh();
+  assert.equal(s().refreshNonce, before + 1);
+  s().refresh();
+  assert.equal(s().refreshNonce, before + 2, "a second refresh must also be observable");
+});
+
+test("refresh does not disturb the filter", () => {
+  // Otherwise a poll would quietly widen or reset what the operator is looking at.
+  reset();
+  const s = () => useAuditFilterStore.getState();
+  s().patch({ status: "error", target: "glb" });
+  const filters = s().filters;
+  s().refresh();
+  assert.deepEqual(s().filters, filters);
+});
+
+test("auto-refresh is off by default", () => {
+  // A panel that silently re-polls forever is background load nobody asked
+  // for, multiplied by every tab left open.
+  reset();
+  assert.equal(useAuditFilterStore.getState().autoRefreshMs, 0);
+});
+
+test("the interval ladder starts at off and never polls faster than 5s", () => {
+  assert.equal(AUDIT_REFRESH_INTERVALS[0].value, 0);
+  for (const o of AUDIT_REFRESH_INTERVALS.slice(1)) {
+    assert.ok(o.value >= 5000, `${o.label} polls faster than 5s`);
+  }
+});
+
+test("a filter change counts as a refresh for freshness", () => {
+  // The "updated Ns ago" line must not claim stale data right after the
+  // operator changed the filter and triggered a reload.
+  reset();
+  const s = () => useAuditFilterStore.getState();
+  const t0 = s().lastRefreshedAt;
+  s().patch({ status: "error" });
+  assert.ok(s().lastRefreshedAt >= t0);
 });

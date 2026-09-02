@@ -14,8 +14,35 @@ import type {AuditFilters} from "@/services/viewerApi";
 // Not persisted, deliberately. A status filter is a step in an investigation,
 // not a preference — coming back tomorrow to an admin panel silently showing
 // only failures is a support ticket, not a convenience.
+/** Auto-refresh choices. Off is the default and deliberately so: a panel that
+ * silently re-polls forever is a background load nobody asked for, and on a
+ * shared deployment it is multiplied by whoever left a tab open.
+ *
+ * Nothing faster than 5s — the summary is an aggregate over the whole table,
+ * and a 1s poll would spend more of the API's time counting than converting. */
+export const AUDIT_REFRESH_INTERVALS: {value: number; label: string}[] = [
+    {value: 0, label: "Off"},
+    {value: 5_000, label: "5s"},
+    {value: 15_000, label: "15s"},
+    {value: 30_000, label: "30s"},
+    {value: 60_000, label: "1m"},
+    {value: 300_000, label: "5m"},
+];
+
 export interface AuditFilterState {
     filters: AuditFilters;
+    /** Bumped to ask every sub-tab to reload without changing the filter.
+     *
+     * A counter rather than a callback registry: the sub-tabs already reload on
+     * a filter change, so refresh is the same effect with one more dependency,
+     * and nothing has to know which panels are mounted. */
+    refreshNonce: number;
+    /** Milliseconds between automatic refreshes; 0 is off. */
+    autoRefreshMs: number;
+    /** When the data was last asked for, so the bar can say how stale it is. */
+    lastRefreshedAt: number;
+    refresh: () => void;
+    setAutoRefreshMs: (ms: number) => void;
     /** Merge a partial change (the usual case — one control moved). */
     patch: (next: Partial<AuditFilters>) => void;
     /** Replace wholesale. */
@@ -75,15 +102,24 @@ export function countActiveAuditFilters(f: AuditFilters): number {
 
 export const useAuditFilterStore = create<AuditFilterState>()((set) => ({
     filters: EMPTY,
+    refreshNonce: 0,
+    autoRefreshMs: 0,
+    lastRefreshedAt: Date.now(),
+    refresh: () => set((s) => ({refreshNonce: s.refreshNonce + 1, lastRefreshedAt: Date.now()})),
+    setAutoRefreshMs: (autoRefreshMs) => set({autoRefreshMs}),
     // ``before_id`` is a page cursor, never part of a filter change: keeping
     // it would ask the server to continue paging a result set that no longer
     // exists. Every mutation below drops it.
     patch: (next) =>
-        set((s) => ({filters: {...s.filters, ...next, before_id: undefined}})),
-    set: (next) => set({filters: {...next, before_id: undefined}}),
-    reset: () => set({filters: EMPTY}),
+        set((s) => ({
+            filters: {...s.filters, ...next, before_id: undefined},
+            lastRefreshedAt: Date.now(),
+        })),
+    set: (next) => set({filters: {...next, before_id: undefined}, lastRefreshedAt: Date.now()}),
+    reset: () => set({filters: EMPTY, lastRefreshedAt: Date.now()}),
     toggleStatus: (status) =>
         set((s) => ({
+            lastRefreshedAt: Date.now(),
             filters: {
                 ...s.filters,
                 status: s.filters.status === status ? undefined : status,

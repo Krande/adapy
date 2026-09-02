@@ -61,6 +61,7 @@ const AuditLogTab: React.FC = () => {
     // counts the same population and the operator drills from one into the
     // other. See state/auditFilterStore.
     const filters = useAuditFilterStore((st) => st.filters);
+    const refreshNonce = useAuditFilterStore((st) => st.refreshNonce);
     const [entries, setEntries] = useState<AuditEntry[]>([]);
     const [nextBeforeId, setNextBeforeId] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
@@ -153,7 +154,7 @@ const AuditLogTab: React.FC = () => {
     useEffect(() => {
         void reload(filters);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters]);
+    }, [filters, refreshNonce]);
 
 
     return (
