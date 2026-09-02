@@ -126,12 +126,15 @@ function reduceIps(
     switch (mode) {
         case "max_abs": {
             let best = 0;
+            let found = false;
             for (let k = 0; k < ipIndices.length; k++) {
                 const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
+                if (!isFinite(v)) continue;
                 const av = Math.abs(v);
-                if (av > Math.abs(best)) best = v;
+                if (!found || av > Math.abs(best)) best = v;
+                found = true;
             }
-            acc = best;
+            acc = found ? best : NaN;
             break;
         }
         case "max": {
@@ -140,7 +143,7 @@ function reduceIps(
                 const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
                 if (v > best) best = v;
             }
-            acc = isFinite(best) ? best : 0;
+            acc = isFinite(best) ? best : NaN;
             break;
         }
         case "min": {
@@ -149,7 +152,7 @@ function reduceIps(
                 const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
                 if (v < best) best = v;
             }
-            acc = isFinite(best) ? best : 0;
+            acc = isFinite(best) ? best : NaN;
             break;
         }
         default: {
@@ -166,7 +169,7 @@ function reduceIps(
                     count++;
                 }
             }
-            acc = count > 0 ? sum / count : 0;
+            acc = count > 0 ? sum / count : NaN;
             break;
         }
     }
@@ -268,7 +271,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             const dz = n_components >= 3
                 ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
                 : 0;
-            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+            return isFinite(dx) && isFinite(dy) && isFinite(dz)
+                ? Math.sqrt(dx * dx + dy * dy + dz * dz)
+                : NaN;
         }
         if (compIdx >= 0) {
             return reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
@@ -287,6 +292,8 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const sumValues = nodalAverage ? new Float32Array(n_points) : null;
     const countValues = nodalAverage ? new Uint32Array(n_points) : null;
     const elemVertSet = nodalAverage ? new Set<number>() : null;
+    const directVertSet = new Set<number>();
+    const directVerts: number[] = [];
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -306,12 +313,46 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
         for (let e = 0; e < bucket.n_elements; e++) {
             const elemBase = e * elemStride;
-            const scalar = computeElementScalar(stepView, elemBase, ipIndices);
-
             const label = bucket.element_labels[e];
             const dr = drawRanges.get(`E${label}`);
             if (!dr) continue;
             const [vStart, vCount] = dr;
+
+            // Xtract Elements fields carry one value per element-local corner.
+            // Preserve that variation instead of collapsing all corners through
+            // the generic IP reducer. The first-seen vertex order of the AFEM
+            // triangle fan follows source connectivity for TRI/QUAD cells.
+            if (colorField.support === "element_nodal") {
+                directVertSet.clear();
+                directVerts.length = 0;
+                for (let i = vStart; i < vStart + vCount; i++) {
+                    const vIdx = indexArr[i];
+                    if (directVertSet.has(vIdx)) continue;
+                    directVertSet.add(vIdx);
+                    directVerts.push(vIdx);
+                }
+                if (directVerts.length === bucket.n_ips) {
+                    for (let ip = 0; ip < bucket.n_ips; ip++) {
+                        const scalar = computeElementScalar(stepView, elemBase, [ip]);
+                        if (!isFinite(scalar)) continue;
+                        const vIdx = directVerts[ip];
+                        if (nodalAverage) {
+                            sumValues![vIdx] += scalar;
+                            countValues![vIdx] += 1;
+                        } else {
+                            const t = (scalar - rangeMin) * scaleColor;
+                            colormap(t, tmpRgb, 0);
+                            const off = vIdx * 3;
+                            out_colors[off + 0] = tmpRgb[0];
+                            out_colors[off + 1] = tmpRgb[1];
+                            out_colors[off + 2] = tmpRgb[2];
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            const scalar = computeElementScalar(stepView, elemBase, ipIndices);
 
             if (nodalAverage && isFinite(scalar)) {
                 // Accumulate the same scalar once per unique vertex
@@ -329,7 +370,10 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                     countValues![vIdx] += 1;
                 }
             } else if (!nodalAverage) {
-                const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
+                // NaN means the attribute is inapplicable to this element type.
+                // Leave the neutral grey seed; never paint it as range minimum.
+                if (!isFinite(scalar)) continue;
+                const t = (scalar - rangeMin) * scaleColor;
                 colormap(t, tmpRgb, 0);
                 const r = tmpRgb[0], g = tmpRgb[1], bch = tmpRgb[2];
                 for (let i = vStart; i < vStart + vCount; i++) {

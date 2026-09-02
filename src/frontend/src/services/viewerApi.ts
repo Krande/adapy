@@ -285,7 +285,21 @@ export interface FeaManifestField {
   /** Semantic tag set by the reader. Drives the warp-source choice
    *  in the simulation controls. */
   category: FeaFieldCategory;
-  support: "nodal" | "element_nodal" | "gauss";
+  support:
+    | "nodal"
+    | "element_nodal"
+    | "element_average"
+    | "result_point"
+    | "line_result_point"
+    | "gauss";
+  /** Optional source-defined hierarchy. Older manifests omit these and use
+   * the existing flat field picker. */
+  semantic_key?: string;
+  group_path?: string[];
+  coordinate_system?: string;
+  surface?: string;
+  derived?: boolean;
+  unit?: string;
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no

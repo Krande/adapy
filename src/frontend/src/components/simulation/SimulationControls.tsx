@@ -25,6 +25,8 @@ import {animationControllerRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
+import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
+import {selectFeaResultComponent} from "@/utils/scene/fea/resultSelection";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import {followerUrl} from "@/utils/simChannel";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -314,10 +316,15 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
         const out: string[] = [];
-        if (activeField.kind.startsWith("vector")) out.push("magnitude");
+        if (!activeField.group_path && activeField.kind.startsWith("vector")) out.push("magnitude");
         for (const c of activeField.components) out.push(c);
         return out;
     }, [activeField]);
+
+    const fieldHierarchy = useMemo(
+        () => buildFeaResultHierarchy(manifest?.fields ?? []),
+        [manifest],
+    );
 
     // Element-field path: expose Layer / IP reduction pickers when the
     // active field has per_type buckets. ``layerOptions`` is the union
@@ -346,37 +353,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const morphInfluence = factor * scaleFactor;
 
     const onFieldChange = (newFieldName: string) => {
-        if (!sourceName || !manifest) return;
-        const newField = manifest.fields.find(
-            (f) => f.name_canonical === newFieldName,
-        );
-        if (!newField) return;
-        // Snap reduction to the new field's default — the prior
-        // reduction (e.g. "DZ") may not exist on a different field
-        // and would silently break colouring.
-        const newReduction = newField.default_view?.reduction ?? "magnitude";
-        // Element fields carry default ``layer`` + ``ip_reduction`` in
-        // default_view. Switching from nodal → element with a stored
-        // ``layer`` that doesn't exist on this bucket (e.g. "top" on a
-        // solid-only field) would silently fall through to "all" via
-        // layerIpIndices; snapping to the bake's recommended default
-        // gives a more predictable first frame and keeps the dropdown
-        // value in sync with what the kernel actually used.
-        if (newField.per_type && newField.per_type.length > 0) {
-            if (newField.default_view?.layer) setLayer(newField.default_view.layer);
-            if (newField.default_view?.ip_reduction) setIpReduction(newField.default_view.ip_reduction);
-        }
-        // Step 0 too — step counts differ between fields, and a
-        // stepIndex from the prior field would leave the slider out
-        // of bounds on the new one.
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName: newFieldName,
-            stepIndex: 0,
-            reduction: newReduction,
-            displacementScale: morphInfluence,
-        });
+        void selectFeaResultComponent(newFieldName);
     };
 
     const onReductionChange = (newReduction: string) => {
@@ -546,11 +523,24 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 the picker doesn't filter — branching
                                 happens in load_fea_streaming based on
                                 ``field.per_type``. */}
-                            {manifest.fields.map((f) => (
-                                <option key={f.name_canonical} value={f.name_canonical}>
-                                    {f.name_canonical}
-                                </option>
+                            {fieldHierarchy.positions.map((position) => (
+                                <optgroup key={position.label} label={position.label}>
+                                    {position.attributes.map(({label, field}) => (
+                                        <option key={field.name_canonical} value={field.name_canonical}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </optgroup>
                             ))}
+                            {fieldHierarchy.ungrouped.length > 0 && (
+                                <optgroup label={fieldHierarchy.positions.length ? "Other" : "Fields"}>
+                                    {fieldHierarchy.ungrouped.map((f) => (
+                                        <option key={f.name_canonical} value={f.name_canonical}>
+                                            {f.name_canonical}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (

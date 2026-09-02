@@ -769,7 +769,13 @@ def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
         # blobs have their own coverage in
         # test_bake_writes_element_field_blob_per_type.
         if "per_type" in field_entry:
-            assert field_entry["support"] in {"element_nodal", "gauss"}
+            assert field_entry["support"] in {
+                "element_nodal",
+                "element_average",
+                "result_point",
+                "line_result_point",
+                "gauss",
+            }
             continue
         assert field_entry["support"] == "nodal"
         blob_path = bake.out_dir / field_entry["blob"]["url"]
@@ -1021,6 +1027,53 @@ def test_build_manifest_includes_optional_source_hash():
     assert manifest["source_sha256"] == "abc123"
 
 
+def test_build_manifest_carries_optional_field_presentation():
+    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.field_data import FieldPresentation
+
+    geom = MeshGeometry(points=np.zeros((1, 3), dtype=np.float64), cell_blocks=[])
+    spec = FieldSpec(
+        name="sesam.nodes.d_stress",
+        components=["SIGMX", "MVONMISES"],
+        n_steps=1,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0],
+        category="stress",
+        presentation=FieldPresentation(
+            semantic_key="sesam.nodes.d_stress",
+            group_path=("Nodes", "D-STRESS"),
+            coordinate_system="element_local",
+            surface="upper",
+            derived=True,
+            unit="Pa",
+        ),
+    )
+    field_meta = FieldArtefactMeta(
+        spec=spec,
+        blob_filename="fea.d_stress.bin",
+        stride_bytes=8,
+        scalar_range_per_component={"SIGMX": (-1.0, 1.0), "MVONMISES": (0.0, 2.0)},
+        scalar_range_magnitude=(0.0, 2.0),
+    )
+
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=geom,
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[field_meta],
+    )
+
+    field = manifest["fields"][0]
+    assert field["semantic_key"] == "sesam.nodes.d_stress"
+    assert field["group_path"] == ["Nodes", "D-STRESS"]
+    assert field["coordinate_system"] == "element_local"
+    assert field["surface"] == "upper"
+    assert field["derived"] is True
+    assert field["unit"] == "Pa"
+    assert field["default_view"]["reduction"] == "SIGMX"
+
+
 def test_classify_field_by_name():
     """Spot-check the name-based fallback so unfamiliar solvers get a
     sensible category. The bake-level test asserts the manifest
@@ -1069,7 +1122,13 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
     assert elem_fields, "expected at least one element field from the shell SIF"
 
     for field in elem_fields:
-        assert field["support"] in {"element_nodal", "gauss"}
+        assert field["support"] in {
+            "element_nodal",
+            "element_average",
+            "result_point",
+            "line_result_point",
+            "gauss",
+        }
         assert field["category"] in {"stress", "strain", "reaction", "other"}
         for pt in field["per_type"]:
             blob_path = bake.out_dir / pt["blob"]["url"]

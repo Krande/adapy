@@ -31,6 +31,7 @@ from typing import Callable, Iterable, Iterator, Literal, Protocol
 import numpy as np
 
 from ada.fem.results.common import CellBlockData
+from ada.fem.results.field_data import FieldPresentation
 
 # Binary format: 4-byte magic, uint32 version, uint32 json_len, JSON
 # header, zero-padded to 1024 bytes, then payload. Header version
@@ -180,10 +181,11 @@ class FieldSpec:
     components: list[str]
     n_steps: int
     n_points: int
-    support: Literal["nodal", "element_nodal", "gauss"]
+    support: Literal["nodal", "element_nodal", "element_average", "result_point", "line_result_point", "gauss"]
     step_values: list[float]
     category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
 
     @property
     def n_components(self) -> int:
@@ -240,8 +242,9 @@ class ElementFieldSpec:
     step_values: list[float]
     ip_layout: list[dict] = dc_field(default_factory=list)
     category: FieldCategory = "other"
-    support: Literal["element_nodal", "gauss"] = "gauss"
+    support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
 
     @property
     def n_components(self) -> int:
@@ -797,11 +800,7 @@ class FEAResultStreamAdapter:
         if self._field_specs is not None:
             return self._field_specs
 
-        from ada.fem.results.field_data import (
-            ElementFieldData,
-            FieldPosition,
-            NodalFieldData,
-        )
+        from ada.fem.results.field_data import NodalFieldData
 
         n_points = int(self._result.mesh.nodes.coords.shape[0])
         specs: list[FieldSpec] = []
@@ -812,15 +811,13 @@ class FEAResultStreamAdapter:
             sorted_results = sorted(results, key=lambda r: r.step)
             first = sorted_results[0]
 
-            if isinstance(first, NodalFieldData):
-                support = "nodal"
-            elif isinstance(first, ElementFieldData):
-                if first.field_pos == FieldPosition.NODAL:
-                    support = "element_nodal"
-                else:
-                    support = "gauss"
-            else:
+            if not isinstance(first, NodalFieldData):
+                # Element fields are planned and streamed exclusively through
+                # element_field_specs()/iter_element_field_steps(). Advertising
+                # them here as AFBL fields duplicates picker entries and makes
+                # callers think iter_field_steps can emit Gauss data.
                 continue
+            support = "nodal"
 
             # Step value semantics: eigen analysis stores the
             # frequency in eigen_freq and uses .step as a 1-based
@@ -839,6 +836,7 @@ class FEAResultStreamAdapter:
                     support=support,
                     step_values=step_values,
                     category=_classify_field(name, first),
+                    presentation=getattr(first, "presentation", None),
                 )
             )
 
@@ -900,6 +898,8 @@ class FEAResultStreamAdapter:
         if self._elem_field_specs is not None:
             return self._elem_field_specs
 
+        from ada.fem.results.field_data import FieldPosition
+
         specs: list[ElementFieldSpec] = []
         for (name, elem_type_str), items in self._grouped_element_fields().items():
             sorted_items = sorted(items, key=lambda r: r.step)
@@ -952,7 +952,13 @@ class FEAResultStreamAdapter:
                     step_values=step_values,
                     ip_layout=ip_layout,
                     category=_classify_field(name, first),
-                    support="gauss",
+                    support={
+                        FieldPosition.ELEMENT_NODAL: "element_nodal",
+                        FieldPosition.ELEMENT_AVERAGE: "element_average",
+                        FieldPosition.RESULT_POINT: "result_point",
+                        FieldPosition.LINE_RESULT_POINT: "line_result_point",
+                    }.get(first.field_pos, "gauss"),
+                    presentation=getattr(first, "presentation", None),
                 )
             )
 
@@ -1717,8 +1723,25 @@ def _default_view_for(spec: FieldSpec) -> dict:
     fields use viridis."""
 
     return {
-        "reduction": "magnitude" if spec.n_components >= 3 else "scalar",
+        "reduction": (
+            spec.components[0]
+            if spec.presentation is not None and spec.components
+            else ("magnitude" if spec.n_components >= 3 else "scalar")
+        ),
         "colormap": "viridis",
+    }
+
+
+def _presentation_payload(presentation: FieldPresentation | None) -> dict:
+    if presentation is None:
+        return {}
+    return {
+        "semantic_key": presentation.semantic_key,
+        "group_path": list(presentation.group_path),
+        "coordinate_system": presentation.coordinate_system,
+        "surface": presentation.surface,
+        "derived": bool(presentation.derived),
+        "unit": presentation.unit,
     }
 
 
@@ -1842,6 +1865,7 @@ def build_manifest(
                 "steps": steps,
                 "scalar_range": scalar_range,
                 "default_view": _default_view_for(spec),
+                **_presentation_payload(spec.presentation),
             }
         )
 
@@ -1946,7 +1970,11 @@ def build_manifest(
                 "steps": steps,
                 "scalar_range": scalar_range_payload,
                 "default_view": {
-                    "reduction": "magnitude" if n_comp >= 3 else "scalar",
+                    "reduction": (
+                        primary.components[0]
+                        if primary.presentation is not None and primary.components
+                        else ("magnitude" if n_comp >= 3 else "scalar")
+                    ),
                     "colormap": "viridis",
                     # Default layer/IP for element fields — the frontend's
                     # picker uses these as the initial dropdown values.
@@ -1957,6 +1985,7 @@ def build_manifest(
                 # the manifest — when present, the frontend takes the
                 # AFEL render path; when absent, the legacy nodal path.
                 "per_type": per_type,
+                **_presentation_payload(primary.presentation),
             }
         )
 
