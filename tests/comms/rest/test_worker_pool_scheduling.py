@@ -31,7 +31,6 @@ from ada.comms.rest.worker import (  # noqa: E402
     _per_fetch_timeout,
 )
 
-
 # ── the cost this exists to remove ─────────────────────────────────
 
 
