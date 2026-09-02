@@ -123,10 +123,17 @@ def _nodal_field(
     )
 
 
-def build_xtract_nodal_kinematics(nodal_fields: list[NodalFieldData], node_ids: np.ndarray) -> list[NodalFieldData]:
+def build_xtract_nodal_kinematics(
+    nodal_fields: list[NodalFieldData],
+    node_ids: np.ndarray,
+    *,
+    wanted: set[str] | None = None,
+) -> list[NodalFieldData]:
     out: list[NodalFieldData] = []
     for field in nodal_fields:
         if field.name == "RVNODDIS":
+            if wanted is not None and semantic_name("nodes", "DISPLACEMENT") not in wanted:
+                continue
             values = np.asarray(field.values[:, 1:7], dtype=float)
             all_translation = np.linalg.norm(values[:, :3], axis=1)
             out.append(
@@ -216,7 +223,11 @@ def _shell_position_arrays(bottom, top, corner_indices):
     return arrays
 
 
-def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib):
+def _wants(wanted: set[str] | None, position: str, attribute: str) -> bool:
+    return wanted is None or semantic_name(position, attribute) in wanted
+
+
+def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
         return []
@@ -229,47 +240,53 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib):
     out: list[ElementFieldData] = []
 
     for position, (position_bottom, position_top, d_stress) in arrays.items():
+        attributes = ("G-STRESS", "P-STRESS", "D-STRESS")
+        if position != "resultpoints":
+            attributes += ("PM-STRESS", "R-STRESS")
+        if not any(_wants(wanted, position, attribute) for attribute in attributes):
+            continue
         n_slots = position_top.shape[1]
         int_positions = [(i, str(i), 0.5) for i in range(n_slots)]
-        g_stress = general_stress(position_top)
-        p_stress = plane_principal(position_top[..., 0], position_top[..., 1], position_top[..., 2])
-        out.append(
-            _element_field(
-                raw,
-                position,
-                "G-STRESS",
-                G_STRESS_COMPONENTS,
-                labels,
-                g_stress,
-                derived=True,
-                int_positions=int_positions,
+        if _wants(wanted, position, "G-STRESS"):
+            out.append(
+                _element_field(
+                    raw,
+                    position,
+                    "G-STRESS",
+                    G_STRESS_COMPONENTS,
+                    labels,
+                    general_stress(position_top),
+                    derived=True,
+                    int_positions=int_positions,
+                )
             )
-        )
-        out.append(
-            _element_field(
-                raw,
-                position,
-                "P-STRESS",
-                P_STRESS_COMPONENTS,
-                labels,
-                p_stress,
-                derived=True,
-                int_positions=int_positions,
+        if _wants(wanted, position, "P-STRESS"):
+            out.append(
+                _element_field(
+                    raw,
+                    position,
+                    "P-STRESS",
+                    P_STRESS_COMPONENTS,
+                    labels,
+                    plane_principal(position_top[..., 0], position_top[..., 1], position_top[..., 2]),
+                    derived=True,
+                    int_positions=int_positions,
+                )
             )
-        )
-        out.append(
-            _element_field(
-                raw,
-                position,
-                "D-STRESS",
-                D_STRESS_COMPONENTS,
-                labels,
-                d_stress,
-                derived=True,
-                int_positions=int_positions,
+        if _wants(wanted, position, "D-STRESS"):
+            out.append(
+                _element_field(
+                    raw,
+                    position,
+                    "D-STRESS",
+                    D_STRESS_COMPONENTS,
+                    labels,
+                    d_stress,
+                    derived=True,
+                    int_positions=int_positions,
+                )
             )
-        )
-        if position != "resultpoints":
+        if position != "resultpoints" and _wants(wanted, position, "PM-STRESS"):
             out.append(
                 _element_field(
                     raw,
@@ -282,6 +299,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib):
                     int_positions=int_positions,
                 )
             )
+        if position != "resultpoints" and _wants(wanted, position, "R-STRESS"):
             out.append(
                 _element_field(
                     raw,
@@ -298,17 +316,21 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib):
     # Keep paired basic stresses for the Xtract Nodes calculation. Values map
     # to connectivity order because corner_indices is Xtract's element-slot
     # order, not the raw RDPOINTS order.
-    corner_bottom = bottom[:, corner_indices, :]
-    corner_top = top[:, corner_indices, :]
-    for ei, label in enumerate(labels):
-        refs = nodes_by_element.get(int(label))
-        if refs is None or len(refs) != len(corner_indices):
-            continue
-        normal = normals.get(int(label), np.full(3, np.nan))
-        for ci, node_id in enumerate(refs):
-            nodal_contrib[int(node_id)].append(
-                (corner_bottom[ei, ci], corner_top[ei, ci], float(thickness[ei]), normal)
-            )
+    if any(
+        _wants(wanted, "nodes", attribute)
+        for attribute in ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
+    ):
+        corner_bottom = bottom[:, corner_indices, :]
+        corner_top = top[:, corner_indices, :]
+        for ei, label in enumerate(labels):
+            refs = nodes_by_element.get(int(label))
+            if refs is None or len(refs) != len(corner_indices):
+                continue
+            normal = normals.get(int(label), np.full(3, np.nan))
+            for ci, node_id in enumerate(refs):
+                nodal_contrib[int(node_id)].append(
+                    (corner_bottom[ei, ci], corner_top[ei, ci], float(thickness[ei]), normal)
+                )
     return out
 
 
@@ -345,11 +367,12 @@ def _average_nodal_shell(contrib, node_ids):
     return bottom, top, thickness
 
 
-def _nodal_shell_fields(step, node_ids, contrib):
+def _nodal_shell_fields(step, node_ids, contrib, wanted):
     bottom, top, thickness = _average_nodal_shell(contrib, node_ids)
     d = decompose_shell(bottom, top)
-    return [
-        _nodal_field(
+    out = []
+    if _wants(wanted, "nodes", "G-STRESS"):
+        out.append(_nodal_field(
             step,
             node_ids,
             "nodes",
@@ -358,8 +381,9 @@ def _nodal_shell_fields(step, node_ids, contrib):
             general_stress(top),
             derived=True,
             coordinate_system="element_local",
-        ),
-        _nodal_field(
+        ))
+    if _wants(wanted, "nodes", "P-STRESS"):
+        out.append(_nodal_field(
             step,
             node_ids,
             "nodes",
@@ -368,8 +392,9 @@ def _nodal_shell_fields(step, node_ids, contrib):
             plane_principal(top[..., 0], top[..., 1], top[..., 2]),
             derived=True,
             coordinate_system="element_local",
-        ),
-        _nodal_field(
+        ))
+    if _wants(wanted, "nodes", "PM-STRESS"):
+        out.append(_nodal_field(
             step,
             node_ids,
             "nodes",
@@ -378,8 +403,9 @@ def _nodal_shell_fields(step, node_ids, contrib):
             membrane_principal(d),
             derived=True,
             coordinate_system="element_local",
-        ),
-        _nodal_field(
+        ))
+    if _wants(wanted, "nodes", "D-STRESS"):
+        out.append(_nodal_field(
             step,
             node_ids,
             "nodes",
@@ -388,8 +414,9 @@ def _nodal_shell_fields(step, node_ids, contrib):
             d,
             derived=True,
             coordinate_system="element_local",
-        ),
-        _nodal_field(
+        ))
+    if _wants(wanted, "nodes", "R-STRESS"):
+        out.append(_nodal_field(
             step,
             node_ids,
             "nodes",
@@ -398,8 +425,8 @@ def _nodal_shell_fields(step, node_ids, contrib):
             stress_resultants(d, thickness),
             derived=True,
             coordinate_system="element_local",
-        ),
-    ]
+        ))
+    return out
 
 
 def _profile_extents(sif) -> dict[int, tuple[float, float]]:
@@ -443,7 +470,7 @@ def _beam_properties(sif, mesh, labels):
     return out
 
 
-def _beam_fields_for_raw(raw, mesh, sif):
+def _beam_fields_for_raw(raw, mesh, sif, wanted):
     values = np.asarray(raw.values, dtype=float)
     labels, counts = np.unique(values[:, 0].astype(int), return_counts=True)
     if not len(labels) or len(set(counts.tolist())) != 1:
@@ -466,7 +493,8 @@ def _beam_fields_for_raw(raw, mesh, sif):
     }
     out = []
     for position, indices in position_indices.items():
-        out.append(
+        if _wants(wanted, position, "G-FORCE"):
+            out.append(
             _element_field(
                 raw,
                 position,
@@ -478,7 +506,8 @@ def _beam_fields_for_raw(raw, mesh, sif):
                 line=True,
             )
         )
-        out.append(
+        if _wants(wanted, position, "B-STRESS"):
+            out.append(
             _element_field(
                 raw,
                 position,
@@ -497,7 +526,8 @@ def _beam_fields_for_raw(raw, mesh, sif):
             b_avg[i] = beam_stress(force_avg[i], **{k: prop[k] for k in (
                 "area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2"
             )})
-    out.append(
+    if _wants(wanted, "element_average", "G-FORCE"):
+        out.append(
         _element_field(
             raw,
             "element_average",
@@ -509,7 +539,8 @@ def _beam_fields_for_raw(raw, mesh, sif):
             line=True,
         )
     )
-    out.append(
+    if _wants(wanted, "element_average", "B-STRESS"):
+        out.append(
         _element_field(
             raw,
             "element_average",
@@ -524,7 +555,13 @@ def _beam_fields_for_raw(raw, mesh, sif):
     return out
 
 
-def build_xtract_fields(raw_fields: list[ElementFieldData], mesh, sif) -> list[ElementFieldData | NodalFieldData]:
+def build_xtract_fields(
+    raw_fields: list[ElementFieldData],
+    mesh,
+    sif,
+    *,
+    wanted: set[str] | None = None,
+) -> list[ElementFieldData | NodalFieldData]:
     """Derive every currently-supported Xtract field from one loaded step."""
 
     out: list[ElementFieldData | NodalFieldData] = []
@@ -538,13 +575,27 @@ def build_xtract_fields(raw_fields: list[ElementFieldData], mesh, sif) -> list[E
 
     node_ids = np.asarray(mesh.nodes.identifiers, dtype=int)
     for step, shell_fields in shell_by_step.items():
+        shell_attributes = ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
+        if wanted is not None and not any(
+            semantic_name(position, attribute) in wanted
+            for position in ("nodes", "elements", "element_average", "resultpoints")
+            for attribute in shell_attributes
+        ):
+            continue
         contrib = defaultdict(list)
         for raw in shell_fields:
-            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib))
-        out.extend(_nodal_shell_fields(step, node_ids, contrib))
+            out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted))
+        if any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
+            out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted))
     for force_fields in force_by_step.values():
+        if wanted is not None and not any(
+            semantic_name(position, attribute) in wanted
+            for position in ("elements", "element_average", "resultpoints")
+            for attribute in ("G-FORCE", "B-STRESS")
+        ):
+            continue
         for raw in force_fields:
-            out.extend(_beam_fields_for_raw(raw, mesh, sif))
+            out.extend(_beam_fields_for_raw(raw, mesh, sif, wanted))
     return out
 
 

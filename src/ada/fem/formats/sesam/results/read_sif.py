@@ -875,7 +875,10 @@ class Sif2Mesh:
             sets=sets,
         )
 
-    def get_sif_results(self) -> list[ElementFieldData | NodalFieldData]:
+    def get_sif_results(
+        self,
+        requested_fields: set[str] | None = None,
+    ) -> list[ElementFieldData | NodalFieldData]:
         from ada.fem.formats.sesam.results.xtract_fields import (
             build_xtract_fields,
             build_xtract_nodal_kinematics,
@@ -884,9 +887,20 @@ class Sif2Mesh:
         nodal = self.get_nodal_data()
         raw_fields = self.get_field_data()
         result_blocks = [*nodal, *raw_fields]
-        result_blocks += build_xtract_nodal_kinematics(nodal, np.asarray(self.mesh.nodes.identifiers, dtype=int))
-        result_blocks += build_xtract_fields(raw_fields, self.mesh, self.sif)
+        result_blocks += build_xtract_nodal_kinematics(
+            nodal,
+            np.asarray(self.mesh.nodes.identifiers, dtype=int),
+            wanted=requested_fields,
+        )
+        result_blocks += build_xtract_fields(
+            raw_fields,
+            self.mesh,
+            self.sif,
+            wanted=requested_fields,
+        )
 
+        if requested_fields is not None:
+            result_blocks = [field for field in result_blocks if field.name in requested_fields]
         return result_blocks
 
     def get_result_name_map(self):

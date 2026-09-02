@@ -383,6 +383,7 @@ def test_sin_load_step_card_filter():
     keeps exactly the requested card's field and drops the others."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.formats.sesam.results.sin_reader import open_sin
+    from ada.fem.formats.sesam.results.xtract_catalog import semantic_name
 
     reader = SinStreamReader(open_sin(SIN_PATH))
     try:
@@ -400,6 +401,25 @@ def test_sin_load_step_card_filter():
         stress_only = names(reader._load_step(1, cards={"RVSTRESS"}))
         assert "STRESS" in stress_only
         assert "RVNODDIS" not in stress_only  # nodal card was skipped
+
+        raw_stress_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={"STRESS"},
+            )
+        )
+        assert raw_stress_only == {"STRESS"}
+
+        derived_name = semantic_name("element_average", "D-STRESS")
+        derived_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={derived_name},
+            )
+        )
+        assert derived_only == {derived_name}
     finally:
         reader.close()
 

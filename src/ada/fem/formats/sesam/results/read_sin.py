@@ -661,7 +661,12 @@ class SinStreamReader:
     def _step_values(self) -> list[float]:
         return [float(s) for s in self._steps]
 
-    def _load_step(self, step: int, cards: "set[str] | None" = None):
+    def _load_step(
+        self,
+        step: int,
+        cards: "set[str] | None" = None,
+        requested_fields: "set[str] | None" = None,
+    ):
         """Materialise just one step's FEAResult from the shared SinFile.
 
         The mesh topology is step-invariant, so :meth:`Sif2Mesh.get_sif_mesh`
@@ -693,7 +698,7 @@ class SinStreamReader:
         # Reuse the cached mesh; get_sif_results() needs it set (RVFORCES
         # resolves element ids against it) but never rebuilds it.
         s2m.mesh = self._mesh
-        results = s2m.get_sif_results()
+        results = s2m.get_sif_results(requested_fields=requested_fields)
         return FEAResult(
             "remote",
             FEATypes.SESAM,
@@ -717,7 +722,7 @@ class SinStreamReader:
             return self._rep
         return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
 
-    def _field_adapter(self, idx: int, card: str | None):
+    def _field_adapter(self, idx: int, card: str | None, field_name: str):
         """Adapter over step ``idx`` loading only ``card``'s block (one field).
 
         Reuses the cached step-0 representative when available; every other
@@ -729,7 +734,13 @@ class SinStreamReader:
         if idx == 0 and self._rep is not None:
             return self._rep
         cards = {card} if card else None
-        return FEAResultStreamAdapter(self._load_step(self._steps[idx], cards=cards))
+        return FEAResultStreamAdapter(
+            self._load_step(
+                self._steps[idx],
+                cards=cards,
+                requested_fields={field_name},
+            )
+        )
 
     def _with_global_steps(self, specs):
         import dataclasses
@@ -754,7 +765,7 @@ class SinStreamReader:
         # A nodal field's name is its RV card (RVNODDIS) — gather only that one.
         card = _NODAL_FIELD_TO_CARD.get(field_name)
         for i in range(len(self._steps)):
-            ad = self._field_adapter(i, card)
+            ad = self._field_adapter(i, card, field_name)
             emitted = 0
             for sv in ad.iter_field_steps(field_name):
                 yield dataclasses.replace(sv, step_index=i, step_value=labels[i])
@@ -771,7 +782,7 @@ class SinStreamReader:
         labels = self._step_values()
         card = _ELEM_FIELD_TO_CARD.get(spec.name)
         for i in range(len(self._steps)):
-            ad = self._field_adapter(i, card)
+            ad = self._field_adapter(i, card, spec.name)
             ad_spec = next(
                 (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
                 None,
