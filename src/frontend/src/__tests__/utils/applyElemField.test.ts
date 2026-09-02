@@ -5,6 +5,7 @@ import * as THREE from "three";
 
 import type { FeaManifestField } from "../../services/viewerApi";
 import { applyElemFieldToMesh } from "../../utils/scene/fea/applyElemField";
+import { availableResultLayers } from "../../utils/scene/fea/resultLayers";
 
 const basePositions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
 
@@ -92,4 +93,47 @@ test("inapplicable NaN element values retain the neutral color", () => {
 
   const colors = mesh.geometry.getAttribute("color").array as Float32Array;
   assert.deepEqual(Array.from(colors), new Array(9).fill(0.5));
+});
+
+test("element-nodal support applies only the selected shell surface", () => {
+  const mesh = makeMesh();
+  const field = makeField();
+  field.surface = "selectable";
+  field.per_type![0].n_ips = 6;
+  field.per_type![0].ip_layout = [
+    { ip: 0, layer: "top", in_plane: "1" },
+    { ip: 1, layer: "top", in_plane: "2" },
+    { ip: 2, layer: "top", in_plane: "3" },
+    { ip: 3, layer: "bottom", in_plane: "1" },
+    { ip: 4, layer: "bottom", in_plane: "2" },
+    { ip: 5, layer: "bottom", in_plane: "3" },
+  ];
+
+  assert.deepEqual(availableResultLayers(field), ["top", "bottom"]);
+  applyElemFieldToMesh({
+    mesh,
+    basePositions,
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0, 1, 2, 2, 1, 0])],
+    layer: "bottom",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+    colormap: "viridis",
+  });
+
+  const colors = mesh.geometry.getAttribute("color").array as Float32Array;
+  assert.notDeepEqual(
+    Array.from(colors.slice(0, 3)),
+    Array.from(colors.slice(3, 6)),
+  );
+  assert.notDeepEqual(
+    Array.from(colors.slice(3, 6)),
+    Array.from(colors.slice(6, 9)),
+  );
+  // Bottom values are reversed relative to the top fixture, so first and last
+  // source corners must receive different colours in that same order.
+  assert.notDeepEqual(
+    Array.from(colors.slice(0, 3)),
+    Array.from(colors.slice(6, 9)),
+  );
 });

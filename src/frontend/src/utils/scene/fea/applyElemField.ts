@@ -331,11 +331,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                     directVertSet.add(vIdx);
                     directVerts.push(vIdx);
                 }
-                if (directVerts.length === bucket.n_ips) {
-                    for (let ip = 0; ip < bucket.n_ips; ip++) {
-                        const scalar = computeElementScalar(stepView, elemBase, [ip]);
+                if (directVerts.length === ipIndices.length) {
+                    for (let corner = 0; corner < ipIndices.length; corner++) {
+                        const scalar = computeElementScalar(
+                            stepView,
+                            elemBase,
+                            [ipIndices[corner]],
+                        );
                         if (!isFinite(scalar)) continue;
-                        const vIdx = directVerts[ip];
+                        const vIdx = directVerts[corner];
                         if (nodalAverage) {
                             sumValues![vIdx] += scalar;
                             countValues![vIdx] += 1;

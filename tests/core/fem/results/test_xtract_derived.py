@@ -11,6 +11,19 @@ from ada.fem.formats.sesam.results.xtract_derived import (
     plane_principal,
     stress_resultants,
 )
+from ada.fem.formats.sesam.results.xtract_fields import _surface_values_and_positions
+
+
+def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
+    bottom = np.array([[[-10.0], [-20.0], [-30.0]]])
+    top = np.array([[[10.0], [20.0], [30.0]]])
+
+    values, positions = _surface_values_and_positions(bottom, top)
+
+    assert values.shape == (1, 6, 1)
+    assert values[0, :, 0].tolist() == [10.0, 20.0, 30.0, -10.0, -20.0, -30.0]
+    assert [position[2] for position in positions] == [0.5, 0.5, 0.5, -0.5, -0.5, -0.5]
+    assert [position[1] for position in positions] == ["1", "2", "3", "1", "2", "3"]
 
 
 def test_shell_derived_values_match_xtract_reference_row():

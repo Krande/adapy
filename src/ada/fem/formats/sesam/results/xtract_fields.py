@@ -67,6 +67,7 @@ def _element_field(
     coordinate_system: str = "element_local",
     int_positions=None,
     line: bool = False,
+    surface: str = "",
 ) -> ElementFieldData:
     values = np.asarray(values, dtype=float)
     if values.ndim != 3 or values.shape[0] != len(labels):
@@ -89,7 +90,7 @@ def _element_field(
             attribute,
             derived=derived,
             coordinate_system=coordinate_system,
-            surface="upper" if not line else "",
+            surface=surface,
         ),
     )
 
@@ -223,6 +224,26 @@ def _shell_position_arrays(bottom, top, corner_indices):
     return arrays
 
 
+def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray):
+    """Pack selectable shell surfaces into one AFEL integration-point axis.
+
+    Top comes first to retain Xtract's upper-surface default and listing slot
+    order. The signed third entry is converted to ``top``/``bottom`` by the
+    generic artefact writer, so no Sesam-specific surface logic is needed in
+    the viewer.
+    """
+
+    if bottom.shape != top.shape:
+        raise ValueError("upper/lower shell field layouts differ")
+    n_slots = top.shape[1]
+    values = np.concatenate((top, bottom), axis=1)
+    int_positions = [
+        *((i, str(i + 1), 0.5) for i in range(n_slots)),
+        *((n_slots + i, str(i + 1), -0.5) for i in range(n_slots)),
+    ]
+    return values, int_positions
+
+
 def _wants(wanted: set[str] | None, position: str, attribute: str) -> bool:
     return wanted is None or semantic_name(position, attribute) in wanted
 
@@ -245,8 +266,9 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
             attributes += ("PM-STRESS", "R-STRESS")
         if not any(_wants(wanted, position, attribute) for attribute in attributes):
             continue
+        surface_basic, surface_positions = _surface_values_and_positions(position_bottom, position_top)
         n_slots = position_top.shape[1]
-        int_positions = [(i, str(i), 0.5) for i in range(n_slots)]
+        paired_positions = [(i, str(i + 1), 0.0) for i in range(n_slots)]
         if _wants(wanted, position, "G-STRESS"):
             out.append(
                 _element_field(
@@ -255,9 +277,10 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     "G-STRESS",
                     G_STRESS_COMPONENTS,
                     labels,
-                    general_stress(position_top),
+                    general_stress(surface_basic),
                     derived=True,
-                    int_positions=int_positions,
+                    int_positions=surface_positions,
+                    surface="selectable",
                 )
             )
         if _wants(wanted, position, "P-STRESS"):
@@ -268,9 +291,10 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     "P-STRESS",
                     P_STRESS_COMPONENTS,
                     labels,
-                    plane_principal(position_top[..., 0], position_top[..., 1], position_top[..., 2]),
+                    plane_principal(surface_basic[..., 0], surface_basic[..., 1], surface_basic[..., 2]),
                     derived=True,
-                    int_positions=int_positions,
+                    int_positions=surface_positions,
+                    surface="selectable",
                 )
             )
         if _wants(wanted, position, "D-STRESS"):
@@ -283,7 +307,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     labels,
                     d_stress,
                     derived=True,
-                    int_positions=int_positions,
+                    int_positions=paired_positions,
                 )
             )
         if position != "resultpoints" and _wants(wanted, position, "PM-STRESS"):
@@ -296,7 +320,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     labels,
                     membrane_principal(d_stress),
                     derived=True,
-                    int_positions=int_positions,
+                    int_positions=paired_positions,
                 )
             )
         if position != "resultpoints" and _wants(wanted, position, "R-STRESS"):
@@ -309,7 +333,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     labels,
                     stress_resultants(d_stress, thickness[:, None]),
                     derived=True,
-                    int_positions=int_positions,
+                    int_positions=paired_positions,
                 )
             )
 

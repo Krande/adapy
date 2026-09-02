@@ -90,8 +90,18 @@ def _actual_values(result, field_name: str):
         return values
     if isinstance(first, ElementFieldData):
         for field in fields:
-            for row in np.asarray(field.values):
+            rows = np.asarray(field.values)
+            positions = getattr(field, "int_positions", None) or []
+            surface = getattr(getattr(field, "presentation", None), "surface", "")
+            if surface == "selectable" and positions:
+                top_slots = [i + 1 for i, position in enumerate(positions) if len(position) >= 3 and position[2] > 0]
+                slot_map = {slot: i + 1 for i, slot in enumerate(top_slots)}
+                rows = rows[np.isin(rows[:, 1].astype(int), top_slots)]
+            else:
+                slot_map = {}
+            for row in rows:
                 entity, slot = int(row[0]), int(row[1])
+                slot = slot_map.get(slot, slot)
                 for ci, component in enumerate(field.components, start=2):
                     values[(entity, component, slot)] = float(row[ci])
         return values

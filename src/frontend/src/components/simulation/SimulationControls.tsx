@@ -26,7 +26,11 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
-import {selectFeaResultComponent} from "@/utils/scene/fea/resultSelection";
+import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
+import {
+    selectFeaResultComponent,
+    selectFeaResultLayer,
+} from "@/utils/scene/fea/resultSelection";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import {followerUrl} from "@/utils/simChannel";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -288,7 +292,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setColormap,
         setWarpEnabled,
         setScaleFactor,
-        setLayer,
         setIpReduction,
         setNodalAverage,
     } = useFeaAnimationStore();
@@ -326,24 +329,18 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         [manifest],
     );
 
-    // Element-field path: expose Layer / IP reduction pickers when the
-    // active field has per_type buckets. ``layerOptions`` is the union
-    // of ``ip_layout[*].layer`` across all buckets, plus an "all"
-    // sentinel for "no layer filter". Buckets without ip_layout don't
-    // contribute options; the kernel falls back to "all" for them.
+    // Element-field path: expose Surface/layer and IP reduction pickers when
+    // the active field has per_type buckets. Exact selectable surfaces omit
+    // the generic "all" reduction because mixing fibres is misleading.
     const isElemField = !!(activeField?.per_type && activeField.per_type.length > 0);
-    const layerOptions = useMemo<string[]>(() => {
-        if (!isElemField) return [];
-        const layers = new Set<string>();
-        for (const bk of activeField!.per_type!) {
-            for (const l of bk.ip_layout ?? []) {
-                if (l.layer) layers.add(l.layer);
-            }
-        }
-        const out = Array.from(layers).sort();
-        out.push("all");
-        return out;
-    }, [activeField, isElemField]);
+    const layerOptions = useMemo<string[]>(
+        () => activeField && isElemField ? availableResultLayers(activeField) : [],
+        [activeField, isElemField],
+    );
+    const hasExactSurface = activeField?.surface === "selectable";
+    const showIpReduction = isElemField
+        && activeField?.support !== "element_nodal"
+        && activeField?.support !== "element_average";
     const ipReductionOptions = ["max_abs", "max", "min", "mean"];
 
     // Composite morph influence = slider factor × user-set scale.
@@ -435,17 +432,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // with the new reduction parameters. Blob is cached so this is
     // CPU-only after the first apply.
     const onLayerChange = (next: string) => {
-        setLayer(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap,
-        });
+        void selectFeaResultLayer(next);
     };
 
     const onIpReductionChange = (next: string) => {
@@ -696,12 +683,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         filter. */}
                     {isElemField && layerOptions.length > 0 && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">Layer</span>
+                            <span className="text-gray-300">Surface/layer</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
-                                title="Which integration-point layer to read"
+                                title={hasExactSurface
+                                    ? "Which shell surface to display"
+                                    : "Which integration-point layer to read"}
                             >
                                 {layerOptions.map((opt) => (
                                     <option key={opt} value={opt}>{opt}</option>
@@ -709,7 +698,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
-                    {isElemField && (
+                    {showIpReduction && (
                         <label className="flex items-center gap-1">
                             <span className="text-gray-300">IP reduction</span>
                             <select
