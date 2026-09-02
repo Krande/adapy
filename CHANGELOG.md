@@ -2,6 +2,15 @@
 
 
 
+## v0.61.3 (2026-09-02)
+
+### Fix
+
+* fix(frontend): the Build line drops a release tag, showing only the version (#316)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`2f1091f`](https://github.com/Krande/adapy/commit/2f1091fda2541014c489660d2e79d59f24075c5e))
+
+
 ## v0.61.2 (2026-09-02)
 
 ### Chore
