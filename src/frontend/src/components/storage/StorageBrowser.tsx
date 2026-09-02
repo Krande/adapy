@@ -372,15 +372,32 @@ const StorageBrowser: React.FC = () => {
         void refreshTemplates();
     }, [refreshTemplates]);
 
-    const openProceduralModel = async (m: ProceduralModelSummary) => {
+    const openProceduralModel = async (m: ProceduralModelSummary, opts?: {collapsePanel?: boolean}) => {
         try {
             const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
             useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
-            // The model now owns the screen (the cellbuilder panel opens) — collapse
-            // the storage overview so it doesn't sit on top of the freshly-opened model.
-            useServerInfoStore.getState().setShowServerInfoBox(false);
+            // Opening from a row means "show me this model", so the storage
+            // overview gets out of the way. Switching the ACTIVE model from the
+            // menu does not: the operator is arranging several and needs the
+            // list to keep arranging them.
+            if (opts?.collapsePanel !== false) {
+                useServerInfoStore.getState().setShowServerInfoBox(false);
+            }
         } catch (e) {
             window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    // Loading a compiled result does NOT make a model active: viewResult keys
+    // the scene source by the derived key when the model is not the active one,
+    // so several results coexist under distinct source names. That is what
+    // "several in the scene, one being edited" is made of.
+    const viewProceduralResult = async (m: ProceduralModelSummary) => {
+        if (!m.latest_glb_key) return;
+        try {
+            await useCellBuilderStore.getState().viewResult(m.latest_glb_key);
+        } catch (e) {
+            window.alert(`Failed to load compiled result: ${e instanceof Error ? e.message : e}`);
         }
     };
 
@@ -465,6 +482,10 @@ const StorageBrowser: React.FC = () => {
         buildProceduralMenuItems(displayName, {
             canMutate,
             onOpen: () => void openProceduralModel(m),
+            isActive: activeProcedural === m.id,
+            onMakeActive: () => void openProceduralModel(m, {collapsePanel: false}),
+            onDeactivate: () => useCellBuilderStore.getState().close(),
+            onViewResult: m.latest_glb_key ? () => void viewProceduralResult(m) : undefined,
             onCopyPath: () => void writeToClipboard(m.name),
             onRename: () => void renameProceduralModel(m),
             onMoveToFolder: () => moveProceduralModel(m),

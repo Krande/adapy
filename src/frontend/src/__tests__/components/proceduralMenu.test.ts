@@ -12,6 +12,9 @@ const full = () =>
   buildProceduralMenuItems("module-a", {
     canMutate: true,
     onOpen: noop,
+    onMakeActive: noop,
+    onDeactivate: noop,
+    onViewResult: noop,
     onCopyPath: noop,
     onRename: noop,
     onMoveToFolder: noop,
@@ -55,6 +58,60 @@ test("a read-only scope keeps Open and Copy but loses the mutations", () => {
   });
   const keys = items.map((i) => i.key);
   assert.deepEqual(keys, ["open", "copy-path"]);
+});
+
+// ── active vs in-the-scene ─────────────────────────────────────────
+
+test("an inactive model offers Make active", () => {
+  const keys = full().map((i) => i.key);
+  assert.ok(keys.includes("make-active"));
+  assert.ok(!keys.includes("deactivate"), "cannot offer both at once");
+});
+
+test("the active model offers Stop editing instead", () => {
+  // Exactly one model is active, so the entry is a toggle rather than a
+  // command that could be issued twice.
+  const items = buildProceduralMenuItems("module-a", {
+    canMutate: true,
+    isActive: true,
+    onOpen: noop,
+    onMakeActive: noop,
+    onDeactivate: noop,
+  });
+  const keys = items.map((i) => i.key);
+  assert.ok(keys.includes("deactivate"));
+  assert.ok(!keys.includes("make-active"));
+});
+
+test("stopping editing does not claim to unload the scene", () => {
+  // Several results can sit in the scene at once; deactivating edits one
+  // document and must not imply it removes anything.
+  const items = buildProceduralMenuItems("module-a", {
+    canMutate: true,
+    isActive: true,
+    onOpen: noop,
+    onDeactivate: noop,
+  });
+  const d = items.find((i) => i.key === "deactivate");
+  assert.match(String(d?.label), /keep in scene/i);
+});
+
+test("a model that never compiled offers no View compiled result", () => {
+  // The entry appears only when there is a derived key to load; otherwise it
+  // would be a button with nothing behind it.
+  const items = buildProceduralMenuItems("module-a", {
+    canMutate: true,
+    onOpen: noop,
+    onMakeActive: noop,
+  });
+  assert.ok(!items.map((i) => i.key).includes("view-result"));
+});
+
+test("View compiled result is offered without making the model active", () => {
+  // This is what "several in the scene, one being edited" is made of.
+  const keys = full().map((i) => i.key);
+  assert.ok(keys.includes("view-result"));
+  assert.ok(keys.includes("make-active"), "the two must be separate choices");
 });
 
 test("a handler that is not supplied yields no entry", () => {

@@ -109,6 +109,15 @@ export interface FolderMenuContext {
 export interface ProceduralMenuContext {
     canMutate: boolean;
     onOpen: () => void;
+    /** True when this model is the one the cellbuilder is editing. */
+    isActive?: boolean;
+    /** Make this the edited model. Exactly one can be active at a time. */
+    onMakeActive?: () => void;
+    /** Stop editing, leaving whatever is in the scene in the scene. */
+    onDeactivate?: () => void;
+    /** Load this model's last compiled result into the scene. Present only
+     *  when there IS one; a model that has never compiled has nothing to show. */
+    onViewResult?: () => void;
     onCopyPath?: () => void;
     onRename?: () => void;
     onMoveToFolder?: () => void;
@@ -136,6 +145,34 @@ export function buildProceduralMenuItems(
         label: "Open in cellbuilder",
         onClick: ctx.onOpen,
     });
+    // ACTIVE vs IN THE SCENE are two different things, and the menu keeps them
+    // apart. Several models' compiled results can sit in the scene at once —
+    // each loads under its own source name — but only one can be ACTIVE,
+    // because the cellbuilder edits one document. "View compiled result" adds
+    // to the scene; "Make active" changes what you are editing.
+    if (ctx.isActive && ctx.onDeactivate) {
+        items.push({
+            key: "deactivate",
+            label: "Stop editing (keep in scene)",
+            title: "Closes the cellbuilder. Anything already loaded stays in the scene.",
+            onClick: ctx.onDeactivate,
+        });
+    } else if (ctx.onMakeActive) {
+        items.push({
+            key: "make-active",
+            label: "Make active",
+            title: "Edit this model in the cellbuilder. Only one model is active at a time.",
+            onClick: ctx.onMakeActive,
+        });
+    }
+    if (ctx.onViewResult) {
+        items.push({
+            key: "view-result",
+            label: "View compiled result",
+            title: "Load this model's last compiled result into the scene, without making it active.",
+            onClick: ctx.onViewResult,
+        });
+    }
     if (ctx.onCopyPath) {
         items.push({
             key: "copy-path",
