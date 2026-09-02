@@ -1143,10 +1143,7 @@ function containingCellName(
   return first ? first.name : "NoSpace";
 }
 
-/** The topology's world X-width from its cells (0 when empty). Passed to the
- * side-by-side offset so the result clears the topology even when the freshly-
- * loaded result group isn't measurable yet (which otherwise collapsed the gap
- * to ~1 m and overlapped for a personal-scope demo). */
+/** The topology's X-width from its cells (0 when empty). */
 function modelXWidth(cells: Record<string, BuilderCell>): number {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -1155,6 +1152,21 @@ function modelXWidth(cells: Record<string, BuilderCell>): number {
     maxX = Math.max(maxX, c.origin[0] + c.size[0]);
   }
   return maxX > minX ? maxX - minX : 0;
+}
+
+/** The topology's far +X EDGE in model space (0 when empty).
+ *
+ * This, not the width, is what the side-by-side offset needs: the result has to
+ * start past where the topology ENDS. A cell model authored from the origin
+ * outward has edge == width, which is why a width-based formula appeared to
+ * work — but the two diverge the moment cells do not start at 0, and the result
+ * then overlaps by exactly that difference. */
+function modelMaxX(cells: Record<string, BuilderCell>): number {
+  let maxX = -Infinity;
+  for (const c of Object.values(cells)) {
+    maxX = Math.max(maxX, c.origin[0] + c.size[0]);
+  }
+  return Number.isFinite(maxX) && maxX > 0 ? maxX : 0;
 }
 
 function snapshot(s: CellBuilderState): ModelSnapshot {
@@ -3309,10 +3321,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // loader replaces the group (position resets to the model translation), so
       // re-apply on every load.
       if (get().sideBySide) {
-        const width = modelXWidth(get().cells);
+        const topoMaxX = modelMaxX(get().cells);
         void import("@/utils/scene/handlers/side_by_side").then(
           ({ applySideBySideOffset }) =>
-            applySideBySideOffset(sourceName, true, width),
+            applySideBySideOffset(sourceName, true, topoMaxX),
         );
       }
     },
@@ -3387,7 +3399,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           const { applySideBySideOffset } = await import(
             "@/utils/scene/handlers/side_by_side"
           );
-          applySideBySideOffset(sourceName, true, modelXWidth(get().cells));
+          applySideBySideOffset(sourceName, true, modelMaxX(get().cells));
         }
         setProceduralToast(label, {
           status: "done",
@@ -3484,11 +3496,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // In a result view, restore the superimpose choice for the cell layer.
         get().setCellsVisible(get().superimpose);
       }
-      const width = modelXWidth(get().cells);
+      const topoMaxX = modelMaxX(get().cells);
       const apply = (src: string | null) => {
         if (!src) return;
         void import("@/utils/scene/handlers/side_by_side").then(
-          ({ applySideBySideOffset }) => applySideBySideOffset(src, on, width),
+          ({ applySideBySideOffset }) => applySideBySideOffset(src, on, topoMaxX),
         );
       };
       apply(get().resultSourceName);
