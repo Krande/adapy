@@ -315,6 +315,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         if (!manifest || !fieldName) return null;
         return manifest.fields.find((f) => f.name_canonical === fieldName) ?? null;
     }, [manifest, fieldName]);
+    const fieldPickerValue = activeField?.surface_variants?.[0]?.field_name
+        ?? fieldName
+        ?? "";
 
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
@@ -502,7 +505,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
                             className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
-                            value={fieldName ?? ""}
+                            value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
                             {/* Both nodal (AFBL blob) and element

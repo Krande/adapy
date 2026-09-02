@@ -306,6 +306,9 @@ export interface FeaManifestField {
   group_path?: string[];
   coordinate_system?: string;
   surface?: string;
+  /** Separate AFBL fields that represent surfaces of one semantic nodal
+   * result. Element fields normally carry this dimension in ip_layout. */
+  surface_variants?: Array<{ surface: string; field_name: string }>;
   derived?: boolean;
   unit?: string;
   /** Drives the deformation-scale slider range in the picker:

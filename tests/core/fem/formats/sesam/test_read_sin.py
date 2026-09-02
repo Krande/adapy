@@ -420,6 +420,16 @@ def test_sin_load_step_card_filter():
             )
         )
         assert derived_only == {derived_name}
+
+        nodal_lower_name = f"{semantic_name('nodes', 'G-STRESS')}.lower"
+        nodal_lower_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={nodal_lower_name},
+            )
+        )
+        assert nodal_lower_only == {nodal_lower_name}
     finally:
         reader.close()
 

@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import struct
+from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable, Iterable, Iterator, Literal, Protocol
@@ -1885,14 +1886,33 @@ def build_manifest(
             }
         )
 
+    # Link separate nodal upper/lower blobs as variants of one semantic field.
+    # Element-backed shell fields carry surfaces on their IP axis and therefore
+    # need no duplicate field. Optional metadata keeps older manifests valid.
+    semantic_variants: dict[str, list[dict]] = defaultdict(list)
+    for field_payload in fields_payload:
+        semantic_key = field_payload.get("semantic_key")
+        surface = field_payload.get("surface")
+        if semantic_key and surface in {"upper", "lower"}:
+            semantic_variants[semantic_key].append(
+                {"surface": surface, "field_name": field_payload["name_canonical"]}
+            )
+    for variants in semantic_variants.values():
+        if len(variants) < 2:
+            continue
+        variants.sort(key=lambda item: 0 if item["surface"] == "upper" else 1)
+        for variant in variants:
+            field_payload = next(
+                item for item in fields_payload if item["name_canonical"] == variant["field_name"]
+            )
+            field_payload["surface_variants"] = variants
+
     # Element fields. Group by field name so STRESS on QUAD + TRI lands
     # under one manifest entry with two per_type buckets. Within a
     # logical field the bake assumes step counts + canonical step
     # values match across element types (Sesam emits parallel step
     # sets for all element types) — surface a hard error otherwise so
     # the frontend doesn't silently de-sync per-type animation.
-    from collections import defaultdict
-
     elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
     for em in elem_field_metas or []:
         elem_by_name[em.spec.name].append(em)

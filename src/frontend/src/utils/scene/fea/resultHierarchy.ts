@@ -19,12 +19,17 @@ export function buildFeaResultHierarchy(fields: FeaManifestField[]): {
 } {
   const positions: FeaResultPositionGroup[] = [];
   const byPosition = new Map<string, FeaResultPositionGroup>();
+  const seenSurfaceSemantics = new Set<string>();
   const ungrouped: FeaManifestField[] = [];
   for (const field of fields) {
     const path = field.group_path;
     if (!path || path.length < 2) {
       ungrouped.push(field);
       continue;
+    }
+    if (field.surface_variants?.length && field.semantic_key) {
+      if (seenSurfaceSemantics.has(field.semantic_key)) continue;
+      seenSurfaceSemantics.add(field.semantic_key);
     }
     const positionLabel = path[0];
     const attributeLabel = path.slice(1).join(" / ");

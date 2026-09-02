@@ -106,10 +106,13 @@ def _nodal_field(
     derived: bool,
     coordinate_system: str,
     field_type: NodalFieldType = NodalFieldType.UNKNOWN,
+    surface: str = "",
 ) -> NodalFieldData:
+    canonical_name = semantic_name(position, attribute)
+    name = f"{canonical_name}.{surface}" if surface == "lower" else canonical_name
     data = np.column_stack((node_ids, np.asarray(values, dtype=float)))
     return NodalFieldData(
-        name=semantic_name(position, attribute),
+        name=name,
         step=int(step),
         components=list(components),
         values=data,
@@ -119,7 +122,7 @@ def _nodal_field(
             attribute,
             derived=derived,
             coordinate_system=coordinate_system,
-            surface="upper" if "STRESS" in attribute else "",
+            surface=surface,
         ),
     )
 
@@ -259,7 +262,14 @@ def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray, in_plane=
 
 
 def _wants(wanted: set[str] | None, position: str, attribute: str) -> bool:
-    return wanted is None or semantic_name(position, attribute) in wanted
+    name = semantic_name(position, attribute)
+    return wanted is None or name in wanted or f"{name}.lower" in wanted
+
+
+def _wants_nodal_surface(wanted: set[str] | None, attribute: str, surface: str) -> bool:
+    name = semantic_name("nodes", attribute)
+    requested = f"{name}.lower" if surface == "lower" else name
+    return wanted is None or requested in wanted
 
 
 def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
@@ -415,28 +425,31 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
     bottom, top, thickness = _average_nodal_shell(contrib, node_ids)
     d = decompose_shell(bottom, top)
     out = []
-    if _wants(wanted, "nodes", "G-STRESS"):
-        out.append(_nodal_field(
-            step,
-            node_ids,
-            "nodes",
-            "G-STRESS",
-            G_STRESS_COMPONENTS,
-            general_stress(top),
-            derived=True,
-            coordinate_system="element_local",
-        ))
-    if _wants(wanted, "nodes", "P-STRESS"):
-        out.append(_nodal_field(
-            step,
-            node_ids,
-            "nodes",
-            "P-STRESS",
-            P_STRESS_COMPONENTS,
-            plane_principal(top[..., 0], top[..., 1], top[..., 2]),
-            derived=True,
-            coordinate_system="element_local",
-        ))
+    for surface, basic in (("upper", top), ("lower", bottom)):
+        if _wants_nodal_surface(wanted, "G-STRESS", surface):
+            out.append(_nodal_field(
+                step,
+                node_ids,
+                "nodes",
+                "G-STRESS",
+                G_STRESS_COMPONENTS,
+                general_stress(basic),
+                derived=True,
+                coordinate_system="element_local",
+                surface=surface,
+            ))
+        if _wants_nodal_surface(wanted, "P-STRESS", surface):
+            out.append(_nodal_field(
+                step,
+                node_ids,
+                "nodes",
+                "P-STRESS",
+                P_STRESS_COMPONENTS,
+                plane_principal(basic[..., 0], basic[..., 1], basic[..., 2]),
+                derived=True,
+                coordinate_system="element_local",
+                surface=surface,
+            ))
     if _wants(wanted, "nodes", "PM-STRESS"):
         out.append(_nodal_field(
             step,
@@ -627,7 +640,7 @@ def build_xtract_fields(
     for step, shell_fields in shell_by_step.items():
         shell_attributes = ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS")
         if wanted is not None and not any(
-            semantic_name(position, attribute) in wanted
+            _wants(wanted, position, attribute)
             for position in ("nodes", "elements", "element_average", "resultpoints")
             for attribute in shell_attributes
         ):
@@ -639,7 +652,7 @@ def build_xtract_fields(
             out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted))
     for force_fields in force_by_step.values():
         if wanted is not None and not any(
-            semantic_name(position, attribute) in wanted
+            _wants(wanted, position, attribute)
             for position in ("elements", "element_average", "resultpoints")
             for attribute in ("G-FORCE", "B-STRESS")
         ):

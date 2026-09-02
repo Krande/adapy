@@ -1086,6 +1086,50 @@ def test_build_manifest_carries_optional_field_presentation():
     assert field["default_view"]["reduction"] == "SIGMX"
 
 
+def test_build_manifest_links_nodal_surface_variants():
+    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.field_data import FieldPresentation
+
+    metas = []
+    for surface, suffix in (("upper", ""), ("lower", ".lower")):
+        spec = FieldSpec(
+            name=f"sesam.nodes.g_stress{suffix}",
+            components=["SIGXX"],
+            n_steps=1,
+            n_points=1,
+            support="nodal",
+            step_values=[1.0],
+            category="stress",
+            presentation=FieldPresentation(
+                semantic_key="sesam.nodes.g_stress",
+                group_path=("Nodes", "G-STRESS"),
+                surface=surface,
+            ),
+        )
+        metas.append(
+            FieldArtefactMeta(
+                spec=spec,
+                blob_filename=f"fea.g_stress{suffix}.bin",
+                stride_bytes=4,
+                scalar_range_per_component={"SIGXX": (-1.0, 1.0)},
+                scalar_range_magnitude=(0.0, 1.0),
+            )
+        )
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=MeshGeometry(points=np.zeros((1, 3)), cell_blocks=[]),
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=metas,
+    )
+
+    expected = [
+        {"surface": "upper", "field_name": "sesam.nodes.g_stress"},
+        {"surface": "lower", "field_name": "sesam.nodes.g_stress.lower"},
+    ]
+    assert manifest["fields"][0]["surface_variants"] == expected
+    assert manifest["fields"][1]["surface_variants"] == expected
+
+
 def test_explicit_static_analysis_kind_overrides_monotonic_case_numbers():
     from ada.fem.results.artefacts import FieldSpec, _infer_analysis_kind
 

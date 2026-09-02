@@ -46,3 +46,22 @@ test("buildFeaResultHierarchy preserves manifest position and attribute order", 
   assert.equal(hierarchy.positions[0].attributes[0].field, dStress);
   assert.deepEqual(hierarchy.ungrouped, [legacy]);
 });
+
+test("nodal surface variants appear as one semantic tree attribute", () => {
+  const upper = field("sesam.nodes.g_stress", ["Nodes", "G-STRESS"]);
+  upper.semantic_key = "sesam.nodes.g_stress";
+  upper.surface = "upper";
+  upper.surface_variants = [
+    { surface: "upper", field_name: "sesam.nodes.g_stress" },
+    { surface: "lower", field_name: "sesam.nodes.g_stress.lower" },
+  ];
+  const lower = field("sesam.nodes.g_stress.lower", ["Nodes", "G-STRESS"]);
+  lower.semantic_key = upper.semantic_key;
+  lower.surface = "lower";
+  lower.surface_variants = upper.surface_variants;
+
+  const hierarchy = buildFeaResultHierarchy([upper, lower]);
+
+  assert.equal(hierarchy.positions[0].attributes.length, 1);
+  assert.equal(hierarchy.positions[0].attributes[0].field, upper);
+});

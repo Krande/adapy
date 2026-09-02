@@ -18,7 +18,11 @@ export async function selectFeaResultComponent(
     component && field.components.includes(component)
       ? component
       : (field.default_view?.reduction ?? field.components[0] ?? "scalar");
-  if (field.default_view?.layer) state.setLayer(field.default_view.layer);
+  if (field.surface_variants?.length) {
+    state.setLayer(field.surface || field.surface_variants[0].surface);
+  } else if (field.default_view?.layer) {
+    state.setLayer(field.default_view.layer);
+  }
   if (field.default_view?.ip_reduction)
     state.setIpReduction(field.default_view.ip_reduction);
   const stepIndex = Math.min(state.stepIndex, Math.max(field.n_steps - 1, 0));
@@ -46,13 +50,22 @@ export async function selectFeaResultLayer(layer: string): Promise<void> {
   if (!available.includes(layer)) {
     throw new Error(`Layer ${layer} is unavailable for FEA result field ${fieldName}`);
   }
+  const variantName = field.surface_variants?.find(
+    (variant) => variant.surface === layer,
+  )?.field_name;
+  const targetFieldName = variantName ?? fieldName;
+  const targetField = manifest.fields.find(
+    (candidate) => candidate.name_canonical === targetFieldName,
+  ) ?? field;
   state.setLayer(layer);
   await load_fea_streaming({
     sourceName,
     manifest,
-    fieldName,
-    stepIndex: Math.min(state.stepIndex, Math.max(field.n_steps - 1, 0)),
-    reduction: state.reduction,
+    fieldName: targetFieldName,
+    stepIndex: Math.min(state.stepIndex, Math.max(targetField.n_steps - 1, 0)),
+    reduction: targetField.components.includes(state.reduction)
+      ? state.reduction
+      : (targetField.default_view?.reduction ?? targetField.components[0] ?? "scalar"),
     displacementScale: state.factor * state.scaleFactor,
     colormap: state.colormap,
   });
