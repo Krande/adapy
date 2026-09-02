@@ -350,20 +350,24 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             const elemBase = e * elemStride;
             const label = bucket.element_labels[e];
             const dr = drawRanges.get(`E${label}`);
-            if (!dr) continue;
-            const [vStart, vCount] = dr;
 
             if (
-                colorField.support === "result_point"
-                || colorField.support === "line_result_point"
+                !mesh.userData.feaBeamSolids
+                && (
+                    colorField.support === "result_point"
+                    || colorField.support === "line_result_point"
+                )
             ) {
-                const sourceCorners: number[] = [];
-                const seenSources = new Set<number>();
-                for (let i = vStart; i < vStart + vCount; i++) {
-                    const sourceIdx = renderToSource[indexArr[i]];
-                    if (seenSources.has(sourceIdx)) continue;
-                    seenSources.add(sourceIdx);
-                    sourceCorners.push(sourceIdx);
+                const sourceCorners = bucket.element_node_indices?.[e]?.slice() ?? [];
+                if (sourceCorners.length === 0 && dr) {
+                    const seenSources = new Set<number>();
+                    const [vStart, vCount] = dr;
+                    for (let i = vStart; i < vStart + vCount; i++) {
+                        const sourceIdx = renderToSource[indexArr[i]];
+                        if (seenSources.has(sourceIdx)) continue;
+                        seenSources.add(sourceIdx);
+                        sourceCorners.push(sourceIdx);
+                    }
                 }
                 for (const ip of ipIndices) {
                     const weights = resultPointSourceWeights(
@@ -388,6 +392,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                     markerSourceWeights.push(weights);
                 }
             }
+
+            if (!dr) continue;
+            const [vStart, vCount] = dr;
 
             // Xtract Elements fields carry one value per element-local corner.
             // Preserve that variation instead of collapsing all corners through

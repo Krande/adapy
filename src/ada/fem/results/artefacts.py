@@ -242,6 +242,7 @@ class ElementFieldSpec:
     n_ips: int
     element_labels: list[int]
     step_values: list[float]
+    element_node_indices: list[list[int]] = dc_field(default_factory=list)
     ip_layout: list[dict] = dc_field(default_factory=list)
     category: FieldCategory = "other"
     support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
@@ -916,6 +917,13 @@ class FEAResultStreamAdapter:
         from ada.fem.results.field_data import FieldPosition
 
         specs: list[ElementFieldSpec] = []
+        node_index = {
+            int(label): i for i, label in enumerate(self._result.mesh.nodes.identifiers)
+        }
+        element_nodes: dict[int, list[int]] = {}
+        for block in self._result.mesh.elements:
+            for label, refs in zip(block.identifiers, block.node_refs):
+                element_nodes[int(label)] = [node_index[int(ref)] for ref in refs]
         for (name, elem_type_str), items in self._grouped_element_fields().items():
             sorted_items = sorted(items, key=lambda r: r.step)
             first = sorted_items[0]
@@ -965,6 +973,7 @@ class FEAResultStreamAdapter:
                     n_ips=n_ips,
                     element_labels=labels,
                     step_values=step_values,
+                    element_node_indices=[element_nodes.get(int(label), []) for label in labels],
                     ip_layout=ip_layout,
                     category=_classify_field(name, first),
                     support={
@@ -1967,6 +1976,7 @@ def build_manifest(
                     "n_ips": es.n_ips,
                     "ip_layout": es.ip_layout,
                     "element_labels": es.element_labels,
+                    "element_node_indices": es.element_node_indices,
                     "blob": {
                         "url": em.blob_filename,
                         "header_bytes": ELEM_FIELD_HEADER_BYTES,

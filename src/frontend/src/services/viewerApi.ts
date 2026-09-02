@@ -271,6 +271,9 @@ export interface FeaManifestFieldPerType {
    *  labels back to ``element_labels.indexOf(label)`` to find the
    *  row in the AFEL blob. */
   element_labels: number[];
+  /** Source mesh node indices for each element row. Enables exact marker
+   * placement even when line elements have no triangle draw range. */
+  element_node_indices?: number[][];
   blob: {
     url: string;
     header_bytes: number;

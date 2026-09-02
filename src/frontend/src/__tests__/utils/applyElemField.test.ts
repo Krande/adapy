@@ -251,3 +251,33 @@ test("result-point fields create colored markers at corners and centroid", () =>
     [1 / 3, 1 / 3, 0].map((value) => Math.fround(value)),
   );
 });
+
+test("beam result-point markers use source connectivity without triangle ranges", () => {
+  const mesh = makeMesh();
+  Object.assign(mesh, { drawRanges: new Map() });
+  const field = makeField();
+  field.support = "line_result_point";
+  field.per_type![0].n_ips = 3;
+  field.per_type![0].element_node_indices = [[0, 1]];
+  field.per_type![0].ip_layout = [
+    { ip: 0, layer: "mid", in_plane: "0", natural_coordinates: [0] },
+    { ip: 1, layer: "mid", in_plane: "0.5", natural_coordinates: [0.5] },
+    { ip: 2, layer: "mid", in_plane: "1", natural_coordinates: [1] },
+  ];
+  applyElemFieldToMesh({
+    mesh,
+    basePositions,
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0, 1, 2])],
+    layer: "mid",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+  });
+
+  const markers = mesh.getObjectByName("__fea_result_point_markers__") as THREE.Points;
+  assert.ok(markers);
+  assert.deepEqual(
+    Array.from(markers.geometry.getAttribute("position").array as Float32Array),
+    [0, 0, 0, 0.5, 0, 0, 1, 0, 0],
+  );
+});
