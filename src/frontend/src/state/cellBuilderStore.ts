@@ -920,7 +920,12 @@ function groupsFromDoc(doc: ProceduralDoc): CellGroup[] {
   );
 }
 
-function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
+/** Convert a stored document into builder cells.
+ *
+ * Exported so a companion model can be drawn read-only from its doc without
+ * going through the editing store — the conversion is the same, and a second
+ * copy of it would be a second thing to keep in step with the schema. */
+export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   const out: Record<string, BuilderCell> = {};
   const spaceByName = new Map<string, Record<string, unknown>>();
   for (const s of doc.spaces ?? []) {

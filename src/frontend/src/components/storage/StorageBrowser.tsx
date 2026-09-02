@@ -54,6 +54,13 @@ import {buildFileMenuItems, buildFolderMenuItems, buildProceduralMenuItems} from
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {cellsFromDoc} from "@/state/cellBuilderStore";
+import {
+    companionSourceName,
+    useCompanionModelStore,
+    type CompanionRep,
+} from "@/state/companionModelStore";
+import {cellsWidthX, nextModelOffsetX} from "@/utils/cellbuilder/modelPlacement";
 
 // Custom drag MIME for in-panel file moves. OS-file drops arrive as
 // ``dataTransfer.files`` instead; checking for this type tells the two
@@ -400,12 +407,112 @@ const StorageBrowser: React.FC = () => {
     // the same string the cellbuilder's own compile path produces.
     const proceduralSourceName = (m: ProceduralModelSummary) => `procedural:${m.name}`;
     const isProceduralLoaded = (m: ProceduralModelSummary) =>
+        // In the scene by any route: the edited model, a companion drawing its
+        // topology, or a companion whose compiled result is loaded.
+        activeProcedural === m.id ||
+        !!companions[m.id] ||
         loadedSourceNames.has(proceduralSourceName(m));
 
     // The checkbox on a model row means what it means on a file row: put this
     // in the scene. Loading also makes the model ACTIVE — you ticked it to work
     // on it — while anything already loaded stays in the scene and simply stops
     // being the one being edited. Several visible, one active.
+    // Companion = present in the scene but not the model being edited. The
+    // first model loaded becomes ACTIVE (there is nothing to compare it with
+    // yet); each subsequent one joins as a companion, placed clear of whatever
+    // is already there.
+    const companions = useCompanionModelStore((st) => st.companions);
+
+    const addCompanion = async (m: ProceduralModelSummary) => {
+        const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
+        const cells = Object.values(cellsFromDoc(detail.doc));
+        const placed = Object.values(useCompanionModelStore.getState().companions).map((c) => ({
+            offsetX: c.offsetX,
+            width: cellsWidthX(c.cells),
+        }));
+        const active = useCellBuilderStore.getState();
+        if (active.active) {
+            placed.push({offsetX: 0, width: cellsWidthX(Object.values(active.cells))});
+        }
+        useCompanionModelStore.getState().add({
+            modelId: m.id,
+            name: m.name,
+            cells,
+            rep: "topology",
+            offsetX: nextModelOffsetX(placed, cellsWidthX(cells)),
+            latestGlbKey: m.latest_glb_key ?? null,
+        });
+    };
+
+    /** Promote a model to the edited one, demoting whatever held that role.
+     *
+     * A SWAP, not a replace: the model you were editing stays in the scene as a
+     * companion at the offset it already had, so "make active" changes what is
+     * editable without changing what is visible. Before companions existed this
+     * necessarily closed the previous model, which is what made two models look
+     * impossible. */
+    const makeProceduralActive = async (m: ProceduralModelSummary) => {
+        const cb = useCellBuilderStore.getState();
+        const store = useCompanionModelStore.getState();
+        const prev = cb.active;
+
+        // The incoming model must stop being a companion before it is drawn as
+        // the editable one, or its cells render twice.
+        const incoming = store.companions[m.id];
+        if (incoming) {
+            if (incoming.rep !== "topology") {
+                await unload_any_source(companionSourceName(incoming.name, incoming.rep)).catch(
+                    () => undefined,
+                );
+            }
+            store.remove(m.id);
+        }
+
+        await openProceduralModel(m, {collapsePanel: false});
+
+        if (prev && prev.modelId !== m.id) {
+            const detail = await viewerApi.getProceduralModel(scopeKey, prev.modelId);
+            store.add({
+                modelId: prev.modelId,
+                name: prev.name,
+                cells: Object.values(cellsFromDoc(detail.doc)),
+                rep: "topology",
+                // Keep the outgoing model where the incoming one had been, so
+                // the two trade places instead of landing on each other.
+                offsetX: incoming?.offsetX ?? 0,
+                latestGlbKey: detail.latest_glb_key ?? null,
+            });
+        }
+    };
+
+    const removeCompanion = async (m: ProceduralModelSummary) => {
+        const c = useCompanionModelStore.getState().companions[m.id];
+        if (c && c.rep !== "topology") {
+            await unload_any_source(companionSourceName(c.name, c.rep)).catch(() => undefined);
+        }
+        useCompanionModelStore.getState().remove(m.id);
+    };
+
+    /** Switch a companion between its cell topology and a compiled result. */
+    const setCompanionRep = async (m: ProceduralModelSummary, rep: CompanionRep) => {
+        const store = useCompanionModelStore.getState();
+        const c = store.companions[m.id];
+        if (!c || c.rep === rep) return;
+        // Drop whatever the previous representation put in the scene, so the two
+        // never stack on one model.
+        if (c.rep !== "topology") {
+            await unload_any_source(companionSourceName(c.name, c.rep)).catch(() => undefined);
+        }
+        store.setRep(m.id, rep);
+        if (rep === "topology") return;
+        if (!c.latestGlbKey) return;
+        const sourceName = companionSourceName(c.name, rep);
+        await useCellBuilderStore.getState().viewResult(c.latestGlbKey, rep === "detail" ? "detail" : "sim", sourceName);
+        // Keep the compiled result where the topology was, so switching
+        // representation does not also move the model.
+        setSourceOffset(sourceName, {x: c.offsetX});
+    };
+
     const toggleProceduralLoaded = async (m: ProceduralModelSummary, next: boolean) => {
         const sourceName = proceduralSourceName(m);
         try {
@@ -414,18 +521,23 @@ const StorageBrowser: React.FC = () => {
                 // a model whose result is not shown is a normal thing to do
                 // (edit topology, then compile), so this must not close the
                 // cellbuilder behind the operator's back.
-                await unload_any_source(sourceName);
+                if (useCompanionModelStore.getState().companions[m.id]) {
+                    await removeCompanion(m);
+                    return;
+                }
+                await unload_any_source(sourceName).catch(() => undefined);
                 return;
             }
-            if (!m.latest_glb_key) {
-                window.alert(
-                    `"${m.name}" has no compiled result yet. Open it and compile once, ` +
-                    "then it can be shown in the scene.",
-                );
+            // First model in: it becomes the one being EDITED — there is
+            // nothing to compare it against yet, and an empty cellbuilder
+            // beside a loaded model would be an odd place to land.
+            // Every later one joins as a companion, so the model you are
+            // working on is not swapped out from under you by a tick.
+            if (!useCellBuilderStore.getState().active) {
+                await openProceduralModel(m, {collapsePanel: false});
                 return;
             }
-            await useCellBuilderStore.getState().viewResult(m.latest_glb_key, "sim", sourceName);
-            await openProceduralModel(m, {collapsePanel: false});
+            await addCompanion(m);
         } catch (e) {
             window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
         }
@@ -556,7 +668,10 @@ const StorageBrowser: React.FC = () => {
             onOpen: () => void openProceduralModel(m),
             ...placementItems(proceduralSourceName(m), m.name),
             isActive: activeProcedural === m.id,
-            onMakeActive: () => void openProceduralModel(m, {collapsePanel: false}),
+            companionRep: companions[m.id]?.rep ?? null,
+            hasCompiled: !!m.latest_glb_key,
+            onShowRep: (rep) => void setCompanionRep(m, rep),
+            onMakeActive: () => void makeProceduralActive(m),
             onDeactivate: () => useCellBuilderStore.getState().close(),
             onViewResult: m.latest_glb_key ? () => void viewProceduralResult(m) : undefined,
             onCopyPath: () => void writeToClipboard(m.name),

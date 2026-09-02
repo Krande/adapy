@@ -155,6 +155,16 @@ export interface FolderMenuContext {
 
 export interface ProceduralMenuContext extends PlacementMenuContext {
     canMutate: boolean;
+    /** Which representation this model is showing while NOT active.
+     *
+     * The active model's representation is the cellbuilder's own three-way
+     * switch; this is the same choice for a model that is only being looked
+     * at, so the two do not compete for one control. */
+    companionRep?: "topology" | "simulation" | "detail" | null;
+    onShowRep?: (rep: "topology" | "simulation" | "detail") => void;
+    /** False when the model has never compiled — simulation and detail then do
+     *  not exist and must not be offered. */
+    hasCompiled?: boolean;
     onOpen: () => void;
     /** True when this model is the one the cellbuilder is editing. */
     isActive?: boolean;
@@ -212,7 +222,29 @@ export function buildProceduralMenuItems(
             onClick: ctx.onMakeActive,
         });
     }
-    if (ctx.onViewResult) {
+    // Representation choice for a model that is present but not being edited.
+    // Flat entries rather than a submenu: the menu has no submenu primitive,
+    // and three checkable rows read faster than a nested one anyway.
+    if (ctx.companionRep != null && ctx.onShowRep) {
+        const rep = ctx.companionRep;
+        const show = (
+            key: "topology" | "simulation" | "detail",
+            label: string,
+            available: boolean,
+            why: string,
+        ) => {
+            items.push({
+                key: `show-${key}`,
+                label: `${rep === key ? "✓ " : "\u2007\u2007"}${label}`,
+                title: available ? why : "Compile this model once first — there is no result yet.",
+                disabled: !available,
+                onClick: () => ctx.onShowRep?.(key),
+            });
+        };
+        show("topology", "Show topology", true, "Draw this model's cells, read-only, beside the one you are editing.");
+        show("simulation", "Show simulation", !!ctx.hasCompiled, "Load this model's compiled result.");
+        show("detail", "Show detail", !!ctx.hasCompiled, "Load this model's detailed result.");
+    } else if (ctx.onViewResult) {
         items.push({
             key: "view-result",
             label: "View compiled result",
