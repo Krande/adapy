@@ -5,6 +5,7 @@ import * as THREE from "three";
 
 import type { FeaManifestField } from "../../services/viewerApi";
 import { applyElemFieldToMesh } from "../../utils/scene/fea/applyElemField";
+import { applyFieldToMesh } from "../../utils/scene/fea/applyField";
 import { availableResultLayers } from "../../utils/scene/fea/resultLayers";
 
 const basePositions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
@@ -18,6 +19,26 @@ function makeMesh(): THREE.Mesh {
   geometry.setIndex([0, 1, 2]);
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
   Object.assign(mesh, { drawRanges: new Map([["E7", [0, 3]]]) });
+  return mesh;
+}
+
+function makeSharedMesh(): THREE.Mesh {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+      3,
+    ),
+  );
+  geometry.setIndex([0, 1, 2, 1, 3, 2]);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  Object.assign(mesh, {
+    drawRanges: new Map([
+      ["E7", [0, 3]],
+      ["E8", [3, 3]],
+    ]),
+  });
   return mesh;
 }
 
@@ -136,4 +157,65 @@ test("element-nodal support applies only the selected shell surface", () => {
     Array.from(colors.slice(0, 3)),
     Array.from(colors.slice(6, 9)),
   );
+});
+
+test("flat element fields duplicate shared vertices to preserve discontinuities", () => {
+  const mesh = makeSharedMesh();
+  const field = makeField();
+  field.support = "element_average";
+  field.per_type![0].n_elements = 2;
+  field.per_type![0].n_ips = 1;
+  field.per_type![0].element_labels = [7, 8];
+  field.scalar_range = { SIGXX: [0, 10] };
+  applyElemFieldToMesh({
+    mesh,
+    basePositions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0, 10])],
+    layer: "all",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+    colormap: "viridis",
+  });
+
+  assert.equal(mesh.geometry.getAttribute("position").count, 6);
+  const colors = mesh.geometry.getAttribute("color").array as Float32Array;
+  assert.deepEqual(Array.from(colors.slice(0, 3)), Array.from(colors.slice(6, 9)));
+  assert.deepEqual(Array.from(colors.slice(9, 12)), Array.from(colors.slice(15, 18)));
+  assert.notDeepEqual(Array.from(colors.slice(3, 6)), Array.from(colors.slice(9, 12)));
+});
+
+test("nodal fields still map correctly after element-local vertex expansion", () => {
+  const mesh = makeSharedMesh();
+  const elementField = makeField();
+  elementField.support = "element_average";
+  elementField.per_type![0].n_elements = 2;
+  elementField.per_type![0].n_ips = 1;
+  elementField.per_type![0].element_labels = [7, 8];
+  const sourcePositions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]);
+  applyElemFieldToMesh({
+    mesh,
+    basePositions: sourcePositions,
+    colorField: elementField,
+    perTypeStepValues: [new Float32Array([0, 2])],
+    layer: "all",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+  });
+
+  const nodalField = makeField();
+  nodalField.support = "nodal";
+  nodalField.per_type = undefined;
+  nodalField.scalar_range = { SIGXX: [0, 3] };
+  applyFieldToMesh({
+    mesh,
+    basePositions: sourcePositions,
+    colorField: nodalField,
+    colorStepValues: new Float32Array([0, 1, 2, 3]),
+    reduction: "SIGXX",
+  });
+
+  const colors = mesh.geometry.getAttribute("color").array as Float32Array;
+  assert.deepEqual(Array.from(colors.slice(3, 6)), Array.from(colors.slice(9, 12)));
+  assert.deepEqual(Array.from(colors.slice(6, 9)), Array.from(colors.slice(15, 18)));
 });

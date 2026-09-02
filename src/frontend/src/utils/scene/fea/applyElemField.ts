@@ -36,6 +36,11 @@ import * as THREE from "three";
 
 import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
+import {
+    ensureElementLocalVertices,
+    expandSourceTriples,
+    sourceVertexIndices,
+} from "./elementLocalGeometry";
 
 export interface ApplyElemFieldArgs {
     mesh: THREE.Mesh;
@@ -210,6 +215,11 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const colormap = getColormap(colormapName);
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
+    const renderToSource = nodalAverage
+        ? sourceVertexIndices(geometry, n_points)
+        : ensureElementLocalVertices(geometry);
+    const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
+    const n_render_points = renderToSource.length;
     const n_components = colorField.components.length;
 
     const isMagnitude = reduction === "magnitude";
@@ -219,7 +229,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     // element draw range. Without this seed, the colour attribute
     // would be zero-initialised and render black where AFEM doesn't
     // reach (typically nowhere on a healthy mesh, but defensive).
-    const out_colors = new Float32Array(n_points * 3);
+    const out_colors = new Float32Array(n_render_points * 3);
     for (let i = 0; i < out_colors.length; i++) out_colors[i] = 0.5;
 
     const [rangeMin, rangeMax] = pickRange(colorField, reduction);
@@ -292,8 +302,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const sumValues = nodalAverage ? new Float32Array(n_points) : null;
     const countValues = nodalAverage ? new Uint32Array(n_points) : null;
     const elemVertSet = nodalAverage ? new Set<number>() : null;
-    const directVertSet = new Set<number>();
-    const directVerts: number[] = [];
+    const directVertsBySource = new Map<number, number[]>();
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -323,15 +332,16 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             // the generic IP reducer. The first-seen vertex order of the AFEM
             // triangle fan follows source connectivity for TRI/QUAD cells.
             if (colorField.support === "element_nodal") {
-                directVertSet.clear();
-                directVerts.length = 0;
+                directVertsBySource.clear();
                 for (let i = vStart; i < vStart + vCount; i++) {
                     const vIdx = indexArr[i];
-                    if (directVertSet.has(vIdx)) continue;
-                    directVertSet.add(vIdx);
-                    directVerts.push(vIdx);
+                    const sourceIdx = renderToSource[vIdx];
+                    const occurrences = directVertsBySource.get(sourceIdx);
+                    if (occurrences) occurrences.push(vIdx);
+                    else directVertsBySource.set(sourceIdx, [vIdx]);
                 }
-                if (directVerts.length === ipIndices.length) {
+                if (directVertsBySource.size === ipIndices.length) {
+                    const cornerOccurrences = Array.from(directVertsBySource.values());
                     for (let corner = 0; corner < ipIndices.length; corner++) {
                         const scalar = computeElementScalar(
                             stepView,
@@ -339,17 +349,19 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                             [ipIndices[corner]],
                         );
                         if (!isFinite(scalar)) continue;
-                        const vIdx = directVerts[corner];
                         if (nodalAverage) {
-                            sumValues![vIdx] += scalar;
-                            countValues![vIdx] += 1;
+                            const sourceIdx = renderToSource[cornerOccurrences[corner][0]];
+                            sumValues![sourceIdx] += scalar;
+                            countValues![sourceIdx] += 1;
                         } else {
                             const t = (scalar - rangeMin) * scaleColor;
                             colormap(t, tmpRgb, 0);
-                            const off = vIdx * 3;
-                            out_colors[off + 0] = tmpRgb[0];
-                            out_colors[off + 1] = tmpRgb[1];
-                            out_colors[off + 2] = tmpRgb[2];
+                            for (const vIdx of cornerOccurrences[corner]) {
+                                const off = vIdx * 3;
+                                out_colors[off + 0] = tmpRgb[0];
+                                out_colors[off + 1] = tmpRgb[1];
+                                out_colors[off + 2] = tmpRgb[2];
+                            }
                         }
                     }
                     continue;
@@ -368,10 +380,11 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                 elemVertSet!.clear();
                 for (let i = vStart; i < vStart + vCount; i++) {
                     const vIdx = indexArr[i];
-                    if (elemVertSet!.has(vIdx)) continue;
-                    elemVertSet!.add(vIdx);
-                    sumValues![vIdx] += scalar;
-                    countValues![vIdx] += 1;
+                    const sourceIdx = renderToSource[vIdx];
+                    if (elemVertSet!.has(sourceIdx)) continue;
+                    elemVertSet!.add(sourceIdx);
+                    sumValues![sourceIdx] += scalar;
+                    countValues![sourceIdx] += 1;
                 }
             } else if (!nodalAverage) {
                 // NaN means the attribute is inapplicable to this element type.
@@ -395,10 +408,11 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         // Vertices with count===0 stay at the grey seed (no element
         // touched them — line-only verts or AFEM gaps). For
         // touched vertices, divide and colormap.
-        for (let v = 0; v < n_points; v++) {
-            const c = countValues![v];
+        for (let v = 0; v < n_render_points; v++) {
+            const sourceIdx = renderToSource[v];
+            const c = countValues![sourceIdx];
             if (c === 0) continue;
-            const avg = sumValues![v] / c;
+            const avg = sumValues![sourceIdx] / c;
             const t = isFinite(avg) ? (avg - rangeMin) * scaleColor : 0;
             colormap(t, tmpRgb, 0);
             const off = v * 3;
@@ -414,11 +428,11 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     //    the morph texture on the next render.
     const posAttr = geometry.getAttribute("position");
     if (posAttr) {
-        (posAttr.array as Float32Array).set(basePositions);
+        (posAttr.array as Float32Array).set(renderBasePositions);
         posAttr.needsUpdate = true;
     }
 
-    const displacement = new Float32Array(basePositions.length);
+    const sourceDisplacement = new Float32Array(basePositions.length);
     if (warpField && warpStepValues) {
         const warpComponents = warpField.components.length;
         if (warpStepValues.length !== n_points * warpComponents) {
@@ -431,11 +445,12 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         for (let v = 0; v < n_points; v++) {
             const wb = v * warpComponents;
             const pb = v * 3;
-            displacement[pb + 0] = warpStepValues[wb] || 0;
-            displacement[pb + 1] = warpComponents >= 2 ? warpStepValues[wb + 1] || 0 : 0;
-            displacement[pb + 2] = warpComponents >= 3 ? warpStepValues[wb + 2] || 0 : 0;
+            sourceDisplacement[pb + 0] = warpStepValues[wb] || 0;
+            sourceDisplacement[pb + 1] = warpComponents >= 2 ? warpStepValues[wb + 1] || 0 : 0;
+            sourceDisplacement[pb + 2] = warpComponents >= 3 ? warpStepValues[wb + 2] || 0 : 0;
         }
     }
+    const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
     geometry.morphAttributes.position = [
         new THREE.BufferAttribute(displacement, 3),
     ];
