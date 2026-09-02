@@ -1,6 +1,6 @@
 [workspace]
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-64"]
+platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
 [feature.lint.tasks]
 # Local dev: rewrite the tree in place. Exclusions are config-driven (pyproject's [tool.black] via

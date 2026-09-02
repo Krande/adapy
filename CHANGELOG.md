@@ -2,6 +2,19 @@
 
 
 
+## v0.61.2 (2026-09-02)
+
+### Chore
+
+* chore(tests): assert the T-bar&#39;s segments and swept volume (#314)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`599c592`](https://github.com/Krande/adapy/commit/599c5923e9595dcd57c358254df53162d9e65b50))
+
+### Fix
+
+* fix(ci): build macOS natively on arm64 instead of under Rosetta (#315) ([`3b71617`](https://github.com/Krande/adapy/commit/3b71617f82ae4f724b6f47cd347bb40b5596d1b7))
+
+
 ## v0.61.1 (2026-09-02)
 
 ### Fix
