@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from ada import Section
+from ada import Beam, Section
+from ada.cad import CadBackendName, backend_available, select_backend
 from ada.sections.profiles import build_section_profile, drop_coincident
 
 
@@ -48,21 +49,19 @@ def test_a_t_encoded_iprofile_yields_a_clean_closed_outline(h, w_btn, t_w, t_fbt
     )
     assert shortest > 1e-3, f"a {shortest:.2e} m side will be dropped as sub-tolerance"
 
-    # Those two properties are what closing the loop depends on, and they are
-    # asserted directly rather than via `CurvePoly2d.segments`: reading that
-    # property faults in this environment for any profile, an ordinary
-    # I-section included, somewhere under `transform_3x3`. Unrelated to this
-    # fix, but it rules the property out as an assertion.
+    # Those two properties exist to protect one thing: that the loop still
+    # closes. Assert it directly. `CurvePoly2d` builds its segments lazily, so
+    # reading them is what actually runs the sub-tolerance filter that dropped
+    # the placeholder flange's sides and broke the loop in the first place.
+    assert len(curve.segments) == len(pts), "one segment per corner, or the loop is not closed"
 
 
 @pytest.mark.parametrize(("h", "w_btn", "t_w", "t_fbtn"), T_BARS)
 def test_the_outline_is_the_t_it_describes(h, w_btn, t_w, t_fbtn) -> None:
     """The placeholder flange is dropped, not modelled as a 0.1 mm plate.
 
-    Asserted on the outline rather than on the swept solid's volume: building a
-    solid needs the OCC path, which faults in this environment for any profile
-    at all (see the note above). The shape below is what the volume follows
-    from, and it is checked where it is decided.
+    The outline is where the shape is decided; the solid it sweeps into is
+    asserted separately below.
     """
     sec = _sec(h=h, w_top=t_w, w_btn=w_btn, t_w=t_w, t_ftop=1e-4, t_fbtn=t_fbtn)
 
@@ -78,9 +77,37 @@ def test_the_outline_is_the_t_it_describes(h, w_btn, t_w, t_fbtn) -> None:
     # The bottom flange is untouched.
     assert min(p[0] for p in pts) == pytest.approx(-w_btn / 2)
     assert max(p[0] for p in pts) == pytest.approx(w_btn / 2)
-    # Cross-section area, from the shape the outline describes.
-    area = (h - t_fbtn) * t_w + w_btn * t_fbtn
-    assert area > 0
+
+
+@pytest.mark.parametrize("backend_name", ("occ", "adacpp"))
+@pytest.mark.parametrize(("h", "w_btn", "t_w", "t_fbtn"), T_BARS)
+def test_the_swept_solid_has_the_volume_the_t_implies(h, w_btn, t_w, t_fbtn, backend_name) -> None:
+    """What the fix is actually for: the member builds, and builds as a T.
+
+    This is the direct statement the outline tests above only approximate. It
+    is also the one that fails LOUDLY without the fix -- not as an assertion,
+    but as `UnableToCreateCurveOCCGeom: Segments do not form a closed loop`,
+    raised out of `segments_to_wire` after the kernel refuses a wire carrying
+    zero-length edges. A deck of T-girders loses every member that way.
+
+    Run through `ada.cad` rather than OCC directly, and pinned per backend
+    rather than trusting the default: the profile is upstream of both kernels,
+    so a fix that only holds in one of them is not a fix. The environment that
+    carries only ada-cpp has no `OCC` module at all.
+    """
+    if not backend_available(CadBackendName(backend_name)):
+        pytest.skip(f"{backend_name} backend not installed")
+    backend = select_backend(prefer=backend_name)
+
+    length = 2.0
+    sec = _sec(h=h, w_top=t_w, w_btn=w_btn, t_w=t_w, t_ftop=1e-4, t_fbtn=t_fbtn)
+    beam = Beam("bm", (0, 0, 0), (length, 0, 0), sec)
+
+    volume = backend.volume(backend.build(beam.solid_geom()))
+
+    # Web at full height, plus the untouched bottom flange, swept along the beam.
+    expected = ((h - t_fbtn) * t_w + w_btn * t_fbtn) * length
+    assert volume == pytest.approx(expected, rel=1e-9)
 
 
 def test_a_real_i_profile_is_untouched() -> None:
