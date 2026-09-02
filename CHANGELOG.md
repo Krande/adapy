@@ -2,6 +2,15 @@
 
 
 
+## v0.60.0 (2026-09-02)
+
+### Feature
+
+* feat: one Audit tab, fronted by an overview you can click into (#312)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`65ee4ba`](https://github.com/Krande/adapy/commit/65ee4bae1a89f1e2dd7e6ced43fb89cd901adc67))
+
+
 ## v0.59.0 (2026-09-01)
 
 ### Feature
