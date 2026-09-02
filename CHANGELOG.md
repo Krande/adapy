@@ -2,6 +2,16 @@
 
 
 
+## v0.61.1 (2026-09-02)
+
+### Fix
+
+* fix: two ways a Sesam deck fails the FEA bake outright (#306)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`4ae6e49`](https://github.com/Krande/adapy/commit/4ae6e49bb223e11f282afa03abf909810dfa77e8))
+
+
 ## v0.61.0 (2026-09-02)
 
 ### Feature
