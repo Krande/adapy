@@ -87,10 +87,14 @@ worker-internal
 worker-ext-01                                               # one per external host
                sub      ada.viewer.jobs.convert.cad         # its pool, nothing else
                JS API   $JS.API.CONSUMER.*.ADA_VIEWER_JOBS.ada-viewer-worker-cad
-               KV       write $KV.ada-viewer-jobs.__meta_worker__ext-01
+               KV       write $KV.ada-viewer-workers.__meta_worker__ext-01
                         write $KV.ada-viewer-jobs.*          # job status — see residual risks
                         read  $KV.ada-viewer-jobs.>
 ```
+
+Note the two different buckets on the `KV` lines. That is
+`ADA_VIEWER_NATS_REGISTRY_KV_BUCKET`, and without it the first line cannot be
+written at all — see below.
 
 The subject layout makes this practical without inventing anything: pools are
 already `<subject>.<capability>` and durables are already
@@ -106,11 +110,50 @@ publish permission (`__meta_worker__ext-01` above) and the id becomes
 under a name it was not issued. This is worth doing even before admission
 (§3), because it is what makes an admission list keyed by worker id meaningful.
 
+**This did not work as first written, and the fix is a deployment setting.**
+The pin was proposed against `$KV.ada-viewer-jobs.__meta_worker__ext-01` — the
+registry row in the *jobs* bucket. But a worker must write arbitrary job ids to
+report progress, so the same credential needs `$KV.ada-viewer-jobs.*`. NATS
+subject wildcards match a WHOLE token and `__meta_worker__<id>` **is** one
+token, so that `*` already covers every worker's registry row: the pin sitting
+next to it granted nothing the credential did not already have. The complement
+cannot be expressed either — a `deny` on `$KV.ada-viewer-jobs.__meta_worker__*`
+matches nothing, for the same reason. So every credential that could report job
+progress could overwrite any worker's registry row, including one claiming a
+`plugin_id` it does not own, which is exactly the impersonation in §2.
+
+`ADA_VIEWER_NATS_REGISTRY_KV_BUCKET` moves the registry into a bucket of its
+own. Job progress then needs `$KV.ada-viewer-jobs.*` and nothing in the registry
+bucket, and the per-worker pin becomes a real restriction:
+
+```
+write $KV.ada-viewer-workers.__meta_worker__ext-01     # only its own row
+write $KV.ada-viewer-jobs.*                            # any job's status
+```
+
+It is **opt-in**: unset (the default) keeps the registry in the jobs bucket,
+exactly as before. Turning it on while workers are running would otherwise empty
+the admin panel — and with it `/api/plugins` and extension-based routing — for
+every worker that has not restarted onto the new bucket, so `list_workers()`
+reads both while the split is on and prefers the dedicated bucket's row. Enable
+it on the API first (it creates the bucket), then roll the workers; a worker
+whose API has not created the bucket yet logs that it will not appear in the
+registry and goes on serving jobs.
+
+What this does **not** close: reading. A credential that can read the registry
+bucket can read every row in it, because KV reads go through
+`$JS.API.DIRECT.GET` rather than the `$KV.` subject. Registry rows are not
+secret — the threat in §2 is a forged *write*.
+
 ### Code changes
 
 * ✅ `QueueConfig` gains `creds_file`, `user`, `password`, `token`,
   `nkey_seed_file`, `tls_ca` (+ `ADA_VIEWER_NATS_*` env), and `connect()` passes
   them through to `nats.connect()`. `nats-py` supports all of these directly.
+* ✅ **`ADA_VIEWER_NATS_REGISTRY_KV_BUCKET`** — the worker registry in a KV
+  bucket of its own, so a credential can be pinned to one worker's own row.
+  Opt-in; `list_workers()` reads the old bucket too while the split is on, so
+  enabling it does not blank the registry mid-rollout.
 * ✅ **`connect(manage=False)` for workers.** Stream and consumer
   *administration* moves behind a flag the API sets and the worker does not, so
   worker credentials need no stream-admin rights. Without this, least privilege
@@ -394,6 +437,15 @@ Two details worth knowing before step 3:
 
 ## 6. Residual risks
 
+* **The registry pin only exists if the deployment splits the bucket.**
+  `ADA_VIEWER_NATS_REGISTRY_KV_BUCKET` is unset by default, and while it is
+  unset the registry shares the jobs bucket — where the `$KV.<jobs>.*` that job
+  progress requires covers every worker's row, and the per-worker pin above is
+  decoration. There is no way to detect from inside adapy that an operator
+  intended the pin and did not get it, because a permission that grants too much
+  produces no error anywhere. Verify it the way any too-wide permission is
+  verified: connect with a worker's own credential and try to write another
+  worker's registry row.
 * **Job-status KV cannot be scoped per worker.** Job ids are random, so a
   credential able to update the job it is processing can update any job's status
   (not read its blobs). Accepted for now. The clean fix is to move status

@@ -213,3 +213,35 @@ export function savePendingFolders(
         // localStorage full / disabled — silently lose the state.
     }
 }
+
+/** Key prefixes that are storage rather than "my files".
+ *
+ * ``assets/`` holds machine-published datasets under an opaque
+ * ``assets/<collection>/<subject>/<revision>/<file>`` convention. A publishing
+ * scope accumulates thousands of them and none is a file anyone uploaded, so
+ * they bury the handful of sources the browser exists to show.
+ *
+ * HIDDEN IN THE UI ONLY — never server-side. ``GET /api/scopes/{scope}/files``
+ * is the sole index of that prefix (no per-prefix filter, no pagination), so
+ * plugins project their published-asset hierarchy out of exactly this listing.
+ * Dropping the keys at the API would not degrade such a plugin, it would
+ * silently blank it: every published dataset would read as "never published",
+ * with no error anywhere. converter.py's HIDDEN_PREFIXES carries the same
+ * warning in bigger letters. Filter at the view, keep the index whole. */
+export const UI_HIDDEN_PREFIXES: readonly string[] = ["assets/"];
+
+/** True when a key belongs to a prefix the file browsers hide by default. */
+export function isUiHiddenKey(key: string): boolean {
+    const k = key.replace(/^\/+/, "");
+    return UI_HIDDEN_PREFIXES.some((p) => k.startsWith(p));
+}
+
+/** Split a listing into what to show and what is hidden, so a caller can both
+ * filter and say how much it is holding back — a browser that hides files
+ * without admitting it is indistinguishable from one that lost them. */
+export function partitionUiHidden<T>(items: readonly T[], keyOf: (t: T) => string): {visible: T[]; hidden: T[]} {
+    const visible: T[] = [];
+    const hidden: T[] = [];
+    for (const it of items) (isUiHiddenKey(keyOf(it)) ? hidden : visible).push(it);
+    return {visible, hidden};
+}

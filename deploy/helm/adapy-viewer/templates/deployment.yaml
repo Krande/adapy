@@ -87,6 +87,21 @@ spec:
             {{- end }}
             {{- include "adapy-viewer.authEnv" . | nindent 12 }}
             {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
+            {{- /* Last, deliberately: a duplicate env name resolves to the final
+                 occurrence, so extraEnv can override anything the chart derived
+                 above without needing a chart release to do it. */}}
+            {{- range $name, $value := .Values.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- /* Whole-secret env for the API, for values that must not appear in a
+               values file — a NATS credential, above all. Keys are used verbatim,
+               so the secret must already name them as the variables the code
+               reads (e.g. ADA_VIEWER_NATS_NKEY_SEED_VALUE). */}}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if eq .Values.storage.kind "local" }}
           volumeMounts:
             - name: data
