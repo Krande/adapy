@@ -14,6 +14,7 @@ import ThemeOptions from "./options/ThemeOptions";
 // Lazy-loaded so the desktop bundle stays slim.
 const RestSection = React.lazy(() => import("./options/RestSection"));
 import {UiShellSwitcher} from "@/plugins";
+import { buildLabel } from "@/utils/buildLabel";
 
 const MOBILE_QUERY = "(max-width: 767px)";
 
@@ -60,16 +61,7 @@ function OptionsComponent() {
     const frontend_sha = runtime.frontendSha();
     const viewer_image_tag = runtime.viewerImageTag();
 
-    // Build line: adapy package version (from config.js) + commit sha, e.g. "0.15.0 (43ae2883)".
-    // The sha is the frontend build-time git sha when present, else the deployed image's sha tag
-    // (VIEWER_IMAGE_TAG = "sha-XXXXXXX" on branch builds — the hosted viewer copies source, so the
-    // build-time git sha is unavailable there). Falls back to the numeric build id as a last resort.
-    const sha = frontend_sha || (viewer_image_tag.startsWith("sha-") ? viewer_image_tag.slice(4) : "");
-    const build_label = adapy_version
-        ? sha
-            ? `${adapy_version} (${sha})`
-            : adapy_version
-        : sha || String(unique_version_id);
+    const build_label = buildLabel(adapy_version, frontend_sha, viewer_image_tag, unique_version_id);
     const versionInfo = (
         <div className="text-xs text-gray-300">
             Build: <span className="font-mono">{build_label}</span>
