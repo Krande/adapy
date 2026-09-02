@@ -964,8 +964,47 @@ export interface AuditFilters {
   status?: string;
   /** Case-insensitive substring filter on the source filepath/filename. */
   key?: string;
+  /** Lower bound on ``ts``: a duration the SERVER resolves ("6h", "30d"), or an
+   * ISO-8601 instant for a custom range. Relative forms are deliberately not
+   * resolved here — a clock a few minutes fast would silently empty a
+   * "last 5 minutes" view. */
+  since?: string;
+  /** Upper bound on ``ts``, ISO-8601. Only set for a custom range. */
+  until?: string;
   before_id?: number;
   limit?: number;
+}
+
+/** Aggregate counts behind the Audit tab's Overview. */
+/** Queue pressure right now. Ages are of jobs still WAITING — `ts` is the
+ * enqueue time, so a queued row's age is its wait so far. Jobs that already ran
+ * are absent on purpose: nothing records when a worker picked one up, so a
+ * historical wait would have to be invented. */
+export interface AuditCongestion {
+  queued: number;
+  running: number;
+  /** Null when nothing is queued — distinct from 0, which would mean
+   * "served instantly". */
+  oldest_wait_s: number | null;
+  mean_wait_s: number | null;
+  median_wait_s: number | null;
+  /** How many rows carry a recorded start. Rows predating the started_at
+   * migration do not, so this travels with the numbers — a median over three
+   * rows deserves less trust than one over three thousand. */
+  served: number;
+  served_mean_wait_s: number | null;
+  served_median_wait_s: number | null;
+  served_p95_wait_s: number | null;
+  served_max_wait_s: number | null;
+}
+
+export interface AuditSummary {
+  total: number;
+  congestion: AuditCongestion;
+  /** Always carries the four states the queue writes, zero-filled. */
+  by_status: Record<string, number>;
+  by_target: { target: string; counts: Record<string, number>; total: number }[];
+  top_errors: { error: string; count: number }[];
 }
 
 export interface DerivedBlob {
@@ -2138,6 +2177,27 @@ export const viewerApi = {
     );
   },
 
+  /** Rename a procedural model — which is also how it MOVES between folders.
+   *
+   * The name carries the folder path; a model is addressed by UUID everywhere,
+   * so a "/" in it is a label, not a route. One operation rather than two that
+   * could disagree about where a model lives. */
+  async renameProceduralModel(
+    scope: ScopeUrl,
+    modelId: string,
+    name: string,
+  ): Promise<ProceduralModelSummary> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/name`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      },
+    );
+    return jsonOrThrow<ProceduralModelSummary>(r, `renameProceduralModel(${name})`);
+  },
+
   async getProceduralModel(
     scope: ScopeUrl,
     modelId: string,
@@ -3128,6 +3188,22 @@ export const viewerApi = {
     return jsonOrThrow(r, "adminAudit");
   },
 
+  /** Admin: aggregate counts for the audit Overview, under the same filter
+   * the log uses. ``status`` is intentionally not sent — the summary shows how
+   * a population splits across states, and the tiles are what set that filter,
+   * so honouring it would zero every tile but the selected one. */
+  async adminAuditSummary(filters: AuditFilters = {}): Promise<AuditSummary> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) {
+      if (k === "status" || k === "limit" || k === "before_id") continue;
+      if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+    }
+    const qs = params.toString();
+    const url = `${runtime.apiBase()}/admin/audit/summary${qs ? `?${qs}` : ""}`;
+    const r = await authedFetch(url);
+    return jsonOrThrow(r, "adminAuditSummary");
+  },
+
   /** Admin: the captured package manifest ("pixi list") for a worker image
    * tag — linked from a convert audit row via its worker_image_tag. */
   async adminWorkerPackages(imageTag: string): Promise<{
@@ -3313,7 +3389,7 @@ export const viewerApi = {
   },
 
   /** Admin: ambient summary of currently-running audit sweeps.
-   * Drives the bottom-right badge that links into the Audit Runs
+   * Drives the bottom-right badge that links into the audit Runs
    * tab; intentionally cheap so it polls cleanly every 15s.
    * ``current_cell`` surfaces what's actively converting right now
    * (most-recently-touched ``running`` or ``queued`` audit_log row

@@ -6,7 +6,7 @@
 
 import {create} from "zustand";
 
-import {AdminTab} from "./adminPanelStore";
+import {AdminTabDeepLink} from "./adminPanelStore";
 
 export type ViewerPanel = "admin" | "convert";
 
@@ -15,8 +15,8 @@ type ViewerPanelState = {
     // When opening the admin panel, the tab to land on (e.g. "audit_runs" from the audit-sweep
     // toast). null = the panel's default tab. Embedded mode doesn't touch the URL hash, so this
     // is how a trigger deep-links a tab into the floating panel.
-    adminTab: AdminTab | null;
-    openPanel: (p: ViewerPanel, adminTab?: AdminTab) => void;
+    adminTab: AdminTabDeepLink | null;
+    openPanel: (p: ViewerPanel, adminTab?: AdminTabDeepLink) => void;
     closePanel: () => void;
 };
 

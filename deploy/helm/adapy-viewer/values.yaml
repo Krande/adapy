@@ -43,6 +43,21 @@ strategy:
     maxSurge: 1
     maxUnavailable: 0
 
+## Free-form env for the API container (name -> value, rendered verbatim).
+## The worker pools have had this for a while; the API had no hook at all,
+## which is why a deployment could authenticate its workers to NATS but not
+## its API — see deploy/worker-trust.md §5.
+extraEnv: {}
+
+## envFrom sources for the API container (e.g. [{secretRef: {name: my-secret}}]).
+## For values that must not appear in a values file. Keys are consumed
+## verbatim, so the secret must name them as the variables the code reads —
+## e.g. a NATS credential:
+##   extraEnvFrom:
+##     - secretRef:
+##         name: adapy-viewer-nats-creds   # key: ADA_VIEWER_NATS_NKEY_SEED_VALUE
+extraEnvFrom: []
+
 ## Conversion worker. Pulls source files from storage, converts to GLB,
 ## writes back under _derived/. Required for IFC/STEP/FEM viewing —
 ## without it only existing GLB files can be displayed.

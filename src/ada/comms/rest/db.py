@@ -18,9 +18,11 @@ via the :func:`get_pool` accessor.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import importlib.resources
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -371,15 +373,23 @@ async def mark_audit_running(
     job_id: str,
     worker_image_tag: str | None = None,
 ) -> None:
-    """Flip the audit_log row for a job into ``status='running'`` and
-    stamp ``ts = now()`` so the admin's "current cell" query has a
-    fresh row to surface.
+    """Flip the audit_log row for a job into ``status='running'`` and stamp
+    ``started_at`` so the admin's "current cell" query has a fresh row.
 
-    Without this hop the row goes straight queued → done and the
-    audit toast's ORDER BY can't tell which queued cell is actually
-    being worked on — so the same one stays on screen for the
-    whole sweep. Best-effort: a DB hiccup must never break job
-    processing.
+    Without this hop the row goes straight queued → done and the audit toast's
+    ORDER BY can't tell which queued cell is actually being worked on — so the
+    same one stays on screen for the whole sweep.
+
+    THIS USED TO OVERWRITE ``ts``, and that is why queue wait could not be
+    measured after the fact: ``ts`` was the enqueue time while a row was queued
+    and the START time from the moment it was picked up, so the interval between
+    the two — the wait — was destroyed by the very hop that ended it. It also
+    made ``ts`` mean two different things depending on a column next to it,
+    which is a trap for anything reading the table.
+
+    ``ts`` is now the enqueue time for the row's whole life, and ``started_at``
+    is the pickup. Wait is the difference. Best-effort: a DB hiccup must never
+    break job processing.
     """
     if pool is None:
         return
@@ -388,7 +398,7 @@ async def mark_audit_running(
             """
             UPDATE audit_log
             SET status = 'running',
-                ts = NOW(),
+                started_at = NOW(),
                 worker_image_tag = COALESCE($2, worker_image_tag)
             WHERE job_id = $1
               AND status = 'queued'
@@ -639,14 +649,20 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
     # that doesn't change as the sweep advances. Caller sees no
     # current_cell between cells (a few hundred ms) — that's the
     # honest answer, and the toast hides the line there.
+    #
+    # Ordered by ``started_at``, which is what "most recently picked up" means
+    # now that ``ts`` stays at enqueue. COALESCE keeps a mid-rollout row written
+    # by an older worker (started_at NULL, ts stamped at pickup) in the right
+    # place instead of sorting it to the bottom for the length of the sweep.
     current_row = await pool.fetchrow(
         """
-        SELECT al.key, al.target_format, al.status, al.ts
+        SELECT al.key, al.target_format, al.status,
+               COALESCE(al.started_at, al.ts) AS ts
         FROM audit_log al
         JOIN audit_runs ar ON ar.id = al.audit_run_id
         WHERE ar.status = 'running'
           AND al.status = 'running'
-        ORDER BY al.ts DESC
+        ORDER BY COALESCE(al.started_at, al.ts) DESC
         LIMIT 1
         """
     )
@@ -759,6 +775,115 @@ async def append_metrics_sample_by_job(
 # ── Admin queries ────────────────────────────────────────────────────
 
 
+_RELATIVE_BOUND = re.compile(r"^(\d+)\s*([smhdw])$", re.IGNORECASE)
+_RELATIVE_UNIT = {
+    "s": "seconds",
+    "m": "minutes",
+    "h": "hours",
+    "d": "days",
+    "w": "weeks",
+}
+
+
+def parse_audit_time_bound(value: str | None, *, now: datetime.datetime | None = None) -> datetime.datetime | None:
+    """A time bound for the audit filter: ``"6h"``, or an ISO-8601 instant.
+
+    Relative forms are resolved HERE, against the server's clock, rather than
+    the browser computing an absolute instant and sending that. A workstation
+    whose clock is a few minutes fast would otherwise silently drop rows from a
+    "last 5 minutes" view and show a window that never existed — and the
+    narrower the range, the worse the error, which is exactly backwards.
+
+    Absolute ISO input stays absolute: for a custom range the operator picked
+    two real instants, and skew is irrelevant to what they meant.
+
+    Empty / None means unbounded. Anything unparseable raises ``ValueError`` so
+    the caller can answer 400 rather than quietly returning all of history.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+
+    m = _RELATIVE_BOUND.match(raw)
+    if m:
+        amount, unit = int(m.group(1)), m.group(2).lower()
+        base = now or datetime.datetime.now(datetime.timezone.utc)
+        return base - datetime.timedelta(**{_RELATIVE_UNIT[unit]: amount})
+
+    iso = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.datetime.fromisoformat(iso)
+    except ValueError as exc:
+        raise ValueError(f"not a duration (e.g. '6h') or an ISO-8601 instant: {value!r}") from exc
+    # A naive instant is taken as UTC: the column is timestamptz, and comparing
+    # it against a naive value raises rather than guessing a zone.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed
+
+
+def _audit_predicates(
+    *,
+    user_sub: str | None = None,
+    scope_kind: str | None = None,
+    scope_id: str | None = None,
+    action: str | None = None,
+    target_format: str | None = None,
+    statuses: list[str] | None = None,
+    key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
+    before_id: int | None = None,
+    exclude_audit_dispatched: bool = False,
+) -> tuple[list[str], list]:
+    """Build the shared ``audit_log`` WHERE fragments and their arguments.
+
+    Extracted so ``list_audit`` and ``summarize_audit`` cannot drift: the
+    admin Audit tab shows a summary and a log side by side under ONE filter,
+    and a predicate honoured by one but not the other reads as a counting bug
+    rather than as the mismatch it is. Placeholders are numbered from the
+    running length of ``args``, so a caller may append its own (a LIMIT, say)
+    afterwards.
+    """
+    where: list[str] = []
+    args: list = []
+    if user_sub:
+        args.append(user_sub)
+        where.append(f"user_sub = ${len(args)}")
+    if scope_kind:
+        args.append(scope_kind)
+        where.append(f"scope_kind = ${len(args)}")
+    if scope_id:
+        args.append(scope_id)
+        where.append(f"scope_id = ${len(args)}")
+    if action:
+        args.append(action)
+        where.append(f"action = ${len(args)}")
+    if target_format:
+        args.append(target_format)
+        where.append(f"target_format = ${len(args)}")
+    if statuses:
+        args.append(statuses)
+        where.append(f"status = ANY(${len(args)})")
+    if key_like:
+        args.append(f"%{key_like}%")
+        where.append(f"key ILIKE ${len(args)}")
+    # Bounded on ``ts``, which carries a DESC btree index, so narrowing the
+    # window makes both the log and the summary cheaper rather than dearer.
+    if since is not None:
+        args.append(since)
+        where.append(f"ts >= ${len(args)}")
+    if until is not None:
+        args.append(until)
+        where.append(f"ts <= ${len(args)}")
+    if before_id is not None:
+        args.append(before_id)
+        where.append(f"id < ${len(args)}")
+    if exclude_audit_dispatched:
+        where.append("audit_run_id IS NULL")
+    return where, args
+
+
 async def list_audit(
     pool: asyncpg.Pool,
     *,
@@ -769,6 +894,8 @@ async def list_audit(
     target_format: str | None = None,
     statuses: list[str] | None = None,
     key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
     limit: int = 100,
     before_id: int | None = None,
     exclude_audit_dispatched: bool = False,
@@ -794,37 +921,22 @@ async def list_audit(
     flood the bottom-right toast — the Audit Runs admin tab is
     the proper surface for that work.
     """
-    where: list[str] = []
-    args: list = []
-    if user_sub:
-        args.append(user_sub)
-        where.append(f"user_sub = ${len(args)}")
-    if scope_kind:
-        args.append(scope_kind)
-        where.append(f"scope_kind = ${len(args)}")
-    if scope_id:
-        args.append(scope_id)
-        where.append(f"scope_id = ${len(args)}")
-    if action:
-        args.append(action)
-        where.append(f"action = ${len(args)}")
-    if target_format:
-        args.append(target_format)
-        where.append(f"target_format = ${len(args)}")
-    if statuses:
-        args.append(statuses)
-        where.append(f"status = ANY(${len(args)})")
-    if key_like:
-        args.append(f"%{key_like}%")
-        where.append(f"key ILIKE ${len(args)}")
-    if before_id is not None:
-        args.append(before_id)
-        where.append(f"id < ${len(args)}")
-    if exclude_audit_dispatched:
-        where.append("audit_run_id IS NULL")
+    where, args = _audit_predicates(
+        user_sub=user_sub,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        action=action,
+        target_format=target_format,
+        statuses=statuses,
+        key_like=key_like,
+        since=since,
+        until=until,
+        before_id=before_id,
+        exclude_audit_dispatched=exclude_audit_dispatched,
+    )
     args.append(min(max(limit, 1), 500))
     sql = (
-        "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
+        "SELECT id, ts, started_at, user_sub, scope_kind, scope_id, action, key,"
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
         " profile_key, log_key, job_id, audit_run_id, worker_image_tag, convert_meta,"
@@ -841,6 +953,7 @@ async def list_audit(
         {
             "id": r["id"],
             "ts": r["ts"].isoformat() if r["ts"] is not None else None,
+            "started_at": r["started_at"].isoformat() if r["started_at"] is not None else None,
             "user_sub": r["user_sub"],
             "user_email": r["user_email"],
             "user_display_name": r["user_display_name"],
@@ -871,6 +984,145 @@ async def list_audit(
         }
         for r in rows
     ]
+
+
+async def summarize_audit(
+    pool: asyncpg.Pool,
+    *,
+    user_sub: str | None = None,
+    scope_kind: str | None = None,
+    scope_id: str | None = None,
+    action: str | None = None,
+    target_format: str | None = None,
+    key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
+    reason_limit: int = 10,
+) -> dict:
+    """Aggregate counts for the Audit tab's Overview, under the same filter
+    the log uses.
+
+    NOTE THE MISSING ``statuses`` PARAMETER — it is deliberate, not an
+    oversight. Overview's whole job is to show how a filtered population
+    splits ACROSS states, and the tiles double as the control that sets the
+    status filter. Honouring that filter here would mean clicking "Failed"
+    zeroes the other three tiles, i.e. the act of drilling in destroys the
+    context you drilled in from. So every other predicate applies and status
+    does not; the caller renders the active status as a selection instead.
+
+    Returns ``by_status`` (every state present, plus explicit zeros for the
+    four the queue writes, so the UI never has to invent a missing key),
+    ``by_target`` (per target format, split by state — this is what makes
+    "glb is fine, step is failing" visible at a glance), and
+    ``top_errors`` (the most common failure messages, so the usual next
+    question — *which* failure — is answered without opening a single row).
+    """
+    where, args = _audit_predicates(
+        user_sub=user_sub,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        action=action,
+        target_format=target_format,
+        key_like=key_like,
+        since=since,
+        until=until,
+    )
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    # One pass yields both breakdowns: summing over target gives the status
+    # totals, so the tiles and the per-target table can never disagree.
+    grid = await pool.fetch(
+        "SELECT status, target_format, count(*) AS n FROM audit_log" + clause + " GROUP BY status, target_format",
+        *args,
+    )
+
+    by_status: dict[str, int] = {"queued": 0, "running": 0, "done": 0, "error": 0}
+    by_target: dict[str, dict[str, int]] = {}
+    total = 0
+    for r in grid:
+        status = r["status"] or "unknown"
+        n = int(r["n"])
+        total += n
+        by_status[status] = by_status.get(status, 0) + n
+        tgt = r["target_format"] or "—"
+        bucket = by_target.setdefault(tgt, {})
+        bucket[status] = bucket.get(status, 0) + n
+
+    # CONGESTION. ``ts`` is the ENQUEUE time — insert_audit writes the row with
+    # status='queued' before a worker can see the job, and the completion update
+    # never rewrites it. So for a row still queued, ``now() - ts`` is exactly how
+    # long that job has been waiting, which is the question "are we backed up?"
+    #
+    # What this deliberately does NOT report is the wait of jobs that already
+    # ran. Nothing records when a worker picked a job up: the row carries
+    # enqueue time and processing duration, and the instant between them is
+    # simply not stored. A historical average would have to be invented, and an
+    # invented latency is worse than an absent one. Adding a ``started_at``
+    # column is the honest way to get it.
+    queue_row = await pool.fetchrow(
+        "SELECT count(*) AS n,"
+        " EXTRACT(EPOCH FROM max(now() - ts)) AS oldest_s,"
+        " EXTRACT(EPOCH FROM avg(now() - ts)) AS mean_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY now() - ts)) AS median_s"
+        " FROM audit_log" + (clause + " AND " if clause else " WHERE ") + "status = 'queued'",
+        *args,
+    )
+
+    # HISTORICAL wait, now that started_at survives the hop that used to destroy
+    # it. Rows predating migration 027 have started_at NULL and are excluded
+    # rather than backfilled: giving them ts would report every historical job
+    # as having waited zero and flatten the very trend this measures.
+    served_row = await pool.fetchrow(
+        "SELECT count(*) AS n,"
+        " EXTRACT(EPOCH FROM avg(started_at - ts)) AS mean_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY started_at - ts)) AS median_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.95) WITHIN GROUP (ORDER BY started_at - ts)) AS p95_s,"
+        " EXTRACT(EPOCH FROM max(started_at - ts)) AS max_s"
+        " FROM audit_log" + (clause + " AND " if clause else " WHERE ") + "started_at IS NOT NULL",
+        *args,
+    )
+
+    err_where = list(where) + ["status = 'error'", "error IS NOT NULL"]
+    err_args = list(args)
+    err_args.append(min(max(reason_limit, 1), 50))
+    top_errors = await pool.fetch(
+        "SELECT error, count(*) AS n FROM audit_log WHERE "
+        + " AND ".join(err_where)
+        + f" GROUP BY error ORDER BY n DESC, error ASC LIMIT ${len(err_args)}",
+        *err_args,
+    )
+
+    def _sec(v):
+        return round(float(v), 1) if v is not None else None
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "congestion": {
+            "queued": int(queue_row["n"] or 0),
+            "running": by_status.get("running", 0),
+            # Ages of the jobs waiting RIGHT NOW, in seconds. None when the
+            # queue is empty — which is not the same as zero, and the UI says so.
+            "oldest_wait_s": _sec(queue_row["oldest_s"]),
+            "mean_wait_s": _sec(queue_row["mean_s"]),
+            "median_wait_s": _sec(queue_row["median_s"]),
+            # How long jobs that DID run waited before a worker took them.
+            # ``served`` is how many rows carry the measurement at all — rows
+            # from before migration 027 do not, and a median over three rows
+            # deserves less trust than one over three thousand, so the count
+            # travels with the numbers.
+            "served": int(served_row["n"] or 0),
+            "served_mean_wait_s": _sec(served_row["mean_s"]),
+            "served_median_wait_s": _sec(served_row["median_s"]),
+            "served_p95_wait_s": _sec(served_row["p95_s"]),
+            "served_max_wait_s": _sec(served_row["max_s"]),
+        },
+        "by_target": [
+            {"target": tgt, "counts": counts, "total": sum(counts.values())}
+            for tgt, counts in sorted(by_target.items(), key=lambda kv: -sum(kv[1].values()))
+        ],
+        "top_errors": [{"error": r["error"], "count": int(r["n"])} for r in top_errors],
+    }
 
 
 def _loads_jsonb(v):
@@ -3027,6 +3279,35 @@ async def create_procedural_model(
     out = _procedural_row_summary(row)
     out["doc"] = _loads_jsonb(row["doc"])
     return out
+
+
+async def rename_procedural_model(pool: asyncpg.Pool, model_id: str, name: str) -> dict | None | bool:
+    """Rename a model, which is also how it MOVES between folders.
+
+    The name carries the folder path (see procedural.normalize_model_name), so
+    there is one operation rather than two that could disagree about where a
+    model lives.
+
+    Returns the updated summary, ``False`` when the target name is taken (the
+    scope-unique index — the same collision a filesystem would report), or
+    ``None`` when the model does not exist or is archived.
+    """
+    try:
+        row = await pool.fetchrow(
+            """
+            UPDATE procedural_models
+            SET name = $2, updated_at = now()
+            WHERE id = $1::uuid AND NOT archived
+            RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
+            """,
+            model_id,
+            name,
+        )
+    except asyncpg.UniqueViolationError:
+        return False
+    if row is None:
+        return None
+    return _procedural_row_summary(row)
 
 
 async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:

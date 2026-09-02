@@ -2,6 +2,52 @@
 
 
 
+## v0.61.1 (2026-09-02)
+
+### Fix
+
+* fix: two ways a Sesam deck fails the FEA bake outright (#306)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`4ae6e49`](https://github.com/Krande/adapy/commit/4ae6e49bb223e11f282afa03abf909810dfa77e8))
+
+
+## v0.61.0 (2026-09-02)
+
+### Feature
+
+* feat(api): let a plugin job require an admin, from two sources that only tighten (#313)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`79651a5`](https://github.com/Krande/adapy/commit/79651a5cfabd52fe2d903283bc8835b825884e85))
+
+
+## v0.60.0 (2026-09-02)
+
+### Feature
+
+* feat: one Audit tab, fronted by an overview you can click into (#312)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`65ee4ba`](https://github.com/Krande/adapy/commit/65ee4bae1a89f1e2dd7e6ced43fb89cd901adc67))
+
+
+## v0.59.0 (2026-09-01)
+
+### Feature
+
+* feat: an API-side env hook, so a deployment can authenticate its own API (#311)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c87b106`](https://github.com/Krande/adapy/commit/c87b10611cd6d3ef3edc08be210ba157c880c408))
+
+
+## v0.58.0 (2026-09-01)
+
+### Feature
+
+* feat(queue): let the worker registry live in its own KV bucket (#310)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`891470c`](https://github.com/Krande/adapy/commit/891470c934ddba20e4c33959cbf740c4348f8990))
+
+
 ## v0.57.0 (2026-08-31)
 
 ### Feature
