@@ -85,9 +85,7 @@ def as_user(monkeypatch):
     monkeypatch.setattr(
         _auth.User,
         "local_dev",
-        classmethod(
-            lambda cls: cls(sub="viewer", email="v@x", display_name="V", groups=frozenset(), is_admin=False)
-        ),
+        classmethod(lambda cls: cls(sub="viewer", email="v@x", display_name="V", groups=frozenset(), is_admin=False)),
     )
 
 
