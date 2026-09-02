@@ -62,3 +62,55 @@ test("a handler that is not supplied yields no entry", () => {
   const items = buildProceduralMenuItems("module-a", { canMutate: true, onOpen: noop });
   assert.deepEqual(items.map((i) => i.key), ["open"]);
 });
+
+// ── selection semantics (the part that can silently 404) ───────────
+
+/** Mirrors StorageBrowser.splitSelection: one tree and one selection set, two
+ *  different things on the server — a model is a row addressed by UUID, a file
+ *  is a blob addressed by key. */
+function splitSelection(keys: string[], modelNames: Set<string>) {
+  const models: string[] = [];
+  const fileKeys: string[] = [];
+  for (const k of keys) (modelNames.has(k) ? models : fileKeys).push(k);
+  return { models, fileKeys };
+}
+
+test("a mixed selection is split by kind, not by guesswork", () => {
+  // Deleting a model through the storage API would 404; moving one would
+  // silently do nothing. Every bulk action has to fan out.
+  const modelNames = new Set(["decks/a/model", "module-b"]);
+  const { models, fileKeys } = splitSelection(
+    ["models/crane.step", "decks/a/model", "b.ifc", "module-b"],
+    modelNames,
+  );
+  assert.deepEqual(models, ["decks/a/model", "module-b"]);
+  assert.deepEqual(fileKeys, ["models/crane.step", "b.ifc"]);
+});
+
+test("a model-only selection yields no file keys", () => {
+  // The storage bulk-delete loop must then run zero times rather than once
+  // with a key that is not a blob.
+  const { models, fileKeys } = splitSelection(["m1", "m2"], new Set(["m1", "m2"]));
+  assert.equal(fileKeys.length, 0);
+  assert.equal(models.length, 2);
+});
+
+test("a name that merely looks like a model is treated as a file", () => {
+  // Membership is by exact name, never by shape: a real file called
+  // "module-b.step" must not be mistaken for the model "module-b".
+  const { models, fileKeys } = splitSelection(["module-b.step"], new Set(["module-b"]));
+  assert.deepEqual(models, []);
+  assert.deepEqual(fileKeys, ["module-b.step"]);
+});
+
+test("loadable count excludes models", () => {
+  // A selection of only models must not offer an enabled Load that does
+  // nothing when clicked.
+  const modelNames = new Set(["m1", "m2"]);
+  const selection = ["m1", "m2", "a.step"];
+  const selectedModelCount = selection.filter((k) => modelNames.has(k)).length;
+  assert.equal(selection.length - selectedModelCount, 1);
+
+  const onlyModels = ["m1", "m2"];
+  assert.equal(onlyModels.length - onlyModels.filter((k) => modelNames.has(k)).length, 0);
+});

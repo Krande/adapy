@@ -880,6 +880,50 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Row selection, shared by file rows and procedural-model rows. Both are
+    // leaves of the same tree, so shift-range has to run over the same visible
+    // order — a range that skipped models would select around them.
+    const onRowSelectToggle = (name: string, shiftKey?: boolean) => {
+        setFocusedKey(`file:${name}`);
+        if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
+            const rowNames = flatRows
+                .filter((r) => r.kind === "file")
+                .map((r) => (r as {name: string}).name);
+            const a = rowNames.indexOf(lastSelectedRef.current);
+            const b = rowNames.indexOf(name);
+            if (a >= 0 && b >= 0) {
+                const [lo, hi] = a < b ? [a, b] : [b, a];
+                setSelection((prev) => {
+                    const next = new Set(prev);
+                    for (let i = lo; i <= hi; i++) next.add(rowNames[i]);
+                    return next;
+                });
+                lastSelectedRef.current = name;
+                return;
+            }
+        }
+        lastSelectedRef.current = name;
+        toggleSelection(name);
+    };
+
+    /** Split a selection into procedural models and real storage keys.
+     *
+     * Both live in one tree and one selection set, but they are different
+     * things on the server: a model is a row addressed by UUID, a file is a
+     * blob addressed by key. Every bulk action has to fan out accordingly —
+     * deleting a model through the storage API would 404, and moving one would
+     * silently do nothing. */
+    const splitSelection = (keys: string[]) => {
+        const models: ProceduralModelSummary[] = [];
+        const fileKeys: string[] = [];
+        for (const k of keys) {
+            const m = proceduralByName.get(k);
+            if (m) models.push(m);
+            else fileKeys.push(k);
+        }
+        return {models, fileKeys};
+    };
+
     // Bulk delete / move over the selection set. Version blobs are
     // server-protected (400), so the toolbar disables these when the
     // selection includes any — no silent skipping.
@@ -887,8 +931,15 @@ const StorageBrowser: React.FC = () => {
         if (bulkBusy !== null) return;
         const keys = Array.from(selection);
         if (keys.length === 0) return;
+        const {models, fileKeys} = splitSelection(keys);
+        // Name both kinds. "Delete 5 files" when two of them are models would
+        // be a prompt that misdescribes what it is about to do.
+        const what = [
+            fileKeys.length ? `${fileKeys.length} file${fileKeys.length === 1 ? "" : "s"}` : "",
+            models.length ? `${models.length} procedural model${models.length === 1 ? "" : "s"}` : "",
+        ].filter(Boolean).join(" and ");
         if (!window.confirm(
-            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
+            `Delete ${what}?\n` +
             "Converted view caches are removed too.\n\n" +
             previewKeyList(keys),
         )) return;
@@ -896,10 +947,17 @@ const StorageBrowser: React.FC = () => {
         try {
             // Sequential: deletes cascade derived blobs server-side and
             // parallel calls would race on the storage listing.
-            for (const k of keys) {
+            for (const k of fileKeys) {
                 await unloadIfLoaded(k);
                 await mutations.deleteKey(k);
             }
+            // Models are rows, not blobs — a different endpoint entirely.
+            for (const m of models) {
+                await viewerApi.deleteProceduralModel(scopeKey, m.id);
+                const st = useCellBuilderStore.getState();
+                if (st.active?.modelId === m.id) st.close();
+            }
+            if (models.length) void refreshProceduralModels();
             void request_list_of_files_from_server();
         } catch (e) {
             alertError(e);
@@ -911,9 +969,19 @@ const StorageBrowser: React.FC = () => {
     const onMoveSelected = () => {
         const keys = Array.from(selection);
         if (keys.length === 0) return;
+        const {models, fileKeys} = splitSelection(keys);
         setPicker({
-            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
-            onPick: (folder) => moveKeysWithProgress(keys, folder),
+            title: `Move ${keys.length} item${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: async (folder) => {
+                // Models move by rename — their name IS their path — so a mixed
+                // selection fans out to two APIs and lands in one folder.
+                for (const m of models) {
+                    const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+                    await applyProceduralName(m, folder ? `${folder}/${leaf}` : leaf);
+                }
+                if (fileKeys.length) await moveKeysWithProgress(fileKeys, folder);
+                else if (models.length) clearSelection();
+            },
         });
     };
 
@@ -1529,16 +1597,36 @@ const StorageBrowser: React.FC = () => {
                 const selectionHasVersions = Array.from(selection).some((k) =>
                     k.replace(/^\/+/, "").startsWith("versions/"),
                 );
+                // Models can be deleted and moved, but never loaded into the
+                // scene — they are database rows. A selection of only models
+                // must therefore not offer an enabled Load that quietly does
+                // nothing; a mixed one says how many it will actually act on.
+                const selectedModelCount = Array.from(selection).filter((k) =>
+                    proceduralByName.has(k),
+                ).length;
+                const loadableCount = selection.size - selectedModelCount;
                 const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
                 return (
                     <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-white whitespace-nowrap">
                             {selection.size} selected
+                            {selectedModelCount > 0 && (
+                                <span className="text-gray-400">
+                                    {" "}({selectedModelCount} model{selectedModelCount === 1 ? "" : "s"})
+                                </span>
+                            )}
                         </span>
                         <button
                             type="button"
                             onClick={onLoadSelected}
-                            disabled={bulkBusy !== null}
+                            disabled={bulkBusy !== null || loadableCount === 0}
+                            title={
+                                loadableCount === 0
+                                    ? "Procedural models cannot be loaded into the scene — open one in the cellbuilder instead."
+                                    : selectedModelCount > 0
+                                      ? `Loads the ${loadableCount} selected file(s); models are skipped.`
+                                      : undefined
+                            }
                             className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
                         >
                             Load
@@ -1708,6 +1796,10 @@ const StorageBrowser: React.FC = () => {
                                                     indentLevel={depth}
                                                     active={activeProcedural === model.id}
                                                     onOpen={() => void openProceduralModel(model)}
+                                                    isSelected={selection.has(model.name)}
+                                                    onSelectToggle={onRowSelectToggle}
+                                                    rowKey={`file:${model.name}`}
+                                                    focused={focusedKey === `file:${model.name}`}
                                                     menuItems={proceduralMenuItems(model, node.displayName)}
                                                     onOpenContextMenu={(e) =>
                                                         openCtxMenu(
@@ -1738,30 +1830,7 @@ const StorageBrowser: React.FC = () => {
                                                 setPickerName={setPickerName}
                                                 isSelected={selection.has(node.file.name)}
                                                 isQueued={queuedLoadNames.has(node.file.name)}
-                                                onSelectToggle={(name, shiftKey) => {
-                                                    setFocusedKey(`file:${name}`);
-                                                    if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
-                                                        // Range-select between the anchor and this
-                                                        // row, in visible order.
-                                                        const fileNames = flatRows
-                                                            .filter((r) => r.kind === "file")
-                                                            .map((r) => (r as {name: string}).name);
-                                                        const a = fileNames.indexOf(lastSelectedRef.current);
-                                                        const b = fileNames.indexOf(name);
-                                                        if (a >= 0 && b >= 0) {
-                                                            const [lo, hi] = a < b ? [a, b] : [b, a];
-                                                            setSelection((prev) => {
-                                                                const next = new Set(prev);
-                                                                for (let i = lo; i <= hi; i++) next.add(fileNames[i]);
-                                                                return next;
-                                                            });
-                                                            lastSelectedRef.current = name;
-                                                            return;
-                                                        }
-                                                    }
-                                                    lastSelectedRef.current = name;
-                                                    toggleSelection(name);
-                                                }}
+                                                onSelectToggle={onRowSelectToggle}
                                                 rowKey={`file:${node.file.name}`}
                                                 focused={focusedKey === `file:${node.file.name}`}
                                                 menuItems={items}
@@ -1954,17 +2023,49 @@ const ProceduralModelRow: React.FC<{
     onOpen: () => void;
     menuItems: KebabMenuItem[];
     onOpenContextMenu?: (e: React.MouseEvent) => void;
-}> = ({model, displayName, indentLevel, active, onOpen, menuItems, onOpenContextMenu}) => (
+    isSelected: boolean;
+    onSelectToggle: (name: string, shiftKey?: boolean) => void;
+    rowKey: string;
+    focused: boolean;
+}> = ({
+    model,
+    displayName,
+    indentLevel,
+    active,
+    onOpen,
+    menuItems,
+    onOpenContextMenu,
+    isSelected,
+    onSelectToggle,
+    rowKey,
+    focused,
+}) => (
     <div
+        data-row-key={rowKey}
         className={
             "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
-            (active ? "bg-blue-900/40" : "")
+            (active ? "bg-blue-900/40 " : "") +
+            (isSelected ? "bg-blue-800/30 " : "") +
+            (focused ? "ring-1 ring-blue-400/70 " : "")
         }
         style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
         onClick={onOpen}
         onContextMenu={onOpenContextMenu}
         title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
     >
+        {/* Same checkbox a file carries. Bulk delete and move fan out to the
+            model endpoints (see splitSelection); load/unload skip models,
+            because a database row is not something the scene can show. */}
+        <input
+            type="checkbox"
+            className="shrink-0"
+            checked={isSelected}
+            aria-label={`Select ${model.name}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) =>
+                onSelectToggle(model.name, (e.nativeEvent as MouseEvent).shiftKey)
+            }
+        />
         <ProceduralModelIcon className="shrink-0"/>
         {/* The LEAF, not the whole path: the folders are already the tree rows
             above it, and repeating them in every label is noise. */}
