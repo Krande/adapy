@@ -74,7 +74,16 @@ def test_quad_meshed_plate_with_hole():
     el_types = {el_type.value: list(group) for el_type, group in fem.elements.group_by_type()}
 
     assert len(el_types.keys()) == 1
-    assert len(el_types["QUAD"]) == 114
+    # Tolerance, not an exact count: the boolean cylinder cut leaves a curved
+    # boundary whose discretisation depends on floating-point rounding, so gmsh
+    # returns a slightly different element count per architecture -- 114 on
+    # x86_64, 116 on arm64. The three meshes above have straight boundaries and
+    # are stable at an exact count; only this one is sensitive. Same treatment
+    # (and same reason) as test_mesh_combined_fem.py's TRIANGLE assertion.
+    #
+    # The assertion still earns its place: it catches a mesh that collapses or
+    # doubles, which is what a real regression here would look like.
+    assert len(el_types["QUAD"]) == pytest.approx(114, abs=10)
 
     # (ada.Assembly() / (ada.Part("MyPart", fem=fem) / pl)).to_fem(
     #     "QuadMesh_w_pen_ufo", "usfos", overwrite=True, scratch_dir=test_meshing_dir
