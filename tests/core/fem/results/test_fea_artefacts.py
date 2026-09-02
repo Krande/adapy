@@ -1059,6 +1059,7 @@ def test_build_manifest_carries_optional_field_presentation():
             surface="upper",
             derived=True,
             unit="Pa",
+            component_units=("Pa", "Pa"),
         ),
     )
     field_meta = FieldArtefactMeta(
@@ -1083,6 +1084,7 @@ def test_build_manifest_carries_optional_field_presentation():
     assert field["surface"] == "upper"
     assert field["derived"] is True
     assert field["unit"] == "Pa"
+    assert field["component_units"] == ["Pa", "Pa"]
     assert field["default_view"]["reduction"] == "SIGMX"
 
 

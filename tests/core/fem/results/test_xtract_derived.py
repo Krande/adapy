@@ -12,6 +12,7 @@ from ada.fem.formats.sesam.results.xtract_derived import (
     stress_resultants,
 )
 from ada.fem.formats.sesam.results.xtract_fields import _surface_values_and_positions
+from ada.fem.formats.sesam.results.xtract_units import common_result_unit, result_component_units
 
 
 def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
@@ -78,3 +79,20 @@ def test_beam_stress_and_opposite_modulus_match_xtract_reference_row():
         [5724.92, 20141.1, 15183.4, 5015.84, 485.597, -183.05, -12577.2, -5126.0],
         rtol=5e-5,
     )
+
+
+def test_xtract_component_units_preserve_mixed_dimensions():
+    si = (1.0, 1.0, 1.0)
+
+    assert result_component_units(si, "G-STRESS", ("SIGXX", "VONMISES")) == ("Pa", "Pa")
+    assert result_component_units(si, "DISPLACEMENT", ("ALL", "X", "RX")) == ("m", "m", "rad")
+    assert result_component_units(si, "G-FORCE", ("NXX", "MXX")) == ("N", "N·m")
+    assert result_component_units(si, "R-STRESS", ("NXX", "MXX")) == ("N/m", "N")
+    assert common_result_unit(("Pa", "Pa")) == "Pa"
+    assert common_result_unit(("N", "N·m")) == ""
+
+
+def test_xtract_component_units_support_documented_mm_kn_set():
+    units = result_component_units((0.001, 1000.0, 1.0), "REACTION-FORCE", ("X-FORCE", "RX-MOMENT"))
+
+    assert units == ("kN", "kN·mm")

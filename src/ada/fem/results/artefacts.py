@@ -1766,6 +1766,7 @@ def _presentation_payload(presentation: FieldPresentation | None) -> dict:
         "surface": presentation.surface,
         "derived": bool(presentation.derived),
         "unit": presentation.unit,
+        "component_units": list(presentation.component_units),
     }
 
 

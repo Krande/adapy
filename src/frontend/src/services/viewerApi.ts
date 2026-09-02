@@ -314,6 +314,9 @@ export interface FeaManifestField {
   surface_variants?: Array<{ surface: string; field_name: string }>;
   derived?: boolean;
   unit?: string;
+  /** Unit aligned with each component. Required when one field mixes
+   * dimensions (for example beam forces and moments). */
+  component_units?: string[];
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no

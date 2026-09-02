@@ -87,6 +87,7 @@ INT_LOCATIONS = {
     15: [(0, 0), (1, 0.5), (2, 1)],
 }
 OTHER_CARDS = [
+    cards.UNITS,
     cards.GUNIVEC,
     cards.GELTH,
     cards.TDSECT,
@@ -415,6 +416,24 @@ class SifReader:
         if res is None:
             return None
         return {x[0]: x[1:] for x in res}
+
+    def get_unit_factors(self) -> tuple[float, float, float] | None:
+        """Return the file's length/force/temperature-to-SI factors.
+
+        ``UNITS`` ID 1 is the FEM unit set defined by the Sesam Input Model
+        Interface. Some text exports contain a preceding control/sentinel row,
+        so select the last valid ID-1 record rather than assuming row zero.
+        """
+
+        rows = self._other.get(cards.UNITS.name, []) or []
+        id_i, length_i, force_i, temperature_i = cards.UNITS.get_indices_from_names(
+            ["id", "lenfac", "forfac", "tempfac"]
+        )
+        for row in reversed(rows):
+            factors = (float(row[length_i]), float(row[force_i]), float(row[temperature_i]))
+            if int(row[id_i]) == 1 and all(np.isfinite(value) and value > 0.0 for value in factors):
+                return factors
+        return None
 
     def get_shell_thickness_map(self) -> dict[int, float]:
         rows = self._other.get(cards.GELTH.name, []) or []
@@ -891,6 +910,7 @@ class Sif2Mesh:
             nodal,
             np.asarray(self.mesh.nodes.identifiers, dtype=int),
             wanted=requested_fields,
+            unit_factors=self.sif.get_unit_factors(),
         )
         result_blocks += build_xtract_fields(
             raw_fields,

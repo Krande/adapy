@@ -28,6 +28,7 @@ def presentation(
     coordinate_system: str,
     surface: str = "",
     unit: str = "",
+    component_units: tuple[str, ...] = (),
 ) -> FieldPresentation:
     return FieldPresentation(
         semantic_key=semantic_name(position, attribute),
@@ -36,4 +37,5 @@ def presentation(
         surface=surface,
         derived=derived,
         unit=unit,
+        component_units=component_units,
     )

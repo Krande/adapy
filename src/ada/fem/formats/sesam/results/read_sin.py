@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 # Mirror the SIF reader's card-group lists so a record-type seen in
 # the SIN block index is routed to the same bucket Sif2Mesh expects.
 _OTHER_CARDS = (
+    cards.UNITS,
     cards.GUNIVEC,
     cards.GELTH,
     cards.TDSECT,

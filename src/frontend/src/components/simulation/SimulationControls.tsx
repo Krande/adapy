@@ -27,6 +27,7 @@ import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
+import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {
     selectFeaResultComponent,
     selectFeaResultLayer,
@@ -318,6 +319,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const fieldPickerValue = activeField?.surface_variants?.[0]?.field_name
         ?? fieldName
         ?? "";
+    const activeUnit = selectedResultUnit(activeField, reduction);
 
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
@@ -535,7 +537,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     </label>
                     {reductionOptions.length > 0 && (
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Comp</span>
+                            <span className="text-gray-300 shrink-0">
+                                Comp{activeUnit ? ` [${activeUnit}]` : ""}
+                            </span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                                 value={reduction}

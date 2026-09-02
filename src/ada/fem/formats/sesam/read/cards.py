@@ -91,6 +91,7 @@ MAT_MAP = {
 }
 
 # Nodes
+UNITS = DataCard("UNITS", ("nfield", "id", "lenfac", "forfac", "tempfac"))
 GNODE = DataCard("GNODE", ("nodex", "nodeno", "ndof", "odof"))
 GCOORD = DataCard("GCOORD", ("id", "x", "y", "z"))
 

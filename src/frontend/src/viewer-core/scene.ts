@@ -47,6 +47,14 @@ export {
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
 } from "@/utils/scene/handlers/load_fea_streaming";
+export {
+  selectFeaResultComponent,
+  selectFeaResultLayer,
+} from "@/utils/scene/fea/resultSelection";
+export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
+export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
+export { selectedResultUnit } from "@/utils/scene/fea/resultUnits";
+export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
 // Camera, selection and visibility ops. Use these rather than touching the

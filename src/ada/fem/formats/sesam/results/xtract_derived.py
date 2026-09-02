@@ -21,12 +21,18 @@ B_STRESS_COMPONENTS = ("SIGXX", "SIGBYX", "SIGBZX", "TAUTX", "TAUXY", "TAUXZ", "
 def plane_von_mises(sig_x, sig_y, tau_xy):
     """Thin-shell/membrane von Mises stress."""
 
+    sig_x = np.asarray(sig_x, dtype=float)
+    sig_y = np.asarray(sig_y, dtype=float)
+    tau_xy = np.asarray(tau_xy, dtype=float)
     return np.sqrt(sig_x * sig_x + sig_y * sig_y - sig_x * sig_y + 3.0 * tau_xy * tau_xy)
 
 
 def plane_principal(sig_x, sig_y, tau_xy) -> np.ndarray:
     """Return descending in-plane principal stresses ``[..., (P1, P2)]``."""
 
+    sig_x = np.asarray(sig_x, dtype=float)
+    sig_y = np.asarray(sig_y, dtype=float)
+    tau_xy = np.asarray(tau_xy, dtype=float)
     centre = 0.5 * (sig_x + sig_y)
     radius = np.sqrt((0.5 * (sig_x - sig_y)) ** 2 + tau_xy * tau_xy)
     return np.stack((centre + radius, centre - radius), axis=-1)

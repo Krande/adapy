@@ -217,6 +217,18 @@ def test_sparse_reactions_expand_to_dense_nodes():
     assert np.allclose(field.values[2, 1:], [0.0, 7.25, 0.0, 0.0, 0.0, 0.0])
 
 
+def test_sif_reader_selects_documented_fem_unit_set():
+    from ada.fem.formats.sesam.results.read_sif import SifReader
+
+    reader = SifReader(iter(()))
+    reader._other["UNITS"] = [
+        [-4.0, 0.0, 1.0, 0.0, 0.0],
+        [5.0, 1.0, 0.001, 1000.0, 1.0],
+    ]
+
+    assert reader.get_unit_factors() == (0.001, 1000.0, 1.0)
+
+
 def test_rv_combination_accumulates_values_not_metadata():
     from ada.fem.formats.sesam.read import cards
     from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination

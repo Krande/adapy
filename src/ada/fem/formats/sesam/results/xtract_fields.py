@@ -33,6 +33,7 @@ from ada.fem.formats.sesam.results.xtract_derived import (
     plane_principal,
     stress_resultants,
 )
+from ada.fem.formats.sesam.results.xtract_units import common_result_unit, result_component_units
 from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData, NodalFieldType
 
 
@@ -68,6 +69,7 @@ def _element_field(
     int_positions=None,
     line: bool = False,
     surface: str = "",
+    unit_factors: tuple[float, float, float] | None = None,
 ) -> ElementFieldData:
     values = np.asarray(values, dtype=float)
     if values.ndim != 3 or values.shape[0] != len(labels):
@@ -77,6 +79,7 @@ def _element_field(
     rows[:, 0] = np.repeat(labels, n_slots)
     rows[:, 1] = np.tile(np.arange(1, n_slots + 1), len(labels))
     rows[:, 2:] = values.reshape(-1, values.shape[2])
+    component_units = result_component_units(unit_factors, attribute, components)
     return ElementFieldData(
         name=semantic_name(position, attribute),
         step=int(raw.step),
@@ -91,6 +94,8 @@ def _element_field(
             derived=derived,
             coordinate_system=coordinate_system,
             surface=surface,
+            unit=common_result_unit(component_units),
+            component_units=component_units,
         ),
     )
 
@@ -107,10 +112,12 @@ def _nodal_field(
     coordinate_system: str,
     field_type: NodalFieldType = NodalFieldType.UNKNOWN,
     surface: str = "",
+    unit_factors: tuple[float, float, float] | None = None,
 ) -> NodalFieldData:
     canonical_name = semantic_name(position, attribute)
     name = f"{canonical_name}.{surface}" if surface == "lower" else canonical_name
     data = np.column_stack((node_ids, np.asarray(values, dtype=float)))
+    component_units = result_component_units(unit_factors, attribute, components)
     return NodalFieldData(
         name=name,
         step=int(step),
@@ -123,6 +130,8 @@ def _nodal_field(
             derived=derived,
             coordinate_system=coordinate_system,
             surface=surface,
+            unit=common_result_unit(component_units),
+            component_units=component_units,
         ),
     )
 
@@ -132,6 +141,7 @@ def build_xtract_nodal_kinematics(
     node_ids: np.ndarray,
     *,
     wanted: set[str] | None = None,
+    unit_factors: tuple[float, float, float] | None = None,
 ) -> list[NodalFieldData]:
     out: list[NodalFieldData] = []
     for field in nodal_fields:
@@ -151,6 +161,7 @@ def build_xtract_nodal_kinematics(
                     derived=True,
                     coordinate_system="model",
                     field_type=NodalFieldType.DISP,
+                    unit_factors=unit_factors,
                 )
             )
         elif field.name == "REACTION-FORCE":
@@ -159,6 +170,10 @@ def build_xtract_nodal_kinematics(
                 "REACTION-FORCE",
                 derived=False,
                 coordinate_system="model",
+                unit=common_result_unit(
+                    result_component_units(unit_factors, "REACTION-FORCE", field.components)
+                ),
+                component_units=result_component_units(unit_factors, "REACTION-FORCE", field.components),
             )
     return out
 
@@ -202,7 +217,10 @@ def _shell_surfaces(raw: ElementFieldData):
     per_element = values.reshape(len(labels), n_ips, -1)
     # Preserve reader order and guard against np.unique sorting a different one.
     labels = per_element[:, 0, 0].astype(int)
-    basic = per_element[:, :, 2:5]
+    # SIN result words are IEEE float32. Preserve that precision through the
+    # position averaging which precedes derived calculations in Xtract;
+    # promoting before the average changes cancellation-sensitive values.
+    basic = np.asarray(per_element[:, :, 2:5], dtype=np.float32)
     n_surface = n_ips // 2
     bottom = basic[:, :n_surface, :]
     top = basic[:, n_surface:, :]
@@ -280,6 +298,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
     nodes_by_element, normals, _ = _element_maps(mesh)
     geometry = _geometry_by_element(mesh)
     thickness_map = sif.get_shell_thickness_map()
+    unit_factors = sif.get_unit_factors()
     thickness = np.asarray([thickness_map.get(geometry.get(int(label), -1), np.nan) for label in labels])
     arrays = _shell_position_arrays(bottom, top, corner_indices)
     out: list[ElementFieldData] = []
@@ -311,6 +330,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     derived=True,
                     int_positions=surface_positions,
                     surface="selectable",
+                    unit_factors=unit_factors,
                 )
             )
         if _wants(wanted, position, "P-STRESS"):
@@ -325,6 +345,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     derived=True,
                     int_positions=surface_positions,
                     surface="selectable",
+                    unit_factors=unit_factors,
                 )
             )
         if _wants(wanted, position, "D-STRESS"):
@@ -338,6 +359,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     d_stress,
                     derived=True,
                     int_positions=paired_positions,
+                    unit_factors=unit_factors,
                 )
             )
         if position != "resultpoints" and _wants(wanted, position, "PM-STRESS"):
@@ -351,6 +373,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     membrane_principal(d_stress),
                     derived=True,
                     int_positions=paired_positions,
+                    unit_factors=unit_factors,
                 )
             )
         if position != "resultpoints" and _wants(wanted, position, "R-STRESS"):
@@ -364,6 +387,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                     stress_resultants(d_stress, thickness[:, None]),
                     derived=True,
                     int_positions=paired_positions,
+                    unit_factors=unit_factors,
                 )
             )
 
@@ -389,8 +413,8 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
 
 
 def _average_nodal_shell(contrib, node_ids):
-    bottom = np.full((len(node_ids), 3), np.nan)
-    top = np.full((len(node_ids), 3), np.nan)
+    bottom = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
+    top = np.full((len(node_ids), 3), np.nan, dtype=np.float32)
     thickness = np.full(len(node_ids), np.nan)
     cos_limit = np.cos(np.deg2rad(5.0))
     for ni, node_id in enumerate(node_ids):
@@ -421,7 +445,7 @@ def _average_nodal_shell(contrib, node_ids):
     return bottom, top, thickness
 
 
-def _nodal_shell_fields(step, node_ids, contrib, wanted):
+def _nodal_shell_fields(step, node_ids, contrib, wanted, unit_factors):
     bottom, top, thickness = _average_nodal_shell(contrib, node_ids)
     d = decompose_shell(bottom, top)
     out = []
@@ -437,6 +461,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
                 derived=True,
                 coordinate_system="element_local",
                 surface=surface,
+                unit_factors=unit_factors,
             ))
         if _wants_nodal_surface(wanted, "P-STRESS", surface):
             out.append(_nodal_field(
@@ -449,6 +474,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
                 derived=True,
                 coordinate_system="element_local",
                 surface=surface,
+                unit_factors=unit_factors,
             ))
     if _wants(wanted, "nodes", "PM-STRESS"):
         out.append(_nodal_field(
@@ -460,6 +486,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
             membrane_principal(d),
             derived=True,
             coordinate_system="element_local",
+            unit_factors=unit_factors,
         ))
     if _wants(wanted, "nodes", "D-STRESS"):
         out.append(_nodal_field(
@@ -471,6 +498,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
             d,
             derived=True,
             coordinate_system="element_local",
+            unit_factors=unit_factors,
         ))
     if _wants(wanted, "nodes", "R-STRESS"):
         out.append(_nodal_field(
@@ -482,6 +510,7 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted):
             stress_resultants(d, thickness),
             derived=True,
             coordinate_system="element_local",
+            unit_factors=unit_factors,
         ))
     return out
 
@@ -537,6 +566,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     labels = per_element[:, 0, 0].astype(int)
     force = per_element[:, :, 2:8]
     properties = _beam_properties(sif, mesh, labels)
+    unit_factors = sif.get_unit_factors()
     b_stress = np.full(force.shape[:-1] + (8,), np.nan)
     for i, prop in enumerate(properties):
         if prop is not None:
@@ -564,6 +594,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
                 derived=False,
                 line=True,
                 int_positions=int_positions,
+                unit_factors=unit_factors,
             )
         )
         if _wants(wanted, position, "B-STRESS"):
@@ -578,6 +609,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
                 derived=True,
                 line=True,
                 int_positions=int_positions,
+                unit_factors=unit_factors,
             )
         )
     force_avg = force[:, (0, n_ips - 1), :].mean(axis=1, keepdims=True)
@@ -599,6 +631,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
             derived=False,
             line=True,
             int_positions=[(0, 0.5)],
+            unit_factors=unit_factors,
         )
     )
     if _wants(wanted, "element_average", "B-STRESS"):
@@ -613,6 +646,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
             derived=True,
             line=True,
             int_positions=[(0, 0.5)],
+            unit_factors=unit_factors,
         )
     )
     return out
@@ -649,7 +683,7 @@ def build_xtract_fields(
         for raw in shell_fields:
             out.extend(_shell_fields_for_raw(raw, mesh, sif, contrib, wanted))
         if any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
-            out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted))
+            out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted, sif.get_unit_factors()))
     for force_fields in force_by_step.values():
         if wanted is not None and not any(
             _wants(wanted, position, attribute)

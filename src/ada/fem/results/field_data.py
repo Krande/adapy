@@ -25,6 +25,7 @@ class FieldPresentation:
     surface: str = ""
     derived: bool = False
     unit: str = ""
+    component_units: tuple[str, ...] = ()
 
 
 @dataclass

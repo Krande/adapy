@@ -56,9 +56,11 @@
 // built against the newer facade fails on an older core at an undefined import,
 // from inside the shell, with nothing naming the mismatch.
 //
+//   1.2.0  Xtract result hierarchy, component/layer actions and unit helpers
+//          on `@/viewer-core/scene`.
 //   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
 //          `@/viewer-core/scene`
-export const VIEWER_CORE_API_VERSION = "1.1.0";
+export const VIEWER_CORE_API_VERSION = "1.2.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
