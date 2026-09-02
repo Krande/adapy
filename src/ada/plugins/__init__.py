@@ -84,7 +84,7 @@ def register_plugin_backend(
     the spec verbatim so a plugin can advertise its own flags without a core
     change (mirrors the engine catalogs).
 
-    Two ``extra`` keys core *does* act on, both opt-in and both absent by
+    Three ``extra`` keys core *does* act on, all opt-in and all absent by
     default:
 
     ``capability_option: str``
@@ -104,6 +104,22 @@ def register_plugin_backend(
         workers advertising one slug means one worker's copy wins and the others
         are invisible — so a sharded pool cannot say what it collectively
         covers. Only list-valued keys are merged, and only the named ones.
+
+    ``requires_admin: bool``
+        Declares that enqueuing this plugin's job needs an admin, not merely a
+        user who can reach the scope. Use it for a job that costs something a
+        normal user should not be able to spend — one that drives a licensed
+        workstation, a device, or a pool of one.
+
+        **This declaration is a floor, not the whole gate.** A spec is
+        advertised BY A WORKER, so a worker on an older build advertises no flag
+        at all, and a gate that trusted only this would silently vanish exactly
+        when the deployment is least uniform. Core therefore OR-s it with an
+        admin-only setting (``admin.plugin_jobs.require_admin``, a list of
+        plugin ids) that no worker can influence. Either source restricts; a
+        source can only ever tighten. Declare it here so the intent travels with
+        the plugin, and set the setting so the deployment does not depend on
+        every worker being current.
     """
     if not plugin_id or not isinstance(plugin_id, str):
         raise ValueError("plugin_id must be a non-empty string")
