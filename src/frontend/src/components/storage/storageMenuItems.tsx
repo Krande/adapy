@@ -106,6 +106,72 @@ export interface FolderMenuContext {
     onDelete?: () => void;
 }
 
+export interface ProceduralMenuContext {
+    canMutate: boolean;
+    onOpen: () => void;
+    onCopyPath?: () => void;
+    onRename?: () => void;
+    onMoveToFolder?: () => void;
+    onDelete?: () => void;
+}
+
+/** Menu for a procedural model rendered as a leaf of the storage tree.
+ *
+ * Same kebab as files and folders, deliberately: a model is filed alongside
+ * them and "how do I move this" should not have a different answer depending
+ * on what the row happens to be backed by.
+ *
+ * What it does NOT offer is the file half — load into the scene, download,
+ * convert. A model is a database row; those controls would promise operations
+ * that cannot work on it. Rename and Move are the two that genuinely mean the
+ * same thing here as for a file, and both are the SAME server call, because the
+ * model's name is its path. */
+export function buildProceduralMenuItems(
+    displayName: string,
+    ctx: ProceduralMenuContext,
+): KebabMenuItem[] {
+    const items: KebabMenuItem[] = [];
+    items.push({
+        key: "open",
+        label: "Open in cellbuilder",
+        onClick: ctx.onOpen,
+    });
+    if (ctx.onCopyPath) {
+        items.push({
+            key: "copy-path",
+            label: "Copy as path",
+            title: "Copy this model's folder path to the clipboard.",
+            onClick: ctx.onCopyPath,
+        });
+    }
+    if (ctx.canMutate && ctx.onRename) {
+        items.push({
+            key: "rename",
+            label: "Rename…",
+            title: `Rename "${displayName}" without moving it.`,
+            onClick: ctx.onRename,
+        });
+    }
+    if (ctx.canMutate && ctx.onMoveToFolder) {
+        items.push({
+            key: "move-to-folder",
+            label: "Move to folder…",
+            onClick: ctx.onMoveToFolder,
+        });
+    }
+    if (ctx.canMutate && ctx.onDelete) {
+        items.push({
+            key: "delete",
+            label: "Delete",
+            destructive: true,
+            separatorBefore: true,
+            title: "Deletes the procedural model and its compiled outputs.",
+            onClick: ctx.onDelete,
+        });
+    }
+    return items;
+}
+
 export function buildFolderMenuItems(
     folderPath: string,
     ctx: FolderMenuContext,

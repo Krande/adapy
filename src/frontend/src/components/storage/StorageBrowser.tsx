@@ -44,7 +44,7 @@ import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
-import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
+import {buildFileMenuItems, buildFolderMenuItems, buildProceduralMenuItems} from "./storageMenuItems";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
@@ -427,25 +427,49 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    // Moving a model IS renaming it: the name carries the folder path, so
-    // there is one operation rather than two that could disagree about where a
-    // model lives. The prompt shows the full current path because that is what
-    // is being edited — offering only the leaf would hide the move.
-    const moveProceduralModel = async (m: ProceduralModelSummary) => {
-        const next = window.prompt(
-            "Move procedural model — full path, folders separated by \"/\":",
-            m.name,
-        );
-        if (next === null || next.trim() === "" || next.trim() === m.name) return;
+    // Rename and Move are ONE server call — the model's name is its path — but
+    // they stay two menu entries because they are two different intentions, and
+    // a file offers both. Rename edits the leaf and keeps the folder; Move
+    // keeps the leaf and picks a folder from the ones that already exist.
+    const applyProceduralName = async (m: ProceduralModelSummary, next: string) => {
+        if (!next || next === m.name) return;
         try {
-            await viewerApi.renameProceduralModel(scopeKey, m.id, next.trim());
+            await viewerApi.renameProceduralModel(scopeKey, m.id, next);
             void refreshProceduralModels();
         } catch (e) {
-            // A 409 here is the scope-unique index: the same collision a
-            // filesystem would report for two files at one path.
-            window.alert(`Failed to move: ${e instanceof Error ? e.message : e}`);
+            // A 409 here is the scope-unique index reporting the same collision
+            // a filesystem would for two entries at one path.
+            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
         }
     };
+
+    const renameProceduralModel = async (m: ProceduralModelSummary) => {
+        const folder = m.name.includes("/") ? m.name.slice(0, m.name.lastIndexOf("/")) : "";
+        const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+        const next = window.prompt("Rename procedural model:", leaf);
+        if (next === null) return;
+        const trimmed = next.trim();
+        if (!trimmed) return;
+        await applyProceduralName(m, folder ? `${folder}/${trimmed}` : trimmed);
+    };
+
+    const moveProceduralModel = (m: ProceduralModelSummary) => {
+        const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+        setPicker({
+            title: `Move "${leaf}" to folder`,
+            onPick: (folder) => void applyProceduralName(m, folder ? `${folder}/${leaf}` : leaf),
+        });
+    };
+
+    const proceduralMenuItems = (m: ProceduralModelSummary, displayName: string): KebabMenuItem[] =>
+        buildProceduralMenuItems(displayName, {
+            canMutate,
+            onOpen: () => void openProceduralModel(m),
+            onCopyPath: () => void writeToClipboard(m.name),
+            onRename: () => void renameProceduralModel(m),
+            onMoveToFolder: () => moveProceduralModel(m),
+            onDelete: () => void deleteProceduralModel(m),
+        });
 
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
         if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
@@ -1684,8 +1708,16 @@ const StorageBrowser: React.FC = () => {
                                                     indentLevel={depth}
                                                     active={activeProcedural === model.id}
                                                     onOpen={() => void openProceduralModel(model)}
-                                                    onMove={() => void moveProceduralModel(model)}
-                                                    onDelete={() => void deleteProceduralModel(model)}
+                                                    menuItems={proceduralMenuItems(model, node.displayName)}
+                                                    onOpenContextMenu={(e) =>
+                                                        openCtxMenu(
+                                                            e,
+                                                            proceduralMenuItems(model, node.displayName),
+                                                            <span className="font-mono" title={model.name}>
+                                                                {model.name}
+                                                            </span>,
+                                                        )
+                                                    }
                                                 />
                                             );
                                         }
@@ -1920,9 +1952,9 @@ const ProceduralModelRow: React.FC<{
     indentLevel: number;
     active: boolean;
     onOpen: () => void;
-    onMove: () => void;
-    onDelete: () => void;
-}> = ({model, displayName, indentLevel, active, onOpen, onMove, onDelete}) => (
+    menuItems: KebabMenuItem[];
+    onOpenContextMenu?: (e: React.MouseEvent) => void;
+}> = ({model, displayName, indentLevel, active, onOpen, menuItems, onOpenContextMenu}) => (
     <div
         className={
             "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
@@ -1930,6 +1962,7 @@ const ProceduralModelRow: React.FC<{
         }
         style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
         onClick={onOpen}
+        onContextMenu={onOpenContextMenu}
         title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
     >
         <ProceduralModelIcon className="shrink-0"/>
@@ -1939,27 +1972,15 @@ const ProceduralModelRow: React.FC<{
         <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
             r{model.revision}
         </span>
-        <span className="ml-auto flex items-center gap-1">
-            <button
-                className="px-1 rounded-sm hover:bg-gray-500/40 text-xs"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onMove();
-                }}
-                title="Move to another folder (renames the model — the name is its path)"
-            >
-                ⇄
-            </button>
-            <button
-                className="px-1 rounded-sm hover:bg-gray-500/40 text-xs"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                }}
-                title="Delete this procedural model"
-            >
-                ✕
-            </button>
+        {/* The same kebab files and folders carry. An operator filing a model
+            beside them should not meet a different control for "move". */}
+        <span className="ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
+            <RowKebabMenu
+                ariaLabel={`Organize procedural model ${model.name}`}
+                buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                header={<span className="font-mono">{model.name}</span>}
+                items={menuItems}
+            />
         </span>
     </div>
 );
