@@ -140,6 +140,38 @@ function isoToLocal(v: string | undefined): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** A custom window, written the way an operator reads it. Collapsed, the
+ * select can only say "Custom range" — which is the same failure as a hidden
+ * chip: the numbers are narrowed and the screen does not say to what. */
+function describeCustomRange(since?: string, until?: string): string {
+    const fmt = (v?: string) => {
+        if (!v) return null;
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
+    const a = fmt(since);
+    const b = fmt(until);
+    if (a && b) return `${a} → ${b}`;
+    if (a) return `since ${a}`;
+    if (b) return `up to ${b}`;
+    return "no bounds set";
+}
+
+/** An inverted window returns nothing and explains nothing. Worth saying,
+ * because the two fields are set independently and the mistake is easy. */
+function rangeIsInverted(since?: string, until?: string): boolean {
+    if (!since || !until) return false;
+    const a = new Date(since).getTime();
+    const b = new Date(until).getTime();
+    return Number.isFinite(a) && Number.isFinite(b) && a > b;
+}
+
 /** True when the window is a bespoke instant pair rather than one of the
  * presets — i.e. the select should read "Custom". */
 function isCustomRange(since?: string, until?: string): boolean {
@@ -194,8 +226,16 @@ const AuditFilterBar: React.FC<{
                         ))}
                     </div>
                 )}
-                {!open && chips.length === 0 && (
+                {!open && chips.length === 0 && !custom && (
                     <span className="text-gray-500 truncate">no filter — showing everything</span>
+                )}
+                {custom && (
+                    <span
+                        className="font-mono text-[11px] text-gray-300 truncate"
+                        title="The custom window currently applied"
+                    >
+                        {describeCustomRange(filters.since, filters.until)}
+                    </span>
                 )}
 
                 {/* Always visible, even collapsed: the window changes what every
@@ -301,6 +341,11 @@ const AuditFilterBar: React.FC<{
                                 value={isoToLocal(filters.until)}
                                 onChange={(e) => patch({until: localToIso(e.target.value)})}
                             />
+                            {rangeIsInverted(filters.since, filters.until) && (
+                                <span className="text-amber-300" role="status">
+                                    ends before it starts — nothing can match
+                                </span>
+                            )}
                         </span>
                     )}
                 </div>

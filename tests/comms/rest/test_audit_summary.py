@@ -286,6 +286,52 @@ def test_until_bounds_the_other_end(db):
     assert run(db_module.summarize_audit(pool))["total"] == 3
 
 
+def test_a_bounded_historical_window_excludes_both_ends(db):
+    """A period that does NOT run up to now — "what happened last Tuesday".
+
+    Both bounds together, which is the case a relative window cannot express at
+    all: every preset is anchored to the present.
+    """
+    pool, run = db
+    run(_seed(pool, n=6, status="done"))
+    # Three distinct eras: 20 days ago, 10 days ago, and now.
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '20 days' WHERE id IN (SELECT id FROM audit_log ORDER BY id LIMIT 2)"
+        )
+    )
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '10 days' WHERE id IN (SELECT id FROM audit_log ORDER BY id OFFSET 2 LIMIT 2)"
+        )
+    )
+
+    since = db_module.parse_audit_time_bound("15d")
+    until = db_module.parse_audit_time_bound("5d")
+    got = run(db_module.summarize_audit(pool, since=since, until=until))
+    assert got["total"] == 2, "a middle window caught the wrong era"
+
+    # And the log agrees, which is what makes the count clickable.
+    listed = run(db_module.list_audit(pool, since=since, until=until, limit=500))
+    assert len(listed) == 2
+
+
+def test_an_inverted_window_is_empty_not_an_error(db):
+    """``until`` before ``since`` yields nothing. The UI warns; the API does not
+    refuse, because the bounds are set independently and a transient inverted
+    state is normal while the operator is still typing the second one."""
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    got = run(
+        db_module.summarize_audit(
+            pool,
+            since=db_module.parse_audit_time_bound("1d"),
+            until=db_module.parse_audit_time_bound("2d"),
+        )
+    )
+    assert got["total"] == 0
+
+
 def test_the_log_and_the_summary_agree_on_the_window(db):
     """One filter, two surfaces: a window that counts N must list N."""
     pool, run = db
