@@ -3,6 +3,7 @@ import React, {useEffect, useState} from "react";
 import type {AuditFilters} from "@/services/viewerApi";
 import {
     AUDIT_FILTER_KEYS,
+    AUDIT_RANGES,
     countActiveAuditFilters,
     useAuditFilterStore,
 } from "@/state/auditFilterStore";
@@ -121,6 +122,32 @@ function defaultOpen(): boolean {
     return window.matchMedia("(min-width: 640px)").matches;
 }
 
+/** ``datetime-local`` gives a local wall-clock string with no zone; the API
+ * wants an instant. Going through Date does the conversion the operator means:
+ * they picked a time on their own clock. */
+function localToIso(v: string): string | undefined {
+    if (!v) return undefined;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+function isoToLocal(v: string | undefined): string {
+    if (!v) return "";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return "";
+    // datetime-local wants YYYY-MM-DDTHH:mm in LOCAL time.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** True when the window is a bespoke instant pair rather than one of the
+ * presets — i.e. the select should read "Custom". */
+function isCustomRange(since?: string, until?: string): boolean {
+    if (until) return true;
+    if (!since) return false;
+    return !AUDIT_RANGES.some((r) => r.value === since);
+}
+
 const AuditFilterBar: React.FC<{
     /** Shown next to Refresh; the owning sub-tab reports its own busy state. */
     loading?: boolean;
@@ -131,6 +158,8 @@ const AuditFilterBar: React.FC<{
     const reset = useAuditFilterStore((s) => s.reset);
     const [open, setOpen] = useState(defaultOpen);
     const active = countActiveAuditFilters(filters);
+    const custom = isCustomRange(filters.since, filters.until);
+    const [showCustom, setShowCustom] = useState(custom);
 
     const chips = AUDIT_FILTER_KEYS.map((k) => [k, filters[k]] as const).filter(
         ([, v]) => v !== undefined && v !== null && v !== "",
@@ -168,6 +197,32 @@ const AuditFilterBar: React.FC<{
                 {!open && chips.length === 0 && (
                     <span className="text-gray-500 truncate">no filter — showing everything</span>
                 )}
+
+                {/* Always visible, even collapsed: the window changes what every
+                    number on this tab means, and a hidden one would leave a
+                    six-hour count being read as all of history. */}
+                <select
+                    className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white shrink-0"
+                    value={custom ? "__custom__" : (filters.since || "")}
+                    onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "__custom__") {
+                            setShowCustom(true);
+                            setOpen(true);
+                            return;
+                        }
+                        setShowCustom(false);
+                        patch({since: v || undefined, until: undefined});
+                    }}
+                    title="How far back to count and list"
+                >
+                    {AUDIT_RANGES.map((r) => (
+                        <option key={r.value || "all"} value={r.value}>
+                            {r.label}
+                        </option>
+                    ))}
+                    <option value="__custom__">Custom range…</option>
+                </select>
 
                 {active > 0 && (
                     <button
@@ -230,6 +285,24 @@ const AuditFilterBar: React.FC<{
                         value={filters.key || ""}
                         onChange={(v) => patch({key: v || undefined})}
                     />
+                    {(showCustom || custom) && (
+                        <span className="flex items-center gap-1 text-gray-400">
+                            <span className="text-[11px] uppercase tracking-wide">from</span>
+                            <input
+                                type="datetime-local"
+                                className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white"
+                                value={isoToLocal(custom ? filters.since : undefined)}
+                                onChange={(e) => patch({since: localToIso(e.target.value)})}
+                            />
+                            <span className="text-[11px] uppercase tracking-wide">to</span>
+                            <input
+                                type="datetime-local"
+                                className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white"
+                                value={isoToLocal(filters.until)}
+                                onChange={(e) => patch({until: localToIso(e.target.value)})}
+                            />
+                        </span>
+                    )}
                 </div>
             )}
         </div>

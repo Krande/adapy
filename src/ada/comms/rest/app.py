@@ -7673,6 +7673,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    def _audit_time_bounds(since: str | None, until: str | None):
+        """Parse the shared time window, or 400 with the offending value.
+
+        Relative forms ("6h") resolve against the SERVER clock — see
+        db.parse_audit_time_bound for why the browser must not do it. Both the
+        log and the summary take the same two parameters so a window set on one
+        means the same thing on the other.
+        """
+        try:
+            return (
+                db_module.parse_audit_time_bound(since),
+                db_module.parse_audit_time_bound(until),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # REGISTERED BEFORE ``/audit/{audit_id}`` ON PURPOSE. Starlette matches in
     # declaration order, so a static segment that could also parse as a path
     # parameter has to come first — otherwise this lands on the row-detail
@@ -7687,6 +7703,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         action: str | None = None,
         target: str | None = None,
         key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> JSONResponse:
         """Counts behind the Audit tab's Overview, under the log's own filter.
 
@@ -7704,6 +7722,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool = _require_pool(request)
         key_like = (key or "").strip() or None
         target_format = (target or "").strip().lstrip(".").lower() or None
+        since_ts, until_ts = _audit_time_bounds(since, until)
         summary = await db_module.summarize_audit(
             pool,
             user_sub=user_sub,
@@ -7712,6 +7731,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             action=action,
             target_format=target_format,
             key_like=key_like,
+            since=since_ts,
+            until=until_ts,
         )
         return JSONResponse(summary)
 
@@ -7990,6 +8011,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target: str | None = None,
         status: str | None = None,
         key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
     ) -> JSONResponse:
@@ -8001,6 +8024,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target_format = (target or "").strip().lstrip(".").lower() or None
         # ``status`` filters by job state (queued / running / done / error).
         status_norm = (status or "").strip().lower() or None
+        since_ts, until_ts = _audit_time_bounds(since, until)
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
@@ -8010,6 +8034,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_format=target_format,
             statuses=[status_norm] if status_norm else None,
             key_like=key_like,
+            since=since_ts,
+            until=until_ts,
             limit=limit,
             before_id=before_id,
         )

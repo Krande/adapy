@@ -31,8 +31,31 @@ export const AUDIT_PAGE_LIMIT = 100;
 
 const EMPTY: AuditFilters = {limit: AUDIT_PAGE_LIMIT};
 
+/** The time window presets, coarse to fine.
+ *
+ * The rungs are the ones an operator actually reaches for: "is it running
+ * right now" (5m/15m), "what happened this shift" (1h/6h/24h), and "is this
+ * new" (7d/30d). 15m earns its place because 5m to 1h is the biggest jump in
+ * the ladder and it is the standard next rung in every observability tool.
+ *
+ * The value is sent verbatim and resolved by the server — see AuditFilters.since. */
+export const AUDIT_RANGES: {value: string; label: string}[] = [
+    {value: "", label: "All time"},
+    {value: "30d", label: "Last 30 days"},
+    {value: "7d", label: "Last 7 days"},
+    {value: "24h", label: "Last 24 hours"},
+    {value: "6h", label: "Last 6 hours"},
+    {value: "1h", label: "Last hour"},
+    {value: "15m", label: "Last 15 minutes"},
+    {value: "5m", label: "Last 5 minutes"},
+];
+
 /** Filter keys the operator can actually set — i.e. everything except the
- * paging machinery. Used for "is anything filtered?" and for the chip row. */
+ * paging machinery. Used for "is anything filtered?" and for the chip row.
+ *
+ * ``since``/``until`` are deliberately absent: the range has its own control
+ * that stays visible even when the bar is collapsed, so it can never hide the
+ * way a chip could. Counting it in the badge as well would double-report it. */
 export const AUDIT_FILTER_KEYS = [
     "user_sub",
     "scope_kind",

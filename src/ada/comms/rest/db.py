@@ -18,9 +18,11 @@ via the :func:`get_pool` accessor.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import importlib.resources
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -759,6 +761,53 @@ async def append_metrics_sample_by_job(
 # ── Admin queries ────────────────────────────────────────────────────
 
 
+_RELATIVE_BOUND = re.compile(r"^(\d+)\s*([smhdw])$", re.IGNORECASE)
+_RELATIVE_UNIT = {
+    "s": "seconds",
+    "m": "minutes",
+    "h": "hours",
+    "d": "days",
+    "w": "weeks",
+}
+
+
+def parse_audit_time_bound(value: str | None, *, now: datetime.datetime | None = None) -> datetime.datetime | None:
+    """A time bound for the audit filter: ``"6h"``, or an ISO-8601 instant.
+
+    Relative forms are resolved HERE, against the server's clock, rather than
+    the browser computing an absolute instant and sending that. A workstation
+    whose clock is a few minutes fast would otherwise silently drop rows from a
+    "last 5 minutes" view and show a window that never existed — and the
+    narrower the range, the worse the error, which is exactly backwards.
+
+    Absolute ISO input stays absolute: for a custom range the operator picked
+    two real instants, and skew is irrelevant to what they meant.
+
+    Empty / None means unbounded. Anything unparseable raises ``ValueError`` so
+    the caller can answer 400 rather than quietly returning all of history.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+
+    m = _RELATIVE_BOUND.match(raw)
+    if m:
+        amount, unit = int(m.group(1)), m.group(2).lower()
+        base = now or datetime.datetime.now(datetime.timezone.utc)
+        return base - datetime.timedelta(**{_RELATIVE_UNIT[unit]: amount})
+
+    iso = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.datetime.fromisoformat(iso)
+    except ValueError as exc:
+        raise ValueError(f"not a duration (e.g. '6h') or an ISO-8601 instant: {value!r}") from exc
+    # A naive instant is taken as UTC: the column is timestamptz, and comparing
+    # it against a naive value raises rather than guessing a zone.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed
+
+
 def _audit_predicates(
     *,
     user_sub: str | None = None,
@@ -768,6 +817,8 @@ def _audit_predicates(
     target_format: str | None = None,
     statuses: list[str] | None = None,
     key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
     before_id: int | None = None,
     exclude_audit_dispatched: bool = False,
 ) -> tuple[list[str], list]:
@@ -803,6 +854,14 @@ def _audit_predicates(
     if key_like:
         args.append(f"%{key_like}%")
         where.append(f"key ILIKE ${len(args)}")
+    # Bounded on ``ts``, which carries a DESC btree index, so narrowing the
+    # window makes both the log and the summary cheaper rather than dearer.
+    if since is not None:
+        args.append(since)
+        where.append(f"ts >= ${len(args)}")
+    if until is not None:
+        args.append(until)
+        where.append(f"ts <= ${len(args)}")
     if before_id is not None:
         args.append(before_id)
         where.append(f"id < ${len(args)}")
@@ -821,6 +880,8 @@ async def list_audit(
     target_format: str | None = None,
     statuses: list[str] | None = None,
     key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
     limit: int = 100,
     before_id: int | None = None,
     exclude_audit_dispatched: bool = False,
@@ -854,6 +915,8 @@ async def list_audit(
         target_format=target_format,
         statuses=statuses,
         key_like=key_like,
+        since=since,
+        until=until,
         before_id=before_id,
         exclude_audit_dispatched=exclude_audit_dispatched,
     )
@@ -917,6 +980,8 @@ async def summarize_audit(
     action: str | None = None,
     target_format: str | None = None,
     key_like: str | None = None,
+    since: datetime.datetime | None = None,
+    until: datetime.datetime | None = None,
     reason_limit: int = 10,
 ) -> dict:
     """Aggregate counts for the Audit tab's Overview, under the same filter
@@ -944,6 +1009,8 @@ async def summarize_audit(
         action=action,
         target_format=target_format,
         key_like=key_like,
+        since=since,
+        until=until,
     )
     clause = (" WHERE " + " AND ".join(where)) if where else ""
 

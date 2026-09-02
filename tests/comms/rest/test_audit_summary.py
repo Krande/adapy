@@ -18,6 +18,7 @@ DB-backed and the aggregation is SQL.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import os
 import pathlib
 import tempfile
@@ -221,6 +222,102 @@ def test_status_is_not_a_summary_filter(db):
     # TypeError, which is the guarantee this test is pinning.
     with pytest.raises(TypeError):
         run(db_module.summarize_audit(pool, statuses=["error"]))
+
+
+# ── the time window ────────────────────────────────────────────────
+
+
+def test_relative_bounds_parse_against_the_server_clock():
+    """ "6h" means six hours before NOW, resolved here rather than by the caller.
+
+    A workstation whose clock runs a few minutes fast would otherwise post an
+    absolute instant in the future and silently empty a "last 5 minutes" view —
+    and the narrower the window, the larger the error, which is backwards.
+    """
+    now = datetime.datetime(2026, 9, 2, 12, 0, tzinfo=datetime.timezone.utc)
+    assert db_module.parse_audit_time_bound("5m", now=now) == now - datetime.timedelta(minutes=5)
+    assert db_module.parse_audit_time_bound("6h", now=now) == now - datetime.timedelta(hours=6)
+    assert db_module.parse_audit_time_bound("7d", now=now) == now - datetime.timedelta(days=7)
+    assert db_module.parse_audit_time_bound("1w", now=now) == now - datetime.timedelta(weeks=1)
+    assert db_module.parse_audit_time_bound(" 30 D ", now=now) == now - datetime.timedelta(days=30)
+
+
+def test_absolute_bounds_stay_absolute():
+    got = db_module.parse_audit_time_bound("2026-09-01T10:30:00Z")
+    assert got == datetime.datetime(2026, 9, 1, 10, 30, tzinfo=datetime.timezone.utc)
+    # A naive instant is read as UTC rather than guessed at: the column is
+    # timestamptz and comparing it against a naive value raises.
+    naive = db_module.parse_audit_time_bound("2026-09-01T10:30:00")
+    assert naive.tzinfo is not None
+
+
+def test_an_empty_bound_means_unbounded():
+    for empty in (None, "", "   "):
+        assert db_module.parse_audit_time_bound(empty) is None
+
+
+def test_an_unparseable_bound_is_refused_not_ignored():
+    # Falling back to "all of history" would answer a question nobody asked,
+    # and the number would look plausible.
+    for bad in ("yesterday", "6 fortnights", "-1h", "2026-13-45"):
+        with pytest.raises(ValueError):
+            db_module.parse_audit_time_bound(bad)
+
+
+def test_the_window_narrows_the_counts(db):
+    pool, run = db
+    run(_seed(pool, n=4, status="done"))
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '10 days' WHERE id <= (SELECT min(id)+1 FROM audit_log)"
+        )
+    )
+
+    recent = run(db_module.summarize_audit(pool, since=db_module.parse_audit_time_bound("1d")))
+    assert recent["total"] == 2, "old rows leaked into a 1-day window"
+    assert run(db_module.summarize_audit(pool))["total"] == 4, "unbounded lost rows"
+
+
+def test_until_bounds_the_other_end(db):
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    past = db_module.parse_audit_time_bound("1h")
+    assert run(db_module.summarize_audit(pool, until=past))["total"] == 0
+    assert run(db_module.summarize_audit(pool))["total"] == 3
+
+
+def test_the_log_and_the_summary_agree_on_the_window(db):
+    """One filter, two surfaces: a window that counts N must list N."""
+    pool, run = db
+    run(_seed(pool, n=5, status="done"))
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '3 days' WHERE id <= (SELECT min(id)+1 FROM audit_log)"
+        )
+    )
+
+    since = db_module.parse_audit_time_bound("1d")
+    counted = run(db_module.summarize_audit(pool, since=since))["total"]
+    listed = run(db_module.list_audit(pool, since=since, limit=500))
+    assert counted == len(listed) == 3
+
+
+def test_route_accepts_a_relative_window(db, tmp_path):
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    run(pool.execute("UPDATE audit_log SET ts = now() - interval '40 days' WHERE id = (SELECT min(id) FROM audit_log)"))
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        assert client.get("/api/admin/audit/summary", params={"since": "30d"}).json()["total"] == 2
+        assert client.get("/api/admin/audit/summary").json()["total"] == 3
+        assert client.get("/api/admin/audit", params={"since": "30d"}).json()["entries"].__len__() == 2
+
+
+def test_route_refuses_a_bad_window(db, tmp_path):
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        r = client.get("/api/admin/audit/summary", params={"since": "last tuesday"})
+        assert r.status_code == 400, r.text
+        assert "last tuesday" in r.text
 
 
 # ── the route ──────────────────────────────────────────────────────

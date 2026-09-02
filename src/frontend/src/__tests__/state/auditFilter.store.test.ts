@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   AUDIT_FILTER_KEYS,
+  AUDIT_RANGES,
   countActiveAuditFilters,
   useAuditFilterStore,
 } from "@/state/auditFilterStore";
@@ -111,4 +112,47 @@ test("every filter key the bar renders is counted", () => {
   // AuditFilterBar without its key here would filter invisibly.
   const all = Object.fromEntries(AUDIT_FILTER_KEYS.map((k) => [k, "x"]));
   assert.equal(countActiveAuditFilters({ limit: 100, ...all }), AUDIT_FILTER_KEYS.length);
+});
+
+test("the range ladder is coarse-to-fine and starts at all time", () => {
+  // Order is the control's order; "All time" first keeps the default at the
+  // top and preserves the previous behaviour as the no-op choice.
+  assert.equal(AUDIT_RANGES[0].value, "");
+  const rest = AUDIT_RANGES.slice(1).map((r) => r.value);
+  assert.deepEqual(rest, ["30d", "7d", "24h", "6h", "1h", "15m", "5m"]);
+});
+
+test("every range is a duration the server can parse", () => {
+  // The value is sent verbatim; a label that is not <int><unit> would 400.
+  for (const r of AUDIT_RANGES.slice(1)) {
+    assert.match(r.value, /^\d+[smhdw]$/, `${r.value} is not a duration`);
+  }
+});
+
+test("the window is not counted as a chip filter", () => {
+  // It has its own always-visible control, so counting it in the "Filters (n)"
+  // badge would report the same thing twice — and imply it is hidden.
+  assert.ok(!AUDIT_FILTER_KEYS.includes("since" as never));
+  assert.equal(countActiveAuditFilters({ limit: 100, since: "6h" }), 0);
+  assert.equal(countActiveAuditFilters({ limit: 100, since: "6h", status: "error" }), 1);
+});
+
+test("reset clears the window too", () => {
+  reset();
+  const s = () => useAuditFilterStore.getState();
+  s().patch({ since: "6h", until: "2026-09-01T00:00:00.000Z" });
+  s().reset();
+  assert.equal(s().filters.since, undefined);
+  assert.equal(s().filters.until, undefined);
+});
+
+test("switching to a preset drops a custom upper bound", () => {
+  // Otherwise a stale `until` from a custom range would silently keep
+  // truncating every preset chosen afterwards.
+  reset();
+  const s = () => useAuditFilterStore.getState();
+  s().patch({ since: "2026-08-01T00:00:00.000Z", until: "2026-08-02T00:00:00.000Z" });
+  s().patch({ since: "6h", until: undefined });
+  assert.equal(s().filters.since, "6h");
+  assert.equal(s().filters.until, undefined);
 });

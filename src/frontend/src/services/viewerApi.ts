@@ -964,6 +964,13 @@ export interface AuditFilters {
   status?: string;
   /** Case-insensitive substring filter on the source filepath/filename. */
   key?: string;
+  /** Lower bound on ``ts``: a duration the SERVER resolves ("6h", "30d"), or an
+   * ISO-8601 instant for a custom range. Relative forms are deliberately not
+   * resolved here — a clock a few minutes fast would silently empty a
+   * "last 5 minutes" view. */
+  since?: string;
+  /** Upper bound on ``ts``, ISO-8601. Only set for a custom range. */
+  until?: string;
   before_id?: number;
   limit?: number;
 }
