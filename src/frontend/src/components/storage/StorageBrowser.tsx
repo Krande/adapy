@@ -388,14 +388,49 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    // Loading a compiled result does NOT make a model active: viewResult keys
-    // the scene source by the derived key when the model is not the active one,
-    // so several results coexist under distinct source names. That is what
-    // "several in the scene, one being edited" is made of.
+    // One scene source per model, named from the model rather than from
+    // whatever happened to be active when it was loaded. That is what lets a
+    // row answer "is my result in the scene?" — and for the active model it is
+    // the same string the cellbuilder's own compile path produces.
+    const proceduralSourceName = (m: ProceduralModelSummary) => `procedural:${m.name}`;
+    const isProceduralLoaded = (m: ProceduralModelSummary) =>
+        loadedSourceNames.has(proceduralSourceName(m));
+
+    // The checkbox on a model row means what it means on a file row: put this
+    // in the scene. Loading also makes the model ACTIVE — you ticked it to work
+    // on it — while anything already loaded stays in the scene and simply stops
+    // being the one being edited. Several visible, one active.
+    const toggleProceduralLoaded = async (m: ProceduralModelSummary, next: boolean) => {
+        const sourceName = proceduralSourceName(m);
+        try {
+            if (!next) {
+                // Unticking removes it from the scene and nothing else: editing
+                // a model whose result is not shown is a normal thing to do
+                // (edit topology, then compile), so this must not close the
+                // cellbuilder behind the operator's back.
+                await unload_any_source(sourceName);
+                return;
+            }
+            if (!m.latest_glb_key) {
+                window.alert(
+                    `"${m.name}" has no compiled result yet. Open it and compile once, ` +
+                    "then it can be shown in the scene.",
+                );
+                return;
+            }
+            await useCellBuilderStore.getState().viewResult(m.latest_glb_key, "sim", sourceName);
+            await openProceduralModel(m, {collapsePanel: false});
+        } catch (e) {
+            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
     const viewProceduralResult = async (m: ProceduralModelSummary) => {
         if (!m.latest_glb_key) return;
         try {
-            await useCellBuilderStore.getState().viewResult(m.latest_glb_key);
+            await useCellBuilderStore
+                .getState()
+                .viewResult(m.latest_glb_key, "sim", proceduralSourceName(m));
         } catch (e) {
             window.alert(`Failed to load compiled result: ${e instanceof Error ? e.message : e}`);
         }
@@ -881,10 +916,28 @@ const StorageBrowser: React.FC = () => {
             selection.has(f.name) && !loadedSourceNames.has(f.name) &&
             (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
         for (const f of targets) enqueueLoad({name: f.name});
+        // Models load through their own path (a compiled result, not a source
+        // blob), but the button means the same thing, so a mixed selection
+        // loads both. The last one ticked ends up active, which matches what
+        // ticking a single row does.
+        const {models} = splitSelection(Array.from(selection));
+        void (async () => {
+            for (const m of models) {
+                if (m.latest_glb_key && !isProceduralLoaded(m)) {
+                    await toggleProceduralLoaded(m, true);
+                }
+            }
+        })();
         clearSelection();
     };
     const onUnloadSelected = () => {
         if (bulkBusy !== null) return;
+        const {models} = splitSelection(Array.from(selection));
+        void (async () => {
+            for (const m of models) {
+                if (isProceduralLoaded(m)) await toggleProceduralLoaded(m, false);
+            }
+        })();
         const targets = files.filter((f) => selection.has(f.name) && loadedSourceNames.has(f.name));
         setBulkBusy("unload");
         try {
@@ -1622,10 +1675,15 @@ const StorageBrowser: React.FC = () => {
                 // scene — they are database rows. A selection of only models
                 // must therefore not offer an enabled Load that quietly does
                 // nothing; a mixed one says how many it will actually act on.
-                const selectedModelCount = Array.from(selection).filter((k) =>
-                    proceduralByName.has(k),
-                ).length;
-                const loadableCount = selection.size - selectedModelCount;
+                const selectedModels = Array.from(selection)
+                    .map((k) => proceduralByName.get(k))
+                    .filter((m): m is ProceduralModelSummary => !!m);
+                const selectedModelCount = selectedModels.length;
+                // A model counts as loadable once it has a compiled result;
+                // one that has never compiled has nothing to put in the scene.
+                const loadableCount =
+                    selection.size - selectedModelCount +
+                    selectedModels.filter((m) => !!m.latest_glb_key).length;
                 const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
                 return (
                     <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
@@ -1643,9 +1701,9 @@ const StorageBrowser: React.FC = () => {
                             disabled={bulkBusy !== null || loadableCount === 0}
                             title={
                                 loadableCount === 0
-                                    ? "Procedural models cannot be loaded into the scene — open one in the cellbuilder instead."
+                                    ? "Nothing here can be shown — a procedural model needs one compile first."
                                     : selectedModelCount > 0
-                                      ? `Loads the ${loadableCount} selected file(s); models are skipped.`
+                                      ? `Loads ${loadableCount} of ${selection.size} selected; the last model ticked becomes active.`
                                       : undefined
                             }
                             className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
@@ -1819,6 +1877,11 @@ const StorageBrowser: React.FC = () => {
                                                     onOpen={() => void openProceduralModel(model)}
                                                     isSelected={selection.has(model.name)}
                                                     onSelectToggle={onRowSelectToggle}
+                                                    isLoaded={isProceduralLoaded(model)}
+                                                    canLoad={!!model.latest_glb_key}
+                                                    onToggleLoaded={(m, next) =>
+                                                        void toggleProceduralLoaded(m, next)
+                                                    }
                                                     rowKey={`file:${model.name}`}
                                                     focused={focusedKey === `file:${model.name}`}
                                                     menuItems={proceduralMenuItems(model, node.displayName)}
@@ -2048,6 +2111,11 @@ const ProceduralModelRow: React.FC<{
     onSelectToggle: (name: string, shiftKey?: boolean) => void;
     rowKey: string;
     focused: boolean;
+    /** This model's compiled result is currently in the scene. */
+    isLoaded: boolean;
+    /** False until the model has a compiled result to show. */
+    canLoad: boolean;
+    onToggleLoaded: (model: ProceduralModelSummary, next: boolean) => void;
 }> = ({
     model,
     displayName,
@@ -2060,31 +2128,45 @@ const ProceduralModelRow: React.FC<{
     onSelectToggle,
     rowKey,
     focused,
+    isLoaded,
+    canLoad,
+    onToggleLoaded,
 }) => (
     <div
         data-row-key={rowKey}
         className={
             "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
             (active ? "bg-blue-900/40 " : "") +
-            (isSelected ? "bg-blue-800/30 " : "") +
-            (focused ? "ring-1 ring-blue-400/70 " : "")
+            (isSelected ? "bg-amber-700/30 " : "") +
+            (focused ? "ring-1 ring-blue-400/70 " : "") +
+            // Loaded but not the one being edited: present in the scene, dimmed
+            // so the active model is unambiguous at a glance.
+            (isLoaded && !active ? "opacity-60 " : "")
         }
         style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
         onClick={onOpen}
         onContextMenu={onOpenContextMenu}
         title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
     >
-        {/* Same checkbox a file carries. Bulk delete and move fan out to the
-            model endpoints (see splitSelection); load/unload skip models,
-            because a database row is not something the scene can show. */}
+        {/* Same meaning as a file's checkbox: put this in the scene. NOT the
+            multi-select — that is the row tint, exactly as it is for a file.
+            Disabled until the model has been compiled once, because there is
+            no result to show and a tickable box with nothing behind it is a
+            promise the row cannot keep. */}
         <input
             type="checkbox"
-            className="shrink-0"
-            checked={isSelected}
-            aria-label={`Select ${model.name}`}
+            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+            checked={isLoaded}
+            disabled={!canLoad}
+            aria-label={isLoaded ? `Unload ${model.name} from scene` : `Load ${model.name} into scene`}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) =>
-                onSelectToggle(model.name, (e.nativeEvent as MouseEvent).shiftKey)
+            onChange={() => void onToggleLoaded(model, !isLoaded)}
+            title={
+                !canLoad
+                    ? "No compiled result yet — open the model and compile once."
+                    : isLoaded
+                      ? "Unload from scene (keeps the model)"
+                      : "Load the compiled result into the scene, and edit this model"
             }
         />
         <ProceduralModelIcon className="shrink-0"/>

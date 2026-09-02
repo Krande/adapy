@@ -816,7 +816,20 @@ interface CellBuilderState {
    * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
    * archetypes/boxes (the browser has no DB). */
   compileInBrowser: () => Promise<void>;
-  viewResult: (derivedKey: string, lod?: "sim" | "detail") => Promise<void>;
+  viewResult: (
+    derivedKey: string,
+    lod?: "sim" | "detail",
+    /** Explicit scene source name.
+     *
+     * Without it the name is derived from whichever model is ACTIVE, which is
+     * fine while the cellbuilder is the only caller but makes "is this model's
+     * result in the scene?" unanswerable for any other one: the same model
+     * loads under a different name depending on what was active at the time.
+     * The storage panel passes a name derived from the model itself, so a row
+     * can show whether its result is loaded — and for the active model the two
+     * rules agree, because that name IS active.name. */
+    sourceName?: string,
+  ) => Promise<void>;
   hideResult: () => void;
   hideDetail: () => void;
   /** Switch the active model representation (topology / simulation / detail),
@@ -3275,12 +3288,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setBuildSim: (on) => set({ buildSim: on }),
     setBuildDetail: (on) => set({ buildDetail: on }),
 
-    viewResult: async (derivedKey: string, lod = "sim") => {
+    viewResult: async (derivedKey: string, lod = "sim", explicitSourceName?: string) => {
       const active = get().active;
       const base = active ? active.name : derivedKey;
       // Simulation and detail are distinct scene sources so they never collide.
       const sourceName =
-        lod === "detail" ? `procedural-detail:${base}` : `procedural:${base}`;
+        explicitSourceName ??
+        (lod === "detail" ? `procedural-detail:${base}` : `procedural:${base}`);
       const { load_glb_by_url_rest } = await import(
         "@/utils/scene/handlers/view_file_object_from_server"
       );

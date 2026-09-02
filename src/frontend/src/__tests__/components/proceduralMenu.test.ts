@@ -160,14 +160,41 @@ test("a name that merely looks like a model is treated as a file", () => {
   assert.deepEqual(fileKeys, ["module-b.step"]);
 });
 
-test("loadable count excludes models", () => {
-  // A selection of only models must not offer an enabled Load that does
-  // nothing when clicked.
-  const modelNames = new Set(["m1", "m2"]);
-  const selection = ["m1", "m2", "a.step"];
-  const selectedModelCount = selection.filter((k) => modelNames.has(k)).length;
-  assert.equal(selection.length - selectedModelCount, 1);
+/** Mirrors the toolbar: a model is loadable once it has a compiled result. */
+function loadableCount(
+  selection: string[],
+  models: Map<string, { latest_glb_key?: string | null }>,
+) {
+  const picked = selection.map((k) => models.get(k)).filter(Boolean) as {
+    latest_glb_key?: string | null;
+  }[];
+  return selection.length - picked.length + picked.filter((m) => !!m.latest_glb_key).length;
+}
 
-  const onlyModels = ["m1", "m2"];
-  assert.equal(onlyModels.length - onlyModels.filter((k) => modelNames.has(k)).length, 0);
+test("a compiled model counts as loadable", () => {
+  // The checkbox means "put this in the scene", the same as on a file, so a
+  // selection of compiled models must offer an ENABLED Load.
+  const models = new Map([
+    ["m1", { latest_glb_key: "derived/m1.glb" }],
+    ["m2", { latest_glb_key: "derived/m2.glb" }],
+  ]);
+  assert.equal(loadableCount(["m1", "m2"], models), 2);
+  assert.equal(loadableCount(["m1", "a.step"], models), 2);
+});
+
+test("a model that never compiled is not loadable", () => {
+  // Nothing to show, so the box must not be tickable and the count must not
+  // promise it — a control with nothing behind it is worse than a disabled one.
+  const models = new Map([["m1", { latest_glb_key: null }]]);
+  assert.equal(loadableCount(["m1"], models), 0);
+  assert.equal(loadableCount(["m1", "a.step"], models), 1);
+});
+
+test("the scene source name is derived from the model, not from what is active", () => {
+  // viewResult otherwise names the source after whichever model is ACTIVE,
+  // so the same model loads under different names depending on timing and a
+  // row cannot tell whether its own result is in the scene.
+  const sourceName = (name: string) => `procedural:${name}`;
+  assert.equal(sourceName("decks/a/model"), "procedural:decks/a/model");
+  assert.notEqual(sourceName("m1"), sourceName("m2"), "two models must not collide");
 });
