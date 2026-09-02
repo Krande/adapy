@@ -1,5 +1,5 @@
 import {PANEL_CHROME} from "@/state/themeStore";
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
@@ -25,6 +25,7 @@ import GitHistoryPanel from "./GitHistoryPanel";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 import {
     buildFileTree,
+    partitionUiHidden,
     collectFolderPaths,
     FileTreeNode,
     FolderNode,
@@ -217,7 +218,17 @@ function formatRelative(iso: string): string {
 }
 
 const StorageBrowser: React.FC = () => {
-    const files = useServerInfoStore((s) => s.serverFileObjects);
+    const allFiles = useServerInfoStore((s) => s.serverFileObjects);
+    // Published-asset blobs are storage, not "my files": a publishing scope
+    // holds thousands under assets/<collection>/<subject>/<revision>/, and none
+    // was uploaded by anyone here — they bury the handful of sources this
+    // browser exists to show. Hidden in the VIEW only; the API still indexes
+    // them, because plugins project their published hierarchy out of exactly
+    // that listing. The count is surfaced below rather than swallowed.
+    const {visible: files, hidden: hiddenFiles} = useMemo(
+        () => partitionUiHidden(allFiles, (f) => f.name),
+        [allFiles],
+    );
     const {sidecars} = useBuildSidecars(files);
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
@@ -1216,6 +1227,21 @@ const StorageBrowser: React.FC = () => {
                          title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
                         scope: {currentScope?.name ?? "Shared"}
                     </div>
+                    {/* Say that something is being withheld. A browser that hides
+                        files without admitting it is indistinguishable from one
+                        that lost them — and a publishing scope can hide thousands. */}
+                    {hiddenFiles.length > 0 && (
+                        <div
+                            className="text-[10px] text-gray-500 truncate"
+                            title={
+                                `${hiddenFiles.length} published-asset blob(s) under assets/ are not listed here. ` +
+                                "They are machine-published datasets, not uploads. The admin Storage tab can show them."
+                            }
+                        >
+                            {hiddenFiles.length.toLocaleString()} published asset
+                            {hiddenFiles.length === 1 ? "" : "s"} hidden
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <input
