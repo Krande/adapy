@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { FeaManifestField } from "../../services/viewerApi";
-import { selectedResultUnit } from "../../utils/scene/fea/resultUnits";
+import { selectedResultRange, selectedResultUnit } from "../../utils/scene/fea/resultUnits";
 
 function field(): FeaManifestField {
   return {
@@ -16,7 +16,7 @@ function field(): FeaManifestField {
     component_units: ["N", "N·m"],
     n_steps: 1,
     steps: [{ i: 0, value: 1, label: "1" }],
-    scalar_range: { NXX: [0, 1], MXX: [0, 1] },
+    scalar_range: { NXX: [0, 1], MXX: [2, 3] },
     default_view: { reduction: "NXX", colormap: "viridis" },
   };
 }
@@ -34,4 +34,11 @@ test("selectedResultUnit falls back to a legacy field-level unit", () => {
   value.unit = "Pa";
 
   assert.equal(selectedResultUnit(value, "SIGXX"), "Pa");
+});
+
+test("selectedResultRange follows the renderer component fallback", () => {
+  const value = field();
+
+  assert.deepEqual(selectedResultRange(value, "MXX"), [2, 3]);
+  assert.deepEqual(selectedResultRange(value, "unknown"), [0, 1]);
 });

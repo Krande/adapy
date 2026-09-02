@@ -20,12 +20,14 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useColorStore} from "@/state/colorLegendStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
+import {selectedResultRange} from "../fea/resultUnits";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
@@ -149,6 +151,7 @@ export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = fals
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
+    useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
     // Drop any "go to node" marker + active-row state. The marker
     // mesh would otherwise survive into the next loaded model and
@@ -1128,6 +1131,11 @@ export async function load_fea_streaming(args: {
         animStore.setFieldName(fieldName);
         if (reduction != null) animStore.setReduction(reduction);
         animStore.setColormap(colormap);
+        const [legendMin, legendMax] = selectedResultRange(field, reduction ?? "magnitude");
+        const legendStore = useColorStore.getState();
+        legendStore.setMin(legendMin);
+        legendStore.setMax(legendMax);
+        legendStore.setShowLegend(true);
     } else {
         // Field-less FEM mesh (model only): no results -> NO simulation session, so
         // SimulationControls + the results-only "show in data" action stay hidden. The
@@ -1137,6 +1145,7 @@ export async function load_fea_streaming(args: {
         animStore.setFieldName(null);
         animStore.setNSteps(1);
         animStore.setStepIndex(0);
+        useColorStore.getState().setShowLegend(false);
     }
 
     // applyStep closure captures the *current* (sourceName, manifest,
@@ -1282,7 +1291,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                     json: async (rel) =>
                         JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
                     bytes: async (rel, range) =>
-                        range ? rangeFetcher(rel, range.start, range.end) : fetcher(rel),
+                        range ? (await rangeFetcher(rel, range.start, range.end)).buf : fetcher(rel),
                 };
                 void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
             } catch (err) {

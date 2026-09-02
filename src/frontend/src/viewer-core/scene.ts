@@ -53,7 +53,7 @@ export {
 } from "@/utils/scene/fea/resultSelection";
 export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
 export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
-export { selectedResultUnit } from "@/utils/scene/fea/resultUnits";
+export { selectedResultRange, selectedResultUnit } from "@/utils/scene/fea/resultUnits";
 export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
