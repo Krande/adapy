@@ -231,6 +231,55 @@ def test_rv_combination_accumulates_values_not_metadata():
     assert np.allclose(out[1, 5:], 1.2 * a[1, 5:] - 0.5 * b[1, 5:])
 
 
+def test_rv_combination_matches_xtract_float32_accumulation_order():
+    """Large cancelling terms expose float64-vs-Xtract differences."""
+
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
+
+    values = [2008586.875, 5598526.0, -254885.125, -219541.46875, -1175475.375, 2153702.0]
+    factors = [0.8999999761581421, 0.800000011920929, 2.0, 5.0, 6.0, 1.100000023841858]
+    accumulated = None
+    for step, (value, factor) in enumerate(zip(values, factors), start=1):
+        rows = np.zeros((2, 11), dtype=float)
+        rows[1, :5] = [11, step, 10, 6, 0]
+        rows[1, 5] = value
+        accumulated = _accumulate_rv_combination(
+            cards.RVNODDIS,
+            accumulated,
+            rows,
+            factor,
+            combination_step=10,
+        )
+
+    # mini_065 lcc2, element 5087 / resultpoint 2 / TAUXY. Xtract
+    # obtains -4708.25 from these six stored float32 terms; a float64
+    # accumulator produces -4708.58605055511 instead.
+    assert accumulated[1, 5] == -4708.25
+
+
+def test_variable_width_rv_combination_matches_xtract_float32_accumulation_order():
+    """RVSTRESS uses the list path because descriptor payload widths vary."""
+
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
+
+    values = [2008586.875, 5598526.0, -254885.125, -219541.46875, -1175475.375, 2153702.0]
+    factors = [0.8999999761581421, 0.800000011920929, 2.0, 5.0, 6.0, 1.100000023841858]
+    accumulated = None
+    for step, (value, factor) in enumerate(zip(values, factors), start=1):
+        rows = [[0.0] * 6, [11.0, float(step), 5087.0, 1.0, 3.0, value]]
+        accumulated = _accumulate_rv_combination(
+            cards.RVSTRESS,
+            accumulated,
+            rows,
+            factor,
+            combination_step=10,
+        )
+
+    assert accumulated[1][5] == -4708.25
+
+
 def test_read_sin_metadata_cantilever():
     """Metadata-only read enumerates the same fields/steps as the full
     SinReader.load path, without paying the materialisation cost.

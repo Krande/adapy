@@ -452,7 +452,14 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
         current = np.asarray(rows, dtype=np.float64)
         if accumulated is None:
             out = current.copy()
-            out[1:, value_start:] *= factor
+            # NORSAM result values and factors are IEEE float32 words. Xtract
+            # superposes them in that precision, one contributor at a time.
+            # Keeping the accumulator in float64 changes cancellation-heavy
+            # combinations by visible amounts (several tenths for stresses of
+            # order 1e6), even though every input word is identical.
+            out[1:, value_start:] = (
+                np.asarray(current[1:, value_start:], dtype=np.float32) * np.float32(factor)
+            )
             out[1:, ires_i] = combination_step
             return out
         out = accumulated
@@ -460,7 +467,10 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
             raise ValueError(f"{card.name} combination contributors have different table shapes")
         if not np.array_equal(out[1:, meta_indices], current[1:, meta_indices]):
             raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
-        out[1:, value_start:] += current[1:, value_start:] * factor
+        accumulated_values = np.asarray(out[1:, value_start:], dtype=np.float32)
+        current_values = np.asarray(current[1:, value_start:], dtype=np.float32)
+        accumulated_values += current_values * np.float32(factor)
+        out[1:, value_start:] = accumulated_values
         return out
 
     current_rows = list(rows)
@@ -469,7 +479,7 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
         for row in out[1:]:
             row[ires_i] = float(combination_step)
             for i in range(value_start, len(row)):
-                row[i] = float(row[i]) * factor
+                row[i] = float(np.float32(row[i]) * np.float32(factor))
         return out
 
     out = accumulated
@@ -479,7 +489,9 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
         if len(out_row) != len(row) or any(out_row[i] != row[i] for i in meta_indices):
             raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
         for i in range(value_start, len(row)):
-            out_row[i] += float(row[i]) * factor
+            out_row[i] = float(
+                np.float32(out_row[i]) + np.float32(row[i]) * np.float32(factor)
+            )
     return out
 
 
