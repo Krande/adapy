@@ -258,7 +258,15 @@ export interface FeaManifestFieldPerType {
    *  integration point, in payload order. Sesam shell fixtures
    *  populate ``layer`` ("top"|"bottom"|"mid") and ``in_plane``
    *  (free-form). Empty when the reader couldn't infer the layout. */
-  ip_layout: Array<{ ip: number; layer: string; in_plane: string }>;
+  ip_layout: Array<{
+    ip: number;
+    layer: string;
+    in_plane: string;
+    /** Optional source-node corner or natural/axial coordinates used for
+     * exact result-point marker placement. */
+    node_index?: number;
+    natural_coordinates?: number[];
+  }>;
   /** Element labels in payload order — frontend maps draw-range
    *  labels back to ``element_labels.indexOf(label)`` to find the
    *  row in the AFEL blob. */

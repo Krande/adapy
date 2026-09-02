@@ -205,7 +205,18 @@ def _shell_surfaces(raw: ElementFieldData):
     top = basic[:, n_surface:, :]
     if bottom.shape != top.shape:
         raise ValueError("upper/lower shell result-point layouts differ")
-    return labels, bottom, top, np.asarray(corner_indices, dtype=int)
+    raw_positions = raw.int_positions or []
+    in_plane = []
+    for entry in raw_positions[:n_surface]:
+        location = entry[1]
+        # Some legacy INT_LOCATIONS tuples repeat the thickness coordinate
+        # inside the in-plane value. Surface is carried separately below.
+        if isinstance(location, tuple) and len(location) == 3:
+            location = location[:2]
+        in_plane.append(location)
+    if len(in_plane) != n_surface:
+        in_plane = list(range(n_surface))
+    return labels, bottom, top, np.asarray(corner_indices, dtype=int), in_plane
 
 
 def _shell_position_arrays(bottom, top, corner_indices):
@@ -224,7 +235,7 @@ def _shell_position_arrays(bottom, top, corner_indices):
     return arrays
 
 
-def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray):
+def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray, in_plane=None):
     """Pack selectable shell surfaces into one AFEL integration-point axis.
 
     Top comes first to retain Xtract's upper-surface default and listing slot
@@ -236,10 +247,13 @@ def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray):
     if bottom.shape != top.shape:
         raise ValueError("upper/lower shell field layouts differ")
     n_slots = top.shape[1]
+    locations = list(in_plane) if in_plane is not None else [str(i + 1) for i in range(n_slots)]
+    if len(locations) != n_slots:
+        raise ValueError("shell result locations do not match the surface slot count")
     values = np.concatenate((top, bottom), axis=1)
     int_positions = [
-        *((i, str(i + 1), 0.5) for i in range(n_slots)),
-        *((n_slots + i, str(i + 1), -0.5) for i in range(n_slots)),
+        *((i, locations[i], 0.5) for i in range(n_slots)),
+        *((n_slots + i, locations[i], -0.5) for i in range(n_slots)),
     ]
     return values, int_positions
 
@@ -252,7 +266,7 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
     surfaces = _shell_surfaces(raw)
     if surfaces is None:
         return []
-    labels, bottom, top, corner_indices = surfaces
+    labels, bottom, top, corner_indices, result_locations = surfaces
     nodes_by_element, normals, _ = _element_maps(mesh)
     geometry = _geometry_by_element(mesh)
     thickness_map = sif.get_shell_thickness_map()
@@ -266,9 +280,15 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
             attributes += ("PM-STRESS", "R-STRESS")
         if not any(_wants(wanted, position, attribute) for attribute in attributes):
             continue
-        surface_basic, surface_positions = _surface_values_and_positions(position_bottom, position_top)
+        if position == "resultpoints":
+            in_plane = result_locations
+        elif position == "elements":
+            in_plane = [result_locations[i] for i in corner_indices]
+        else:
+            in_plane = ["centroid"]
+        surface_basic, surface_positions = _surface_values_and_positions(position_bottom, position_top, in_plane)
         n_slots = position_top.shape[1]
-        paired_positions = [(i, str(i + 1), 0.0) for i in range(n_slots)]
+        paired_positions = [(i, in_plane[i], 0.0) for i in range(n_slots)]
         if _wants(wanted, position, "G-STRESS"):
             out.append(
                 _element_field(
@@ -517,6 +537,8 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     }
     out = []
     for position, indices in position_indices.items():
+        raw_positions = raw.int_positions or [(i, i / max(n_ips - 1, 1)) for i in range(n_ips)]
+        int_positions = [(i, raw_positions[int(source)][1]) for i, source in enumerate(indices)]
         if _wants(wanted, position, "G-FORCE"):
             out.append(
             _element_field(
@@ -528,6 +550,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
                 force[:, indices, :],
                 derived=False,
                 line=True,
+                int_positions=int_positions,
             )
         )
         if _wants(wanted, position, "B-STRESS"):
@@ -541,6 +564,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
                 b_stress[:, indices, :],
                 derived=True,
                 line=True,
+                int_positions=int_positions,
             )
         )
     force_avg = force[:, (0, n_ips - 1), :].mean(axis=1, keepdims=True)
@@ -561,6 +585,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
             force_avg,
             derived=False,
             line=True,
+            int_positions=[(0, 0.5)],
         )
     )
     if _wants(wanted, "element_average", "B-STRESS"):
@@ -574,6 +599,7 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
             b_avg,
             derived=True,
             line=True,
+            int_positions=[(0, 0.5)],
         )
     )
     return out

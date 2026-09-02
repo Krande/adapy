@@ -219,3 +219,35 @@ test("nodal fields still map correctly after element-local vertex expansion", ()
   assert.deepEqual(Array.from(colors.slice(3, 6)), Array.from(colors.slice(9, 12)));
   assert.deepEqual(Array.from(colors.slice(6, 9)), Array.from(colors.slice(15, 18)));
 });
+
+test("result-point fields create colored markers at corners and centroid", () => {
+  const mesh = makeMesh();
+  const field = makeField();
+  field.support = "result_point";
+  field.per_type![0].n_ips = 4;
+  field.per_type![0].ip_layout = [
+    { ip: 0, layer: "top", in_plane: "0", node_index: 0 },
+    { ip: 1, layer: "top", in_plane: "1", node_index: 1 },
+    { ip: 2, layer: "top", in_plane: "(0.5, 0.5)", natural_coordinates: [0.5, 0.5] },
+    { ip: 3, layer: "top", in_plane: "2", node_index: 2 },
+  ];
+  applyElemFieldToMesh({
+    mesh,
+    basePositions,
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0, 1, 2, 3])],
+    layer: "top",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+  });
+
+  const markers = mesh.getObjectByName("__fea_result_point_markers__") as THREE.Points;
+  assert.ok(markers);
+  const positions = markers.geometry.getAttribute("position").array as Float32Array;
+  assert.equal(markers.geometry.getAttribute("position").count, 4);
+  assert.deepEqual(Array.from(positions.slice(0, 6)), [0, 0, 0, 1, 0, 0]);
+  assert.deepEqual(
+    Array.from(positions.slice(6, 9)),
+    [1 / 3, 1 / 3, 0].map((value) => Math.fround(value)),
+  );
+});

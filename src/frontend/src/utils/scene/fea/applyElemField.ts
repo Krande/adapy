@@ -41,6 +41,28 @@ import {
     expandSourceTriples,
     sourceVertexIndices,
 } from "./elementLocalGeometry";
+import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
+
+type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
+type SourceWeight = [sourceVertex: number, weight: number];
+
+function resultPointSourceWeights(
+    layout: IpLayoutEntry | undefined,
+    sourceCorners: number[],
+    line: boolean,
+): SourceWeight[] {
+    if (layout?.node_index !== undefined && sourceCorners[layout.node_index] !== undefined) {
+        return [[sourceCorners[layout.node_index], 1]];
+    }
+    const natural = layout?.natural_coordinates;
+    if (line && natural?.length === 1 && sourceCorners.length >= 2) {
+        const t = Math.max(0, Math.min(1, natural[0]));
+        return [[sourceCorners[0], 1 - t], [sourceCorners[1], t]];
+    }
+    if (sourceCorners.length === 0) return [];
+    const weight = 1 / sourceCorners.length;
+    return sourceCorners.map((source) => [source, weight]);
+}
 
 export interface ApplyElemFieldArgs {
     mesh: THREE.Mesh;
@@ -200,6 +222,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         nodalAverage = false,
     } = args;
 
+    clearResultPointMarkers(mesh);
     if (!colorField.per_type) {
         throw new Error(
             `applyElemFieldToMesh: field ${colorField.name_canonical} has no per_type buckets`,
@@ -303,6 +326,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const countValues = nodalAverage ? new Uint32Array(n_points) : null;
     const elemVertSet = nodalAverage ? new Set<number>() : null;
     const directVertsBySource = new Map<number, number[]>();
+    const markerPositions: number[] = [];
+    const markerColors: number[] = [];
+    const markerSourceWeights: SourceWeight[][] = [];
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -326,6 +352,42 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             const dr = drawRanges.get(`E${label}`);
             if (!dr) continue;
             const [vStart, vCount] = dr;
+
+            if (
+                colorField.support === "result_point"
+                || colorField.support === "line_result_point"
+            ) {
+                const sourceCorners: number[] = [];
+                const seenSources = new Set<number>();
+                for (let i = vStart; i < vStart + vCount; i++) {
+                    const sourceIdx = renderToSource[indexArr[i]];
+                    if (seenSources.has(sourceIdx)) continue;
+                    seenSources.add(sourceIdx);
+                    sourceCorners.push(sourceIdx);
+                }
+                for (const ip of ipIndices) {
+                    const weights = resultPointSourceWeights(
+                        bucket.ip_layout?.[ip],
+                        sourceCorners,
+                        colorField.support === "line_result_point",
+                    );
+                    if (weights.length === 0) continue;
+                    const point = [0, 0, 0];
+                    for (const [sourceIdx, weight] of weights) {
+                        const offset = sourceIdx * 3;
+                        point[0] += basePositions[offset] * weight;
+                        point[1] += basePositions[offset + 1] * weight;
+                        point[2] += basePositions[offset + 2] * weight;
+                    }
+                    const scalar = computeElementScalar(stepView, elemBase, [ip]);
+                    if (!isFinite(scalar)) continue;
+                    const t = (scalar - rangeMin) * scaleColor;
+                    colormap(t, tmpRgb, 0);
+                    markerPositions.push(point[0], point[1], point[2]);
+                    markerColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
+                    markerSourceWeights.push(weights);
+                }
+            }
 
             // Xtract Elements fields carry one value per element-local corner.
             // Preserve that variation instead of collapsing all corners through
@@ -451,6 +513,22 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         }
     }
     const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
+    const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);
+    for (let point = 0; point < markerSourceWeights.length; point++) {
+        for (const [sourceIdx, weight] of markerSourceWeights[point]) {
+            const sourceOffset = sourceIdx * 3;
+            const pointOffset = point * 3;
+            markerDisplacement[pointOffset] += sourceDisplacement[sourceOffset] * weight;
+            markerDisplacement[pointOffset + 1] += sourceDisplacement[sourceOffset + 1] * weight;
+            markerDisplacement[pointOffset + 2] += sourceDisplacement[sourceOffset + 2] * weight;
+        }
+    }
+    installResultPointMarkers(
+        mesh,
+        new Float32Array(markerPositions),
+        new Float32Array(markerColors),
+        markerDisplacement,
+    );
     geometry.morphAttributes.position = [
         new THREE.BufferAttribute(displacement, 3),
     ];

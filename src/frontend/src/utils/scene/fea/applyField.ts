@@ -19,6 +19,7 @@ import * as THREE from "three";
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
 import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
+import {clearResultPointMarkers} from "./resultPointMarkers";
 
 export interface ApplyFieldArgs {
     /** The mesh whose geometry we deform. We need the mesh (not just
@@ -97,6 +98,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         colormap: colormapName,
     } = args;
     const colormap = getColormap(colormapName);
+    clearResultPointMarkers(mesh);
 
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;

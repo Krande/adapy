@@ -453,6 +453,18 @@ def _ip_layout_from_int_positions(int_positions) -> list[dict]:
                 "ip": ip_id if isinstance(ip_id, int) else len(layout),
                 "layer": layer_label,
                 "in_plane": str(in_plane) if in_plane is not None else "",
+                **(
+                    {"node_index": int(in_plane)}
+                    if isinstance(in_plane, (int, np.integer))
+                    else {
+                        "natural_coordinates": [float(value) for value in in_plane]
+                    }
+                    if isinstance(in_plane, (list, tuple))
+                    and all(isinstance(value, (int, float, np.integer, np.floating)) for value in in_plane)
+                    else {"natural_coordinates": [float(in_plane)]}
+                    if isinstance(in_plane, (float, np.floating))
+                    else {}
+                ),
             }
         )
     return layout

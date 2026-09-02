@@ -24,6 +24,7 @@ from ada.fem.results.artefacts import (
     BLOB_VERSION,
     MANIFEST_VERSION,
     FEAResultStreamAdapter,
+    _ip_layout_from_int_positions,
     bake_artefacts,
     bake_fea_artefacts_from_source,
     is_fea_artefact_source,
@@ -42,6 +43,17 @@ RMED_FIXTURES = [
     "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed",
     "cantilever/code_aster/eigen_line_cantilever_code_aster.rmed",
 ]
+
+
+def test_ip_layout_preserves_result_point_coordinates():
+    layout = _ip_layout_from_int_positions(
+        [(0, 2, 0.5), (1, (0.5, 0.5), -0.5), (2, 0.25)]
+    )
+    assert layout[0]["node_index"] == 2
+    assert layout[0]["layer"] == "top"
+    assert layout[1]["natural_coordinates"] == [0.5, 0.5]
+    assert layout[1]["layer"] == "bottom"
+    assert layout[2]["natural_coordinates"] == [0.25]
 
 
 @pytest.mark.parametrize("rmed_rel", RMED_FIXTURES)
