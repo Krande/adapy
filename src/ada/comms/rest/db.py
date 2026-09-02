@@ -373,15 +373,23 @@ async def mark_audit_running(
     job_id: str,
     worker_image_tag: str | None = None,
 ) -> None:
-    """Flip the audit_log row for a job into ``status='running'`` and
-    stamp ``ts = now()`` so the admin's "current cell" query has a
-    fresh row to surface.
+    """Flip the audit_log row for a job into ``status='running'`` and stamp
+    ``started_at`` so the admin's "current cell" query has a fresh row.
 
-    Without this hop the row goes straight queued → done and the
-    audit toast's ORDER BY can't tell which queued cell is actually
-    being worked on — so the same one stays on screen for the
-    whole sweep. Best-effort: a DB hiccup must never break job
-    processing.
+    Without this hop the row goes straight queued → done and the audit toast's
+    ORDER BY can't tell which queued cell is actually being worked on — so the
+    same one stays on screen for the whole sweep.
+
+    THIS USED TO OVERWRITE ``ts``, and that is why queue wait could not be
+    measured after the fact: ``ts`` was the enqueue time while a row was queued
+    and the START time from the moment it was picked up, so the interval between
+    the two — the wait — was destroyed by the very hop that ended it. It also
+    made ``ts`` mean two different things depending on a column next to it,
+    which is a trap for anything reading the table.
+
+    ``ts`` is now the enqueue time for the row's whole life, and ``started_at``
+    is the pickup. Wait is the difference. Best-effort: a DB hiccup must never
+    break job processing.
     """
     if pool is None:
         return
@@ -390,7 +398,7 @@ async def mark_audit_running(
             """
             UPDATE audit_log
             SET status = 'running',
-                ts = NOW(),
+                started_at = NOW(),
                 worker_image_tag = COALESCE($2, worker_image_tag)
             WHERE job_id = $1
               AND status = 'queued'
@@ -641,14 +649,20 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
     # that doesn't change as the sweep advances. Caller sees no
     # current_cell between cells (a few hundred ms) — that's the
     # honest answer, and the toast hides the line there.
+    #
+    # Ordered by ``started_at``, which is what "most recently picked up" means
+    # now that ``ts`` stays at enqueue. COALESCE keeps a mid-rollout row written
+    # by an older worker (started_at NULL, ts stamped at pickup) in the right
+    # place instead of sorting it to the bottom for the length of the sweep.
     current_row = await pool.fetchrow(
         """
-        SELECT al.key, al.target_format, al.status, al.ts
+        SELECT al.key, al.target_format, al.status,
+               COALESCE(al.started_at, al.ts) AS ts
         FROM audit_log al
         JOIN audit_runs ar ON ar.id = al.audit_run_id
         WHERE ar.status = 'running'
           AND al.status = 'running'
-        ORDER BY al.ts DESC
+        ORDER BY COALESCE(al.started_at, al.ts) DESC
         LIMIT 1
         """
     )
@@ -922,7 +936,7 @@ async def list_audit(
     )
     args.append(min(max(limit, 1), 500))
     sql = (
-        "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
+        "SELECT id, ts, started_at, user_sub, scope_kind, scope_id, action, key,"
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
         " profile_key, log_key, job_id, audit_run_id, worker_image_tag, convert_meta,"
@@ -939,6 +953,7 @@ async def list_audit(
         {
             "id": r["id"],
             "ts": r["ts"].isoformat() if r["ts"] is not None else None,
+            "started_at": r["started_at"].isoformat() if r["started_at"] is not None else None,
             "user_sub": r["user_sub"],
             "user_email": r["user_email"],
             "user_display_name": r["user_display_name"],
@@ -1053,6 +1068,20 @@ async def summarize_audit(
         *args,
     )
 
+    # HISTORICAL wait, now that started_at survives the hop that used to destroy
+    # it. Rows predating migration 027 have started_at NULL and are excluded
+    # rather than backfilled: giving them ts would report every historical job
+    # as having waited zero and flatten the very trend this measures.
+    served_row = await pool.fetchrow(
+        "SELECT count(*) AS n,"
+        " EXTRACT(EPOCH FROM avg(started_at - ts)) AS mean_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (ORDER BY started_at - ts)) AS median_s,"
+        " EXTRACT(EPOCH FROM percentile_cont(0.95) WITHIN GROUP (ORDER BY started_at - ts)) AS p95_s,"
+        " EXTRACT(EPOCH FROM max(started_at - ts)) AS max_s"
+        " FROM audit_log" + (clause + " AND " if clause else " WHERE ") + "started_at IS NOT NULL",
+        *args,
+    )
+
     err_where = list(where) + ["status = 'error'", "error IS NOT NULL"]
     err_args = list(args)
     err_args.append(min(max(reason_limit, 1), 50))
@@ -1077,6 +1106,16 @@ async def summarize_audit(
             "oldest_wait_s": _sec(queue_row["oldest_s"]),
             "mean_wait_s": _sec(queue_row["mean_s"]),
             "median_wait_s": _sec(queue_row["median_s"]),
+            # How long jobs that DID run waited before a worker took them.
+            # ``served`` is how many rows carry the measurement at all — rows
+            # from before migration 027 do not, and a median over three rows
+            # deserves less trust than one over three thousand, so the count
+            # travels with the numbers.
+            "served": int(served_row["n"] or 0),
+            "served_mean_wait_s": _sec(served_row["mean_s"]),
+            "served_median_wait_s": _sec(served_row["median_s"]),
+            "served_p95_wait_s": _sec(served_row["p95_s"]),
+            "served_max_wait_s": _sec(served_row["max_s"]),
         },
         "by_target": [
             {"target": tgt, "counts": counts, "total": sum(counts.values())}

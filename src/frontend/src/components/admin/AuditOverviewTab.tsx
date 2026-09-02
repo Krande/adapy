@@ -206,11 +206,49 @@ const AuditOverviewTab: React.FC<{onDrillDown: () => void}> = ({onDrillDown}) =>
                                 </div>
                             ))}
                         </div>
+                        {/* Historical wait, from started_at. Separate from the
+                            live queue above because they answer different
+                            questions: one is "are we backed up now", the other
+                            "were we backed up over this window". */}
+                        {(c?.served ?? 0) > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-700">
+                                <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-500">
+                                        Wait before starting, over this window
+                                    </span>
+                                    <span className="text-[11px] text-gray-600 tabular-nums">
+                                        {c!.served.toLocaleString()} jobs measured
+                                    </span>
+                                </div>
+                                <div
+                                    className="grid gap-3"
+                                    style={{gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))"}}
+                                >
+                                    {[
+                                        {label: "Median", v: c!.served_median_wait_s},
+                                        {label: "Mean", v: c!.served_mean_wait_s},
+                                        {label: "p95", v: c!.served_p95_wait_s},
+                                        {label: "Worst", v: c!.served_max_wait_s},
+                                    ].map((m) => (
+                                        <div key={m.label}>
+                                            <div className="text-[11px] uppercase tracking-wide text-gray-500">
+                                                {m.label}
+                                            </div>
+                                            <div className="tabular-nums text-lg font-semibold text-gray-200">
+                                                {fmt(m.v)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div className="text-[11px] text-gray-500 mt-2">
                             {waiting === 0
-                                ? "No jobs are queued, so there is no wait to report."
-                                : "How long the jobs currently queued have been waiting. Jobs that already " +
-                                  "ran are not included — the instant a worker picked one up is not recorded."}
+                                ? "No jobs are queued, so there is no current wait to report."
+                                : "How long the jobs currently queued have been waiting."}
+                            {(c?.served ?? 0) === 0 &&
+                                " No completed job in this window recorded a start time — rows written" +
+                                " before that was tracked are excluded rather than counted as instant."}
                         </div>
                     </div>
                 );

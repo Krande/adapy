@@ -293,6 +293,73 @@ def test_running_is_carried_alongside_the_queue(db):
     assert c["running"] == 2 and c["queued"] == 1
 
 
+def test_started_at_makes_historical_wait_measurable(db):
+    """The point of migration 027.
+
+    ``mark_audit_running`` used to overwrite ``ts`` with the pickup time, so the
+    interval between enqueue and start — the wait — was destroyed by the very
+    hop that ended it. ``ts`` now stays at enqueue and ``started_at`` records
+    the pickup.
+    """
+    pool, run = db
+    run(_seed(pool, n=3, status="done"))
+    # Enqueued 10 minutes ago, picked up 2 minutes later.
+    run(
+        pool.execute(
+            "UPDATE audit_log SET ts = now() - interval '10 minutes'," " started_at = now() - interval '8 minutes'"
+        )
+    )
+
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["served"] == 3
+    assert 115 < c["served_mean_wait_s"] < 125, c["served_mean_wait_s"]
+    assert 115 < c["served_median_wait_s"] < 125
+
+
+def test_mark_running_no_longer_destroys_the_enqueue_time(db):
+    """The regression this migration exists to prevent, pinned at the source."""
+    pool, run = db
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="models/a.step",
+            target_format="glb",
+            status="queued",
+            job_id="job-1",
+        )
+    )
+    enqueued = run(pool.fetchval("SELECT ts FROM audit_log WHERE job_id = 'job-1'"))
+    run(db_module.mark_audit_running(pool, job_id="job-1", worker_image_tag="img-1"))
+
+    row = run(pool.fetchrow("SELECT ts, started_at, status FROM audit_log WHERE job_id = 'job-1'"))
+    assert row["status"] == "running"
+    assert row["ts"] == enqueued, "ts moved — the wait would be unmeasurable"
+    assert row["started_at"] is not None and row["started_at"] >= enqueued
+
+
+def test_rows_without_a_start_are_excluded_not_counted_as_instant(db):
+    """Rows predating 027 have no started_at. Treating them as zero-wait would
+    flatten exactly the trend this measures."""
+    pool, run = db
+    run(_seed(pool, n=4, status="done"))  # no started_at
+    c = run(db_module.summarize_audit(pool))["congestion"]
+    assert c["served"] == 0
+    assert c["served_mean_wait_s"] is None
+
+
+def test_historical_wait_honours_the_filter(db):
+    pool, run = db
+    run(_seed(pool, n=2, status="done", target="glb"))
+    run(_seed(pool, n=3, status="done", target="ifc"))
+    run(pool.execute("UPDATE audit_log SET started_at = ts + interval '30 seconds'"))
+
+    assert run(db_module.summarize_audit(pool, target_format="ifc"))["congestion"]["served"] == 3
+
+
 # ── the time window ────────────────────────────────────────────────
 
 

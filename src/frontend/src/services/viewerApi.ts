@@ -988,6 +988,14 @@ export interface AuditCongestion {
   oldest_wait_s: number | null;
   mean_wait_s: number | null;
   median_wait_s: number | null;
+  /** How many rows carry a recorded start. Rows predating the started_at
+   * migration do not, so this travels with the numbers — a median over three
+   * rows deserves less trust than one over three thousand. */
+  served: number;
+  served_mean_wait_s: number | null;
+  served_median_wait_s: number | null;
+  served_p95_wait_s: number | null;
+  served_max_wait_s: number | null;
 }
 
 export interface AuditSummary {
