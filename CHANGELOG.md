@@ -2,6 +2,15 @@
 
 
 
+## v0.61.0 (2026-09-02)
+
+### Feature
+
+* feat(api): let a plugin job require an admin, from two sources that only tighten (#313)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`79651a5`](https://github.com/Krande/adapy/commit/79651a5cfabd52fe2d903283bc8835b825884e85))
+
+
 ## v0.60.0 (2026-09-02)
 
 ### Feature
