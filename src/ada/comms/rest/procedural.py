@@ -18,6 +18,62 @@ ENGINE_PREFIX = "_engines/"
 RUN_LOG_RETENTION = 50
 
 
+# Depth and length bounds on a model name-as-path. Not security — the name is
+# never a filesystem path or a URL segment (models are addressed by UUID) — but
+# a tree the browser has to render, and an unbounded one is a UI that hangs on
+# somebody's paste accident.
+MAX_MODEL_NAME_DEPTH = 12
+MAX_MODEL_NAME_LEN = 512
+
+
+def normalize_model_name(raw: str) -> str:
+    """Normalise a procedural-model name that may carry a folder path.
+
+    A model is a database row, not a blob, so it has no natural place in the
+    storage tree — but the browser shows it beside real files and an operator
+    reasonably wants it filed with them. Rather than inventing a second
+    hierarchy (a ``folder`` column that only these rows have, which every
+    listing and move would then have to special-case), the NAME carries the
+    path and the existing tree builder does the rest.
+
+    That is safe because a model is addressed by UUID everywhere: no route
+    interpolates the name, so a ``/`` in it cannot escape anything. The unique
+    index on (scope, name) keeps two models from claiming one path, which is
+    exactly the constraint a filesystem would impose anyway.
+
+    Normalises rather than merely rejects, because the shapes people type —
+    a trailing slash, a doubled separator, backslashes pasted from Windows —
+    all have one obvious intended meaning, and refusing them would be pedantry.
+    What it does refuse is anything that would produce a tree node nobody can
+    name or reach.
+    """
+    if not isinstance(raw, str):
+        raise ValueError("name must be a string")
+    # Windows-style separators are a paste artefact, never a deliberate choice.
+    text = raw.replace("\\", "/").strip()
+    segments = [seg.strip() for seg in text.split("/")]
+    segments = [seg for seg in segments if seg]
+
+    if not segments:
+        raise ValueError("name is required")
+    if any(seg in (".", "..") for seg in segments):
+        # Not a traversal risk (this is not a path), but "../x" as a tree node
+        # is a label that reads as navigation and is not.
+        raise ValueError("name segments cannot be '.' or '..'")
+    if len(segments) > MAX_MODEL_NAME_DEPTH:
+        raise ValueError(f"name is nested deeper than {MAX_MODEL_NAME_DEPTH} folders")
+
+    name = "/".join(segments)
+    if len(name) > MAX_MODEL_NAME_LEN:
+        raise ValueError(f"name is longer than {MAX_MODEL_NAME_LEN} characters")
+    return name
+
+
+def model_name_folder(name: str) -> str:
+    """The folder part of a name-as-path, or "" at the root."""
+    return name.rsplit("/", 1)[0] if "/" in name else ""
+
+
 def engine_wheel_dir(engine_id: str) -> str:
     """Blob-key prefix under which a ``kind:wheel`` engine's built wheel lives."""
     return f"{ENGINE_PREFIX}{engine_id}/"

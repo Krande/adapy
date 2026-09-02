@@ -117,6 +117,24 @@ FETCH_BATCH = 1
 # After this many tries the worker stops attempting and acks so the
 # message leaves the stream.
 MAX_DELIVERIES = 3
+# How many jobs in a row one pool may serve before the round-robin cursor moves
+# on regardless.
+#
+# WHY THIS EXISTS. The pools are polled one at a time with a blocking fetch, so
+# a worker serving N capabilities walks N-1 empty pools between consecutive jobs
+# from the one pool that is busy — at ``_per_fetch_timeout`` each. On a combined
+# worker (6 capabilities) that is ~2.1s of dead time per job: measured on a
+# 907-cell sweep it was 20 minutes of a 69-minute run, and the run had been 40
+# minutes on a single-pool image. Cell durations were unchanged; the pool was
+# simply idle 39% of the time.
+#
+# Staying on a pool that just produced work removes that walk. The cap is what
+# keeps it fair: without it a permanently-busy pool would starve every other
+# capability this worker advertises, which is worse than the latency it fixes.
+# At the default, another pool waits at most this many jobs plus one cycle.
+#
+# 0 or 1 restores the strict round-robin.
+POOL_STREAK_LIMIT = max(1, int(os.environ.get("ADA_WORKER_POOL_STREAK_LIMIT", "8") or 8))
 
 # While a job runs we refresh the JetStream ack deadline with
 # ``msg.in_progress()`` on this cadence. A live worker keeps extending its
@@ -283,6 +301,27 @@ def _per_fetch_timeout(n_pools: int) -> float:
     into a busy-loop of near-instant fetches.
     """
     return max(0.5, FETCH_TIMEOUT / max(1, n_pools))
+
+
+def _advance_pool_cursor(rr: int, streak: int, produced: bool, limit: int = POOL_STREAK_LIMIT) -> tuple[int, int]:
+    """Where the round-robin cursor goes after one fetch — ``(rr, streak)``.
+
+    Split out from the poll loop because it is the whole scheduling policy and
+    the loop around it is untestable: everything else there needs a live
+    JetStream consumer.
+
+    An empty pool advances immediately, as it always did. A pool that produced
+    work is kept, so a saturated pool re-fetches instead of walking every other
+    (empty) pool first — until it has served ``limit`` jobs in a row, at which
+    point it yields whether or not it still has work. That bound is what stops a
+    busy pool starving the other capabilities the worker advertises.
+    """
+    if not produced:
+        return rr + 1, 0
+    streak += 1
+    if streak >= max(1, limit):
+        return rr + 1, 0
+    return rr, streak
 
 
 # Liveness heartbeat. The worker touches this file whenever its JetStream pull loop iterates
@@ -4705,7 +4744,15 @@ async def _run() -> None:
     # The per-fetch timeout is divided across the pools so a full cycle still
     # takes about FETCH_TIMEOUT: pickup latency stays what it was for a
     # single-pool worker instead of growing with the number of capabilities.
-    # The cost is more idle round-trips, which are cheap.
+    #
+    # That reasoning covers an IDLE worker and used to stop there, with "the
+    # cost is more idle round-trips, which are cheap". It is not the whole
+    # story for a BUSY one: with a single pool saturated, the cursor walked
+    # every other (empty) pool between consecutive jobs, so the cost was paid
+    # per job rather than per idle cycle — ~2.1s each on a six-capability
+    # worker, which cost 20 minutes of a 907-cell sweep. POOL_STREAK_LIMIT is
+    # the answer: stay on a pool that is producing, up to a bound that keeps
+    # the others from starving.
     per_fetch_timeout = _per_fetch_timeout(len(subs))
 
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
@@ -4756,6 +4803,7 @@ async def _run() -> None:
     logger.info("worker: ready, polling %s", settings.queue.subject)
     _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
     rr = 0  # round-robin cursor over `subs`
+    streak = 0  # consecutive productive fetches on the current pool
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
@@ -4769,10 +4817,12 @@ async def _run() -> None:
                 await asyncio.sleep(FETCH_TIMEOUT)
                 continue
             cap, sub = subs[rr % len(subs)]
-            rr += 1
             try:
                 msgs = await sub.fetch(batch=FETCH_BATCH, timeout=per_fetch_timeout)
             except asyncio.TimeoutError:
+                msgs = []
+            rr, streak = _advance_pool_cursor(rr, streak, bool(msgs))
+            if not msgs:
                 continue
             for msg in msgs:
                 job_id = msg.data.decode("utf-8")

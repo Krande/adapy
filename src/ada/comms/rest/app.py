@@ -2868,16 +2868,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         pool = _require_procedural_pool(request)
+        from .procedural import normalize_model_name
+
         body = await request.json()
-        name = body.get("name")
-        if not isinstance(name, str) or not name.strip():
+        raw_name = body.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
             raise HTTPException(status_code=400, detail="name (str) is required")
+        # The name may carry a folder path — models are filed alongside real
+        # files in the storage browser and a UUID is what actually addresses
+        # them, so "decks/level-3/module-a" is a name, not a route.
+        try:
+            name = normalize_model_name(raw_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         row = await db_module.create_procedural_model(
-            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name.strip(), created_by=user.sub
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name, created_by=user.sub
         )
         if row is None:
-            raise HTTPException(status_code=409, detail=f"a procedural model named {name.strip()!r} already exists")
+            raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
         return JSONResponse(row, status_code=201)
+
+    @api.patch("/scopes/{scope}/procedural-models/{model_id}/name")
+    async def api_procedural_rename(
+        model_id: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Rename a model — which is also how it is MOVED between folders.
+
+        One operation, because the name IS the path: a separate move would be a
+        second way to say where a model lives, and two of those eventually
+        disagree.
+        """
+        from .procedural import normalize_model_name
+
+        pool = _require_procedural_pool(request)
+        body = await request.json()
+        raw_name = body.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        try:
+            name = normalize_model_name(raw_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        row = await db_module.rename_procedural_model(pool, model_id, name)
+        if row is False:
+            raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
+        if row is None:
+            raise HTTPException(status_code=404, detail="procedural model not found")
+        return JSONResponse(row)
 
     async def _live_worker_specs(field: str, fallback_field: str | None = None) -> dict[str, dict]:
         """Catalog-shaped specs advertised by non-stale workers, keyed by slug.
@@ -7673,6 +7714,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    def _audit_time_bounds(since: str | None, until: str | None):
+        """Parse the shared time window, or 400 with the offending value.
+
+        Relative forms ("6h") resolve against the SERVER clock — see
+        db.parse_audit_time_bound for why the browser must not do it. Both the
+        log and the summary take the same two parameters so a window set on one
+        means the same thing on the other.
+        """
+        try:
+            return (
+                db_module.parse_audit_time_bound(since),
+                db_module.parse_audit_time_bound(until),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # REGISTERED BEFORE ``/audit/{audit_id}`` ON PURPOSE. Starlette matches in
+    # declaration order, so a static segment that could also parse as a path
+    # parameter has to come first — otherwise this lands on the row-detail
+    # route, which tries to read "summary" as an int and 422s. Moving it below
+    # is a silent breakage: the URL still exists, it just answers wrong.
+    @admin.get("/audit/summary")
+    async def admin_audit_summary(
+        request: Request,
+        user_sub: str | None = None,
+        scope_kind: str | None = None,
+        scope_id: str | None = None,
+        action: str | None = None,
+        target: str | None = None,
+        key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> JSONResponse:
+        """Counts behind the Audit tab's Overview, under the log's own filter.
+
+        Takes the same query parameters as ``GET /admin/audit`` and normalises
+        them identically, so one filter drives both surfaces. ``status`` is
+        accepted-and-ignored by omission: the summary exists to show how a
+        population splits across states, and the status tiles are the control
+        that sets that filter — honouring it would zero the other tiles the
+        moment you clicked one. See ``db.summarize_audit``.
+
+        Counting is done in the database rather than over a page of rows: the
+        log is keyset-paginated at 100, so summing what the client happens to
+        be holding would report "13 failed" for a sweep with hundreds.
+        """
+        pool = _require_pool(request)
+        key_like = (key or "").strip() or None
+        target_format = (target or "").strip().lstrip(".").lower() or None
+        since_ts, until_ts = _audit_time_bounds(since, until)
+        summary = await db_module.summarize_audit(
+            pool,
+            user_sub=user_sub,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            action=action,
+            target_format=target_format,
+            key_like=key_like,
+            since=since_ts,
+            until=until_ts,
+        )
+        return JSONResponse(summary)
+
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
         audit_id: int,
@@ -7948,6 +8052,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target: str | None = None,
         status: str | None = None,
         key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
     ) -> JSONResponse:
@@ -7959,6 +8065,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target_format = (target or "").strip().lstrip(".").lower() or None
         # ``status`` filters by job state (queued / running / done / error).
         status_norm = (status or "").strip().lower() or None
+        since_ts, until_ts = _audit_time_bounds(since, until)
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
@@ -7968,6 +8075,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_format=target_format,
             statuses=[status_norm] if status_norm else None,
             key_like=key_like,
+            since=since_ts,
+            until=until_ts,
             limit=limit,
             before_id=before_id,
         )

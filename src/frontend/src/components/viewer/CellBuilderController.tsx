@@ -14,6 +14,7 @@ import {viewerApi} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
+import {useCompanionModelStore} from "@/state/companionModelStore";
 import {bandFaceIds, stationRingPoints} from "@/utils/cellbuilder/loft";
 import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import {
@@ -258,6 +259,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // without touching the ghost or the builder grid.
     const cellsGroup = new THREE.Group();
     container.add(cellsGroup);
+
+    // Companion models: other procedural models shown ALONGSIDE the edited one.
+    // Their own subgroup, and deliberately outside `cellsGroup` — the editable
+    // cells carry picking, gizmos, hover and selection through meshById, and a
+    // companion must carry none of that. Keeping them in separate groups means
+    // the read-only ones cannot be hit by a raycast that only ever walks
+    // cellsGroup, rather than relying on a flag that some future traversal
+    // forgets to check.
+    const companionsGroup = new THREE.Group();
+    companionsGroup.name = "__cellbuilder_companions__";
+    container.add(companionsGroup);
 
     // Port/nozzle overlay: coloured arrows at each placed equipment's I/O
     // positions/vectors. Its own subgroup (toggled independently of the cells)
@@ -591,6 +603,56 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
         refreshEdgeOverlays();
         updateFaceOverlay();
+        requestRender();
+    };
+
+    /** Draw every companion showing topology as plain, non-interactive boxes.
+     *
+     * Rebuilt wholesale on change: a companion set is a handful of models, the
+     * geometry is boxes, and an incremental diff here would be complexity
+     * bought against a cost nobody can measure. */
+    const rebuildCompanions = () => {
+        for (let i = companionsGroup.children.length - 1; i >= 0; i--) {
+            const o = companionsGroup.children[i];
+            o.traverse((m: any) => {
+                if (m.isMesh || m.isLineSegments) disposeMesh(m);
+            });
+            companionsGroup.remove(o);
+        }
+
+        const {companions} = useCompanionModelStore.getState();
+        for (const c of Object.values(companions)) {
+            if (c.rep !== "topology") continue;
+            // One group per model so its offset is a single transform rather
+            // than baked into every box — moving it is then a position write.
+            const modelGroup = new THREE.Group();
+            modelGroup.name = `__companion__${c.modelId}`;
+            modelGroup.position.x = c.offsetX;
+            for (const cell of c.cells) {
+                const geo = new THREE.BoxGeometry(cell.size[0], cell.size[1], cell.size[2]);
+                const mesh = new THREE.Mesh(
+                    geo,
+                    new THREE.MeshBasicMaterial({
+                        color: colorForKind(cell.kind),
+                        transparent: true,
+                        // Dimmer than the edited model: at a glance, which one
+                        // you are editing must be unambiguous.
+                        opacity: BASE_OPACITY * 0.45,
+                        depthWrite: false,
+                    }),
+                );
+                mesh.position.set(
+                    cell.origin[0] + cell.size[0] / 2,
+                    cell.origin[1] + cell.size[1] / 2,
+                    cell.origin[2] + cell.size[2] / 2,
+                );
+                // Not pickable, not fittable: a companion is scenery.
+                mesh.raycast = () => {};
+                mesh.userData.__excludeFromFit = true;
+                modelGroup.add(mesh);
+            }
+            companionsGroup.add(modelGroup);
+        }
         requestRender();
     };
 
@@ -3559,6 +3621,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     syncBuilderGrid();
     syncGizmo();
     syncPortGizmo();
+    rebuildCompanions();
+    // Its own subscription, so a companion change never re-runs the editable
+    // rebuild (which clears hover, selection and the mesh index).
+    const unsubCompanions = useCompanionModelStore.subscribe((s, prev) => {
+        if (s.companions !== prev.companions) rebuildCompanions();
+    });
+
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         // Leaving an add mode drops any in-progress numeric placement.
         if (
@@ -3668,6 +3737,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     return () => {
         unsub();
+        unsubCompanions();
         unsubModel();
         el.removeEventListener("pointerdown", onPointerDown, true);
         el.removeEventListener("pointermove", onPointerMove, true);

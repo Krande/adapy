@@ -41,6 +41,8 @@ Uploads & conversions
 # --- Prose concatenated with `+` across two source lines.
 # src/frontend/src/components/admin/StorageTab.tsx:659-660
 Delete every cached derived product (GLB / FEA blob set) in this scope. Sources are preserved.
+# src/frontend/src/components/admin/ExternalModelsTab.tsx:81-82
+No external-model providers are registered. A worker must preload a provider module before anything can be bound.
 
 # --- Vendored strings written with a backslash-escaped apostrophe.
 # node_modules holds `Draggable\'s` and `Couldn\'t`; the bundler re-quotes them

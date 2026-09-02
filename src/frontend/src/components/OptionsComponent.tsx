@@ -13,6 +13,7 @@ import ThemeOptions from "./options/ThemeOptions";
 // here so they're reachable on phones and don't crowd the top bar.
 // Lazy-loaded so the desktop bundle stays slim.
 const RestSection = React.lazy(() => import("./options/RestSection"));
+import {UiShellSwitcher} from "@/plugins";
 
 const MOBILE_QUERY = "(max-width: 767px)";
 
@@ -104,6 +105,11 @@ function OptionsComponent() {
             <hr className="border-gray-600"/>
             <CollapsibleSection title="Theme">
                 <ThemeOptions/>
+                {/* Renders nothing unless a build actually carries more than one
+                    shell, so this costs a stock viewer no space at all. Grouped
+                    with Theme because both answer "how does this app look",
+                    and neither is a decision anyone revisits often. */}
+                <UiShellSwitcher className="mt-3"/>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
             <CollapsibleSection title="Performance">
