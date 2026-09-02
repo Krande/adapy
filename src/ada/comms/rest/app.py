@@ -3001,6 +3001,101 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
         return out
 
+    # Plugin jobs an admin must be to enqueue, named by plugin id. Admin-only to
+    # write like every other non-`public.` setting, and deliberately NOT under
+    # `public.` — who may run a job is not a read window for every user.
+    #
+    # This exists because the plugin's own advertisement cannot be the only
+    # source. A spec is advertised BY THE WORKER (`_live_worker_specs`), so a
+    # worker running an older build that predates the flag advertises no flag,
+    # and a gate that reads only the advertisement would silently disappear —
+    # the deployment would look protected and be open, which is the failure
+    # this whole mechanism exists to prevent. Worker registry rows are also not
+    # currently unforgeable (see the `$KV.ada-viewer-jobs.>` note in adapy's
+    # worker-trust docs), so an advertisement is a statement of intent, not an
+    # authorization decision.
+    #
+    # The two sources are therefore OR-ed, never AND-ed: adding a source can
+    # only ever TIGHTEN. A stale worker cannot open a gate the deployment set,
+    # and a deployment can gate a plugin that never declared anything.
+    PLUGIN_JOB_ADMIN_SETTING = "admin.plugin_jobs.require_admin"
+
+    async def _plugin_ids_gated_by_config(pool) -> set[str] | None:
+        """Plugin ids the DEPLOYMENT says are admin-only.
+
+        Returns ``None`` for "the setting exists but could not be read", which
+        callers must treat as *every* plugin job requiring admin. Failing closed
+        on a malformed value is deliberate: the alternative is a typo quietly
+        removing a gate, and an over-tight gate announces itself immediately
+        while an absent one does not.
+        """
+        if pool is None:
+            return set()
+        try:
+            raw = await db_module.get_setting(pool, PLUGIN_JOB_ADMIN_SETTING)
+        except Exception:
+            # Could not ask. Same answer as a value we could not parse: gate
+            # everything. A gate must never become a 500 — that turns "the
+            # database hiccuped" into "the endpoint is broken" — and it must
+            # never resolve an error to "allowed", which would make an outage
+            # into a silent removal of the restriction.
+            logger.exception(
+                "api: could not read %s; treating every plugin job as admin-only",
+                PLUGIN_JOB_ADMIN_SETTING,
+            )
+            return None
+        if raw is None or not raw.strip():
+            return set()
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            # Not JSON. Accept the shape a person types into a settings box
+            # rather than rejecting it, since rejecting means failing closed.
+            parts = [p.strip() for p in raw.replace(",", " ").split()]
+            return {p for p in parts if p} or None
+        if isinstance(parsed, str):
+            parsed = [parsed]
+        if not isinstance(parsed, list) or any(not isinstance(p, str) for p in parsed):
+            return None
+        return {p.strip() for p in parsed if p and p.strip()}
+
+    def _locally_registered_spec(plugin_id: str) -> dict | None:
+        """The spec this process registered itself, if any.
+
+        Needed because a single-node viewer preloads the plugin INTO THE API and
+        runs its job in-process, so nothing was ever advertised by a worker and
+        ``_live_worker_specs`` is empty. Without this the declaration would be
+        ignored in exactly the deployment where it is the only source there is.
+
+        ``ada.plugins`` is imported defensively, like the discovery path above:
+        the slim API image may not carry ``ada``, and an unavailable registry
+        means "no declaration seen" rather than a refusal — that gap is the
+        reason ``PLUGIN_JOB_ADMIN_SETTING`` exists and does not depend on it.
+        """
+        try:
+            from ada.plugins import plugin_backend_spec
+        except Exception:
+            return None
+        try:
+            return plugin_backend_spec(plugin_id)
+        except Exception:
+            return None
+
+    async def _plugin_job_requires_admin(plugin_id: str, pool, advertised: dict | None) -> bool:
+        """Whether enqueuing ``plugin_id``'s job requires an admin.
+
+        OR across every source — see ``PLUGIN_JOB_ADMIN_SETTING``. Any one of
+        them restricting is enough, so adding a source can only tighten.
+        """
+        if bool((advertised or {}).get("requires_admin")):
+            return True
+        if bool((_locally_registered_spec(plugin_id) or {}).get("requires_admin")):
+            return True
+        gated = await _plugin_ids_gated_by_config(pool)
+        if gated is None:  # unreadable setting -> gate everything
+            return True
+        return plugin_id in gated
+
     @api.post("/plugins/{plugin_id}/jobs")
     async def api_plugin_job(
         plugin_id: str,
@@ -3027,6 +3122,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
             raise HTTPException(status_code=403, detail="forbidden")
 
+        # Read the advertised spec ONCE: it decides both whether this request
+        # needs an admin and which pool it routes to.
+        plugin_spec: dict | None = None
+        for _spec in (await _live_worker_specs("plugin_specs")).values():
+            if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                plugin_spec = _spec
+                break
+
+        # Scope access is not the same question as who may RUN this. A plugin
+        # job can drive a licensed workstation for minutes; some are for admins
+        # even among users who can read the scope it writes into.
+        if await _plugin_job_requires_admin(plugin_id, getattr(request.app.state, "db_pool", None), plugin_spec):
+            if not getattr(user, "is_admin", False):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"plugin job {plugin_id!r} is restricted to administrators",
+                )
+
         # No source file — synthetic source_key over (plugin_id, options hash) so
         # identical requests cache-hit. derived_key holds the JSON summary the
         # plugin returns (the sidecar bundle lives under derived_prefix).
@@ -3046,39 +3159,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_capability = capability_token(target_capability)
         else:
             target_capability = None
-            for spec in (await _live_worker_specs("plugin_specs")).values():
-                if spec.get("slug") == plugin_id or spec.get("id") == plugin_id:
-                    cap = spec.get("worker_capability")
-                    if isinstance(cap, str) and cap.strip():
-                        target_capability = capability_token(cap)
-                    # SHARDED POOLS. A plugin may advertise `capability_option`
-                    # naming one of its own options; when the request supplies
-                    # that option the job routes to `<capability>-<value>`
-                    # instead of `<capability>`.
-                    #
-                    # This exists because a pool is one durable consumer: every
-                    # worker in it competes for the same messages, so workers
-                    # that are NOT interchangeable — each holding a different
-                    # licence, dataset or device — cannot share one. Routing
-                    # them apart by NAKing the wrong ones is the design this
-                    # replaced; it burned the delivery budget and dead-lettered
-                    # valid jobs (see the note on `pull_subscribe`).
-                    #
-                    # Subject routing does it instead, and the worker needs no
-                    # new code: it just lists the sharded token in
-                    # ADA_WORKER_CAPABILITIES. Core still names no plugin and
-                    # knows nothing about what the option MEANS.
-                    #
-                    # An absent or unusable option falls back to the bare
-                    # capability rather than erroring, so a worker that
-                    # subscribes to both serves unqualified requests too, and a
-                    # single-worker deployment never has to qualify anything.
-                    opt_name = spec.get("capability_option")
-                    if target_capability and isinstance(opt_name, str) and opt_name:
-                        shard = capability_token(options.get(opt_name))
-                        if shard:
-                            target_capability = f"{target_capability}-{shard}"
-                    break
+            if plugin_spec is not None:
+                cap = plugin_spec.get("worker_capability")
+                if isinstance(cap, str) and cap.strip():
+                    target_capability = capability_token(cap)
+                # SHARDED POOLS. A plugin may advertise `capability_option`
+                # naming one of its own options; when the request supplies
+                # that option the job routes to `<capability>-<value>`
+                # instead of `<capability>`.
+                #
+                # This exists because a pool is one durable consumer: every
+                # worker in it competes for the same messages, so workers
+                # that are NOT interchangeable — each holding a different
+                # licence, dataset or device — cannot share one. Routing
+                # them apart by NAKing the wrong ones is the design this
+                # replaced; it burned the delivery budget and dead-lettered
+                # valid jobs (see the note on `pull_subscribe`).
+                #
+                # Subject routing does it instead, and the worker needs no
+                # new code: it just lists the sharded token in
+                # ADA_WORKER_CAPABILITIES. Core still names no plugin and
+                # knows nothing about what the option MEANS.
+                #
+                # An absent or unusable option falls back to the bare
+                # capability rather than erroring, so a worker that
+                # subscribes to both serves unqualified requests too, and a
+                # single-worker deployment never has to qualify anything.
+                opt_name = plugin_spec.get("capability_option")
+                if target_capability and isinstance(opt_name, str) and opt_name:
+                    shard = capability_token(options.get(opt_name))
+                    if shard:
+                        target_capability = f"{target_capability}-{shard}"
 
         # No queue: run it here, in a thread, and hand back a job id the status
         # endpoint below can serve. A single-node viewer (the examples, a laptop)
@@ -3192,6 +3303,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "origin": "code" if slug in builtin_slugs else "db",
                 "online": True,
             }
+
+        # `requires_admin` is reported as the EFFECTIVE gate, not merely what a
+        # worker declared: a deployment can gate a plugin that declared nothing
+        # (see PLUGIN_JOB_ADMIN_SETTING). A UI that hid its button on the
+        # declaration alone would offer an action the API then refuses, which
+        # reads as a broken button rather than as a permission.
+        #
+        # This is an affordance, never the gate. The gate is in the POST.
+        pool = getattr(request.app.state, "db_pool", None)
+        gated = await _plugin_ids_gated_by_config(pool)
+        for slug, spec in by_slug.items():
+            spec["requires_admin"] = bool(spec.get("requires_admin")) or gated is None or slug in gated
         return JSONResponse({"plugins": list(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/equipment-types")
