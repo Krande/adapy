@@ -2,6 +2,15 @@
 
 
 
+## v0.62.5 (2026-09-03)
+
+### Fix
+
+* fix(occ): stop a degenerate boundary arc from deleting a curved plate (#324)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c8df2cf`](https://github.com/Krande/adapy/commit/c8df2cf4d536cfacd423c2723e2588c23b81e433))
+
+
 ## v0.62.4 (2026-09-03)
 
 ### Fix
