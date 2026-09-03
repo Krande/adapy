@@ -156,6 +156,11 @@ class SinReader(SifReader):
             self.load_combination(int(self.step), recipe)
         else:
             self.load_step(self.step)
+            if self.step is None:
+                # A full read is what the bake takes, and a deck that stores only
+                # its basic cases would otherwise present its combinations as
+                # names with no data behind them.
+                self.append_unstored_combinations()
 
     def _load_static(self) -> None:
         """Read the step-invariant blocks once: mesh (GCOORD/GNODE/
@@ -269,6 +274,71 @@ class SinReader(SifReader):
                 )
             if combined is not None:
                 self.results.append((card.name, combined))
+
+    def stored_steps(self) -> set[int]:
+        """Result-case ids the SIN physically stores, from the RV* tables."""
+        steps: set[int] = set()
+        for rv in _RV_TYPE_NAMES:
+            if rv not in self.sin.type_blocks:
+                continue
+            ires = self.sin.gather_first_words(rv)
+            if ires.size:
+                steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+        return steps
+
+    def append_unstored_combinations(self, cards: "set[str] | None" = None) -> None:
+        """Add every ``RDRESCMB`` case the SIN does not already store.
+
+        SESTRA's "smart load combinations" store only the basic cases and leave
+        the combinations as recipes; other decks store the combined results
+        outright. Both are normal, and only the first needs anything done — so
+        this superposes exactly the ids that are missing and leaves a deck that
+        already has them untouched.
+
+        Same superposition as :meth:`load_combination`, on the raw RV component
+        values before :class:`Sif2Mesh` derives anything nonlinear from them.
+        Doing it here rather than after the fact is what makes the combined case
+        an ordinary step to everything downstream: von Mises and principal
+        stresses are computed from the combined components, which is what Xtract
+        does, and not combined after the fact, which would be wrong.
+        """
+        combinations = read_result_combinations(self.sin)
+        if not combinations:
+            return
+        stored = self.stored_steps()
+        missing = {i: r for i, r in combinations.items() if r and i not in stored}
+        if not missing:
+            return
+
+        want = None if cards is None else set(cards)
+        index_of = {name: i for i, (name, _) in enumerate(self.results)}
+        for ires in sorted(missing):
+            for card in _RESULT_CARDS:
+                if card.name not in _RV_TYPE_NAMES:
+                    continue
+                if want is not None and card.name not in want:
+                    continue
+                combined = None
+                for basic_step, factor in missing[ires].items():
+                    rec = self._read_result_card(card, step=int(basic_step))
+                    if rec is None or len(rec[1]) <= 1:
+                        continue
+                    combined = _accumulate_rv_combination(
+                        card,
+                        combined,
+                        rec[1],
+                        float(factor),
+                        combination_step=int(ires),
+                    )
+                if combined is None:
+                    continue
+                at = index_of.get(card.name)
+                if at is None:
+                    index_of[card.name] = len(self.results)
+                    self.results.append((card.name, combined))
+                else:
+                    name, existing = self.results[at]
+                    self.results[at] = (name, _concat_rv_rows(existing, combined))
 
     def _read_result_card(self, card, step):
         """Read one result card → ``(name, rows)`` (or None if the block
@@ -440,6 +510,26 @@ _RV_VALUE_START = {
     "RVSTRESS": cards.RVSTRESS.get_indices_from_names(["irstrs"]) + 1,
     "RVFORCES": cards.RVFORCES.get_indices_from_names(["irforc|"]) + 1,
 }
+
+
+def _concat_rv_rows(existing, extra):
+    """Append one RV table's data rows to another's, keeping row 0.
+
+    Row 0 is the synthesised super-header (``[-ndim, ndim, *dims]``); every
+    consumer does ``rows[1:]``, and ``dims`` describes the block's declared
+    shape rather than how many rows were materialised — the step-filtered read
+    already returns fewer rows than it claims, so leaving it alone here is the
+    same contract, not a new liberty.
+    """
+    if isinstance(existing, np.ndarray) and isinstance(extra, np.ndarray):
+        if extra.shape[0] <= 1:
+            return existing
+        if existing.shape[1] != extra.shape[1]:
+            raise ValueError(
+                f"cannot append combination rows: width {extra.shape[1]} into {existing.shape[1]}"
+            )
+        return np.vstack((existing, extra[1:]))
+    return [*list(existing), *list(extra)[1:]]
 
 
 def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combination_step: int):

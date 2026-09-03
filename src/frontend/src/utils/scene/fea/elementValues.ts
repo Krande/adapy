@@ -118,7 +118,11 @@ export async function feaValuesForElement(
                 // One unreadable blob must not blank the other nineteen.
                 return;
             }
-            const nComp = bucket.n_components;
+            // The blob's component count is the FIELD's, not something the
+            // per-type bucket carries -- applyElemField reads it the same way.
+            // Taking it from the bucket yields undefined, which makes every
+            // offset NaN and every value read back as "no value".
+            const nComp = field.components.length;
             const ips = layerIpIndices(bucket, layer);
             const base = index * bucket.n_ips * nComp;
             out.push({
@@ -126,7 +130,7 @@ export async function feaValuesForElement(
                 elemType: bucket.elem_type,
                 components: field.components.map((component, c) => ({
                     component,
-                    value: c < nComp ? reduceIps(view, base, ips, nComp, c, ipReduction) : NaN,
+                    value: reduceIps(view, base, ips, nComp, c, ipReduction),
                 })),
             });
         }),
