@@ -2,6 +2,15 @@
 
 
 
+## v0.62.2 (2026-09-03)
+
+### Fix
+
+* fix: Explain the issue-target token per forge (#321)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`26653c8`](https://github.com/Krande/adapy/commit/26653c891441589cbeba712284421bbc37c01955))
+
+
 ## v0.62.1 (2026-09-03)
 
 ### Fix
