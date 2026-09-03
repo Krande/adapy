@@ -5,6 +5,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {
     buildFileTree,
+    partitionUiHidden,
     collectFolderPaths,
     FileTreeNode,
     FolderNode,
@@ -154,7 +155,18 @@ function useResizableColumns(
 const StorageTab: React.FC = () => {
     const currentScope = useScopeStore((s) => s.current);
     const scope = scopeUrlPart(currentScope);
-    const [files, setFiles] = useState<AdminFileEntry[]>([]);
+    const [allFiles, setAllFiles] = useState<AdminFileEntry[]>([]);
+    // Published assets are hidden by default here too — the admin tab is a file
+    // browser first, and a publishing scope holds thousands of blobs nobody
+    // uploaded. The difference from the viewer's panel is that here they can be
+    // switched back on, because this is where you come to look at storage
+    // itself rather than at your own files.
+    const [showHidden, setShowHidden] = useState(false);
+    const {visible: shownFiles, hidden: hiddenFiles} = useMemo(
+        () => partitionUiHidden(allFiles, (f) => f.key),
+        [allFiles],
+    );
+    const files = showHidden ? allFiles : shownFiles;
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -239,7 +251,7 @@ const StorageTab: React.FC = () => {
             const files = await viewerApi.adminListStorage(scope, {signal: cancel.signal});
             // Only the latest reload commits results — race-safe.
             if (reloadSeq.current === seq) {
-                setFiles(files);
+                setAllFiles(files);
                 setError(null);
             }
         } catch (e: unknown) {
@@ -713,6 +725,30 @@ const StorageTab: React.FC = () => {
                     </svg>
                     Refresh
                 </button>
+                {/* Published assets are storage rather than files, so they are
+                    off by default even here. The count is on the label so the
+                    toggle says what it would reveal — an unlabelled switch
+                    hiding four thousand blobs is not a choice, it is a guess. */}
+                <label
+                    className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer select-none"
+                    title={
+                        "Show machine-published dataset blobs under assets/. They are always " +
+                        "returned by the API — plugins index their published hierarchy from " +
+                        "exactly this listing — and only hidden from these browsers by default."
+                    }
+                >
+                    <input
+                        type="checkbox"
+                        checked={showHidden}
+                        onChange={(e) => setShowHidden(e.target.checked)}
+                        className="accent-blue-600"
+                        disabled={hiddenFiles.length === 0}
+                    />
+                    <span className={hiddenFiles.length === 0 ? "text-gray-600" : undefined}>
+                        Show published assets
+                        {hiddenFiles.length > 0 ? ` (${hiddenFiles.length.toLocaleString()})` : ""}
+                    </span>
+                </label>
             </div>
             {overrideOpen && (
                 <div className="px-3 sm:px-4 py-2 border-b border-gray-700 bg-gray-900/40 text-[11px]">

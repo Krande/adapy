@@ -816,7 +816,20 @@ interface CellBuilderState {
    * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
    * archetypes/boxes (the browser has no DB). */
   compileInBrowser: () => Promise<void>;
-  viewResult: (derivedKey: string, lod?: "sim" | "detail") => Promise<void>;
+  viewResult: (
+    derivedKey: string,
+    lod?: "sim" | "detail",
+    /** Explicit scene source name.
+     *
+     * Without it the name is derived from whichever model is ACTIVE, which is
+     * fine while the cellbuilder is the only caller but makes "is this model's
+     * result in the scene?" unanswerable for any other one: the same model
+     * loads under a different name depending on what was active at the time.
+     * The storage panel passes a name derived from the model itself, so a row
+     * can show whether its result is loaded — and for the active model the two
+     * rules agree, because that name IS active.name. */
+    sourceName?: string,
+  ) => Promise<void>;
   hideResult: () => void;
   hideDetail: () => void;
   /** Switch the active model representation (topology / simulation / detail),
@@ -907,7 +920,12 @@ function groupsFromDoc(doc: ProceduralDoc): CellGroup[] {
   );
 }
 
-function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
+/** Convert a stored document into builder cells.
+ *
+ * Exported so a companion model can be drawn read-only from its doc without
+ * going through the editing store — the conversion is the same, and a second
+ * copy of it would be a second thing to keep in step with the schema. */
+export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   const out: Record<string, BuilderCell> = {};
   const spaceByName = new Map<string, Record<string, unknown>>();
   for (const s of doc.spaces ?? []) {
@@ -1130,10 +1148,7 @@ function containingCellName(
   return first ? first.name : "NoSpace";
 }
 
-/** The topology's world X-width from its cells (0 when empty). Passed to the
- * side-by-side offset so the result clears the topology even when the freshly-
- * loaded result group isn't measurable yet (which otherwise collapsed the gap
- * to ~1 m and overlapped for a personal-scope demo). */
+/** The topology's X-width from its cells (0 when empty). */
 function modelXWidth(cells: Record<string, BuilderCell>): number {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -1142,6 +1157,21 @@ function modelXWidth(cells: Record<string, BuilderCell>): number {
     maxX = Math.max(maxX, c.origin[0] + c.size[0]);
   }
   return maxX > minX ? maxX - minX : 0;
+}
+
+/** The topology's far +X EDGE in model space (0 when empty).
+ *
+ * This, not the width, is what the side-by-side offset needs: the result has to
+ * start past where the topology ENDS. A cell model authored from the origin
+ * outward has edge == width, which is why a width-based formula appeared to
+ * work — but the two diverge the moment cells do not start at 0, and the result
+ * then overlaps by exactly that difference. */
+function modelMaxX(cells: Record<string, BuilderCell>): number {
+  let maxX = -Infinity;
+  for (const c of Object.values(cells)) {
+    maxX = Math.max(maxX, c.origin[0] + c.size[0]);
+  }
+  return Number.isFinite(maxX) && maxX > 0 ? maxX : 0;
 }
 
 function snapshot(s: CellBuilderState): ModelSnapshot {
@@ -3275,12 +3305,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setBuildSim: (on) => set({ buildSim: on }),
     setBuildDetail: (on) => set({ buildDetail: on }),
 
-    viewResult: async (derivedKey: string, lod = "sim") => {
+    viewResult: async (derivedKey: string, lod = "sim", explicitSourceName?: string) => {
       const active = get().active;
       const base = active ? active.name : derivedKey;
       // Simulation and detail are distinct scene sources so they never collide.
       const sourceName =
-        lod === "detail" ? `procedural-detail:${base}` : `procedural:${base}`;
+        explicitSourceName ??
+        (lod === "detail" ? `procedural-detail:${base}` : `procedural:${base}`);
       const { load_glb_by_url_rest } = await import(
         "@/utils/scene/handlers/view_file_object_from_server"
       );
@@ -3295,10 +3326,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // loader replaces the group (position resets to the model translation), so
       // re-apply on every load.
       if (get().sideBySide) {
-        const width = modelXWidth(get().cells);
+        const topoMaxX = modelMaxX(get().cells);
         void import("@/utils/scene/handlers/side_by_side").then(
           ({ applySideBySideOffset }) =>
-            applySideBySideOffset(sourceName, true, width),
+            applySideBySideOffset(sourceName, true, topoMaxX),
         );
       }
     },
@@ -3373,7 +3404,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           const { applySideBySideOffset } = await import(
             "@/utils/scene/handlers/side_by_side"
           );
-          applySideBySideOffset(sourceName, true, modelXWidth(get().cells));
+          applySideBySideOffset(sourceName, true, modelMaxX(get().cells));
         }
         setProceduralToast(label, {
           status: "done",
@@ -3470,11 +3501,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // In a result view, restore the superimpose choice for the cell layer.
         get().setCellsVisible(get().superimpose);
       }
-      const width = modelXWidth(get().cells);
+      const topoMaxX = modelMaxX(get().cells);
       const apply = (src: string | null) => {
         if (!src) return;
         void import("@/utils/scene/handlers/side_by_side").then(
-          ({ applySideBySideOffset }) => applySideBySideOffset(src, on, width),
+          ({ applySideBySideOffset }) => applySideBySideOffset(src, on, topoMaxX),
         );
       };
       apply(get().resultSourceName);

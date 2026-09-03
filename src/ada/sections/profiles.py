@@ -102,6 +102,54 @@ def angular(sec: Section, return_solid) -> SectionProfile:
     )
 
 
+#: Shortest segment `CurvePoly2d` will keep (its `_points_to_segments` default).
+#: A feature smaller than this cannot survive into the curve at all, so a flange
+#: thinner than it is not geometry — it is a placeholder for "no flange".
+CURVE_SEGMENT_TOL = 1e-3
+
+
+def _top_flange_is_absent(wtop, tw, tftop) -> bool:
+    """Is this I-section's top flange a placeholder rather than a flange?
+
+    True only when it contributes nothing that could be built: no overhang
+    beyond the web on either side, AND a thickness below the curve tolerance.
+    A genuinely thin but wide flange keeps both tests from firing, so it is
+    still drawn.
+    """
+    if wtop is None or tw is None or tftop is None:
+        return False
+    return (wtop - tw) / 2 <= CURVE_SEGMENT_TOL and tftop <= CURVE_SEGMENT_TOL
+
+
+def drop_coincident(points, tol=1e-9):
+    """Drop consecutive duplicate vertices from a closed outline.
+
+    A zero-length edge is not something OCCT will build a face from: it fails
+    the whole profile with ``StdFail_NotDone: BRep_API: command not done``, and
+    since the profile is what a beam is swept from, one degenerate vertex pair
+    costs the entire member rather than the millimetre it describes.
+
+    This is reachable from real data. Sesam's ``GIORH`` card has no T variant,
+    so a T-bar is written as an I-section whose top flange IS the web: flange
+    width equal to the web thickness, flange thickness a near-zero sentinel. The
+    two upper web/flange junctions then land exactly on the two top-flange
+    corners, and the outline carries two zero-length edges.
+
+    Points may be ``(x, y)`` or ``(x, y, fillet_radius)``; only the position
+    decides coincidence, and the first of a coincident run is the one kept, so
+    a fillet radius on the survivor is preserved.
+    """
+    kept = []
+    for point in points:
+        if kept and abs(point[0] - kept[-1][0]) <= tol and abs(point[1] - kept[-1][1]) <= tol:
+            continue
+        kept.append(point)
+    # Closed outline: the last point may also coincide with the first.
+    while len(kept) > 1 and abs(kept[-1][0] - kept[0][0]) <= tol and abs(kept[-1][1] - kept[0][1]) <= tol:
+        kept.pop()
+    return kept
+
+
 @lru_cache
 def iprofiles(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
@@ -135,6 +183,20 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
         tfbtn = sec.t_fbtn
         tftop = sec.t_ftop
         tw = sec.t_w
+        if _top_flange_is_absent(wtop, tw, tftop):
+            # Sesam's GIORH card has no T variant, so a T-bar is written as an
+            # I-section whose "top flange" is a placeholder: width equal to the
+            # web thickness and thickness a near-zero sentinel. Building that
+            # literally produces two zero-length edges (the flange corners land
+            # on the web/flange junctions) and two sub-tolerance segments, and
+            # the profile fails outright — costing the whole member to render a
+            # flange that was never there.
+            #
+            # It is a T, so build a T: the web runs to full height and there is
+            # no cap. Only the swept geometry is affected; section properties
+            # come from the parameters, not from this outline.
+            wtop = tw
+            tftop = 0.0
         p3 = (wtop / 2, h / 2 - tftop)
         p4 = (tw / 2, h / 2 - tftop)
         p5 = (tw / 2, -h / 2 + tfbtn)
@@ -157,7 +219,7 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
                 return (pt[0], pt[1], r)
 
             p4, p5, p8, p9 = _fil(p4), _fil(p5), _fil(p8), _fil(p9)
-        input_curve = [c1, c2, p3, p4, p5, p6, c4, c3, p7, p8, p9, p10]
+        input_curve = drop_coincident([c1, c2, p3, p4, p5, p6, c4, c3, p7, p8, p9, p10])
         outer_curve = build_joined(input_curve)
 
     return SectionProfile(

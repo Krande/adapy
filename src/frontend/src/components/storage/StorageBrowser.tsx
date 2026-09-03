@@ -1,5 +1,5 @@
 import {PANEL_CHROME} from "@/state/themeStore";
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
@@ -10,6 +10,12 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
 import {load_fea_with_defaults} from "@/utils/scene/handlers/load_fea_streaming";
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
+import {
+    getSourceOffset,
+    placeNextToExisting,
+    resetSourceOffset,
+    setSourceOffset,
+} from "@/utils/scene/handlers/model_translate";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import ReloadIcon from "../icons/ReloadIcon";
@@ -25,6 +31,7 @@ import GitHistoryPanel from "./GitHistoryPanel";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 import {
     buildFileTree,
+    partitionUiHidden,
     collectFolderPaths,
     FileTreeNode,
     FolderNode,
@@ -43,10 +50,17 @@ import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
-import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
+import {buildFileMenuItems, buildFolderMenuItems, buildProceduralMenuItems} from "./storageMenuItems";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
+import {cellsFromDoc} from "@/state/cellBuilderStore";
+import {
+    companionSourceName,
+    useCompanionModelStore,
+    type CompanionRep,
+} from "@/state/companionModelStore";
+import {cellsWidthX, nextModelOffsetX} from "@/utils/cellbuilder/modelPlacement";
 
 // Custom drag MIME for in-panel file moves. OS-file drops arrive as
 // ``dataTransfer.files`` instead; checking for this type tells the two
@@ -217,7 +231,17 @@ function formatRelative(iso: string): string {
 }
 
 const StorageBrowser: React.FC = () => {
-    const files = useServerInfoStore((s) => s.serverFileObjects);
+    const allFiles = useServerInfoStore((s) => s.serverFileObjects);
+    // Published-asset blobs are storage, not "my files": a publishing scope
+    // holds thousands under assets/<collection>/<subject>/<revision>/, and none
+    // was uploaded by anyone here — they bury the handful of sources this
+    // browser exists to show. Hidden in the VIEW only; the API still indexes
+    // them, because plugins project their published hierarchy out of exactly
+    // that listing. The count is surfaced below rather than swallowed.
+    const {visible: files, hidden: hiddenFiles} = useMemo(
+        () => partitionUiHidden(allFiles, (f) => f.name),
+        [allFiles],
+    );
     const {sidecars} = useBuildSidecars(files);
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
@@ -361,15 +385,172 @@ const StorageBrowser: React.FC = () => {
         void refreshTemplates();
     }, [refreshTemplates]);
 
-    const openProceduralModel = async (m: ProceduralModelSummary) => {
+    const openProceduralModel = async (m: ProceduralModelSummary, opts?: {collapsePanel?: boolean}) => {
         try {
             const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
             useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
-            // The model now owns the screen (the cellbuilder panel opens) — collapse
-            // the storage overview so it doesn't sit on top of the freshly-opened model.
-            useServerInfoStore.getState().setShowServerInfoBox(false);
+            // Opening from a row means "show me this model", so the storage
+            // overview gets out of the way. Switching the ACTIVE model from the
+            // menu does not: the operator is arranging several and needs the
+            // list to keep arranging them.
+            if (opts?.collapsePanel !== false) {
+                useServerInfoStore.getState().setShowServerInfoBox(false);
+            }
         } catch (e) {
             window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    // One scene source per model, named from the model rather than from
+    // whatever happened to be active when it was loaded. That is what lets a
+    // row answer "is my result in the scene?" — and for the active model it is
+    // the same string the cellbuilder's own compile path produces.
+    const proceduralSourceName = (m: ProceduralModelSummary) => `procedural:${m.name}`;
+    const isProceduralLoaded = (m: ProceduralModelSummary) =>
+        // In the scene by any route: the edited model, a companion drawing its
+        // topology, or a companion whose compiled result is loaded.
+        activeProcedural === m.id ||
+        !!companions[m.id] ||
+        loadedSourceNames.has(proceduralSourceName(m));
+
+    // The checkbox on a model row means what it means on a file row: put this
+    // in the scene. Loading also makes the model ACTIVE — you ticked it to work
+    // on it — while anything already loaded stays in the scene and simply stops
+    // being the one being edited. Several visible, one active.
+    // Companion = present in the scene but not the model being edited. The
+    // first model loaded becomes ACTIVE (there is nothing to compare it with
+    // yet); each subsequent one joins as a companion, placed clear of whatever
+    // is already there.
+    const companions = useCompanionModelStore((st) => st.companions);
+
+    const addCompanion = async (m: ProceduralModelSummary) => {
+        const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
+        const cells = Object.values(cellsFromDoc(detail.doc));
+        const placed = Object.values(useCompanionModelStore.getState().companions).map((c) => ({
+            offsetX: c.offsetX,
+            width: cellsWidthX(c.cells),
+        }));
+        const active = useCellBuilderStore.getState();
+        if (active.active) {
+            placed.push({offsetX: 0, width: cellsWidthX(Object.values(active.cells))});
+        }
+        useCompanionModelStore.getState().add({
+            modelId: m.id,
+            name: m.name,
+            cells,
+            rep: "topology",
+            offsetX: nextModelOffsetX(placed, cellsWidthX(cells)),
+            latestGlbKey: m.latest_glb_key ?? null,
+        });
+    };
+
+    /** Promote a model to the edited one, demoting whatever held that role.
+     *
+     * A SWAP, not a replace: the model you were editing stays in the scene as a
+     * companion at the offset it already had, so "make active" changes what is
+     * editable without changing what is visible. Before companions existed this
+     * necessarily closed the previous model, which is what made two models look
+     * impossible. */
+    const makeProceduralActive = async (m: ProceduralModelSummary) => {
+        const cb = useCellBuilderStore.getState();
+        const store = useCompanionModelStore.getState();
+        const prev = cb.active;
+
+        // The incoming model must stop being a companion before it is drawn as
+        // the editable one, or its cells render twice.
+        const incoming = store.companions[m.id];
+        if (incoming) {
+            if (incoming.rep !== "topology") {
+                await unload_any_source(companionSourceName(incoming.name, incoming.rep)).catch(
+                    () => undefined,
+                );
+            }
+            store.remove(m.id);
+        }
+
+        await openProceduralModel(m, {collapsePanel: false});
+
+        if (prev && prev.modelId !== m.id) {
+            const detail = await viewerApi.getProceduralModel(scopeKey, prev.modelId);
+            store.add({
+                modelId: prev.modelId,
+                name: prev.name,
+                cells: Object.values(cellsFromDoc(detail.doc)),
+                rep: "topology",
+                // Keep the outgoing model where the incoming one had been, so
+                // the two trade places instead of landing on each other.
+                offsetX: incoming?.offsetX ?? 0,
+                latestGlbKey: detail.latest_glb_key ?? null,
+            });
+        }
+    };
+
+    const removeCompanion = async (m: ProceduralModelSummary) => {
+        const c = useCompanionModelStore.getState().companions[m.id];
+        if (c && c.rep !== "topology") {
+            await unload_any_source(companionSourceName(c.name, c.rep)).catch(() => undefined);
+        }
+        useCompanionModelStore.getState().remove(m.id);
+    };
+
+    /** Switch a companion between its cell topology and a compiled result. */
+    const setCompanionRep = async (m: ProceduralModelSummary, rep: CompanionRep) => {
+        const store = useCompanionModelStore.getState();
+        const c = store.companions[m.id];
+        if (!c || c.rep === rep) return;
+        // Drop whatever the previous representation put in the scene, so the two
+        // never stack on one model.
+        if (c.rep !== "topology") {
+            await unload_any_source(companionSourceName(c.name, c.rep)).catch(() => undefined);
+        }
+        store.setRep(m.id, rep);
+        if (rep === "topology") return;
+        if (!c.latestGlbKey) return;
+        const sourceName = companionSourceName(c.name, rep);
+        await useCellBuilderStore.getState().viewResult(c.latestGlbKey, rep === "detail" ? "detail" : "sim", sourceName);
+        // Keep the compiled result where the topology was, so switching
+        // representation does not also move the model.
+        setSourceOffset(sourceName, {x: c.offsetX});
+    };
+
+    const toggleProceduralLoaded = async (m: ProceduralModelSummary, next: boolean) => {
+        const sourceName = proceduralSourceName(m);
+        try {
+            if (!next) {
+                // Unticking removes it from the scene and nothing else: editing
+                // a model whose result is not shown is a normal thing to do
+                // (edit topology, then compile), so this must not close the
+                // cellbuilder behind the operator's back.
+                if (useCompanionModelStore.getState().companions[m.id]) {
+                    await removeCompanion(m);
+                    return;
+                }
+                await unload_any_source(sourceName).catch(() => undefined);
+                return;
+            }
+            // First model in: it becomes the one being EDITED — there is
+            // nothing to compare it against yet, and an empty cellbuilder
+            // beside a loaded model would be an odd place to land.
+            // Every later one joins as a companion, so the model you are
+            // working on is not swapped out from under you by a tick.
+            if (!useCellBuilderStore.getState().active) {
+                await openProceduralModel(m, {collapsePanel: false});
+                return;
+            }
+            await addCompanion(m);
+        } catch (e) {
+            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const viewProceduralResult = async (m: ProceduralModelSummary) => {
+        if (!m.latest_glb_key) return;
+        try {
+            await useCellBuilderStore
+                .getState()
+                .viewResult(m.latest_glb_key, "sim", proceduralSourceName(m));
+        } catch (e) {
+            window.alert(`Failed to load compiled result: ${e instanceof Error ? e.message : e}`);
         }
     };
 
@@ -415,6 +596,89 @@ const StorageBrowser: React.FC = () => {
             window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
         }
     };
+
+    // Rename and Move are ONE server call — the model's name is its path — but
+    // they stay two menu entries because they are two different intentions, and
+    // a file offers both. Rename edits the leaf and keeps the folder; Move
+    // keeps the leaf and picks a folder from the ones that already exist.
+    const applyProceduralName = async (m: ProceduralModelSummary, next: string) => {
+        if (!next || next === m.name) return;
+        try {
+            await viewerApi.renameProceduralModel(scopeKey, m.id, next);
+            void refreshProceduralModels();
+        } catch (e) {
+            // A 409 here is the scope-unique index reporting the same collision
+            // a filesystem would for two entries at one path.
+            window.alert(`Failed: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const renameProceduralModel = async (m: ProceduralModelSummary) => {
+        const folder = m.name.includes("/") ? m.name.slice(0, m.name.lastIndexOf("/")) : "";
+        const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+        const next = window.prompt("Rename procedural model:", leaf);
+        if (next === null) return;
+        const trimmed = next.trim();
+        if (!trimmed) return;
+        await applyProceduralName(m, folder ? `${folder}/${trimmed}` : trimmed);
+    };
+
+    const moveProceduralModel = (m: ProceduralModelSummary) => {
+        const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+        setPicker({
+            title: `Move "${leaf}" to folder`,
+            onPick: (folder) => void applyProceduralName(m, folder ? `${folder}/${leaf}` : leaf),
+        });
+    };
+
+    // Placement acts on a SCENE SOURCE, so one implementation serves both row
+    // kinds: a file's source name is its key, a model's is procedural:<name>.
+    const placementItems = (sourceName: string, label: string) => {
+        const loaded = loadedSourceNames.has(sourceName);
+        const offset = loaded ? getSourceOffset(sourceName) : {x: 0, y: 0, z: 0};
+        const isOffset = loaded && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0);
+        return {
+            isLoaded: loaded,
+            isOffset,
+            onPlaceNextTo: () => {
+                const x = placeNextToExisting(sourceName);
+                if (x === null) window.alert(`"${label}" is not in the scene.`);
+            },
+            onTranslate: () => {
+                const cur = getSourceOffset(sourceName);
+                const raw = window.prompt(
+                    `Offset for "${label}" from the shared origin, as "x, y, z" in metres:`,
+                    `${cur.x}, ${cur.y}, ${cur.z}`,
+                );
+                if (raw === null) return;
+                const parts = raw.split(",").map((v) => Number(v.trim()));
+                if (parts.length !== 3 || parts.some((v) => !Number.isFinite(v))) {
+                    window.alert('Expected three numbers, e.g. "25, 0, 0".');
+                    return;
+                }
+                setSourceOffset(sourceName, {x: parts[0], y: parts[1], z: parts[2]});
+            },
+            onResetPlacement: () => resetSourceOffset(sourceName),
+        };
+    };
+
+    const proceduralMenuItems = (m: ProceduralModelSummary, displayName: string): KebabMenuItem[] =>
+        buildProceduralMenuItems(displayName, {
+            canMutate,
+            onOpen: () => void openProceduralModel(m),
+            ...placementItems(proceduralSourceName(m), m.name),
+            isActive: activeProcedural === m.id,
+            companionRep: companions[m.id]?.rep ?? null,
+            hasCompiled: !!m.latest_glb_key,
+            onShowRep: (rep) => void setCompanionRep(m, rep),
+            onMakeActive: () => void makeProceduralActive(m),
+            onDeactivate: () => useCellBuilderStore.getState().close(),
+            onViewResult: m.latest_glb_key ? () => void viewProceduralResult(m) : undefined,
+            onCopyPath: () => void writeToClipboard(m.name),
+            onRename: () => void renameProceduralModel(m),
+            onMoveToFolder: () => moveProceduralModel(m),
+            onDelete: () => void deleteProceduralModel(m),
+        });
 
     const deleteProceduralModel = async (m: ProceduralModelSummary) => {
         if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
@@ -805,10 +1069,28 @@ const StorageBrowser: React.FC = () => {
             selection.has(f.name) && !loadedSourceNames.has(f.name) &&
             (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
         for (const f of targets) enqueueLoad({name: f.name});
+        // Models load through their own path (a compiled result, not a source
+        // blob), but the button means the same thing, so a mixed selection
+        // loads both. The last one ticked ends up active, which matches what
+        // ticking a single row does.
+        const {models} = splitSelection(Array.from(selection));
+        void (async () => {
+            for (const m of models) {
+                if (m.latest_glb_key && !isProceduralLoaded(m)) {
+                    await toggleProceduralLoaded(m, true);
+                }
+            }
+        })();
         clearSelection();
     };
     const onUnloadSelected = () => {
         if (bulkBusy !== null) return;
+        const {models} = splitSelection(Array.from(selection));
+        void (async () => {
+            for (const m of models) {
+                if (isProceduralLoaded(m)) await toggleProceduralLoaded(m, false);
+            }
+        })();
         const targets = files.filter((f) => selection.has(f.name) && loadedSourceNames.has(f.name));
         setBulkBusy("unload");
         try {
@@ -825,6 +1107,50 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Row selection, shared by file rows and procedural-model rows. Both are
+    // leaves of the same tree, so shift-range has to run over the same visible
+    // order — a range that skipped models would select around them.
+    const onRowSelectToggle = (name: string, shiftKey?: boolean) => {
+        setFocusedKey(`file:${name}`);
+        if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
+            const rowNames = flatRows
+                .filter((r) => r.kind === "file")
+                .map((r) => (r as {name: string}).name);
+            const a = rowNames.indexOf(lastSelectedRef.current);
+            const b = rowNames.indexOf(name);
+            if (a >= 0 && b >= 0) {
+                const [lo, hi] = a < b ? [a, b] : [b, a];
+                setSelection((prev) => {
+                    const next = new Set(prev);
+                    for (let i = lo; i <= hi; i++) next.add(rowNames[i]);
+                    return next;
+                });
+                lastSelectedRef.current = name;
+                return;
+            }
+        }
+        lastSelectedRef.current = name;
+        toggleSelection(name);
+    };
+
+    /** Split a selection into procedural models and real storage keys.
+     *
+     * Both live in one tree and one selection set, but they are different
+     * things on the server: a model is a row addressed by UUID, a file is a
+     * blob addressed by key. Every bulk action has to fan out accordingly —
+     * deleting a model through the storage API would 404, and moving one would
+     * silently do nothing. */
+    const splitSelection = (keys: string[]) => {
+        const models: ProceduralModelSummary[] = [];
+        const fileKeys: string[] = [];
+        for (const k of keys) {
+            const m = proceduralByName.get(k);
+            if (m) models.push(m);
+            else fileKeys.push(k);
+        }
+        return {models, fileKeys};
+    };
+
     // Bulk delete / move over the selection set. Version blobs are
     // server-protected (400), so the toolbar disables these when the
     // selection includes any — no silent skipping.
@@ -832,8 +1158,15 @@ const StorageBrowser: React.FC = () => {
         if (bulkBusy !== null) return;
         const keys = Array.from(selection);
         if (keys.length === 0) return;
+        const {models, fileKeys} = splitSelection(keys);
+        // Name both kinds. "Delete 5 files" when two of them are models would
+        // be a prompt that misdescribes what it is about to do.
+        const what = [
+            fileKeys.length ? `${fileKeys.length} file${fileKeys.length === 1 ? "" : "s"}` : "",
+            models.length ? `${models.length} procedural model${models.length === 1 ? "" : "s"}` : "",
+        ].filter(Boolean).join(" and ");
         if (!window.confirm(
-            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
+            `Delete ${what}?\n` +
             "Converted view caches are removed too.\n\n" +
             previewKeyList(keys),
         )) return;
@@ -841,10 +1174,17 @@ const StorageBrowser: React.FC = () => {
         try {
             // Sequential: deletes cascade derived blobs server-side and
             // parallel calls would race on the storage listing.
-            for (const k of keys) {
+            for (const k of fileKeys) {
                 await unloadIfLoaded(k);
                 await mutations.deleteKey(k);
             }
+            // Models are rows, not blobs — a different endpoint entirely.
+            for (const m of models) {
+                await viewerApi.deleteProceduralModel(scopeKey, m.id);
+                const st = useCellBuilderStore.getState();
+                if (st.active?.modelId === m.id) st.close();
+            }
+            if (models.length) void refreshProceduralModels();
             void request_list_of_files_from_server();
         } catch (e) {
             alertError(e);
@@ -856,9 +1196,19 @@ const StorageBrowser: React.FC = () => {
     const onMoveSelected = () => {
         const keys = Array.from(selection);
         if (keys.length === 0) return;
+        const {models, fileKeys} = splitSelection(keys);
         setPicker({
-            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
-            onPick: (folder) => moveKeysWithProgress(keys, folder),
+            title: `Move ${keys.length} item${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: async (folder) => {
+                // Models move by rename — their name IS their path — so a mixed
+                // selection fans out to two APIs and lands in one folder.
+                for (const m of models) {
+                    const leaf = m.name.slice(m.name.lastIndexOf("/") + 1);
+                    await applyProceduralName(m, folder ? `${folder}/${leaf}` : leaf);
+                }
+                if (fileKeys.length) await moveKeysWithProgress(fileKeys, folder);
+                else if (models.length) clearSelection();
+            },
         });
     };
 
@@ -987,6 +1337,7 @@ const StorageBrowser: React.FC = () => {
     const fileMenuItems = (f: ServerFileEntry, displayName: string): KebabMenuItem[] => {
         const busy = viewingName === f.name;
         return buildFileMenuItems(f, {
+            ...placementItems(f.name, displayName),
             isLoaded: loadedSourceNames.has(f.name),
             busy,
             loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
@@ -1044,7 +1395,31 @@ const StorageBrowser: React.FC = () => {
     // ── Keyboard navigation over the visible (regular) tree ────────
     // Flattened render order of the rows currently on screen; versions
     // subtree is excluded (its own collapsing structure).
-    const {regular: regularFiles, branches: versionBranches} = classifyFiles(files, sidecars);
+    const {regular: classifiedRegular, branches: versionBranches} = classifyFiles(files, sidecars);
+
+    // Procedural models are database rows, not blobs — but an operator files
+    // them beside real sources and reasonably wants them in the same folders.
+    // Their NAME carries the path (see procedural.normalize_model_name), so
+    // feeding them through the same tree builder puts them exactly where the
+    // name says, with no second hierarchy to keep in step.
+    //
+    // Synthesised AFTER classifyFiles: they are not version-branch artefacts,
+    // and nothing downstream reads fileType on them — the renderer switches on
+    // the name being a known model and draws a model row instead.
+    const proceduralByName = useMemo(
+        () => new Map(proceduralModels.map((m) => [m.name, m])),
+        [proceduralModels],
+    );
+    const regularFiles = useMemo(() => {
+        const synthetic: ServerFileEntry[] = proceduralModels.map((m) => ({
+            name: m.name,
+            fileType: 0 as ServerFileEntry["fileType"],
+            filepath: m.name,
+            lastModified: "",
+        }));
+        return [...classifiedRegular, ...synthetic];
+    }, [classifiedRegular, proceduralModels]);
+    const regular = regularFiles;
     const visibleTree = buildFileTree(regularFiles, (f) => f.name, pendingFolders);
     type FlatRow =
         | {kind: "folder"; path: string; depth: number; parent: string}
@@ -1216,6 +1591,21 @@ const StorageBrowser: React.FC = () => {
                          title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
                         scope: {currentScope?.name ?? "Shared"}
                     </div>
+                    {/* Say that something is being withheld. A browser that hides
+                        files without admitting it is indistinguishable from one
+                        that lost them — and a publishing scope can hide thousands. */}
+                    {hiddenFiles.length > 0 && (
+                        <div
+                            className="text-[10px] text-gray-500 truncate"
+                            title={
+                                `${hiddenFiles.length} published-asset blob(s) under assets/ are not listed here. ` +
+                                "They are machine-published datasets, not uploads. The admin Storage tab can show them."
+                            }
+                        >
+                            {hiddenFiles.length.toLocaleString()} published asset
+                            {hiddenFiles.length === 1 ? "" : "s"} hidden
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <input
@@ -1435,16 +1825,41 @@ const StorageBrowser: React.FC = () => {
                 const selectionHasVersions = Array.from(selection).some((k) =>
                     k.replace(/^\/+/, "").startsWith("versions/"),
                 );
+                // Models can be deleted and moved, but never loaded into the
+                // scene — they are database rows. A selection of only models
+                // must therefore not offer an enabled Load that quietly does
+                // nothing; a mixed one says how many it will actually act on.
+                const selectedModels = Array.from(selection)
+                    .map((k) => proceduralByName.get(k))
+                    .filter((m): m is ProceduralModelSummary => !!m);
+                const selectedModelCount = selectedModels.length;
+                // A model counts as loadable once it has a compiled result;
+                // one that has never compiled has nothing to put in the scene.
+                const loadableCount =
+                    selection.size - selectedModelCount +
+                    selectedModels.filter((m) => !!m.latest_glb_key).length;
                 const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
                 return (
                     <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-white whitespace-nowrap">
                             {selection.size} selected
+                            {selectedModelCount > 0 && (
+                                <span className="text-gray-400">
+                                    {" "}({selectedModelCount} model{selectedModelCount === 1 ? "" : "s"})
+                                </span>
+                            )}
                         </span>
                         <button
                             type="button"
                             onClick={onLoadSelected}
-                            disabled={bulkBusy !== null}
+                            disabled={bulkBusy !== null || loadableCount === 0}
+                            title={
+                                loadableCount === 0
+                                    ? "Nothing here can be shown — a procedural model needs one compile first."
+                                    : selectedModelCount > 0
+                                      ? `Loads ${loadableCount} of ${selection.size} selected; the last model ticked becomes active.`
+                                      : undefined
+                            }
                             className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
                         >
                             Load
@@ -1528,52 +1943,6 @@ const StorageBrowser: React.FC = () => {
                     </div>
                 </div>
             )}
-            {proceduralModels.length > 0 && (
-                <div className="mb-1">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
-                    {proceduralModels.map((m) => (
-                        <div
-                            key={m.id}
-                            className={
-                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
-                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
-                            }
-                            onClick={() => void openProceduralModel(m)}
-                            title="Procedural cell model (single database source) — click to open in the cellbuilder"
-                        >
-                            <ProceduralModelIcon className="shrink-0"/>
-                            <span className="truncate text-sm">{m.name}</span>
-                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
-                                r{m.revision}
-                            </span>
-                            <span className="ml-auto flex items-center gap-1">
-                                {m.latest_glb_key && (
-                                    <button
-                                        className="px-1 rounded-sm hover:bg-gray-500/40"
-                                        title="View compiled result"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            void useCellBuilderStore.getState().viewResult(m.latest_glb_key!);
-                                        }}
-                                    >
-                                        <ViewIcon/>
-                                    </button>
-                                )}
-                                <button
-                                    className="px-1 rounded-sm hover:bg-gray-500/40"
-                                    title="Delete procedural model"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        void deleteProceduralModel(m);
-                                    }}
-                                >
-                                    🗑
-                                </button>
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
                 <div
                     className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
@@ -1650,6 +2019,38 @@ const StorageBrowser: React.FC = () => {
                                     depth: number,
                                 ): React.ReactNode => {
                                     if (node.kind === "file") {
+                                        const model = proceduralByName.get(node.file.name);
+                                        if (model) {
+                                            return (
+                                                <ProceduralModelRow
+                                                    key={`procedural:${model.id}`}
+                                                    model={model}
+                                                    displayName={node.displayName}
+                                                    indentLevel={depth}
+                                                    active={activeProcedural === model.id}
+                                                    onOpen={() => void openProceduralModel(model)}
+                                                    isSelected={selection.has(model.name)}
+                                                    onSelectToggle={onRowSelectToggle}
+                                                    isLoaded={isProceduralLoaded(model)}
+                                                    canLoad={!!model.latest_glb_key}
+                                                    onToggleLoaded={(m, next) =>
+                                                        void toggleProceduralLoaded(m, next)
+                                                    }
+                                                    rowKey={`file:${model.name}`}
+                                                    focused={focusedKey === `file:${model.name}`}
+                                                    menuItems={proceduralMenuItems(model, node.displayName)}
+                                                    onOpenContextMenu={(e) =>
+                                                        openCtxMenu(
+                                                            e,
+                                                            proceduralMenuItems(model, node.displayName),
+                                                            <span className="font-mono" title={model.name}>
+                                                                {model.name}
+                                                            </span>,
+                                                        )
+                                                    }
+                                                />
+                                            );
+                                        }
                                         const items = fileMenuItems(node.file, node.displayName);
                                         const fileDir = dirnameOf(node.file.name);
                                         return (
@@ -1667,30 +2068,7 @@ const StorageBrowser: React.FC = () => {
                                                 setPickerName={setPickerName}
                                                 isSelected={selection.has(node.file.name)}
                                                 isQueued={queuedLoadNames.has(node.file.name)}
-                                                onSelectToggle={(name, shiftKey) => {
-                                                    setFocusedKey(`file:${name}`);
-                                                    if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
-                                                        // Range-select between the anchor and this
-                                                        // row, in visible order.
-                                                        const fileNames = flatRows
-                                                            .filter((r) => r.kind === "file")
-                                                            .map((r) => (r as {name: string}).name);
-                                                        const a = fileNames.indexOf(lastSelectedRef.current);
-                                                        const b = fileNames.indexOf(name);
-                                                        if (a >= 0 && b >= 0) {
-                                                            const [lo, hi] = a < b ? [a, b] : [b, a];
-                                                            setSelection((prev) => {
-                                                                const next = new Set(prev);
-                                                                for (let i = lo; i <= hi; i++) next.add(fileNames[i]);
-                                                                return next;
-                                                            });
-                                                            lastSelectedRef.current = name;
-                                                            return;
-                                                        }
-                                                    }
-                                                    lastSelectedRef.current = name;
-                                                    toggleSelection(name);
-                                                }}
+                                                onSelectToggle={onRowSelectToggle}
                                                 rowKey={`file:${node.file.name}`}
                                                 focused={focusedKey === `file:${node.file.name}`}
                                                 menuItems={items}
@@ -1863,6 +2241,108 @@ const StorageBrowser: React.FC = () => {
 };
 
 // ──────────────────────────────────────────────────────────────────
+// ProceduralModelRow: a procedural model rendered as a leaf of the storage
+// tree.
+//
+// A model is a database row, not a blob, so it deliberately does NOT get a
+// FileRow: there is nothing to load into the scene, convert, or select for a
+// bulk delete, and offering those controls would promise operations that
+// cannot work. In particular it carries no selection checkbox, which is what
+// keeps a model out of `selection` and therefore out of every bulk file
+// operation — the rows simply cannot be swept in.
+//
+// What it shares with a file is its PLACE: the name carries the folder path,
+// so the tree puts it exactly where an operator filed it.
+const ProceduralModelRow: React.FC<{
+    model: ProceduralModelSummary;
+    displayName: string;
+    indentLevel: number;
+    active: boolean;
+    onOpen: () => void;
+    menuItems: KebabMenuItem[];
+    onOpenContextMenu?: (e: React.MouseEvent) => void;
+    isSelected: boolean;
+    onSelectToggle: (name: string, shiftKey?: boolean) => void;
+    rowKey: string;
+    focused: boolean;
+    /** This model's compiled result is currently in the scene. */
+    isLoaded: boolean;
+    /** False until the model has a compiled result to show. */
+    canLoad: boolean;
+    onToggleLoaded: (model: ProceduralModelSummary, next: boolean) => void;
+}> = ({
+    model,
+    displayName,
+    indentLevel,
+    active,
+    onOpen,
+    menuItems,
+    onOpenContextMenu,
+    isSelected,
+    onSelectToggle,
+    rowKey,
+    focused,
+    isLoaded,
+    canLoad,
+    onToggleLoaded,
+}) => (
+    <div
+        data-row-key={rowKey}
+        className={
+            "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
+            (active ? "bg-blue-900/40 " : "") +
+            (isSelected ? "bg-amber-700/30 " : "") +
+            (focused ? "ring-1 ring-blue-400/70 " : "") +
+            // Loaded but not the one being edited: present in the scene, dimmed
+            // so the active model is unambiguous at a glance.
+            (isLoaded && !active ? "opacity-60 " : "")
+        }
+        style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
+        onClick={onOpen}
+        onContextMenu={onOpenContextMenu}
+        title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
+    >
+        {/* Same meaning as a file's checkbox: put this in the scene. NOT the
+            multi-select — that is the row tint, exactly as it is for a file.
+            Disabled until the model has been compiled once, because there is
+            no result to show and a tickable box with nothing behind it is a
+            promise the row cannot keep. */}
+        <input
+            type="checkbox"
+            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+            checked={isLoaded}
+            disabled={!canLoad}
+            aria-label={isLoaded ? `Unload ${model.name} from scene` : `Load ${model.name} into scene`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => void onToggleLoaded(model, !isLoaded)}
+            title={
+                !canLoad
+                    ? "No compiled result yet — open the model and compile once."
+                    : isLoaded
+                      ? "Unload from scene (keeps the model)"
+                      : "Load the compiled result into the scene, and edit this model"
+            }
+        />
+        <ProceduralModelIcon className="shrink-0"/>
+        {/* The LEAF, not the whole path: the folders are already the tree rows
+            above it, and repeating them in every label is noise. */}
+        <span className="truncate text-sm">{displayName}</span>
+        <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+            r{model.revision}
+        </span>
+        {/* The same kebab files and folders carry. An operator filing a model
+            beside them should not meet a different control for "move". */}
+        <span className="ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
+            <RowKebabMenu
+                ariaLabel={`Organize procedural model ${model.name}`}
+                buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                header={<span className="font-mono">{model.name}</span>}
+                items={menuItems}
+            />
+        </span>
+    </div>
+);
+
 // FileRow: one storage entry, optionally indented (for use inside
 // the per-commit subtree). Pulled out of the main component so the
 // versions tree can render the same row at indent 2 without

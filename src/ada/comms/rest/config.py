@@ -41,6 +41,30 @@ class QueueConfig:
     subject: str
     kv_bucket: str
     durable: str
+    # Separate KV bucket for the worker registry. Empty (the default) keeps the
+    # registry in ``kv_bucket`` alongside job rows, which is what every
+    # deployment does today.
+    #
+    # WHY IT IS WORTH SEPARATING. A worker must write arbitrary job ids to
+    # report progress, so its credential needs ``$KV.<kv_bucket>.>``. Registry
+    # rows live in that same bucket under ``__meta_worker__<id>``, and a NATS
+    # subject wildcard matches a WHOLE token -- ``__meta_worker__<id>`` is one
+    # token, so the ``>`` that job progress requires already covers every
+    # worker's registry row, and no ``deny`` can carve them back out
+    # (``__meta_worker__*`` is not a prefix pattern). Any credential that can
+    # report job progress can therefore overwrite any worker's registry row,
+    # including one claiming a ``plugin_id`` it does not own -- and the API
+    # believes what a registry row claims.
+    #
+    # Moving the registry into its own bucket puts those rows on
+    # ``$KV.<registry_kv_bucket>.<worker_id>``, where the id IS the whole token,
+    # so a credential can finally be pinned to one worker's own row. That is
+    # what ``deploy/worker-trust.md`` proposed and could not express.
+    #
+    # Opt-in rather than default because switching buckets while workers are
+    # running would empty the admin panel for a heartbeat window. See
+    # ``JobQueue.list_workers``, which reads both during the changeover.
+    registry_kv_bucket: str = ""
     # --- credentials -------------------------------------------------
     # All empty (the default) is an unauthenticated connection, which is
     # what every deployment does today and what a `nats -js` server with
@@ -160,6 +184,7 @@ def load_settings() -> Settings:
         stream=os.environ.get("ADA_VIEWER_NATS_STREAM", "ADA_VIEWER_JOBS"),
         subject=os.environ.get("ADA_VIEWER_NATS_SUBJECT", "ada.viewer.jobs.convert"),
         kv_bucket=os.environ.get("ADA_VIEWER_NATS_KV_BUCKET", "ada-viewer-jobs"),
+        registry_kv_bucket=os.environ.get("ADA_VIEWER_NATS_REGISTRY_KV_BUCKET", "").strip(),
         durable=os.environ.get("ADA_VIEWER_NATS_DURABLE", "ada-viewer-worker"),
         creds_file=os.environ.get("ADA_VIEWER_NATS_CREDS", "").strip(),
         user=os.environ.get("ADA_VIEWER_NATS_USER", "").strip(),

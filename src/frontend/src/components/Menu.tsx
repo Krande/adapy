@@ -42,7 +42,7 @@ const EquipmentAdminPanel = React.lazy(
 const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import { WebsocketStatusMenu, WebsocketStatusBox } from "./WebsocketStatusMenu";
-import { PluginTopBarButtons, PluginPanelRegion, UiShellSwitcher } from "@/plugins";
+import { PluginTopBarButtons, PluginPanelRegion } from "@/plugins";
 
 // `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
 // react to viewport changes (rotating a tablet, dragging the window
@@ -334,7 +334,6 @@ const Menu = () => {
           <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
           {/* UI-shell switcher — renders nothing unless this build carries an
               alternative UI (a plugin-contributed shell). See plugins/uiShells. */}
-          <UiShellSwitcher navBtnClass={(active) => navBtnClass(active)} />
           {!runtime.isRestMode() && (
             <div className={navBtnClass(showWebsocketInfoBox)}>
               <WebsocketStatusMenu />

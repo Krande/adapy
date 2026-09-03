@@ -12,18 +12,17 @@ import { sideBySideOffsetX } from "@/utils/cellbuilder/sideBySide";
 // loop; the recompile side is store.compilePreview().
 
 /** Offset a loaded result source to sit just past the +X edge of the topology,
- * or return it to the shared origin. The shift is
- * `max(topologyWidth, resultWidth) + gap` (see sideBySideOffsetX), so the two
- * copies clear each other at any model scale — and, crucially, even when the
- * freshly-loaded result group is not yet measurable (0/non-finite width): the
- * caller passes the topology's X-width, which the store always knows from the
- * cells, so the offset never collapses to a tiny value that overlaps.
+ * or return it to the shared origin. The shift puts the result's LEFT edge past
+ * the topology's RIGHT edge plus an aisle (see sideBySideOffsetX), so the two
+ * clear each other whatever their spans — including the common case where the
+ * topology is authored from the origin outward and the compiled result is
+ * centred on it, which a width-only formula could not separate.
  * Idempotent: the position is assigned absolutely (base translation ± shift),
  * so re-applying after a recompile or a repeated toggle never drifts. */
 export function applySideBySideOffset(
   sourceName: string,
   on: boolean,
-  topologyWidthX = 0,
+  topologyMaxX = 0,
 ): void {
   const group = loadedSourceGroups.get(sourceName);
   if (!group) return;
@@ -34,10 +33,14 @@ export function applySideBySideOffset(
     requestRender();
     return;
   }
-  // max-min is position-invariant, so measuring the already-placed group gives
-  // the result's own width regardless of any prior offset.
+  // Measure the result in ITS OWN frame: the box is world-space at the group's
+  // current position, so subtracting that position gives the geometry's span
+  // relative to the shared base — which is what the offset math needs, and is
+  // stable across repeated toggles (the group may already be shifted).
   const box = new THREE.Box3().setFromObject(group);
+  const resultMinX = box.min.x - group.position.x;
   const resultWidth = box.max.x - box.min.x;
-  group.position.x = baseX + sideBySideOffsetX(topologyWidthX, resultWidth);
+  group.position.x =
+    baseX + sideBySideOffsetX(topologyMaxX, resultMinX, Math.max(topologyMaxX, resultWidth));
   requestRender();
 }

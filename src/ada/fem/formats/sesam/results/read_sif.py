@@ -332,7 +332,20 @@ class SifReader:
         set_map = self.get_tdsetnam_map()
         sets = dict()
         for set_id, members_by_type in member_map.items():
-            set_name = set_map[set_id][-1]
+            record = set_map.get(set_id)
+            if record is None:
+                # A set with members (GSETMEMB) and no name (TDSETNAM).
+                # Production decks do carry them, and this used to raise
+                # KeyError from the middle of a mesh conversion, so the entire
+                # bake died with nothing pointing at the cause.
+                #
+                # There is nothing sensible to call such a set, and inventing a
+                # label would be worse than dropping it: `sets` is keyed BY
+                # NAME, so a made-up one could collide with a real set and
+                # silently replace it. Skipping is what `results/sets.py`'s
+                # `manifest_groups` already does with the same records.
+                continue
+            set_name = record[-1]
             # A set may carry both node (ISTYPE 1) and element (ISTYPE 2) records;
             # prefer the element membership (what element scoping needs) and fall
             # back to nodes for a pure node set.

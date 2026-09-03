@@ -11,7 +11,7 @@
 import {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {ServerFileEntry} from "@/state/serverInfoStore";
 
-export interface FileMenuContext {
+export interface FileMenuContext extends PlacementMenuContext {
     isLoaded: boolean;
     /** This row (or another) is busy loading into the scene. */
     busy: boolean;
@@ -29,6 +29,52 @@ export interface FileMenuContext {
     onRename?: () => void;
     onMoveToFolder?: () => void;
     onDelete?: () => void;
+}
+
+/** Placement entries shared by file rows and procedural-model rows.
+ *
+ * Any loaded scene source can be moved — an uploaded GLB, a converted file, a
+ * model's compiled result — so "put this one over there" must not have a
+ * different answer depending on what produced the geometry. Both entries appear
+ * only when the thing is actually IN the scene; offering them for something
+ * unloaded would be a control with nothing to act on. */
+export interface PlacementMenuContext {
+    /** True when this row's geometry is currently loaded. */
+    isLoaded?: boolean;
+    onPlaceNextTo?: () => void;
+    onTranslate?: () => void;
+    onResetPlacement?: () => void;
+    /** True when it has been moved off the shared origin. */
+    isOffset?: boolean;
+}
+
+function pushPlacementItems(items: KebabMenuItem[], ctx: PlacementMenuContext): void {
+    if (!ctx.isLoaded) return;
+    if (ctx.onPlaceNextTo) {
+        items.push({
+            key: "place-next-to",
+            label: "Place next to existing",
+            title: "Move this beside whatever else is loaded, along +X, with a gap.",
+            separatorBefore: true,
+            onClick: ctx.onPlaceNextTo,
+        });
+    }
+    if (ctx.onTranslate) {
+        items.push({
+            key: "translate",
+            label: "Translate…",
+            title: "Set this item's offset from the shared origin.",
+            onClick: ctx.onTranslate,
+        });
+    }
+    if (ctx.isOffset && ctx.onResetPlacement) {
+        items.push({
+            key: "reset-placement",
+            label: "Reset placement",
+            title: "Return this item to the shared origin.",
+            onClick: ctx.onResetPlacement,
+        });
+    }
 }
 
 export function buildFileMenuItems(
@@ -69,6 +115,7 @@ export function buildFileMenuItems(
             onClick: ctx.onCopyPath,
         });
     }
+    pushPlacementItems(items, ctx);
     if (ctx.canMutate && ctx.onRename) {
         items.push({
             key: "rename",
@@ -104,6 +151,142 @@ export interface FolderMenuContext {
     onNewSubfolder?: () => void;
     onUploadHere?: () => void;
     onDelete?: () => void;
+}
+
+export interface ProceduralMenuContext extends PlacementMenuContext {
+    canMutate: boolean;
+    /** Which representation this model is showing while NOT active.
+     *
+     * The active model's representation is the cellbuilder's own three-way
+     * switch; this is the same choice for a model that is only being looked
+     * at, so the two do not compete for one control. */
+    companionRep?: "topology" | "simulation" | "detail" | null;
+    onShowRep?: (rep: "topology" | "simulation" | "detail") => void;
+    /** False when the model has never compiled — simulation and detail then do
+     *  not exist and must not be offered. */
+    hasCompiled?: boolean;
+    onOpen: () => void;
+    /** True when this model is the one the cellbuilder is editing. */
+    isActive?: boolean;
+    /** Make this the edited model. Exactly one can be active at a time. */
+    onMakeActive?: () => void;
+    /** Stop editing, leaving whatever is in the scene in the scene. */
+    onDeactivate?: () => void;
+    /** Load this model's last compiled result into the scene. Present only
+     *  when there IS one; a model that has never compiled has nothing to show. */
+    onViewResult?: () => void;
+    onCopyPath?: () => void;
+    onRename?: () => void;
+    onMoveToFolder?: () => void;
+    onDelete?: () => void;
+}
+
+/** Menu for a procedural model rendered as a leaf of the storage tree.
+ *
+ * Same kebab as files and folders, deliberately: a model is filed alongside
+ * them and "how do I move this" should not have a different answer depending
+ * on what the row happens to be backed by.
+ *
+ * What it does NOT offer is the file half — load into the scene, download,
+ * convert. A model is a database row; those controls would promise operations
+ * that cannot work on it. Rename and Move are the two that genuinely mean the
+ * same thing here as for a file, and both are the SAME server call, because the
+ * model's name is its path. */
+export function buildProceduralMenuItems(
+    displayName: string,
+    ctx: ProceduralMenuContext,
+): KebabMenuItem[] {
+    const items: KebabMenuItem[] = [];
+    items.push({
+        key: "open",
+        label: "Open in cellbuilder",
+        onClick: ctx.onOpen,
+    });
+    // ACTIVE vs IN THE SCENE are two different things, and the menu keeps them
+    // apart. Several models' compiled results can sit in the scene at once —
+    // each loads under its own source name — but only one can be ACTIVE,
+    // because the cellbuilder edits one document. "View compiled result" adds
+    // to the scene; "Make active" changes what you are editing.
+    if (ctx.isActive && ctx.onDeactivate) {
+        items.push({
+            key: "deactivate",
+            label: "Stop editing (keep in scene)",
+            title: "Closes the cellbuilder. Anything already loaded stays in the scene.",
+            onClick: ctx.onDeactivate,
+        });
+    } else if (ctx.onMakeActive) {
+        items.push({
+            key: "make-active",
+            label: "Make active",
+            title: "Edit this model in the cellbuilder. Only one model is active at a time.",
+            onClick: ctx.onMakeActive,
+        });
+    }
+    // Representation choice for a model that is present but not being edited.
+    // Flat entries rather than a submenu: the menu has no submenu primitive,
+    // and three checkable rows read faster than a nested one anyway.
+    if (ctx.companionRep != null && ctx.onShowRep) {
+        const rep = ctx.companionRep;
+        const show = (
+            key: "topology" | "simulation" | "detail",
+            label: string,
+            available: boolean,
+            why: string,
+        ) => {
+            items.push({
+                key: `show-${key}`,
+                label: `${rep === key ? "✓ " : "\u2007\u2007"}${label}`,
+                title: available ? why : "Compile this model once first — there is no result yet.",
+                disabled: !available,
+                onClick: () => ctx.onShowRep?.(key),
+            });
+        };
+        show("topology", "Show topology", true, "Draw this model's cells, read-only, beside the one you are editing.");
+        show("simulation", "Show simulation", !!ctx.hasCompiled, "Load this model's compiled result.");
+        show("detail", "Show detail", !!ctx.hasCompiled, "Load this model's detailed result.");
+    } else if (ctx.onViewResult) {
+        items.push({
+            key: "view-result",
+            label: "View compiled result",
+            title: "Load this model's last compiled result into the scene, without making it active.",
+            onClick: ctx.onViewResult,
+        });
+    }
+    if (ctx.onCopyPath) {
+        items.push({
+            key: "copy-path",
+            label: "Copy as path",
+            title: "Copy this model's folder path to the clipboard.",
+            onClick: ctx.onCopyPath,
+        });
+    }
+    pushPlacementItems(items, ctx);
+    if (ctx.canMutate && ctx.onRename) {
+        items.push({
+            key: "rename",
+            label: "Rename…",
+            title: `Rename "${displayName}" without moving it.`,
+            onClick: ctx.onRename,
+        });
+    }
+    if (ctx.canMutate && ctx.onMoveToFolder) {
+        items.push({
+            key: "move-to-folder",
+            label: "Move to folder…",
+            onClick: ctx.onMoveToFolder,
+        });
+    }
+    if (ctx.canMutate && ctx.onDelete) {
+        items.push({
+            key: "delete",
+            label: "Delete",
+            destructive: true,
+            separatorBefore: true,
+            title: "Deletes the procedural model and its compiled outputs.",
+            onClick: ctx.onDelete,
+        });
+    }
+    return items;
 }
 
 export function buildFolderMenuItems(

@@ -215,8 +215,39 @@ class JobQueue:
         self._nc = None
         self._js = None
         self._kv = None
+        # The bucket holding worker registry rows. Aliases ``_kv`` unless
+        # ``registry_kv_bucket`` names a different one, so every registry method
+        # below has exactly one code path whichever mode the deployment is in.
+        self._registry_kv = None
 
     # --- lifecycle ---------------------------------------------------
+
+    @property
+    def registry_bucket(self) -> str:
+        """Bucket the worker registry lives in — the jobs bucket unless split out."""
+        return self._cfg.registry_kv_bucket or self._cfg.kv_bucket
+
+    @property
+    def registry_is_separate(self) -> bool:
+        """True when the registry has a bucket of its own.
+
+        The only thing this changes is whether a NATS credential *can* be
+        scoped to one worker's own row; nothing about the data differs.
+        """
+        return bool(self._cfg.registry_kv_bucket) and self._cfg.registry_kv_bucket != self._cfg.kv_bucket
+
+    @property
+    def _registry_bucket_handle(self):
+        """The KV handle registry rows are written to.
+
+        Derived rather than assigned in the un-split mode: that mode IS the jobs
+        bucket, and a second attribute that has to be kept pointing at ``_kv``
+        is a second thing that can be forgotten to be set (by a new connect
+        path, or by a test that builds a queue by hand).
+        """
+        if self.registry_is_separate:
+            return self._registry_kv
+        return self._kv
 
     @property
     def enabled(self) -> bool:
@@ -385,6 +416,15 @@ class JobQueue:
         except BadRequestError:
             self._kv = await self._js.key_value(self._cfg.kv_bucket)
 
+        # Registry bucket — also idempotent, and created LAST for the same
+        # reason the jobs bucket is: ``_bind_existing`` waits on it, so a bucket
+        # that exists has to imply everything created before it exists too.
+        if self.registry_is_separate:
+            try:
+                self._registry_kv = await self._js.create_key_value(bucket=self._cfg.registry_kv_bucket, history=1)
+            except BadRequestError:
+                self._registry_kv = await self._js.key_value(self._cfg.registry_kv_bucket)
+
     async def _bind_existing(self) -> None:
         """Bind to the API-created KV bucket without creating anything.
 
@@ -399,7 +439,7 @@ class JobQueue:
         while True:
             try:
                 self._kv = await self._js.key_value(self._cfg.kv_bucket)
-                return
+                break
             # BucketNotFoundError subclasses NotFoundError; the plain
             # form also covers "the backing KV_<bucket> stream is absent".
             except NotFoundError:
@@ -416,12 +456,46 @@ class JobQueue:
                 )
                 await asyncio.sleep(self._BIND_POLL_SECONDS)
 
+        if not self.registry_is_separate:
+            return
+
+        # The registry bucket, on the same terms. Deliberately NOT fatal when it
+        # is missing: registration is best-effort everywhere else in this class
+        # (``register_worker`` returns quietly when there is no bucket, the
+        # admin panel just shows one fewer row), and an API that has not yet
+        # been upgraded to create this bucket must not stop a worker from
+        # pulling jobs it is otherwise able to serve. A worker that cannot
+        # register is a worker missing from a listing; a worker that will not
+        # start is an outage.
+        deadline = time.monotonic() + self._BIND_WAIT_SECONDS
+        while True:
+            try:
+                self._registry_kv = await self._js.key_value(self._cfg.registry_kv_bucket)
+                return
+            except NotFoundError:
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "queue: registry KV bucket %r does not exist after %.0fs — this worker "
+                        "will run but will not appear in the worker registry. It is created by "
+                        "the API on startup; either the API has not been upgraded to a version "
+                        "that creates it, or this client's credentials cannot see it.",
+                        self._cfg.registry_kv_bucket,
+                        self._BIND_WAIT_SECONDS,
+                    )
+                    return
+                logger.info(
+                    "queue: waiting for registry KV bucket %s to be created by the API",
+                    self._cfg.registry_kv_bucket,
+                )
+                await asyncio.sleep(self._BIND_POLL_SECONDS)
+
     async def close(self) -> None:
         if self._nc is not None:
             await self._nc.drain()
             self._nc = None
             self._js = None
             self._kv = None
+            self._registry_kv = None
 
     async def purge_jobs(self, job_ids) -> int:
         """Delete still-queued work-queue messages whose body (a job_id) is in
@@ -801,23 +875,42 @@ class JobQueue:
 
     async def register_worker(self, worker_id: str, info: dict) -> None:
         """Write/refresh the worker entry. Idempotent — workers call
-        this on startup and again on each heartbeat tick."""
-        if self._kv is None:
+        this on startup and again on each heartbeat tick.
+
+        Writes to the registry bucket, which is the jobs bucket unless
+        ``registry_kv_bucket`` split it out. The key keeps its
+        ``__meta_worker__`` prefix in both modes: it costs nothing, it keeps one
+        code path, and it means a deployment can copy rows between buckets
+        during a changeover without rewriting keys.
+        """
+        bucket = self._registry_bucket_handle
+        if bucket is None:
             return
         key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
-        await self._kv.put(key, json.dumps(info).encode("utf-8"))
+        await bucket.put(key, json.dumps(info).encode("utf-8"))
 
     async def unregister_worker(self, worker_id: str) -> None:
         """Drop the worker entry. Best-effort — called from the worker's
         shutdown path. If it fails the entry will go stale within one
         heartbeat-staleness window, which the admin panel filters out."""
-        if self._kv is None:
-            return
         key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
-        try:
-            await self._kv.delete(key)
-        except KeyNotFoundError:
-            pass
+        bucket = self._registry_bucket_handle
+        if bucket is not None:
+            try:
+                await bucket.delete(key)
+            except KeyNotFoundError:
+                pass
+        # A row this worker wrote before the registry moved buckets. Deleting it
+        # is what stops a shut-down worker lingering in the listing for the full
+        # prune horizon, and it is why ``list_workers`` can stop reading the old
+        # bucket once no such rows come back. Broad except: a narrowed
+        # credential may no longer be allowed to touch the jobs bucket's
+        # registry rows at all, and that is not a shutdown failure.
+        if self.registry_is_separate and self._kv is not None:
+            try:
+                await self._kv.delete(key)
+            except Exception:
+                pass
 
     async def list_workers(self) -> list[dict]:
         """Return every worker entry. Each row carries whatever the
@@ -826,19 +919,39 @@ class JobQueue:
 
         Staleness filtering is the caller's concern: this method just
         snapshots the bucket.
+
+        Reads the OLD bucket too while the registry is split out, so that
+        turning ``registry_kv_bucket`` on does not empty the admin panel — and
+        with it ``/api/plugins`` and extension-based routing — for every worker
+        that has not restarted onto the new bucket yet. A row in the dedicated
+        bucket wins over a same-id row in the jobs bucket: that is the worker
+        that has already moved, so its entry is the fresher one.
         """
-        if self._kv is None:
-            return []
+        rows: dict[str, dict] = {}
+        # Old bucket first, so the dedicated bucket's rows overwrite it.
+        buckets = []
+        if self.registry_is_separate and self._kv is not None:
+            buckets.append(self._kv)
+        handle = self._registry_bucket_handle
+        if handle is not None:
+            buckets.append(handle)
+        for bucket in buckets:
+            for worker_id, info in await self._read_worker_rows(bucket):
+                rows[worker_id] = info
+        return list(rows.values())
+
+    async def _read_worker_rows(self, bucket) -> list[tuple[str, dict]]:
+        """``(worker_id, entry)`` for every registry row in one KV bucket."""
         try:
-            keys = await self._kv.keys()
+            keys = await bucket.keys()
         except (BucketNotFoundError, Exception):
             return []
-        workers: list[dict] = []
+        out: list[tuple[str, dict]] = []
         for key in keys:
             if not key.startswith(self._WORKER_KEY_PREFIX):
                 continue
             try:
-                entry = await self._kv.get(key)
+                entry = await bucket.get(key)
             except KeyNotFoundError:
                 continue
             if entry.value is None:
@@ -849,9 +962,10 @@ class JobQueue:
                 continue
             if not isinstance(info, dict):
                 continue
-            info["worker_id"] = key[len(self._WORKER_KEY_PREFIX) :]
-            workers.append(info)
-        return workers
+            worker_id = key[len(self._WORKER_KEY_PREFIX) :]
+            info["worker_id"] = worker_id
+            out.append((worker_id, info))
+        return out
 
     # Hard-prune horizon for dead worker entries — much longer than the ``WORKER_STALE_AFTER_S``
     # online window used for routing/UI. A pod that crashes or scales down can leave its registry
