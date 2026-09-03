@@ -54,6 +54,15 @@ export {
 } from "@/utils/scene/fea/resultSelection";
 export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
 export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
+// Reading a picked element back out as numbers, using the same layer filter and
+// IP reduction the colouring used.
+export { feaValuesForElement, elementLabelNumber } from "@/utils/scene/fea/elementValues";
+export type {
+    ElementValuesResult,
+    ElementFieldValues,
+    ElementComponentValue,
+    ElementValueScope,
+} from "@/utils/scene/fea/elementValues";
 export { selectedResultRange, selectedResultUnit } from "@/utils/scene/fea/resultUnits";
 export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 

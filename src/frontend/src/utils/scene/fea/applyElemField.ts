@@ -116,7 +116,7 @@ function componentIndex(field: FeaManifestField, reduction: string): number {
 /** Indices of IPs that match the chosen layer. Empty ``ip_layout``
  *  (single-IP elements, or readers that didn't infer it) returns the
  *  full IP range so the bucket still gets coloured. */
-function layerIpIndices(
+export function layerIpIndices(
     bucket: FeaManifestFieldPerType,
     layer: string,
 ): number[] {
@@ -143,7 +143,7 @@ function layerIpIndices(
  *  scalar according to ``ipReduction``. Pulls each IP value directly
  *  out of the bucket's flat step view to avoid per-element
  *  allocation. */
-function reduceIps(
+export function reduceIps(
     stepView: Float32Array,
     elementBase: number,
     ipIndices: number[],

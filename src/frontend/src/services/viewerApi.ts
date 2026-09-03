@@ -229,6 +229,9 @@ export interface FeaManifestStep {
   value: number;
   /** Picker display label. */
   label: string;
+  /** Result-case name, when the reader knows one -- a Sesam deck names its
+   *  cases (TDRESREF), and "lcc2" identifies a step in a way "10" does not. */
+  name?: string;
 }
 
 export type FeaScalarRange = { [component: string]: [number, number] };
