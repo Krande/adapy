@@ -2,6 +2,23 @@
 
 
 
+## v0.61.5 (2026-09-03)
+
+### Chore
+
+* chore(deps): bump the dependencies group with 2 updates (#297)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`43a1915`](https://github.com/Krande/adapy/commit/43a1915bd0fd99f66b61ec229d820c33d471439e))
+
+### Fix
+
+* fix(cadit): unblock wasm ifc/mesh conversions and unnamed SAT faces (#317)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`7e6be3c`](https://github.com/Krande/adapy/commit/7e6be3c47b76c9ead1d8dcce6d6ec5f780e02b9d))
+
+
 ## v0.61.4 (2026-09-03)
 
 ### Fix
