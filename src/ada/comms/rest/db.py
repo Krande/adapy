@@ -214,6 +214,7 @@ async def insert_audit(
     write_bytes: int | None = None,
     peak_rss_kb: int | None = None,
     client_metrics: dict | None = None,
+    failure_key: str | None = None,
 ) -> None:
     """Insert one audit_log row.
 
@@ -243,9 +244,10 @@ async def insert_audit(
                 (user_sub, scope_kind, scope_id, action, key,
                  target_format, status, error, duration_ms, job_id,
                  traceback, audit_run_id, worker_image_tag,
-                 read_bytes, write_bytes, peak_rss_kb, client_metrics)
+                 read_bytes, write_bytes, peak_rss_kb, client_metrics,
+                 failure_key)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17::jsonb)
+                    $14, $15, $16, $17::jsonb, $18)
             """,
             user_sub,
             scope_kind,
@@ -264,6 +266,7 @@ async def insert_audit(
             write_bytes,
             peak_rss_kb,
             json.dumps(client_metrics) if client_metrics is not None else None,
+            failure_key,
         )
         return
 
@@ -278,9 +281,10 @@ async def insert_audit(
                     (user_sub, scope_kind, scope_id, action, key,
                      target_format, status, error, duration_ms, job_id,
                      traceback, audit_run_id, worker_image_tag,
-                     read_bytes, write_bytes, peak_rss_kb, client_metrics)
+                     read_bytes, write_bytes, peak_rss_kb, client_metrics,
+                     failure_key)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                        $14, $15, $16, $17::jsonb)
+                        $14, $15, $16, $17::jsonb, $18)
                 """,
                 user_sub,
                 scope_kind,
@@ -299,6 +303,7 @@ async def insert_audit(
                 write_bytes,
                 peak_rss_kb,
                 json.dumps(client_metrics) if client_metrics is not None else None,
+                failure_key,
             )
             await _bump_audit_run_counter(conn, audit_run_id, status)
 
@@ -427,6 +432,7 @@ async def update_audit_by_job(
     log_key: str | None = None,
     worker_image_tag: str | None = None,
     convert_meta: dict | None = None,
+    failure_key: str | None = None,
 ) -> None:
     """Patch the audit row tied to a queue job with its final outcome.
 
@@ -461,7 +467,8 @@ async def update_audit_by_job(
                     profile_key = COALESCE($11, profile_key),
                     worker_image_tag = COALESCE($12, worker_image_tag),
                     convert_meta = COALESCE($13, convert_meta),
-                    log_key = COALESCE($14, log_key)
+                    log_key = COALESCE($14, log_key),
+                    failure_key = COALESCE($15, failure_key)
                 WHERE job_id = $1
                 RETURNING audit_run_id
                 """,
@@ -479,6 +486,7 @@ async def update_audit_by_job(
                 worker_image_tag,
                 json.dumps(convert_meta) if convert_meta is not None else None,
                 log_key,
+                failure_key,
             )
             if updated is None or updated["audit_run_id"] is None:
                 return
@@ -1165,6 +1173,33 @@ async def get_worker_packages(pool: asyncpg.Pool, worker_image_tag: str) -> dict
     }
 
 
+async def get_audit_by_job(pool: asyncpg.Pool, job_id: str) -> dict | None:
+    """Scope + source key for a queued job's audit row, newest first.
+
+    The worker patches its audit row by ``job_id`` and its error paths never
+    carry the scope, so failure capture reads it back from here rather than
+    threading a source key through every one of them. Narrow on purpose — this
+    runs on the failure path and only needs enough to address the blob.
+    """
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope_kind, scope_id, key, action, status
+        FROM audit_log WHERE job_id = $1 ORDER BY id DESC LIMIT 1
+        """,
+        job_id,
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "scope_kind": row["scope_kind"],
+        "scope_id": row["scope_id"],
+        "key": row["key"],
+        "action": row["action"],
+        "status": row["status"],
+    }
+
+
 async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
     """Fetch a single audit row by id. Used by the profile-download
     endpoint to look up the blob key + scope without re-listing, and
@@ -1172,7 +1207,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
     error context for a failed conversion."""
     row = await pool.fetchrow(
         """
-        SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, log_key, key,
+        SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, log_key, failure_key, key,
                action, target_format, status, error, traceback,
                duration_ms, job_id, metrics_samples, audit_run_id,
                issue_bot_status, issue_bot_synced_at, issue_bot_last_error
@@ -1199,6 +1234,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         "scope_id": row["scope_id"],
         "profile_key": row["profile_key"],
         "log_key": row["log_key"],
+        "failure_key": row["failure_key"],
         "key": row["key"],
         "action": row["action"],
         "target_format": row["target_format"],

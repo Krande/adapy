@@ -40,7 +40,7 @@ from ada.config import logger
 from ada.core.file_system import new_temp_path
 
 from . import db as db_module
-from . import source_cache
+from . import failure_capture, source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
 from .qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
@@ -394,6 +394,10 @@ _WORKER_IMAGE_TAG: str | None = None
 # worker loop wires it (a handler running in a unit test just sees no stop event
 # and polls to its timeout).
 _WORKER_STOP: "asyncio.Event | None" = None
+# Published for failure capture, which hangs off _audit_done — a dozen error
+# paths reach that with only a job id, and threading a Storage through each of
+# them to preserve a blob would be a lot of plumbing for one best-effort copy.
+_WORKER_STORAGE: "Storage | None" = None
 
 # Chained procedural_detail waits for the upstream structural build (a DIFFERENT
 # pool, no ordering guarantee) to write the neutral artifact before it runs. Poll
@@ -474,6 +478,13 @@ async def _audit_done(
     if db_pool is None:
         return
     metrics = metrics or {}
+    # Preserve the input of a failed job while it still exists: the row outlives
+    # the blob, and a user-scope source can be deleted at any time. Resolved from
+    # the row rather than the call site so every error path is covered by this one
+    # hook. Best-effort and deduplicated; None when disabled or ineligible.
+    failure_key = None
+    if status == "error" and _WORKER_STORAGE is not None:
+        failure_key = await failure_capture.capture_for_job(_WORKER_STORAGE, db_pool, db_module, job_id)
     try:
         await db_module.update_audit_by_job(
             db_pool,
@@ -491,6 +502,7 @@ async def _audit_done(
             log_key=metrics.get("log_key"),
             worker_image_tag=_WORKER_IMAGE_TAG,
             convert_meta=metrics.get("convert_meta"),
+            failure_key=failure_key,
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
@@ -4377,6 +4389,8 @@ async def _run() -> None:
 
     logger.info("worker: booting capabilities=%s", os.environ.get("ADA_WORKER_CAPABILITIES", "base"))
     storage = Storage.from_settings(settings)
+    global _WORKER_STORAGE
+    _WORKER_STORAGE = storage
     queue = JobQueue(settings.queue)
     logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
     # A worker only ever *uses* the JetStream topology; the API creates

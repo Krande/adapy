@@ -2,6 +2,15 @@
 
 
 
+## v0.62.0 (2026-09-03)
+
+### Feature
+
+* feat(rest): preserve a failed job&#39;s input in an admin-only failure corpus (#319)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`319c977`](https://github.com/Krande/adapy/commit/319c977acc537aa4dda4bc610895e05b0bb29380))
+
+
 ## v0.61.6 (2026-09-03)
 
 ### Fix
