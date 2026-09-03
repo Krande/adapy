@@ -186,7 +186,17 @@ async def test_credentials_reach_nats_connect(monkeypatch):
 
     await q.connect(manage=False, name="adapy-worker-ext-01")
 
-    assert seen["opts"] == {"name": "adapy-worker-ext-01", "user_credentials": "/secrets/ext-01.creds"}
+    # Asserted key by key rather than as a whole-dict equality: connect() also
+    # merges the always-on connection policy (see _connection_policy_options).
+    # Pinning the exact settings-to-credential-option mapping stays the job of
+    # test_queue_transport_deps, which still asserts it on _connect_options.
+    assert seen["opts"]["name"] == "adapy-worker-ext-01"
+    assert seen["opts"]["user_credentials"] == "/secrets/ext-01.creds"
+    # Nothing else authenticating snuck in.
+    assert not {"user", "password", "token", "nkeys_seed", "nkeys_seed_str"} & seen["opts"].keys()
+    # And the policy did reach the real connect call — the thing that keeps this
+    # client reconnecting instead of closing permanently after ~2 minutes.
+    assert seen["opts"]["max_reconnect_attempts"] < 0
 
 
 # --- settings --------------------------------------------------------
