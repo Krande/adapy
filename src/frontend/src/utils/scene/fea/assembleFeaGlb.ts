@@ -294,6 +294,16 @@ export async function assembleAnimatedFeaGlb(
     const enableShaderFlags = (m: THREE.Material) => {
         (m as THREE.MeshStandardMaterial).vertexColors = true;
         (m as any).morphTargets = true;
+        // Push the FILLED surface a hair away from the camera so the element
+        // edges, which share its vertices exactly, win the depth test cleanly.
+        // Without this the two are coplanar to the rasteriser and the wireframe
+        // breaks up into a dotted, shimmering line -- z-fighting, which reads as
+        // "the mesh lines look vague" and gets worse the further the camera is.
+        // Offsetting the surface rather than pulling the lines forward keeps
+        // hidden edges hidden, which `depthTest: false` on the lines would not.
+        m.polygonOffset = true;
+        m.polygonOffsetFactor = 1;
+        m.polygonOffsetUnits = 1;
         m.needsUpdate = true;
     };
     if (Array.isArray(mesh.material)) {

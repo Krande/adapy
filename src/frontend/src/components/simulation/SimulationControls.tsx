@@ -563,9 +563,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
                                 title={`Step ${stepIndex + 1} of ${nSteps}`}
                             >
+                                {/* The case NAME when the reader knows one. A Sesam deck
+                                    names its cases, and "lcc2" identifies a load
+                                    combination in a way "10" never will -- the
+                                    Capacity mode's run list has always shown them. */}
                                 {activeField.steps.map((s) => (
                                     <option key={s.i} value={s.i}>
-                                        {s.i + 1}/{nSteps} · {s.label}
+                                        {s.i + 1}/{nSteps} · {s.name ?? s.label}
                                     </option>
                                 ))}
                             </select>

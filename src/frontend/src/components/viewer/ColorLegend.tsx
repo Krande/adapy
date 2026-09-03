@@ -71,7 +71,16 @@ const ColorLegend = () => {
                 <div className="mb-2 space-y-0.5 break-words">
                     <div className="font-semibold">{path}</div>
                     <div>{reduction}{activeUnit ? ` [${activeUnit}]` : ""}</div>
-                    {activeStep && <div>Case: {activeStep.label}</div>}
+                    {/* Name and number both: the number is what the picker and the
+                        oracle listings key on, the name is what the deck calls it. */}
+                    {activeStep && (
+                        <div>
+                            Case: {activeStep.label}
+                            {activeStep.name && activeStep.name !== activeStep.label
+                                ? ` · ${activeStep.name}`
+                                : ""}
+                        </div>
+                    )}
                     {surface && <div>Surface/layer: {surface}</div>}
                     {field.coordinate_system && <div>Axes: {field.coordinate_system}</div>}
                     {hasExactMarkers && <div>Markers: exact · contour: {ipReduction} reduction</div>}
