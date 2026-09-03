@@ -38,6 +38,7 @@ from ada.config import logger
 
 from .config import QueueConfig
 from .converter import derived_key_for
+from .nats_ws import install_websocket_close_fix
 
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
@@ -278,6 +279,15 @@ class JobQueue:
     _BIND_WAIT_SECONDS = 60.0
     _BIND_POLL_SECONDS = 2.0
 
+    @staticmethod
+    def _is_websocket_url(url: str) -> bool:
+        """Whether this URL selects nats-py's WebSocket transport.
+
+        Off the URL rather than off a credential, because the URL is what
+        actually chooses the transport.
+        """
+        return url.startswith("ws://") or url.startswith("wss://")
+
     def _connect_options(self, name: str | None) -> dict:
         """Build the ``nats.connect()`` kwargs for the configured credentials.
 
@@ -295,7 +305,7 @@ class JobQueue:
         # WebSocket URL is the shape an off-cluster worker uses when the bus is
         # reached through an HTTPS ingress rather than a raw TCP port.
         url = (self._cfg.url or "").strip().lower()
-        if url.startswith("ws://") or url.startswith("wss://"):
+        if self._is_websocket_url(url):
             _require("aiohttp", "the WebSocket transport", "ADA_VIEWER_NATS_URL")
 
         opts: dict = {}
@@ -356,7 +366,15 @@ class JobQueue:
         """
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
-        self._nc = await nats.connect(self._cfg.url, **self._connect_options(name))
+        options = self._connect_options(name)
+        if self._is_websocket_url((self._cfg.url or "").strip().lower()):
+            # Teach nats-py to treat a server-closed WebSocket as EOF, so it
+            # reconnects instead of dying silently inside its read loop. See
+            # ada.comms.rest.nats_ws for what breaks without this. Installed
+            # here rather than at import so it only touches processes that
+            # actually use the transport.
+            install_websocket_close_fix()
+        self._nc = await nats.connect(self._cfg.url, **options)
         self._js = self._nc.jetstream()
 
         if not manage:

@@ -146,6 +146,35 @@ POOL_STREAK_LIMIT = max(1, int(os.environ.get("ADA_WORKER_POOL_STREAK_LIMIT", "8
 # stays free to fire these.
 IN_PROGRESS_REFRESH_SECONDS = 30
 
+# How often the worker re-publishes its registration. Also, incidentally, the
+# only round-trip to the bus an IDLE worker makes: a pull fetch that times out
+# with no messages is indistinguishable from a healthy quiet queue, so the
+# heartbeat is the one thing whose failure means something.
+BUS_HEARTBEAT_SECONDS = 15.0
+
+# Consecutive heartbeat failures after which the worker exits non-zero instead
+# of continuing to look alive.
+#
+# WHY THIS EXISTS. A worker whose connection is gone should either recover or
+# stop; the state worth designing against is the third one, where it does
+# neither. The client library is not guaranteed to fail loudly — a read loop can
+# stop without raising, leaving ``is_connected`` true and every subsequent
+# request timing out — and nothing else here would notice. The liveness file is
+# touched by the poll loop, which keeps iterating happily against a dead
+# connection, so it goes on reporting health. The registry row goes stale and
+# the worker vanishes from the admin view, but the process does not care.
+#
+# So jobs route to a pool that no longer consumes, and sit. That is the failure
+# this bounds: not the disconnect, which is ordinary, but the silence after it.
+#
+# The number is a compromise between the two ways of being wrong. Too low and a
+# transient blip restarts a worker mid-job, losing work that would have
+# recovered on its own. Too high and jobs queue against a dead pool for as long
+# as it takes. At the cadence above this is a full minute of consecutive
+# failures — far longer than a reconnect after a routine bus restart, short
+# enough that nothing waits on it for long.
+BUS_HEARTBEAT_FAILURE_LIMIT = 4
+
 
 def _bool_env(name: str, *, default: bool) -> bool:
     raw = os.environ.get(name)
@@ -4280,6 +4309,56 @@ def _warm_convert_imports() -> None:
         logger.info("worker: warm-imported %s (%s) in %.2fs", mod, why, time.perf_counter() - t0)
 
 
+async def _heartbeat_until_stopped(
+    *,
+    publish: Callable[[], Awaitable[bool]],
+    stop: asyncio.Event,
+    bus_lost: asyncio.Event,
+    interval: float = BUS_HEARTBEAT_SECONDS,
+    failure_limit: int = BUS_HEARTBEAT_FAILURE_LIMIT,
+) -> None:
+    """Re-publish the registration on ``interval``, and watch the bus while doing it.
+
+    Two jobs, because one round-trip answers both. The registration keeps the
+    worker visible to the admin view; whether it *arrives* is the only routine
+    evidence an idle worker has that the bus is still there. An idle pull fetch
+    times out whether the queue is quiet or the connection is dead, so it can
+    never be that evidence.
+
+    Returns when ``stop`` is set — either by the caller (a shutdown signal) or
+    by this loop after ``failure_limit`` consecutive failures, in which case it
+    sets ``bus_lost`` first. The caller is what decides the exit code; see
+    BUS_HEARTBEAT_FAILURE_LIMIT for why there is one to decide.
+
+    Consecutive is the point. The counter resets on every success, so a worker
+    that heartbeats fine for hours with the occasional blip never trips it; only
+    a run of failures with no success between them does.
+    """
+    failures = 0
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            if await publish():
+                failures = 0
+                continue
+            failures += 1
+            if failures < failure_limit:
+                continue
+            logger.error(
+                "worker: %d consecutive heartbeats failed (~%.0fs); the bus is unreachable "
+                "and this worker is not serving the pools it advertises. Exiting so it is "
+                "restarted rather than left silently idle.",
+                failures,
+                failures * interval,
+            )
+            bus_lost.set()
+            stop.set()
+            return
+        else:
+            return  # stop set — exit cleanly
+
+
 async def _run() -> None:
     # Make the worker's own lifecycle logs visible. The "ada" logger otherwise
     # inherits root's WARNING level, which silently drops every worker: INFO
@@ -4617,7 +4696,14 @@ async def _run() -> None:
     }
     reported_packages = [p for p in worker_packages if str(p.get("name") or "").lower() in _named]
 
-    async def _publish_registration() -> None:
+    async def _publish_registration() -> bool:
+        """Publish the registration; return whether it reached the bus.
+
+        Still non-fatal on its own — one failed heartbeat is a blip, and the
+        registry row it writes is decorative. The return value is what lets the
+        caller tell a blip from a connection that is never coming back; see
+        BUS_HEARTBEAT_FAILURE_LIMIT.
+        """
         try:
             await queue.register_worker(
                 worker_id,
@@ -4651,6 +4737,8 @@ async def _run() -> None:
             )
         except Exception:
             logger.exception("worker: register_worker failed (non-fatal)")
+            return False
+        return True
 
     await _publish_registration()
     logger.info(
@@ -4782,19 +4870,15 @@ async def _run() -> None:
             # Windows: skip graceful signal wiring.
             pass
 
-    # Heartbeat loop — re-publish the registration every 15 s so the
-    # admin panel can filter stale workers (a pod that crashed without
-    # graceful shutdown will fall off the list within HEARTBEAT_STALE_S).
-    async def _heartbeat_loop() -> None:
-        while not stop.is_set():
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=15.0)
-            except asyncio.TimeoutError:
-                await _publish_registration()
-            else:
-                return  # stop set — exit cleanly
+    # Set when the heartbeat has failed BUS_HEARTBEAT_FAILURE_LIMIT times running.
+    # Distinguishes "we were asked to stop" from "we lost the bus and stopped
+    # ourselves", which have to exit with different codes: a supervisor should
+    # restart the second and not the first.
+    bus_lost = asyncio.Event()
 
-    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_until_stopped(publish=_publish_registration, stop=stop, bus_lost=bus_lost)
+    )
 
     # The previous threadpool ran convert() in-process; that's been
     # replaced by a per-job forked subprocess (see subprocess_convert).
@@ -4982,6 +5066,14 @@ async def _run() -> None:
             except Exception:
                 logger.exception("worker: db pool close failed")
         logger.info("worker: stopped")
+
+    if bus_lost.is_set():
+        # Non-zero so a supervisor restarts us. Deliberately raised out here,
+        # after the cleanup above: unregistering and closing are best-effort and
+        # each already tolerate a dead connection, and skipping them would leave
+        # a stale registry row behind on the one exit path that most needs the
+        # row gone.
+        raise SystemExit("worker: exiting after losing the connection to the bus")
 
 
 def run() -> None:
