@@ -33,6 +33,15 @@ export interface ElementFieldValues {
     field: FeaManifestField;
     /** The element-type bucket the element was found in ("quad", "line", …). */
     elemType: string;
+    /**
+     * The layer the reduction actually ran over.
+     *
+     * Not always the one asked for: `layerIpIndices` falls back to every IP when
+     * the bucket has no such layer, which is right -- better a value than a grey
+     * element -- but a caller that echoes the REQUESTED layer then labels the
+     * number with a layer it was not read from.
+     */
+    layerUsed: string;
     components: ElementComponentValue[];
 }
 
@@ -124,10 +133,12 @@ export async function feaValuesForElement(
             // offset NaN and every value read back as "no value".
             const nComp = field.components.length;
             const ips = layerIpIndices(bucket, layer);
+            const hasLayer = (bucket.ip_layout ?? []).some((e) => e.layer === layer);
             const base = index * bucket.n_ips * nComp;
             out.push({
                 field,
                 elemType: bucket.elem_type,
+                layerUsed: hasLayer ? layer : "all",
                 components: field.components.map((component, c) => ({
                     component,
                     value: reduceIps(view, base, ips, nComp, c, ipReduction),
