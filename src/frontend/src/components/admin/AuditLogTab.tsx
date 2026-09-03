@@ -35,6 +35,12 @@ function hasDetails(e: AuditEntry): boolean {
     if (e.action === "convert") return true;
     // A compile run always has a log to read, even when it succeeded.
     if (e.action === "compile") return true;
+    // A plugin job records the same metrics a convert does -- the worker passes
+    // them to _audit_done on every outcome -- so a SUCCESSFUL one has something
+    // worth opening. Without this it fell through to the error-only rule below
+    // and offered no icon at all, leaving those metrics collected but
+    // unreachable.
+    if (e.action === "plugin_job") return true;
     // Browser view/render rows always carry a client_metrics payload to
     // inspect (per-phase split + per-function frames), fetched lazily.
     if (e.action === "view" || e.action === "render") return true;
