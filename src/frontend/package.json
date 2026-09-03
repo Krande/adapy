@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.62.0",
+  "version": "0.62.1",
   "type": "module",
   "workspaces": [
     "packages/plugins/*"

@@ -2,6 +2,15 @@
 
 
 
+## v0.62.1 (2026-09-03)
+
+### Fix
+
+* fix(tests): skip the WASM host invariant outside a source checkout (#320)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c7aa8f3`](https://github.com/Krande/adapy/commit/c7aa8f385855628e9fe03af05599602f25649598))
+
+
 ## v0.62.0 (2026-09-03)
 
 ### Feature
