@@ -159,6 +159,23 @@ test("element-nodal support applies only the selected shell surface", () => {
   );
 });
 
+test("a single physical result layer does not gain a synthetic all choice", () => {
+  const field = makeField();
+  field.per_type![0].ip_layout = [{ ip: 0, layer: "mid", in_plane: "0" }];
+
+  assert.deepEqual(availableResultLayers(field), ["mid"]);
+});
+
+test("multiple integration-point layers retain the all reduction choice", () => {
+  const field = makeField();
+  field.per_type![0].ip_layout = [
+    { ip: 0, layer: "upper", in_plane: "0" },
+    { ip: 1, layer: "lower", in_plane: "0" },
+  ];
+
+  assert.deepEqual(availableResultLayers(field), ["upper", "lower", "all"]);
+});
+
 test("flat element fields duplicate shared vertices to preserve discontinuities", () => {
   const mesh = makeSharedMesh();
   const field = makeField();

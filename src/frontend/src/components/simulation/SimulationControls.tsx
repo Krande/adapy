@@ -688,7 +688,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         union of layer markers across the field's
                         per_type ip_layouts, plus "all" for no
                         filter. */}
-                    {isElemField && layerOptions.length > 0 && (
+                    {isElemField && layerOptions.length > 1 && (
                         <label className="flex items-center gap-1">
                             <span className="text-gray-300">Surface/layer</span>
                             <select

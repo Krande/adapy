@@ -24,7 +24,7 @@ export function availableResultLayers(field: FeaManifestField): string[] {
     (left, right) => rank(left) - rank(right) || left.localeCompare(right),
   );
   if (
-    out.length > 0
+    out.length > 1
     && field.surface !== "selectable"
     && !field.surface_variants?.length
   ) out.push("all");
