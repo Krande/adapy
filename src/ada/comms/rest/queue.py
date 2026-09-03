@@ -38,6 +38,7 @@ from ada.config import logger
 
 from .config import QueueConfig
 from .converter import derived_key_for
+from .nats_ws import install_websocket_close_fix
 
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
@@ -278,6 +279,66 @@ class JobQueue:
     _BIND_WAIT_SECONDS = 60.0
     _BIND_POLL_SECONDS = 2.0
 
+    @staticmethod
+    def _is_websocket_url(url: str) -> bool:
+        """Whether this URL selects nats-py's WebSocket transport.
+
+        Off the URL rather than off a credential, because the URL is what
+        actually chooses the transport.
+        """
+        return url.startswith("ws://") or url.startswith("wss://")
+
+    @staticmethod
+    def _connection_policy_options() -> dict:
+        """How the client behaves when the connection drops. Not credentials.
+
+        Kept apart from :meth:`_connect_options` on purpose: that one answers
+        "what did the operator configure", and its tests assert the mapping is
+        exact. This one is policy that always applies, whatever the credentials.
+
+        RECONNECT FOR AS LONG AS THE PROCESS LIVES. nats-py gives up after
+        ``max_reconnect_attempts`` (60) tries at ``reconnect_time_wait`` (2s) —
+        about two minutes — and giving up is not a pause. It raises
+        ``NoServersError``, calls ``close()``, and from then on EVERY operation
+        raises ``ConnectionClosedError: nats: connection closed`` for the life of
+        the process. There is no path back: nothing retries a closed client, and
+        a closed client is what the process is left holding.
+
+        Two minutes is shorter than an ordinary restart of the bus, so the
+        default turns a routine restart into a permanent outage for whichever
+        long-lived processes were not restarted alongside it. An API in that
+        state still serves HTTP — so it stays healthy to a liveness probe while
+        failing every request that touches the queue, and nothing restarts it
+        either.
+
+        A negative value is nats-py's "never stop reconnecting". There is no
+        scenario in which one of these processes wants to stop trying to reach
+        the bus and carry on running: without the bus there is nothing it can do.
+        """
+
+        async def _disconnected() -> None:
+            logger.warning("queue: disconnected from NATS; reconnecting until it comes back")
+
+        async def _reconnected() -> None:
+            logger.info("queue: reconnected to NATS")
+
+        async def _closed() -> None:
+            # With unlimited retries this should only ever follow a deliberate
+            # close. If it appears without one, the policy above is not in force
+            # and every later operation on this client will fail.
+            logger.warning("queue: NATS connection closed")
+
+        return {
+            "max_reconnect_attempts": -1,
+            # Say it out loud when the connection comes and goes. Otherwise the
+            # only account of a disconnect is whatever the library's own logger
+            # emits, and the transition that matters most — reconnected, so the
+            # backlog is draining — is invisible.
+            "disconnected_cb": _disconnected,
+            "reconnected_cb": _reconnected,
+            "closed_cb": _closed,
+        }
+
     def _connect_options(self, name: str | None) -> dict:
         """Build the ``nats.connect()`` kwargs for the configured credentials.
 
@@ -295,7 +356,7 @@ class JobQueue:
         # WebSocket URL is the shape an off-cluster worker uses when the bus is
         # reached through an HTTPS ingress rather than a raw TCP port.
         url = (self._cfg.url or "").strip().lower()
-        if url.startswith("ws://") or url.startswith("wss://"):
+        if self._is_websocket_url(url):
             _require("aiohttp", "the WebSocket transport", "ADA_VIEWER_NATS_URL")
 
         opts: dict = {}
@@ -356,7 +417,15 @@ class JobQueue:
         """
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
-        self._nc = await nats.connect(self._cfg.url, **self._connect_options(name))
+        options = {**self._connect_options(name), **self._connection_policy_options()}
+        if self._is_websocket_url((self._cfg.url or "").strip().lower()):
+            # Teach nats-py to treat a server-closed WebSocket as EOF, so it
+            # reconnects instead of dying silently inside its read loop. See
+            # ada.comms.rest.nats_ws for what breaks without this. Installed
+            # here rather than at import so it only touches processes that
+            # actually use the transport.
+            install_websocket_close_fix()
+        self._nc = await nats.connect(self._cfg.url, **options)
         self._js = self._nc.jetstream()
 
         if not manage:
