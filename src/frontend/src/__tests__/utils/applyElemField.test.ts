@@ -298,3 +298,46 @@ test("beam result-point markers use source connectivity without triangle ranges"
     [0, 0, 0, 0.5, 0, 0, 1, 0, 0],
   );
 });
+
+test("beam element fields color a line fallback without beam solids", () => {
+  const mesh = makeMesh();
+  Object.assign(mesh, { drawRanges: new Map() });
+  const field = makeField();
+  field.per_type![0].elem_type = "line";
+  field.per_type![0].n_ips = 2;
+  field.per_type![0].element_node_indices = [[0, 1]];
+  field.per_type![0].ip_layout = [
+    { ip: 0, layer: "mid", in_plane: "0", natural_coordinates: [0] },
+    { ip: 1, layer: "mid", in_plane: "1", natural_coordinates: [1] },
+  ];
+  applyElemFieldToMesh({
+    mesh,
+    basePositions,
+    colorField: field,
+    perTypeStepValues: [new Float32Array([0, 2])],
+    layer: "mid",
+    ipReduction: "mean",
+    reduction: "SIGXX",
+  });
+
+  const lines = mesh.getObjectByName("__fea_result_line_segments__") as THREE.LineSegments;
+  assert.ok(lines);
+  assert.deepEqual(
+    Array.from(lines.geometry.getAttribute("position").array as Float32Array),
+    [0, 0, 0, 1, 0, 0],
+  );
+  const colors = lines.geometry.getAttribute("color").array as Float32Array;
+  assert.notDeepEqual(Array.from(colors.slice(0, 3)), Array.from(colors.slice(3, 6)));
+
+  const nodalField = makeField();
+  nodalField.support = "nodal";
+  delete nodalField.per_type;
+  applyFieldToMesh({
+    mesh,
+    basePositions,
+    colorField: nodalField,
+    colorStepValues: new Float32Array([0, 1, 2]),
+    reduction: "SIGXX",
+  });
+  assert.equal(mesh.getObjectByName("__fea_result_line_segments__"), undefined);
+});

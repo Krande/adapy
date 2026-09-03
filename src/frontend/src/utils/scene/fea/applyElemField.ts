@@ -42,6 +42,7 @@ import {
     sourceVertexIndices,
 } from "./elementLocalGeometry";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
+import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 
 type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
 type SourceWeight = [sourceVertex: number, weight: number];
@@ -223,6 +224,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     } = args;
 
     clearResultPointMarkers(mesh);
+    clearResultLineSegments(mesh);
     if (!colorField.per_type) {
         throw new Error(
             `applyElemFieldToMesh: field ${colorField.name_canonical} has no per_type buckets`,
@@ -329,6 +331,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const markerPositions: number[] = [];
     const markerColors: number[] = [];
     const markerSourceWeights: SourceWeight[][] = [];
+    const linePositions: number[] = [];
+    const lineColors: number[] = [];
+    const lineSourceIndices: number[] = [];
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -350,6 +355,57 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             const elemBase = e * elemStride;
             const label = bucket.element_labels[e];
             const dr = drawRanges.get(`E${label}`);
+
+            // Line elements have AFEM entries with zero triangles, so their
+            // values cannot colour the face mesh. Draw a two-vertex segment
+            // from the manifest connectivity as the no-solid fallback. For
+            // Xtract Elements fields the two result slots map to the beam
+            // ends; element-average fields use one colour at both ends.
+            if (
+                !dr
+                && bucket.elem_type.startsWith("line")
+                && colorField.support !== "line_result_point"
+                && colorField.support !== "result_point"
+            ) {
+                const sourceCorners = bucket.element_node_indices?.[e] ?? [];
+                if (sourceCorners.length >= 2) {
+                    const endpoints = [sourceCorners[0], sourceCorners[sourceCorners.length - 1]];
+                    const endpointIps = colorField.support === "element_nodal" && ipIndices.length >= 2
+                        ? [ipIndices[0], ipIndices[ipIndices.length - 1]]
+                        : [null, null];
+                    const averaged = endpointIps[0] === null
+                        ? computeElementScalar(stepView, elemBase, ipIndices)
+                        : NaN;
+                    for (let endpoint = 0; endpoint < 2; endpoint++) {
+                        const sourceIdx = endpoints[endpoint];
+                        const offset = sourceIdx * 3;
+                        const scalar = endpointIps[endpoint] === null
+                            ? averaged
+                            : computeElementScalar(
+                                stepView,
+                                elemBase,
+                                [endpointIps[endpoint] as number],
+                            );
+                        if (!isFinite(scalar)) continue;
+                        linePositions.push(
+                            basePositions[offset],
+                            basePositions[offset + 1],
+                            basePositions[offset + 2],
+                        );
+                        const t = (scalar - rangeMin) * scaleColor;
+                        colormap(t, tmpRgb, 0);
+                        lineColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
+                        lineSourceIndices.push(sourceIdx);
+                    }
+                    // A LineSegments pair must be complete. Drop a lone end
+                    // when the other endpoint carried an inapplicable NaN.
+                    if (lineSourceIndices.length % 2) {
+                        lineSourceIndices.splice(-1, 1);
+                        linePositions.splice(-3, 3);
+                        lineColors.splice(-3, 3);
+                    }
+                }
+            }
 
             if (
                 !mesh.userData.feaBeamSolids
@@ -535,6 +591,20 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         new Float32Array(markerPositions),
         new Float32Array(markerColors),
         markerDisplacement,
+    );
+    const lineDisplacement = new Float32Array(lineSourceIndices.length * 3);
+    for (let vertex = 0; vertex < lineSourceIndices.length; vertex++) {
+        const sourceOffset = lineSourceIndices[vertex] * 3;
+        const lineOffset = vertex * 3;
+        lineDisplacement[lineOffset] = sourceDisplacement[sourceOffset];
+        lineDisplacement[lineOffset + 1] = sourceDisplacement[sourceOffset + 1];
+        lineDisplacement[lineOffset + 2] = sourceDisplacement[sourceOffset + 2];
+    }
+    installResultLineSegments(
+        mesh,
+        new Float32Array(linePositions),
+        new Float32Array(lineColors),
+        lineDisplacement,
     );
     geometry.morphAttributes.position = [
         new THREE.BufferAttribute(displacement, 3),
