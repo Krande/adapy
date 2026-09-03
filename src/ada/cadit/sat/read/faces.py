@@ -31,6 +31,13 @@ class PlateFactory:
         chunks = acis_record.chunks
 
         name = self.sat_store.get_name(chunks[self.name_idx])
+        if not name:
+            # No name resolves for this face (no attribute, or an attribute
+            # chain ending before a string attrib). Plates are matched to their
+            # XML element by name, so an unnamed face can never become one:
+            # skip it like any other unusable face rather than failing below.
+            logger.warning(f"face record {acis_record.index} carries no name attribute. Skipping...")
+            return None
         if not name.startswith("FACE"):
             raise NotImplementedError(f"Only face_refs starting with 'FACE' is supported. Found {name}")
 
