@@ -2,6 +2,15 @@
 
 
 
+## v0.62.4 (2026-09-03)
+
+### Fix
+
+* fix(frontend): bound-collection display, timezone rendering, and a switch-user control (#323)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`fd5cab7`](https://github.com/Krande/adapy/commit/fd5cab7844c0a6b2c90d15ca39bd0d9ea0dbeccd))
+
+
 ## v0.62.3 (2026-09-03)
 
 ### Fix
