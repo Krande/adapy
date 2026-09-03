@@ -596,6 +596,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             sourceDisplacement[pb + 2] = warpValue(warpStepValues, wb, axes[2]);
         }
     }
+    // The element-edge wireframe keeps SOURCE numbering: its index buffer was built
+    // from the bake's edge sidecar against the original vertices, and it still holds
+    // the original position attribute. The parent mesh does not -- an element field
+    // expands the geometry to element-local vertices and swaps the buffer -- so the
+    // parent's morph is the wrong length for it, and handing it over left the outline
+    // sitting undeformed while the faces moved. Nodal fields never expand, which is
+    // why this only ever showed up on an element field.
+    setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
+
     const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
     const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);
     for (let point = 0; point < markerSourceWeights.length; point++) {
@@ -682,4 +691,41 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
     geometry.computeVertexNormals();
     geometry.dispatchEvent({type: "dispose"});
+}
+
+/**
+ * Give a named LineSegments child its own morph, in SOURCE vertex numbering.
+ *
+ * Used for the element-edge wireframe, whose geometry indexes the original
+ * vertices and must not be driven by the element-local expansion the parent
+ * mesh carries for an element field.
+ */
+function setSourceMorph(
+    mesh: THREE.Mesh,
+    childName: string,
+    sourceDisplacement: Float32Array,
+): void {
+    const child = mesh.getObjectByName(childName);
+    if (!(child instanceof THREE.LineSegments)) return;
+    const geom = child.geometry as THREE.BufferGeometry;
+    const position = geom.getAttribute("position");
+    // Only when the counts agree. A child whose positions came from somewhere
+    // else is not ours to drive, and a mismatched morph renders as nothing.
+    if (!position || position.count * 3 !== sourceDisplacement.length) return;
+
+    geom.morphAttributes.position = [new THREE.BufferAttribute(sourceDisplacement, 3)];
+    geom.morphTargetsRelative = true;
+    child.updateMorphTargets();
+    const mat = child.material as THREE.Material;
+    if (mat && "morphTargets" in mat) {
+        (mat as unknown as {morphTargets: boolean}).morphTargets = true;
+        mat.needsUpdate = true;
+    }
+    child.onBeforeRender = () => {
+        const influence = mesh.morphTargetInfluences?.[0] ?? 0;
+        if (child.morphTargetInfluences) child.morphTargetInfluences[0] = influence;
+    };
+    // The shared position buffer was re-uploaded when the parent's geometry was
+    // rebuilt; drop this geometry's VAO so it binds the current one.
+    geom.dispatchEvent({type: "dispose"});
 }
