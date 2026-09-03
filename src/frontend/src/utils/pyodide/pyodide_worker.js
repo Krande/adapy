@@ -209,6 +209,18 @@ async function ensureAdapyWheel() {
     return adapyWheelPromise;
 }
 
+// Every cell dispatches through `import ada.cadit.wasm_convert`, so the adapy
+// wheel is a precondition of all of them, not just the CAD formats. ada's
+// __init__ is eager, hence trimesh + pyquaternion first (numpy comes from
+// bootstrap). Kept outside the per-format stacks on purpose: formats that need
+// no CAD kernel install only their own packages, and previously reached the
+// dispatch import with no `ada` on sys.path.
+async function ensureAdapyRuntime() {
+    await ensureTrimesh();
+    await ensurePyquaternion();
+    await ensureAdapyWheel();
+}
+
 // Lazy STEP stack — adacpp kernel + adapy.cad, both from wheels.
 async function ensureStepStack() {
     if (!stepStackPromise) {
@@ -359,11 +371,13 @@ _pc.compile_doc(_pc_doc, engine=_pc_engine)
 // then calls wasm_convert.run.
 
 async function ensureStacks(format, target) {
+    // Invariant: adapy first, for every format. See ensureAdapyRuntime.
+    await ensureAdapyRuntime();
     const tgt = (target || "glb").toLowerCase();
     if (format === "fea") return ensureFemStack();
     if (format === "fea_glb") return ensureFemStack(); // SIF/SIN result → single GLB
     if (format === "mesh") return ensureMeshStack();
-    if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // raw ifcopenshell fast path
+    if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // ifcopenshell geometry fast path
     if (format === "step" && tgt === "glb") return ensureStepStack(); // adacpp fast path
     if (format === "fem") {
         await ensureFemStack();
