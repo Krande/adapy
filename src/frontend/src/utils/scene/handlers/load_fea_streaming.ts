@@ -15,7 +15,7 @@ import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batc
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
-import {sceneRef} from "@/state/refs";
+import {modelKeyMapRef, sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
@@ -411,6 +411,16 @@ async function tryLoadBeamSolids(
                 rangesPlain[rid] = [entry.triStart * 3, entry.triCount * 3];
             }
         }
+        // The Outliner resolves a clicked row through ``modelKeyMapRef``:
+        // ``model_key`` -> an object whose subtree holds the named mesh.
+        // ``setupModelLoader`` registers the main FEA mesh when it loads the GLB;
+        // nothing registered this one. So clicking a beam in the tree set the
+        // Properties name and made NO 3d selection -- the status bar stayed on
+        // "No selection", nothing highlighted, and every selection-driven
+        // behaviour was silently skipped for beams.
+        if (!modelKeyMapRef.current) modelKeyMapRef.current = new Map();
+        modelKeyMapRef.current.set(uniqueKey, custom);
+
         // Best-effort cache install — if it fails, the mesh still
         // renders, the click just won't resolve.
         void cacheAndBuildTree(uniqueKey, {
