@@ -4,7 +4,7 @@ import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
 import {useServerInfoStore} from "@/state/serverInfoStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
-import {getUser, isAuthEnabled, signOut} from "@/services/auth/oidc";
+import {getUser, isAuthEnabled, signIn, signOut} from "@/services/auth/oidc";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 
@@ -88,12 +88,24 @@ const SignedInRow: React.FC = () => {
                     </div>
                 )}
             </div>
-            <button
-                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded-sm"
-                onClick={() => void signOut()}
-            >
-                Sign out
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+                {/* Switching keeps this session until the new sign-in completes,
+                    so cancelling at the IdP leaves the current user signed in —
+                    unlike signing out first, which drops the session either way. */}
+                <button
+                    className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded-sm"
+                    onClick={() => void signIn(undefined, {selectAccount: true})}
+                    title="Pick a different account at the identity provider, without signing out of this one"
+                >
+                    Switch user
+                </button>
+                <button
+                    className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded-sm"
+                    onClick={() => void signOut()}
+                >
+                    Sign out
+                </button>
+            </div>
         </div>
     );
 };

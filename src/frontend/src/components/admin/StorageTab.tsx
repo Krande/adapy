@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import {AdminFileEntry, ApiError, TargetFormat, viewerApi} from "@/services/viewerApi";
 import {ensureConverted} from "@/services/conversion";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {localDate} from "@/utils/time";
 import {runtime} from "@/runtime/config";
 import {
     buildFileTree,
@@ -1175,7 +1176,7 @@ const SourceCard: React.FC<CardProps> = ({
                     </div>
                     <div className="text-gray-400 mt-0.5">
                         {file.format}
-                        {file.last_modified ? ` · ${file.last_modified.slice(0, 10)}` : ""}
+                        {file.last_modified ? ` · ${localDate(file.last_modified)}` : ""}
                         {file.derived.length > 0 ? ` · ${file.derived.length} derived` : ""}
                     </div>
                 </button>

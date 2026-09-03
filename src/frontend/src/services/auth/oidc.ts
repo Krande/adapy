@@ -192,9 +192,34 @@ export function getUser(): {sub?: string; email?: string; name?: string} {
 }
 
 /** Kick off the authorize redirect. Caller is the AuthGate UI. */
+export interface SignInPrompt {
+    /** Re-authenticate: the IdP asks for credentials again even with a live
+     *  session. For recovering from a session that is broken rather than for
+     *  changing who is signed in. */
+    forceLogin?: boolean;
+    /** Show the IdP's account chooser. This is the "switch user" case: an
+     *  account already signed in at the IdP can be picked without re-entering
+     *  credentials, and a new one can be added. `login` would force the
+     *  password prompt instead, which is a worse fit for switching. */
+    selectAccount?: boolean;
+}
+
+/** The OIDC `prompt` value for these options, or null to send none.
+ *
+ *  Omitted by default so the normal silent-SSO path is untouched — a `prompt`
+ *  on every authorize would defeat SSO. `select_account` wins when both are
+ *  set: it is the more specific request, and both Authentik and Azure AD
+ *  honour it.
+ */
+export function promptParam(opts?: SignInPrompt): string | null {
+    if (opts?.selectAccount) return "select_account";
+    if (opts?.forceLogin) return "login";
+    return null;
+}
+
 export async function signIn(
     returnUrl?: string,
-    opts?: {forceLogin?: boolean},
+    opts?: SignInPrompt,
 ): Promise<void> {
     const d = await loadDiscovery();
     const verifier = randomUrl(32);
@@ -224,13 +249,8 @@ export async function signIn(
         code_challenge_method: "S256",
         state,
     });
-    if (opts?.forceLogin) {
-        // Standard OIDC prompt param — both Authentik and Azure AD honor
-        // it by re-showing the login form even when an IdP session
-        // exists, letting the user pick a different account. Only sent
-        // on explicit request so the normal silent-SSO path is unchanged.
-        params.set("prompt", "login");
-    }
+    const prompt = promptParam(opts);
+    if (prompt) params.set("prompt", prompt);
     const aud = runtime.authAudience();
     if (aud && aud !== runtime.authClientId()) {
         // Auth0 / some Azure AD configurations need this so the issued

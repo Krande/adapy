@@ -11,6 +11,7 @@ import {
 import {
     ExternalModelBindingMap,
     bindingFor,
+    boundCollectionOption,
     parseBindingMap,
     EXTERNAL_MODELS_BINDING_KEY,
 } from "@/services/externalModelsBinding";
@@ -93,6 +94,7 @@ const ExternalModelsTab: React.FC = () => {
         void refresh();
     }, [refresh]);
 
+
     const loadCollections = useCallback(
         async (provider: string) => {
             if (!provider || collections[provider]) return;
@@ -106,6 +108,25 @@ const ExternalModelsTab: React.FC = () => {
         },
         [collections, nonce],
     );
+
+    // Collections are otherwise fetched on focus, which is too late for a row
+    // that is ALREADY bound: it has to render its collection's name before
+    // anyone touches it. Only providers that appear in a binding are fetched,
+    // so this stays the same handful of round-trips the lazy path would make,
+    // just earlier. loadCollections is a no-op once a provider is cached.
+    const boundProviders = useMemo(
+        () => JSON.stringify(Array.from(new Set(
+            Object.keys(map)
+                .map((scope) => bindingFor(map, scope)?.provider)
+                .filter((prov): prov is string => Boolean(prov)),
+        )).sort()),
+        [map],
+    );
+    useEffect(() => {
+        for (const prov of JSON.parse(boundProviders) as string[]) {
+            void loadCollections(prov);
+        }
+    }, [boundProviders, loadCollections]);
 
     const rows: ScopeRow[] = useMemo(() => {
         const out: ScopeRow[] = [
@@ -193,13 +214,14 @@ const ExternalModelsTab: React.FC = () => {
                     // just picked and has not finished.
                     const provider = bound?.provider ?? pendingProvider[row.scope] ?? "";
                     const collection = bound?.collection ?? "";
-                    const known = collections[provider] ?? [];
-                    // A binding whose collection is no longer listed still
-                    // renders, marked. Dropping it from the <select> would
-                    // silently unbind the scope the moment an admin opened this
-                    // tab before the provider had been read.
-                    const missing = Boolean(collection) && known.length > 0
-                        && !known.some((c) => c.id === collection);
+                    // undefined until fetched; [] once fetched and empty. Passing the
+                    // raw value through matters — see boundCollectionOption.
+                    const known = collections[provider];
+                    // A binding whose collection the list does not carry still
+                    // renders. Dropping it from the <select> would silently
+                    // unbind the scope the moment an admin opened this tab
+                    // before the provider had been read.
+                    const orphan = boundCollectionOption(collection, known);
                     return (
                         <tr key={row.scope} className="border-t border-gray-800">
                             <td className="px-3 py-2 align-top">
@@ -242,10 +264,10 @@ const ExternalModelsTab: React.FC = () => {
                                     title={provider ? undefined : "Choose a provider first"}
                                 >
                                     <option value="">— none —</option>
-                                    {missing && (
-                                        <option value={collection}>{collection} (not in list)</option>
+                                    {orphan && (
+                                        <option value={orphan.value}>{orphan.label}</option>
                                     )}
-                                    {known.map((c) => (
+                                    {(known ?? []).map((c) => (
                                         <option key={c.id} value={c.id}>{c.name}</option>
                                     ))}
                                 </select>
