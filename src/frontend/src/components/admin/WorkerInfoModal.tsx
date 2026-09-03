@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi, WorkerEntry, WorkerPackage} from "@/services/viewerApi";
+import {isMissingManifest, MISSING_MANIFEST_NOTE} from "./workerPackages";
 
 // Per-worker detail modal opened from the info button in WorkersTab. Everything shown here is
 // already in hand (the registration entry the row was built from) except the conda package
@@ -55,6 +56,7 @@ const Row: React.FC<{label: string; children: React.ReactNode}> = ({label, child
 const PackageList: React.FC<{imageTag: string}> = ({imageTag}) => {
     const [pkgs, setPkgs] = useState<WorkerPackage[] | null>(null);
     const [err, setErr] = useState<string | null>(null);
+    const [missing, setMissing] = useState(false);
     const [filter, setFilter] = useState("");
 
     useEffect(() => {
@@ -62,7 +64,12 @@ const PackageList: React.FC<{imageTag: string}> = ({imageTag}) => {
         viewerApi
             .adminWorkerPackages(imageTag)
             .then((r) => alive && setPkgs(r.packages))
-            .catch((e) => alive && setErr(e instanceof ApiError ? e.message : String(e)));
+            .catch((e) => {
+                if (!alive) return;
+                // Not every worker records a manifest -- see workerPackages.ts.
+                if (isMissingManifest(e)) setMissing(true);
+                else setErr(e instanceof ApiError ? e.message : String(e));
+            });
         return () => {
             alive = false;
         };
@@ -71,6 +78,7 @@ const PackageList: React.FC<{imageTag: string}> = ({imageTag}) => {
     const f = filter.trim().toLowerCase();
     const shown = (pkgs || []).filter((p) => !f || p.name.toLowerCase().includes(f));
 
+    if (missing) return <div className="text-[11px] text-gray-400">{MISSING_MANIFEST_NOTE}</div>;
     if (err) return <div className="text-[11px] text-red-400">{err}</div>;
     if (!pkgs) return <div className="text-[11px] text-gray-400">Loading…</div>;
     return (

@@ -3277,6 +3277,17 @@ async def _run_plugin_job(
         return
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    # Success was the ONE outcome that logged nothing. Cancel, failure and a
+    # failed summary upload each say so, so a job that simply worked was the
+    # only case where "picked up job X" stayed the last word on it -- which
+    # reads exactly like a worker that died still holding it. Logged at the
+    # same level as the pickup it answers, so the two read as a pair.
+    logger.info(
+        "worker: plugin_job %s finished job %s in %.1fs",
+        plugin_id,
+        job_id,
+        time.monotonic() - started_at,
+    )
     await _audit_done(db_pool, job_id, "done", None, started_at, metrics=await _plugin_metrics())
 
 
@@ -4801,6 +4812,24 @@ async def _run() -> None:
                 )
             except Exception:
                 logger.exception("worker: package manifest capture failed")
+    else:
+        # No DATABASE_URL at all. This is a SUPPORTED way to run a worker -- the
+        # pool belongs to the API service, and everything that genuinely needs
+        # one refuses itself with a clear message -- but two consequences are
+        # invisible unless stated here, because both look like faults later:
+        #
+        #   * the audit row the API wrote when the job was enqueued is never
+        #     patched with its outcome, so the run appears to stop at "queued"
+        #     forever rather than showing as done;
+        #   * no package manifest is recorded, so the admin UI has none to show
+        #     for this worker, ever.
+        #
+        # Neither is an error and neither can be retried into working, so this
+        # is the one place that can say so.
+        logger.info(
+            "worker: no DATABASE_URL — job outcomes will not be recorded in the audit log, "
+            "and this worker reports no package manifest. Both are expected without a pool."
+        )
 
     # Subscribe to every capability this worker advertises, one durable
     # pull-subscriber each. NATS does the routing, so a worker only ever sees

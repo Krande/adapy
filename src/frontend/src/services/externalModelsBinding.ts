@@ -54,3 +54,27 @@ export function bindingFor(
   if (!provider || !collection) return null;
   return { provider, collection };
 }
+
+/** The extra <option> a bound collection <select> needs, or null.
+ *
+ *  A <select> whose `value` matches no <option> falls back to rendering its
+ *  first one, so a bound scope reads as "— none —" until the collection list
+ *  arrives. Collections are fetched on demand, so that is the state on first
+ *  paint — the binding looked unset until the dropdown was opened.
+ *
+ *  `known` is `undefined` while the list has not been fetched and `[]` once it
+ *  has and came back empty. The distinction matters: only a loaded list can say
+ *  a binding is stale, so an unfetched one renders the value plainly rather
+ *  than accusing it of being missing.
+ */
+export function boundCollectionOption(
+  collection: string,
+  known: readonly { id: string }[] | undefined,
+): { value: string; label: string } | null {
+  if (!collection) return null;
+  if (known?.some((c) => c.id === collection)) return null;
+  return {
+    value: collection,
+    label: known ? `${collection} (not in list)` : collection,
+  };
+}
