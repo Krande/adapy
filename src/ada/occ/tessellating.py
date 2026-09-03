@@ -945,6 +945,70 @@ class BatchTessellator:
         else:
             logger.debug(msg)
 
+    def _recover_plate_curved(self, ada_obj, node_ref, graph_store):
+        """A mesh for a PlateCurved whose normal tessellation failed, or None.
+
+        Three attempts, cheapest-and-established first:
+
+        1. the flat footprint, keeping its analytic edge curves — the existing
+           behaviour, and what the overwhelming majority of these recover as;
+        2. the same footprint with those curves dropped: straight segments
+           through the same corner points. Step 1 re-uses the very arcs that
+           failed the curved build (``GC_MakeArcOfCircle`` returns no result on
+           a degenerate one), so it fails identically there — this is the first
+           attempt that is genuinely independent of the failure;
+        3. the curved geometry through the OCC-free stream kernel, which never
+           constructs an analytic arc. Last because it is far denser than a
+           flat quad: worth it to recover a plate that would otherwise vanish,
+           not worth it for one a flat fallback already renders.
+        """
+        name = getattr(ada_obj, "name", "?")
+        fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
+        last_err = None
+        if fallback_pts:
+            from ada.cadit.gxml.read.helpers import (
+                _fit_best_fit_plane,
+                _plate_from_face,
+                _project_edge_curves_onto_plane,
+                _project_onto_plane,
+            )
+
+            plane = _fit_best_fit_plane(fallback_pts)
+            pts = _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts)
+            arcs = _project_edge_curves_onto_plane(getattr(ada_obj, "_flat_fallback_edge_curves", None), plane)
+            for edge_curves, how in ((arcs, "flat fallback"), (None, "flat fallback, analytic edges dropped")):
+                try:
+                    fb = _plate_from_face(
+                        name,
+                        pts,
+                        edge_curves,
+                        getattr(ada_obj, "t", None) or 0.0,
+                        None,
+                        mat=getattr(ada_obj, "material", None),
+                        metadata=dict(props=dict(gxml_flat_fallback_for=name)),
+                        parent=getattr(ada_obj, "parent", None),
+                    )
+                    ms = self.tessellate_geom(fb.solid_geom(), ada_obj, graph_store=graph_store)
+                    logger.warning("PlateCurved %r: BSpline tessellation failed, rendered as %s", name, how)
+                    return ms
+                except Exception as err:
+                    last_err = err
+
+        try:
+            geom = ada_obj.solid_geom()
+        except Exception:
+            geom = None
+        if geom is not None:
+            try:
+                ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+            except Exception as err:
+                last_err, ms = err, None
+            if ms is not None:
+                logger.warning("PlateCurved %r: no flat fallback available; kept the curve via the stream kernel", name)
+                return ms
+        logger.error("PlateCurved %r: every fallback failed (%s); plate dropped", name, last_err)
+        return None
+
     def _tessellate_geom_via_stream(self, geom: Geometry, node_ref, force_pipeline: str = None) -> MeshStore | None:
         # ``force_pipeline`` runs the stream kernel even without the env opt-in — used as a
         # last-resort fallback for geometry kinds the interactive builder can't express.
@@ -1268,48 +1332,9 @@ class BatchTessellator:
                                 continue
                     # Empty / failed / oversize — drop to the flat-
                     # fallback path at the bottom of the loop.
-                    fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
-                    if fallback_pts:
-                        try:
-                            from ada.cadit.gxml.read.helpers import (
-                                _fit_best_fit_plane,
-                                _plate_from_face,
-                                _project_edge_curves_onto_plane,
-                                _project_onto_plane,
-                            )
-
-                            plane = _fit_best_fit_plane(fallback_pts)
-                            fb = _plate_from_face(
-                                getattr(ada_obj, "name", "fallback"),
-                                _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
-                                _project_edge_curves_onto_plane(
-                                    getattr(ada_obj, "_flat_fallback_edge_curves", None), plane
-                                ),
-                                getattr(ada_obj, "t", None) or 0.0,
-                                None,
-                                mat=getattr(ada_obj, "material", None),
-                                metadata=dict(
-                                    props=dict(
-                                        gxml_flat_fallback_for=getattr(ada_obj, "name", None),
-                                    )
-                                ),
-                                parent=getattr(ada_obj, "parent", None),
-                            )
-                            yield self.tessellate_geom(
-                                fb.solid_geom(),
-                                ada_obj,
-                                graph_store=graph_store,
-                            )
-                            logger.warning(
-                                "PlateCurved %r: BSpline tessellation failed, rendered as flat fallback",
-                                getattr(ada_obj, "name", "?"),
-                            )
-                        except Exception as fb_err:
-                            logger.error(
-                                "PlateCurved %r: flat fallback also failed (%s); plate dropped",
-                                getattr(ada_obj, "name", "?"),
-                                fb_err,
-                            )
+                    ms_fb = self._recover_plate_curved(ada_obj, node_ref, graph_store)
+                    if ms_fb is not None:
+                        yield ms_fb
                     continue
 
                 # Raw-OCC fast path: STEP/SAT-imported shapes hold a
@@ -1459,44 +1484,9 @@ class BatchTessellator:
             # behaviour where these faces fell back via
             # ``Plate.from_3d_points`` automatically because
             # advanced-face conversion failed earlier.
-            fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
-            if not fallback_pts:
-                continue
-            try:
-                from ada.cadit.gxml.read.helpers import (
-                    _fit_best_fit_plane,
-                    _plate_from_face,
-                    _project_edge_curves_onto_plane,
-                    _project_onto_plane,
-                )
-
-                plane = _fit_best_fit_plane(fallback_pts)
-                fallback = _plate_from_face(
-                    getattr(ada_obj, "name", "fallback"),
-                    _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
-                    _project_edge_curves_onto_plane(getattr(ada_obj, "_flat_fallback_edge_curves", None), plane),
-                    getattr(ada_obj, "t", None) or 0.0,
-                    None,
-                    mat=getattr(ada_obj, "material", None),
-                    metadata=dict(
-                        props=dict(
-                            gxml_flat_fallback_for=getattr(ada_obj, "name", None),
-                        )
-                    ),
-                    parent=getattr(ada_obj, "parent", None),
-                )
-                fallback_geom = fallback.solid_geom()
-                yield self.tessellate_geom(fallback_geom, ada_obj, graph_store=graph_store)
-                logger.warning(
-                    "PlateCurved %r: BSpline tessellation failed, rendered as flat fallback",
-                    getattr(ada_obj, "name", "?"),
-                )
-            except Exception as fb_err:
-                logger.error(
-                    "PlateCurved %r: flat fallback also failed (%s); plate dropped",
-                    getattr(ada_obj, "name", "?"),
-                    fb_err,
-                )
+            ms_fb = self._recover_plate_curved(ada_obj, node_ref, graph_store)
+            if ms_fb is not None:
+                yield ms_fb
 
     def batch_tessellate_solids(
         self,
