@@ -12,12 +12,29 @@ import re
 
 import pytest
 
+# Each host paired with the repo-only tree it lives in. Only a checkout carries
+# these: the conda-forge feedstock copies tests/ and files/ alone, so there is
+# no frontend tree there to check.
 HOSTS = (
-    "src/frontend/src/utils/pyodide/pyodide_worker.js",
-    "tools/pyodide-test/wasm_sweep_driver.js",
+    ("src/frontend/src/utils/pyodide/pyodide_worker.js", "src/frontend"),
+    ("tools/pyodide-test/wasm_sweep_driver.js", "tools/pyodide-test"),
 )
 
 RUNTIME_HELPER = "ensureAdapyRuntime"
+
+
+def _host_source(root_dir, host: str, tree: str) -> str:
+    """Read a host's source, or skip when this is not a repo checkout.
+
+    A missing *tree* means the suite is running against an installed package and
+    the invariant does not apply. A missing host inside a present tree is drift,
+    and must fail rather than quietly skip.
+    """
+    if not (root_dir / tree).is_dir():
+        pytest.skip(f"source-tree invariant; no {tree} at {root_dir}")
+    path = root_dir / host
+    assert path.is_file(), f"{host} is gone but {tree} is present — did the host move?"
+    return path.read_text(encoding="utf-8")
 
 
 def _function_body(source: str, name: str) -> str:
@@ -35,28 +52,27 @@ def _function_body(source: str, name: str) -> str:
     raise AssertionError(f"unbalanced braces in {name}")
 
 
-def _code_body(root_dir, host: str, name: str) -> str:
+def _code_body(root_dir, host: str, tree: str, name: str) -> str:
     """The function's body, comments stripped.
 
     Stripping matters: the comment above the call names the helper, and would
     otherwise satisfy every check below even with the call itself deleted.
     """
-    source = (root_dir / host).read_text(encoding="utf-8")
-    body = _function_body(source, name)
+    body = _function_body(_host_source(root_dir, host, tree), name)
     return re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", body, flags=re.S))
 
 
-@pytest.mark.parametrize("host", HOSTS)
-def test_adapy_runtime_helper_installs_the_wheel(root_dir, host):
-    body = _code_body(root_dir, host, RUNTIME_HELPER)
+@pytest.mark.parametrize(("host", "tree"), HOSTS, ids=[h for h, _ in HOSTS])
+def test_adapy_runtime_helper_installs_the_wheel(root_dir, host, tree):
+    body = _code_body(root_dir, host, tree, RUNTIME_HELPER)
     # ada/__init__.py is eager: trimesh + pyquaternion must precede the import.
     for required in ("ensureTrimesh", "ensurePyquaternion", "ensureAdapyWheel"):
         assert required in body, f"{host}: {RUNTIME_HELPER} does not await {required}"
 
 
-@pytest.mark.parametrize("host", HOSTS)
-def test_ensure_stacks_installs_adapy_before_any_format_branch(root_dir, host):
-    body = _code_body(root_dir, host, "ensureStacks")
+@pytest.mark.parametrize(("host", "tree"), HOSTS, ids=[h for h, _ in HOSTS])
+def test_ensure_stacks_installs_adapy_before_any_format_branch(root_dir, host, tree):
+    body = _code_body(root_dir, host, tree, "ensureStacks")
     assert RUNTIME_HELPER in body, f"{host}: ensureStacks never awaits {RUNTIME_HELPER}"
     # Nothing may branch or return ahead of the install, or a format whose stack
     # skips the CAD kernel reaches the dispatch import without `ada` again.
