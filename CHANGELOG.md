@@ -2,6 +2,16 @@
 
 
 
+## v0.61.4 (2026-09-03)
+
+### Fix
+
+* fix(rest): actually cancel an in-process plugin job (#309)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`144aa8d`](https://github.com/Krande/adapy/commit/144aa8d8398867608e52585f0ad8c908472f5585))
+
+
 ## v0.61.3 (2026-09-02)
 
 ### Fix
