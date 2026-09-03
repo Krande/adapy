@@ -24,27 +24,34 @@ const MIN_SCALE = 1e-6;
 const MAX_SCALE = 1e6;
 
 /**
- * Largest translation magnitude the field reaches, from the manifest alone.
+ * Largest translation the field reaches, from the manifest alone.
  *
- * Prefers the pre-computed `magnitude` range; falls back to the largest
- * absolute per-axis bound, which is an over-estimate of the true magnitude but
- * of the right order — and this only needs the order.
+ * NAMED AXES FIRST, not the pre-computed `magnitude`. A six-component
+ * displacement field's `magnitude` is taken over every component, rotations
+ * included — on a real deck here it reports 55.5 where the largest translation
+ * is 38.1, because radians got summed with metres. `magnitude` is still the
+ * fallback for a field that names no axes, where an over-estimate of the right
+ * order beats nothing.
+ *
+ * Taking the largest single axis rather than a true vector magnitude is a
+ * deliberate over-estimate: the peaks may be at different nodes. It is a bound
+ * on translation, and a scale only needs the order.
  */
 export function peakDisplacement(field: FeaManifestField | null | undefined): number {
     if (!field) return 0;
     const ranges = field.scalar_range ?? {};
-    const magnitude = ranges["magnitude"];
-    if (magnitude) return Math.max(Math.abs(magnitude[0]), Math.abs(magnitude[1]));
 
-    // Named axes only. A displacement field can lead with a reduction (Sesam's
-    // `ALL`), and rotation components are radians — neither belongs in a
-    // translation magnitude.
+    // A displacement field can also lead with a REDUCTION (Sesam's `ALL`), which
+    // is not an axis either — hence an explicit list rather than "every component".
     let peak = 0;
     for (const name of ["X", "Y", "Z", "UX", "UY", "UZ", "U1", "U2", "U3"]) {
         const r = ranges[name];
         if (r) peak = Math.max(peak, Math.abs(r[0]), Math.abs(r[1]));
     }
-    return peak;
+    if (peak > 0) return peak;
+
+    const magnitude = ranges["magnitude"];
+    return magnitude ? Math.max(Math.abs(magnitude[0]), Math.abs(magnitude[1])) : 0;
 }
 
 /** Round to the nearest 1/2/5 × 10^k, so the box shows a number, not noise. */

@@ -12,12 +12,21 @@ const field = (scalar_range: Record<string, [number, number]>): FeaManifestField
     }) as unknown as FeaManifestField;
 
 describe("how far the model actually moves", () => {
-    test("prefers the pre-computed magnitude range", () => {
-        assert.equal(peakDisplacement(field({magnitude: [0, 55.5], X: [-9, 9]})), 55.5);
+    test("takes the largest named axis", () => {
+        assert.equal(peakDisplacement(field({X: [-9, 4], Y: [-1, 38], Z: [0, 0.1]})), 38);
     });
 
-    test("falls back to the largest named axis", () => {
-        assert.equal(peakDisplacement(field({X: [-9, 4], Y: [-1, 38], Z: [0, 0.1]})), 38);
+    test("ignores a `magnitude` that has rotations mixed into it", () => {
+        // Real numbers from this project: `magnitude` is taken over all six
+        // components, so it reports 55.5 where the largest translation is 38.1.
+        assert.equal(
+            peakDisplacement(field({magnitude: [0, 55.5], X: [-9, 9], Y: [0, 38.1], Z: [0, 0.1]})),
+            38.1,
+        );
+    });
+
+    test("falls back to magnitude when no axis is named", () => {
+        assert.equal(peakDisplacement(field({magnitude: [0, 55.5]})), 55.5);
     });
 
     test("a reduction is not an axis", () => {
