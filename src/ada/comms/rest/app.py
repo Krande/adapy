@@ -31,7 +31,7 @@ from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
-from . import local_jobs
+from . import failure_capture, local_jobs
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -785,6 +785,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             pool = getattr(request.app.state, "db_pool", None)
         if pool is None:
             return
+        # A failed row is only reproducible while its source still exists, and a
+        # user-scope source can be deleted at any time — so preserve it now, not
+        # when someone eventually opens the row. Content-addressed and
+        # deduplicated, so a systematic failure copies each distinct input once;
+        # returns None (and never raises) when disabled or ineligible.
+        failure_key = None
+        if failure_capture.is_failure(status):
+            failure_key = await failure_capture.capture(storage, pool, db_module, scope=scope, key=key, action=action)
         try:
             await db_module.insert_audit(
                 pool,
@@ -799,6 +807,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 duration_ms=duration_ms,
                 job_id=job_id,
                 audit_run_id=audit_run_id,
+                failure_key=failure_key,
             )
         except Exception:
             logger.exception("audit insert failed (action=%s)", action)
@@ -1525,6 +1534,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except (TypeError, ValueError):
                 return None
 
+        # In-browser conversions patch their row here rather than through _audit
+        # or the worker's _audit_done, so failure capture needs its own call: this
+        # is the whole WASM pipeline, and without it every browser-side failure
+        # would still lose its source the moment the user deletes the file.
+        failure_key = None
+        if failure_capture.is_failure(status):
+            failure_key = await failure_capture.capture_for_job(storage, pool, db_module, job_id)
         try:
             await db_module.update_audit_by_job(
                 pool,
@@ -1536,6 +1552,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 peak_rss_kb=_int_or_none(body.get("peak_rss_kb")),
                 read_bytes=_int_or_none(body.get("read_bytes")),
                 write_bytes=_int_or_none(body.get("write_bytes")),
+                failure_key=failure_key,
             )
         except Exception as exc:
             logger.exception("audit/local update failed for %s", job_id)
@@ -1641,6 +1658,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 'render' action (the load-time rows use 'view').
         action = "render" if (cm and cm.get("kind") == "render") else "view"
 
+        # A load/render failure is reproducible only from the exact blob that
+        # failed: re-deriving it can yield different bytes, so unlike a
+        # conversion this captures the derived artifact itself.
+        failure_key = None
+        if failure_capture.is_failure(status):
+            failure_key = await failure_capture.capture(
+                storage, pool, db_module, scope=scope_obj, key=key, action=action
+            )
+
         try:
             await db_module.insert_audit(
                 pool,
@@ -1661,6 +1687,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 write_bytes=_int_or_none(body.get("write_bytes")),
                 peak_rss_kb=_int_or_none(body.get("peak_rss_kb")),
                 client_metrics=cm,
+                failure_key=failure_key,
             )
         except Exception:
             logger.exception("audit/view record failed")
@@ -7968,7 +7995,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             result = await storage.open_stream(scope, key)
         except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            # The original is gone — the exact case failure capture exists for.
+            # Serve the preserved copy so a row stays reproducible after the
+            # user deletes (or replaces) the file that broke.
+            failure_key = row.get("failure_key")
+            if not failure_key:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            try:
+                result = await storage.open_stream(failure_capture.failure_scope(), failure_key)
+            except FileNotFoundError:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
         filename = key.rsplit("/", 1)[-1]
         headers = {
             "Content-Disposition": f'attachment; filename="{filename}"',
