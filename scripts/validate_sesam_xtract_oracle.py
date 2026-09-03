@@ -113,6 +113,41 @@ def _actual_values(result, field_name: str):
     raise TypeError(type(first))
 
 
+def printed_half_ulp(text: str) -> float:
+    """Half the value of the last digit Xtract actually printed.
+
+    The listings are text, and Xtract does not print a fixed number of
+    significant digits: ``1.10191e+07`` carries six, ``-96.8`` carries three.
+    Comparing either against a float64 computation with one fixed relative
+    tolerance is therefore meaningless -- too tight for the short prints, too
+    loose for the long ones. A value that agrees with Xtract to every digit
+    Xtract chose to write down is not a difference, and counting it as one was
+    inflating the residual by more than an order of magnitude.
+
+    So the tolerance comes from the text: the last printed digit's place value,
+    halved. ``-96.8`` gives 0.05; ``1.10191e+07`` gives 50. Returns 0.0 when the
+    text carries no decimal information to bound, leaving the caller's own
+    rtol/atol to decide.
+    """
+
+    body = text.strip()
+    if not body:
+        return 0.0
+    exponent = 0
+    for marker in ("e", "E"):
+        if marker in body:
+            body, _, exp_text = body.partition(marker)
+            try:
+                exponent = int(exp_text)
+            except ValueError:
+                return 0.0
+            break
+    _, _, fraction = body.partition(".")
+    # Digits after the point shift the last place right; the exponent shifts it
+    # back left. A value printed with no point ("657") is bounded at its ones
+    # digit, which is what a zero fraction length gives.
+    return 0.5 * 10.0 ** (exponent - len(fraction))
+
 def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float):
     actual = _actual_values(result, _field_name(listing.path))
     entity_column = 4
@@ -136,7 +171,9 @@ def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float
             expected = float(expected_text)
             checked += 1
             error = abs(got - expected)
-            limit = atol + rtol * abs(expected)
+            # The printed precision is the floor: agreeing to every digit Xtract
+            # wrote down is agreement, whatever the caller asked for.
+            limit = max(atol + rtol * abs(expected), printed_half_ulp(expected_text))
             if not math.isfinite(got) or error > limit:
                 mismatches.append((entity, component, slot, expected, got, error))
 
