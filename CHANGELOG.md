@@ -2,6 +2,15 @@
 
 
 
+## v0.61.6 (2026-09-03)
+
+### Fix
+
+* fix: a lost connection must not leave a process permanently broken (#318)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`06bf6cb`](https://github.com/Krande/adapy/commit/06bf6cb39664511b647818c7f92a4a9d0ef646b8))
+
+
 ## v0.61.5 (2026-09-03)
 
 ### Chore
