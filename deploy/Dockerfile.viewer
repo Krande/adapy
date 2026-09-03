@@ -154,6 +154,21 @@ COPY src/ada/cad/ /app/src/ada/cad/
 # rather than stubbed the way ada.sections has to be.
 COPY src/ada/core/__init__.py /app/src/ada/core/__init__.py
 COPY src/ada/core/file_system.py /app/src/ada/core/file_system.py
+# ada.plugins — the backend-plugin registry. Unlike the two above its absence does not crashloop
+# anything: the API imports it defensively and logs "ada.plugins discovery failed (non-fatal)". But
+# it logged that with a traceback on EVERY boot, for a module that was never shipped rather than one
+# that broke — so the loudest recurring line in the API's log described a deliberate omission.
+#
+# It also left a real gap. _locally_registered_spec (see app.py) resolves the plugin-job admin
+# declaration for a single-node viewer that preloads a plugin INTO the API, where no worker
+# advertises it and the registry is the only source there is. Without this module that source can
+# never answer, so the gate silently ran on fewer inputs than it was written for.
+#
+# Safe to ship, on the same test ada/cad passes above: ada/plugins/__init__.py and the whole
+# external_models subtree are stdlib-only (logging, typing, dataclasses, os, datetime,
+# importlib.metadata) — nothing numpy- or OCC-bound. With no plugin distribution installed in the
+# slim env, discovery correctly finds no entry points and registers nothing.
+COPY src/ada/plugins/ /app/src/ada/plugins/
 # pyproject.toml is the single source of truth for the version. The viewer copies adapy source
 # (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
 # the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).
