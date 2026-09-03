@@ -73,6 +73,29 @@ def stream_tess_defaults() -> tuple[float, float]:
     return defl, ang
 
 
+def stream_tess_fallback_angular() -> float:
+    """Angular density (deg) for the stream kernel when it is RESCUING geometry.
+
+    A plate recovered this way was about to be dropped, so a coarser mesh is a
+    fine trade — but the default is the ordinary angular value, so this changes
+    nothing until an operator sets ``ADA_STREAM_TESS_FALLBACK_ANGULAR``.
+
+    Note what this can and cannot do. libtess2 ignores the LINEAR deflection
+    entirely (identical output at 2.0 m and 0.05 m), so angle is the only lever
+    adapy has. And it only refines ABOVE a floor set by the surface's own
+    parameterisation: on simple faces 10 deg -> 30 deg roughly halves the
+    triangles, while on a trimmed spline whose knot structure already forces a
+    dense grid the same change moves it by a few percent. Capping the cost of a
+    pathological model therefore needs a grid/decimation limit in the kernel,
+    which is not exposed here.
+    """
+    _, ang = stream_tess_defaults()
+    try:
+        return float(os.environ.get("ADA_STREAM_TESS_FALLBACK_ANGULAR", "") or ang)
+    except ValueError:
+        return ang
+
+
 def stream_tess_adaptive(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> bool:
     """Whether adaptive per-surface angular density is enabled (env override else ``default``).
 
