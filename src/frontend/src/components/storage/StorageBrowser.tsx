@@ -1,5 +1,6 @@
 import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useMemo, useRef, useState} from "react";
+import {localDate} from "@/utils/time";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
@@ -227,7 +228,7 @@ function formatRelative(iso: string): string {
     if (dt < 3600) return `${Math.round(dt / 60)} min ago`;
     if (dt < 86400) return `${Math.round(dt / 3600)} h ago`;
     if (dt < 7 * 86400) return `${Math.round(dt / 86400)} d ago`;
-    return new Date(t).toISOString().slice(0, 10);
+    return localDate(t);
 }
 
 const StorageBrowser: React.FC = () => {

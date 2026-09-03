@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 
 import {useAuditFilterStore} from "@/state/auditFilterStore";
+import {localDateTime} from "@/utils/time";
 import {
     ApiError,
     AuditEntry,
@@ -1498,17 +1499,11 @@ function userTooltip(e: AuditEntry): string {
 }
 
 function formatTs(ts: string | null): string {
-    // Render in the browser's local timezone. ``sv-SE`` gives the
-    // ISO-shaped "YYYY-MM-DD HH:MM:SS" output that matches what the
-    // raw-ISO version used to look like, but with the values
-    // shifted to local time (the previous version sliced the raw
-    // UTC string verbatim and the table read 2h behind for any
-    // viewer in CEST).
-    if (!ts) return "";
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return ts;
-    return d.toLocaleString("sv-SE");
+    // Local time, not the raw UTC string: an earlier version sliced the wire
+    // value verbatim and the table read hours behind for any viewer east of UTC.
+    return localDateTime(ts);
 }
+
 
 // Per-row badge for the issue-bot's sync status on failed user
 // conversions (M5b). Only renders on rows the bot is actually

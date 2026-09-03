@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo} from "react";
 import {ServerFileEntry} from "@/state/serverInfoStore";
+import {localDate} from "@/utils/time";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 
 // Modal-style panel showing CI uploads as a chronological commit
@@ -57,7 +58,7 @@ function relTime(iso: string): string {
     if (dt < 3600) return `${Math.round(dt / 60)} min ago`;
     if (dt < 86400) return `${Math.round(dt / 3600)} h ago`;
     if (dt < 7 * 86400) return `${Math.round(dt / 86400)} d ago`;
-    return new Date(t).toISOString().slice(0, 10);
+    return localDate(t);
 }
 
 // Deterministic branch → Tailwind chip palette. Same branch always
