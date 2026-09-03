@@ -1000,7 +1000,11 @@ class BatchTessellator:
             geom = None
         if geom is not None:
             try:
-                ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+                from ada.cad.registry import stream_tess_fallback_angular
+
+                ms = self._tessellate_geom_via_stream(
+                    geom, node_ref, force_pipeline="libtess2", angular_deg=stream_tess_fallback_angular()
+                )
             except Exception as err:
                 last_err, ms = err, None
             if ms is not None:
@@ -1009,7 +1013,9 @@ class BatchTessellator:
         logger.error("PlateCurved %r: every fallback failed (%s); plate dropped", name, last_err)
         return None
 
-    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref, force_pipeline: str = None) -> MeshStore | None:
+    def _tessellate_geom_via_stream(
+        self, geom: Geometry, node_ref, force_pipeline: str = None, angular_deg: float | None = None
+    ) -> MeshStore | None:
         # ``force_pipeline`` runs the stream kernel even without the env opt-in — used as a
         # last-resort fallback for geometry kinds the interactive builder can't express.
         pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE") or force_pipeline
@@ -1031,6 +1037,8 @@ class BatchTessellator:
         from ada.cad.registry import stream_tess_defaults, stream_tess_model_scale
 
         defl, ang = stream_tess_defaults()
+        if angular_deg is not None:
+            ang = angular_deg
         try:
             bm = be.tessellate_stream(
                 [(str(node_ref), geom)],

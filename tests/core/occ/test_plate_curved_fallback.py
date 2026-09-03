@@ -88,7 +88,9 @@ def test_the_stream_kernel_catches_a_plate_with_no_flat_footprint(monkeypatch, l
     """No footprint to flatten onto: keep the curve via the OCC-free kernel."""
     _install_plate_from_face(monkeypatch, ladder, fail_when=lambda c: True)
     monkeypatch.setattr(
-        BatchTessellator, "_tessellate_geom_via_stream", lambda self, geom, ref, force_pipeline=None: "STREAM"
+        BatchTessellator,
+        "_tessellate_geom_via_stream",
+        lambda self, geom, ref, force_pipeline=None, angular_deg=None: "STREAM",
     )
     out = BatchTessellator()._recover_plate_curved(FakePlate(pts=None, solid="SOLID"), "n0", None)
     assert out == "STREAM"
@@ -98,7 +100,9 @@ def test_the_stream_kernel_catches_a_plate_with_no_flat_footprint(monkeypatch, l
 def test_a_plate_is_dropped_only_when_every_rung_fails(monkeypatch, ladder):
     _install_plate_from_face(monkeypatch, ladder, fail_when=lambda c: True)
     monkeypatch.setattr(
-        BatchTessellator, "_tessellate_geom_via_stream", lambda self, geom, ref, force_pipeline=None: None
+        BatchTessellator,
+        "_tessellate_geom_via_stream",
+        lambda self, geom, ref, force_pipeline=None, angular_deg=None: None,
     )
     assert BatchTessellator()._recover_plate_curved(FakePlate(solid="SOLID"), "n0", None) is None
     assert ladder == ["ARCS", None], "both flat attempts must be made before giving up"
