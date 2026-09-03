@@ -293,15 +293,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Update groups regardless (to maintain hidden/selected visibility and non-vertex-colored behavior)
         this.updateGroups();
 
-        // FEA line elements have no triangles, so they own no draw range and
-        // nothing above highlights them. When a result field has installed a
-        // line renderer it leaves a callback here to highlight its own
-        // segments -- a generic hook, so this class stays unaware of FEA.
-        const lineSelection = this.userData?.__feaLineSelection as
-            | ((ids: readonly string[]) => void)
-            | undefined;
-        if (lineSelection) lineSelection(rangeIds);
-
         // Edge overlay highlight. Selection is dispatched to EVERY
         // CustomBatchedMesh in the model, but each mesh's rangeIdToIndex only
         // covers the objects in its own buffer. Highlight the first selected id

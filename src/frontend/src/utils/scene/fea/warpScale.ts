@@ -16,8 +16,22 @@ import type {FeaManifestField} from "@/services/viewerApi";
 // deformation is a fixed fraction of the model, and letting the user override
 // it. This is that derivation.
 
-/** Peak deformation as a fraction of the model's diagonal. */
-const TARGET_FRACTION = 0.1;
+// A CLAMP, not a normalisation. Scaling every model so its peak deformation is
+// a fixed fraction of its size sounds tidy and is not: on a deck where 39 mast
+// nodes reach 32 m while the other 2,880 average 0.32 m, it divides everything
+// by the outlier and the bulk of the model stops visibly deforming at all --
+// which reads as the warp having broken. A quantile instead of a maximum only
+// moves the arbitrariness into the choice of quantile.
+//
+// So: leave the scale alone unless the deformation is unusable, and say what
+// unusable means. Too big to keep on screen, or too small to see.
+
+/** Above this multiple of the model, bring the peak back down to it. */
+const TOO_LARGE = 0.5;
+/** Below this multiple of the model, bring the peak up to VISIBLE. */
+const TOO_SMALL = 0.005;
+/** Where an invisibly small deformation is brought to. */
+const VISIBLE = 0.05;
 
 /** Beyond these the number stops being useful and starts being noise. */
 const MIN_SCALE = 1e-6;
@@ -65,13 +79,13 @@ function nice(value: number): number {
 }
 
 /**
- * A scale that makes the peak deformation `TARGET_FRACTION` of `modelSize`.
+ * A scale that keeps the deformation usable, or 1 when it already is.
  *
- * `modelSize` is the model's bounding-box diagonal. Returns 1 — identity, the
- * old behaviour — whenever there is nothing to go on: no field, no
- * displacement, or a degenerate model. That matters because a wrong guess here
- * is worse than no guess: the user would have to discover the number they had
- * before in order to get back to it.
+ * `modelSize` is the model's bounding-box diagonal. Returns 1 -- identity, the
+ * previous behaviour -- for anything in the wide middle, and for any input
+ * there is nothing to go on in. That matters because a wrong guess here is
+ * worse than no guess: the user would have to discover the number they had in
+ * order to get back to it.
  */
 export function autoWarpScale(
     field: FeaManifestField | null | undefined,
@@ -79,6 +93,15 @@ export function autoWarpScale(
 ): number {
     const peak = peakDisplacement(field);
     if (!(peak > 0) || !(modelSize > 0) || !isFinite(peak) || !isFinite(modelSize)) return 1;
-    const raw = (TARGET_FRACTION * modelSize) / peak;
-    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, nice(raw)));
+
+    if (peak > TOO_LARGE * modelSize) {
+        return clamp(nice((TOO_LARGE * modelSize) / peak));
+    }
+    if (peak < TOO_SMALL * modelSize) {
+        return clamp(nice((VISIBLE * modelSize) / peak));
+    }
+    return 1;
 }
+
+const clamp = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+

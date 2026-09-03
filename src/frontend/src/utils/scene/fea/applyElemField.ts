@@ -335,10 +335,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const linePositions: number[] = [];
     const lineColors: number[] = [];
     const lineSourceIndices: number[] = [];
-    // One range id per SEGMENT (two vertices), so a selection can find its own
-    // line again. Without it a selected beam is invisible whenever beam solids
-    // are off -- the solids mesh is the only thing that carries the highlight.
-    const lineRangeIds: string[] = [];
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -408,8 +404,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                         lineSourceIndices.splice(-1, 1);
                         linePositions.splice(-3, 3);
                         lineColors.splice(-3, 3);
-                    } else if (lineSourceIndices.length / 2 > lineRangeIds.length) {
-                        lineRangeIds.push(`E${label}`);
                     }
                 }
             }
@@ -615,19 +609,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         new Float32Array(linePositions),
         new Float32Array(lineColors),
         lineDisplacement,
-        lineRangeIds,
     );
-    // Re-apply whatever was selected before this re-paint: applying a field
-    // rebuilds the lines from scratch, and a selection made beforehand would
-    // otherwise vanish on the next step or component change.
-    const restoreSelection = mesh.userData.__feaLineSelection as
-        | ((ids: readonly string[]) => void)
-        | undefined;
-    if (restoreSelection) {
-        const owner = mesh as unknown as {selectedRanges?: Set<string>};
-        const current = Array.from(owner.selectedRanges ?? []);
-        if (current.length) restoreSelection(current);
-    }
     geometry.morphAttributes.position = [
         new THREE.BufferAttribute(displacement, 3),
     ];

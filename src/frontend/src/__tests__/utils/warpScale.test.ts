@@ -45,39 +45,42 @@ describe("how far the model actually moves", () => {
     });
 });
 
-describe("choosing a scale the deformation can be seen at", () => {
+describe("clamping a deformation that is unusable", () => {
     test("shrinks a displacement larger than the model", () => {
-        // The real case: 32 m of peak displacement on a ~20 m model. At scale 1
-        // the beams fly off screen.
-        const s = autoWarpScale(field({magnitude: [0, 32]}), 20);
-        assert.ok(s < 1, `expected a reduction, got ${s}`);
-        assert.ok(32 * s < 20, "peak deformation should stay well inside the model");
+        // 32 m of peak displacement on a ~20 m model. At scale 1 the mast
+        // leaves the screen.
+        const s = autoWarpScale(field({X: [0, 32]}), 20);
+        assert.ok(s < 1, `expected a reduction, got `);
+        assert.ok(32 * s <= 20, "the deformed shape should stay within the model");
     });
 
     test("amplifies a displacement far smaller than the model", () => {
-        // The other real case: sub-millimetre on a 100 m structure.
-        const s = autoWarpScale(field({magnitude: [0, 0.0005]}), 100);
-        assert.ok(s > 1, `expected amplification, got ${s}`);
+        // Sub-millimetre on a 100 m structure: nothing visibly moves.
+        const s = autoWarpScale(field({X: [0, 0.0005]}), 100);
+        assert.ok(s > 1, `expected amplification, got `);
         assert.ok(0.0005 * s > 1, "the deformed shape should be visible");
     });
 
+    test("LEAVES ALONE anything in the wide middle", () => {
+        // This is the point of a clamp rather than a normalisation: a model
+        // whose deformation is already readable keeps the scale the user
+        // expects, and 1 keeps meaning 1.
+        assert.equal(autoWarpScale(field({X: [0, 2]}), 20), 1);
+        assert.equal(autoWarpScale(field({X: [0, 0.2]}), 20), 1);
+        assert.equal(autoWarpScale(field({X: [0, 9]}), 20), 1);
+    });
+
     test("lands on a readable number, not a full-precision one", () => {
-        const s = autoWarpScale(field({magnitude: [0, 3.7]}), 41);
+        const s = autoWarpScale(field({X: [0, 3700]}), 41);
         const mantissa = s / Math.pow(10, Math.floor(Math.log10(s)));
-        assert.ok([1, 2, 5, 10].includes(Number(mantissa.toFixed(6))), `got ${s}`);
+        assert.ok([1, 2, 5, 10].includes(Number(mantissa.toFixed(6))), `got `);
     });
 
     test("identity when there is nothing to go on", () => {
-        // A wrong guess is worse than none: the user would have to discover the
-        // number they had in order to get back to it.
         assert.equal(autoWarpScale(null, 20), 1);
-        assert.equal(autoWarpScale(field({magnitude: [0, 0]}), 20), 1);
-        assert.equal(autoWarpScale(field({magnitude: [0, 5]}), 0), 1);
-        assert.equal(autoWarpScale(field({magnitude: [0, NaN]}), 20), 1);
-    });
-
-    test("a model already at a sensible ratio is left near identity", () => {
-        // 2 m on a 20 m model is 10% — exactly the target, so scale 1.
-        assert.equal(autoWarpScale(field({magnitude: [0, 2]}), 20), 1);
+        assert.equal(autoWarpScale(field({X: [0, 0]}), 20), 1);
+        assert.equal(autoWarpScale(field({X: [0, 5]}), 0), 1);
+        assert.equal(autoWarpScale(field({X: [0, NaN]}), 20), 1);
     });
 });
+
