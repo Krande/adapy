@@ -586,6 +586,30 @@ def test_sin_registered_in_stream_readers():
         reader.close()
 
 
+def test_viewer_adapter_hides_only_superseded_raw_sesam_fields():
+    """The result API keeps source cards, while the viewer exposes one hierarchy.
+
+    A supported SIN used to advertise RVNODDIS/STRESS alongside their canonical
+    Xtract replacements.  Filtering at the adapter boundary avoids duplicate UI
+    entries without removing raw fallback data from the eager reader.
+    """
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    from ada.fem.results.artefacts import FEAResultStreamAdapter
+
+    result = read_sin_file(SIN_PATH)
+    raw_names = {field.name for field in result.results}
+    assert {"RVNODDIS", "STRESS"} <= raw_names
+
+    adapter = FEAResultStreamAdapter(result)
+    nodal_names = {spec.name for spec in adapter.field_specs()}
+    element_names = {spec.name for spec in adapter.element_field_specs()}
+
+    assert "RVNODDIS" not in nodal_names
+    assert "STRESS" not in element_names
+    assert any(spec.presentation is not None for spec in adapter.field_specs())
+    assert any(spec.presentation is not None for spec in adapter.element_field_specs())
+
+
 def test_result_case_names_from_the_deck(sin_file):
     """The deck's own name for each result case, keyed by case number.
 

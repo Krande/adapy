@@ -1418,6 +1418,38 @@ def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
 
 
+def test_bake_can_disable_beam_solid_tessellation(fem_files, tmp_path, monkeypatch):
+    """The opt-out must bypass the reader entirely, not merely discard its output.
+
+    Beam-solid generation enters native geometry code for SIF/SIN sources, so a
+    caller needs to be able to avoid that call in constrained bake environments.
+    """
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    with make_stream_reader(sif) as reader:
+        called = False
+
+        def unexpected_beam_tessellation():
+            nonlocal called
+            called = True
+            raise AssertionError("try_solid_beams must not be called")
+
+        monkeypatch.setattr(reader, "try_solid_beams", unexpected_beam_tessellation)
+        bake = bake_artefacts(
+            reader,
+            tmp_path / "out",
+            src=sif.stem,
+            include_beam_solids=False,
+        )
+
+    assert not called
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert "beam_solids_url" not in manifest["mesh"]
+
+
 def test_bake_skips_beam_solid_mesh_for_rmed(fem_files, tmp_path):
     """RMED native streaming has no section info — try_solid_beams
     returns None and the bake omits the beam-solid artefacts."""

@@ -756,6 +756,46 @@ class FEAResultStreamAdapter:
     def try_result_cases(self) -> list[dict] | None:
         return self._result_cases
 
+    def _sesam_superseded_raw_fields(self) -> set[tuple[str, object | None]]:
+        """Raw Sesam fields replaced by semantic Xtract fields in this result.
+
+        The eager result intentionally retains its source-card fields for API
+        compatibility and diagnostics.  They should not also be advertised by
+        the viewer bake when a semantic field covers the same support, because
+        that creates duplicate flat entries beside the Xtract hierarchy.
+
+        The element type is part of the key so an unsupported shell/beam layout
+        keeps its raw fallback even when another type in the same result was
+        converted successfully.
+        """
+
+        software = getattr(self._result, "software", "")
+        if getattr(software, "value", software) != "sesam":
+            return set()
+
+        results = self._result.results
+        hidden: set[tuple[str, object | None]] = set()
+        if any(
+            getattr(getattr(field, "presentation", None), "group_path", ())
+            == ("Nodes", "DISPLACEMENT")
+            for field in results
+        ):
+            hidden.add(("RVNODDIS", None))
+
+        replacements = {
+            "STRESS": {"G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS"},
+            "FORCES": {"G-FORCE", "B-STRESS"},
+        }
+        for raw_name, attributes in replacements.items():
+            covered_types = {
+                getattr(field, "elem_type", None)
+                for field in results
+                if getattr(getattr(field, "presentation", None), "group_path", ())[-1:]
+                and field.presentation.group_path[-1] in attributes
+            }
+            hidden.update((raw_name, elem_type) for elem_type in covered_types)
+        return hidden
+
     # ----- protocol -------------------------------------------------------
 
     def read_mesh_geometry(self) -> MeshGeometry:
@@ -821,6 +861,7 @@ class FEAResultStreamAdapter:
         n_points = int(self._result.mesh.nodes.coords.shape[0])
         specs: list[FieldSpec] = []
 
+        hidden_raw = self._sesam_superseded_raw_fields()
         for name, results in self._result.get_results_grouped_by_field_value().items():
             if not results:
                 continue
@@ -832,6 +873,8 @@ class FEAResultStreamAdapter:
                 # element_field_specs()/iter_element_field_steps(). Advertising
                 # them here as AFBL fields duplicates picker entries and makes
                 # callers think iter_field_steps can emit Gauss data.
+                continue
+            if (name, None) in hidden_raw:
                 continue
             support = "nodal"
 
@@ -897,6 +940,7 @@ class FEAResultStreamAdapter:
             return cached
 
         grouped: dict[tuple[str, str], list] = defaultdict(list)
+        hidden_raw = self._sesam_superseded_raw_fields()
         for r in self._result.results:
             if not isinstance(r, ElementFieldData):
                 continue
@@ -904,6 +948,8 @@ class FEAResultStreamAdapter:
                 continue
             elem_type_str = ada_to_str_type.get(r.elem_type)
             if elem_type_str is None:
+                continue
+            if (r.name, r.elem_type) in hidden_raw:
                 continue
             grouped[(r.name, elem_type_str)].append(r)
 
@@ -2436,6 +2482,7 @@ def bake_fea_artefacts_from_source(
     src_key: str = "",
     source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -2452,6 +2499,7 @@ def bake_fea_artefacts_from_source(
             src=src,
             source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 
@@ -2472,6 +2520,7 @@ def bake_artefacts(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -2487,6 +2536,11 @@ def bake_artefacts(
     ``iter_field_steps`` callers still drop non-nodal specs (the
     nodal blob writer can't handle them). Element fields flow
     through the new ``iter_element_field_steps`` path instead.
+
+    Set ``include_beam_solids=False`` to skip section-profile
+    tessellation while retaining the line mesh and its result fields.
+    This is useful for lightweight or headless bakes, and for native
+    geometry environments where beam-solid generation is unavailable.
 
     ``on_artefact``: optional sink invoked with each artefact file's
     path *immediately after it is fully written* (the manifest last).
@@ -2544,10 +2598,12 @@ def bake_artefacts(
     beam_solids_glb_path: pathlib.Path | None = None
     beam_solids_elements_path: pathlib.Path | None = None
     n_beam_solids = 0
-    try:
-        solid_beams = reader.try_solid_beams()
-    except (AttributeError, NotImplementedError):
-        solid_beams = None
+    solid_beams = None
+    if include_beam_solids:
+        try:
+            solid_beams = reader.try_solid_beams()
+        except (AttributeError, NotImplementedError):
+            pass
     beam_solids_warp_path: pathlib.Path | None = None
     beam_solids_edges_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
@@ -2765,6 +2821,7 @@ def bake_with_posters(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """Bake the artefact bundle AND render per-mode static PNG posters.
 
@@ -2816,6 +2873,7 @@ def bake_with_posters(
         legacy_glb_url_template=legacy_glb_url_template,
         nodal_only=nodal_only,
         include_element_fields=include_element_fields,
+        include_beam_solids=include_beam_solids,
     )
 
     if modes is None:
@@ -2888,6 +2946,7 @@ def bake_with_posters_from_source(
     modes: "str | int | Iterable[int] | None" = "all",
     poster_backend: Literal["pygfx", "chromium"] = "pygfx",
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """End-to-end bake + per-mode posters from a result file path.
 
@@ -2908,6 +2967,7 @@ def bake_with_posters_from_source(
             modes=modes,
             poster_backend=poster_backend,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 
