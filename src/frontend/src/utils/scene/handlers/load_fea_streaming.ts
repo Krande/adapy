@@ -28,6 +28,7 @@ import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
 import {selectedResultRange} from "../fea/resultUnits";
+import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
@@ -455,6 +456,11 @@ function installBeamSolidWarp(
 
     if (warpField && warpStepValues) {
         const nc = warpField.components.length;
+        // WHICH slots hold the translation. A Sesam displacement field is
+        // ["ALL","X","Y","Z","RX","RY","RZ"] -- reading slots 0..2 warps every
+        // vertex by (ALL, X, Y), and since `ALL` is a non-negative aggregate the
+        // beams visibly fly off. See translationOffsets.
+        const axes = translationOffsets(warpField);
         const n0 = warp.node0;
         const n1 = warp.node1;
         const ts = warp.t;
@@ -463,15 +469,12 @@ function installBeamSolidWarp(
             const a = n0[v] * nc;
             const b = n1[v] * nc;
             const out = v * 3;
-            // Pre-fetch up to first 3 components per endpoint; treat
-            // missing components as zero (1D / 2D displacement fields
-            // shouldn't appear today, but defensive).
-            const ax = warpStepValues[a] || 0;
-            const ay = nc >= 2 ? warpStepValues[a + 1] || 0 : 0;
-            const az = nc >= 3 ? warpStepValues[a + 2] || 0 : 0;
-            const bx = warpStepValues[b] || 0;
-            const by = nc >= 2 ? warpStepValues[b + 1] || 0 : 0;
-            const bz = nc >= 3 ? warpStepValues[b + 2] || 0 : 0;
+            const ax = warpValue(warpStepValues, a, axes[0]);
+            const ay = warpValue(warpStepValues, a, axes[1]);
+            const az = warpValue(warpStepValues, a, axes[2]);
+            const bx = warpValue(warpStepValues, b, axes[0]);
+            const by = warpValue(warpStepValues, b, axes[1]);
+            const bz = warpValue(warpStepValues, b, axes[2]);
             const omt = 1 - t;
             displacement[out + 0] = omt * ax + t * bx;
             displacement[out + 1] = omt * ay + t * by;

@@ -43,6 +43,7 @@ import {
 } from "./elementLocalGeometry";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
+import {translationOffsets, warpValue} from "./warpComponents";
 
 type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
 type SourceWeight = [sourceVertex: number, weight: number];
@@ -567,12 +568,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                 `${n_points * warpComponents})`,
             );
         }
+        // Not slots 0..2: a Sesam displacement field leads with `ALL`, a
+        // reduction, not an axis. See translationOffsets.
+        const axes = translationOffsets(warpField);
         for (let v = 0; v < n_points; v++) {
             const wb = v * warpComponents;
             const pb = v * 3;
-            sourceDisplacement[pb + 0] = warpStepValues[wb] || 0;
-            sourceDisplacement[pb + 1] = warpComponents >= 2 ? warpStepValues[wb + 1] || 0 : 0;
-            sourceDisplacement[pb + 2] = warpComponents >= 3 ? warpStepValues[wb + 2] || 0 : 0;
+            sourceDisplacement[pb + 0] = warpValue(warpStepValues, wb, axes[0]);
+            sourceDisplacement[pb + 1] = warpValue(warpStepValues, wb, axes[1]);
+            sourceDisplacement[pb + 2] = warpValue(warpStepValues, wb, axes[2]);
         }
     }
     const displacement = expandSourceTriples(sourceDisplacement, renderToSource);

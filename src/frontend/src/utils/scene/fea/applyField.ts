@@ -21,6 +21,7 @@ import {getColormap} from "./colormaps";
 import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
 import {clearResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments} from "./resultLineSegments";
+import {translationOffsets, warpValue} from "./warpComponents";
 
 export interface ApplyFieldArgs {
     /** The mesh whose geometry we deform. We need the mesh (not just
@@ -120,8 +121,12 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // (the user picked displacement), this still works — the loop
     // reads two component slices from the same backing array.
     let warpComponents = 0;
+    // Which slots inside one point's record are the translation. NOT always the
+    // first three -- see translationOffsets.
+    let warpAxes: [number, number, number] = [0, 1, 2];
     if (warpField && warpStepValues) {
         warpComponents = warpField.components.length;
+        warpAxes = translationOffsets(warpField);
         if (warpStepValues.length !== n_points * warpComponents) {
             throw new Error(
                 `applyFieldToMesh: warpStepValues length ${warpStepValues.length} doesn't match ` +
@@ -152,9 +157,9 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
 
         if (warpComponents > 0 && warpStepValues) {
             const warpStride = v * warpComponents;
-            sourceDisplacement[base + 0] = warpStepValues[warpStride] || 0;
-            sourceDisplacement[base + 1] = warpComponents >= 2 ? warpStepValues[warpStride + 1] || 0 : 0;
-            sourceDisplacement[base + 2] = warpComponents >= 3 ? warpStepValues[warpStride + 2] || 0 : 0;
+            sourceDisplacement[base + 0] = warpValue(warpStepValues, warpStride, warpAxes[0]);
+            sourceDisplacement[base + 1] = warpValue(warpStepValues, warpStride, warpAxes[1]);
+            sourceDisplacement[base + 2] = warpValue(warpStepValues, warpStride, warpAxes[2]);
         }
         // else: displacement[base..base+2] left at 0 from Float32Array
         //       initialisation, so morph delta is identity.
