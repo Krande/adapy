@@ -1137,7 +1137,12 @@ export async function load_fea_streaming(args: {
         // user has not set a scale of their own.
         {
             const geom = active.mesh.geometry;
-            if (!geom.boundingBox) geom.computeBoundingBox();
+            // Recompute rather than trust a cached box: a stale one from an
+            // earlier state made the derived scale wobble between field
+            // switches, and a number that changes on its own is worse than a
+            // number that is slightly off. Base positions do not change, so
+            // this is the same answer every time.
+            geom.computeBoundingBox();
             const size = geom.boundingBox
                 ? geom.boundingBox.min.distanceTo(geom.boundingBox.max)
                 : 0;
