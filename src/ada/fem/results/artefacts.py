@@ -852,6 +852,28 @@ class FEAResultStreamAdapter:
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
 
+    def _named_case_analysis_kind(self) -> str | None:
+        """``"static"`` when the deck defines load-case combinations.
+
+        ``_infer_analysis_kind`` reads ``step_values`` as a physical quantity —
+        eigen frequencies or times — and calls a run "eigen" when they are
+        positive and ascending. For a Sesam deck those values are result-case
+        NUMBERS (1, 2, 3 …), which are positive and ascending by definition, so
+        every nodal field on a ten-load-case deck came out as a mode shape.
+
+        Element fields never showed it because their branch defaults an unknown
+        kind to "static" rather than guessing, which is why the two halves of
+        one manifest disagreed with each other.
+
+        The conclusive evidence is a real-valued ``RDRESCMB`` COMBINATION: a
+        recipe that superposes load cases at factors. A modal analysis has no
+        such thing. Named cases alone are not evidence -- a SESTRA eigen run
+        labels its modes too, and treating those as static would break the
+        signed deformation sweep a mode shape needs. Returns ``None`` without
+        that evidence, leaving the heuristic to decide as before.
+        """
+        return analysis_kind_from_result_cases(self._result_cases)
+
     def field_specs(self) -> list[FieldSpec]:
         if self._field_specs is not None:
             return self._field_specs
@@ -896,6 +918,7 @@ class FEAResultStreamAdapter:
                     step_values=step_values,
                     category=_classify_field(name, first),
                     presentation=getattr(first, "presentation", None),
+                    analysis_kind=self._named_case_analysis_kind(),
                 )
             )
 
@@ -1814,6 +1837,18 @@ def _presentation_payload(presentation: FieldPresentation | None) -> dict:
         "unit": presentation.unit,
         "component_units": list(presentation.component_units),
     }
+
+
+def analysis_kind_from_result_cases(cases) -> str | None:
+    """``"static"`` when a deck defines load-case combinations, else ``None``.
+
+    Split out from the adapter so the decision can be tested without building a
+    whole ``FEAResult``. See ``_named_case_analysis_kind`` for why it matters.
+    """
+    for case in cases or ():
+        if isinstance(case, dict) and case.get("combination"):
+            return "static"
+    return None
 
 
 def _infer_analysis_kind(spec: FieldSpec) -> str:

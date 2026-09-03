@@ -65,8 +65,12 @@ const ColorLegend = () => {
     const surface = selectableSurface ? layer : field?.surface;
     const hasExactMarkers = field?.support === "result_point" || field?.support === "line_result_point";
 
+    // Panel tokens, not literal black-on-white. The legend floats over the scene
+    // inside a themed shell, and a hard black slab reads as a foreign object
+    // against it -- the capacity plugin's own scale beside it already used these,
+    // so the two disagreed with each other.
     return (
-        <div className="w-56 rounded bg-black/75 p-2 text-[11px] leading-tight text-white shadow-lg">
+        <div className="w-56 select-none rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-surface-0)]/85 p-2 text-[11px] leading-tight text-[var(--ada-panel-text)] shadow-lg backdrop-blur-sm">
             {sessionActive && field && (
                 <div className="mb-2 space-y-0.5 break-words">
                     <div className="font-semibold">{path}</div>
