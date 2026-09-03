@@ -29,6 +29,7 @@ import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
+import {autoWarpScale} from "../fea/warpScale";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
@@ -1131,6 +1132,19 @@ export async function load_fea_streaming(args: {
         animStore.setFactor(displacementScale);
         animStore.setStepIndex(stepIndex);
         animStore.setNSteps(field.n_steps);
+        // A deformation scale the model can be seen at. Derived from the
+        // displacement field and the model size, and only ever applied while the
+        // user has not set a scale of their own.
+        {
+            const geom = active.mesh.geometry;
+            if (!geom.boundingBox) geom.computeBoundingBox();
+            const size = geom.boundingBox
+                ? geom.boundingBox.min.distanceTo(geom.boundingBox.max)
+                : 0;
+            animStore.applyAutoScaleFactor(
+                autoWarpScale(findDisplacementField(manifest), size),
+            );
+        }
         animStore.setFieldName(fieldName);
         if (reduction != null) animStore.setReduction(reduction);
         animStore.setColormap(colormap);

@@ -100,6 +100,13 @@ export interface FeaAnimationState {
      *  changing the underlying field values. */
     scaleFactor: number;
 
+    /** Whether `scaleFactor` is still the loader's automatic choice.
+     *  Cleared the moment the user types a scale of their own, after which the
+     *  loader stops touching it -- an explicit number the viewer silently
+     *  overwrites on the next model is worse than no automation at all.
+     *  Kept across ``reset()`` like the other per-user preferences. */
+    scaleFactorAuto: boolean;
+
     /** Layer filter for element fields with multi-IP shell stacks.
      *  ``top``/``bottom``/``mid`` pick the matching IPs out of the
      *  bucket's ``ip_layout``; ``all`` keeps every IP. Unused for
@@ -157,6 +164,8 @@ export interface FeaAnimationState {
     setColormap: (c: string) => void;
     setWarpEnabled: (enabled: boolean) => void;
     setScaleFactor: (s: number) => void;
+    /** Loader-side. Applies a derived scale, but never over a user's own. */
+    applyAutoScaleFactor: (s: number) => void;
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
@@ -189,8 +198,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Warp on by default — most users picking a stress field want it
     // shown on the deformed shape (Abaqus / Paraview default).
     warpEnabled: true,
-    // Identity scale by default — exaggeration is an explicit opt-in.
+    // Identity until the loader derives one from the model and the field. It
+    // stays 1 when there is nothing to derive from, which is the old behaviour.
     scaleFactor: 1.0,
+    scaleFactorAuto: true,
     // Default layer / IP reduction mirror the bake's
     // ``default_view.layer`` / ``ip_reduction`` keys (artefacts.py
     // build_manifest). When a nodal field is active these are
@@ -222,7 +233,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setReduction: (reduction) => set({reduction}),
     setColormap: (colormap) => set({colormap}),
     setWarpEnabled: (warpEnabled) => set({warpEnabled}),
-    setScaleFactor: (scaleFactor) => set({scaleFactor}),
+    setScaleFactor: (scaleFactor) => set({scaleFactor, scaleFactorAuto: false}),
+    applyAutoScaleFactor: (scaleFactor) =>
+        set((s) => (s.scaleFactorAuto ? {scaleFactor} : {})),
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
