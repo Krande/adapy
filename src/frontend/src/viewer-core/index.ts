@@ -58,6 +58,8 @@
 //
 //   1.2.0  Xtract result hierarchy, component/layer actions and unit helpers
 //          on `@/viewer-core/scene`.
+//          Plus `CanvasWrapper`'s `legend` prop, so a shell that places the
+//          legend itself can stop core mounting a second one.
 //   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
 //          `@/viewer-core/scene`
 export const VIEWER_CORE_API_VERSION = "1.2.0";

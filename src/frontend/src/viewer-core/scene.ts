@@ -17,6 +17,7 @@
 // it must never be re-parented or covered by a shell's layout.
 // ---------------------------------------------------------------------------
 export { default as CanvasWrapper } from "@/components/viewer/CanvasWrapper";
+export type { CanvasWrapperProps } from "@/components/viewer/CanvasWrapper";
 
 // ---------------------------------------------------------------------------
 // Deep links. Handles `?file=`, `?gltf=`, procedural/sim params and routes FEA
