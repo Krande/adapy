@@ -43,6 +43,7 @@ import {
 } from "./elementLocalGeometry";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
+import {segmentRangeIds} from "./lineSegmentIds";
 import {translationOffsets, warpValue} from "./warpComponents";
 
 type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
@@ -335,6 +336,9 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const linePositions: number[] = [];
     const lineColors: number[] = [];
     const lineSourceIndices: number[] = [];
+    // One label per VERTEX, pushed beside the vertex itself. See lineSegmentIds:
+    // a parallel per-SEGMENT array maintained by a condition is what drifted.
+    const lineVertexLabels: number[] = [];
 
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
@@ -397,6 +401,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                         colormap(t, tmpRgb, 0);
                         lineColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
                         lineSourceIndices.push(sourceIdx);
+                        lineVertexLabels.push(label);
                     }
                     // A LineSegments pair must be complete. Drop a lone end
                     // when the other endpoint carried an inapplicable NaN.
@@ -404,6 +409,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
                         lineSourceIndices.splice(-1, 1);
                         linePositions.splice(-3, 3);
                         lineColors.splice(-3, 3);
+                        lineVertexLabels.splice(-1, 1);
                     }
                 }
             }
@@ -609,7 +615,19 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         new Float32Array(linePositions),
         new Float32Array(lineColors),
         lineDisplacement,
+        segmentRangeIds(lineVertexLabels),
     );
+    // Re-apply whatever was selected before this repaint: applying a field
+    // rebuilds the lines from scratch, so a selection made beforehand would
+    // otherwise vanish on the next step or component change.
+    const restore = mesh.userData.__feaLineSelection as
+        | ((ids: readonly string[]) => void)
+        | undefined;
+    if (restore) {
+        const owner = mesh as unknown as {selectedRanges?: Set<string>};
+        const current = Array.from(owner.selectedRanges ?? []);
+        if (current.length) restore(current);
+    }
     geometry.morphAttributes.position = [
         new THREE.BufferAttribute(displacement, 3),
     ];
