@@ -1019,6 +1019,11 @@ export async function load_fea_streaming(args: {
             displacementScale,
             colormap,
             nodalAverage,
+            // Only where the deck cannot show beam solids. Where it can, the beam
+            // carries its result on its own surface, and a coloured line as well
+            // puts two renderings of one beam in the same place -- the black
+            // element-edge overlay against the coloured line, neither legible.
+            lineFallback: !manifest.mesh.beam_solids_url,
         });
         // Beam-solid mesh — paint with the same AFEL data. Beam
         // labels appear in both drawRanges maps, but the main-mesh
@@ -1437,6 +1442,17 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
     for (const child of mesh.children) {
         if (!(child instanceof THREE.LineSegments)) continue;
         const lineGeom = child.geometry as THREE.BufferGeometry;
+        // A child that brought its own morph keeps it. The element-edge overlay
+        // SHARES the parent's position buffer, so the parent's per-vertex deltas
+        // are exactly what it needs. The result-line renderer does not: it has
+        // two vertices per beam in its own buffer and its own deltas to match.
+        // Forcing the parent's array onto it hands it deltas of the wrong length
+        // read against the wrong vertices, which is why the coloured beams drifted
+        // away from the black outline instead of moving with it.
+        if (
+            lineGeom.morphAttributes.position
+            && lineGeom.morphAttributes.position !== mesh.geometry.morphAttributes.position
+        ) continue;
         // morphAttributes is per-geometry; sharing the same array of
         // BufferAttributes makes both geometries reference the same
         // morph delta data on the GPU.

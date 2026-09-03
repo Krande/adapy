@@ -93,6 +93,15 @@ export interface ApplyElemFieldArgs {
     warpStepValues?: Float32Array;
     displacementScale?: number;
     colormap?: string;
+    /**
+     * Draw the coloured two-vertex fallback for line elements.
+     *
+     * Only for a deck that CANNOT show beam solids. Where solids exist the beam
+     * carries its result on its own surface, and drawing a coloured line as well
+     * puts two renderings of the same beam in the same place: the black
+     * element-edge overlay fights the coloured line, and neither is legible.
+     */
+    lineFallback?: boolean;
     /** Smooth-shade by averaging each vertex's element scalars across
      *  the elements that touch it. ``false`` (default) paints the same
      *  colour onto every vertex of an element (piecewise-constant). */
@@ -223,6 +232,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         displacementScale = 1,
         colormap: colormapName,
         nodalAverage = false,
+        lineFallback = true,
     } = args;
 
     clearResultPointMarkers(mesh);
@@ -367,7 +377,8 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             // Xtract Elements fields the two result slots map to the beam
             // ends; element-average fields use one colour at both ends.
             if (
-                !dr
+                lineFallback
+                && !dr
                 && bucket.elem_type.startsWith("line")
                 && colorField.support !== "line_result_point"
                 && colorField.support !== "result_point"
