@@ -664,15 +664,8 @@ def convert_part_elem_bm_to_beams(p: Part) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
 
-def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm", flip_ecc: bool = True) -> Beam:
-    """Convert FEM line element to Beam.
-
-    ``flip_ecc`` negates the y and z components of the eccentricity vector. It
-    defaults to True only because that is what this function has always done --
-    see the comment below, which admits it was tested on a single case. Callers
-    that know their source's convention should say so: the Sesam RESULTS path
-    passes False, having checked the placement against the deck's own geometry.
-    """
+def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
+    """Convert FEM line element to Beam"""
     from ada import Beam
 
     n1 = elem.nodes[0]
@@ -683,21 +676,20 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm", flip_ecc: bool = Tr
     if Config().fem_convert_options_fem2concepts_include_ecc is True:
         if elem.eccentricity is not None:
             ecc = elem.eccentricity
-            # The sign flip is suspect. `Elem.get_offset_coords` and `Beam` both
-            # ADD the vector unchanged, and GECCEN's is a global offset from the
-            # node to the beam end -- checked against three stiffeners on this
-            # project's deck, where flipping z would hang a deck stiffener above
-            # its plate instead of below it. Left as the default so the model
-            # conversion path is not changed blind; `flip_ecc=False` is the
-            # verified behaviour.
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
                 e1 = ecc.end1.ecc_vector
-                if flip_ecc:
-                    e1 = (e1[0], -e1[1], -e1[2])
+                e1 = (
+                    e1[0],
+                    -e1[1],
+                    -e1[2],
+                )  # todo this gives alignment cog calc and ada viewer etc (tested only for horizontal beam with box section with offset in global z)
             if ecc.end2 is not None and ecc.end2.node.id == n2.id:
                 e2 = ecc.end2.ecc_vector
-                if flip_ecc:
-                    e2 = (e2[0], -e2[1], -e2[2])
+                e2 = (
+                    e2[0],
+                    -e2[1],
+                    -e2[2],
+                )  # todo this gives alignment cog calc and ada viewer etc (tested only for  horizontal beam with box section with offset in global z)
 
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")

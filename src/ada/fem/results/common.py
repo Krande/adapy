@@ -174,11 +174,6 @@ class Mesh:
     vectors: dict[int, list] = None
     elem_data: np.ndarray = None  # el_id, mat_id, sec_id, vec_id
     sets: dict[str, FemSet] = None
-    # {elem_id: [per-node global offset vector | None]}. Sesam models a stiffener on
-    # the plate's own nodes and pushes it onto the plate with this; without it the
-    # profile is drawn centred on the element axis, floating beside the plate it is
-    # welded to. None for readers that carry no eccentricity concept.
-    eccentricities: dict[int, list] = None
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
         from ada.base.types import GeomRepr
@@ -407,20 +402,6 @@ class Mesh:
                 # Assign FemSection similarly to get_elem_by_id
                 fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{elem_id}", [el]), mat, sec, local_z=vec)
                 el.fem_sec = fs
-
-                # The offset that seats a stiffener on its plate. Only the two ends
-                # matter to a line element, and either end may be un-offset, so an
-                # EccPoint is attached only where there is a vector for it.
-                ecc = self.eccentricities.get(elem_id) if self.eccentricities else None
-                if ecc:
-                    from ada.fem.elements import EccPoint, Eccentricity
-
-                    v0 = ecc[0]
-                    v1 = ecc[-1]
-                    el.eccentricity = Eccentricity(
-                        EccPoint(nodes[0], v0) if v0 is not None else None,
-                        EccPoint(nodes[-1], v1) if v1 is not None else None,
-                    )
 
                 line_elems.append(el)
 

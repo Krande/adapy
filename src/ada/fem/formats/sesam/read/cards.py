@@ -99,7 +99,6 @@ BNTRCOS = DataCard("BNTRCOS", ("transno", "c11", "c21", "c31", "c12", "c22", "c3
 
 # Elements
 GELMNT1 = DataCard("GELMNT1", ("elnox", "elno", "eltyp", "eltyad", "nids"))
-GECCEN = DataCard("GECCEN", ("eccno", "ex", "ey", "ez"))
 GELREF1 = DataCard(
     "GELREF1",
     (

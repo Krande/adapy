@@ -43,9 +43,6 @@ _OTHER_CARDS = (
     cards.GSETMEMB,
     cards.TDRESREF,
     cards.GBEAMG,
-    # Beam eccentricities. Without these a stiffener is drawn on its element axis
-    # instead of offset onto the plate it stiffens -- see ``element_eccentricities``.
-    cards.GECCEN,
 )
 _SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC)
 _RESULT_CARDS = (
