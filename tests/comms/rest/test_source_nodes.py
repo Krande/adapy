@@ -104,6 +104,30 @@ def test_every_shape_of_the_route_refuses_without_a_database(app_client):
         assert r.status_code == 503, query
 
 
+# --- the scope key ----------------------------------------------------------
+
+
+def test_the_scope_key_is_the_prefix_not_the_dataclass_repr():
+    """Regression: `str(Scope)` is a repr, and a repr is not an identifier.
+
+    Writer and reader would AGREE on the repr, so nothing would look broken --
+    until someone adds a field to `Scope` or reorders it, at which point the key
+    silently changes shape and every row already stored is orphaned with no
+    error anywhere. Found by driving a real export through to a real REST read;
+    neither side's own tests could see it, because each was self-consistent.
+    """
+    from ada.comms.rest.scope import Scope
+
+    shared = Scope.shared()
+    assert shared.prefix() == "shared"
+    assert str(shared) != shared.prefix()
+
+    project = Scope(kind="project", id="abc-123")
+    assert project.prefix() == "projects/abc-123"
+    # The repr embeds field names and quoting; the prefix is a path segment.
+    assert "kind=" not in project.prefix()
+
+
 # --- live Postgres ----------------------------------------------------------
 
 

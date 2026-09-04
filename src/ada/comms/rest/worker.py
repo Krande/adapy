@@ -2881,7 +2881,18 @@ class _SyncSourceNodesFacade:
 
     @property
     def scope(self) -> str:
-        return str(self._scope)
+        return self._scope_key
+
+    @property
+    def _scope_key(self) -> str:
+        """The scope's canonical key -- what the reader looks rows up by.
+
+        prefix(), never str(): `Scope` is a dataclass, so str() gives its repr,
+        which is not an identifier. Writer and reader would agree on it today and
+        both be wrong tomorrow, because adding a field to that dataclass silently
+        rewrites the key and orphans every row already stored.
+        """
+        return self._scope.prefix()
 
     def record(self, source: str, nodes: list) -> int:
         """Upsert observed nodes for one source. Returns rows written.
@@ -2894,14 +2905,14 @@ class _SyncSourceNodesFacade:
         """
         from . import db as db_module
 
-        return self._run(db_module.record_source_nodes(self._pool, scope=str(self._scope), source=source, nodes=nodes))
+        return self._run(db_module.record_source_nodes(self._pool, scope=self._scope_key, source=source, nodes=nodes))
 
     def get(self, source: str, node_refs: list) -> list:
         """What is already recorded, so a writer can avoid restating it."""
         from . import db as db_module
 
         return self._run(
-            db_module.get_source_nodes(self._pool, scope=str(self._scope), source=source, node_refs=node_refs)
+            db_module.get_source_nodes(self._pool, scope=self._scope_key, source=source, node_refs=node_refs)
         )
 
 
