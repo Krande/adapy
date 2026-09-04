@@ -1174,10 +1174,17 @@ class FEAResultStreamAdapter:
                 # element means.
                 shift0 = eccentric_shift(beam, ecc[0], centroids) if ecc[0] is not None else None
                 shift1 = eccentric_shift(beam, ecc[-1], centroids) if ecc[-1] is not None else None
+                # NEGATED on the way in. Beam.e1/e2 are not applied as written:
+                # BeamJustification.curve_offset_local does `off = -e` ("local
+                # offsets start from -e"), so handing it the geometric translation
+                # places the profile on the wrong side. For a section that is
+                # symmetric in EXTENT that still lands a face on the plate, which
+                # is why a flush check alone did not catch it -- it put the wide
+                # flange against the plate and the web tip out in the air.
                 if shift0 is not None:
-                    beam.e1 = shift0
+                    beam.e1 = -shift0
                 if shift1 is not None:
-                    beam.e2 = shift1
+                    beam.e2 = -shift1
 
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 

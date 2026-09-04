@@ -110,3 +110,32 @@ def test_the_measured_offset_is_re_expressed_onto_the_beams_own_axes():
 def test_an_unmeasurable_section_yields_no_shift_rather_than_a_guess():
     beam = _Beam(yvec=(0, 1, 0), up=(0, 0, 1))
     assert eccentric_shift(beam, np.array([1.0, 0, 0]), _FixedCache(None)) is None
+
+
+def test_beam_offsets_are_applied_negated_by_the_geometry_path():
+    """The convention the bake's sign depends on.
+
+    ``BeamJustification.curve_offset_local`` documents "local offsets start from
+    -e" and implements ``off = -e``, so a geometric translation must be handed to
+    ``Beam.e1`` with its sign flipped. Getting this wrong is close to invisible:
+    a section symmetric in EXTENT still lands a face on its plate, so a
+    flush check passes while the profile is mirrored — an unsymmetric T-girder
+    ends up with its wide flange welded to the plate and its web tip in the air.
+
+    Pinned here because it is someone else's convention, in another module, that
+    our arithmetic silently rides on.
+    """
+    from ada import Beam
+
+    def up_component(value: float) -> float:
+        bm = Beam("ecc_sign", (0, 0, 0), (1, 0, 0), sec="TG600x300x20x32", up=(0, 0, 1))
+        bm.e1 = (0.0, 0.0, value)
+        bm.e2 = (0.0, 0.0, value)
+        return float(bm.offset_helper.curve_offset_local().end1[2])
+
+    # Differenced, because the same call also folds in the section's own centroid
+    # correction. That constant cancels; the response to e is what is pinned here.
+    delta = up_component(0.25) - up_component(-0.25)
+    assert np.isclose(delta, -0.5, atol=1e-9), (
+        f"expected the offset to move OPPOSITE to e (delta -0.5), got {delta}"
+    )
