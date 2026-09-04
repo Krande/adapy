@@ -15,9 +15,10 @@
  * orientation — but sorting here too costs nothing and means this does not depend
  * on that staying true.
  *
- * `Number` rather than a string key: with 32-bit vertex indices the packed value
- * exceeds 2^53 only past ~94 million vertices, far beyond anything that reaches
- * this renderer, and a numeric Set is markedly faster than a string one.
+ * `Number` rather than a string key: the packed value stays below 2^53 (exact
+ * in a float64) while the smaller index is under 2^21 — about 2 million
+ * vertices, beyond anything that reaches this renderer — and a numeric Set is
+ * markedly faster than a string one.
  */
 function edgeKey(a: number, b: number): number {
     const lo = a < b ? a : b;

@@ -6,7 +6,6 @@ nothing raises — so the pieces that can be tested without OCC are tested here.
 """
 
 import numpy as np
-import pytest
 
 from ada.fem.results.beam_placement import (
     SectionCentroidCache,
