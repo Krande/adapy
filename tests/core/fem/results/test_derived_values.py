@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ada.fem.formats.sesam.results.derived_fields import _surface_values_and_positions
 from ada.fem.formats.sesam.results.derived_values import (
     beam_stress,
     decompose_shell,
@@ -11,8 +12,10 @@ from ada.fem.formats.sesam.results.derived_values import (
     plane_principal,
     stress_resultants,
 )
-from ada.fem.formats.sesam.results.derived_fields import _surface_values_and_positions
-from ada.fem.formats.sesam.results.result_units import common_result_unit, result_component_units
+from ada.fem.formats.sesam.results.result_units import (
+    common_result_unit,
+    result_component_units,
+)
 
 
 def test_shell_surfaces_are_packed_top_first_with_layer_metadata():

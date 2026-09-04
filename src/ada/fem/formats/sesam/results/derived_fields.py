@@ -17,7 +17,6 @@ from collections import defaultdict
 import numpy as np
 
 from ada.fem.formats.sesam.read import cards
-from ada.fem.formats.sesam.results.result_catalog import presentation, semantic_name
 from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
     D_STRESS_COMPONENTS,
@@ -33,9 +32,17 @@ from ada.fem.formats.sesam.results.derived_values import (
     plane_principal,
     stress_resultants,
 )
-from ada.fem.formats.sesam.results.result_units import common_result_unit, result_component_units
-from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData, NodalFieldType
-
+from ada.fem.formats.sesam.results.result_catalog import presentation, semantic_name
+from ada.fem.formats.sesam.results.result_units import (
+    common_result_unit,
+    result_component_units,
+)
+from ada.fem.results.field_data import (
+    ElementFieldData,
+    FieldPosition,
+    NodalFieldData,
+    NodalFieldType,
+)
 
 _SHELL_CORNER_INDICES = {
     # Surface/result-point order is node0, node1, centre, node3, node2
@@ -170,9 +177,7 @@ def build_nodal_kinematics(
                 "REACTION-FORCE",
                 derived=False,
                 coordinate_system="model",
-                unit=common_result_unit(
-                    result_component_units(unit_factors, "REACTION-FORCE", field.components)
-                ),
+                unit=common_result_unit(result_component_units(unit_factors, "REACTION-FORCE", field.components)),
                 component_units=result_component_units(unit_factors, "REACTION-FORCE", field.components),
             )
     return out
@@ -431,7 +436,9 @@ def _average_nodal_shell(contrib, node_ids):
             t = row[2]
             normal = row[3]
             thickness_ok = np.isfinite(t) and np.isfinite(ref_t) and abs(t - ref_t) <= 0.1 * max(abs(ref_t), 1e-30)
-            normal_ok = np.all(np.isfinite(normal)) and np.all(np.isfinite(ref_n)) and float(np.dot(normal, ref_n)) >= cos_limit
+            normal_ok = (
+                np.all(np.isfinite(normal)) and np.all(np.isfinite(ref_n)) and float(np.dot(normal, ref_n)) >= cos_limit
+            )
             if thickness_ok and normal_ok:
                 eligible.append(row)
         # Multiple non-coplanar/thickness groups at one node are ambiguous in a
@@ -451,67 +458,77 @@ def _nodal_shell_fields(step, node_ids, contrib, wanted, unit_factors):
     out = []
     for surface, basic in (("upper", top), ("lower", bottom)):
         if _wants_nodal_surface(wanted, "G-STRESS", surface):
-            out.append(_nodal_field(
-                step,
-                node_ids,
-                "nodes",
-                "G-STRESS",
-                G_STRESS_COMPONENTS,
-                general_stress(basic),
-                derived=True,
-                coordinate_system="element_local",
-                surface=surface,
-                unit_factors=unit_factors,
-            ))
+            out.append(
+                _nodal_field(
+                    step,
+                    node_ids,
+                    "nodes",
+                    "G-STRESS",
+                    G_STRESS_COMPONENTS,
+                    general_stress(basic),
+                    derived=True,
+                    coordinate_system="element_local",
+                    surface=surface,
+                    unit_factors=unit_factors,
+                )
+            )
         if _wants_nodal_surface(wanted, "P-STRESS", surface):
-            out.append(_nodal_field(
+            out.append(
+                _nodal_field(
+                    step,
+                    node_ids,
+                    "nodes",
+                    "P-STRESS",
+                    P_STRESS_COMPONENTS,
+                    plane_principal(basic[..., 0], basic[..., 1], basic[..., 2]),
+                    derived=True,
+                    coordinate_system="element_local",
+                    surface=surface,
+                    unit_factors=unit_factors,
+                )
+            )
+    if _wants(wanted, "nodes", "PM-STRESS"):
+        out.append(
+            _nodal_field(
                 step,
                 node_ids,
                 "nodes",
-                "P-STRESS",
+                "PM-STRESS",
                 P_STRESS_COMPONENTS,
-                plane_principal(basic[..., 0], basic[..., 1], basic[..., 2]),
+                membrane_principal(d),
                 derived=True,
                 coordinate_system="element_local",
-                surface=surface,
                 unit_factors=unit_factors,
-            ))
-    if _wants(wanted, "nodes", "PM-STRESS"):
-        out.append(_nodal_field(
-            step,
-            node_ids,
-            "nodes",
-            "PM-STRESS",
-            P_STRESS_COMPONENTS,
-            membrane_principal(d),
-            derived=True,
-            coordinate_system="element_local",
-            unit_factors=unit_factors,
-        ))
+            )
+        )
     if _wants(wanted, "nodes", "D-STRESS"):
-        out.append(_nodal_field(
-            step,
-            node_ids,
-            "nodes",
-            "D-STRESS",
-            D_STRESS_COMPONENTS,
-            d,
-            derived=True,
-            coordinate_system="element_local",
-            unit_factors=unit_factors,
-        ))
+        out.append(
+            _nodal_field(
+                step,
+                node_ids,
+                "nodes",
+                "D-STRESS",
+                D_STRESS_COMPONENTS,
+                d,
+                derived=True,
+                coordinate_system="element_local",
+                unit_factors=unit_factors,
+            )
+        )
     if _wants(wanted, "nodes", "R-STRESS"):
-        out.append(_nodal_field(
-            step,
-            node_ids,
-            "nodes",
-            "R-STRESS",
-            R_STRESS_COMPONENTS,
-            stress_resultants(d, thickness),
-            derived=True,
-            coordinate_system="element_local",
-            unit_factors=unit_factors,
-        ))
+        out.append(
+            _nodal_field(
+                step,
+                node_ids,
+                "nodes",
+                "R-STRESS",
+                R_STRESS_COMPONENTS,
+                stress_resultants(d, thickness),
+                derived=True,
+                coordinate_system="element_local",
+                unit_factors=unit_factors,
+            )
+        )
     return out
 
 
@@ -570,9 +587,10 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     b_stress = np.full(force.shape[:-1] + (8,), np.nan)
     for i, prop in enumerate(properties):
         if prop is not None:
-            b_stress[i] = beam_stress(force[i], **{k: prop[k] for k in (
-                "area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2"
-            )})
+            b_stress[i] = beam_stress(
+                force[i],
+                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
+            )
 
     position_indices = {
         "resultpoints": np.arange(n_ips),
@@ -584,71 +602,72 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
         int_positions = [(i, raw_positions[int(source)][1]) for i, source in enumerate(indices)]
         if _wants(wanted, position, "G-FORCE"):
             out.append(
-            _element_field(
-                raw,
-                position,
-                "G-FORCE",
-                G_FORCE_COMPONENTS,
-                labels,
-                force[:, indices, :],
-                derived=False,
-                line=True,
-                int_positions=int_positions,
-                unit_factors=unit_factors,
+                _element_field(
+                    raw,
+                    position,
+                    "G-FORCE",
+                    G_FORCE_COMPONENTS,
+                    labels,
+                    force[:, indices, :],
+                    derived=False,
+                    line=True,
+                    int_positions=int_positions,
+                    unit_factors=unit_factors,
+                )
             )
-        )
         if _wants(wanted, position, "B-STRESS"):
             out.append(
-            _element_field(
-                raw,
-                position,
-                "B-STRESS",
-                B_STRESS_COMPONENTS,
-                labels,
-                b_stress[:, indices, :],
-                derived=True,
-                line=True,
-                int_positions=int_positions,
-                unit_factors=unit_factors,
+                _element_field(
+                    raw,
+                    position,
+                    "B-STRESS",
+                    B_STRESS_COMPONENTS,
+                    labels,
+                    b_stress[:, indices, :],
+                    derived=True,
+                    line=True,
+                    int_positions=int_positions,
+                    unit_factors=unit_factors,
+                )
             )
-        )
     force_avg = force[:, (0, n_ips - 1), :].mean(axis=1, keepdims=True)
     b_avg = np.full(force_avg.shape[:-1] + (8,), np.nan)
     for i, prop in enumerate(properties):
         if prop is not None:
-            b_avg[i] = beam_stress(force_avg[i], **{k: prop[k] for k in (
-                "area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2"
-            )})
+            b_avg[i] = beam_stress(
+                force_avg[i],
+                **{k: prop[k] for k in ("area", "wxmin", "wymin", "wzmin", "shary", "sharz", "wymin2", "wzmin2")},
+            )
     if _wants(wanted, "element_average", "G-FORCE"):
         out.append(
-        _element_field(
-            raw,
-            "element_average",
-            "G-FORCE",
-            G_FORCE_COMPONENTS,
-            labels,
-            force_avg,
-            derived=False,
-            line=True,
-            int_positions=[(0, 0.5)],
-            unit_factors=unit_factors,
+            _element_field(
+                raw,
+                "element_average",
+                "G-FORCE",
+                G_FORCE_COMPONENTS,
+                labels,
+                force_avg,
+                derived=False,
+                line=True,
+                int_positions=[(0, 0.5)],
+                unit_factors=unit_factors,
+            )
         )
-    )
     if _wants(wanted, "element_average", "B-STRESS"):
         out.append(
-        _element_field(
-            raw,
-            "element_average",
-            "B-STRESS",
-            B_STRESS_COMPONENTS,
-            labels,
-            b_avg,
-            derived=True,
-            line=True,
-            int_positions=[(0, 0.5)],
-            unit_factors=unit_factors,
+            _element_field(
+                raw,
+                "element_average",
+                "B-STRESS",
+                B_STRESS_COMPONENTS,
+                labels,
+                b_avg,
+                derived=True,
+                line=True,
+                int_positions=[(0, 0.5)],
+                unit_factors=unit_factors,
+            )
         )
-    )
     return out
 
 

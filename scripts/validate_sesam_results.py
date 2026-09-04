@@ -30,7 +30,6 @@ from ada.fem.formats.sesam.results.read_sin import SinStreamReader, open_sin
 from ada.fem.formats.sesam.results.result_catalog import semantic_name
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
-
 _HEADER_COMPONENT = re.compile(r"^(.*?)(?:\((\d+)\))?$")
 _POSITION = {
     "nodes": "nodes",
@@ -147,6 +146,7 @@ def printed_half_ulp(text: str) -> float:
     # back left. A value printed with no point ("657") is bounded at its ones
     # digit, which is what a zero fraction length gives.
     return 0.5 * 10.0 ** (exponent - len(fraction))
+
 
 _FLOAT32_EPS = float(np.finfo(np.float32).eps)
 

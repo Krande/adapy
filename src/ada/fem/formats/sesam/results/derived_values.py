@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 G_STRESS_COMPONENTS = ("SIGXX", "SIGYY", "TAUXY", "VONMISES")
 P_STRESS_COMPONENTS = ("P1", "P2")
 D_STRESS_COMPONENTS = ("SIGMX", "SIGMY", "SIGBX", "SIGBY", "TAUMXY", "TAUBXY", "MVONMISES")

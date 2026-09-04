@@ -127,9 +127,7 @@ RESULT_CARDS = [
 # targets — RVNODDIS/RVSTRESS/RVFORCES each hold every step's records in one
 # contiguous block. The RD* metadata cards in RESULT_CARDS are per-deck (one
 # block, no steps) and are always kept in full.
-_RV_STEP_CARDS = frozenset(
-    {cards.RVNODDIS.name, cards.RVNODREA.name, cards.RVSTRESS.name, cards.RVFORCES.name}
-)
+_RV_STEP_CARDS = frozenset({cards.RVNODDIS.name, cards.RVNODREA.name, cards.RVSTRESS.name, cards.RVFORCES.name})
 
 
 @dataclass
@@ -935,9 +933,7 @@ class Sif2Mesh:
         for block in elem_blocks:
             for label, refs in zip(block.identifiers, block.node_refs):
                 node_counts[int(label)] = int(len(refs))
-        eccentricities = element_eccentricities(
-            gelref, self.sif.get_geccen(), node_counts
-        )
+        eccentricities = element_eccentricities(gelref, self.sif.get_geccen(), node_counts)
 
         return Mesh(
             elements=elem_blocks,
@@ -1249,9 +1245,7 @@ def get_nodal_reactions(
     from ada.fem.results.field_data import NodalFieldType
 
     components = ["X-FORCE", "Y-FORCE", "Z-FORCE", "RX-MOMENT", "RY-MOMENT", "RZ-MOMENT"]
-    ires_i, inod_i, irrea_i, itrans_i = cards.RVNODREA.get_indices_from_names(
-        ["ires", "inod", "irrea|", "itrans|"]
-    )
+    ires_i, inod_i, irrea_i, itrans_i = cards.RVNODREA.get_indices_from_names(["ires", "inod", "irrea|", "itrans|"])
     value_i = cards.RVNODREA.get_indices_from_names(["F1|"])
     node_index = {int(node_id): i for i, node_id in enumerate(node_ids)}
     results: list[NodalFieldData] = []

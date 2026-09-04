@@ -46,9 +46,7 @@ RMED_FIXTURES = [
 
 
 def test_ip_layout_preserves_result_point_coordinates():
-    layout = _ip_layout_from_int_positions(
-        [(0, 2, 0.5), (1, (0.5, 0.5), -0.5), (2, 0.25)]
-    )
+    layout = _ip_layout_from_int_positions([(0, 2, 0.5), (1, (0.5, 0.5), -0.5), (2, 0.25)])
     assert layout[0]["node_index"] == 2
     assert layout[0]["layer"] == "top"
     assert layout[1]["natural_coordinates"] == [0.5, 0.5]
@@ -1043,7 +1041,12 @@ def test_build_manifest_includes_optional_source_hash():
 
 
 def test_build_manifest_carries_optional_field_presentation():
-    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.artefacts import (
+        FieldArtefactMeta,
+        FieldSpec,
+        MeshGeometry,
+        build_manifest,
+    )
     from ada.fem.results.field_data import FieldPresentation
 
     geom = MeshGeometry(points=np.zeros((1, 3), dtype=np.float64), cell_blocks=[])
@@ -1092,7 +1095,12 @@ def test_build_manifest_carries_optional_field_presentation():
 
 
 def test_build_manifest_links_nodal_surface_variants():
-    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.artefacts import (
+        FieldArtefactMeta,
+        FieldSpec,
+        MeshGeometry,
+        build_manifest,
+    )
     from ada.fem.results.field_data import FieldPresentation
 
     metas = []

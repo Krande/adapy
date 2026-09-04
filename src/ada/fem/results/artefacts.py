@@ -458,14 +458,16 @@ def _ip_layout_from_int_positions(int_positions) -> list[dict]:
                 **(
                     {"node_index": int(in_plane)}
                     if isinstance(in_plane, (int, np.integer))
-                    else {
-                        "natural_coordinates": [float(value) for value in in_plane]
-                    }
-                    if isinstance(in_plane, (list, tuple))
-                    and all(isinstance(value, (int, float, np.integer, np.floating)) for value in in_plane)
-                    else {"natural_coordinates": [float(in_plane)]}
-                    if isinstance(in_plane, (float, np.floating))
-                    else {}
+                    else (
+                        {"natural_coordinates": [float(value) for value in in_plane]}
+                        if isinstance(in_plane, (list, tuple))
+                        and all(isinstance(value, (int, float, np.integer, np.floating)) for value in in_plane)
+                        else (
+                            {"natural_coordinates": [float(in_plane)]}
+                            if isinstance(in_plane, (float, np.floating))
+                            else {}
+                        )
+                    )
                 ),
             }
         )
@@ -776,8 +778,7 @@ class FEAResultStreamAdapter:
         results = self._result.results
         hidden: set[tuple[str, object | None]] = set()
         if any(
-            getattr(getattr(field, "presentation", None), "group_path", ())
-            == ("Nodes", "DISPLACEMENT")
+            getattr(getattr(field, "presentation", None), "group_path", ()) == ("Nodes", "DISPLACEMENT")
             for field in results
         ):
             hidden.add(("RVNODDIS", None))
@@ -986,9 +987,7 @@ class FEAResultStreamAdapter:
         from ada.fem.results.field_data import FieldPosition
 
         specs: list[ElementFieldSpec] = []
-        node_index = {
-            int(label): i for i, label in enumerate(self._result.mesh.nodes.identifiers)
-        }
+        node_index = {int(label): i for i, label in enumerate(self._result.mesh.nodes.identifiers)}
         element_nodes: dict[int, list[int]] = {}
         for block in self._result.mesh.elements:
             for label, refs in zip(block.identifiers, block.node_refs):
@@ -2065,17 +2064,13 @@ def build_manifest(
         semantic_key = field_payload.get("semantic_key")
         surface = field_payload.get("surface")
         if semantic_key and surface in {"upper", "lower"}:
-            semantic_variants[semantic_key].append(
-                {"surface": surface, "field_name": field_payload["name_canonical"]}
-            )
+            semantic_variants[semantic_key].append({"surface": surface, "field_name": field_payload["name_canonical"]})
     for variants in semantic_variants.values():
         if len(variants) < 2:
             continue
         variants.sort(key=lambda item: 0 if item["surface"] == "upper" else 1)
         for variant in variants:
-            field_payload = next(
-                item for item in fields_payload if item["name_canonical"] == variant["field_name"]
-            )
+            field_payload = next(item for item in fields_payload if item["name_canonical"] == variant["field_name"])
             field_payload["surface_variants"] = variants
 
     # Element fields. Group by field name so STRESS on QUAD + TRI lands

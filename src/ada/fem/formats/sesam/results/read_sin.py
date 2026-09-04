@@ -21,8 +21,8 @@ import numpy as np
 
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.read_sif import SifReader
-from ada.fem.formats.sesam.results.sin_reader import SinFile, open_sin
 from ada.fem.formats.sesam.results.result_catalog import semantic_name
+from ada.fem.formats.sesam.results.sin_reader import SinFile, open_sin
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -528,9 +528,7 @@ def _concat_rv_rows(existing, extra):
         if extra.shape[0] <= 1:
             return existing
         if existing.shape[1] != extra.shape[1]:
-            raise ValueError(
-                f"cannot append combination rows: width {extra.shape[1]} into {existing.shape[1]}"
-            )
+            raise ValueError(f"cannot append combination rows: width {extra.shape[1]} into {existing.shape[1]}")
         return np.vstack((existing, extra[1:]))
     return [*list(existing), *list(extra)[1:]]
 
@@ -553,9 +551,7 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
             # Keeping the accumulator in float64 changes cancellation-heavy
             # combinations by visible amounts (several tenths for stresses of
             # order 1e6), even though every input word is identical.
-            out[1:, value_start:] = (
-                np.asarray(current[1:, value_start:], dtype=np.float32) * np.float32(factor)
-            )
+            out[1:, value_start:] = np.asarray(current[1:, value_start:], dtype=np.float32) * np.float32(factor)
             out[1:, ires_i] = combination_step
             return out
         out = accumulated
@@ -585,9 +581,7 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
         if len(out_row) != len(row) or any(out_row[i] != row[i] for i in meta_indices):
             raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
         for i in range(value_start, len(row)):
-            out_row[i] = float(
-                np.float32(out_row[i]) + np.float32(row[i]) * np.float32(factor)
-            )
+            out_row[i] = float(np.float32(out_row[i]) + np.float32(row[i]) * np.float32(factor))
     return out
 
 

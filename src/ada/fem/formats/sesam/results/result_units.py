@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-
 _LENGTH_UNITS = (
     (1.0, "m"),
     (1.0e-3, "mm"),

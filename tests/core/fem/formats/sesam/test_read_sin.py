@@ -230,7 +230,11 @@ def test_sif_reader_selects_documented_fem_unit_set():
 
 
 def test_nodal_transform_records_map_local_vectors_to_model_coordinates():
-    from ada.fem.formats.sesam.results.read_sif import SifReader, get_nodal_reactions, get_nodal_results
+    from ada.fem.formats.sesam.results.read_sif import (
+        SifReader,
+        get_nodal_reactions,
+        get_nodal_results,
+    )
 
     # Local x -> model y and local y -> model -x. BNTRCOS stores matrix
     # columns in record order, not row-major order.
@@ -432,8 +436,8 @@ def test_sin_load_step_card_filter():
     fetches on a range source) on a multi-step deck. Here we assert the filter
     keeps exactly the requested card's field and drops the others."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
-    from ada.fem.formats.sesam.results.sin_reader import open_sin
     from ada.fem.formats.sesam.results.result_catalog import semantic_name
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
 
     reader = SinStreamReader(open_sin(SIN_PATH))
     try:

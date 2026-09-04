@@ -20,19 +20,31 @@ def _box(lo, hi):
     x1, y1, z1 = hi
     v = np.array(
         [
-            [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
-            [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+            [x0, y0, z0],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x0, y1, z0],
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1],
         ],
         dtype=float,
     )
     t = np.array(
         [
-            [0, 3, 2], [0, 2, 1],   # bottom
-            [4, 5, 6], [4, 6, 7],   # top
-            [0, 1, 5], [0, 5, 4],
-            [1, 2, 6], [1, 6, 5],
-            [2, 3, 7], [2, 7, 6],
-            [3, 0, 4], [3, 4, 7],
+            [0, 3, 2],
+            [0, 2, 1],  # bottom
+            [4, 5, 6],
+            [4, 6, 7],  # top
+            [0, 1, 5],
+            [0, 5, 4],
+            [1, 2, 6],
+            [1, 6, 5],
+            [2, 3, 7],
+            [2, 7, 6],
+            [3, 0, 4],
+            [3, 4, 7],
         ],
         dtype=np.int64,
     )
@@ -135,9 +147,7 @@ def test_beam_offsets_are_applied_negated_by_the_geometry_path():
     # Differenced, because the same call also folds in the section's own centroid
     # correction. That constant cancels; the response to e is what is pinned here.
     delta = up_component(0.25) - up_component(-0.25)
-    assert np.isclose(delta, -0.5, atol=1e-9), (
-        f"expected the offset to move OPPOSITE to e (delta -0.5), got {delta}"
-    )
+    assert np.isclose(delta, -0.5, atol=1e-9), f"expected the offset to move OPPOSITE to e (delta -0.5), got {delta}"
 
 
 def test_line_elem_to_beam_hands_over_a_negated_eccentricity():
@@ -152,7 +162,7 @@ def test_line_elem_to_beam_hands_over_a_negated_eccentricity():
     """
     from ada import Beam, Node, Part, Section
     from ada.fem import Elem, FemSection, FemSet
-    from ada.fem.elements import EccPoint, Eccentricity
+    from ada.fem.elements import Eccentricity, EccPoint
     from ada.fem.formats.utils import line_elem_to_beam
     from ada.fem.shapes.definitions import LineShapes
     from ada.materials import Material
@@ -171,7 +181,7 @@ def test_line_elem_to_beam_hands_over_a_negated_eccentricity():
     bm = line_elem_to_beam(el, part, "BM")
     assert isinstance(bm, Beam)
     # Every component negated, not just y and z.
-    assert np.allclose(np.asarray(bm.e1, dtype=float), -ecc, atol=1e-12), (
-        f"expected {(-ecc).tolist()}, got {np.asarray(bm.e1, dtype=float).tolist()}"
-    )
+    assert np.allclose(
+        np.asarray(bm.e1, dtype=float), -ecc, atol=1e-12
+    ), f"expected {(-ecc).tolist()}, got {np.asarray(bm.e1, dtype=float).tolist()}"
     assert np.allclose(np.asarray(bm.e2, dtype=float), -ecc, atol=1e-12)

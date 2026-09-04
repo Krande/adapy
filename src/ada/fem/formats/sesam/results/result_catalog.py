@@ -6,7 +6,6 @@ import re
 
 from ada.fem.results.field_data import FieldPresentation
 
-
 POSITION_LABELS = {
     "nodes": "Nodes",
     "elements": "Elements",
