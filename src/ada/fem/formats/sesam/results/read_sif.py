@@ -11,6 +11,7 @@ from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.fem.formats.sesam.results.eccentricity import element_eccentricities
 from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
 
 if TYPE_CHECKING:
@@ -481,6 +482,15 @@ class SifReader:
     def get_gelref(self):
         return self._gelref1
 
+    def get_geccen(self):
+        """The deck's ``GECCEN`` eccentricity records, or an empty list.
+
+        Empty rather than None so callers do not each need the guard: a deck with
+        no eccentricities and a reader that has not read them are the same thing
+        as far as beam placement goes.
+        """
+        return self._other.get("GECCEN", [])
+
     # Card-name → DataCard dispatch maps. Built lazily on first
     # ``eval_flags`` call so the dataclass default-factory dance
     # stays simple. Replacing the original ``startswith`` chain
@@ -915,7 +925,19 @@ class Sif2Mesh:
         sections = self.sif.get_sections()
         materials = self.sif.get_materials()
         vectors = self.sif.get_vectors()
-        elem_refs = cards.GELREF1.cast_to_np(["elno", "matno", "geono", "transno"], self.sif.get_gelref())
+        gelref = self.sif.get_gelref()
+        elem_refs = cards.GELREF1.cast_to_np(["elno", "matno", "geono", "transno"], gelref)
+
+        # Beam eccentricities. Node counts come from the blocks just built rather
+        # than re-reading GELMNT1, because the tail layout of a GELREF1 record
+        # depends on NNOD and the two must agree.
+        node_counts: dict[int, int] = {}
+        for block in elem_blocks:
+            for label, refs in zip(block.identifiers, block.node_refs):
+                node_counts[int(label)] = int(len(refs))
+        eccentricities = element_eccentricities(
+            gelref, self.sif.get_geccen(), node_counts
+        )
 
         return Mesh(
             elements=elem_blocks,
@@ -925,6 +947,7 @@ class Sif2Mesh:
             vectors=vectors,
             elem_data=elem_refs,
             sets=sets,
+            eccentricities=eccentricities or None,
         )
 
     def get_sif_results(

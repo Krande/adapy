@@ -1123,6 +1123,7 @@ class FEAResultStreamAdapter:
 
         from ada import Part
         from ada.fem.formats.utils import line_elem_to_beam
+        from ada.fem.results.beam_placement import SectionCentroidCache, eccentric_shift
 
         line_elems = mesh.get_line_elems()
         if not line_elems:
@@ -1130,6 +1131,12 @@ class FEAResultStreamAdapter:
 
         dummy_part = Part(self._result.name or "solid_beams")
         beams: list = []
+        # Eccentricities, corrected for where adapy actually draws each profile.
+        # See beam_placement: the raw GECCEN vector positions the section CENTROID,
+        # and applying it directly moves L sections off plates they are already
+        # flush against.
+        eccentricities = getattr(mesh, "eccentricities", None) or {}
+        centroids = SectionCentroidCache()
         # Source-side pre-filter — these reject reasons are cheap to
         # detect before OCC sees the geometry. Bucketing them by
         # category here keeps the bake's coverage summary informative.
@@ -1159,6 +1166,19 @@ class FEAResultStreamAdapter:
                 continue
 
             beam = line_elem_to_beam(elem, dummy_part, "BM")
+
+            ecc = eccentricities.get(int(elem.id))
+            if ecc:
+                # Both ends get the same correction when both carry an offset; an
+                # end without one is left on its node, which is what a half-eccentric
+                # element means.
+                shift0 = eccentric_shift(beam, ecc[0], centroids) if ecc[0] is not None else None
+                shift1 = eccentric_shift(beam, ecc[-1], centroids) if ecc[-1] is not None else None
+                if shift0 is not None:
+                    beam.e1 = shift0
+                if shift1 is not None:
+                    beam.e2 = shift1
+
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
         return tessellate_beams_to_solid_mesh(
