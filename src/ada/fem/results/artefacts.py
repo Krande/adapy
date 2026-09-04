@@ -1158,7 +1158,10 @@ class FEAResultStreamAdapter:
                 extra_skip["missing-local-z"] = extra_skip.get("missing-local-z", 0) + 1
                 continue
 
-            beam = line_elem_to_beam(elem, dummy_part, "BM")
+            # flip_ecc=False: GECCEN gives a global offset to be added as-is. Verified
+            # against this deck -- an x=15.6 wall stiffener offsets inboard, a z=7.8
+            # deck stiffener hangs below its plate. See line_elem_to_beam.
+            beam = line_elem_to_beam(elem, dummy_part, "BM", flip_ecc=False)
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
         return tessellate_beams_to_solid_mesh(

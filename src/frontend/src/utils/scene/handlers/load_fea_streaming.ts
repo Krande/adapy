@@ -30,6 +30,7 @@ import {clearGoToNode} from "../fea/goToNode";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
+import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {setSourceMorph} from "../fea/sourceMorph";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
@@ -1106,28 +1107,61 @@ export async function load_fea_streaming(args: {
             colormap,
         });
 
-        // Beam-solid mesh: nodal fields don't have a sensible
-        // per-vertex value here (the beam-solid vertices aren't FEA
-        // nodes). Turn vertexColors off so any stale element-field
-        // colouring stops contributing and the GLB's base material
-        // shows. Cheap toggle — no buffer rewrite needed.
+        // Beam-solid mesh: paint it from the same nodal field.
         //
-        // Warp is independent of colour: install the lerped nodal
-        // warp on the beam-solid mesh so a displacement field flexes
-        // the solid beams in lockstep with the rest of the structure.
-        // Without this, scaling the morph influence ×100 would leave
-        // rigid solid beams sitting at undeformed positions while the
-        // shells fly off.
+        // This used to switch vertex colours off, on the reasoning that a
+        // beam-solid vertex is not an FEA node. True of the vertex, false of the
+        // beam: the AFBV sidecar names each vertex's two end nodes and its axial
+        // parameter, which is the very interpolation installBeamSolidWarp uses to
+        // MOVE that vertex. Anything that can be interpolated to a position can be
+        // interpolated to a colour, so a displacement field now paints the beams as
+        // well as the shells — as Xtract does, and as an element field already did
+        // here. Base material on a beam that has a value does not read as "no data";
+        // it reads as zero.
+        //
+        // Warp is independent of colour: install the lerped nodal warp so a
+        // displacement field flexes the solid beams in lockstep with the rest of the
+        // structure. Without it, scaling the morph influence ×100 leaves rigid solid
+        // beams at undeformed positions while the shells fly off.
         if (active.beamSolidMesh) {
-            const disableVc = (mat: THREE.Material) => {
-                if ("vertexColors" in mat) {
-                    (mat as unknown as {vertexColors: boolean}).vertexColors = false;
+            const setVc = (mat: THREE.Material, on: boolean) => {
+                if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== on) {
+                    (mat as unknown as {vertexColors: boolean}).vertexColors = on;
                     mat.needsUpdate = true;
                 }
             };
+            let painted = false;
+            if (active.beamSolidWarp && active.beamSolidBasePositions) {
+                const sourceColors = beamSolidNodalColors(
+                    field,
+                    colorStepValues,
+                    reductionStr,
+                    active.beamSolidWarp,
+                    colormap,
+                    active.basePositions.length / 3,
+                );
+                if (sourceColors) {
+                    const geom = active.beamSolidMesh.geometry;
+                    // Through the element-local expansion, if one is cached on this
+                    // geometry from an earlier element field. Same reason the morph
+                    // goes through it: a buffer sized for the original vertex count
+                    // does not fit an expanded geometry.
+                    const nSource = active.beamSolidWarp.n_verts;
+                    const renderToSource = sourceVertexIndices(geom, nSource);
+                    const renderColors = expandSourceTriples(sourceColors, renderToSource);
+                    const existing = geom.getAttribute("color");
+                    if (existing && existing.count === renderToSource.length && existing.itemSize === 3) {
+                        (existing.array as Float32Array).set(renderColors);
+                        existing.needsUpdate = true;
+                    } else {
+                        geom.setAttribute("color", new THREE.BufferAttribute(renderColors, 3));
+                    }
+                    painted = true;
+                }
+            }
             const m = active.beamSolidMesh.material;
-            if (Array.isArray(m)) m.forEach(disableVc);
-            else if (m) disableVc(m as THREE.Material);
+            if (Array.isArray(m)) m.forEach((mat) => setVc(mat, painted));
+            else if (m) setVc(m as THREE.Material, painted);
 
             if (active.beamSolidWarp && active.beamSolidBasePositions) {
                 installBeamSolidWarp(
