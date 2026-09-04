@@ -2,6 +2,15 @@
 
 
 
+## v0.64.0 (2026-09-04)
+
+### Feature
+
+* feat(source-nodes): record when each node of an external source last changed (#328)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`959a1a6`](https://github.com/Krande/adapy/commit/959a1a626f83620d5b4764ef0135668a067547c5))
+
+
 ## v0.63.0 (2026-09-04)
 
 ### Feature
