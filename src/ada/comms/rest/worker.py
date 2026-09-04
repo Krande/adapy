@@ -2859,6 +2859,52 @@ async def _run_component_build(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+class _SyncSourceNodesFacade:
+    """Synchronous view of the source-node change table, scoped to one job.
+
+    A plugin that drives an external CAD system knows when each node of it last
+    changed, and this is how it says so. Bridged onto the worker's event loop the
+    same way :class:`_SyncStorageFacade` is, because a plugin entrypoint runs in
+    an executor thread.
+
+    Constructed only when the worker HAS a pool. A worker without ``DATABASE_URL``
+    is a supported deployment, so the facade is simply not passed and a plugin
+    sees the parameter absent -- which it must handle, exactly as it handles a
+    storage backend that refuses a write.
+    """
+
+    def __init__(self, pool, scope, loop):
+        self._pool, self._scope, self._loop = pool, scope, loop
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    @property
+    def scope(self) -> str:
+        return str(self._scope)
+
+    def record(self, source: str, nodes: list) -> int:
+        """Upsert observed nodes for one source. Returns rows written.
+
+        Each node is a dict: ``node_ref`` and ``last_changed_at`` required,
+        ``parent_ref`` / ``name`` / ``last_changed_by`` optional. A writer that
+        observes a leaf change is expected to stamp every node ABOVE it too --
+        the roll-up is the writer's job, so that a consumer asking about a branch
+        reads one row rather than walking a hierarchy this table does not model.
+        """
+        from . import db as db_module
+
+        return self._run(db_module.record_source_nodes(self._pool, scope=str(self._scope), source=source, nodes=nodes))
+
+    def get(self, source: str, node_refs: list) -> list:
+        """What is already recorded, so a writer can avoid restating it."""
+        from . import db as db_module
+
+        return self._run(
+            db_module.get_source_nodes(self._pool, scope=str(self._scope), source=source, node_refs=node_refs)
+        )
+
+
 class _SyncStorageFacade:
     """Synchronous view of the async :class:`Storage`, scoped to one job.
 
@@ -3135,11 +3181,15 @@ async def _run_plugin_job(
 
     try:
         _sig = inspect.signature(fn)
-        _accepts_cancel = "cancel_event" in _sig.parameters or any(
-            p.kind is inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()
-        )
+        _has_varkw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values())
+        _accepts_cancel = "cancel_event" in _sig.parameters or _has_varkw
+        # Same negotiation, same reason: an entrypoint written before this kwarg
+        # existed keeps working untouched rather than dying on an unexpected
+        # keyword.
+        _accepts_source_nodes = "source_nodes" in _sig.parameters or _has_varkw
     except (TypeError, ValueError):
         _accepts_cancel = False
+        _accepts_source_nodes = False
 
     # --- In-process profiling harness (toggle + per-task filter gated) ------
     # Read the same admin toggle the convert path reads (`profile_conversions`)
@@ -3172,6 +3222,11 @@ async def _run_plugin_job(
         )
         if _accepts_cancel:
             kwargs["cancel_event"] = cancel_event
+        # Only when this worker actually has a pool. Passing a facade that cannot
+        # reach a database would turn a supported deployment into a plugin that
+        # fails at its first write instead of one that knows it cannot record.
+        if _accepts_source_nodes and db_pool is not None:
+            kwargs["source_nodes"] = _SyncSourceNodesFacade(db_pool, scope, loop)
         if not profile_enabled:
             return fn(opts.get("options") or {}, **kwargs)
 

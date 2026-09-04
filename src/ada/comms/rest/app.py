@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import datetime
 import json
 import os
 import pathlib
@@ -1047,6 +1048,118 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Accept-Ranges": "bytes",
                 "Content-Range": f"bytes {start}-{end}/{size}",
             },
+        )
+
+    # ── Source-node change tracking ──────────────────────────────────
+    #
+    # "Has the external source moved since I exported this?" -- see
+    # migrations/028_source_nodes.sql. Read-only here: rows are written by the
+    # plugin that drives the source, through the worker's source_nodes facade.
+    # A deployment with no Postgres answers 503 rather than an empty list,
+    # because "nothing has changed" and "nobody is recording changes" must not
+    # look the same to a consumer deciding whether to trust an asset.
+
+    def _source_nodes_pool(request: Request):
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "source-node change tracking needs a database; this deployment runs without "
+                    "DATABASE_URL. An asset's freshness cannot be answered here."
+                ),
+            )
+        return pool
+
+    def _source_node_json(n) -> dict:
+        return {
+            "node_ref": n.node_ref,
+            "parent_ref": n.parent_ref,
+            "name": n.name,
+            "last_changed_at": n.last_changed_at.isoformat(),
+            "last_changed_by": n.last_changed_by,
+            "observed_at": n.observed_at.isoformat(),
+        }
+
+    @api.get("/scopes/{scope}/source-nodes")
+    async def api_source_nodes(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        source: str | None = None,
+        since: str | None = None,
+        refs: str | None = None,
+        limit: int = 1000,
+    ) -> JSONResponse:
+        """Change state for one scope's external-source nodes.
+
+        Three shapes, one route, because they answer one question at different
+        widths:
+
+        * no ``source`` -- which sources are recorded here at all, with counts.
+          What a consumer reads before it knows any refs.
+        * ``refs=a,b,c`` -- those nodes, in one round trip. The freshness check:
+          a caller holding published assets asks about every one at once rather
+          than N times over a slow link.
+        * ``since=<iso8601>`` -- what has moved since a cursor the caller keeps.
+          The polling shape.
+        """
+        pool = _source_nodes_pool(request)
+        scope_str = str(scope_obj)
+
+        if not source:
+            return JSONResponse(
+                {
+                    "scope": scope_str,
+                    "sources": [
+                        {
+                            "source": row["source"],
+                            "nodes": row["nodes"],
+                            "last_changed_at": row["last_changed_at"].isoformat() if row["last_changed_at"] else None,
+                            "observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
+                        }
+                        for row in await db_module.list_source_node_sources(pool, scope=scope_str)
+                    ],
+                }
+            )
+
+        limit = max(1, min(int(limit or 1000), 10000))
+
+        if refs:
+            wanted = [r.strip() for r in refs.split(",") if r.strip()]
+            if len(wanted) > limit:
+                raise HTTPException(status_code=400, detail=f"at most {limit} refs per request, got {len(wanted)}")
+            found = await db_module.get_source_nodes(pool, scope=scope_str, source=source, node_refs=wanted)
+            by_ref = {n.node_ref: n for n in found}
+            return JSONResponse(
+                {
+                    "scope": scope_str,
+                    "source": source,
+                    "nodes": [_source_node_json(by_ref[r]) for r in wanted if r in by_ref],
+                    # Named rather than merely absent: a ref nobody has recorded
+                    # is not a ref that has not changed, and a caller must be
+                    # able to tell those apart before trusting an asset.
+                    "unknown": [r for r in wanted if r not in by_ref],
+                }
+            )
+
+        parsed_since = None
+        if since:
+            try:
+                parsed_since = datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"since is not an ISO-8601 timestamp: {since!r}")
+
+        nodes = await db_module.list_source_nodes_changed_since(
+            pool, scope=scope_str, source=source, since=parsed_since, limit=limit
+        )
+        return JSONResponse(
+            {
+                "scope": scope_str,
+                "source": source,
+                "since": parsed_since.isoformat() if parsed_since else None,
+                "nodes": [_source_node_json(n) for n in nodes],
+                "truncated": len(nodes) >= limit,
+            }
         )
 
     @api.get("/scopes/{scope}/blobs/{key:path}")
