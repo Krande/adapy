@@ -302,7 +302,7 @@ def test_rv_combination_matches_xtract_float32_accumulation_order():
             combination_step=10,
         )
 
-    # mini_065 lcc2, element 5087 / resultpoint 2 / TAUXY. Xtract
+    # Validation deck, case lcc2, element 5087 / resultpoint 2 / TAUXY. Xtract
     # obtains -4708.25 from these six stored float32 terms; a float64
     # accumulator produces -4708.58605055511 instead.
     assert accumulated[1, 5] == -4708.25

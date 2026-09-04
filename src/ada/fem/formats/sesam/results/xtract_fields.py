@@ -5,7 +5,7 @@ explicit supports and never has to guess whether averaging a Gauss-point field
 is equivalent to Xtract (it generally is not).
 
 The first supported shell families are Sesam type 24/25 (four-node quad and
-three-node triangle), which are the shell families in the mini_065 validation
+three-node triangle), which are the shell families in the Sesam validation
 model. Unsupported layouts retain the raw STRESS field but do not advertise
 Xtract-derived fields.
 """

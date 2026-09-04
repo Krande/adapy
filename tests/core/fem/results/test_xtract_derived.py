@@ -28,7 +28,7 @@ def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
 
 
 def test_shell_derived_values_match_xtract_reference_row():
-    # mini_065, case girder_local, element 3, result point 1.
+    # Validation deck, case girder_local, element 3, result point 1.
     bottom = np.array([-18501.4414, 34330.4570, -88173.4922])
     top = np.array([-10081.1406, 22917.3867, -89579.0547])
     d = decompose_shell(bottom, top)
@@ -55,7 +55,7 @@ def test_principal_and_von_mises_are_derived_after_averaging():
 
 
 def test_beam_stress_and_opposite_modulus_match_xtract_reference_row():
-    # mini_065 section 3 (L profile), case girder_local, element-average 1.
+    # Validation deck, section 3 (L profile), case girder_local, element-average 1.
     forces = np.array([17.0405, 0.33257, -0.286778, 0.0412886, -2.1367, 0.159368])
     iy = 1.4367315998242702e-05
     iz = 3.217272421807138e-07
