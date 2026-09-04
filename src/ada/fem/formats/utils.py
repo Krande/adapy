@@ -676,20 +676,22 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     if Config().fem_convert_options_fem2concepts_include_ecc is True:
         if elem.eccentricity is not None:
             ecc = elem.eccentricity
+            # NEGATED, whole. Beam.e1/e2 are not applied as written: the geometry
+            # path runs them through BeamJustification.curve_offset_local, which
+            # does `off = -e` ("local offsets start from -e"). An eccentricity is
+            # a global offset from the node to the beam end and has to end up
+            # applied as given, so it goes in with its sign flipped.
+            #
+            # This used to negate only y and z, behind a comment admitting it had
+            # been tested on one case. That cancels the -e convention on those two
+            # axes and leaves x inverted: measured on four stiffeners with a known
+            # offset, the vector actually applied came back (-ex, +ey, +ez). Only
+            # an x-offset beam was placed on the wrong side of its plate, which is
+            # why it went unnoticed.
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
-                e1 = ecc.end1.ecc_vector
-                e1 = (
-                    e1[0],
-                    -e1[1],
-                    -e1[2],
-                )  # todo this gives alignment cog calc and ada viewer etc (tested only for horizontal beam with box section with offset in global z)
+                e1 = tuple(-float(v) for v in ecc.end1.ecc_vector)
             if ecc.end2 is not None and ecc.end2.node.id == n2.id:
-                e2 = ecc.end2.ecc_vector
-                e2 = (
-                    e2[0],
-                    -e2[1],
-                    -e2[2],
-                )  # todo this gives alignment cog calc and ada viewer etc (tested only for  horizontal beam with box section with offset in global z)
+                e2 = tuple(-float(v) for v in ecc.end2.ecc_vector)
 
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")

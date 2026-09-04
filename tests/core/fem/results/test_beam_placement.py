@@ -139,3 +139,40 @@ def test_beam_offsets_are_applied_negated_by_the_geometry_path():
     assert np.isclose(delta, -0.5, atol=1e-9), (
         f"expected the offset to move OPPOSITE to e (delta -0.5), got {delta}"
     )
+
+
+def test_line_elem_to_beam_hands_over_a_negated_eccentricity():
+    """The conversion path's sign, which was half-right for years.
+
+    Beam.e1/e2 are applied as ``-e`` by the geometry path, so an eccentricity —
+    a global offset from the node to the beam end — has to be handed over
+    negated. It used to negate only y and z, which cancels that convention on
+    those two axes and leaves x inverted: the vector actually applied came back
+    (-ex, +ey, +ez), so a beam offset along x was placed on the wrong side of its
+    plate and one offset along y or z was fine. That asymmetry is why it survived.
+    """
+    from ada import Beam, Node, Part, Section
+    from ada.fem import Elem, FemSection, FemSet
+    from ada.fem.elements import EccPoint, Eccentricity
+    from ada.fem.formats.utils import line_elem_to_beam
+    from ada.fem.shapes.definitions import LineShapes
+    from ada.materials import Material
+
+    part = Part("ecc_sign")
+    n1 = Node((0.0, 0.0, 0.0), 1)
+    n2 = Node((1.0, 0.0, 0.0), 2)
+    el = Elem(1, [n1, n2], LineShapes.LINE)
+    el.fem_sec = FemSection(
+        "fs", "line", FemSet("s", [el]), Material("mat"), Section("IPE300", from_str="IPE300"), local_z=(0, 0, 1)
+    )
+
+    ecc = np.array([0.3, -0.4, 0.5])
+    el.eccentricity = Eccentricity(EccPoint(n1, ecc), EccPoint(n2, ecc))
+
+    bm = line_elem_to_beam(el, part, "BM")
+    assert isinstance(bm, Beam)
+    # Every component negated, not just y and z.
+    assert np.allclose(np.asarray(bm.e1, dtype=float), -ecc, atol=1e-12), (
+        f"expected {(-ecc).tolist()}, got {np.asarray(bm.e1, dtype=float).tolist()}"
+    )
+    assert np.allclose(np.asarray(bm.e2, dtype=float), -ecc, atol=1e-12)
