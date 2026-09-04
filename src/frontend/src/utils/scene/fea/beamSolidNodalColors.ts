@@ -13,8 +13,9 @@ import {getColormap} from "./colormaps";
 // interpolated to a colour.
 //
 // So a displacement field paints the beams as well as the shells, which is what
-// Xtract does and what an element field (G-FORCE) already did here. Leaving the
-// beams in their base material said something untrue: not "no data", but "zero".
+// the reference postprocessor does, and what an element field (G-FORCE) already
+// did here. Leaving the beams in their base material said something untrue:
+// not "no data", but "zero".
 //
 // Linear along the beam only. The section is painted with its axial value and
 // nothing is interpolated ACROSS it, because the nodal field carries no

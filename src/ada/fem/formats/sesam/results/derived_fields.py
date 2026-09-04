@@ -1,13 +1,13 @@
-"""Build Xtract-style fields from raw Sesam SIN/SIF result records.
+"""Build derived fields from raw Sesam SIN/SIF result records.
 
 This module owns the source-specific position semantics. The frontend receives
 explicit supports and never has to guess whether averaging a Gauss-point field
-is equivalent to Xtract (it generally is not).
+is equivalent to the reference postprocessor (it generally is not).
 
 The first supported shell families are Sesam type 24/25 (four-node quad and
 three-node triangle), which are the shell families in the Sesam validation
 model. Unsupported layouts retain the raw STRESS field but do not advertise
-Xtract-derived fields.
+derived fields.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from collections import defaultdict
 import numpy as np
 
 from ada.fem.formats.sesam.read import cards
-from ada.fem.formats.sesam.results.xtract_catalog import presentation, semantic_name
-from ada.fem.formats.sesam.results.xtract_derived import (
+from ada.fem.formats.sesam.results.result_catalog import presentation, semantic_name
+from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
     D_STRESS_COMPONENTS,
     G_FORCE_COMPONENTS,
@@ -33,13 +33,13 @@ from ada.fem.formats.sesam.results.xtract_derived import (
     plane_principal,
     stress_resultants,
 )
-from ada.fem.formats.sesam.results.xtract_units import common_result_unit, result_component_units
+from ada.fem.formats.sesam.results.result_units import common_result_unit, result_component_units
 from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData, NodalFieldType
 
 
 _SHELL_CORNER_INDICES = {
     # Surface/result-point order is node0, node1, centre, node3, node2
-    # for FQUS. Xtract's Elements slots follow connectivity order.
+    # for FQUS. The reference postprocessor's Elements slots follow connectivity order.
     10: (0, 1, 4, 3),
     # FTRS: node0, node1, centre, node2.
     8: (0, 1, 3),
@@ -136,7 +136,7 @@ def _nodal_field(
     )
 
 
-def build_xtract_nodal_kinematics(
+def build_nodal_kinematics(
     nodal_fields: list[NodalFieldData],
     node_ids: np.ndarray,
     *,
@@ -218,7 +218,7 @@ def _shell_surfaces(raw: ElementFieldData):
     # Preserve reader order and guard against np.unique sorting a different one.
     labels = per_element[:, 0, 0].astype(int)
     # SIN result words are IEEE float32. Preserve that precision through the
-    # position averaging which precedes derived calculations in Xtract;
+    # position averaging which precedes derived calculations in the reference postprocessor;
     # promoting before the average changes cancellation-sensitive values.
     basic = np.asarray(per_element[:, :, 2:5], dtype=np.float32)
     n_surface = n_ips // 2
@@ -259,7 +259,7 @@ def _shell_position_arrays(bottom, top, corner_indices):
 def _surface_values_and_positions(bottom: np.ndarray, top: np.ndarray, in_plane=None):
     """Pack selectable shell surfaces into one AFEL integration-point axis.
 
-    Top comes first to retain Xtract's upper-surface default and listing slot
+    Top comes first to retain the reference postprocessor's upper-surface default and listing slot
     order. The signed third entry is converted to ``top``/``bottom`` by the
     generic artefact writer, so no Sesam-specific surface logic is needed in
     the viewer.
@@ -391,8 +391,8 @@ def _shell_fields_for_raw(raw, mesh, sif, nodal_contrib, wanted):
                 )
             )
 
-    # Keep paired basic stresses for the Xtract Nodes calculation. Values map
-    # to connectivity order because corner_indices is Xtract's element-slot
+    # Keep paired basic stresses for the Nodes calculation. Values map
+    # to connectivity order because corner_indices is the reference postprocessor's element-slot
     # order, not the raw RDPOINTS order.
     if any(
         _wants(wanted, "nodes", attribute)
@@ -419,7 +419,7 @@ def _average_nodal_shell(contrib, node_ids):
     cos_limit = np.cos(np.deg2rad(5.0))
     for ni, node_id in enumerate(node_ids):
         rows = contrib.get(int(node_id), ())
-        # Xtract only creates a nodal average where at least two eligible
+        # The reference postprocessor only creates a nodal average where at least two eligible
         # adjoining shell elements contribute. A lone boundary value remains
         # blank in the listing.
         if len(rows) < 2:
@@ -435,7 +435,7 @@ def _average_nodal_shell(contrib, node_ids):
             if thickness_ok and normal_ok:
                 eligible.append(row)
         # Multiple non-coplanar/thickness groups at one node are ambiguous in a
-        # single nodal scalar field. Match Xtract's blank rather than choosing a
+        # single nodal scalar field. Match the reference postprocessor's blank rather than choosing a
         # group silently.
         if len(eligible) != len(rows) or len(eligible) < 2:
             continue
@@ -652,14 +652,14 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted):
     return out
 
 
-def build_xtract_fields(
+def build_derived_fields(
     raw_fields: list[ElementFieldData],
     mesh,
     sif,
     *,
     wanted: set[str] | None = None,
 ) -> list[ElementFieldData | NodalFieldData]:
-    """Derive every currently-supported Xtract field from one loaded step."""
+    """Derive every currently-supported derived field from one loaded step."""
 
     out: list[ElementFieldData | NodalFieldData] = []
     shell_by_step: dict[int, list[ElementFieldData]] = defaultdict(list)
@@ -696,4 +696,4 @@ def build_xtract_fields(
     return out
 
 
-__all__ = ["build_xtract_fields", "build_xtract_nodal_kinematics"]
+__all__ = ["build_derived_fields", "build_nodal_kinematics"]

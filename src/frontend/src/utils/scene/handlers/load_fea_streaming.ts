@@ -1155,7 +1155,7 @@ export async function load_fea_streaming(args: {
         // parameter, which is the very interpolation installBeamSolidWarp uses to
         // MOVE that vertex. Anything that can be interpolated to a position can be
         // interpolated to a colour, so a displacement field now paints the beams as
-        // well as the shells — as Xtract does, and as an element field already did
+        // well as the shells — as the reference postprocessor does, and as an element field already did
         // here. Base material on a beam that has a value does not read as "no data";
         // it reads as zero.
         //

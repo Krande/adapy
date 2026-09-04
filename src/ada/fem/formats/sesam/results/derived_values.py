@@ -1,8 +1,8 @@
-"""Pure numerical kernels for DNV Sesam Xtract-compatible result fields.
+"""Pure numerical kernels for derived result fields.
 
 The functions operate on arrays whose final axis is components. They contain
 no reader or viewer state, which makes the calculation order independently
-testable against Xtract listings.
+testable against the reference listings.
 """
 
 from __future__ import annotations
@@ -49,10 +49,10 @@ def general_stress(basic: np.ndarray) -> np.ndarray:
 
 
 def decompose_shell(bottom: np.ndarray, top: np.ndarray) -> np.ndarray:
-    """Compute Xtract D-STRESS from paired lower/upper shell stresses.
+    """Compute D-STRESS from paired lower/upper shell stresses.
 
     Inputs are ``[..., (SIGXX, SIGYY, TAUXY)]``. Positive bending is
-    ``(upper - lower) / 2``, matching Xtract Appendix B and its upper-surface
+    ``(upper - lower) / 2``, matching the reference documentation Appendix B and its upper-surface
     sign convention.
     """
 
@@ -83,9 +83,9 @@ def membrane_principal(decomposed: np.ndarray) -> np.ndarray:
 
 
 def stress_resultants(decomposed: np.ndarray, thickness) -> np.ndarray:
-    """Compute Xtract shell resultants from D-STRESS and thickness.
+    """Compute shell resultants from D-STRESS and thickness.
 
-    Output ordering follows the Xtract tree/listing used by the viewer:
+    Output ordering follows the tree/listing used by the viewer:
     ``NXX, NXY, NYY, MXY, MXX, MYY``.
     """
 
@@ -131,7 +131,7 @@ def beam_stress(
     wymin2: float | None = None,
     wzmin2: float | None = None,
 ) -> np.ndarray:
-    """Compute Xtract B-STRESS from G-FORCE and section properties."""
+    """Compute B-STRESS from G-FORCE and section properties."""
 
     f = np.asarray(forces, dtype=float)
     if f.shape[-1] != 6:

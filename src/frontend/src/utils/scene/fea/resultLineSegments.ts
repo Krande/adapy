@@ -7,7 +7,7 @@ import {selectedSegments} from "./lineSegmentIds";
 
 // Beam (line) elements, drawn with their result colour.
 //
-// Xtract colours beams whether or not they are drawn as solids, and so do we now.
+// The reference postprocessor colours beams whether or not they are drawn as solids, and so do we now.
 // Previously this renderer only ran when the bake carried NO beam solids at all,
 // so a deck that HAD solids showed black beams the moment the solids were
 // switched off — the values were there, the colour was not.

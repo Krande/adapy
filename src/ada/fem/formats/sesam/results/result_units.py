@@ -1,4 +1,4 @@
-"""Units for Xtract-style fields derived from the Sesam ``UNITS`` record."""
+"""Units for derived fields derived from the Sesam ``UNITS`` record."""
 
 from __future__ import annotations
 

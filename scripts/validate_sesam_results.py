@@ -1,12 +1,12 @@
-"""Compare adapy's Xtract-style fields with Xtract ``result save`` listings.
+"""Compare adapy's derived fields with the reference postprocessor ``result save`` listings.
 
 Usage:
-    python scripts/validate_sesam_xtract_oracle.py MODEL.SIN XTRACT_RESULTS_DIR
-    python scripts/validate_sesam_xtract_oracle.py MODEL.SIN PROBE_DIR --allow-partial
+    python scripts/validate_sesam_results.py MODEL.SIN REFERENCE_RESULTS_DIR
+    python scripts/validate_sesam_results.py MODEL.SIN PROBE_DIR --allow-partial
 
 The directory is expected to contain one tab-separated file per
 ``<position>__<attribute>`` pair, named that way -- for example
-``element-average__D-STRESS.txt`` -- as written by Xtract's ``result save``
+``element-average__D-STRESS.txt`` -- as written by the reference postprocessor's ``result save``
 command. A journal that loops over the positions and attributes produces the
 whole set in one run.
 
@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ada.fem.formats.sesam.results.read_sin import SinStreamReader, open_sin
-from ada.fem.formats.sesam.results.xtract_catalog import semantic_name
+from ada.fem.formats.sesam.results.result_catalog import semantic_name
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
 
@@ -114,14 +114,14 @@ def _actual_values(result, field_name: str):
 
 
 def printed_half_ulp(text: str) -> float:
-    """Half the value of the last digit Xtract actually printed.
+    """Half the value of the last digit the reference postprocessor actually printed.
 
-    The listings are text, and Xtract does not print a fixed number of
+    The listings are text, and the reference postprocessor does not print a fixed number of
     significant digits: ``1.10191e+07`` carries six, ``-96.8`` carries three.
     Comparing either against a float64 computation with one fixed relative
     tolerance is therefore meaningless -- too tight for the short prints, too
-    loose for the long ones. A value that agrees with Xtract to every digit
-    Xtract chose to write down is not a difference, and counting it as one was
+    loose for the long ones. A value that agrees to every digit the
+    reference postprocessor chose to write down is not a difference, and counting it as one was
     inflating the residual by more than an order of magnitude.
 
     So the tolerance comes from the text: the last printed digit's place value,
@@ -171,13 +171,13 @@ def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float
             expected = float(expected_text)
             checked += 1
             error = abs(got - expected)
-            # The printed precision is the floor: agreeing to every digit Xtract
+            # The printed precision is the floor: agreeing to every digit the reference postprocessor
             # wrote down is agreement, whatever the caller asked for.
             limit = max(atol + rtol * abs(expected), printed_half_ulp(expected_text))
             if not math.isfinite(got) or error > limit:
                 mismatches.append((entity, component, slot, expected, got, error))
 
-    # A field must not contain an extra finite slot/entity that Xtract listed
+    # A field must not contain an extra finite slot/entity that the reference postprocessor listed
     # as nonexistent. This catches accidental use of the raw lower surface.
     for key, got in actual.items():
         if math.isfinite(got) and key not in expected_keys:

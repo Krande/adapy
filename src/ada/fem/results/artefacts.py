@@ -757,12 +757,12 @@ class FEAResultStreamAdapter:
         return self._result_cases
 
     def _sesam_superseded_raw_fields(self) -> set[tuple[str, object | None]]:
-        """Raw Sesam fields replaced by semantic Xtract fields in this result.
+        """Raw Sesam fields replaced by semantic derived fields in this result.
 
         The eager result intentionally retains its source-card fields for API
         compatibility and diagnostics.  They should not also be advertised by
         the viewer bake when a semantic field covers the same support, because
-        that creates duplicate flat entries beside the Xtract hierarchy.
+        that creates duplicate flat entries beside the hierarchy.
 
         The element type is part of the key so an unsupported shell/beam layout
         keeps its raw fallback even when another type in the same result was

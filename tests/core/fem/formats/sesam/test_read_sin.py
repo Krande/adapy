@@ -281,8 +281,8 @@ def test_rv_combination_accumulates_values_not_metadata():
     assert np.allclose(out[1, 5:], 1.2 * a[1, 5:] - 0.5 * b[1, 5:])
 
 
-def test_rv_combination_matches_xtract_float32_accumulation_order():
-    """Large cancelling terms expose float64-vs-Xtract differences."""
+def test_rv_combination_matches_reference_float32_accumulation_order():
+    """Large cancelling terms expose float64-vs-float32 differences."""
 
     from ada.fem.formats.sesam.read import cards
     from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
@@ -302,13 +302,13 @@ def test_rv_combination_matches_xtract_float32_accumulation_order():
             combination_step=10,
         )
 
-    # Validation deck, case lcc2, element 5087 / resultpoint 2 / TAUXY. Xtract
+    # Validation deck, case lcc2, element 5087 / resultpoint 2 / TAUXY. The reference postprocessor
     # obtains -4708.25 from these six stored float32 terms; a float64
     # accumulator produces -4708.58605055511 instead.
     assert accumulated[1, 5] == -4708.25
 
 
-def test_variable_width_rv_combination_matches_xtract_float32_accumulation_order():
+def test_variable_width_rv_combination_matches_reference_float32_accumulation_order():
     """RVSTRESS uses the list path because descriptor payload widths vary."""
 
     from ada.fem.formats.sesam.read import cards
@@ -433,7 +433,7 @@ def test_sin_load_step_card_filter():
     keeps exactly the requested card's field and drops the others."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.formats.sesam.results.sin_reader import open_sin
-    from ada.fem.formats.sesam.results.xtract_catalog import semantic_name
+    from ada.fem.formats.sesam.results.result_catalog import semantic_name
 
     reader = SinStreamReader(open_sin(SIN_PATH))
     try:
@@ -590,7 +590,7 @@ def test_viewer_adapter_hides_only_superseded_raw_sesam_fields():
     """The result API keeps source cards, while the viewer exposes one hierarchy.
 
     A supported SIN used to advertise RVNODDIS/STRESS alongside their canonical
-    Xtract replacements.  Filtering at the adapter boundary avoids duplicate UI
+    Derived replacements.  Filtering at the adapter boundary avoids duplicate UI
     entries without removing raw fallback data from the eager reader.
     """
     from ada.fem.formats.sesam.results.read_sin import read_sin_file

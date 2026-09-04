@@ -375,7 +375,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             // Line elements have AFEM entries with zero triangles, so their
             // values cannot colour the face mesh. Draw a two-vertex segment
             // from the manifest connectivity as the no-solid fallback. For
-            // Xtract Elements fields the two result slots map to the beam
+            // In Elements fields, the two result slots map to the beam
             // ends; element-average fields use one colour at both ends.
             if (
                 lineFallback
@@ -471,7 +471,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             if (!dr) continue;
             const [vStart, vCount] = dr;
 
-            // Xtract Elements fields carry one value per element-local corner.
+            // In Elements fields, carry one value per element-local corner.
             // Preserve that variation instead of collapsing all corners through
             // the generic IP reducer. The first-seen vertex order of the AFEM
             // triangle fan follows source connectivity for TRI/QUAD cells.

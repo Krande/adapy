@@ -7,7 +7,7 @@ import type {FeaManifestField} from "@/services/viewerApi";
 // a plain vector whose components START with the translation — `["X","Y","Z"]`
 // or `["X","Y","Z","RX","RY","RZ"]`.
 //
-// Sesam's Xtract-style displacement is not. It is
+// Sesam's derived displacement is not. It is
 //
 //     ["ALL", "X", "Y", "Z", "RX", "RY", "RZ"]
 //
@@ -33,7 +33,7 @@ const AXIS_ALIASES: readonly (readonly string[])[] = [
  * field does not carry (a 1D or 2D field — the caller writes 0 there).
  *
  * Named components win. A field that names none of them keeps the historical
- * positional reading, which is what every pre-Xtract manifest relies on.
+ * positional reading, which is what every pre-1.2 manifest relies on.
  */
 export function translationOffsets(field: FeaManifestField): [number, number, number] {
     const names = field.components.map((c) => c.toLowerCase());

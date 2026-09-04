@@ -954,21 +954,21 @@ class Sif2Mesh:
         self,
         requested_fields: set[str] | None = None,
     ) -> list[ElementFieldData | NodalFieldData]:
-        from ada.fem.formats.sesam.results.xtract_fields import (
-            build_xtract_fields,
-            build_xtract_nodal_kinematics,
+        from ada.fem.formats.sesam.results.derived_fields import (
+            build_derived_fields,
+            build_nodal_kinematics,
         )
 
         nodal = self.get_nodal_data()
         raw_fields = self.get_field_data()
         result_blocks = [*nodal, *raw_fields]
-        result_blocks += build_xtract_nodal_kinematics(
+        result_blocks += build_nodal_kinematics(
             nodal,
             np.asarray(self.mesh.nodes.identifiers, dtype=int),
             wanted=requested_fields,
             unit_factors=self.sif.get_unit_factors(),
         )
-        result_blocks += build_xtract_fields(
+        result_blocks += build_derived_fields(
             raw_fields,
             self.mesh,
             self.sif,
@@ -1234,7 +1234,7 @@ def get_nodal_reactions(
 ) -> list[NodalFieldData]:
     """Expand sparse ``RVNODREA`` rows to a dense six-component nodal field.
 
-    Xtract lists reactions for every model node and displays zero at nodes
+    The reference postprocessor lists reactions for every model node and displays zero at nodes
     without a stored reaction.  SIN stores only constrained nodes, and each
     row may contain a different subset of F1..F6 selected by ``RDNODREA``.
     This function reconstructs that dense, stable node order without treating

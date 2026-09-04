@@ -22,7 +22,7 @@ import numpy as np
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.read_sif import SifReader
 from ada.fem.formats.sesam.results.sin_reader import SinFile, open_sin
-from ada.fem.formats.sesam.results.xtract_catalog import semantic_name
+from ada.fem.formats.sesam.results.result_catalog import semantic_name
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -247,7 +247,7 @@ class SinReader(SifReader):
         """Materialise a linear ``RDRESCMB`` case from its stored basic cases.
 
         Combination is deliberately performed on the raw RV component values,
-        before :class:`Sif2Mesh` computes any nonlinear Xtract quantities such
+        before :class:`Sif2Mesh` computes any nonlinear derived quantities such
         as principal or von Mises stress.  Metadata columns (entity ids,
         descriptor ids, local systems) must be identical across contributing
         cases; a drift is an input/schema error and is surfaced.
@@ -302,7 +302,7 @@ class SinReader(SifReader):
         values before :class:`Sif2Mesh` derives anything nonlinear from them.
         Doing it here rather than after the fact is what makes the combined case
         an ordinary step to everything downstream: von Mises and principal
-        stresses are computed from the combined components, which is what Xtract
+        stresses are computed from the combined components, which is what the reference postprocessor
         does, and not combined after the fact, which would be wrong.
         """
         combinations = read_result_combinations(self.sin)
@@ -548,7 +548,7 @@ def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combin
         current = np.asarray(rows, dtype=np.float64)
         if accumulated is None:
             out = current.copy()
-            # NORSAM result values and factors are IEEE float32 words. Xtract
+            # NORSAM result values and factors are IEEE float32 words. The reference postprocessor
             # superposes them in that precision, one contributor at a time.
             # Keeping the accumulator in float64 changes cancellation-heavy
             # combinations by visible amounts (several tenths for stresses of

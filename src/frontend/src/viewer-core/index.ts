@@ -56,7 +56,7 @@
 // built against the newer facade fails on an older core at an undefined import,
 // from inside the shell, with nothing naming the mismatch.
 //
-//   1.2.0  Xtract result hierarchy, component/layer actions and unit helpers
+//   1.2.0  derived result hierarchy, component/layer actions and unit helpers
 //          on `@/viewer-core/scene`.
 //          Plus `CanvasWrapper`'s `legend` prop, so a shell that places the
 //          legend itself can stop core mounting a second one, and

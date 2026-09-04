@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ada.fem.formats.sesam.results.xtract_derived import (
+from ada.fem.formats.sesam.results.derived_values import (
     beam_stress,
     decompose_shell,
     general_stress,
@@ -11,8 +11,8 @@ from ada.fem.formats.sesam.results.xtract_derived import (
     plane_principal,
     stress_resultants,
 )
-from ada.fem.formats.sesam.results.xtract_fields import _surface_values_and_positions
-from ada.fem.formats.sesam.results.xtract_units import common_result_unit, result_component_units
+from ada.fem.formats.sesam.results.derived_fields import _surface_values_and_positions
+from ada.fem.formats.sesam.results.result_units import common_result_unit, result_component_units
 
 
 def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
@@ -27,7 +27,7 @@ def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
     assert [position[1] for position in positions] == ["1", "2", "3", "1", "2", "3"]
 
 
-def test_shell_derived_values_match_xtract_reference_row():
+def test_shell_derived_values_match_reference_row():
     # Validation deck, case girder_local, element 3, result point 1.
     bottom = np.array([-18501.4414, 34330.4570, -88173.4922])
     top = np.array([-10081.1406, 22917.3867, -89579.0547])
@@ -54,7 +54,7 @@ def test_principal_and_von_mises_are_derived_after_averaging():
     assert np.allclose(membrane_principal(d), p)
 
 
-def test_beam_stress_and_opposite_modulus_match_xtract_reference_row():
+def test_beam_stress_and_opposite_modulus_match_reference_row():
     # Validation deck, section 3 (L profile), case girder_local, element-average 1.
     forces = np.array([17.0405, 0.33257, -0.286778, 0.0412886, -2.1367, 0.159368])
     iy = 1.4367315998242702e-05
@@ -81,7 +81,7 @@ def test_beam_stress_and_opposite_modulus_match_xtract_reference_row():
     )
 
 
-def test_xtract_component_units_preserve_mixed_dimensions():
+def test_component_units_preserve_mixed_dimensions():
     si = (1.0, 1.0, 1.0)
 
     assert result_component_units(si, "G-STRESS", ("SIGXX", "VONMISES")) == ("Pa", "Pa")
@@ -92,7 +92,7 @@ def test_xtract_component_units_preserve_mixed_dimensions():
     assert common_result_unit(("N", "N·m")) == ""
 
 
-def test_xtract_component_units_support_documented_mm_kn_set():
+def test_component_units_support_documented_mm_kn_set():
     units = result_component_units((0.001, 1000.0, 1.0), "REACTION-FORCE", ("X-FORCE", "RX-MOMENT"))
 
     assert units == ("kN", "kN·mm")

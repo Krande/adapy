@@ -14,7 +14,7 @@ class FieldPresentation:
     """Optional semantic/presentation metadata for a result field.
 
     Readers populate this when the source exposes a hierarchy richer than a
-    flat field name (Sesam Xtract's Position -> Attribute -> Component tree is
+    flat field name (the Position -> Attribute -> Component tree is
     the first consumer). Generic formats may leave it ``None`` and retain the
     existing flat-picker behaviour.
     """

@@ -1,4 +1,4 @@
-"""Xtract field naming and manifest-presentation helpers."""
+"""Derived field naming and manifest-presentation helpers."""
 
 from __future__ import annotations
 
