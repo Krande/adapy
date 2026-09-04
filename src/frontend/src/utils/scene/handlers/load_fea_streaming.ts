@@ -33,6 +33,8 @@ import {autoWarpScale} from "../fea/warpScale";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {setSourceMorph} from "../fea/sourceMorph";
+import {setResultLineSegmentsVisible} from "../fea/resultLineSegments";
+import {FEA_EDGE_COLOR} from "../fea/edgeColors";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -95,6 +97,12 @@ export function setBeamSolidsVisible(visible: boolean): void {
     if (active?.beamSolidMesh) {
         active.beamSolidMesh.visible = visible;
     }
+    // The coloured lines are the OTHER rendering of the same elements, so they
+    // show exactly when the solids do not. Drawing both would double the beam and
+    // leave a fat line straddling every section.
+    if (active?.mesh) {
+        setResultLineSegmentsVisible(active.mesh, !visible);
+    }
     if (active?.beamSolidEdges) {
         // The wireframe lives as a child of beamSolidMesh, so it would
         // inherit ancestor invisibility, but ``mesh.visible = false``
@@ -104,6 +112,86 @@ export function setBeamSolidsVisible(visible: boolean): void {
         // wireframe to a sibling without losing the link.
         active.beamSolidEdges.visible = visible;
     }
+}
+
+/** Every element-edge wireframe in the active session, main mesh and beam solids. */
+function elementEdgeOverlays(): THREE.LineSegments[] {
+    const out: THREE.LineSegments[] = [];
+    for (const parent of [active?.mesh, active?.beamSolidMesh]) {
+        if (!parent) continue;
+        for (const name of ["fea-element-edges", "fea-beam-solid-element-edges"]) {
+            const child = parent.getObjectByName(name);
+            if (child instanceof THREE.LineSegments) out.push(child);
+        }
+    }
+    return out;
+}
+
+/**
+ * Show or hide the element-edge wireframe on the loaded result.
+ *
+ * A RUNTIME toggle, unlike the ``hideElementEdges`` perf flag: that one is read
+ * when the mesh is built and decides whether the overlay is created at all, so
+ * flipping it does nothing to a model already on screen. This flips `visible` on
+ * what exists, which is what a toolbar button has to do.
+ *
+ * The beam-solid wireframe stays subordinate to the solids themselves — hiding
+ * edges must not reveal a wireframe for solids that are switched off.
+ */
+export function setFeaElementEdgesVisible(visible: boolean): void {
+    const solidsVisible = active?.beamSolidMesh?.visible ?? true;
+    for (const overlay of elementEdgeOverlays()) {
+        overlay.visible = visible
+            && (overlay.name !== "fea-beam-solid-element-edges" || solidsVisible);
+    }
+    requestRender();
+}
+
+/**
+ * Paint the model with the result field, or show it in its base material.
+ *
+ * Off is not "no result" — the step, the field and the legend's range are all
+ * still what they were. It is the geometry question separated from the value
+ * question: turning colour off is how you look at the MESH, at a section cut, at
+ * where a beam actually sits, without a contour on top of it.
+ *
+ * Every surface that carries the field is covered, not just the shells: the
+ * beam-solid mesh, and the coloured beam lines that stand in for it when solids
+ * are off. Leaving either behind would say the colouring was still partly on,
+ * which is worse than not offering the switch.
+ */
+export function setFeaResultColorsVisible(visible: boolean): void {
+    const setVc = (mat: THREE.Material) => {
+        if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== visible) {
+            (mat as unknown as {vertexColors: boolean}).vertexColors = visible;
+            mat.needsUpdate = true;
+        }
+    };
+    for (const target of [active?.mesh, active?.beamSolidMesh]) {
+        if (!target) continue;
+        // The beam-solid mesh only carries vertex colours when a field actually
+        // painted it; forcing them on would tint it by whatever is in the buffer.
+        if (visible && target === active?.beamSolidMesh && !target.geometry.getAttribute("color")) continue;
+        const m = target.material;
+        if (Array.isArray(m)) m.forEach(setVc);
+        else if (m) setVc(m as THREE.Material);
+    }
+    if (active?.mesh) {
+        const solids = active.beamSolidMesh?.visible ?? false;
+        setResultLineSegmentsVisible(active.mesh, visible && !solids);
+    }
+    requestRender();
+}
+
+/** Are element edges currently drawn? False when the bake carried none. */
+export function feaElementEdgesVisible(): boolean {
+    const overlays = elementEdgeOverlays();
+    return overlays.length > 0 && overlays.some((o) => o.visible);
+}
+
+/** Does the loaded result carry an element-edge wireframe to toggle? */
+export function hasFeaElementEdges(): boolean {
+    return elementEdgeOverlays().length > 0;
 }
 
 /**
@@ -866,7 +954,7 @@ export async function load_fea_streaming(args: {
                             new THREE.BufferAttribute(beamEdgeIndices, 1),
                         );
                         const lineMat = new THREE.LineBasicMaterial({
-                            color: 0x111111,
+                            color: FEA_EDGE_COLOR,
                             depthTest: true,
                         });
                         const segments = new THREE.LineSegments(lineGeom, lineMat);
@@ -941,7 +1029,7 @@ export async function load_fea_streaming(args: {
                     lineGeom.setAttribute("position", mesh.geometry.attributes.position);
                     lineGeom.setIndex(new THREE.BufferAttribute(edgeIndices, 1));
                     const lineMat = new THREE.LineBasicMaterial({
-                        color: 0x111111,
+                        color: FEA_EDGE_COLOR,
                         depthTest: true,
                         // Transparent (opacity stays 1 — colour unchanged) so the
                         // element-edge wireframe joins the transparent render pass
@@ -1053,7 +1141,11 @@ export async function load_fea_streaming(args: {
             // carries its result on its own surface, and a coloured line as well
             // puts two renderings of one beam in the same place -- the black
             // element-edge overlay against the coloured line, neither legible.
-            lineFallback: !manifest.mesh.beam_solids_url,
+            // Always build them. Which of the two renderings you SEE is a
+            // visibility question, not a build-time one -- gating on whether the
+            // bake carried solids meant a deck that had them showed black beams
+            // the moment you switched the solids off.
+            lineFallback: true,
         });
         // Beam-solid mesh — paint with the same AFEL data. Beam
         // labels appear in both drawRanges maps, but the main-mesh
@@ -1196,6 +1288,15 @@ export async function load_fea_streaming(args: {
     // changes, and the ghost has to be rebuilt after one: the base positions it
     // copies belong to the source that was just loaded.
     refreshUndeformedGhost();
+
+    // Re-apply the view preferences a load resets: which beam rendering shows, and
+    // whether element edges are drawn. Both outlive the mesh they were set on.
+    {
+        const s = useFeaAnimationStore.getState();
+        if (active.mesh) setResultLineSegmentsVisible(active.mesh, !s.beamSolidsVisible);
+        setFeaElementEdgesVisible(s.elementEdgesVisible);
+        setFeaResultColorsVisible(s.resultColorsVisible);
+    }
 
     // Register the session with the animation store so
     // SimulationControls renders the deformation-scale slider /

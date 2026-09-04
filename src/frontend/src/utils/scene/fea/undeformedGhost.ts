@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import {FEA_UNDEFORMED_COLOR} from "./edgeColors";
+
 // The undeformed shape, drawn behind the deformed one.
 //
 // A warped model tells you where things ended up and not where they started, and
@@ -15,7 +17,7 @@ import * as THREE from "three";
 const GHOST_NAME = "__fea_undeformed_ghost__";
 
 /** Dim enough to read as background, bright enough to trace an edge against. */
-const GHOST_COLOR = 0x6b7280;
+const GHOST_COLOR = FEA_UNDEFORMED_COLOR;
 
 export function clearUndeformedGhost(mesh: THREE.Object3D): void {
     const existing = mesh.getObjectByName(GHOST_NAME) as THREE.LineSegments | undefined;

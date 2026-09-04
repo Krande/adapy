@@ -34,6 +34,7 @@
 // rewiring needed.
 
 import * as THREE from "three";
+import {FEA_EDGE_COLOR} from "./edgeColors";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {GLTFExporter} from "three/examples/jsm/exporters/GLTFExporter";
 
@@ -394,7 +395,7 @@ export async function assembleAnimatedFeaGlb(
                 }
                 lineGeom.setIndex(new THREE.BufferAttribute(idx, 1));
                 const lineMat = new THREE.LineBasicMaterial({
-                    color: 0x111111,
+                    color: FEA_EDGE_COLOR,
                     depthTest: true,
                 });
                 (lineMat as any).morphTargets = true;

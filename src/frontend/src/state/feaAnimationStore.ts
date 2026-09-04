@@ -113,6 +113,10 @@ export interface FeaAnimationState {
      *  "far behind WHAT" is the question this answers. Persisted across
      *  ``reset()`` like the other per-user view preferences. */
     showUndeformed: boolean;
+    /** Draw the element-edge wireframe over the result. */
+    elementEdgesVisible: boolean;
+    /** Paint the model with the result field, or show it in its base material. */
+    resultColorsVisible: boolean;
 
     /** Layer filter for element fields with multi-IP shell stacks.
      *  ``top``/``bottom``/``mid`` pick the matching IPs out of the
@@ -174,6 +178,8 @@ export interface FeaAnimationState {
     /** Loader-side. Applies a derived scale, but never over a user's own. */
     applyAutoScaleFactor: (s: number) => void;
     setShowUndeformed: (v: boolean) => void;
+    setElementEdgesVisible: (v: boolean) => void;
+    setResultColorsVisible: (v: boolean) => void;
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
@@ -213,6 +219,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Off by default: it doubles the line count on screen, and a user who has not
     // exaggerated anything has nothing to compare against yet.
     showUndeformed: false,
+    elementEdgesVisible: true,
+    resultColorsVisible: true,
     // Default layer / IP reduction mirror the bake's
     // ``default_view.layer`` / ``ip_reduction`` keys (artefacts.py
     // build_manifest). When a nodal field is active these are
@@ -248,6 +256,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     applyAutoScaleFactor: (scaleFactor) =>
         set((s) => (s.scaleFactorAuto ? {scaleFactor} : {})),
     setShowUndeformed: (showUndeformed) => set({showUndeformed}),
+    setElementEdgesVisible: (elementEdgesVisible) => set({elementEdgesVisible}),
+    setResultColorsVisible: (resultColorsVisible) => set({resultColorsVisible}),
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),

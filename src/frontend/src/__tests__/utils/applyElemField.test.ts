@@ -320,13 +320,21 @@ test("beam element fields color a line fallback without beam solids", () => {
     reduction: "SIGXX",
   });
 
-  const lines = mesh.getObjectByName("__fea_result_line_segments__") as THREE.LineSegments;
+  // Fat lines (LineSegments2) keep their endpoints in an interleaved INSTANCE
+  // buffer rather than a plain `position` attribute -- `position` there is the
+  // quad template every segment is drawn from, so asserting on it would be
+  // asserting on three.js. `instanceStart` and `instanceEnd` are two views onto
+  // the one buffer, so reading either gives both endpoints.
+  const lines = mesh.getObjectByName("__fea_result_line_segments__") as THREE.Object3D & {
+    geometry: THREE.BufferGeometry;
+  };
   assert.ok(lines);
-  assert.deepEqual(
-    Array.from(lines.geometry.getAttribute("position").array as Float32Array),
-    [0, 0, 0, 1, 0, 0],
-  );
-  const colors = lines.geometry.getAttribute("color").array as Float32Array;
+  const posAttr = lines.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute;
+  assert.deepEqual(Array.from(posAttr.data.array as Float32Array), [0, 0, 0, 1, 0, 0]);
+  const colorAttr = lines.geometry.getAttribute(
+    "instanceColorStart",
+  ) as THREE.InterleavedBufferAttribute;
+  const colors = colorAttr.data.array as Float32Array;
   assert.notDeepEqual(Array.from(colors.slice(0, 3)), Array.from(colors.slice(3, 6)));
 
   const nodalField = makeField();

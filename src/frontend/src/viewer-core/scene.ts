@@ -48,6 +48,9 @@ export {
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
   setFeaUndeformedGhost,
+  setFeaElementEdgesVisible,
+  setFeaResultColorsVisible,
+  hasFeaElementEdges,
 } from "@/utils/scene/handlers/load_fea_streaming";
 export {
   selectFeaResultComponent,

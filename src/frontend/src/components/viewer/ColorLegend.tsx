@@ -22,6 +22,7 @@ const ColorLegend = () => {
         fieldName,
         reduction,
         stepIndex,
+        resultColorsVisible,
         layer,
         ipReduction,
         colormap,
@@ -90,14 +91,26 @@ const ColorLegend = () => {
                     {hasExactMarkers && <div>Markers: exact · contour: {ipReduction} reduction</div>}
                 </div>
             )}
-            <div className="flex h-64 gap-2">
-                <div className="w-5 shrink-0 rounded-sm" style={gradientStyle}/>
-                <div className="flex flex-1 flex-col justify-between font-mono tabular-nums">
-                    {values.map((value, index) => (
-                        <span key={index}>{formatValue(value)}</span>
-                    ))}
+            {/* With result colouring switched off the scale would describe a
+                painting that is not on screen, and a reader has no way to tell a
+                stale legend from a live one. Say so instead: the field, step and
+                range above are all still true, and this is the one line that is
+                not. */}
+            {resultColorsVisible ? (
+                <div className="flex h-64 gap-2">
+                    <div className="w-5 shrink-0 rounded-sm" style={gradientStyle}/>
+                    <div className="flex flex-1 flex-col justify-between font-mono tabular-nums">
+                        {values.map((value, index) => (
+                            <span key={index}>{formatValue(value)}</span>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            ) : (
+                <div className="rounded-sm border border-dashed border-[var(--ada-panel-border)] px-2 py-3 opacity-70">
+                    Result colouring is off — the model is drawn in its base
+                    material. Range {formatValue(min)} to {formatValue(max)}.
+                </div>
+            )}
         </div>
     );
 };
