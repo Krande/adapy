@@ -30,6 +30,7 @@ import {clearGoToNode} from "../fea/goToNode";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
+import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
@@ -497,12 +498,25 @@ function installBeamSolidWarp(
     // reaction field or turn warp off.
 
     const geom = beamSolid.geometry;
+
+    // In the geometry's CURRENT vertex numbering, which is not always the one the
+    // warp sidecar is written in. Painting an element field expands this geometry to
+    // element-local vertices and swaps its position buffer -- 33,812 vertices become
+    // 172,260 -- and the expansion is cached, so it survives a switch back to a nodal
+    // field. A morph sized for the original count is silently ignored by three.js,
+    // which is why beam solids sat undeformed while everything around them moved.
+    // `sourceVertexIndices` returns the cached map, or the identity when the geometry
+    // was never expanded, so this is a no-op on the untouched case.
+    const renderToSource = sourceVertexIndices(geom, nVerts);
+    const renderPositions = expandSourceTriples(basePositions, renderToSource);
+    const renderDisplacement = expandSourceTriples(displacement, renderToSource);
+
     const posAttr = geom.getAttribute("position");
-    if (posAttr) {
-        (posAttr.array as Float32Array).set(basePositions);
+    if (posAttr && posAttr.count === renderToSource.length) {
+        (posAttr.array as Float32Array).set(renderPositions);
         posAttr.needsUpdate = true;
     }
-    geom.morphAttributes.position = [new THREE.BufferAttribute(displacement, 3)];
+    geom.morphAttributes.position = [new THREE.BufferAttribute(renderDisplacement, 3)];
     geom.morphTargetsRelative = true;
 
     // Share the main mesh's influences array so a single write to
