@@ -12,3 +12,12 @@ export const FEA_EDGE_COLOR = 0xffffff;
 
 /** The undeformed reference outline. Dark, so it reads as "behind". */
 export const FEA_UNDEFORMED_COLOR = 0x000000;
+
+/** Beam (line) element edges. Dimmer than the shell grid on purpose.
+ *
+ * A shell's element edges are a mesh you read element size off; a beam's edge is
+ * a member. Drawn in the same white the members disappear into the grid — they
+ * are individually far more prominent than any one shell edge, so matching
+ * brightness over-weights them. Grey keeps them legible as structure without
+ * competing with the surface they cross. */
+export const FEA_BEAM_EDGE_COLOR = 0x9aa0a6;

@@ -605,6 +605,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     // sitting undeformed while the faces moved. Nodal fields never expand, which is
     // why this only ever showed up on an element field.
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
+    setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
     const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
     const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);

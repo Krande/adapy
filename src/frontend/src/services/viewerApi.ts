@@ -367,6 +367,11 @@ export interface FeaManifest {
      * THREE.LineSegments sharing the mesh's position attribute
      * so deformation drives both surface and edges. */
     edges_url?: string;
+    /** The subset of ``edges_url`` belonging to LINE elements, same format.
+     *  Absent on a model with no beams, and on any bake older than the split.
+     *  Drawn in its own colour, and removed from ``edges_url`` before that is
+     *  drawn, so no edge is painted twice. */
+    line_edges_url?: string;
     n_edges?: number;
     /** Optional AFEM sidecar — per-element (label, tri_start,
      * tri_count). Frontend hydrates these into

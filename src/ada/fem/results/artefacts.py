@@ -1320,6 +1320,58 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -
     return n_edges
 
 
+def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
+    """Write the edges belonging to LINE elements, in the same format as
+    :func:`write_mesh_edges`.
+
+    A beam's mesh line and a shell's are both "element boundary", but they are not
+    the same thing to look at: the shell edges are a grid you read element size
+    off, the beam edges are members. Drawn in one colour the beams disappear into
+    the grid. The frontend gives them their own, dimmer one — which it can only do
+    if it knows which edges they are, and the main sidecar cannot say: it sorts and
+    dedupes every element's edges together, so any grouping by element type is
+    gone by the time it is written.
+
+    Emitted as a SEPARATE list rather than by reordering the main one, so an older
+    viewer reading a newer bake still draws every edge exactly as before, and a
+    newer viewer reading an older bake simply finds nothing here and does the same.
+    The frontend removes these pairs from the main set before drawing it, so no
+    edge is drawn twice.
+    """
+    # ``cell_blocks`` are meshio-shaped: a canonical type STRING and a connectivity
+    # array, not the ElemShape objects the topology walker sees.
+    line_types = {"line", "line3"}
+
+    pairs: list[tuple[int, int]] = []
+    for block in geom.cell_blocks:
+        if str(getattr(block, "cell_type", "")) not in line_types:
+            continue
+        refs = np.asarray(block.data)
+        if refs.ndim != 2 or refs.shape[1] < 2:
+            continue
+        # First and last node. A 3-node line element is one member with a
+        # mid-side node, not two segments, and the wireframe should say so.
+        for row in refs:
+            pairs.append((int(row[0]), int(row[-1])))
+
+    if pairs:
+        arr = np.asarray(pairs, dtype=np.uint32).reshape(-1, 2)
+        unique = np.unique(np.sort(arr, axis=1), axis=0)
+        n_edges = int(unique.shape[0])
+        payload = unique.astype(np.uint32).tobytes(order="C")
+    else:
+        n_edges = 0
+        payload = b""
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as f:
+        prefix = EDGE_MAGIC + struct.pack("<II", EDGE_VERSION, n_edges)
+        f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
+        f.write(payload)
+    return n_edges
+
+
 # ---------------------------------------------------------------------------
 # Mesh-element sidecar writer
 # ---------------------------------------------------------------------------
@@ -1927,12 +1979,11 @@ def build_manifest(
     source_sha256: str | None = None,
     elem_field_metas: list[ElementFieldArtefactMeta] | None = None,
     mesh_edges_filename: str | None = None,
+    mesh_line_edges_filename: str | None = None,
     n_edges: int = 0,
     beam_solids_glb_filename: str | None = None,
     beam_solids_elements_filename: str | None = None,
     beam_solids_warp_filename: str | None = None,
-    beam_solids_edges_filename: str | None = None,
-    n_beam_solid_edges: int = 0,
     n_beam_solids: int = 0,
     n_beam_solid_verts: int = 0,
     n_beam_total: int = 0,
@@ -2152,6 +2203,11 @@ def build_manifest(
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)
+    if mesh_line_edges_filename is not None:
+        # The subset of edges_url belonging to line elements. Optional: a model
+        # with no beams omits it, and a viewer that does not know about it draws
+        # edges_url whole, exactly as before.
+        mesh_meta["line_edges_url"] = mesh_line_edges_filename
     if mesh_elements_filename is not None:
         mesh_meta["elements_url"] = mesh_elements_filename
         mesh_meta["n_elements"] = int(n_elements)
@@ -2171,14 +2227,6 @@ def build_manifest(
             # to the rest of the structure under any morph scale.
             mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
             mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
-        if beam_solids_edges_filename is not None:
-            # AFEG element-boundary wireframe over the solid mesh.
-            # Frontend renders this as a LineSegments sharing the
-            # beam-solid's position + morph attributes so the seams
-            # between adjacent beam-elements stay visible even under
-            # a scaled deformation.
-            mesh_meta["beam_solids_edges_url"] = beam_solids_edges_filename
-            mesh_meta["n_beam_solid_edges"] = int(n_beam_solid_edges)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
         # Coverage telemetry: total source-side beams + skip reasons
         # by category. Frontend can render "X of Y beams shown as
@@ -2644,6 +2692,17 @@ def bake_artefacts(
     n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges)
     emit(mesh_edges_path)
 
+    # Which of those edges are beams, so the viewer can draw them in their own
+    # colour instead of losing them in the shell grid. Omitted entirely when the
+    # model has no line elements.
+    mesh_line_edges_path = out_dir / "fea.mesh.line_edges.bin"
+    n_line_edges = write_mesh_line_edges(geom, mesh_line_edges_path)
+    if n_line_edges:
+        emit(mesh_line_edges_path)
+    else:
+        mesh_line_edges_path.unlink(missing_ok=True)
+        mesh_line_edges_path = None
+
     # Per-element draw ranges — frontend hydrates these into
     # userdata.id_hierarchy + userdata.draw_ranges_<meshName> so the
     # FEA mesh enters the existing CustomBatchedMesh pick + highlight
@@ -2667,9 +2726,7 @@ def bake_artefacts(
         except (AttributeError, NotImplementedError):
             pass
     beam_solids_warp_path: pathlib.Path | None = None
-    beam_solids_edges_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
-    n_beam_solid_edges = 0
     if solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
@@ -2688,9 +2745,12 @@ def bake_artefacts(
         # AFEG element-boundary wireframe for the solid mesh. Without
         # this the beam solids render as one continuous tube — see the
         # writer docstring for the boundary-edge rules.
-        beam_solids_edges_path = out_dir / "fea.beam_solids.edges.bin"
-        n_beam_solid_edges = write_beam_solids_edges(solid_beams, beam_solids_edges_path)
-        emit(beam_solids_edges_path)
+        # No beam-solid section outline. It drew the perimeter and end seams of
+        # each extruded section, which is tessellation rather than mesh: the FE
+        # model has no such edges, and a beam's mesh line is its element line
+        # whether or not a section is drawn around it. The viewer stopped
+        # consuming it; writing it was ~58 KB per bake of nothing.
+        pass
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -2781,6 +2841,7 @@ def bake_artefacts(
         field_metas=field_metas,
         elem_field_metas=elem_field_metas,
         mesh_edges_filename=mesh_edges_path.name,
+        mesh_line_edges_filename=(mesh_line_edges_path.name if mesh_line_edges_path else None),
         n_edges=n_edges,
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
@@ -2788,8 +2849,6 @@ def bake_artefacts(
         beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
         beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
         beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),
-        beam_solids_edges_filename=(beam_solids_edges_path.name if beam_solids_edges_path else None),
-        n_beam_solid_edges=n_beam_solid_edges,
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
         n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),

@@ -272,6 +272,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // buffer this geometry had before any element-local expansion — so it needs
     // the unexpanded deltas, not the ones installed above. See sourceMorph.ts.
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
+    setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
     geometry.computeVertexNormals();
 

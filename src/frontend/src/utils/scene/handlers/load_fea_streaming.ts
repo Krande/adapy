@@ -33,7 +33,8 @@ import {autoWarpScale} from "../fea/warpScale";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {setResultLineSegmentsVisible} from "../fea/resultLineSegments";
-import {FEA_EDGE_COLOR} from "../fea/edgeColors";
+import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../fea/edgeColors";
+import {withoutEdges} from "../fea/edgeSplit";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -108,7 +109,7 @@ function elementEdgeOverlays(): THREE.LineSegments[] {
     const out: THREE.LineSegments[] = [];
     for (const parent of [active?.mesh, active?.beamSolidMesh]) {
         if (!parent) continue;
-        for (const name of ["fea-element-edges"]) {
+        for (const name of ["fea-element-edges", "fea-beam-element-edges"]) {
             const child = parent.getObjectByName(name);
             if (child instanceof THREE.LineSegments) out.push(child);
         }
@@ -972,10 +973,38 @@ export async function load_fea_streaming(args: {
                     manifest.mesh.edges_url,
                 );
                 if (active) active.edgeIndices = edgeIndices;
-                if (edgeIndices.length > 0) {
+
+                // Beams get their own, dimmer colour. A shell's element edges are a
+                // grid you read element size off; a beam's edge is a member. In one
+                // colour the members vanish into the grid, so the bake now says
+                // which edges are which and they are drawn as two overlays.
+                //
+                // Split rather than overdrawn: the same pair painted twice at the
+                // same depth is a z-fight, and which colour wins is then decided by
+                // the driver.
+                let lineEdgeIndices: Uint32Array | null = null;
+                if (manifest.mesh.line_edges_url) {
+                    try {
+                        const fetched = await fetchMeshEdges(
+                            fetcher,
+                            manifest.mesh.line_edges_url,
+                        );
+                        if (fetched.length > 0) lineEdgeIndices = fetched;
+                    } catch (err) {
+                        // A missing or unreadable split is not worth failing a load
+                        // over — everything simply stays one colour, as before.
+                        // eslint-disable-next-line no-console
+                        console.warn("[fea-streaming] failed to load line edges:", err);
+                    }
+                }
+                const shellEdgeIndices = lineEdgeIndices
+                    ? withoutEdges(edgeIndices, lineEdgeIndices)
+                    : edgeIndices;
+
+                if (shellEdgeIndices.length > 0) {
                     const lineGeom = new THREE.BufferGeometry();
                     lineGeom.setAttribute("position", mesh.geometry.attributes.position);
-                    lineGeom.setIndex(new THREE.BufferAttribute(edgeIndices, 1));
+                    lineGeom.setIndex(new THREE.BufferAttribute(shellEdgeIndices, 1));
                     const lineMat = new THREE.LineBasicMaterial({
                         color: FEA_EDGE_COLOR,
                         depthTest: true,
@@ -1014,6 +1043,24 @@ export async function load_fea_streaming(args: {
                     // first applyFieldToMesh call below seeds the
                     // morph attribute — see linkLineMorphToMesh.
                     mesh.add(segments);
+                }
+
+                // The beam edges, same geometry and morph story, own colour.
+                if (lineEdgeIndices && lineEdgeIndices.length > 0) {
+                    const beamGeom = new THREE.BufferGeometry();
+                    beamGeom.setAttribute("position", mesh.geometry.attributes.position);
+                    beamGeom.setIndex(new THREE.BufferAttribute(lineEdgeIndices, 1));
+                    const beamMat = new THREE.LineBasicMaterial({
+                        color: FEA_BEAM_EDGE_COLOR,
+                        depthTest: true,
+                        transparent: true,
+                    });
+                    const beamSegments = new THREE.LineSegments(beamGeom, beamMat);
+                    beamSegments.name = "fea-beam-element-edges";
+                    beamSegments.renderOrder = 3;
+                    beamSegments.userData.__clipWithModel = true;
+                    beamSegments.layers.set(1);
+                    mesh.add(beamSegments);
                 }
             } catch (err) {
                 // Wireframe overlay is decorative — log and continue
