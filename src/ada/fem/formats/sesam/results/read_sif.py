@@ -11,6 +11,7 @@ from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.fem.formats.sesam.results.eccentricity import element_eccentricities
 from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
 
 if TYPE_CHECKING:
@@ -87,7 +88,11 @@ INT_LOCATIONS = {
     15: [(0, 0), (1, 0.5), (2, 1)],
 }
 OTHER_CARDS = [
+    cards.UNITS,
+    cards.BNDOF,
+    cards.BNTRCOS,
     cards.GUNIVEC,
+    cards.GELTH,
     cards.TDSECT,
     cards.TDMATER,
     cards.MISOSEL,
@@ -106,6 +111,8 @@ OTHER_CARDS = [
 SECTION_CARDS = [cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC]
 RESULT_CARDS = [
     cards.RVNODDIS,
+    cards.RDNODREA,
+    cards.RVNODREA,
     cards.RVSTRESS,
     cards.RDPOINTS,
     cards.RDSTRESS,
@@ -120,7 +127,9 @@ RESULT_CARDS = [
 # targets — RVNODDIS/RVSTRESS/RVFORCES each hold every step's records in one
 # contiguous block. The RD* metadata cards in RESULT_CARDS are per-deck (one
 # block, no steps) and are always kept in full.
-_RV_STEP_CARDS = frozenset({cards.RVNODDIS.name, cards.RVSTRESS.name, cards.RVFORCES.name})
+_RV_STEP_CARDS = frozenset(
+    {cards.RVNODDIS.name, cards.RVNODREA.name, cards.RVSTRESS.name, cards.RVFORCES.name}
+)
 
 
 @dataclass
@@ -411,8 +420,76 @@ class SifReader:
             return None
         return {x[0]: x[1:] for x in res}
 
+    def get_unit_factors(self) -> tuple[float, float, float] | None:
+        """Return the file's length/force/temperature-to-SI factors.
+
+        ``UNITS`` ID 1 is the FEM unit set defined by the Sesam Input Model
+        Interface. Some text exports contain a preceding control/sentinel row,
+        so select the last valid ID-1 record rather than assuming row zero.
+        """
+
+        rows = self._other.get(cards.UNITS.name, []) or []
+        id_i, length_i, force_i, temperature_i = cards.UNITS.get_indices_from_names(
+            ["id", "lenfac", "forfac", "tempfac"]
+        )
+        for row in reversed(rows):
+            factors = (float(row[length_i]), float(row[force_i]), float(row[temperature_i]))
+            if int(row[id_i]) == 1 and all(np.isfinite(value) and value > 0.0 for value in factors):
+                return factors
+        return None
+
+    def get_nodal_transforms(self) -> dict[int, tuple[np.ndarray | None, np.ndarray | None]]:
+        """Map internal node numbers to local-to-global translation/rotation matrices."""
+
+        transform_rows = self._other.get(cards.BNTRCOS.name, []) or []
+        transform_id_i = cards.BNTRCOS.get_indices_from_names(["transno"])
+        first_cosine_i = cards.BNTRCOS.get_indices_from_names(["c11"])
+        matrices: dict[int, np.ndarray] = {}
+        for row in transform_rows:
+            # BNTRCOS stores c11,c21,c31,c12,... (columns of C). The
+            # interface equation is global = C @ local.
+            matrix = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
+            matrices[int(row[transform_id_i])] = matrix
+
+        node_rows = self._other.get(cards.BNDOF.name, []) or []
+        node_i, translation_i, rotation_i = cards.BNDOF.get_indices_from_names(["nodeno", "transd", "transr"])
+        out: dict[int, tuple[np.ndarray | None, np.ndarray | None]] = {}
+        for row in node_rows:
+            node_id = int(row[node_i])
+            refs = (int(row[translation_i]), int(row[rotation_i]))
+            resolved: list[np.ndarray | None] = []
+            for reference in refs:
+                if reference == 0:
+                    resolved.append(None)
+                    continue
+                matrix = matrices.get(reference)
+                if matrix is None:
+                    raise ValueError(f"BNDOF node {node_id} references missing BNTRCOS {reference}")
+                resolved.append(matrix)
+            out[node_id] = (resolved[0], resolved[1])
+        return out
+
+    def get_shell_thickness_map(self) -> dict[int, float]:
+        rows = self._other.get(cards.GELTH.name, []) or []
+        geono_i, th_i = cards.GELTH.get_indices_from_names(["geono", "th"])
+        return {int(row[geono_i]): float(row[th_i]) for row in rows}
+
+    def get_gbeamg_map(self) -> dict[int, list]:
+        rows = self._other.get(cards.GBEAMG.name, []) or []
+        geono_i = cards.GBEAMG.get_indices_from_names(["geono"])
+        return {int(row[geono_i]): row for row in rows}
+
     def get_gelref(self):
         return self._gelref1
+
+    def get_geccen(self):
+        """The deck's ``GECCEN`` eccentricity records, or an empty list.
+
+        Empty rather than None so callers do not each need the guard: a deck with
+        no eccentricities and a reader that has not read them are the same thing
+        as far as beam placement goes.
+        """
+        return self._other.get("GECCEN", [])
 
     # Card-name → DataCard dispatch maps. Built lazily on first
     # ``eval_flags`` call so the dataclass default-factory dance
@@ -608,6 +685,32 @@ class SifReader:
     def get_rdforces_map(self) -> dict:
         rdforces = self.get_result(cards.RDFORCES.name)
         return {int(x[1]): tuple([int(i) for i in x[3:]]) for x in rdforces[0][1]}
+
+    def get_rdnodrea_map(self) -> dict[int, tuple[int, ...]]:
+        """Reaction descriptor id -> stored component codes.
+
+        ``RVNODREA`` is sparse and variable-width: ``IRREA`` points at an
+        ``RDNODREA`` record whose bulk contains the component numbers present
+        in that row.  Keeping this separate from the value parser prevents a
+        one-component constrained node from shifting into the wrong global
+        force/moment column.
+        """
+
+        descriptors = self.get_result(cards.RDNODREA.name)
+        if not descriptors:
+            return {}
+        irrea_i, lenrec_i, bulk_i = cards.RDNODREA.get_indices_from_names(["irrea", "lenrec", "bulk"])
+        out: dict[int, tuple[int, ...]] = {}
+        for row in descriptors[0][1]:
+            # SIN readers synthesise a type-block super-header as row 0;
+            # SIF text does not.  A real descriptor reaches the BULK column.
+            if len(row) <= bulk_i:
+                continue
+            n = int(row[lenrec_i])
+            if int(row[irrea_i]) <= 0 or n <= 0:
+                continue
+            out[int(row[irrea_i])] = tuple(int(v) for v in row[bulk_i : bulk_i + n])
+        return out
 
     def get_tdsect_map(self):
         res = self._other.get(cards.TDSECT.name)
@@ -822,7 +925,19 @@ class Sif2Mesh:
         sections = self.sif.get_sections()
         materials = self.sif.get_materials()
         vectors = self.sif.get_vectors()
-        elem_refs = cards.GELREF1.cast_to_np(["elno", "matno", "geono", "transno"], self.sif.get_gelref())
+        gelref = self.sif.get_gelref()
+        elem_refs = cards.GELREF1.cast_to_np(["elno", "matno", "geono", "transno"], gelref)
+
+        # Beam eccentricities. Node counts come from the blocks just built rather
+        # than re-reading GELMNT1, because the tail layout of a GELREF1 record
+        # depends on NNOD and the two must agree.
+        node_counts: dict[int, int] = {}
+        for block in elem_blocks:
+            for label, refs in zip(block.identifiers, block.node_refs):
+                node_counts[int(label)] = int(len(refs))
+        eccentricities = element_eccentricities(
+            gelref, self.sif.get_geccen(), node_counts
+        )
 
         return Mesh(
             elements=elem_blocks,
@@ -832,12 +947,36 @@ class Sif2Mesh:
             vectors=vectors,
             elem_data=elem_refs,
             sets=sets,
+            eccentricities=eccentricities or None,
         )
 
-    def get_sif_results(self) -> list[ElementFieldData | NodalFieldData]:
-        result_blocks = self.get_nodal_data()
-        result_blocks += self.get_field_data()
+    def get_sif_results(
+        self,
+        requested_fields: set[str] | None = None,
+    ) -> list[ElementFieldData | NodalFieldData]:
+        from ada.fem.formats.sesam.results.derived_fields import (
+            build_derived_fields,
+            build_nodal_kinematics,
+        )
 
+        nodal = self.get_nodal_data()
+        raw_fields = self.get_field_data()
+        result_blocks = [*nodal, *raw_fields]
+        result_blocks += build_nodal_kinematics(
+            nodal,
+            np.asarray(self.mesh.nodes.identifiers, dtype=int),
+            wanted=requested_fields,
+            unit_factors=self.sif.get_unit_factors(),
+        )
+        result_blocks += build_derived_fields(
+            raw_fields,
+            self.mesh,
+            self.sif,
+            wanted=requested_fields,
+        )
+
+        if requested_fields is not None:
+            result_blocks = [field for field in result_blocks if field.name in requested_fields]
         return result_blocks
 
     def get_result_name_map(self):
@@ -854,10 +993,23 @@ class Sif2Mesh:
         # RVFORCES checks. The streaming reader loads one RV card at a time, so
         # a STRESS/FORCES-only pass has no RVNODDIS block — return no nodal data
         # rather than IndexError on an empty get_result.
+        fields: list[NodalFieldData] = []
+        nodal_transforms = self.sif.get_nodal_transforms()
         res = self.sif.get_result(cards.RVNODDIS.name)
-        if not res:
-            return []
-        return get_nodal_results(res[0][1])
+        if res:
+            fields.extend(get_nodal_results(res[0][1], nodal_transforms))
+
+        reactions = self.sif.get_result(cards.RVNODREA.name)
+        if reactions:
+            fields.extend(
+                get_nodal_reactions(
+                    reactions[0][1],
+                    self.sif.get_rdnodrea_map(),
+                    np.asarray(self.mesh.nodes.identifiers, dtype=int),
+                    nodal_transforms,
+                )
+            )
+        return fields
 
     def get_field_data(self) -> list[ElementFieldData | NodalFieldData]:
         sif = self.sif
@@ -1017,18 +1169,50 @@ class Sif2Mesh:
         return INT_LOCATIONS[el_type]
 
 
-def get_nodal_results(res) -> list[NodalFieldData]:
+def _nodal_vector_to_model(
+    values,
+    node_id: int,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None,
+) -> np.ndarray:
+    """Transform six local nodal components to the super-element system."""
+
+    matrices = (transforms or {}).get(node_id)
+    if matrices is None or all(matrix is None for matrix in matrices):
+        raise ValueError(f"transformed nodal result at node {node_id} has no BNDOF/BNTRCOS definition")
+    result = np.asarray(values, dtype=float).copy()
+    if result.shape != (6,):
+        raise ValueError(f"transformed nodal result at node {node_id} must contain six components")
+    translation, rotation = matrices
+    if translation is not None:
+        result[:3] = translation @ result[:3]
+    if rotation is not None:
+        result[3:] = rotation @ result[3:]
+    return result
+
+
+def get_nodal_results(
+    res,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None = None,
+) -> list[NodalFieldData]:
     from ada.fem.results.common import NodalFieldData
     from ada.fem.results.field_data import NodalFieldType
 
     comps = "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
-    indices = cards.RVNODDIS.get_indices_from_names(["inod", *comps])
+    indices = cards.RVNODDIS.get_indices_from_names(["inod", "itrans|", *comps])
     nid = indices[0]
-    start = indices[1]
+    itrans_i = indices[1]
+    start = indices[2]
     stop = indices[-1] + 1
     results = []
     for ires, data in groupby(res[1:], key=lambda x: x[1]):
-        field_data = np.asarray([(x[nid], *x[start:stop]) for x in data], dtype=float)
+        rows = []
+        for row in data:
+            node_id = int(row[nid])
+            values = np.asarray(row[start:stop], dtype=float)
+            if int(row[itrans_i]) != 0:
+                values = _nodal_vector_to_model(values, node_id, transforms)
+            rows.append((node_id, *values))
+        field_data = np.asarray(rows, dtype=float)
 
         fd = NodalFieldData(
             name=cards.RVNODDIS.name,
@@ -1039,6 +1223,72 @@ def get_nodal_results(res) -> list[NodalFieldData]:
         )
         results.append(fd)
 
+    return results
+
+
+def get_nodal_reactions(
+    res,
+    descriptors: dict[int, tuple[int, ...]],
+    node_ids: np.ndarray,
+    transforms: dict[int, tuple[np.ndarray | None, np.ndarray | None]] | None = None,
+) -> list[NodalFieldData]:
+    """Expand sparse ``RVNODREA`` rows to a dense six-component nodal field.
+
+    The reference postprocessor lists reactions for every model node and displays zero at nodes
+    without a stored reaction.  SIN stores only constrained nodes, and each
+    row may contain a different subset of F1..F6 selected by ``RDNODREA``.
+    This function reconstructs that dense, stable node order without treating
+    an inapplicable/missing descriptor as a shifted value vector.
+
+    Non-zero ``ITRANS`` values are transformed from their BNDOF/BNTRCOS local
+    system into the model (super-element) system, independently for forces and
+    moments.
+    """
+
+    from ada.fem.results.common import NodalFieldData
+    from ada.fem.results.field_data import NodalFieldType
+
+    components = ["X-FORCE", "Y-FORCE", "Z-FORCE", "RX-MOMENT", "RY-MOMENT", "RZ-MOMENT"]
+    ires_i, inod_i, irrea_i, itrans_i = cards.RVNODREA.get_indices_from_names(
+        ["ires", "inod", "irrea|", "itrans|"]
+    )
+    value_i = cards.RVNODREA.get_indices_from_names(["F1|"])
+    node_index = {int(node_id): i for i, node_id in enumerate(node_ids)}
+    results: list[NodalFieldData] = []
+
+    for ires, rows in groupby(res[1:], key=lambda x: int(x[ires_i])):
+        dense = np.zeros((len(node_ids), 7), dtype=float)
+        dense[:, 0] = node_ids
+        for row in rows:
+            node_id = int(row[inod_i])
+            target = node_index.get(node_id)
+            if target is None:
+                continue
+            codes = descriptors.get(int(row[irrea_i]))
+            if codes is None:
+                raise ValueError(f"RVNODREA references unknown reaction descriptor IRREA={int(row[irrea_i])}")
+            values = row[value_i : value_i + len(codes)]
+            if len(values) != len(codes):
+                raise ValueError(
+                    f"RVNODREA node {node_id} has {len(values)} values for {len(codes)} descriptor components"
+                )
+            local = np.zeros(6, dtype=float)
+            for code, value in zip(codes, values):
+                if 1 <= code <= 6:
+                    local[code - 1] = float(value)
+            if int(row[itrans_i]) != 0:
+                local = _nodal_vector_to_model(local, node_id, transforms)
+            dense[target, 1:] = local
+
+        results.append(
+            NodalFieldData(
+                name="REACTION-FORCE",
+                step=int(ires),
+                components=components,
+                values=dense,
+                field_type=NodalFieldType.FORCE,
+            )
+        )
     return results
 
 

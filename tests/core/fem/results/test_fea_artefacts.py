@@ -24,6 +24,7 @@ from ada.fem.results.artefacts import (
     BLOB_VERSION,
     MANIFEST_VERSION,
     FEAResultStreamAdapter,
+    _ip_layout_from_int_positions,
     bake_artefacts,
     bake_fea_artefacts_from_source,
     is_fea_artefact_source,
@@ -42,6 +43,17 @@ RMED_FIXTURES = [
     "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed",
     "cantilever/code_aster/eigen_line_cantilever_code_aster.rmed",
 ]
+
+
+def test_ip_layout_preserves_result_point_coordinates():
+    layout = _ip_layout_from_int_positions(
+        [(0, 2, 0.5), (1, (0.5, 0.5), -0.5), (2, 0.25)]
+    )
+    assert layout[0]["node_index"] == 2
+    assert layout[0]["layer"] == "top"
+    assert layout[1]["natural_coordinates"] == [0.5, 0.5]
+    assert layout[1]["layer"] == "bottom"
+    assert layout[2]["natural_coordinates"] == [0.25]
 
 
 @pytest.mark.parametrize("rmed_rel", RMED_FIXTURES)
@@ -769,7 +781,13 @@ def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
         # blobs have their own coverage in
         # test_bake_writes_element_field_blob_per_type.
         if "per_type" in field_entry:
-            assert field_entry["support"] in {"element_nodal", "gauss"}
+            assert field_entry["support"] in {
+                "element_nodal",
+                "element_average",
+                "result_point",
+                "line_result_point",
+                "gauss",
+            }
             continue
         assert field_entry["support"] == "nodal"
         blob_path = bake.out_dir / field_entry["blob"]["url"]
@@ -1021,6 +1039,115 @@ def test_build_manifest_includes_optional_source_hash():
     assert manifest["source_sha256"] == "abc123"
 
 
+def test_build_manifest_carries_optional_field_presentation():
+    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.field_data import FieldPresentation
+
+    geom = MeshGeometry(points=np.zeros((1, 3), dtype=np.float64), cell_blocks=[])
+    spec = FieldSpec(
+        name="sesam.nodes.d_stress",
+        components=["SIGMX", "MVONMISES"],
+        n_steps=1,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0],
+        category="stress",
+        presentation=FieldPresentation(
+            semantic_key="sesam.nodes.d_stress",
+            group_path=("Nodes", "D-STRESS"),
+            coordinate_system="element_local",
+            surface="upper",
+            derived=True,
+            unit="Pa",
+            component_units=("Pa", "Pa"),
+        ),
+    )
+    field_meta = FieldArtefactMeta(
+        spec=spec,
+        blob_filename="fea.d_stress.bin",
+        stride_bytes=8,
+        scalar_range_per_component={"SIGMX": (-1.0, 1.0), "MVONMISES": (0.0, 2.0)},
+        scalar_range_magnitude=(0.0, 2.0),
+    )
+
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=geom,
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[field_meta],
+    )
+
+    field = manifest["fields"][0]
+    assert field["semantic_key"] == "sesam.nodes.d_stress"
+    assert field["group_path"] == ["Nodes", "D-STRESS"]
+    assert field["coordinate_system"] == "element_local"
+    assert field["surface"] == "upper"
+    assert field["derived"] is True
+    assert field["unit"] == "Pa"
+    assert field["component_units"] == ["Pa", "Pa"]
+    assert field["default_view"]["reduction"] == "SIGMX"
+
+
+def test_build_manifest_links_nodal_surface_variants():
+    from ada.fem.results.artefacts import FieldArtefactMeta, FieldSpec, MeshGeometry, build_manifest
+    from ada.fem.results.field_data import FieldPresentation
+
+    metas = []
+    for surface, suffix in (("upper", ""), ("lower", ".lower")):
+        spec = FieldSpec(
+            name=f"sesam.nodes.g_stress{suffix}",
+            components=["SIGXX"],
+            n_steps=1,
+            n_points=1,
+            support="nodal",
+            step_values=[1.0],
+            category="stress",
+            presentation=FieldPresentation(
+                semantic_key="sesam.nodes.g_stress",
+                group_path=("Nodes", "G-STRESS"),
+                surface=surface,
+            ),
+        )
+        metas.append(
+            FieldArtefactMeta(
+                spec=spec,
+                blob_filename=f"fea.g_stress{suffix}.bin",
+                stride_bytes=4,
+                scalar_range_per_component={"SIGXX": (-1.0, 1.0)},
+                scalar_range_magnitude=(0.0, 1.0),
+            )
+        )
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=MeshGeometry(points=np.zeros((1, 3)), cell_blocks=[]),
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=metas,
+    )
+
+    expected = [
+        {"surface": "upper", "field_name": "sesam.nodes.g_stress"},
+        {"surface": "lower", "field_name": "sesam.nodes.g_stress.lower"},
+    ]
+    assert manifest["fields"][0]["surface_variants"] == expected
+    assert manifest["fields"][1]["surface_variants"] == expected
+
+
+def test_explicit_static_analysis_kind_overrides_monotonic_case_numbers():
+    from ada.fem.results.artefacts import FieldSpec, _infer_analysis_kind
+
+    spec = FieldSpec(
+        name="DISPLACEMENT",
+        components=["X", "Y", "Z"],
+        n_steps=3,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0, 2.0, 3.0],
+        analysis_kind="static",
+    )
+
+    assert _infer_analysis_kind(spec) == "static"
+
+
 def test_classify_field_by_name():
     """Spot-check the name-based fallback so unfamiliar solvers get a
     sensible category. The bake-level test asserts the manifest
@@ -1069,7 +1196,13 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
     assert elem_fields, "expected at least one element field from the shell SIF"
 
     for field in elem_fields:
-        assert field["support"] in {"element_nodal", "gauss"}
+        assert field["support"] in {
+            "element_nodal",
+            "element_average",
+            "result_point",
+            "line_result_point",
+            "gauss",
+        }
         assert field["category"] in {"stress", "strain", "reaction", "other"}
         for pt in field["per_type"]:
             blob_path = bake.out_dir / pt["blob"]["url"]
@@ -1283,6 +1416,38 @@ def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     assert "beam_solids_elements_url" not in manifest["mesh"]
     assert not (bake.out_dir / "fea.beam_solids.glb").exists()
     assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
+
+
+def test_bake_can_disable_beam_solid_tessellation(fem_files, tmp_path, monkeypatch):
+    """The opt-out must bypass the reader entirely, not merely discard its output.
+
+    Beam-solid generation enters native geometry code for SIF/SIN sources, so a
+    caller needs to be able to avoid that call in constrained bake environments.
+    """
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    with make_stream_reader(sif) as reader:
+        called = False
+
+        def unexpected_beam_tessellation():
+            nonlocal called
+            called = True
+            raise AssertionError("try_solid_beams must not be called")
+
+        monkeypatch.setattr(reader, "try_solid_beams", unexpected_beam_tessellation)
+        bake = bake_artefacts(
+            reader,
+            tmp_path / "out",
+            src=sif.stem,
+            include_beam_solids=False,
+        )
+
+    assert not called
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert "beam_solids_url" not in manifest["mesh"]
 
 
 def test_bake_skips_beam_solid_mesh_for_rmed(fem_files, tmp_path):

@@ -171,11 +171,163 @@ def test_read_sin_file_equals_read_sif_file():
         assert np.array_equal(sn_block.identifiers, sf_block.identifiers)
 
     # Result fields — same name, shape, values.
-    assert len(sin_res.results) == len(sif_res.results)
-    for sn, sf in zip(sin_res.results, sif_res.results):
-        assert sn.name == sf.name
+    # The committed SIF contains RVNODREA while its old SIN fixture does not;
+    # now that reactions are supported, that source-level difference is
+    # visible instead of silently discarded. Every common field remains equal.
+    def keyed(results):
+        return {(r.name, int(r.step), str(getattr(r, "elem_type", ""))): r for r in results}
+
+    sin_fields = keyed(sin_res.results)
+    sif_fields = keyed(sif_res.results)
+    assert set(sin_fields).issubset(set(sif_fields))
+    assert {key[0] for key in set(sif_fields) - set(sin_fields)} <= {"REACTION-FORCE"}
+    for key, sn in sin_fields.items():
+        sf = sif_fields[key]
         assert sn.values.shape == sf.values.shape
-        assert np.allclose(sn.values, sf.values, equal_nan=True), f"result {sn.name!r}: SIN/SIF value drift"
+        # SIN stores float32 while SIF prints decimal text. Derived values can
+        # amplify their sub-ULP raw difference to ~0.01 in stress units.
+        assert np.allclose(sn.values, sf.values, atol=0.01, equal_nan=True), f"result {sn.name!r}: SIN/SIF value drift"
+
+
+def test_sparse_reactions_expand_to_dense_nodes():
+    from ada.fem.formats.sesam.results.read_sif import get_nodal_reactions
+
+    # Synthetic SIF-shaped rows: header, then one node with F1/F3 and one with
+    # F2 only. Nodes without a record become explicit zero rows for AFBL.
+    rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [9.0, 4.0, 10.0, 7.0, 1.0, 0.0, 12.5, -3.0],
+        [8.0, 4.0, 30.0, 8.0, 1.0, 0.0, 7.25],
+    ]
+    fields = get_nodal_reactions(rows, {7: (1, 3), 8: (2,)}, np.array([10, 20, 30]))
+    assert len(fields) == 1
+    field = fields[0]
+    assert field.step == 4
+    assert field.components == [
+        "X-FORCE",
+        "Y-FORCE",
+        "Z-FORCE",
+        "RX-MOMENT",
+        "RY-MOMENT",
+        "RZ-MOMENT",
+    ]
+    assert np.array_equal(field.values[:, 0], [10, 20, 30])
+    assert np.allclose(field.values[0, 1:], [12.5, 0.0, -3.0, 0.0, 0.0, 0.0])
+    assert np.allclose(field.values[1, 1:], 0.0)
+    assert np.allclose(field.values[2, 1:], [0.0, 7.25, 0.0, 0.0, 0.0, 0.0])
+
+
+def test_sif_reader_selects_documented_fem_unit_set():
+    from ada.fem.formats.sesam.results.read_sif import SifReader
+
+    reader = SifReader(iter(()))
+    reader._other["UNITS"] = [
+        [-4.0, 0.0, 1.0, 0.0, 0.0],
+        [5.0, 1.0, 0.001, 1000.0, 1.0],
+    ]
+
+    assert reader.get_unit_factors() == (0.001, 1000.0, 1.0)
+
+
+def test_nodal_transform_records_map_local_vectors_to_model_coordinates():
+    from ada.fem.formats.sesam.results.read_sif import SifReader, get_nodal_reactions, get_nodal_results
+
+    # Local x -> model y and local y -> model -x. BNTRCOS stores matrix
+    # columns in record order, not row-major order.
+    rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    reader = SifReader(iter(()))
+    reader._other["BNTRCOS"] = [[7.0, *rotation.reshape(-1, order="F")]]
+    reader._other["BNDOF"] = [[10.0, 7.0, 7.0]]
+    transforms = reader.get_nodal_transforms()
+
+    displacement_rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [11.0, 4.0, 10.0, 6.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+    displacement = get_nodal_results(displacement_rows, transforms)[0]
+    assert np.allclose(displacement.values[0, 1:], [-2.0, 1.0, 3.0, -5.0, 4.0, 6.0])
+
+    reaction_rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [12.0, 4.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+    reaction = get_nodal_reactions(reaction_rows, {7: (1, 2, 3, 4, 5, 6)}, np.array([10]), transforms)[0]
+    assert np.allclose(reaction.values[0, 1:], [-2.0, 1.0, 3.0, -5.0, 4.0, 6.0])
+
+
+def test_transformed_nodal_result_requires_transform_records():
+    from ada.fem.formats.sesam.results.read_sif import get_nodal_results
+
+    rows = [
+        [-4.0, 2.0, 1.0, 3.0],
+        [11.0, 4.0, 10.0, 6.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    ]
+
+    with pytest.raises(ValueError, match="no BNDOF/BNTRCOS definition"):
+        get_nodal_results(rows)
+
+
+def test_rv_combination_accumulates_values_not_metadata():
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
+
+    header = np.zeros((1, 11), dtype=float)
+    a = np.vstack((header, np.array([[11, 1, 10, 6, 0, 1, 2, 3, 4, 5, 6]], dtype=float)))
+    b = np.vstack((header, np.array([[11, 2, 10, 6, 0, 10, 20, 30, 40, 50, 60]], dtype=float)))
+    out = _accumulate_rv_combination(cards.RVNODDIS, None, a, 1.2, combination_step=9)
+    out = _accumulate_rv_combination(cards.RVNODDIS, out, b, -0.5, combination_step=9)
+
+    assert np.array_equal(out[1, :5], [11, 9, 10, 6, 0])
+    assert np.allclose(out[1, 5:], 1.2 * a[1, 5:] - 0.5 * b[1, 5:])
+
+
+def test_rv_combination_matches_reference_float32_accumulation_order():
+    """Large cancelling terms expose float64-vs-float32 differences."""
+
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
+
+    values = [2008586.875, 5598526.0, -254885.125, -219541.46875, -1175475.375, 2153702.0]
+    factors = [0.8999999761581421, 0.800000011920929, 2.0, 5.0, 6.0, 1.100000023841858]
+    accumulated = None
+    for step, (value, factor) in enumerate(zip(values, factors), start=1):
+        rows = np.zeros((2, 11), dtype=float)
+        rows[1, :5] = [11, step, 10, 6, 0]
+        rows[1, 5] = value
+        accumulated = _accumulate_rv_combination(
+            cards.RVNODDIS,
+            accumulated,
+            rows,
+            factor,
+            combination_step=10,
+        )
+
+    # Validation deck, case lcc2, element 5087 / resultpoint 2 / TAUXY. The reference postprocessor
+    # obtains -4708.25 from these six stored float32 terms; a float64
+    # accumulator produces -4708.58605055511 instead.
+    assert accumulated[1, 5] == -4708.25
+
+
+def test_variable_width_rv_combination_matches_reference_float32_accumulation_order():
+    """RVSTRESS uses the list path because descriptor payload widths vary."""
+
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.results.read_sin import _accumulate_rv_combination
+
+    values = [2008586.875, 5598526.0, -254885.125, -219541.46875, -1175475.375, 2153702.0]
+    factors = [0.8999999761581421, 0.800000011920929, 2.0, 5.0, 6.0, 1.100000023841858]
+    accumulated = None
+    for step, (value, factor) in enumerate(zip(values, factors), start=1):
+        rows = [[0.0] * 6, [11.0, float(step), 5087.0, 1.0, 3.0, value]]
+        accumulated = _accumulate_rv_combination(
+            cards.RVSTRESS,
+            accumulated,
+            rows,
+            factor,
+            combination_step=10,
+        )
+
+    assert accumulated[1][5] == -4708.25
 
 
 def test_read_sin_metadata_cantilever():
@@ -281,6 +433,7 @@ def test_sin_load_step_card_filter():
     keeps exactly the requested card's field and drops the others."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.formats.sesam.results.sin_reader import open_sin
+    from ada.fem.formats.sesam.results.result_catalog import semantic_name
 
     reader = SinStreamReader(open_sin(SIN_PATH))
     try:
@@ -298,6 +451,35 @@ def test_sin_load_step_card_filter():
         stress_only = names(reader._load_step(1, cards={"RVSTRESS"}))
         assert "STRESS" in stress_only
         assert "RVNODDIS" not in stress_only  # nodal card was skipped
+
+        raw_stress_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={"STRESS"},
+            )
+        )
+        assert raw_stress_only == {"STRESS"}
+
+        derived_name = semantic_name("element_average", "D-STRESS")
+        derived_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={derived_name},
+            )
+        )
+        assert derived_only == {derived_name}
+
+        nodal_lower_name = f"{semantic_name('nodes', 'G-STRESS')}.lower"
+        nodal_lower_only = names(
+            reader._load_step(
+                1,
+                cards={"RVSTRESS"},
+                requested_fields={nodal_lower_name},
+            )
+        )
+        assert nodal_lower_only == {nodal_lower_name}
     finally:
         reader.close()
 
@@ -402,6 +584,30 @@ def test_sin_registered_in_stream_readers():
         assert any(s.support == "nodal" for s in specs), "no nodal field surfaced for the streaming bake"
     finally:
         reader.close()
+
+
+def test_viewer_adapter_hides_only_superseded_raw_sesam_fields():
+    """The result API keeps source cards, while the viewer exposes one hierarchy.
+
+    A supported SIN used to advertise RVNODDIS/STRESS alongside their canonical
+    Derived replacements.  Filtering at the adapter boundary avoids duplicate UI
+    entries without removing raw fallback data from the eager reader.
+    """
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    from ada.fem.results.artefacts import FEAResultStreamAdapter
+
+    result = read_sin_file(SIN_PATH)
+    raw_names = {field.name for field in result.results}
+    assert {"RVNODDIS", "STRESS"} <= raw_names
+
+    adapter = FEAResultStreamAdapter(result)
+    nodal_names = {spec.name for spec in adapter.field_specs()}
+    element_names = {spec.name for spec in adapter.element_field_specs()}
+
+    assert "RVNODDIS" not in nodal_names
+    assert "STRESS" not in element_names
+    assert any(spec.presentation is not None for spec in adapter.field_specs())
+    assert any(spec.presentation is not None for spec in adapter.element_field_specs())
 
 
 def test_result_case_names_from_the_deck(sin_file):

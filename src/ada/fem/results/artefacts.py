@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import struct
+from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable, Iterable, Iterator, Literal, Protocol
@@ -31,6 +32,7 @@ from typing import Callable, Iterable, Iterator, Literal, Protocol
 import numpy as np
 
 from ada.fem.results.common import CellBlockData
+from ada.fem.results.field_data import FieldPresentation
 
 # Binary format: 4-byte magic, uint32 version, uint32 json_len, JSON
 # header, zero-padded to 1024 bytes, then payload. Header version
@@ -180,10 +182,12 @@ class FieldSpec:
     components: list[str]
     n_steps: int
     n_points: int
-    support: Literal["nodal", "element_nodal", "gauss"]
+    support: Literal["nodal", "element_nodal", "element_average", "result_point", "line_result_point", "gauss"]
     step_values: list[float]
     category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -238,10 +242,13 @@ class ElementFieldSpec:
     n_ips: int
     element_labels: list[int]
     step_values: list[float]
+    element_node_indices: list[list[int]] = dc_field(default_factory=list)
     ip_layout: list[dict] = dc_field(default_factory=list)
     category: FieldCategory = "other"
-    support: Literal["element_nodal", "gauss"] = "gauss"
+    support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -448,6 +455,18 @@ def _ip_layout_from_int_positions(int_positions) -> list[dict]:
                 "ip": ip_id if isinstance(ip_id, int) else len(layout),
                 "layer": layer_label,
                 "in_plane": str(in_plane) if in_plane is not None else "",
+                **(
+                    {"node_index": int(in_plane)}
+                    if isinstance(in_plane, (int, np.integer))
+                    else {
+                        "natural_coordinates": [float(value) for value in in_plane]
+                    }
+                    if isinstance(in_plane, (list, tuple))
+                    and all(isinstance(value, (int, float, np.integer, np.floating)) for value in in_plane)
+                    else {"natural_coordinates": [float(in_plane)]}
+                    if isinstance(in_plane, (float, np.floating))
+                    else {}
+                ),
             }
         )
     return layout
@@ -737,6 +756,46 @@ class FEAResultStreamAdapter:
     def try_result_cases(self) -> list[dict] | None:
         return self._result_cases
 
+    def _sesam_superseded_raw_fields(self) -> set[tuple[str, object | None]]:
+        """Raw Sesam fields replaced by semantic derived fields in this result.
+
+        The eager result intentionally retains its source-card fields for API
+        compatibility and diagnostics.  They should not also be advertised by
+        the viewer bake when a semantic field covers the same support, because
+        that creates duplicate flat entries beside the hierarchy.
+
+        The element type is part of the key so an unsupported shell/beam layout
+        keeps its raw fallback even when another type in the same result was
+        converted successfully.
+        """
+
+        software = getattr(self._result, "software", "")
+        if getattr(software, "value", software) != "sesam":
+            return set()
+
+        results = self._result.results
+        hidden: set[tuple[str, object | None]] = set()
+        if any(
+            getattr(getattr(field, "presentation", None), "group_path", ())
+            == ("Nodes", "DISPLACEMENT")
+            for field in results
+        ):
+            hidden.add(("RVNODDIS", None))
+
+        replacements = {
+            "STRESS": {"G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS"},
+            "FORCES": {"G-FORCE", "B-STRESS"},
+        }
+        for raw_name, attributes in replacements.items():
+            covered_types = {
+                getattr(field, "elem_type", None)
+                for field in results
+                if getattr(getattr(field, "presentation", None), "group_path", ())[-1:]
+                and field.presentation.group_path[-1] in attributes
+            }
+            hidden.update((raw_name, elem_type) for elem_type in covered_types)
+        return hidden
+
     # ----- protocol -------------------------------------------------------
 
     def read_mesh_geometry(self) -> MeshGeometry:
@@ -793,34 +852,53 @@ class FEAResultStreamAdapter:
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
 
+    def _named_case_analysis_kind(self) -> str | None:
+        """``"static"`` when the deck defines load-case combinations.
+
+        ``_infer_analysis_kind`` reads ``step_values`` as a physical quantity —
+        eigen frequencies or times — and calls a run "eigen" when they are
+        positive and ascending. For a Sesam deck those values are result-case
+        NUMBERS (1, 2, 3 …), which are positive and ascending by definition, so
+        every nodal field on a ten-load-case deck came out as a mode shape.
+
+        Element fields never showed it because their branch defaults an unknown
+        kind to "static" rather than guessing, which is why the two halves of
+        one manifest disagreed with each other.
+
+        The conclusive evidence is a real-valued ``RDRESCMB`` COMBINATION: a
+        recipe that superposes load cases at factors. A modal analysis has no
+        such thing. Named cases alone are not evidence -- a SESTRA eigen run
+        labels its modes too, and treating those as static would break the
+        signed deformation sweep a mode shape needs. Returns ``None`` without
+        that evidence, leaving the heuristic to decide as before.
+        """
+        return analysis_kind_from_result_cases(self._result_cases)
+
     def field_specs(self) -> list[FieldSpec]:
         if self._field_specs is not None:
             return self._field_specs
 
-        from ada.fem.results.field_data import (
-            ElementFieldData,
-            FieldPosition,
-            NodalFieldData,
-        )
+        from ada.fem.results.field_data import NodalFieldData
 
         n_points = int(self._result.mesh.nodes.coords.shape[0])
         specs: list[FieldSpec] = []
 
+        hidden_raw = self._sesam_superseded_raw_fields()
         for name, results in self._result.get_results_grouped_by_field_value().items():
             if not results:
                 continue
             sorted_results = sorted(results, key=lambda r: r.step)
             first = sorted_results[0]
 
-            if isinstance(first, NodalFieldData):
-                support = "nodal"
-            elif isinstance(first, ElementFieldData):
-                if first.field_pos == FieldPosition.NODAL:
-                    support = "element_nodal"
-                else:
-                    support = "gauss"
-            else:
+            if not isinstance(first, NodalFieldData):
+                # Element fields are planned and streamed exclusively through
+                # element_field_specs()/iter_element_field_steps(). Advertising
+                # them here as AFBL fields duplicates picker entries and makes
+                # callers think iter_field_steps can emit Gauss data.
                 continue
+            if (name, None) in hidden_raw:
+                continue
+            support = "nodal"
 
             # Step value semantics: eigen analysis stores the
             # frequency in eigen_freq and uses .step as a 1-based
@@ -839,6 +917,8 @@ class FEAResultStreamAdapter:
                     support=support,
                     step_values=step_values,
                     category=_classify_field(name, first),
+                    presentation=getattr(first, "presentation", None),
+                    analysis_kind=self._named_case_analysis_kind(),
                 )
             )
 
@@ -883,6 +963,7 @@ class FEAResultStreamAdapter:
             return cached
 
         grouped: dict[tuple[str, str], list] = defaultdict(list)
+        hidden_raw = self._sesam_superseded_raw_fields()
         for r in self._result.results:
             if not isinstance(r, ElementFieldData):
                 continue
@@ -890,6 +971,8 @@ class FEAResultStreamAdapter:
                 continue
             elem_type_str = ada_to_str_type.get(r.elem_type)
             if elem_type_str is None:
+                continue
+            if (r.name, r.elem_type) in hidden_raw:
                 continue
             grouped[(r.name, elem_type_str)].append(r)
 
@@ -900,7 +983,16 @@ class FEAResultStreamAdapter:
         if self._elem_field_specs is not None:
             return self._elem_field_specs
 
+        from ada.fem.results.field_data import FieldPosition
+
         specs: list[ElementFieldSpec] = []
+        node_index = {
+            int(label): i for i, label in enumerate(self._result.mesh.nodes.identifiers)
+        }
+        element_nodes: dict[int, list[int]] = {}
+        for block in self._result.mesh.elements:
+            for label, refs in zip(block.identifiers, block.node_refs):
+                element_nodes[int(label)] = [node_index[int(ref)] for ref in refs]
         for (name, elem_type_str), items in self._grouped_element_fields().items():
             sorted_items = sorted(items, key=lambda r: r.step)
             first = sorted_items[0]
@@ -950,9 +1042,16 @@ class FEAResultStreamAdapter:
                     n_ips=n_ips,
                     element_labels=labels,
                     step_values=step_values,
+                    element_node_indices=[element_nodes.get(int(label), []) for label in labels],
                     ip_layout=ip_layout,
                     category=_classify_field(name, first),
-                    support="gauss",
+                    support={
+                        FieldPosition.ELEMENT_NODAL: "element_nodal",
+                        FieldPosition.ELEMENT_AVERAGE: "element_average",
+                        FieldPosition.RESULT_POINT: "result_point",
+                        FieldPosition.LINE_RESULT_POINT: "line_result_point",
+                    }.get(first.field_pos, "gauss"),
+                    presentation=getattr(first, "presentation", None),
                 )
             )
 
@@ -1024,6 +1123,7 @@ class FEAResultStreamAdapter:
 
         from ada import Part
         from ada.fem.formats.utils import line_elem_to_beam
+        from ada.fem.results.beam_placement import SectionCentroidCache, eccentric_shift
 
         line_elems = mesh.get_line_elems()
         if not line_elems:
@@ -1031,6 +1131,12 @@ class FEAResultStreamAdapter:
 
         dummy_part = Part(self._result.name or "solid_beams")
         beams: list = []
+        # Eccentricities, corrected for where adapy actually draws each profile.
+        # See beam_placement: the raw GECCEN vector positions the section CENTROID,
+        # and applying it directly moves L sections off plates they are already
+        # flush against.
+        eccentricities = getattr(mesh, "eccentricities", None) or {}
+        centroids = SectionCentroidCache()
         # Source-side pre-filter — these reject reasons are cheap to
         # detect before OCC sees the geometry. Bucketing them by
         # category here keeps the bake's coverage summary informative.
@@ -1060,6 +1166,26 @@ class FEAResultStreamAdapter:
                 continue
 
             beam = line_elem_to_beam(elem, dummy_part, "BM")
+
+            ecc = eccentricities.get(int(elem.id))
+            if ecc:
+                # Both ends get the same correction when both carry an offset; an
+                # end without one is left on its node, which is what a half-eccentric
+                # element means.
+                shift0 = eccentric_shift(beam, ecc[0], centroids) if ecc[0] is not None else None
+                shift1 = eccentric_shift(beam, ecc[-1], centroids) if ecc[-1] is not None else None
+                # NEGATED on the way in. Beam.e1/e2 are not applied as written:
+                # BeamJustification.curve_offset_local does `off = -e` ("local
+                # offsets start from -e"), so handing it the geometric translation
+                # places the profile on the wrong side. For a section that is
+                # symmetric in EXTENT that still lands a face on the plate, which
+                # is why a flush check alone did not catch it -- it put the wide
+                # flange against the plate and the web tip out in the air.
+                if shift0 is not None:
+                    beam.e1 = -shift0
+                if shift1 is not None:
+                    beam.e2 = -shift1
+
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
         return tessellate_beams_to_solid_mesh(
@@ -1717,9 +1843,39 @@ def _default_view_for(spec: FieldSpec) -> dict:
     fields use viridis."""
 
     return {
-        "reduction": "magnitude" if spec.n_components >= 3 else "scalar",
+        "reduction": (
+            spec.components[0]
+            if spec.presentation is not None and spec.components
+            else ("magnitude" if spec.n_components >= 3 else "scalar")
+        ),
         "colormap": "viridis",
     }
+
+
+def _presentation_payload(presentation: FieldPresentation | None) -> dict:
+    if presentation is None:
+        return {}
+    return {
+        "semantic_key": presentation.semantic_key,
+        "group_path": list(presentation.group_path),
+        "coordinate_system": presentation.coordinate_system,
+        "surface": presentation.surface,
+        "derived": bool(presentation.derived),
+        "unit": presentation.unit,
+        "component_units": list(presentation.component_units),
+    }
+
+
+def analysis_kind_from_result_cases(cases) -> str | None:
+    """``"static"`` when a deck defines load-case combinations, else ``None``.
+
+    Split out from the adapter so the decision can be tested without building a
+    whole ``FEAResult``. See ``_named_case_analysis_kind`` for why it matters.
+    """
+    for case in cases or ():
+        if isinstance(case, dict) and case.get("combination"):
+            return "static"
+    return None
 
 
 def _infer_analysis_kind(spec: FieldSpec) -> str:
@@ -1740,6 +1896,8 @@ def _infer_analysis_kind(spec: FieldSpec) -> str:
     sign).
     """
 
+    if spec.analysis_kind is not None:
+        return spec.analysis_kind
     if spec.n_steps == 0:
         return "static"
     first = float(spec.step_values[0])
@@ -1842,8 +2000,30 @@ def build_manifest(
                 "steps": steps,
                 "scalar_range": scalar_range,
                 "default_view": _default_view_for(spec),
+                **_presentation_payload(spec.presentation),
             }
         )
+
+    # Link separate nodal upper/lower blobs as variants of one semantic field.
+    # Element-backed shell fields carry surfaces on their IP axis and therefore
+    # need no duplicate field. Optional metadata keeps older manifests valid.
+    semantic_variants: dict[str, list[dict]] = defaultdict(list)
+    for field_payload in fields_payload:
+        semantic_key = field_payload.get("semantic_key")
+        surface = field_payload.get("surface")
+        if semantic_key and surface in {"upper", "lower"}:
+            semantic_variants[semantic_key].append(
+                {"surface": surface, "field_name": field_payload["name_canonical"]}
+            )
+    for variants in semantic_variants.values():
+        if len(variants) < 2:
+            continue
+        variants.sort(key=lambda item: 0 if item["surface"] == "upper" else 1)
+        for variant in variants:
+            field_payload = next(
+                item for item in fields_payload if item["name_canonical"] == variant["field_name"]
+            )
+            field_payload["surface_variants"] = variants
 
     # Element fields. Group by field name so STRESS on QUAD + TRI lands
     # under one manifest entry with two per_type buckets. Within a
@@ -1851,8 +2031,6 @@ def build_manifest(
     # values match across element types (Sesam emits parallel step
     # sets for all element types) — surface a hard error otherwise so
     # the frontend doesn't silently de-sync per-type animation.
-    from collections import defaultdict
-
     elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
     for em in elem_field_metas or []:
         elem_by_name[em.spec.name].append(em)
@@ -1907,6 +2085,7 @@ def build_manifest(
                     "n_ips": es.n_ips,
                     "ip_layout": es.ip_layout,
                     "element_labels": es.element_labels,
+                    "element_node_indices": es.element_node_indices,
                     "blob": {
                         "url": em.blob_filename,
                         "header_bytes": ELEM_FIELD_HEADER_BYTES,
@@ -1940,13 +2119,17 @@ def build_manifest(
                 "kind": kind,
                 "category": primary.category,
                 "support": primary.support,
-                "analysis_kind": "static",
+                "analysis_kind": primary.analysis_kind or "static",
                 "components": primary.components,
                 "n_steps": primary.n_steps,
                 "steps": steps,
                 "scalar_range": scalar_range_payload,
                 "default_view": {
-                    "reduction": "magnitude" if n_comp >= 3 else "scalar",
+                    "reduction": (
+                        primary.components[0]
+                        if primary.presentation is not None and primary.components
+                        else ("magnitude" if n_comp >= 3 else "scalar")
+                    ),
                     "colormap": "viridis",
                     # Default layer/IP for element fields — the frontend's
                     # picker uses these as the initial dropdown values.
@@ -1957,6 +2140,7 @@ def build_manifest(
                 # the manifest — when present, the frontend takes the
                 # AFEL render path; when absent, the legacy nodal path.
                 "per_type": per_type,
+                **_presentation_payload(primary.presentation),
             }
         )
 
@@ -2360,6 +2544,7 @@ def bake_fea_artefacts_from_source(
     src_key: str = "",
     source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -2376,6 +2561,7 @@ def bake_fea_artefacts_from_source(
             src=src,
             source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 
@@ -2396,6 +2582,7 @@ def bake_artefacts(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -2411,6 +2598,11 @@ def bake_artefacts(
     ``iter_field_steps`` callers still drop non-nodal specs (the
     nodal blob writer can't handle them). Element fields flow
     through the new ``iter_element_field_steps`` path instead.
+
+    Set ``include_beam_solids=False`` to skip section-profile
+    tessellation while retaining the line mesh and its result fields.
+    This is useful for lightweight or headless bakes, and for native
+    geometry environments where beam-solid generation is unavailable.
 
     ``on_artefact``: optional sink invoked with each artefact file's
     path *immediately after it is fully written* (the manifest last).
@@ -2468,10 +2660,12 @@ def bake_artefacts(
     beam_solids_glb_path: pathlib.Path | None = None
     beam_solids_elements_path: pathlib.Path | None = None
     n_beam_solids = 0
-    try:
-        solid_beams = reader.try_solid_beams()
-    except (AttributeError, NotImplementedError):
-        solid_beams = None
+    solid_beams = None
+    if include_beam_solids:
+        try:
+            solid_beams = reader.try_solid_beams()
+        except (AttributeError, NotImplementedError):
+            pass
     beam_solids_warp_path: pathlib.Path | None = None
     beam_solids_edges_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
@@ -2689,6 +2883,7 @@ def bake_with_posters(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """Bake the artefact bundle AND render per-mode static PNG posters.
 
@@ -2740,6 +2935,7 @@ def bake_with_posters(
         legacy_glb_url_template=legacy_glb_url_template,
         nodal_only=nodal_only,
         include_element_fields=include_element_fields,
+        include_beam_solids=include_beam_solids,
     )
 
     if modes is None:
@@ -2812,6 +3008,7 @@ def bake_with_posters_from_source(
     modes: "str | int | Iterable[int] | None" = "all",
     poster_backend: Literal["pygfx", "chromium"] = "pygfx",
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """End-to-end bake + per-mode posters from a result file path.
 
@@ -2832,6 +3029,7 @@ def bake_with_posters_from_source(
             modes=modes,
             poster_backend=poster_backend,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 
