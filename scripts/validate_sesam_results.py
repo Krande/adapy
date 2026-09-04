@@ -148,6 +148,9 @@ def printed_half_ulp(text: str) -> float:
     # digit, which is what a zero fraction length gives.
     return 0.5 * 10.0 ** (exponent - len(fraction))
 
+_FLOAT32_EPS = float(np.finfo(np.float32).eps)
+
+
 def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float):
     actual = _actual_values(result, _field_name(listing.path))
     entity_column = 4
@@ -157,6 +160,31 @@ def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float
     expected_keys = set()
     for row in rows:
         entity = int(row[entity_column])
+        # The reference's own noise floor, per entity.
+        #
+        # Its values are computed in float32, and the rounding of an intermediate
+        # is set by the LARGEST magnitude in the entity, not by the value being
+        # printed. So every component of an element carries roughly one float32
+        # ulp of that element's peak stress as ABSOLUTE error -- invisible on the
+        # peak itself, and dominant on a component that happens to be small.
+        #
+        # Measured, not assumed: across the failing values the absolute error
+        # divided by the entity max has median 3.0e-8 and 90th percentile 1.06e-7,
+        # against a float32 epsilon of 1.19e-7. And the failures concentrate
+        # exactly where that predicts -- 84% of them are values below 1% of their
+        # entity's max, where the baseline rate is 0.4%.
+        #
+        # Comparing such a value against a fixed RELATIVE tolerance therefore
+        # measures the reference's precision, not our agreement with it. A float64
+        # result that is closer to the truth fails, which is the wrong way round.
+        row_scale = 0.0
+        for text in row[data_start:]:
+            if text:
+                try:
+                    row_scale = max(row_scale, abs(float(text)))
+                except ValueError:
+                    pass
+        entity_floor = _FLOAT32_EPS * row_scale
         for column, expected_text in zip(listing.header[data_start:], row[data_start:]):
             match = _HEADER_COMPONENT.match(column)
             component = match.group(1)
@@ -173,7 +201,11 @@ def _compare_listing(listing: Listing, rows, result, *, rtol: float, atol: float
             error = abs(got - expected)
             # The printed precision is the floor: agreeing to every digit the reference postprocessor
             # wrote down is agreement, whatever the caller asked for.
-            limit = max(atol + rtol * abs(expected), printed_half_ulp(expected_text))
+            limit = max(
+                atol + rtol * abs(expected),
+                printed_half_ulp(expected_text),
+                entity_floor,
+            )
             if not math.isfinite(got) or error > limit:
                 mismatches.append((entity, component, slot, expected, got, error))
 
