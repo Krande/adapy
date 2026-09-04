@@ -25,6 +25,21 @@ export interface ExternalModel {
   size?: number | null;
 }
 
+/** One stored version of a model, for providers that keep more than one.
+ *
+ *  `id` is opaque and provider-defined; consumers pass it back verbatim and must
+ *  not parse it. `name` is what a person picks from. A provider that cannot date
+ *  its revisions should return them newest-first, because that is the order a UI
+ *  falls back to when `createdAt` is absent. */
+export interface ExternalModelRevision {
+  id: string;
+  name: string;
+  createdAt?: string | null;
+  size?: number | null;
+  /** The one a fetch without a revision resolves to. Exactly one per list. */
+  current?: boolean;
+}
+
 export interface ExternalModelProvider {
   id: string;
   label: string;
