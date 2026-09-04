@@ -250,6 +250,9 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         assert field["support"] in {
             "nodal",
             "element_nodal",
+            "element_average",
+            "result_point",
+            "line_result_point",
             "gauss",
         }, f"{fixture_label}: bad support={field['support']!r}"
         # Drives the deformation-scale slider range in the picker:

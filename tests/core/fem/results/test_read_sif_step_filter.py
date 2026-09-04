@@ -37,9 +37,11 @@ def test_full_read_unchanged(fem_files):
 def test_step_filter_loads_single_step(fem_files):
     res = read_sif_file(fem_files / _EIGEN, step=3)
     assert res.get_steps() == [3]
-    # Both fields present in that deck filter down to the one step.
+    # Every field — the raw records and the semantic fields derived from
+    # them — filters down to the one step.
     grouped = {k: sorted(int(d.step) for d in v) for k, v in res.get_results_grouped_by_field_value().items()}
-    assert grouped == {"RVNODDIS": [3], "STRESS": [3]}
+    assert {"RVNODDIS", "STRESS"} <= grouped.keys()
+    assert all(steps == [3] for steps in grouped.values())
 
 
 def test_step_first_sentinel_loads_first_step(fem_files):

@@ -2024,7 +2024,9 @@ def build_manifest(
     for fm in field_metas:
         spec = fm.spec
         scalar_range = {**fm.scalar_range_per_component}
-        if spec.n_components >= 3:
+        # Every non-scalar kind ("vector2" included) must carry a magnitude
+        # range: the manifest contract promises one for kind "vector*".
+        if spec.n_components >= 2:
             scalar_range["magnitude"] = list(fm.scalar_range_magnitude)
         # Convert tuple → list for JSON-friendly shape.
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
@@ -2118,7 +2120,8 @@ def build_manifest(
             roll_mag = (0.0, 0.0)
 
         scalar_range_payload = {k: list(v) for k, v in roll_comp.items()}
-        if primary.n_components >= 3:
+        # Same contract as the nodal payload: kind "vector*" carries magnitude.
+        if primary.n_components >= 2:
             scalar_range_payload["magnitude"] = list(roll_mag)
 
         steps = [
