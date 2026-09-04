@@ -107,6 +107,13 @@ export interface FeaAnimationState {
      *  Kept across ``reset()`` like the other per-user preferences. */
     scaleFactorAuto: boolean;
 
+    /** Draw the undeformed shape as a static wireframe behind the deformed one.
+     *  A reference, the way every FE post-processor offers one: at any useful
+     *  exaggeration the deformed shape has left the original far behind, and
+     *  "far behind WHAT" is the question this answers. Persisted across
+     *  ``reset()`` like the other per-user view preferences. */
+    showUndeformed: boolean;
+
     /** Layer filter for element fields with multi-IP shell stacks.
      *  ``top``/``bottom``/``mid`` pick the matching IPs out of the
      *  bucket's ``ip_layout``; ``all`` keeps every IP. Unused for
@@ -166,6 +173,7 @@ export interface FeaAnimationState {
     setScaleFactor: (s: number) => void;
     /** Loader-side. Applies a derived scale, but never over a user's own. */
     applyAutoScaleFactor: (s: number) => void;
+    setShowUndeformed: (v: boolean) => void;
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
@@ -202,6 +210,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // stays 1 when there is nothing to derive from, which is the old behaviour.
     scaleFactor: 1.0,
     scaleFactorAuto: true,
+    // Off by default: it doubles the line count on screen, and a user who has not
+    // exaggerated anything has nothing to compare against yet.
+    showUndeformed: false,
     // Default layer / IP reduction mirror the bake's
     // ``default_view.layer`` / ``ip_reduction`` keys (artefacts.py
     // build_manifest). When a nodal field is active these are
@@ -236,6 +247,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setScaleFactor: (scaleFactor) => set({scaleFactor, scaleFactorAuto: false}),
     applyAutoScaleFactor: (scaleFactor) =>
         set((s) => (s.scaleFactorAuto ? {scaleFactor} : {})),
+    setShowUndeformed: (showUndeformed) => set({showUndeformed}),
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),

@@ -47,6 +47,7 @@ export {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
+  setFeaUndeformedGhost,
 } from "@/utils/scene/handlers/load_fea_streaming";
 export {
   selectFeaResultComponent,

@@ -44,6 +44,7 @@ import {
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 import {segmentRangeIds} from "./lineSegmentIds";
+import {setSourceMorph} from "./sourceMorph";
 import {translationOffsets, warpValue} from "./warpComponents";
 
 type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
@@ -693,39 +694,3 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     geometry.dispatchEvent({type: "dispose"});
 }
 
-/**
- * Give a named LineSegments child its own morph, in SOURCE vertex numbering.
- *
- * Used for the element-edge wireframe, whose geometry indexes the original
- * vertices and must not be driven by the element-local expansion the parent
- * mesh carries for an element field.
- */
-function setSourceMorph(
-    mesh: THREE.Mesh,
-    childName: string,
-    sourceDisplacement: Float32Array,
-): void {
-    const child = mesh.getObjectByName(childName);
-    if (!(child instanceof THREE.LineSegments)) return;
-    const geom = child.geometry as THREE.BufferGeometry;
-    const position = geom.getAttribute("position");
-    // Only when the counts agree. A child whose positions came from somewhere
-    // else is not ours to drive, and a mismatched morph renders as nothing.
-    if (!position || position.count * 3 !== sourceDisplacement.length) return;
-
-    geom.morphAttributes.position = [new THREE.BufferAttribute(sourceDisplacement, 3)];
-    geom.morphTargetsRelative = true;
-    child.updateMorphTargets();
-    const mat = child.material as THREE.Material;
-    if (mat && "morphTargets" in mat) {
-        (mat as unknown as {morphTargets: boolean}).morphTargets = true;
-        mat.needsUpdate = true;
-    }
-    child.onBeforeRender = () => {
-        const influence = mesh.morphTargetInfluences?.[0] ?? 0;
-        if (child.morphTargetInfluences) child.morphTargetInfluences[0] = influence;
-    };
-    // The shared position buffer was re-uploaded when the parent's geometry was
-    // rebuilt; drop this geometry's VAO so it binds the current one.
-    geom.dispatchEvent({type: "dispose"});
-}

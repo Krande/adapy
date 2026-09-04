@@ -19,6 +19,7 @@ import * as THREE from "three";
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
 import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
+import {setSourceMorph} from "./sourceMorph";
 import {clearResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments} from "./resultLineSegments";
 import {translationOffsets, warpValue} from "./warpComponents";
@@ -267,7 +268,13 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // normals array. For viz that's acceptable: lighting on the
     // morphed shape uses base normals, which is consistent with how
     // GLTF morph clips behave by default.
+    // The element-edge wireframe indexes SOURCE vertices and shares the position
+    // buffer this geometry had before any element-local expansion — so it needs
+    // the unexpanded deltas, not the ones installed above. See sourceMorph.ts.
+    setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
+
     geometry.computeVertexNormals();
+
 
     // 6. Force the renderer to rebuild the cached morph DataArrayTexture.
     //    See the long-form comment on the morphAttributes assignment

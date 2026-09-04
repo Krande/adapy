@@ -30,6 +30,8 @@ import {clearGoToNode} from "../fea/goToNode";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
+import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
+import {setSourceMorph} from "../fea/sourceMorph";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -48,6 +50,9 @@ interface ActiveFeaStreaming {
     /** Snapshot of the mesh's original positions, used to compute
      * displacement-from-base on every step change. */
     basePositions: Float32Array;
+    /** The bake's element-edge index, kept so the undeformed reference wireframe
+     *  can be built and rebuilt without re-fetching the sidecar. */
+    edgeIndices?: Uint32Array;
     /** Optional beam-solid mesh — present when the manifest carries
      *  ``beam_solids_url``. Hosts beam (line) elements tessellated as
      *  3D extruded sections. Shares the FEA root group with the main
@@ -530,6 +535,15 @@ function installBeamSolidWarp(
         beamSolid.morphTargetDictionary = {displacement: 0};
     }
 
+    // The beam-solid element-edge wireframe: same story as the main mesh's, and
+    // the one the user sees as black lines hanging in space. Its index is written
+    // against the ORIGINAL beam-solid vertices and it holds the position attribute
+    // this geometry had before the element-local expansion swapped one in, so the
+    // unexpanded `displacement` is what fits it. Installed BEFORE
+    // linkLineMorphToMesh runs, which then leaves it alone precisely because it
+    // brought its own.
+    setSourceMorph(beamSolid, "fea-beam-solid-element-edges", displacement);
+
     // Enable morph targets on every material slot so the GPU
     // actually applies the delta. The PBR material from the GLB
     // defaults to morphTargets=false.
@@ -920,6 +934,7 @@ export async function load_fea_streaming(args: {
                     fetcher,
                     manifest.mesh.edges_url,
                 );
+                if (active) active.edgeIndices = edgeIndices;
                 if (edgeIndices.length > 0) {
                     const lineGeom = new THREE.BufferGeometry();
                     lineGeom.setAttribute("position", mesh.geometry.attributes.position);
@@ -1142,6 +1157,11 @@ export async function load_fea_streaming(args: {
     if (active.beamSolidMesh) {
         linkLineMorphToMesh(active.beamSolidMesh);
     }
+
+    // Re-apply the undeformed-wireframe preference. It survives loads and step
+    // changes, and the ghost has to be rebuilt after one: the base positions it
+    // copies belong to the source that was just loaded.
+    refreshUndeformedGhost();
 
     // Register the session with the animation store so
     // SimulationControls renders the deformation-scale slider /
@@ -1498,4 +1518,31 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
         // on the first call (no renderer state yet).
         lineGeom.dispatchEvent({type: "dispose"});
     }
+}
+
+/**
+ * Show or hide the undeformed reference wireframe on the active FEA session.
+ *
+ * Reads the flag from the store rather than taking it, so a caller that has just
+ * set the preference and a caller re-applying it after a load are the same call.
+ * A no-op when nothing is loaded, or when the bake carried no edge sidecar —
+ * there is no honest reference to draw from a triangulation alone.
+ */
+export function refreshUndeformedGhost(): void {
+    if (!active?.mesh) return;
+    const show = useFeaAnimationStore.getState().showUndeformed;
+    if (!show || !active.edgeIndices || active.edgeIndices.length === 0) {
+        clearUndeformedGhost(active.mesh);
+        if (active.beamSolidMesh) clearUndeformedGhost(active.beamSolidMesh);
+        requestRender();
+        return;
+    }
+    installUndeformedGhost(active.mesh, active.basePositions, active.edgeIndices);
+    requestRender();
+}
+
+/** Set the preference and apply it in one call — what a toolbar toggle wants. */
+export function setFeaUndeformedGhost(show: boolean): void {
+    useFeaAnimationStore.getState().setShowUndeformed(show);
+    refreshUndeformedGhost();
 }
