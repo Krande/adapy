@@ -31,6 +31,7 @@ from ada.plugins.external_models.catalog import (
     Collection,
     ExternalModel,
     ExternalModelCatalog,
+    ModelRevision,
     S3ExternalModelCatalog,
     StubExternalModelCatalog,
     demo_catalog_from_env,
@@ -61,6 +62,7 @@ __all__ = [
     "ExternalModelCatalog",
     "Collection",
     "ExternalModel",
+    "ModelRevision",
     # the built-in provider's pieces
     "StubExternalModelCatalog",
     "S3ExternalModelCatalog",

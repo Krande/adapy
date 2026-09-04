@@ -113,3 +113,47 @@ test("unregistering an id that was never registered is a no-op", () => {
     { id: "vendor", label: "vendor" },
   ]);
 });
+
+// --- revisions: presence is the declaration ---------------------------------
+
+test("a client without listModelRevisions is a single-version provider", () => {
+  // Absence is the declaration, exactly as with modelUploadUrl. A consumer
+  // checks for the method rather than for a capability flag.
+  const impl = client();
+  registerExternalModelClient("vendor", impl);
+  assert.equal(typeof externalModelClient("vendor")?.listModelRevisions, "undefined");
+});
+
+test("a versioned client exposes its revisions and honours one on modelUrl", async () => {
+  const impl: ExternalModelClient = {
+    listCollections: async () => [],
+    listModels: async () => [],
+    listModelRevisions: async (_collection, modelId) =>
+      modelId === "versioned"
+        ? [
+            { id: "b", name: "b", createdAt: "2024-01-02T00:00:00Z", current: true },
+            { id: "a", name: "a", createdAt: "2024-01-01T00:00:00Z" },
+          ]
+        : [],
+    modelUrl: async (_collection, modelId, opts) => ({
+      url: opts?.revision
+        ? `https://example.invalid/${modelId}@${opts.revision}.glb`
+        : `https://example.invalid/${modelId}.glb`,
+    }),
+  };
+  registerExternalModelClient("vendor", impl);
+  const got = externalModelClient("vendor");
+
+  const revisions = (await got?.listModelRevisions?.("c", "versioned")) ?? [];
+  assert.equal(revisions.length, 2);
+  assert.equal(revisions[0].current, true);
+
+  // An unversioned model in a versioned provider is empty, not an error, so a
+  // caller needs no branch between the two cases.
+  assert.deepEqual(await got?.listModelRevisions?.("c", "plain"), []);
+
+  const pinned = await got?.modelUrl("c", "versioned", { revision: "a" });
+  assert.equal(pinned?.url, "https://example.invalid/versioned@a.glb");
+  const current = await got?.modelUrl("c", "versioned");
+  assert.equal(current?.url, "https://example.invalid/versioned.glb");
+});

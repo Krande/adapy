@@ -34,7 +34,14 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["run_job", "ACTIONS", "DEFAULT_PROVIDER"]
 
-ACTIONS = ("list_providers", "list_collections", "list_models", "model_url", "model_upload_url")
+ACTIONS = (
+    "list_providers",
+    "list_collections",
+    "list_models",
+    "list_model_revisions",
+    "model_url",
+    "model_upload_url",
+)
 
 # Kept so a single-provider deployment need not thread an id through every call.
 # Multi-provider deployments should always pass one explicitly.
@@ -50,6 +57,16 @@ def _can_upload(cat: ExternalModelCatalog) -> bool:
     unlucky provider raise.
     """
     return callable(getattr(cat, "model_upload_url", None))
+
+
+def _has_revisions(cat: ExternalModelCatalog) -> bool:
+    """Does this provider keep more than one version of a model?
+
+    Presence of `list_model_revisions` IS the declaration, exactly as for upload.
+    Reported alongside every listing so a UI knows whether to offer a version
+    picker before it has asked about any particular model.
+    """
+    return callable(getattr(cat, "list_model_revisions", None))
 
 
 def run_job(
@@ -104,6 +121,7 @@ def run_job(
             "action": action,
             "provider": provider,
             "can_upload": _can_upload(cat),
+            "has_revisions": _has_revisions(cat),
             "collections": [asdict(c) for c in collections],
         }
 
@@ -119,12 +137,40 @@ def run_job(
             "provider": provider,
             "collection": collection,
             "can_upload": _can_upload(cat),
+            "has_revisions": _has_revisions(cat),
             "models": [asdict(m) for m in models],
         }
 
     model_id = (options.get("model_id") or "").strip()
     if not model_id:
         raise ValueError(f"action {action!r} requires a 'model_id' option")
+
+    if action == "list_model_revisions":
+        lister = getattr(cat, "list_model_revisions", None)
+        if not callable(lister):
+            # Not a fault in the request: this catalogue keeps one version of a
+            # model. An empty list says "nothing to pick from" in the same shape
+            # a versioned provider uses for an unversioned model, so a caller
+            # needs no branch.
+            _progress(action, 0.9)
+            return {
+                "action": action,
+                "provider": provider,
+                "collection": collection,
+                "model_id": model_id,
+                "has_revisions": False,
+                "revisions": [],
+            }
+        revisions = lister(collection, model_id)
+        _progress(action, 0.9)
+        return {
+            "action": action,
+            "provider": provider,
+            "collection": collection,
+            "model_id": model_id,
+            "has_revisions": True,
+            "revisions": [asdict(r) for r in revisions],
+        }
 
     if action == "model_upload_url":
         signer = getattr(cat, "model_upload_url", None)
@@ -162,7 +208,15 @@ def run_job(
         }
 
     expires = int(options.get("expires_in_seconds") or 900)
-    url = cat.model_download_url(collection, model_id, expires_in_seconds=expires)
+    revision = (options.get("revision") or "").strip()
+    if revision:
+        # Passed ONLY when asked for, so a provider that predates revisions never
+        # sees the keyword. A provider that lists revisions but does not accept
+        # this raises TypeError here rather than silently serving the current
+        # version, which is the failure worth being loud about.
+        url = cat.model_download_url(collection, model_id, expires_in_seconds=expires, revision=revision)
+    else:
+        url = cat.model_download_url(collection, model_id, expires_in_seconds=expires)
 
     # A provider whose URL carries its own signature needs no headers; one whose
     # fetch must be authenticated returns them. getattr rather than a required
@@ -180,6 +234,7 @@ def run_job(
         "provider": provider,
         "collection": collection,
         "model_id": model_id,
+        "revision": revision or None,
         "url": url,
         "headers": headers,
     }

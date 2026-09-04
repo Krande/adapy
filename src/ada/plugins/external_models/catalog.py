@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "Collection",
     "ExternalModel",
+    "ModelRevision",
     "ExternalModelCatalog",
     "StubExternalModelCatalog",
     "S3ExternalModelCatalog",
@@ -78,6 +79,33 @@ class ExternalModel:
     labelled: bool = False
 
 
+@dataclass(frozen=True)
+class ModelRevision:
+    """One stored version of a model, for catalogues that keep more than one.
+
+    A store that rebuilds a model on a schedule and retains the previous
+    output(s) has more than one version of the same `(collection, model)`. Nothing
+    in the three required methods can express that: `list_models` returns one
+    entry per model and `model_download_url` resolves to whatever the provider
+    calls current, so a consumer can only ever reach the newest one.
+
+    `id` is opaque and provider-defined -- a timestamped prefix, an object-version
+    id, a build number. Consumers pass it back verbatim and must not parse it;
+    `name` is what a person picks from.
+    """
+
+    id: str
+    name: str
+    #: ISO-8601 if the provider knows it. A UI orders by this when present, and
+    #: falls back to the order the provider returned otherwise -- so a provider
+    #: that cannot date its revisions should return them newest-first.
+    created_at: str | None = None
+    size: int | None = None
+    #: The one `model_download_url` resolves to when no revision is requested.
+    #: Exactly one revision in a list should carry it.
+    current: bool = False
+
+
 @runtime_checkable
 class ExternalModelCatalog(Protocol):
     """The entire seam. Three methods; anything the viewer needs is composed
@@ -123,6 +151,28 @@ class ExternalModelCatalog(Protocol):
     # reaches the viewer as gzip bytes and fails as a JSON parse error, with
     # nothing anywhere naming compression. One catalogue was found in exactly
     # that state, one object among forty.
+    #
+    # ALSO OPTIONAL, same convention, and these two travel TOGETHER:
+    #
+    #   list_model_revisions(collection, model_id) -> list[ModelRevision]
+    #   model_download_url(..., revision: str | None = None)
+    #
+    # A catalogue that retains more than one version of a model implements the
+    # first to enumerate them, and accepts `revision` on the second to serve one.
+    # A catalogue with a single current version implements neither and the viewer
+    # never offers a version picker for it -- the correct outcome rather than a
+    # control that fails when used.
+    #
+    # WHY `revision` RIDES ON THE EXISTING DOWNLOAD METHOD rather than arriving as
+    # a second one: a consumer then has one way to fetch a model, not two that it
+    # has to choose between. `revision` is passed ONLY when a caller asked for a
+    # specific one, so a provider written before this exists never sees the
+    # keyword and keeps satisfying the Protocol unchanged.
+    #
+    # The pairing is a real obligation, not a suggestion. Implementing
+    # `list_model_revisions` while ignoring `revision` produces a picker whose
+    # every entry silently serves the current version -- which looks like it works
+    # and is wrong in the one way nobody checks.
 
 
 def _model_name(key: str) -> str:
@@ -167,8 +217,39 @@ class StubExternalModelCatalog:
             for k in sorted(keys)
         ]
 
-    def model_download_url(self, collection: str, model_id: str, *, expires_in_seconds: int = 900) -> str:
-        return f"stub://external-models/{collection}/{model_id}"
+    #: Fixture revisions, newest first. Only one collection has them, so the stub
+    #: exercises both halves of the optional contract: a model that is versioned
+    #: and a model that is not.
+    _revisions: dict[str, list[tuple[str, str]]] = field(
+        default_factory=lambda: {
+            "demo/kitchen": [
+                ("2024-01-02", "2024-01-02T00:00:00Z"),
+                ("2024-01-01", "2024-01-01T00:00:00Z"),
+            ]
+        }
+    )
+
+    def list_model_revisions(self, collection: str, model_id: str) -> list[ModelRevision]:
+        entries = self._revisions.get(f"{collection}/{model_id}")
+        if not entries:
+            # An unversioned model in a versioned catalogue. Empty, not an error:
+            # a UI shows no picker for it and everything else still works.
+            return []
+        return [
+            ModelRevision(id=rid, name=f"{rid} (stub)", created_at=created, current=(i == 0))
+            for i, (rid, created) in enumerate(entries)
+        ]
+
+    def model_download_url(
+        self,
+        collection: str,
+        model_id: str,
+        *,
+        expires_in_seconds: int = 900,
+        revision: str | None = None,
+    ) -> str:
+        suffix = f"@{revision}" if revision else ""
+        return f"stub://external-models/{collection}/{model_id}{suffix}"
 
 
 class S3ExternalModelCatalog:

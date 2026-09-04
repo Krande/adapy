@@ -55,6 +55,7 @@ import type {
   ExternalCollection,
   ExternalModel,
   ExternalModelProvider,
+  ExternalModelRevision,
 } from "./externalModelTypes";
 
 export {
@@ -71,6 +72,7 @@ export type {
   ExternalCollection,
   ExternalModel,
   ExternalModelProvider,
+  ExternalModelRevision,
 } from "./externalModelTypes";
 export {
   ExternalModelsError,
@@ -310,12 +312,13 @@ export async function modelUrl(
   collection: string,
   modelId: string,
   scope: ScopeUrl,
-  opts?: { expiresInSeconds?: number; signal?: AbortSignal },
+  opts?: { expiresInSeconds?: number; revision?: string; signal?: AbortSignal },
 ): Promise<{ url: string; headers: Record<string, string> }> {
   const impl = externalModelClient(provider);
   if (impl) {
     const got = await impl.modelUrl(collection, modelId, {
       expiresInSeconds: opts?.expiresInSeconds,
+      revision: opts?.revision,
       signal: opts?.signal,
     });
     if (!got?.url) throw new ExternalModelsError("provider returned no url");
@@ -329,6 +332,7 @@ export async function modelUrl(
       collection,
       model_id: modelId,
       expires_in_seconds: opts?.expiresInSeconds,
+      revision: opts?.revision,
       // ALWAYS bust the cache. The result is a short-lived signed URL, so a
       // cache hit returns one minted for an earlier request — which the store
       // then rejects as expired. Unlike the listing actions this is never
@@ -343,6 +347,40 @@ export async function modelUrl(
   // populated for one whose fetch must be authenticated. Returning them beside
   // the URL is what lets a single call site serve both without knowing which.
   return { url: out.url, headers: out.headers ?? {} };
+}
+
+/** The stored versions of one model, newest first, or `[]`.
+ *
+ *  Empty covers both "this provider keeps one version" and "this model is not
+ *  versioned", deliberately: a caller renders a picker when the list has more
+ *  than one entry and needs no branch between the two cases. */
+export async function listModelRevisions(
+  provider: string,
+  collection: string,
+  modelId: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<ExternalModelRevision[]> {
+  const impl = externalModelClient(provider);
+  if (impl) {
+    // Optional on the client interface too, so an implementation without it is
+    // a provider with one version rather than an error.
+    if (!impl.listModelRevisions) return [];
+    return (await impl.listModelRevisions(collection, modelId, opts)) ?? [];
+  }
+
+  const out = await runAction<{ revisions?: ExternalModelRevision[] }>(
+    {
+      action: "list_model_revisions",
+      provider,
+      collection,
+      model_id: modelId,
+      refresh: opts?.refresh,
+    },
+    scope,
+    opts?.signal,
+  );
+  return out.revisions ?? [];
 }
 
 // --- upload -----------------------------------------------------------------

@@ -22,6 +22,7 @@ from ada.plugins.external_models.catalog import (
     Collection,
     ExternalModel,
     ExternalModelCatalog,
+    ModelRevision,
     S3ExternalModelCatalog,
     StubExternalModelCatalog,
     demo_catalog_from_env,
@@ -403,3 +404,114 @@ def test_the_store_asks_for_gzip_and_a_type_together():
     assert glb["Content-Encoding"] == "gzip"
     assert glb["Content-Type"] == "model/gltf-binary"
     assert cat.model_upload_headers("plant-a", "scene.gltf")["Content-Type"] == "model/gltf+json"
+
+
+# --- revisions: a provider opts in by implementing it -----------------------
+
+
+def test_a_single_version_provider_declares_no_revisions():
+    """Nothing to configure and nothing to raise.
+
+    A catalogue that keeps one version of a model implements neither method, so
+    `has_revisions` is False and the action still answers — with an empty list,
+    which is the same shape a versioned provider returns for an unversioned
+    model. A caller therefore needs no branch between the two cases.
+    """
+    cat = _FakeS3(["demo/a.glb"])
+    out = run_job({"action": "list_collections"}, catalog=cat)
+    assert out["has_revisions"] is False
+
+    out = run_job(
+        {"action": "list_model_revisions", "collection": "demo", "model_id": "a"},
+        catalog=cat,
+    )
+    assert out["has_revisions"] is False
+    assert out["revisions"] == []
+
+
+def test_a_versioned_provider_lists_its_revisions_newest_first():
+    cat = StubExternalModelCatalog()
+    out = run_job({"action": "list_models", "collection": "demo"}, catalog=cat)
+    assert out["has_revisions"] is True
+
+    out = run_job(
+        {"action": "list_model_revisions", "collection": "demo", "model_id": "kitchen"},
+        catalog=cat,
+    )
+    assert [r["id"] for r in out["revisions"]] == ["2024-01-02", "2024-01-01"]
+    # Exactly one is current, and it is the one a plain fetch resolves to.
+    assert [r["current"] for r in out["revisions"]] == [True, False]
+
+
+def test_an_unversioned_model_in_a_versioned_provider_is_empty_not_an_error():
+    cat = StubExternalModelCatalog()
+    out = run_job(
+        {"action": "list_model_revisions", "collection": "demo", "model_id": "pipe-rack"},
+        catalog=cat,
+    )
+    assert out["has_revisions"] is True
+    assert out["revisions"] == []
+
+
+def test_a_revision_is_only_passed_when_one_was_asked_for():
+    """The kwarg must not reach a provider that predates revisions.
+
+    This is what lets the feature be additive: `model_download_url` keeps its
+    original signature for every existing provider, and only a caller holding a
+    revision id causes the keyword to be sent at all.
+    """
+
+    class _Old:
+        def list_collections(self):
+            return [Collection(id="c", name="c")]
+
+        def list_models(self, collection):
+            return [ExternalModel(id="m", name="m", collection=collection, key="c/m.glb")]
+
+        def model_download_url(self, collection, model_id, *, expires_in_seconds=900):
+            # No `revision` parameter at all. Passing one would raise TypeError,
+            # so this test failing is exactly the regression to catch.
+            return "old://c/m"
+
+    out = run_job({"action": "model_url", "collection": "c", "model_id": "m"}, catalog=_Old())
+    assert out["url"] == "old://c/m"
+    assert out["revision"] is None
+
+
+def test_a_requested_revision_reaches_the_provider():
+    cat = StubExternalModelCatalog()
+    out = run_job(
+        {
+            "action": "model_url",
+            "collection": "demo",
+            "model_id": "kitchen",
+            "revision": "2024-01-01",
+        },
+        catalog=cat,
+    )
+    assert out["revision"] == "2024-01-01"
+    assert out["url"].endswith("@2024-01-01")
+    # And without one, the same call resolves to whatever the provider calls
+    # current -- the pre-existing behaviour, unchanged.
+    plain = run_job({"action": "model_url", "collection": "demo", "model_id": "kitchen"}, catalog=cat)
+    assert plain["url"] == "stub://external-models/demo/kitchen"
+
+
+def test_revision_payload_is_json_serialisable():
+    import json
+
+    cat = StubExternalModelCatalog()
+    out = run_job(
+        {"action": "list_model_revisions", "collection": "demo", "model_id": "kitchen"},
+        catalog=cat,
+    )
+    json.dumps(out)
+    assert set(out["revisions"][0]) == {"id", "name", "created_at", "size", "current"}
+
+
+def test_model_revision_is_exported_from_the_package():
+    # A provider implementing the optional half imports this from the package
+    # root, like Collection and ExternalModel.
+    import ada.plugins.external_models as pkg
+
+    assert pkg.ModelRevision is ModelRevision
