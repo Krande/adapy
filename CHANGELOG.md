@@ -2,6 +2,15 @@
 
 
 
+## v0.63.0 (2026-09-04)
+
+### Feature
+
+* feat(external-models): let a provider expose more than one version of a model (#327)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`4c3bb7e`](https://github.com/Krande/adapy/commit/4c3bb7eedcf3a3bfbd9e56cd30fcdc7e0e55f9b8))
+
+
 ## v0.62.5 (2026-09-03)
 
 ### Fix
