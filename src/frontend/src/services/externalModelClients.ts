@@ -15,7 +15,11 @@
 // everything here — there is one place to look, and the dispatch lives beside
 // the names it dispatches on.
 
-import type { ExternalCollection, ExternalModel } from "./externalModelTypes";
+import type {
+  ExternalCollection,
+  ExternalModel,
+  ExternalModelRevision,
+} from "./externalModelTypes";
 
 export class ExternalModelsError extends Error {
   constructor(message: string) {
@@ -60,8 +64,29 @@ export interface ExternalModelClient {
   modelUrl(
     collection: string,
     modelId: string,
-    opts?: ExternalModelClientOpts & { expiresInSeconds?: number },
+    opts?: ExternalModelClientOpts & {
+      expiresInSeconds?: number;
+      /** Fetch a specific stored version. Only ever set by a caller that got the
+       *  id from `listModelRevisions`, so a provider without revisions never
+       *  sees it. */
+      revision?: string;
+    },
   ): Promise<{ url: string; headers?: Record<string, string> }>;
+  /** OPTIONAL, and presence IS the declaration — as with upload, and as on the
+   *  worker side. A provider that keeps more than one version of a model
+   *  implements this to enumerate them, and honours `revision` on `modelUrl` to
+   *  serve one. The two travel together: listing revisions while ignoring
+   *  `revision` gives a picker whose every entry silently serves the current
+   *  version.
+   *
+   *  Returns an empty array for a model this provider does not version, so a
+   *  caller needs no branch between "unversioned provider" and "unversioned
+   *  model". */
+  listModelRevisions?(
+    collection: string,
+    modelId: string,
+    opts?: ExternalModelClientOpts,
+  ): Promise<ExternalModelRevision[]>;
   /** OPTIONAL, and presence IS the declaration — exactly as on the worker side.
    *  A read-only catalogue implements nothing and the viewer never offers
    *  upload for it, rather than offering a control that fails when pressed. */
