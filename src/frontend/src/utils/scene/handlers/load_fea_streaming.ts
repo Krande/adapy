@@ -32,7 +32,6 @@ import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
-import {setSourceMorph} from "../fea/sourceMorph";
 import {setResultLineSegmentsVisible} from "../fea/resultLineSegments";
 import {FEA_EDGE_COLOR} from "../fea/edgeColors";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
@@ -77,7 +76,6 @@ interface ActiveFeaStreaming {
      *  boundaries (AFEG over the solid mesh). Position + morph
      *  attributes are linked to the beam-solid mesh after the first
      *  apply seeds the morph attribute. */
-    beamSolidEdges?: THREE.LineSegments;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -103,15 +101,6 @@ export function setBeamSolidsVisible(visible: boolean): void {
     if (active?.mesh) {
         setResultLineSegmentsVisible(active.mesh, !visible);
     }
-    if (active?.beamSolidEdges) {
-        // The wireframe lives as a child of beamSolidMesh, so it would
-        // inherit ancestor invisibility, but ``mesh.visible = false``
-        // does not propagate through three's render walk by itself for
-        // children added to a non-Mesh group. Setting it directly is
-        // both belt-and-braces and lets future refactors detach the
-        // wireframe to a sibling without losing the link.
-        active.beamSolidEdges.visible = visible;
-    }
 }
 
 /** Every element-edge wireframe in the active session, main mesh and beam solids. */
@@ -119,7 +108,7 @@ function elementEdgeOverlays(): THREE.LineSegments[] {
     const out: THREE.LineSegments[] = [];
     for (const parent of [active?.mesh, active?.beamSolidMesh]) {
         if (!parent) continue;
-        for (const name of ["fea-element-edges", "fea-beam-solid-element-edges"]) {
+        for (const name of ["fea-element-edges"]) {
             const child = parent.getObjectByName(name);
             if (child instanceof THREE.LineSegments) out.push(child);
         }
@@ -139,10 +128,8 @@ function elementEdgeOverlays(): THREE.LineSegments[] {
  * edges must not reveal a wireframe for solids that are switched off.
  */
 export function setFeaElementEdgesVisible(visible: boolean): void {
-    const solidsVisible = active?.beamSolidMesh?.visible ?? true;
     for (const overlay of elementEdgeOverlays()) {
-        overlay.visible = visible
-            && (overlay.name !== "fea-beam-solid-element-edges" || solidsVisible);
+        overlay.visible = visible;
     }
     requestRender();
 }
@@ -631,7 +618,6 @@ function installBeamSolidWarp(
     // unexpanded `displacement` is what fits it. Installed BEFORE
     // linkLineMorphToMesh runs, which then leaves it alone precisely because it
     // brought its own.
-    setSourceMorph(beamSolid, "fea-beam-solid-element-edges", displacement);
 
     // Enable morph targets on every material slot so the GPU
     // actually applies the delta. The PBR material from the GLB
@@ -927,63 +913,25 @@ export async function load_fea_streaming(args: {
             active.beamSolidMesh = beamSolid.mesh;
             active.beamSolidBasePositions = beamSolid.basePositions;
 
-            // AFEG over the beam-solid mesh: element-boundary edges
-            // (perimeter + axial seams between adjacent beam-elements).
-            // Without these the solid beams render as one continuous
-            // tube; with them the user can see where one beam ends and
-            // the next starts. Same wiring pattern as the main mesh's
-            // wireframe — share position + morph attributes so the
-            // wireframe deforms in lockstep. Gated by the same
-            // `hideElementEdges` perf toggle as the main wireframe.
-            if (
-                manifest.mesh.beam_solids_edges_url
-                && !usePerfStore.getState().hideElementEdges
-            ) {
-                try {
-                    const beamEdgeIndices = await fetchMeshEdges(
-                        fetcher,
-                        manifest.mesh.beam_solids_edges_url,
-                    );
-                    if (beamEdgeIndices.length > 0) {
-                        const lineGeom = new THREE.BufferGeometry();
-                        lineGeom.setAttribute(
-                            "position",
-                            beamSolid.mesh.geometry.attributes.position,
-                        );
-                        lineGeom.setIndex(
-                            new THREE.BufferAttribute(beamEdgeIndices, 1),
-                        );
-                        const lineMat = new THREE.LineBasicMaterial({
-                            color: FEA_EDGE_COLOR,
-                            depthTest: true,
-                        });
-                        const segments = new THREE.LineSegments(lineGeom, lineMat);
-                        segments.name = "fea-beam-solid-element-edges";
-                        // Clip the element-edge wireframe with the model under section planes.
-                        segments.userData.__clipWithModel = true;
-                        // Layer 1: rendered but not pickable — beam-solid
-                        // face picking goes through the parent
-                        // CustomBatchedMesh; the wireframe is decorative.
-                        segments.layers.set(1);
-                        // Inherit beam-solid visibility so toggling the
-                        // solid mesh on/off hides its wireframe too.
-                        segments.visible = beamSolid.mesh.visible;
-                        // Morph attribute + influences are linked after
-                        // installBeamSolidWarp seeds them — see
-                        // applyFieldToBeamSolids further below.
-                        beamSolid.mesh.add(segments);
-                        active.beamSolidEdges = segments;
-                    }
-                } catch (err) {
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        "[fea-streaming] failed to load beam-solid edges:",
-                        err,
-                    );
-                }
-            }
+            // No element-edge wireframe over the beam solids.
+            //
+            // There used to be one, drawn from the AFEG sidecar: the perimeter of
+            // each extruded section plus the seams between adjacent beam
+            // elements. It is the wrong thing to call a mesh line. A beam element
+            // IS a line — two nodes and the span between them — and its mesh line
+            // should be that line whether or not the section is drawn around it.
+            // Outlining the extrusion instead put a rectangle round every section
+            // end and read as mesh that the model does not have.
+            //
+            // Nothing replaces it, because nothing needs to: the main mesh's edge
+            // sidecar already carries one edge per line element (see
+            // get_mesh_topology — "Line elements contribute edges but no
+            // triangles"), so beams keep exactly the mesh line they have with the
+            // sections switched off. The bake still writes beam_solids_edges_url;
+            // it is simply no longer consumed.
 
             // AFBV: per-vertex (node0, node1, t). Required so the
+
             // solid mesh deforms with the rest of the structure
             // when warp is applied. Best-effort fetch — without it
             // the solid mesh still renders but stays at base
