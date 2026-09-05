@@ -2239,12 +2239,15 @@ def build_manifest(
         "n_points": int(mesh_geom.points.shape[0]),
         "n_cells": n_cells,
     }
-    if mesh_geom.node_labels is not None:
-        # Solver node ids aligned to the points array — what a node-number
-        # label prints. Omitted (not synthesised) when the reader has none:
-        # a row index shown as a node number would be wrong on renumbered
-        # decks, which is worse than no label.
-        mesh_meta["node_labels"] = [int(x) for x in mesh_geom.node_labels]
+    # Solver node ids aligned to the points array — what a node-number label
+    # prints. Omitted (not synthesised) when the reader has none: a row index
+    # shown as a node number would be wrong on renumbered decks, which is
+    # worse than no label. getattr, not attribute access: callers may hand in
+    # any geometry-shaped object (the plugin tests do), and node_labels is the
+    # optional extra here, not part of that duck type's core.
+    node_labels = getattr(mesh_geom, "node_labels", None)
+    if node_labels is not None:
+        mesh_meta["node_labels"] = [int(x) for x in node_labels]
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)
