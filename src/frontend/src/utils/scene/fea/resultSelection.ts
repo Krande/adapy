@@ -14,8 +14,15 @@ export async function selectFeaResultComponent(
     (candidate) => candidate.name_canonical === fieldName,
   );
   if (!field) throw new Error(`Unknown FEA result field ${fieldName}`);
+  const magnitudeOffered =
+    !field.group_path && field.kind.startsWith("vector");
   const reduction =
-    component && field.components.includes(component)
+    component &&
+    (field.components.includes(component) ||
+      // "magnitude" is a pseudo-component, valid exactly where the pickers
+      // offer it (an ungrouped vector field). Rejecting it here made a
+      // restore of a magnitude view silently land on the first component.
+      (component === "magnitude" && magnitudeOffered))
       ? component
       : (field.default_view?.reduction ?? field.components[0] ?? "scalar");
   if (field.surface_variants?.length) {
