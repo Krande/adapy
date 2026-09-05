@@ -1537,14 +1537,18 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         // stress-only output).
         const field =
             manifest.fields.find((f) => f.category === "displacement") ??
-            manifest.fields[0];
-        const reduction = field.default_view?.reduction ?? "magnitude";
+            manifest.fields[0] ??
+            // A result-less deck (a design-model .fem/.inp/.med bake, or an
+            // input deck exported from a SIN) has geometry and no fields at
+            // all. Mesh-only is the correct open, not a crash on fields[0].
+            null;
+        const reduction = field?.default_view?.reduction ?? "magnitude";
         await load_fea_streaming({
             sourceName,
             manifest,
-            fieldName: field.name_canonical,
+            fieldName: field ? field.name_canonical : null,
             stepIndex: 0,
-            reduction,
+            reduction: field ? reduction : null,
             displacementScale: 1,
             signal: controller.signal,
             onStage: (stage, progress) => {

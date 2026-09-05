@@ -3559,6 +3559,27 @@ def _fea_to_fea(src, on_progress, *, source_ext, target_ext, **_):
     return _via_fea_to_fem(src, source_ext, target_ext, on_progress)
 
 
+@converter(".sin", "fem")
+def _sin_to_fem(src, on_progress, **_):
+    """Extract the FEM input deck SESTRA echoed into a results file.
+
+    A SIN carries the whole input deck beside its result records; this walks
+    the binary record blocks, keeps every input record verbatim and drops the
+    results — extraction, not reconstruction, so nothing an object-model
+    writer fails to model can be silently lost. The product is a standard
+    Input Interface File a Sesam tool (or this viewer) opens directly.
+    """
+
+    on_progress("extracting input deck", 0.2)
+    # Worker-only import: the slim API container imports this module for the
+    # registry but cannot carry ada.fem.
+    from ada.fem.formats.sesam.results.export_fem import export_fem_text
+
+    text = export_fem_text(src)
+    on_progress("writing", 0.9)
+    return text.encode("ascii")
+
+
 _register_passthrough_glb()
 _register_trimesh_to_glb()
 _register_ada_loadable()

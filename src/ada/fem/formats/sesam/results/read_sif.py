@@ -742,7 +742,13 @@ class SifReader:
         return merged
 
     def get_rdresref(self):
-        res = self.get_result(cards.RDRESREF.name)[0][1]
+        blocks = self.get_result(cards.RDRESREF.name)
+        if not blocks:
+            # A result-less deck (an exported/plain FEM input file read through
+            # this parser) has no result references at all — that is data, not
+            # an error.
+            return None
+        res = blocks[0][1]
         if res is None:
             return None
         return {int(x[1]): [int(i) for i in x] for x in res}
@@ -986,6 +992,9 @@ class Sif2Mesh:
     def get_result_name_map(self):
         tdresref = self.sif.get_tdresref()
         rdresref = self.sif.get_rdresref()
+        if rdresref is None:
+            # Result-less deck: nothing to name.
+            return {}
         if tdresref is None:
             # No STEP name is defined
             return {key: key for key, value in rdresref.items()}
