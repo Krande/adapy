@@ -70,10 +70,12 @@ def test_stream_reader_element_values_match_adapter(fem_files):
         assert spec.element_labels == rspec.element_labels  # order is load-bearing
         a = list(ref.iter_element_field_steps(rspec))
         b = list(strm.iter_element_field_steps(spec))
-        assert len(a) == len(b) == 20
+        # Result fields carry every mode; property fields are one step by design.
+        expected_steps = 1 if spec.category == "property" else 20
+        assert len(a) == len(b) == expected_steps
         for x, y in zip(a, b):
             assert x.values.shape == y.values.shape
-            assert np.allclose(x.values, y.values)
+            assert np.allclose(x.values, y.values, equal_nan=True)
 
 
 def test_make_sif_reader_defaults_to_streaming(fem_files, monkeypatch):

@@ -841,11 +841,18 @@ class SinStreamReader:
         # numbers 1..N as eigen frequencies merely because they increase.
         analysis_kind = "static" if self._combinations else None
         return [
-            dataclasses.replace(
-                s,
-                n_steps=len(labels),
-                step_values=labels,
-                analysis_kind=analysis_kind or s.analysis_kind,
+            (
+                s
+                if s.category == "property"
+                # Property fields do not vary by load case: one step, however
+                # many cases the deck stores. Expanding them to the global step
+                # list would bake ten identical copies of a constant.
+                else dataclasses.replace(
+                    s,
+                    n_steps=len(labels),
+                    step_values=labels,
+                    analysis_kind=analysis_kind or s.analysis_kind,
+                )
             )
             for s in specs
         ]
@@ -880,6 +887,19 @@ class SinStreamReader:
 
     def iter_element_field_steps(self, spec):
         import dataclasses
+
+        if spec.category == "property":
+            # Single-step by construction (see _with_global_steps); the values
+            # come from the deck's property tables, not any step's RV block.
+            ad = self._adapter_for(0)
+            ad_spec = next(
+                (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
+                None,
+            )
+            if ad_spec is None:
+                raise RuntimeError(f"SIN property field {spec.name!r}/{spec.elem_type} missing")
+            yield from ad.iter_element_field_steps(ad_spec)
+            return
 
         labels = self._step_values()
         card = _ELEM_FIELD_TO_CARD.get(spec.name)

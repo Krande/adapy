@@ -246,6 +246,9 @@ export type FeaFieldCategory =
   | "reaction"
   | "stress"
   | "strain"
+  /** Model input data (thickness, material, section) painted like a result.
+   *  Results pickers hide the category; an inspect/properties panel lists it. */
+  | "property"
   | "other";
 
 /** One per (logical-field, element-type) bucket for element fields.
@@ -320,6 +323,9 @@ export interface FeaManifestField {
   /** Unit aligned with each component. Required when one field mixes
    * dimensions (for example beam forces and moments). */
   component_units?: string[];
+  /** Categorical fields only (a material id, a section id): what each stored
+   * numeric value means, keyed by the value's string form. */
+  value_labels?: Record<string, string>;
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no

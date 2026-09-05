@@ -168,7 +168,7 @@ class SolidBeamMesh:
 # when the reader can't classify (a third-party field, an unknown RV
 # card). Adding a new category should be deliberate — the frontend
 # switch on this is exhaustive.
-FieldCategory = Literal["displacement", "reaction", "stress", "strain", "other"]
+FieldCategory = Literal["displacement", "reaction", "stress", "strain", "property", "other"]
 
 
 @dataclass
@@ -500,6 +500,12 @@ def _classify_field(name: str, sample) -> FieldCategory:
         # the spec construction directly.
         if field_type == NodalFieldType.FORCE:
             return "reaction"
+
+    # Model-property fields (thickness, material, section) are input data, not
+    # analysis output; results pickers hide the category and a properties
+    # panel lists it. The namespace is the contract — see property_fields.py.
+    if name.startswith("props."):
+        return "property"
 
     upper = name.upper()
     # Sesam RVNODDIS = nodal displacements; RVFORCES = beam-element
@@ -1914,6 +1920,11 @@ def _presentation_payload(presentation: FieldPresentation | None) -> dict:
         "derived": bool(presentation.derived),
         "unit": presentation.unit,
         "component_units": list(presentation.component_units),
+        **(
+            {"value_labels": {str(value): label for value, label in presentation.value_labels}}
+            if presentation.value_labels
+            else {}
+        ),
     }
 
 

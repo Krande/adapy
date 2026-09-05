@@ -970,6 +970,14 @@ class Sif2Mesh:
             self.sif,
             wanted=requested_fields,
         )
+        from ada.fem.formats.sesam.results.property_fields import build_property_fields
+
+        # Property fields ride on a step that is actually loaded, so a
+        # step-filtered read stays a single-step result and an empty read
+        # (step=999) stays empty rather than growing a phantom step 1.
+        present = sorted({int(field.step) for field in result_blocks})
+        if present:
+            result_blocks += build_property_fields(self.mesh, self.sif, wanted=requested_fields, step=present[0])
 
         if requested_fields is not None:
             result_blocks = [field for field in result_blocks if field.name in requested_fields]

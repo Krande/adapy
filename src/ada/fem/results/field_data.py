@@ -26,6 +26,11 @@ class FieldPresentation:
     derived: bool = False
     unit: str = ""
     component_units: tuple[str, ...] = ()
+    # For categorical fields (a material id, a section id): what each stored
+    # numeric value MEANS, as (value, label) pairs. A tuple of pairs rather
+    # than a dict so the dataclass stays frozen/hashable; the manifest carries
+    # it as a JSON object. Empty for ordinary continuous fields.
+    value_labels: tuple[tuple[float, str], ...] = ()
 
 
 @dataclass

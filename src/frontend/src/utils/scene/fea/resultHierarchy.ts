@@ -22,6 +22,9 @@ export function buildFeaResultHierarchy(fields: FeaManifestField[]): {
   const seenSurfaceSemantics = new Set<string>();
   const ungrouped: FeaManifestField[] = [];
   for (const field of fields) {
+    // Model-property fields are input data, not results; a properties/inspect
+    // panel lists the category, the results tree and pickers never do.
+    if (field.category === "property") continue;
     const path = field.group_path;
     if (!path || path.length < 2) {
       ungrouped.push(field);

@@ -238,6 +238,7 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
             "reaction",
             "stress",
             "strain",
+            "property",
             "other",
         }, f"{fixture_label}: bad category={field['category']!r}"
 
@@ -1214,7 +1215,7 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
             "line_result_point",
             "gauss",
         }
-        assert field["category"] in {"stress", "strain", "reaction", "other"}
+        assert field["category"] in {"stress", "strain", "reaction", "property", "other"}
         for pt in field["per_type"]:
             blob_path = bake.out_dir / pt["blob"]["url"]
             assert blob_path.exists(), f"missing {pt['blob']['url']}"
