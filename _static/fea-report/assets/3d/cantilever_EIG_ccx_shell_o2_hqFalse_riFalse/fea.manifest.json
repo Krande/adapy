@@ -1,0 +1,115 @@
+{
+  "version": 2,
+  "src": "cantilever_EIG_ccx_shell_o2_hqFalse_riFalse",
+  "mesh": {
+    "url": "fea.mesh.glb",
+    "n_points": 6619,
+    "n_cells": 1310,
+    "edges_url": "fea.mesh.edges.bin",
+    "n_edges": 5017,
+    "elements_url": "fea.mesh.elements.bin",
+    "n_elements": 1310
+  },
+  "fields": [
+    {
+      "name_canonical": "DISP",
+      "name_native": "DISP",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "blob": {
+        "url": "fea.DISP.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 79428,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 11,
+      "steps": [
+        {
+          "i": 0,
+          "value": 12.75619355,
+          "label": "12.7562"
+        },
+        {
+          "i": 1,
+          "value": 19.5254008,
+          "label": "19.5254"
+        },
+        {
+          "i": 2,
+          "value": 51.97404064,
+          "label": "51.974"
+        },
+        {
+          "i": 3,
+          "value": 75.18485001,
+          "label": "75.1849"
+        },
+        {
+          "i": 4,
+          "value": 95.97131713,
+          "label": "95.9713"
+        },
+        {
+          "i": 5,
+          "value": 125.4649545,
+          "label": "125.465"
+        },
+        {
+          "i": 6,
+          "value": 142.9949662,
+          "label": "142.995"
+        },
+        {
+          "i": 7,
+          "value": 166.5787502,
+          "label": "166.579"
+        },
+        {
+          "i": 8,
+          "value": 194.0141716,
+          "label": "194.014"
+        },
+        {
+          "i": 9,
+          "value": 236.0415055,
+          "label": "236.042"
+        },
+        {
+          "i": 10,
+          "value": 250.2866075,
+          "label": "250.287"
+        }
+      ],
+      "scalar_range": {
+        "D1": [
+          -0.036531999707221985,
+          0.036531999707221985
+        ],
+        "D2": [
+          -0.23517100512981415,
+          0.2604149878025055
+        ],
+        "D3": [
+          -0.1863970011472702,
+          0.1863970011472702
+        ],
+        "magnitude": [
+          0.0,
+          0.2604149878025055
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    }
+  ]
+}

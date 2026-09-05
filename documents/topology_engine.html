@@ -1,0 +1,807 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Path to Software Agnosticism" href="path_to_software_agnosticism.html"><link rel="prev" title="Steel detailing as a method" href="steel_detailing.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Topology-based procedural modelling - ADA - Assembly for Design &amp; Analysis</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">ADA - Assembly for Design & Analysis</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">ADA - Assembly for Design & Analysis</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Features</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Topology-based procedural modelling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
+<li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command line interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Primitives</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/box.html">Box</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sphere.html">Sphere</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cylinder.html">Cylinder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cone.html">Cone</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/extrusion.html">Extrusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/revolve.html">Revolution</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sweeps.html">Sweeps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/beams.html">Beams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/plates.html">Plates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/pipe.html">Pipe</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Modelling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/boolean_operations.html">Boolean Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/parts_and_assemblies.html">Parts and Assemblies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/sections.html">Sections in ADA</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FEA</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_software.html">FEA Software</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_verification.html">FEA Verification Report</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="ifc_database.html">IFC Database</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Code</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="code.html">Code Documentation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Profiling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="profiling.html">Profiling Dashboard</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/blob/main/docs/documents/topology_engine.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/edit/main/docs/documents/topology_engine.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="topology-based-procedural-modelling">
+<h1>Topology-based procedural modelling<a class="headerlink" href="#topology-based-procedural-modelling" title="Link to this heading">¶</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">ada.topology</span></code> is a domain-generic procedural engine: you describe a model as
+a set of <em>spaces</em> (boxes), the engine partitions them into a cell graph with
+classified faces and edges, and a <em>blueprint</em> turns that topology into
+geometry. <code class="docutils literal notranslate"><span class="pre">ada.topo_model</span></code> is the in-repo reference implementation — a small
+steel structure with equipment, service systems and routed connections.</p>
+<section id="the-engine-in-a-nutshell">
+<h2>The engine in a nutshell<a class="headerlink" href="#the-engine-in-a-nutshell" title="Link to this heading">¶</a></h2>
+<p>Spaces go in, an assembly comes out:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">TopologyBuilder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">SteelStru</span>
+
+<span class="n">boxes</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">ada</span><span class="o">.</span><span class="n">PrimBox</span><span class="p">(</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="n">ada</span><span class="o">.</span><span class="n">PrimBox</span><span class="p">(</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+<span class="p">]</span>
+<span class="n">builder</span> <span class="o">=</span> <span class="n">TopologyBuilder</span><span class="o">.</span><span class="n">from_prim_boxes</span><span class="p">(</span><span class="n">boxes</span><span class="p">,</span> <span class="n">blueprint</span><span class="o">=</span><span class="n">SteelStru</span><span class="p">())</span>
+<span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">get_output_assembly</span><span class="p">(</span><span class="s2">&quot;MyModel&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">CellGraph</span></code> behind the builder answers topology questions: which faces
+are external floors or walls, which wall is shared between two cells
+(<code class="docutils literal notranslate"><span class="pre">get_internal_walls</span></code>), and each face carries its ordered outline points,
+edges and normal. Two adjacent cells share one wall and the girder/column edges
+along it — the engine deduplicates those for you.</p>
+<p>Or in one line, with the demo’s defaults:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_topo_model</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">build_topo_model</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="writing-a-blueprint">
+<h2>Writing a blueprint<a class="headerlink" href="#writing-a-blueprint" title="Link to this heading">¶</a></h2>
+<p>A blueprint subclasses <code class="xref py py-class docutils literal notranslate"><span class="pre">BlueprintBase</span></code> and
+implements <code class="docutils literal notranslate"><span class="pre">build()</span></code>: read the cell graph, emit parts, register them per
+area with <code class="docutils literal notranslate"><span class="pre">add_to_area</span></code> and finish with <code class="docutils literal notranslate"><span class="pre">load_parts_from_area_map()</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlueprintBase</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyStru</span><span class="p">(</span><span class="n">BlueprintBase</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_group_prefix</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;MyStru&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_part</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="s2">&quot;MyStru&quot;</span><span class="p">)</span>
+        <span class="n">cg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">builder</span><span class="o">.</span><span class="n">cell_graph</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">face</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">cg</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">()):</span>
+            <span class="n">plate</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Plate</span><span class="o">.</span><span class="n">from_3d_points</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;pl</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">face</span><span class="o">.</span><span class="n">get_points</span><span class="p">(),</span> <span class="mf">0.01</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_to_area</span><span class="p">(</span><span class="s2">&quot;floors&quot;</span><span class="p">,</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Floor_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="o">/</span> <span class="n">plate</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">load_parts_from_area_map</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_part</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">ada.topo_model.SteelStru</span></code> is the full worked example: reinforced floors
+(plate + evenly spaced stringers), girders from deduplicated floor-face edges
+and columns from the vertical wall edges.</p>
+</section>
+<section id="equipment-with-ports">
+<h2>Equipment with ports<a class="headerlink" href="#equipment-with-ports" title="Link to this heading">¶</a></h2>
+<p>Equipment carries typed connection points — <em>ports</em> — at local positions with
+outward directions and a service category (<code class="docutils literal notranslate"><span class="pre">process</span></code>/<code class="docutils literal notranslate"><span class="pre">electrical</span></code>/<code class="docutils literal notranslate"><span class="pre">signal</span></code>):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+
+<span class="n">pump</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">Equipment</span><span class="p">(</span><span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="n">mass</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">cog</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">origin</span><span class="o">=</span><span class="p">(</span><span class="mf">2.5</span><span class="p">,</span> <span class="mf">2.5</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span> <span class="n">lx</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ly</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">lz</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">pump</span><span class="o">.</span><span class="n">add_port</span><span class="p">(</span><span class="n">ada</span><span class="o">.</span><span class="n">Port</span><span class="p">(</span><span class="s2">&quot;discharge&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">ada</span><span class="o">.</span><span class="n">PortDirection</span><span class="o">.</span><span class="n">OUT</span><span class="p">,</span> <span class="s2">&quot;process&quot;</span><span class="p">))</span>
+<span class="n">pump</span><span class="o">.</span><span class="n">add_port</span><span class="p">(</span><span class="n">ada</span><span class="o">.</span><span class="n">Port</span><span class="p">(</span><span class="s2">&quot;power&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">ada</span><span class="o">.</span><span class="n">PortDirection</span><span class="o">.</span><span class="n">IN</span><span class="p">,</span> <span class="s2">&quot;electrical&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>The demo archetypes <code class="docutils literal notranslate"><span class="pre">create_pump</span></code> / <code class="docutils literal notranslate"><span class="pre">create_tank</span></code> in <code class="docutils literal notranslate"><span class="pre">ada.topo_model</span></code>
+ship with realistic port layouts, and <code class="docutils literal notranslate"><span class="pre">ada.Voltage</span></code> enumerates typical
+industrial supply levels (230 V – 11 kV).</p>
+</section>
+<section id="wiring-systems">
+<h2>Wiring systems<a class="headerlink" href="#wiring-systems" title="Link to this heading">¶</a></h2>
+<p>A <code class="docutils literal notranslate"><span class="pre">System</span></code> is a logical service network with a fixed category; connecting it
+to ports is fluent and fail-fast (wrong category or an already-connected port
+raises with a clear message):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cooling</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">ada</span><span class="o">.</span><span class="n">PipingSystem</span><span class="p">(</span><span class="s2">&quot;CoolingWater&quot;</span><span class="p">,</span> <span class="n">medium</span><span class="o">=</span><span class="s2">&quot;water&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">pump</span><span class="p">,</span> <span class="s2">&quot;discharge&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">tank</span><span class="p">,</span> <span class="s2">&quot;inlet&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">power</span> <span class="o">=</span> <span class="n">ada</span><span class="o">.</span><span class="n">ElectricalSystem</span><span class="p">(</span><span class="s2">&quot;PowerFeed&quot;</span><span class="p">,</span> <span class="n">voltage</span><span class="o">=</span><span class="n">ada</span><span class="o">.</span><span class="n">Voltage</span><span class="o">.</span><span class="n">LV_690</span><span class="p">)</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">pump</span><span class="p">,</span> <span class="s2">&quot;power&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The references are bidirectional: <code class="docutils literal notranslate"><span class="pre">port.connected_system</span></code> points at the
+system, <code class="docutils literal notranslate"><span class="pre">system.ports</span></code> / <code class="docutils literal notranslate"><span class="pre">system.connected_equipment</span></code> point back.</p>
+</section>
+<section id="routing">
+<h2>Routing<a class="headerlink" href="#routing" title="Link to this heading">¶</a></h2>
+<p>Systems route over a <code class="xref py py-class docutils literal notranslate"><span class="pre">CellGrid</span></code> node lattice with
+6-connected A*; occupied nodes are avoided and the routed polyline keeps only
+its bends:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">CellGrid</span><span class="p">,</span> <span class="n">RoutingRules</span>
+
+<span class="n">grid</span> <span class="o">=</span> <span class="n">CellGrid</span><span class="o">.</span><span class="n">from_bounds</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mf">5.5</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+<span class="n">grid</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">grid</span><span class="o">.</span><span class="n">index_of</span><span class="p">(</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">2.5</span><span class="p">,</span> <span class="mf">3.5</span><span class="p">),</span> <span class="s2">&quot;obstruction&quot;</span><span class="p">)</span>
+
+<span class="n">cooling</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>                 <span class="c1"># default rules</span>
+<span class="n">power</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">RoutingRules</span><span class="p">(</span><span class="n">elevation_penalty</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">bend_penalty</span><span class="o">=</span><span class="mf">1.0</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>Rules are pluggable: <code class="docutils literal notranslate"><span class="pre">is_allowed</span></code> / <code class="docutils literal notranslate"><span class="pre">move_cost</span></code> callables plus elevation
+and bend penalties. <code class="docutils literal notranslate"><span class="pre">system.route(...)</span></code> also generates the route geometry
+matched to the service: a round <code class="docutils literal notranslate"><span class="pre">ada.Pipe</span></code> run (with auto-inserted elbows)
+for piping, a rectangular BOX <code class="docutils literal notranslate"><span class="pre">ada.Beam</span></code> run for ducting, and an open
+UNP-channel <code class="docutils literal notranslate"><span class="pre">ada.Beam</span></code> run for cable trays / electrical. For
+blueprint-driven routing, subclass
+<code class="xref py py-class docutils literal notranslate"><span class="pre">RoutingBlueprintBase</span></code> and override <code class="docutils literal notranslate"><span class="pre">rules_for</span></code>
+per system and/or <code class="docutils literal notranslate"><span class="pre">build_routing_grid</span></code>.</p>
+</section>
+<section id="penetrations">
+<h2>Penetrations<a class="headerlink" href="#penetrations" title="Link to this heading">¶</a></h2>
+<p>Where a routed system crosses a wall or floor, a penetration blueprint turns
+the crossing into a detail. <code class="docutils literal notranslate"><span class="pre">StandardPenetrations</span></code> keys the detail on the
+routing type — a pipe sleeve for process runs, an MCT-style transit block for
+cable/electrical, a rectangular frame for ducts — and cuts the through-hole in
+the crossed face’s built wall plate:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">StandardPenetrations</span>
+
+<span class="n">pens</span> <span class="o">=</span> <span class="n">StandardPenetrations</span><span class="p">(</span><span class="n">systems</span><span class="o">=</span><span class="p">[</span><span class="n">service</span><span class="p">],</span> <span class="n">faces</span><span class="o">=</span><span class="n">cg</span><span class="o">.</span><span class="n">get_internal_walls</span><span class="p">())</span>
+<span class="n">a</span><span class="o">.</span><span class="n">add_part</span><span class="p">(</span><span class="n">pens</span><span class="o">.</span><span class="n">build</span><span class="p">())</span>   <span class="c1"># one detail part per crossing; wall plates get the hole</span>
+</pre></div>
+</div>
+<p>The demo builds its shared internal wall as a reinforced wall
+(<code class="docutils literal notranslate"><span class="pre">SteelStru(reinforce_internal_walls=True)</span></code> — plate + vertical stiffeners)
+and routes an interior service run straight through it; subclass
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PenetrationBlueprintBase</span></code> and override
+<code class="docutils literal notranslate"><span class="pre">build_penetration</span></code> for your own detail standard.</p>
+</section>
+<section id="pluggable-design-rules">
+<h2>Pluggable design rules<a class="headerlink" href="#pluggable-design-rules" title="Link to this heading">¶</a></h2>
+<p>Routing and penetration rules can be handed to the engine as plain callables —
+no subclassing. The engine runs in <strong>two phases</strong>, and every rule is a function
+that <em>fully encompasses</em> its stage:</p>
+<ul class="simple">
+<li><p><strong>Plan</strong> (geometry-free, runs first over the whole cell complex): a
+<code class="docutils literal notranslate"><span class="pre">plan_route</span></code> callable turns <code class="docutils literal notranslate"><span class="pre">(system,</span> <span class="pre">cell</span> <span class="pre">complex,</span> <span class="pre">grid)</span></code> into a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">RoutePlan</span></code>, and a <code class="docutils literal notranslate"><span class="pre">plan_penetration</span></code>
+callable turns <code class="docutils literal notranslate"><span class="pre">(system,</span> <span class="pre">routed</span> <span class="pre">path,</span> <span class="pre">penetrated</span> <span class="pre">members)</span></code> into a list of
+<code class="xref py py-class docutils literal notranslate"><span class="pre">Penetration</span></code> crossings. Planners see the
+<code class="docutils literal notranslate"><span class="pre">CellGraph</span></code> (the cell complex — cells + classified faces) and the routing
+<code class="docutils literal notranslate"><span class="pre">CellGrid</span></code> lattice, plus the penetrated members for penetration rules. They
+emit <em>data</em>, never geometry.</p></li>
+<li><p><strong>Model</strong> (plan → geometry): a <code class="docutils literal notranslate"><span class="pre">model_route</span></code> callable turns a <code class="docutils literal notranslate"><span class="pre">RoutePlan</span></code>
+into adapy geometry, and a <code class="docutils literal notranslate"><span class="pre">model_penetration</span></code> callable turns a
+<code class="docutils literal notranslate"><span class="pre">Penetration</span></code> into a detail part.</p></li>
+</ul>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">DesignRules</span></code> bundles the four callables and
+<code class="xref py py-func docutils literal notranslate"><span class="pre">run_design()</span></code> drives both phases in order (plan
+everything, then model everything), returning a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">DesignResult</span></code> — the routed geometry
+(<code class="docutils literal notranslate"><span class="pre">route_geometry</span></code> keyed by system name), the planned <code class="docutils literal notranslate"><span class="pre">penetrations</span></code> and their
+<code class="docutils literal notranslate"><span class="pre">penetration_parts</span></code>, and any <code class="docutils literal notranslate"><span class="pre">skipped</span></code> systems (see <code class="docutils literal notranslate"><span class="pre">skip_failed</span></code> below).
+The defaults reproduce the built-in routing; supply your own callables to fully
+override a stage:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology</span><span class="w"> </span><span class="kn">import</span> <span class="n">DesignRules</span><span class="p">,</span> <span class="n">RoutePlan</span><span class="p">,</span> <span class="n">RoutingRules</span><span class="p">,</span> <span class="n">run_design</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">standard_design_rules</span>
+
+<span class="c1"># A planning rule that fully encompasses routing: forbid a keep-out zone and</span>
+<span class="c1"># prefer a fixed service elevation. Planners return data (the polyline).</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">plan_route</span><span class="p">(</span><span class="n">ctx</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_allowed</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">grid</span><span class="p">):</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span> <span class="o">=</span> <span class="n">grid</span><span class="o">.</span><span class="n">coord_from_index</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">&lt;</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mf">3.0</span><span class="p">)</span>          <span class="c1"># keep-out corridor</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">route_system</span>
+    <span class="n">poly</span> <span class="o">=</span> <span class="n">route_system</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">system</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">RoutingRules</span><span class="p">(</span><span class="n">is_allowed</span><span class="o">=</span><span class="n">is_allowed</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">RoutePlan</span><span class="p">(</span><span class="n">system</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">system</span><span class="p">,</span> <span class="n">polyline</span><span class="o">=</span><span class="n">poly</span><span class="p">)</span>
+
+<span class="c1"># A modelling rule for the detail geometry at each crossing: a short sleeve</span>
+<span class="c1"># centred on the crossing point, along the crossed face normal.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">model_penetration</span><span class="p">(</span><span class="n">pen</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">ada</span>
+    <span class="n">p1</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">pen</span><span class="o">.</span><span class="n">point</span> <span class="o">-</span> <span class="n">pen</span><span class="o">.</span><span class="n">normal</span> <span class="o">*</span> <span class="mf">0.15</span><span class="p">)</span>
+    <span class="n">p2</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">pen</span><span class="o">.</span><span class="n">point</span> <span class="o">+</span> <span class="n">pen</span><span class="o">.</span><span class="n">normal</span> <span class="o">*</span> <span class="mf">0.15</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ada</span><span class="o">.</span><span class="n">Part</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">/</span> <span class="n">ada</span><span class="o">.</span><span class="n">PrimCyl</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_sleeve&quot;</span><span class="p">,</span> <span class="n">p1</span><span class="p">,</span> <span class="n">p2</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+
+<span class="n">rules</span> <span class="o">=</span> <span class="n">DesignRules</span><span class="p">(</span><span class="n">plan_route</span><span class="o">=</span><span class="n">plan_route</span><span class="p">,</span> <span class="n">model_penetration</span><span class="o">=</span><span class="n">model_penetration</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_design</span><span class="p">(</span><span class="n">systems</span><span class="p">,</span> <span class="n">cell_graph</span><span class="o">=</span><span class="n">cg</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">rules</span><span class="p">)</span>
+
+<span class="c1"># Or reuse the reference detail standard (pipe sleeve / cable block / duct frame):</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_design</span><span class="p">(</span><span class="n">systems</span><span class="p">,</span> <span class="n">cell_graph</span><span class="o">=</span><span class="n">cg</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="n">grid</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="n">standard_design_rules</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>The same ruleset threads into the higher-level entry points:
+<code class="xref py py-class docutils literal notranslate"><span class="pre">)</span></code> for
+blueprint-driven routing, and <code class="docutils literal notranslate"><span class="pre">compile_procedural_doc(...,</span> <span class="pre">design_rules=...)</span></code>
+for the viewer’s compile (which defaults to <code class="docutils literal notranslate"><span class="pre">standard_design_rules()</span></code>). With
+<code class="docutils literal notranslate"><span class="pre">skip_failed=True</span></code> a run that can’t be planned is dropped and named in
+<code class="docutils literal notranslate"><span class="pre">result.skipped</span></code> rather than sinking the whole model. The legacy
+subclass scaffolds (<code class="xref py py-class docutils literal notranslate"><span class="pre">RoutingBlueprintBase</span></code>’s
+<code class="docutils literal notranslate"><span class="pre">rules_for</span></code>/<code class="docutils literal notranslate"><span class="pre">build_routing_grid</span></code> overrides and
+<code class="xref py py-class docutils literal notranslate"><span class="pre">PenetrationBlueprintBase</span></code>’s
+<code class="docutils literal notranslate"><span class="pre">build_penetration</span></code>) still work unchanged — the defaults simply wrap them.</p>
+<section id="named-rulesets-for-the-viewer">
+<h3>Named rulesets for the viewer<a class="headerlink" href="#named-rulesets-for-the-viewer" title="Link to this heading">¶</a></h3>
+<p>A JSON document can’t carry Python callables, so the viewer selects a ruleset
+<strong>by name</strong>. <code class="docutils literal notranslate"><span class="pre">ada.topo_model</span></code> keeps a small registry
+(<code class="xref py py-data docutils literal notranslate"><span class="pre">DESIGN_RULESETS</span></code>) mapping a slug to a
+<code class="docutils literal notranslate"><span class="pre">DesignRules</span></code> factory:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">standard</span></code> — route runs and add the standard penetration detail at each wall
+crossing (pipe sleeve / cable block / duct frame, with the wall plate cut).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">route_only</span></code> — route runs and detect crossings, but emit no detail geometry.</p></li>
+</ul>
+<p>A cell-model document names one via <code class="docutils literal notranslate"><span class="pre">doc[&quot;design_rules&quot;]</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">compile_procedural_doc</span></code> resolves it with
+<code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_design_rules()</span></code> (an unknown/absent slug falls back
+to <code class="docutils literal notranslate"><span class="pre">standard</span></code>):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_design_rules</span><span class="p">,</span> <span class="n">design_ruleset_specs</span>
+
+<span class="n">rules</span> <span class="o">=</span> <span class="n">resolve_design_rules</span><span class="p">(</span><span class="s2">&quot;route_only&quot;</span><span class="p">)</span>          <span class="c1"># -&gt; DesignRules | None</span>
+<span class="n">design_ruleset_specs</span><span class="p">()</span>                               <span class="c1"># [{slug, name, description}, ...]</span>
+</pre></div>
+</div>
+<p>The hosted viewer wires this end-to-end: workers advertise
+<code class="docutils literal notranslate"><span class="pre">design_ruleset_specs()</span></code>, the API serves the built-in rulesets ∪ the advertised
+ones at <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/procedural-models/design-rulesets</span></code>, and the cellbuilder’s
+<strong>Design rules</strong> dropdown writes the chosen slug into <code class="docutils literal notranslate"><span class="pre">doc.design_rules</span></code> so the
+compile worker applies it. Register your own ruleset by adding a slug →
+<code class="docutils literal notranslate"><span class="pre">DesignRules</span></code> factory to <code class="docutils literal notranslate"><span class="pre">DESIGN_RULESETS</span></code>; it then appears in the dropdown
+of any scope served by a worker that ships it.</p>
+</section>
+</section>
+<section id="the-missing-i-o-report">
+<h2>The missing-I/O report<a class="headerlink" href="#the-missing-i-o-report" title="Link to this heading">¶</a></h2>
+<p>Every port left unconnected is a hole in the design. The validation helpers
+walk a part tree and report them:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.api.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">find_unconnected_ports</span><span class="p">,</span> <span class="n">format_port_report</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">format_port_report</span><span class="p">(</span><span class="n">find_unconnected_ports</span><span class="p">(</span><span class="n">a</span><span class="p">)))</span>
+</pre></div>
+</div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Equipment  Port     Category  Direction
+---------  -------  --------  ---------
+Pump1      suction  process   IN
+Pump1      signal   signal    INOUT
+</pre></div>
+</div>
+</section>
+<section id="ifc-export">
+<h2>IFC export<a class="headerlink" href="#ifc-export" title="Link to this heading">¶</a></h2>
+<p>Equipment and systems export as proper IFC4 distribution entities: the
+equipment element class follows <code class="docutils literal notranslate"><span class="pre">Equipment.ifc_element_class</span></code> (the demo pump
+is an <code class="docutils literal notranslate"><span class="pre">IfcPump</span></code>, the tank an <code class="docutils literal notranslate"><span class="pre">IfcTank</span></code>), ports become nested
+<code class="docutils literal notranslate"><span class="pre">IfcDistributionPort</span></code> entities with mapped flow directions, each system is an
+<code class="docutils literal notranslate"><span class="pre">IfcDistributionSystem</span></code> (typed <code class="docutils literal notranslate"><span class="pre">WATERSUPPLY</span></code>/<code class="docutils literal notranslate"><span class="pre">ELECTRICAL</span></code>/…) grouping its
+routed segments and connected equipment, and cable/duct runs emit
+<code class="docutils literal notranslate"><span class="pre">IfcCableSegment</span></code>/<code class="docutils literal notranslate"><span class="pre">IfcDuctSegment</span></code> instead of pipe segments.</p>
+</section>
+<section id="building-and-viewing-the-demo">
+<h2>Building and viewing the demo<a class="headerlink" href="#building-and-viewing-the-demo" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pixi<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>prod<span class="w"> </span>topo-model-demo
+</pre></div>
+</div>
+<p>The task builds the model, prints the missing-I/O report, exports a GLB,
+uploads it to your personal viewer scope (when <code class="docutils literal notranslate"><span class="pre">ADAPY_BASE_URL</span></code> /
+<code class="docutils literal notranslate"><span class="pre">ADAPY_API_TOKEN</span></code> are configured in <code class="docutils literal notranslate"><span class="pre">.env</span></code>; skipped otherwise) and streams
+the scene to the websocket viewer via <code class="docutils literal notranslate"><span class="pre">assembly.show()</span></code>. Use <code class="docutils literal notranslate"><span class="pre">--no-upload</span></code>
+/ <code class="docutils literal notranslate"><span class="pre">--no-show</span></code> to opt out of either side effect.</p>
+</section>
+<section id="compiling-a-whole-model-with-proceduralbuilder">
+<h2>Compiling a whole model with <code class="docutils literal notranslate"><span class="pre">ProceduralBuilder</span></code><a class="headerlink" href="#compiling-a-whole-model-with-proceduralbuilder" title="Link to this heading">¶</a></h2>
+<p>The engine-in-a-nutshell example above builds a bare structure. A full
+procedural <em>model</em> — spaces plus equipment, routed systems, openings and a
+design ruleset — is compiled by
+<code class="xref py py-class docutils literal notranslate"><span class="pre">ProceduralBuilder</span></code>, the <strong>root object that owns
+the whole model</strong>. It is <em>object-first</em>: you hand it explicit, validated entity
+objects (<code class="xref py py-class docutils literal notranslate"><span class="pre">TopoSpace</span></code> /
+<code class="xref py py-class docutils literal notranslate"><span class="pre">TopoEquipment</span></code> /
+<code class="xref py py-class docutils literal notranslate"><span class="pre">TopoSystem</span></code> /
+<code class="xref py py-class docutils literal notranslate"><span class="pre">TopoOpening</span></code>) rather than a loose dict, and
+<code class="docutils literal notranslate"><span class="pre">compile()</span></code> returns GLB bytes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProceduralBuilder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">ada.topology.entities</span><span class="w"> </span><span class="kn">import</span> <span class="n">TopoSpace</span><span class="p">,</span> <span class="n">TopoEquipment</span><span class="p">,</span> <span class="n">TopoSystem</span>
+
+<span class="n">spaces</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">TopoSpace</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">DX</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DY</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DZ</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+    <span class="n">TopoSpace</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">DX</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DY</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">DZ</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">equipment</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">TopoEquipment</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Pump2&quot;</span><span class="p">,</span> <span class="n">DESCRIPTION</span><span class="o">=</span><span class="s2">&quot;pump&quot;</span><span class="p">,</span> <span class="n">SPACE_NAME</span><span class="o">=</span><span class="s2">&quot;Cell1&quot;</span><span class="p">,</span>
+                  <span class="n">SPACE_LOC</span><span class="o">=</span><span class="s2">&quot;FLOOR&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">LX</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">LY</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">LZ</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                  <span class="n">COGx</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGy</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGz</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">massDry</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">massCont</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+    <span class="n">TopoEquipment</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;Tank2&quot;</span><span class="p">,</span> <span class="n">DESCRIPTION</span><span class="o">=</span><span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="n">SPACE_NAME</span><span class="o">=</span><span class="s2">&quot;Cell2&quot;</span><span class="p">,</span>
+                  <span class="n">SPACE_LOC</span><span class="o">=</span><span class="s2">&quot;FLOOR&quot;</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mf">6.5</span><span class="p">,</span> <span class="n">Y</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span> <span class="n">Z</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">LX</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">LY</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">LZ</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                  <span class="n">COGx</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGy</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">COGz</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">massDry</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">massCont</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">systems</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">TopoSystem</span><span class="p">(</span><span class="n">NAME</span><span class="o">=</span><span class="s2">&quot;CoolingWater&quot;</span><span class="p">,</span> <span class="n">TYPE</span><span class="o">=</span><span class="s2">&quot;piping&quot;</span><span class="p">,</span> <span class="n">MEDIUM</span><span class="o">=</span><span class="s2">&quot;water&quot;</span><span class="p">,</span> <span class="n">CONNECTIONS</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;Pump2&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;discharge&quot;</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;Tank2&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;inlet&quot;</span><span class="p">},</span>
+    <span class="p">]),</span>
+<span class="p">]</span>
+<span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">)</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">compile()</span></code> runs the phases in order — <code class="docutils literal notranslate"><span class="pre">build_structure</span></code> →
+<code class="docutils literal notranslate"><span class="pre">build_equipment</span></code> → <code class="docutils literal notranslate"><span class="pre">build_systems</span></code> → <code class="docutils literal notranslate"><span class="pre">to_glb</span></code>. Drive them individually to
+inspect the owned state (<code class="docutils literal notranslate"><span class="pre">blueprint</span></code>, <code class="docutils literal notranslate"><span class="pre">cell_graph</span></code>, <code class="docutils literal notranslate"><span class="pre">equipment_map</span></code>,
+<code class="docutils literal notranslate"><span class="pre">systems_parts</span></code>, <code class="docutils literal notranslate"><span class="pre">assembly</span></code>) in between:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">)</span>
+<span class="n">pb</span><span class="o">.</span><span class="n">build_structure</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">pb</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">())</span>    <span class="c1"># the built topology</span>
+<span class="n">pb</span><span class="o">.</span><span class="n">build_equipment</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">pb</span><span class="o">.</span><span class="n">equipment_map</span><span class="p">)</span>                       <span class="c1"># {&quot;Pump2&quot;: &lt;ada.Equipment&gt;, ...}</span>
+<span class="n">pb</span><span class="o">.</span><span class="n">build_systems</span><span class="p">()</span>
+<span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">to_glb</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Every child reaches the root through an injected <code class="docutils literal notranslate"><span class="pre">.procedural</span></code> reference — the
+blueprint directly, and any <code class="docutils literal notranslate"><span class="pre">GraphFace</span></code> through its cell graph — so a blueprint
+or a face-level rule can consult the whole model (equipment, systems, the design
+ruleset, the LOD). The topology engine
+(<code class="xref py py-class docutils literal notranslate"><span class="pre">TopologyBuilder</span></code>) is reached the other way, as
+<code class="docutils literal notranslate"><span class="pre">pb.topology</span></code>; the LOD lives once on the root (<code class="docutils literal notranslate"><span class="pre">pb.detail</span></code>):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pb</span><span class="o">.</span><span class="n">blueprint</span><span class="o">.</span><span class="n">procedural</span> <span class="ow">is</span> <span class="n">pb</span>                              <span class="c1"># True</span>
+<span class="n">face</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">get_external_floors</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">face</span><span class="o">.</span><span class="n">parent_cell</span><span class="o">.</span><span class="n">cell_graph</span><span class="o">.</span><span class="n">procedural</span> <span class="ow">is</span> <span class="n">pb</span>              <span class="c1"># True</span>
+</pre></div>
+</div>
+<section id="loading-from-dict-json-excel">
+<h3>Loading from dict / JSON / Excel<a class="headerlink" href="#loading-from-dict-json-excel" title="Link to this heading">¶</a></h3>
+<p>Explicit objects are the sturdy path, but a model also loads from the three
+document formats — each parses and validates into those same entity objects, so
+dict parsing lives in exactly one place:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># a procedural document (the viewer&#39;s commit format) — dict or a JSON file</span>
+<span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">doc</span><span class="p">)</span>
+<span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="s2">&quot;model.json&quot;</span><span class="p">)</span>
+<span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="s1">&#39;{&quot;spaces&quot;: [...], &quot;systems&quot;: [...]}&#39;</span><span class="p">)</span>
+
+<span class="c1"># a multi-sheet workbook: Spaces / Equipments / Openings / Systems + a</span>
+<span class="c1"># vertical Model sheet (name, blueprint, blueprint options, design ruleset)</span>
+<span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_excel</span><span class="p">(</span><span class="s2">&quot;model.xlsx&quot;</span><span class="p">)</span>
+
+<span class="c1"># and the inverse — round-trips the whole model back out</span>
+<span class="n">pb</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span><span class="s2">&quot;model.json&quot;</span><span class="p">)</span>
+<span class="n">pb</span><span class="o">.</span><span class="n">to_excel</span><span class="p">(</span><span class="s2">&quot;model.xlsx&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The functional <code class="docutils literal notranslate"><span class="pre">compile_procedural_doc(doc,</span> <span class="pre">...)</span></code> is a thin wrapper over
+<code class="docutils literal notranslate"><span class="pre">from_dict</span></code> + <code class="docutils literal notranslate"><span class="pre">compile</span></code> — use the builder when you want the phases, the
+intermediate model, or the object/Excel round-trips; the function for a one-shot
+document compile.</p>
+</section>
+<section id="multiple-structures-in-one-model">
+<h3>Multiple structures in one model<a class="headerlink" href="#multiple-structures-in-one-model" title="Link to this heading">¶</a></h3>
+<p>A single document (or workbook) can carry <strong>several</strong> topology models —
+<em>structures</em> — each a named group of spaces/openings placed at its own origin. A
+<code class="docutils literal notranslate"><span class="pre">Structures</span></code> sheet (<code class="xref py py-class docutils literal notranslate"><span class="pre">TopoStructure</span></code>: <code class="docutils literal notranslate"><span class="pre">NAME</span></code> +
+<code class="docutils literal notranslate"><span class="pre">X</span></code>/<code class="docutils literal notranslate"><span class="pre">Y</span></code>/<code class="docutils literal notranslate"><span class="pre">Z</span></code>) lists them, and every entity is tagged with its
+<code class="docutils literal notranslate"><span class="pre">STRUCTURE_NAME</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">doc</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;structures&quot;</span><span class="p">:</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_A&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_B&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span>
+    <span class="p">],</span>
+    <span class="s2">&quot;spaces&quot;</span><span class="p">:</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;A1&quot;</span><span class="p">,</span> <span class="s2">&quot;STRUCTURE_NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_A&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;DX&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DY&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DZ&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">&quot;NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;B1&quot;</span><span class="p">,</span> <span class="s2">&quot;STRUCTURE_NAME&quot;</span><span class="p">:</span> <span class="s2">&quot;Deck_B&quot;</span><span class="p">,</span> <span class="s2">&quot;X&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Y&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Z&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;DX&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DY&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;DZ&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">},</span>
+    <span class="p">],</span>
+<span class="p">}</span>
+<span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">doc</span><span class="p">)</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The same <code class="docutils literal notranslate"><span class="pre">ProceduralBuilder</span></code> builds one topology model per structure (grouped by
+<code class="docutils literal notranslate"><span class="pre">STRUCTURE_NAME</span></code>) and places each at its origin — no separate multi-builder.
+Equipment and systems stay a <strong>single shared layer</strong> (not duplicated per
+structure). With no <code class="docutils literal notranslate"><span class="pre">structures</span></code> the whole document is one implicit model, so a
+plain single-structure build is unchanged. The <code class="docutils literal notranslate"><span class="pre">Structures</span></code> sheet + entity
+<code class="docutils literal notranslate"><span class="pre">STRUCTURE_NAME</span></code> mirror the sibling procedural-modelling tool’s workbook, so a
+model round-trips between the two.</p>
+</section>
+<section id="reading-the-catalog-from-python">
+<h3>Reading the catalog from Python<a class="headerlink" href="#reading-the-catalog-from-python" title="Link to this heading">¶</a></h3>
+<p>When the viewer’s postgres is reachable, <code class="xref py py-class docutils literal notranslate"><span class="pre">ProceduralCatalog</span></code>
+reads a scope’s reusable equipment types and system templates and turns them
+into the objects above. <code class="docutils literal notranslate"><span class="pre">equipment_resolver()</span></code> returns the <code class="docutils literal notranslate"><span class="pre">slug</span> <span class="pre">-&gt;</span> <span class="pre">catalog</span>
+<span class="pre">doc</span></code> callable the builder uses to expand a placed catalog equipment (referenced
+by its <code class="docutils literal notranslate"><span class="pre">DESCRIPTION</span></code> slug) into a full <a class="reference internal" href="code.html#ada.Equipment" title="ada.Equipment"><code class="xref py py-class docutils literal notranslate"><span class="pre">ada.Equipment</span></code></a> — ports and IFC
+class included:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ada.topo_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProceduralBuilder</span><span class="p">,</span> <span class="n">ProceduralCatalog</span>
+
+<span class="k">with</span> <span class="n">ProceduralCatalog</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">scope_kind</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">scope_id</span><span class="o">=</span><span class="s2">&quot;me&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">cat</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">et</span> <span class="ow">in</span> <span class="n">cat</span><span class="o">.</span><span class="n">list_equipment_types</span><span class="p">():</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">et</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="n">et</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">et</span><span class="o">.</span><span class="n">doc</span><span class="p">[</span><span class="s2">&quot;ifc_element_class&quot;</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">st</span> <span class="ow">in</span> <span class="n">cat</span><span class="o">.</span><span class="n">list_system_templates</span><span class="p">():</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">st</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="n">st</span><span class="o">.</span><span class="n">doc</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">],</span> <span class="n">st</span><span class="o">.</span><span class="n">doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;medium&quot;</span><span class="p">))</span>
+
+    <span class="c1"># instantiate directly from a catalog type…</span>
+    <span class="n">pump</span> <span class="o">=</span> <span class="n">cat</span><span class="o">.</span><span class="n">get_equipment_type</span><span class="p">(</span><span class="s2">&quot;pump&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to_equipment</span><span class="p">(</span><span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+    <span class="n">cw</span> <span class="o">=</span> <span class="n">cat</span><span class="o">.</span><span class="n">get_system_template</span><span class="p">(</span><span class="s2">&quot;cooling_water&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to_system</span><span class="p">(</span>
+        <span class="s2">&quot;CW&quot;</span><span class="p">,</span> <span class="n">connections</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;EQUIPMENT&quot;</span><span class="p">:</span> <span class="s2">&quot;P1&quot;</span><span class="p">,</span> <span class="s2">&quot;PORT&quot;</span><span class="p">:</span> <span class="s2">&quot;discharge&quot;</span><span class="p">}])</span>
+
+    <span class="c1"># …or let the builder resolve placed catalog slugs at compile time</span>
+    <span class="n">pb</span> <span class="o">=</span> <span class="n">ProceduralBuilder</span><span class="p">(</span><span class="n">spaces</span><span class="o">=</span><span class="n">spaces</span><span class="p">,</span> <span class="n">equipments</span><span class="o">=</span><span class="n">equipment</span><span class="p">,</span> <span class="n">systems</span><span class="o">=</span><span class="n">systems</span><span class="p">,</span>
+                           <span class="n">equipment_resolver</span><span class="o">=</span><span class="n">cat</span><span class="o">.</span><span class="n">equipment_resolver</span><span class="p">())</span>
+    <span class="n">glb_bytes</span> <span class="o">=</span> <span class="n">pb</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">connect</span></code> defaults <code class="docutils literal notranslate"><span class="pre">database_url</span></code> to the <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> environment
+variable and binds the reader to one scope for its lifetime; use it as a context
+manager (or call <code class="docutils literal notranslate"><span class="pre">close()</span></code>) to release the connection pool.</p>
+</section>
+</section>
+<section id="viewer-catalogs-equipment-types-and-system-templates">
+<h2>Viewer catalogs: equipment types and system templates<a class="headerlink" href="#viewer-catalogs-equipment-types-and-system-templates" title="Link to this heading">¶</a></h2>
+<p>The catalogs above are edited in the hosted viewer’s admin panels and mirror the
+Python API — the same equipment-type / system-template rows feed both.</p>
+<p>The hosted viewer exposes two per-scope catalogs that feed the cellbuilder,
+backed by postgres (migrations <code class="docutils literal notranslate"><span class="pre">023</span></code>/<code class="docutils literal notranslate"><span class="pre">024</span></code>) and edited from admin panels:</p>
+<ul class="simple">
+<li><p><strong>Equipment types</strong> — reusable archetypes with a name/description/slug, a
+bounding box, mass, IFC element class and a port/nozzle list (each port a
+local position + outward direction, tagged process/electrical/signal). A CAD
+asset can be attached (uploaded or copied from a scope file); a worker
+<code class="docutils literal notranslate"><span class="pre">equipment_bbox</span></code> job then infers the bounding box and renders a preview GLB.
+Placed catalog equipment resolve by slug at compile time
+(<code class="docutils literal notranslate"><span class="pre">compile_procedural_doc(...,</span> <span class="pre">equipment_resolver=...)</span></code>) into a full
+<a class="reference internal" href="code.html#ada.Equipment" title="ada.Equipment"><code class="xref py py-class docutils literal notranslate"><span class="pre">ada.Equipment</span></code></a> — ports and IFC class included.</p></li>
+<li><p><strong>System templates</strong> — named service systems (category/type, medium, voltage,
+pipe radius/wall thickness) that seed the cellbuilder’s systems inspector.</p></li>
+</ul>
+<p>When a compiled model enables <em>“use CAD models for equipment”</em>
+(<code class="docutils literal notranslate"><span class="pre">doc[&quot;equipment_cad&quot;]</span></code>), catalog equipment that have a linked CAD asset are
+built without their placeholder box and the real CAD geometry is spliced into
+the output GLB at the cell footprint
+(<code class="docutils literal notranslate"><span class="pre">compile_procedural_doc(...,</span> <span class="pre">cad_scene_resolver=...)</span></code>).</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="path_to_software_agnosticism.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Path to Software Agnosticism</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="steel_detailing.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Steel detailing as a method</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Kristoffer H. Andersen
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Topology-based procedural modelling</a><ul>
+<li><a class="reference internal" href="#the-engine-in-a-nutshell">The engine in a nutshell</a></li>
+<li><a class="reference internal" href="#writing-a-blueprint">Writing a blueprint</a></li>
+<li><a class="reference internal" href="#equipment-with-ports">Equipment with ports</a></li>
+<li><a class="reference internal" href="#wiring-systems">Wiring systems</a></li>
+<li><a class="reference internal" href="#routing">Routing</a></li>
+<li><a class="reference internal" href="#penetrations">Penetrations</a></li>
+<li><a class="reference internal" href="#pluggable-design-rules">Pluggable design rules</a><ul>
+<li><a class="reference internal" href="#named-rulesets-for-the-viewer">Named rulesets for the viewer</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#the-missing-i-o-report">The missing-I/O report</a></li>
+<li><a class="reference internal" href="#ifc-export">IFC export</a></li>
+<li><a class="reference internal" href="#building-and-viewing-the-demo">Building and viewing the demo</a></li>
+<li><a class="reference internal" href="#compiling-a-whole-model-with-proceduralbuilder">Compiling a whole model with <code class="docutils literal notranslate"><span class="pre">ProceduralBuilder</span></code></a><ul>
+<li><a class="reference internal" href="#loading-from-dict-json-excel">Loading from dict / JSON / Excel</a></li>
+<li><a class="reference internal" href="#multiple-structures-in-one-model">Multiple structures in one model</a></li>
+<li><a class="reference internal" href="#reading-the-catalog-from-python">Reading the catalog from Python</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#viewer-catalogs-equipment-types-and-system-templates">Viewer catalogs: equipment types and system templates</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=ed42b38f"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    </body>
+</html>
