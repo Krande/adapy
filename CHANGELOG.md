@@ -2,6 +2,15 @@
 
 
 
+## v0.64.1 (2026-09-05)
+
+### Fix
+
+* fix(source-nodes): key rows by the scope prefix, not the dataclass repr (#329)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`a923512`](https://github.com/Krande/adapy/commit/a9235128a85139695150084487c6925e564dce8a))
+
+
 ## v0.64.0 (2026-09-04)
 
 ### Feature
