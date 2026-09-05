@@ -2201,6 +2201,21 @@ def build_manifest(
                 # AFEL render path; when absent, the legacy nodal path.
                 "per_type": per_type,
                 **_presentation_payload(primary.presentation),
+                # A categorical field's buckets can each know different ids (the
+                # materials used by shells vs by beams); the merged field must
+                # label them all, not just the primary bucket's.
+                **(
+                    {
+                        "value_labels": {
+                            str(value): label
+                            for em in metas
+                            if em.spec.presentation is not None
+                            for value, label in em.spec.presentation.value_labels
+                        }
+                    }
+                    if any(em.spec.presentation is not None and em.spec.presentation.value_labels for em in metas)
+                    else {}
+                ),
             }
         )
 
