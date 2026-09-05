@@ -59,7 +59,9 @@
 //   1.3.0  `notifyActiveModeSceneColor` + `sceneColorOwner` on
 //          `@/viewer-core/scene`, with `PluginModeSpec.ownsSceneColor`: core
 //          suspends/restores the active FEA field for a mode that paints its
-//          own scene colouring (issue #308).
+//          own scene colouring (issue #308). Plus `AdminPanel` on
+//          `@/viewer-core/app`, so a shell mounts the admin surface rather
+//          than forking it.
 //   1.2.0  derived result hierarchy, component/layer actions and unit helpers
 //          on `@/viewer-core/scene`.
 //          Plus `CanvasWrapper`'s `legend` prop, so a shell that places the

@@ -110,6 +110,11 @@ class MeshGeometry:
 
     points: np.ndarray  # (n_points, 3) float
     cell_blocks: list[CellBlockData]
+    # Solver node ids aligned to ``points`` rows, when the reader knows them.
+    # What a node-number label or readout prints — a row index is not a node
+    # number on a deck with renumbered or sparse ids. Optional: readers
+    # without identifiers leave it None and the manifest omits ``node_labels``.
+    node_labels: list[int] | None = None
 
 
 @dataclass
@@ -856,7 +861,8 @@ class FEAResultStreamAdapter:
                 identifiers = None
             cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0, identifiers=identifiers))
 
-        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
+        node_labels = [int(x) for x in self._result.mesh.nodes.identifiers]
+        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks, node_labels=node_labels)
         return self._geom
 
     def _named_case_analysis_kind(self) -> str | None:
@@ -1909,6 +1915,15 @@ def _default_view_for(spec: FieldSpec) -> dict:
     }
 
 
+def _value_label_key(value: float) -> str:
+    """JSON key for a labelled value, matching JavaScript's ``String(number)``:
+    an integral id prints as ``"3"``, never ``"3.0"`` — the frontend looks the
+    stored value up by exactly that string."""
+
+    v = float(value)
+    return str(int(v)) if v.is_integer() else str(v)
+
+
 def _presentation_payload(presentation: FieldPresentation | None) -> dict:
     if presentation is None:
         return {}
@@ -1921,7 +1936,7 @@ def _presentation_payload(presentation: FieldPresentation | None) -> dict:
         "unit": presentation.unit,
         "component_units": list(presentation.component_units),
         **(
-            {"value_labels": {str(value): label for value, label in presentation.value_labels}}
+            {"value_labels": {_value_label_key(value): label for value, label in presentation.value_labels}}
             if presentation.value_labels
             else {}
         ),
@@ -2207,7 +2222,7 @@ def build_manifest(
                 **(
                     {
                         "value_labels": {
-                            str(value): label
+                            _value_label_key(value): label
                             for em in metas
                             if em.spec.presentation is not None
                             for value, label in em.spec.presentation.value_labels
@@ -2224,6 +2239,12 @@ def build_manifest(
         "n_points": int(mesh_geom.points.shape[0]),
         "n_cells": n_cells,
     }
+    if mesh_geom.node_labels is not None:
+        # Solver node ids aligned to the points array — what a node-number
+        # label prints. Omitted (not synthesised) when the reader has none:
+        # a row index shown as a node number would be wrong on renumbered
+        # decks, which is worse than no label.
+        mesh_meta["node_labels"] = [int(x) for x in mesh_geom.node_labels]
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)

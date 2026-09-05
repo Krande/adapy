@@ -368,6 +368,10 @@ export interface FeaManifest {
     url: string;
     n_points: number;
     n_cells: number;
+    /** Solver node ids aligned to the points array — what a node-number
+     * label prints. Omitted when the reader has no identifiers; never
+     * fall back to row indices, which lie on renumbered decks. */
+    node_labels?: number[];
     /** Optional sidecar carrying deduped per-element edge index
      * pairs. When present, the frontend overlays them as a
      * THREE.LineSegments sharing the mesh's position attribute

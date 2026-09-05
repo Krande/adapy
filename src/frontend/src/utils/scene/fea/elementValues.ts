@@ -45,8 +45,11 @@ export interface ElementFieldValues {
     components: ElementComponentValue[];
 }
 
-/** Which attributes to read. */
-export type ElementValueScope = "active" | "all";
+/** Which attributes to read. "properties" reads only the model-property
+ *  fields (category "property": thickness, material, section) — what a
+ *  Properties panel shows about a picked element regardless of the active
+ *  result selection. */
+export type ElementValueScope = "active" | "all" | "properties";
 
 export interface ElementValuesResult {
     /** The label asked for, as given. */
@@ -102,6 +105,7 @@ export async function feaValuesForElement(
 
     const wanted = (manifest.fields ?? []).filter((f) => {
         if (!f.per_type?.length) return false;
+        if (scope === "properties") return f.category === "property";
         if (scope === "all") return true;
         // The active attribute, and its surface variants — picking Lower swaps
         // the loaded field name, and the user still means the same attribute.
