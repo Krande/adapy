@@ -28,7 +28,9 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //   1.1.0  placement (`dock` / `modes`) — see the section below
 //   1.2.0  browser-side external-model providers
 //          (`registerExternalModelClient`, @/services/externalModels)
-export const PLUGIN_API_VERSION = "1.2.0";
+//   1.3.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
+//          honoured via `notifyActiveModeSceneColor` — viewer-core 1.3.0)
+export const PLUGIN_API_VERSION = "1.3.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
