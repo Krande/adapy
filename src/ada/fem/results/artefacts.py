@@ -45,6 +45,22 @@ BLOB_HEADER_BYTES = 1024
 # treat ``history`` as optional so old artefacts keep loading.
 MANIFEST_VERSION = 2
 
+# What the bake PRODUCES, as distinct from what the manifest FORMAT can carry
+# (MANIFEST_VERSION above): bumped whenever a re-bake of the same source would
+# yield materially more than the cached artefacts hold, so servers can treat an
+# older cached bake as stale and rebuild it instead of serving it forever.
+#
+#   1  initial streaming bake (mesh + field blobs)
+#   2  semantic Sesam hierarchy, derived fields, units, surfaces
+#   3  model-property fields (thickness/material/section with value_labels)
+#      and mesh node_labels
+#
+# The REST API compares this against ``bake_version`` in a cached manifest —
+# via its own pinned copy (EXPECTED_FEA_BAKE_VERSION in comms/rest/converter),
+# because the slim API container cannot import ada.fem. A test asserts the two
+# stay equal.
+FEA_BAKE_VERSION = 3
+
 # Element-field blob format (AFEL). Same fixed-header pattern as
 # AFBL, distinct magic so the frontend can fail fast if it loads the
 # wrong sidecar. Payload shape per blob is
@@ -2287,6 +2303,9 @@ def build_manifest(
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
+        # Freshness stamp, not a format version: lets a server recognise a
+        # cached bake that predates newer bake output (see FEA_BAKE_VERSION).
+        "bake_version": FEA_BAKE_VERSION,
         "src": src,
         "mesh": mesh_meta,
         "fields": fields_payload,

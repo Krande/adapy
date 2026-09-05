@@ -363,6 +363,10 @@ export interface FeaManifestField {
 
 export interface FeaManifest {
   version: number;
+  /** Freshness stamp of the bake that produced this tree (not the manifest
+   * FORMAT version above). The server compares it against its expected value
+   * and re-bakes older trees; the frontend never needs to read it. */
+  bake_version?: number;
   src: string;
   mesh: {
     url: string;

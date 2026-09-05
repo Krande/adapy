@@ -43,6 +43,7 @@ from .converter import (
     derived_key_for,
     fea_artefact_manifest_key_for,
     fea_artefact_prefix_for,
+    fea_manifest_stale_reason,
     fea_meta_key_for,
     is_fea_artefact_source,
     is_fea_result_key,
@@ -2658,15 +2659,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("fea-manifest: cache read failed for %s", manifest_key)
             cached = None
+        force_rebake = False
         if cached:
+            manifest: dict | None = None
             try:
-                return JSONResponse(json.loads(cached.decode("utf-8")))
+                manifest = json.loads(cached.decode("utf-8"))
             except Exception:
                 logger.exception("fea-manifest: cache parse failed for %s; rebuilding", manifest_key)
+            stale: str | None = None
+            if manifest is not None:
+                # Freshness, not just existence: a bake made before the
+                # current bake output (bake_version) or before the source's
+                # last re-upload (a deck is routinely re-solved in place under
+                # the same name) must be rebuilt, not served forever.
+                try:
+                    src_head = await storage.head(scope_obj, source_key)
+                    man_head = await storage.head(scope_obj, manifest_key)
+                except Exception:
+                    logger.exception("fea-manifest: head failed for %s", source_key)
+                    src_head = man_head = None
+                stale = fea_manifest_stale_reason(manifest, src_head, man_head)
+                if stale is None:
+                    return JSONResponse(manifest)
+            # A cached entry exists but is stale or unusable. The worker's
+            # already-cached short-circuit keys on the manifest's existence,
+            # so a plain enqueue would no-op straight back here; force the
+            # rebake through it.
+            force_rebake = True
+            if not queue.enabled and manifest is not None:
+                # No worker to rebake with. A stale manifest still describes
+                # real (older) results; serving it beats a 503 — log so the
+                # operator sees why the deck lacks the newer bake output.
+                logger.warning(
+                    "fea-manifest: serving stale bake for %s (%s) — bake queue disabled",
+                    source_key,
+                    stale,
+                )
+                return JSONResponse(manifest)
+            logger.info(
+                "fea-manifest: cached bake for %s is stale (%s) — re-baking",
+                source_key,
+                stale or "unparsable manifest",
+            )
 
-        # Cache miss — enqueue a worker bake and return 202. Frontend
-        # polls /convert/{job_id} via the existing route and re-fetches
-        # this endpoint when the job hits status=done.
+        # Cache miss (or stale hit) — enqueue a worker bake and return 202.
+        # Frontend polls /convert/{job_id} via the existing route and
+        # re-fetches this endpoint when the job hits status=done.
         if not queue.enabled:
             raise HTTPException(
                 status_code=503,
@@ -2682,6 +2720,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # "already cached?" short-circuit lines up with this
                 # endpoint's cache check.
                 derived_key=manifest_key,
+                # A stale/unusable cached manifest EXISTS, so that
+                # short-circuit must be bypassed for the rebake to happen.
+                force_rebuild=force_rebake,
             )
         except Exception as exc:
             logger.exception("fea-manifest: enqueue failed for %s", source_key)
