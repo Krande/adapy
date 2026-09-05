@@ -56,6 +56,13 @@ export {
   selectFeaResultComponent,
   selectFeaResultLayer,
 } from "@/utils/scene/fea/resultSelection";
+// Mode-owned scene colouring: a shell reports mode transitions, core suspends
+// and restores the active FEA field on a mode's declared behalf (issue #308).
+export {
+  notifyActiveModeSceneColor,
+  sceneColorOwner,
+} from "@/utils/scene/fea/modeSceneColor";
+export type { SceneColorMode } from "@/utils/scene/fea/modeSceneColor";
 export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
 export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
 // Reading a picked element back out as numbers, using the same layer filter and

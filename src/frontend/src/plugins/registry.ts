@@ -115,6 +115,17 @@ export interface PluginModeSpec {
    * living in a panel and a feature having a home.
    */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /**
+   * While this mode is active, core suspends the viewer's active FEA field
+   * colouring — vertex colours and legend — and restores it, exactly as it was,
+   * on leaving. For a mode that paints its own colouring (a check overlay, a
+   * property painter) and would otherwise show another mode's field underneath
+   * it. Declarative on purpose: no lifecycle to get wrong, no ordering between
+   * plugins, and a shell keeps its "modes do not mutate scene state" property —
+   * core does the suspending, on the mode's stated behalf, when the shell
+   * reports the transition via `notifyActiveModeSceneColor`.
+   */
+  ownsSceneColor?: boolean;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";

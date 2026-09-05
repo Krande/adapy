@@ -2,6 +2,13 @@ import * as THREE from "three";
 
 const RESULT_POINT_MARKERS = "__fea_result_point_markers__";
 
+/** Show or hide the installed markers without discarding them. Result markers
+ * are result colouring, so the colour-visibility toggle routes through this. */
+export function setResultPointMarkersVisible(mesh: THREE.Mesh, visible: boolean): void {
+    const existing = mesh.getObjectByName(RESULT_POINT_MARKERS);
+    if (existing) existing.visible = visible;
+}
+
 export function clearResultPointMarkers(mesh: THREE.Mesh): void {
     const existing = mesh.getObjectByName(RESULT_POINT_MARKERS) as THREE.Points | undefined;
     if (!existing) return;

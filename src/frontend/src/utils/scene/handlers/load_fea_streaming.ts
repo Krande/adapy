@@ -33,6 +33,7 @@ import {autoWarpScale} from "../fea/warpScale";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {setResultLineSegmentsVisible} from "../fea/resultLineSegments";
+import {setResultPointMarkersVisible} from "../fea/resultPointMarkers";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../fea/edgeColors";
 import {withoutEdges} from "../fea/edgeSplit";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
@@ -167,6 +168,8 @@ export function setFeaResultColorsVisible(visible: boolean): void {
     if (active?.mesh) {
         const solids = active.beamSolidMesh?.visible ?? false;
         setResultLineSegmentsVisible(active.mesh, visible && !solids);
+        // Result-point markers are result colouring too.
+        setResultPointMarkersVisible(active.mesh, visible);
     }
     requestRender();
 }
