@@ -101,3 +101,12 @@ export { UiShellSwitcher } from "@/plugins/UiShellSwitcher";
 // a tab that looks slightly foreign is a smaller problem than a tab that
 // silently does not exist.
 export { default as ExternalModelsTab } from "@/components/admin/ExternalModelsTab";
+
+// The whole admin surface, for the same reason as the tab above but at the
+// panel level: the one existing shell forked the entire panel, and upstream's
+// tab consolidation (audit sub-tabs, performance, procedural) left the fork
+// listing tabs core had retired — visible only as a typecheck error. Mounting
+// this instead cannot drift. `embedded` mode exists for exactly the floating
+// in-viewer host a shell would put it in; the full-page `/admin` route works
+// unchanged.
+export { default as AdminPanel } from "@/components/admin/AdminPanel";

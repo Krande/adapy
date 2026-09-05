@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import struct
+from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable, Iterable, Iterator, Literal, Protocol
@@ -31,6 +32,7 @@ from typing import Callable, Iterable, Iterator, Literal, Protocol
 import numpy as np
 
 from ada.fem.results.common import CellBlockData
+from ada.fem.results.field_data import FieldPresentation
 
 # Binary format: 4-byte magic, uint32 version, uint32 json_len, JSON
 # header, zero-padded to 1024 bytes, then payload. Header version
@@ -42,6 +44,22 @@ BLOB_HEADER_BYTES = 1024
 # nodes / elements). v1 manifests carry only mesh + fields; v2 readers
 # treat ``history`` as optional so old artefacts keep loading.
 MANIFEST_VERSION = 2
+
+# What the bake PRODUCES, as distinct from what the manifest FORMAT can carry
+# (MANIFEST_VERSION above): bumped whenever a re-bake of the same source would
+# yield materially more than the cached artefacts hold, so servers can treat an
+# older cached bake as stale and rebuild it instead of serving it forever.
+#
+#   1  initial streaming bake (mesh + field blobs)
+#   2  semantic Sesam hierarchy, derived fields, units, surfaces
+#   3  model-property fields (thickness/material/section with value_labels)
+#      and mesh node_labels
+#
+# The REST API compares this against ``bake_version`` in a cached manifest —
+# via its own pinned copy (EXPECTED_FEA_BAKE_VERSION in comms/rest/converter),
+# because the slim API container cannot import ada.fem. A test asserts the two
+# stay equal.
+FEA_BAKE_VERSION = 3
 
 # Element-field blob format (AFEL). Same fixed-header pattern as
 # AFBL, distinct magic so the frontend can fail fast if it loads the
@@ -108,6 +126,11 @@ class MeshGeometry:
 
     points: np.ndarray  # (n_points, 3) float
     cell_blocks: list[CellBlockData]
+    # Solver node ids aligned to ``points`` rows, when the reader knows them.
+    # What a node-number label or readout prints — a row index is not a node
+    # number on a deck with renumbered or sparse ids. Optional: readers
+    # without identifiers leave it None and the manifest omits ``node_labels``.
+    node_labels: list[int] | None = None
 
 
 @dataclass
@@ -166,7 +189,7 @@ class SolidBeamMesh:
 # when the reader can't classify (a third-party field, an unknown RV
 # card). Adding a new category should be deliberate — the frontend
 # switch on this is exhaustive.
-FieldCategory = Literal["displacement", "reaction", "stress", "strain", "other"]
+FieldCategory = Literal["displacement", "reaction", "stress", "strain", "property", "other"]
 
 
 @dataclass
@@ -180,10 +203,12 @@ class FieldSpec:
     components: list[str]
     n_steps: int
     n_points: int
-    support: Literal["nodal", "element_nodal", "gauss"]
+    support: Literal["nodal", "element_nodal", "element_average", "result_point", "line_result_point", "gauss"]
     step_values: list[float]
     category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -238,10 +263,13 @@ class ElementFieldSpec:
     n_ips: int
     element_labels: list[int]
     step_values: list[float]
+    element_node_indices: list[list[int]] = dc_field(default_factory=list)
     ip_layout: list[dict] = dc_field(default_factory=list)
     category: FieldCategory = "other"
-    support: Literal["element_nodal", "gauss"] = "gauss"
+    support: Literal["element_nodal", "element_average", "result_point", "line_result_point", "gauss"] = "gauss"
     dtype: np.dtype = np.dtype(np.float32)
+    presentation: FieldPresentation | None = None
+    analysis_kind: Literal["static", "eigen"] | None = None
 
     @property
     def n_components(self) -> int:
@@ -448,6 +476,20 @@ def _ip_layout_from_int_positions(int_positions) -> list[dict]:
                 "ip": ip_id if isinstance(ip_id, int) else len(layout),
                 "layer": layer_label,
                 "in_plane": str(in_plane) if in_plane is not None else "",
+                **(
+                    {"node_index": int(in_plane)}
+                    if isinstance(in_plane, (int, np.integer))
+                    else (
+                        {"natural_coordinates": [float(value) for value in in_plane]}
+                        if isinstance(in_plane, (list, tuple))
+                        and all(isinstance(value, (int, float, np.integer, np.floating)) for value in in_plane)
+                        else (
+                            {"natural_coordinates": [float(in_plane)]}
+                            if isinstance(in_plane, (float, np.floating))
+                            else {}
+                        )
+                    )
+                ),
             }
         )
     return layout
@@ -479,6 +521,12 @@ def _classify_field(name: str, sample) -> FieldCategory:
         # the spec construction directly.
         if field_type == NodalFieldType.FORCE:
             return "reaction"
+
+    # Model-property fields (thickness, material, section) are input data, not
+    # analysis output; results pickers hide the category and a properties
+    # panel lists it. The namespace is the contract — see property_fields.py.
+    if name.startswith("props."):
+        return "property"
 
     upper = name.upper()
     # Sesam RVNODDIS = nodal displacements; RVFORCES = beam-element
@@ -737,6 +785,45 @@ class FEAResultStreamAdapter:
     def try_result_cases(self) -> list[dict] | None:
         return self._result_cases
 
+    def _sesam_superseded_raw_fields(self) -> set[tuple[str, object | None]]:
+        """Raw Sesam fields replaced by semantic derived fields in this result.
+
+        The eager result intentionally retains its source-card fields for API
+        compatibility and diagnostics.  They should not also be advertised by
+        the viewer bake when a semantic field covers the same support, because
+        that creates duplicate flat entries beside the hierarchy.
+
+        The element type is part of the key so an unsupported shell/beam layout
+        keeps its raw fallback even when another type in the same result was
+        converted successfully.
+        """
+
+        software = getattr(self._result, "software", "")
+        if getattr(software, "value", software) != "sesam":
+            return set()
+
+        results = self._result.results
+        hidden: set[tuple[str, object | None]] = set()
+        if any(
+            getattr(getattr(field, "presentation", None), "group_path", ()) == ("Nodes", "DISPLACEMENT")
+            for field in results
+        ):
+            hidden.add(("RVNODDIS", None))
+
+        replacements = {
+            "STRESS": {"G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS"},
+            "FORCES": {"G-FORCE", "B-STRESS"},
+        }
+        for raw_name, attributes in replacements.items():
+            covered_types = {
+                getattr(field, "elem_type", None)
+                for field in results
+                if getattr(getattr(field, "presentation", None), "group_path", ())[-1:]
+                and field.presentation.group_path[-1] in attributes
+            }
+            hidden.update((raw_name, elem_type) for elem_type in covered_types)
+        return hidden
+
     # ----- protocol -------------------------------------------------------
 
     def read_mesh_geometry(self) -> MeshGeometry:
@@ -790,37 +877,57 @@ class FEAResultStreamAdapter:
                 identifiers = None
             cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0, identifiers=identifiers))
 
-        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
+        node_labels = [int(x) for x in self._result.mesh.nodes.identifiers]
+        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks, node_labels=node_labels)
         return self._geom
+
+    def _named_case_analysis_kind(self) -> str | None:
+        """``"static"`` when the deck defines load-case combinations.
+
+        ``_infer_analysis_kind`` reads ``step_values`` as a physical quantity —
+        eigen frequencies or times — and calls a run "eigen" when they are
+        positive and ascending. For a Sesam deck those values are result-case
+        NUMBERS (1, 2, 3 …), which are positive and ascending by definition, so
+        every nodal field on a ten-load-case deck came out as a mode shape.
+
+        Element fields never showed it because their branch defaults an unknown
+        kind to "static" rather than guessing, which is why the two halves of
+        one manifest disagreed with each other.
+
+        The conclusive evidence is a real-valued ``RDRESCMB`` COMBINATION: a
+        recipe that superposes load cases at factors. A modal analysis has no
+        such thing. Named cases alone are not evidence -- a SESTRA eigen run
+        labels its modes too, and treating those as static would break the
+        signed deformation sweep a mode shape needs. Returns ``None`` without
+        that evidence, leaving the heuristic to decide as before.
+        """
+        return analysis_kind_from_result_cases(self._result_cases)
 
     def field_specs(self) -> list[FieldSpec]:
         if self._field_specs is not None:
             return self._field_specs
 
-        from ada.fem.results.field_data import (
-            ElementFieldData,
-            FieldPosition,
-            NodalFieldData,
-        )
+        from ada.fem.results.field_data import NodalFieldData
 
         n_points = int(self._result.mesh.nodes.coords.shape[0])
         specs: list[FieldSpec] = []
 
+        hidden_raw = self._sesam_superseded_raw_fields()
         for name, results in self._result.get_results_grouped_by_field_value().items():
             if not results:
                 continue
             sorted_results = sorted(results, key=lambda r: r.step)
             first = sorted_results[0]
 
-            if isinstance(first, NodalFieldData):
-                support = "nodal"
-            elif isinstance(first, ElementFieldData):
-                if first.field_pos == FieldPosition.NODAL:
-                    support = "element_nodal"
-                else:
-                    support = "gauss"
-            else:
+            if not isinstance(first, NodalFieldData):
+                # Element fields are planned and streamed exclusively through
+                # element_field_specs()/iter_element_field_steps(). Advertising
+                # them here as AFBL fields duplicates picker entries and makes
+                # callers think iter_field_steps can emit Gauss data.
                 continue
+            if (name, None) in hidden_raw:
+                continue
+            support = "nodal"
 
             # Step value semantics: eigen analysis stores the
             # frequency in eigen_freq and uses .step as a 1-based
@@ -839,6 +946,8 @@ class FEAResultStreamAdapter:
                     support=support,
                     step_values=step_values,
                     category=_classify_field(name, first),
+                    presentation=getattr(first, "presentation", None),
+                    analysis_kind=self._named_case_analysis_kind(),
                 )
             )
 
@@ -883,6 +992,7 @@ class FEAResultStreamAdapter:
             return cached
 
         grouped: dict[tuple[str, str], list] = defaultdict(list)
+        hidden_raw = self._sesam_superseded_raw_fields()
         for r in self._result.results:
             if not isinstance(r, ElementFieldData):
                 continue
@@ -890,6 +1000,8 @@ class FEAResultStreamAdapter:
                 continue
             elem_type_str = ada_to_str_type.get(r.elem_type)
             if elem_type_str is None:
+                continue
+            if (r.name, r.elem_type) in hidden_raw:
                 continue
             grouped[(r.name, elem_type_str)].append(r)
 
@@ -900,7 +1012,14 @@ class FEAResultStreamAdapter:
         if self._elem_field_specs is not None:
             return self._elem_field_specs
 
+        from ada.fem.results.field_data import FieldPosition
+
         specs: list[ElementFieldSpec] = []
+        node_index = {int(label): i for i, label in enumerate(self._result.mesh.nodes.identifiers)}
+        element_nodes: dict[int, list[int]] = {}
+        for block in self._result.mesh.elements:
+            for label, refs in zip(block.identifiers, block.node_refs):
+                element_nodes[int(label)] = [node_index[int(ref)] for ref in refs]
         for (name, elem_type_str), items in self._grouped_element_fields().items():
             sorted_items = sorted(items, key=lambda r: r.step)
             first = sorted_items[0]
@@ -950,9 +1069,16 @@ class FEAResultStreamAdapter:
                     n_ips=n_ips,
                     element_labels=labels,
                     step_values=step_values,
+                    element_node_indices=[element_nodes.get(int(label), []) for label in labels],
                     ip_layout=ip_layout,
                     category=_classify_field(name, first),
-                    support="gauss",
+                    support={
+                        FieldPosition.ELEMENT_NODAL: "element_nodal",
+                        FieldPosition.ELEMENT_AVERAGE: "element_average",
+                        FieldPosition.RESULT_POINT: "result_point",
+                        FieldPosition.LINE_RESULT_POINT: "line_result_point",
+                    }.get(first.field_pos, "gauss"),
+                    presentation=getattr(first, "presentation", None),
                 )
             )
 
@@ -1024,6 +1150,7 @@ class FEAResultStreamAdapter:
 
         from ada import Part
         from ada.fem.formats.utils import line_elem_to_beam
+        from ada.fem.results.beam_placement import SectionCentroidCache, eccentric_shift
 
         line_elems = mesh.get_line_elems()
         if not line_elems:
@@ -1031,6 +1158,12 @@ class FEAResultStreamAdapter:
 
         dummy_part = Part(self._result.name or "solid_beams")
         beams: list = []
+        # Eccentricities, corrected for where adapy actually draws each profile.
+        # See beam_placement: the raw GECCEN vector positions the section CENTROID,
+        # and applying it directly moves L sections off plates they are already
+        # flush against.
+        eccentricities = getattr(mesh, "eccentricities", None) or {}
+        centroids = SectionCentroidCache()
         # Source-side pre-filter — these reject reasons are cheap to
         # detect before OCC sees the geometry. Bucketing them by
         # category here keeps the bake's coverage summary informative.
@@ -1060,6 +1193,26 @@ class FEAResultStreamAdapter:
                 continue
 
             beam = line_elem_to_beam(elem, dummy_part, "BM")
+
+            ecc = eccentricities.get(int(elem.id))
+            if ecc:
+                # Both ends get the same correction when both carry an offset; an
+                # end without one is left on its node, which is what a half-eccentric
+                # element means.
+                shift0 = eccentric_shift(beam, ecc[0], centroids) if ecc[0] is not None else None
+                shift1 = eccentric_shift(beam, ecc[-1], centroids) if ecc[-1] is not None else None
+                # NEGATED on the way in. Beam.e1/e2 are not applied as written:
+                # BeamJustification.curve_offset_local does `off = -e` ("local
+                # offsets start from -e"), so handing it the geometric translation
+                # places the profile on the wrong side. For a section that is
+                # symmetric in EXTENT that still lands a face on the plate, which
+                # is why a flush check alone did not catch it -- it put the wide
+                # flange against the plate and the web tip out in the air.
+                if shift0 is not None:
+                    beam.e1 = -shift0
+                if shift1 is not None:
+                    beam.e2 = -shift1
+
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
         return tessellate_beams_to_solid_mesh(
@@ -1179,6 +1332,58 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -
         edge_pairs = np.asarray(edges, dtype=np.uint32).reshape(-1, 2)
         sorted_pairs = np.sort(edge_pairs, axis=1)
         unique = np.unique(sorted_pairs, axis=0)
+        n_edges = int(unique.shape[0])
+        payload = unique.astype(np.uint32).tobytes(order="C")
+    else:
+        n_edges = 0
+        payload = b""
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as f:
+        prefix = EDGE_MAGIC + struct.pack("<II", EDGE_VERSION, n_edges)
+        f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
+        f.write(payload)
+    return n_edges
+
+
+def write_mesh_line_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
+    """Write the edges belonging to LINE elements, in the same format as
+    :func:`write_mesh_edges`.
+
+    A beam's mesh line and a shell's are both "element boundary", but they are not
+    the same thing to look at: the shell edges are a grid you read element size
+    off, the beam edges are members. Drawn in one colour the beams disappear into
+    the grid. The frontend gives them their own, dimmer one — which it can only do
+    if it knows which edges they are, and the main sidecar cannot say: it sorts and
+    dedupes every element's edges together, so any grouping by element type is
+    gone by the time it is written.
+
+    Emitted as a SEPARATE list rather than by reordering the main one, so an older
+    viewer reading a newer bake still draws every edge exactly as before, and a
+    newer viewer reading an older bake simply finds nothing here and does the same.
+    The frontend removes these pairs from the main set before drawing it, so no
+    edge is drawn twice.
+    """
+    # ``cell_blocks`` are meshio-shaped: a canonical type STRING and a connectivity
+    # array, not the ElemShape objects the topology walker sees.
+    line_types = {"line", "line3"}
+
+    pairs: list[tuple[int, int]] = []
+    for block in geom.cell_blocks:
+        if str(getattr(block, "cell_type", "")) not in line_types:
+            continue
+        refs = np.asarray(block.data)
+        if refs.ndim != 2 or refs.shape[1] < 2:
+            continue
+        # First and last node. A 3-node line element is one member with a
+        # mid-side node, not two segments, and the wireframe should say so.
+        for row in refs:
+            pairs.append((int(row[0]), int(row[-1])))
+
+    if pairs:
+        arr = np.asarray(pairs, dtype=np.uint32).reshape(-1, 2)
+        unique = np.unique(np.sort(arr, axis=1), axis=0)
         n_edges = int(unique.shape[0])
         payload = unique.astype(np.uint32).tobytes(order="C")
     else:
@@ -1717,9 +1922,53 @@ def _default_view_for(spec: FieldSpec) -> dict:
     fields use viridis."""
 
     return {
-        "reduction": "magnitude" if spec.n_components >= 3 else "scalar",
+        "reduction": (
+            spec.components[0]
+            if spec.presentation is not None and spec.components
+            else ("magnitude" if spec.n_components >= 3 else "scalar")
+        ),
         "colormap": "viridis",
     }
+
+
+def _value_label_key(value: float) -> str:
+    """JSON key for a labelled value, matching JavaScript's ``String(number)``:
+    an integral id prints as ``"3"``, never ``"3.0"`` — the frontend looks the
+    stored value up by exactly that string."""
+
+    v = float(value)
+    return str(int(v)) if v.is_integer() else str(v)
+
+
+def _presentation_payload(presentation: FieldPresentation | None) -> dict:
+    if presentation is None:
+        return {}
+    return {
+        "semantic_key": presentation.semantic_key,
+        "group_path": list(presentation.group_path),
+        "coordinate_system": presentation.coordinate_system,
+        "surface": presentation.surface,
+        "derived": bool(presentation.derived),
+        "unit": presentation.unit,
+        "component_units": list(presentation.component_units),
+        **(
+            {"value_labels": {_value_label_key(value): label for value, label in presentation.value_labels}}
+            if presentation.value_labels
+            else {}
+        ),
+    }
+
+
+def analysis_kind_from_result_cases(cases) -> str | None:
+    """``"static"`` when a deck defines load-case combinations, else ``None``.
+
+    Split out from the adapter so the decision can be tested without building a
+    whole ``FEAResult``. See ``_named_case_analysis_kind`` for why it matters.
+    """
+    for case in cases or ():
+        if isinstance(case, dict) and case.get("combination"):
+            return "static"
+    return None
 
 
 def _infer_analysis_kind(spec: FieldSpec) -> str:
@@ -1740,6 +1989,8 @@ def _infer_analysis_kind(spec: FieldSpec) -> str:
     sign).
     """
 
+    if spec.analysis_kind is not None:
+        return spec.analysis_kind
     if spec.n_steps == 0:
         return "static"
     first = float(spec.step_values[0])
@@ -1769,12 +2020,11 @@ def build_manifest(
     source_sha256: str | None = None,
     elem_field_metas: list[ElementFieldArtefactMeta] | None = None,
     mesh_edges_filename: str | None = None,
+    mesh_line_edges_filename: str | None = None,
     n_edges: int = 0,
     beam_solids_glb_filename: str | None = None,
     beam_solids_elements_filename: str | None = None,
     beam_solids_warp_filename: str | None = None,
-    beam_solids_edges_filename: str | None = None,
-    n_beam_solid_edges: int = 0,
     n_beam_solids: int = 0,
     n_beam_solid_verts: int = 0,
     n_beam_total: int = 0,
@@ -1815,7 +2065,9 @@ def build_manifest(
     for fm in field_metas:
         spec = fm.spec
         scalar_range = {**fm.scalar_range_per_component}
-        if spec.n_components >= 3:
+        # Every non-scalar kind ("vector2" included) must carry a magnitude
+        # range: the manifest contract promises one for kind "vector*".
+        if spec.n_components >= 2:
             scalar_range["magnitude"] = list(fm.scalar_range_magnitude)
         # Convert tuple → list for JSON-friendly shape.
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
@@ -1842,8 +2094,26 @@ def build_manifest(
                 "steps": steps,
                 "scalar_range": scalar_range,
                 "default_view": _default_view_for(spec),
+                **_presentation_payload(spec.presentation),
             }
         )
+
+    # Link separate nodal upper/lower blobs as variants of one semantic field.
+    # Element-backed shell fields carry surfaces on their IP axis and therefore
+    # need no duplicate field. Optional metadata keeps older manifests valid.
+    semantic_variants: dict[str, list[dict]] = defaultdict(list)
+    for field_payload in fields_payload:
+        semantic_key = field_payload.get("semantic_key")
+        surface = field_payload.get("surface")
+        if semantic_key and surface in {"upper", "lower"}:
+            semantic_variants[semantic_key].append({"surface": surface, "field_name": field_payload["name_canonical"]})
+    for variants in semantic_variants.values():
+        if len(variants) < 2:
+            continue
+        variants.sort(key=lambda item: 0 if item["surface"] == "upper" else 1)
+        for variant in variants:
+            field_payload = next(item for item in fields_payload if item["name_canonical"] == variant["field_name"])
+            field_payload["surface_variants"] = variants
 
     # Element fields. Group by field name so STRESS on QUAD + TRI lands
     # under one manifest entry with two per_type buckets. Within a
@@ -1851,8 +2121,6 @@ def build_manifest(
     # values match across element types (Sesam emits parallel step
     # sets for all element types) — surface a hard error otherwise so
     # the frontend doesn't silently de-sync per-type animation.
-    from collections import defaultdict
-
     elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
     for em in elem_field_metas or []:
         elem_by_name[em.spec.name].append(em)
@@ -1889,7 +2157,8 @@ def build_manifest(
             roll_mag = (0.0, 0.0)
 
         scalar_range_payload = {k: list(v) for k, v in roll_comp.items()}
-        if primary.n_components >= 3:
+        # Same contract as the nodal payload: kind "vector*" carries magnitude.
+        if primary.n_components >= 2:
             scalar_range_payload["magnitude"] = list(roll_mag)
 
         steps = [
@@ -1907,6 +2176,7 @@ def build_manifest(
                     "n_ips": es.n_ips,
                     "ip_layout": es.ip_layout,
                     "element_labels": es.element_labels,
+                    "element_node_indices": es.element_node_indices,
                     "blob": {
                         "url": em.blob_filename,
                         "header_bytes": ELEM_FIELD_HEADER_BYTES,
@@ -1940,13 +2210,17 @@ def build_manifest(
                 "kind": kind,
                 "category": primary.category,
                 "support": primary.support,
-                "analysis_kind": "static",
+                "analysis_kind": primary.analysis_kind or "static",
                 "components": primary.components,
                 "n_steps": primary.n_steps,
                 "steps": steps,
                 "scalar_range": scalar_range_payload,
                 "default_view": {
-                    "reduction": "magnitude" if n_comp >= 3 else "scalar",
+                    "reduction": (
+                        primary.components[0]
+                        if primary.presentation is not None and primary.components
+                        else ("magnitude" if n_comp >= 3 else "scalar")
+                    ),
                     "colormap": "viridis",
                     # Default layer/IP for element fields — the frontend's
                     # picker uses these as the initial dropdown values.
@@ -1957,6 +2231,22 @@ def build_manifest(
                 # the manifest — when present, the frontend takes the
                 # AFEL render path; when absent, the legacy nodal path.
                 "per_type": per_type,
+                **_presentation_payload(primary.presentation),
+                # A categorical field's buckets can each know different ids (the
+                # materials used by shells vs by beams); the merged field must
+                # label them all, not just the primary bucket's.
+                **(
+                    {
+                        "value_labels": {
+                            _value_label_key(value): label
+                            for em in metas
+                            if em.spec.presentation is not None
+                            for value, label in em.spec.presentation.value_labels
+                        }
+                    }
+                    if any(em.spec.presentation is not None and em.spec.presentation.value_labels for em in metas)
+                    else {}
+                ),
             }
         )
 
@@ -1965,9 +2255,23 @@ def build_manifest(
         "n_points": int(mesh_geom.points.shape[0]),
         "n_cells": n_cells,
     }
+    # Solver node ids aligned to the points array — what a node-number label
+    # prints. Omitted (not synthesised) when the reader has none: a row index
+    # shown as a node number would be wrong on renumbered decks, which is
+    # worse than no label. getattr, not attribute access: callers may hand in
+    # any geometry-shaped object (the plugin tests do), and node_labels is the
+    # optional extra here, not part of that duck type's core.
+    node_labels = getattr(mesh_geom, "node_labels", None)
+    if node_labels is not None:
+        mesh_meta["node_labels"] = [int(x) for x in node_labels]
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)
+    if mesh_line_edges_filename is not None:
+        # The subset of edges_url belonging to line elements. Optional: a model
+        # with no beams omits it, and a viewer that does not know about it draws
+        # edges_url whole, exactly as before.
+        mesh_meta["line_edges_url"] = mesh_line_edges_filename
     if mesh_elements_filename is not None:
         mesh_meta["elements_url"] = mesh_elements_filename
         mesh_meta["n_elements"] = int(n_elements)
@@ -1987,14 +2291,6 @@ def build_manifest(
             # to the rest of the structure under any morph scale.
             mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
             mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
-        if beam_solids_edges_filename is not None:
-            # AFEG element-boundary wireframe over the solid mesh.
-            # Frontend renders this as a LineSegments sharing the
-            # beam-solid's position + morph attributes so the seams
-            # between adjacent beam-elements stay visible even under
-            # a scaled deformation.
-            mesh_meta["beam_solids_edges_url"] = beam_solids_edges_filename
-            mesh_meta["n_beam_solid_edges"] = int(n_beam_solid_edges)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
         # Coverage telemetry: total source-side beams + skip reasons
         # by category. Frontend can render "X of Y beams shown as
@@ -2007,6 +2303,9 @@ def build_manifest(
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
+        # Freshness stamp, not a format version: lets a server recognise a
+        # cached bake that predates newer bake output (see FEA_BAKE_VERSION).
+        "bake_version": FEA_BAKE_VERSION,
         "src": src,
         "mesh": mesh_meta,
         "fields": fields_payload,
@@ -2360,6 +2659,7 @@ def bake_fea_artefacts_from_source(
     src_key: str = "",
     source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -2376,6 +2676,7 @@ def bake_fea_artefacts_from_source(
             src=src,
             source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 
@@ -2396,6 +2697,7 @@ def bake_artefacts(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -2411,6 +2713,11 @@ def bake_artefacts(
     ``iter_field_steps`` callers still drop non-nodal specs (the
     nodal blob writer can't handle them). Element fields flow
     through the new ``iter_element_field_steps`` path instead.
+
+    Set ``include_beam_solids=False`` to skip section-profile
+    tessellation while retaining the line mesh and its result fields.
+    This is useful for lightweight or headless bakes, and for native
+    geometry environments where beam-solid generation is unavailable.
 
     ``on_artefact``: optional sink invoked with each artefact file's
     path *immediately after it is fully written* (the manifest last).
@@ -2452,6 +2759,17 @@ def bake_artefacts(
     n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges)
     emit(mesh_edges_path)
 
+    # Which of those edges are beams, so the viewer can draw them in their own
+    # colour instead of losing them in the shell grid. Omitted entirely when the
+    # model has no line elements.
+    mesh_line_edges_path = out_dir / "fea.mesh.line_edges.bin"
+    n_line_edges = write_mesh_line_edges(geom, mesh_line_edges_path)
+    if n_line_edges:
+        emit(mesh_line_edges_path)
+    else:
+        mesh_line_edges_path.unlink(missing_ok=True)
+        mesh_line_edges_path = None
+
     # Per-element draw ranges — frontend hydrates these into
     # userdata.id_hierarchy + userdata.draw_ranges_<meshName> so the
     # FEA mesh enters the existing CustomBatchedMesh pick + highlight
@@ -2468,14 +2786,14 @@ def bake_artefacts(
     beam_solids_glb_path: pathlib.Path | None = None
     beam_solids_elements_path: pathlib.Path | None = None
     n_beam_solids = 0
-    try:
-        solid_beams = reader.try_solid_beams()
-    except (AttributeError, NotImplementedError):
-        solid_beams = None
+    solid_beams = None
+    if include_beam_solids:
+        try:
+            solid_beams = reader.try_solid_beams()
+        except (AttributeError, NotImplementedError):
+            pass
     beam_solids_warp_path: pathlib.Path | None = None
-    beam_solids_edges_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
-    n_beam_solid_edges = 0
     if solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
@@ -2494,9 +2812,12 @@ def bake_artefacts(
         # AFEG element-boundary wireframe for the solid mesh. Without
         # this the beam solids render as one continuous tube — see the
         # writer docstring for the boundary-edge rules.
-        beam_solids_edges_path = out_dir / "fea.beam_solids.edges.bin"
-        n_beam_solid_edges = write_beam_solids_edges(solid_beams, beam_solids_edges_path)
-        emit(beam_solids_edges_path)
+        # No beam-solid section outline. It drew the perimeter and end seams of
+        # each extruded section, which is tessellation rather than mesh: the FE
+        # model has no such edges, and a beam's mesh line is its element line
+        # whether or not a section is drawn around it. The viewer stopped
+        # consuming it; writing it was ~58 KB per bake of nothing.
+        pass
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -2587,6 +2908,7 @@ def bake_artefacts(
         field_metas=field_metas,
         elem_field_metas=elem_field_metas,
         mesh_edges_filename=mesh_edges_path.name,
+        mesh_line_edges_filename=(mesh_line_edges_path.name if mesh_line_edges_path else None),
         n_edges=n_edges,
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
@@ -2594,8 +2916,6 @@ def bake_artefacts(
         beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
         beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
         beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),
-        beam_solids_edges_filename=(beam_solids_edges_path.name if beam_solids_edges_path else None),
-        n_beam_solid_edges=n_beam_solid_edges,
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
         n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),
@@ -2689,6 +3009,7 @@ def bake_with_posters(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """Bake the artefact bundle AND render per-mode static PNG posters.
 
@@ -2740,6 +3061,7 @@ def bake_with_posters(
         legacy_glb_url_template=legacy_glb_url_template,
         nodal_only=nodal_only,
         include_element_fields=include_element_fields,
+        include_beam_solids=include_beam_solids,
     )
 
     if modes is None:
@@ -2812,6 +3134,7 @@ def bake_with_posters_from_source(
     modes: "str | int | Iterable[int] | None" = "all",
     poster_backend: Literal["pygfx", "chromium"] = "pygfx",
     legacy_glb_url_template: str | None = None,
+    include_beam_solids: bool = True,
 ) -> BakeWithPostersResult:
     """End-to-end bake + per-mode posters from a result file path.
 
@@ -2832,6 +3155,7 @@ def bake_with_posters_from_source(
             modes=modes,
             poster_backend=poster_backend,
             legacy_glb_url_template=legacy_glb_url_template,
+            include_beam_solids=include_beam_solids,
         )
 
 

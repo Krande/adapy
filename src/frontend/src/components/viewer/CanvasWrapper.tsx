@@ -9,12 +9,27 @@ import TypeIconController from "./TypeIconController";
 import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
 
-const CanvasWrapper: React.FC = () => {
+export interface CanvasWrapperProps {
+  /**
+   * Render the built-in colour legend.
+   *
+   * A host that places the legend itself passes `false`. Without it both mount
+   * one, and since they read the same store you get two identical legends
+   * overlapping in the corner -- which is what the docked UI shell did: it
+   * mounts this wrapper for the canvas AND anchors its own legend in the
+   * viewport overlay. Defaults to `true`, so the stock UI is unchanged.
+   */
+  legend?: boolean;
+}
+
+const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
   return (
     <div className="relative w-full h-full">
-      <div className="absolute right-5 top-80 z-10">
-        <ColorLegend />
-      </div>
+      {legend && (
+        <div className="absolute right-5 top-80 z-10">
+          <ColorLegend />
+        </div>
+      )}
 
       <div id="canvasParent" className="absolute w-full h-full">
         <ThreeCanvas />

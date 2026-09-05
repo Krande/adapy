@@ -28,7 +28,9 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //   1.1.0  placement (`dock` / `modes`) — see the section below
 //   1.2.0  browser-side external-model providers
 //          (`registerExternalModelClient`, @/services/externalModels)
-export const PLUGIN_API_VERSION = "1.2.0";
+//   1.3.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
+//          honoured via `notifyActiveModeSceneColor` — viewer-core 1.3.0)
+export const PLUGIN_API_VERSION = "1.3.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -115,6 +117,17 @@ export interface PluginModeSpec {
    * living in a panel and a feature having a home.
    */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /**
+   * While this mode is active, core suspends the viewer's active FEA field
+   * colouring — vertex colours and legend — and restores it, exactly as it was,
+   * on leaving. For a mode that paints its own colouring (a check overlay, a
+   * property painter) and would otherwise show another mode's field underneath
+   * it. Declarative on purpose: no lifecycle to get wrong, no ordering between
+   * plugins, and a shell keeps its "modes do not mutate scene state" property —
+   * core does the suspending, on the mode's stated behalf, when the shell
+   * reports the transition via `notifyActiveModeSceneColor`.
+   */
+  ownsSceneColor?: boolean;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";

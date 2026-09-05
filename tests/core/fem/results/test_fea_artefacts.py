@@ -24,6 +24,7 @@ from ada.fem.results.artefacts import (
     BLOB_VERSION,
     MANIFEST_VERSION,
     FEAResultStreamAdapter,
+    _ip_layout_from_int_positions,
     bake_artefacts,
     bake_fea_artefacts_from_source,
     is_fea_artefact_source,
@@ -42,6 +43,15 @@ RMED_FIXTURES = [
     "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed",
     "cantilever/code_aster/eigen_line_cantilever_code_aster.rmed",
 ]
+
+
+def test_ip_layout_preserves_result_point_coordinates():
+    layout = _ip_layout_from_int_positions([(0, 2, 0.5), (1, (0.5, 0.5), -0.5), (2, 0.25)])
+    assert layout[0]["node_index"] == 2
+    assert layout[0]["layer"] == "top"
+    assert layout[1]["natural_coordinates"] == [0.5, 0.5]
+    assert layout[1]["layer"] == "bottom"
+    assert layout[2]["natural_coordinates"] == [0.25]
 
 
 @pytest.mark.parametrize("rmed_rel", RMED_FIXTURES)
@@ -228,6 +238,7 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
             "reaction",
             "stress",
             "strain",
+            "property",
             "other",
         }, f"{fixture_label}: bad category={field['category']!r}"
 
@@ -238,6 +249,9 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         assert field["support"] in {
             "nodal",
             "element_nodal",
+            "element_average",
+            "result_point",
+            "line_result_point",
             "gauss",
         }, f"{fixture_label}: bad support={field['support']!r}"
         # Drives the deformation-scale slider range in the picker:
@@ -769,7 +783,13 @@ def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
         # blobs have their own coverage in
         # test_bake_writes_element_field_blob_per_type.
         if "per_type" in field_entry:
-            assert field_entry["support"] in {"element_nodal", "gauss"}
+            assert field_entry["support"] in {
+                "element_nodal",
+                "element_average",
+                "result_point",
+                "line_result_point",
+                "gauss",
+            }
             continue
         assert field_entry["support"] == "nodal"
         blob_path = bake.out_dir / field_entry["blob"]["url"]
@@ -1021,6 +1041,125 @@ def test_build_manifest_includes_optional_source_hash():
     assert manifest["source_sha256"] == "abc123"
 
 
+def test_build_manifest_carries_optional_field_presentation():
+    from ada.fem.results.artefacts import (
+        FieldArtefactMeta,
+        FieldSpec,
+        MeshGeometry,
+        build_manifest,
+    )
+    from ada.fem.results.field_data import FieldPresentation
+
+    geom = MeshGeometry(points=np.zeros((1, 3), dtype=np.float64), cell_blocks=[])
+    spec = FieldSpec(
+        name="sesam.nodes.d_stress",
+        components=["SIGMX", "MVONMISES"],
+        n_steps=1,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0],
+        category="stress",
+        presentation=FieldPresentation(
+            semantic_key="sesam.nodes.d_stress",
+            group_path=("Nodes", "D-STRESS"),
+            coordinate_system="element_local",
+            surface="upper",
+            derived=True,
+            unit="Pa",
+            component_units=("Pa", "Pa"),
+        ),
+    )
+    field_meta = FieldArtefactMeta(
+        spec=spec,
+        blob_filename="fea.d_stress.bin",
+        stride_bytes=8,
+        scalar_range_per_component={"SIGMX": (-1.0, 1.0), "MVONMISES": (0.0, 2.0)},
+        scalar_range_magnitude=(0.0, 2.0),
+    )
+
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=geom,
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[field_meta],
+    )
+
+    field = manifest["fields"][0]
+    assert field["semantic_key"] == "sesam.nodes.d_stress"
+    assert field["group_path"] == ["Nodes", "D-STRESS"]
+    assert field["coordinate_system"] == "element_local"
+    assert field["surface"] == "upper"
+    assert field["derived"] is True
+    assert field["unit"] == "Pa"
+    assert field["component_units"] == ["Pa", "Pa"]
+    assert field["default_view"]["reduction"] == "SIGMX"
+
+
+def test_build_manifest_links_nodal_surface_variants():
+    from ada.fem.results.artefacts import (
+        FieldArtefactMeta,
+        FieldSpec,
+        MeshGeometry,
+        build_manifest,
+    )
+    from ada.fem.results.field_data import FieldPresentation
+
+    metas = []
+    for surface, suffix in (("upper", ""), ("lower", ".lower")):
+        spec = FieldSpec(
+            name=f"sesam.nodes.g_stress{suffix}",
+            components=["SIGXX"],
+            n_steps=1,
+            n_points=1,
+            support="nodal",
+            step_values=[1.0],
+            category="stress",
+            presentation=FieldPresentation(
+                semantic_key="sesam.nodes.g_stress",
+                group_path=("Nodes", "G-STRESS"),
+                surface=surface,
+            ),
+        )
+        metas.append(
+            FieldArtefactMeta(
+                spec=spec,
+                blob_filename=f"fea.g_stress{suffix}.bin",
+                stride_bytes=4,
+                scalar_range_per_component={"SIGXX": (-1.0, 1.0)},
+                scalar_range_magnitude=(0.0, 1.0),
+            )
+        )
+    manifest = build_manifest(
+        src="dummy.SIN",
+        mesh_geom=MeshGeometry(points=np.zeros((1, 3)), cell_blocks=[]),
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=metas,
+    )
+
+    expected = [
+        {"surface": "upper", "field_name": "sesam.nodes.g_stress"},
+        {"surface": "lower", "field_name": "sesam.nodes.g_stress.lower"},
+    ]
+    assert manifest["fields"][0]["surface_variants"] == expected
+    assert manifest["fields"][1]["surface_variants"] == expected
+
+
+def test_explicit_static_analysis_kind_overrides_monotonic_case_numbers():
+    from ada.fem.results.artefacts import FieldSpec, _infer_analysis_kind
+
+    spec = FieldSpec(
+        name="DISPLACEMENT",
+        components=["X", "Y", "Z"],
+        n_steps=3,
+        n_points=1,
+        support="nodal",
+        step_values=[1.0, 2.0, 3.0],
+        analysis_kind="static",
+    )
+
+    assert _infer_analysis_kind(spec) == "static"
+
+
 def test_classify_field_by_name():
     """Spot-check the name-based fallback so unfamiliar solvers get a
     sensible category. The bake-level test asserts the manifest
@@ -1069,8 +1208,14 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
     assert elem_fields, "expected at least one element field from the shell SIF"
 
     for field in elem_fields:
-        assert field["support"] in {"element_nodal", "gauss"}
-        assert field["category"] in {"stress", "strain", "reaction", "other"}
+        assert field["support"] in {
+            "element_nodal",
+            "element_average",
+            "result_point",
+            "line_result_point",
+            "gauss",
+        }
+        assert field["category"] in {"stress", "strain", "reaction", "property", "other"}
         for pt in field["per_type"]:
             blob_path = bake.out_dir / pt["blob"]["url"]
             assert blob_path.exists(), f"missing {pt['blob']['url']}"
@@ -1152,16 +1297,18 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     )
 
 
-def test_bake_emits_beam_solid_edges_sidecar(fem_files, tmp_path):
-    """SIF line bake emits a beam-solid AFEG edges sidecar so the
-    frontend can render the element-boundary wireframe on the beam-
-    solid mesh. Without this, adjacent beam-elements look like one
-    continuous tube.
+def test_bake_splits_line_edges_out_of_the_mesh_edges(fem_files, tmp_path):
+    """Beams get their own edge list so the viewer can draw them in their own
+    colour.
 
-    Checks: manifest field present, file exists with valid AFEG
-    header, all edge endpoint indices land inside the beam-solid
-    vertex buffer, edge count is meaningfully > 0 for a non-trivial
-    fixture.
+    A shell's element edges are a grid you read element size off; a beam's edge is
+    a member. In one colour the members disappear into the grid. The main sidecar
+    cannot say which is which — it sorts and dedupes every element's edges
+    together — so the bake writes the line-element subset separately.
+
+    The subset must be exactly that: a subset. The viewer removes these pairs from
+    the main list before drawing it, and a pair present here but not there would
+    simply never be drawn.
     """
 
     from ada.fem.results.artefacts import EDGE_HEADER_BYTES, EDGE_MAGIC
@@ -1171,28 +1318,31 @@ def test_bake_emits_beam_solid_edges_sidecar(fem_files, tmp_path):
         pytest.skip(f"fixture not present: {sif}")
 
     bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
-    manifest = json.loads(bake.manifest_path.read_text())
+    mesh_meta = json.loads(bake.manifest_path.read_text())["mesh"]
 
-    mesh_meta = manifest["mesh"]
-    assert mesh_meta.get("beam_solids_edges_url") == "fea.beam_solids.edges.bin"
-    n_edges = mesh_meta["n_beam_solid_edges"]
-    assert n_edges > 0, "expected at least one element-boundary edge on the beam solids"
+    assert mesh_meta.get("line_edges_url") == "fea.mesh.line_edges.bin"
 
-    edges_path = bake.out_dir / "fea.beam_solids.edges.bin"
-    data = edges_path.read_bytes()
-    assert data[:4] == EDGE_MAGIC
-    version, header_n = struct.unpack("<II", data[4:12])
-    assert version == 1
-    assert header_n == n_edges
-    assert len(data) == EDGE_HEADER_BYTES + n_edges * 2 * 4
+    def read_pairs(name):
+        data = (bake.out_dir / name).read_bytes()
+        assert data[:4] == EDGE_MAGIC
+        version, count = struct.unpack("<II", data[4:12])
+        assert version == 1
+        assert len(data) == EDGE_HEADER_BYTES + count * 2 * 4
+        return np.frombuffer(data[EDGE_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 2)
 
-    # Endpoint indices must land inside the beam-solid vertex buffer.
-    pairs = np.frombuffer(data[EDGE_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 2)
-    n_verts = mesh_meta["n_beam_solid_verts"]
-    assert int(pairs.max()) < n_verts
-    # Sorted (min, max) pairs — sanity check that the writer obeyed the
-    # canonical-edge contract so the frontend doesn't render duplicates.
-    assert (pairs[:, 0] <= pairs[:, 1]).all()
+    line_pairs = read_pairs("fea.mesh.line_edges.bin")
+    all_pairs = read_pairs("fea.mesh.edges.bin")
+    assert line_pairs.shape[0] > 0, "a line fixture must contribute line edges"
+
+    # Canonical orientation, so the viewer's set difference matches on both sides.
+    assert (line_pairs[:, 0] <= line_pairs[:, 1]).all()
+
+    every = {tuple(int(v) for v in row) for row in all_pairs}
+    missing = [tuple(int(v) for v in row) for row in line_pairs if tuple(int(v) for v in row) not in every]
+    assert not missing, f"line edges absent from the main edge list: {missing[:5]}"
+
+    n_points = json.loads(bake.manifest_path.read_text())["mesh"]["n_points"]
+    assert int(line_pairs.max()) < n_points
 
 
 def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
@@ -1283,6 +1433,38 @@ def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     assert "beam_solids_elements_url" not in manifest["mesh"]
     assert not (bake.out_dir / "fea.beam_solids.glb").exists()
     assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
+
+
+def test_bake_can_disable_beam_solid_tessellation(fem_files, tmp_path, monkeypatch):
+    """The opt-out must bypass the reader entirely, not merely discard its output.
+
+    Beam-solid generation enters native geometry code for SIF/SIN sources, so a
+    caller needs to be able to avoid that call in constrained bake environments.
+    """
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    with make_stream_reader(sif) as reader:
+        called = False
+
+        def unexpected_beam_tessellation():
+            nonlocal called
+            called = True
+            raise AssertionError("try_solid_beams must not be called")
+
+        monkeypatch.setattr(reader, "try_solid_beams", unexpected_beam_tessellation)
+        bake = bake_artefacts(
+            reader,
+            tmp_path / "out",
+            src=sif.stem,
+            include_beam_solids=False,
+        )
+
+    assert not called
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert "beam_solids_url" not in manifest["mesh"]
 
 
 def test_bake_skips_beam_solid_mesh_for_rmed(fem_files, tmp_path):

@@ -457,6 +457,66 @@ _FEA_META_SUFFIX = ".meta.json"
 # so the two can coexist during the streaming-viewer rollout.
 _FEA_ARTEFACT_SUFFIX = ".fea/"
 
+# The minimum ``bake_version`` a cached streaming-FEA manifest must carry to
+# be served as-is; older (or unstamped) bakes are re-baked so a deck opened
+# after an upgrade gains what the newer bake produces (property fields, node
+# labels, ...) instead of serving its old artefacts forever. A pinned copy of
+# ``ada.fem.results.artefacts.FEA_BAKE_VERSION`` — the slim API container
+# cannot import ada.fem — kept equal by a test.
+EXPECTED_FEA_BAKE_VERSION = 3
+
+
+def fea_manifest_stale_reason(
+    manifest: dict,
+    source_head: dict | None,
+    manifest_head: dict | None,
+) -> str | None:
+    """Why a cached streaming-FEA manifest should be re-baked, or ``None``.
+
+    Two independent signals:
+
+    * the bake predates the current bake output (``bake_version`` below
+      :data:`EXPECTED_FEA_BAKE_VERSION`; an unstamped manifest counts as 0);
+    * the SOURCE object is newer than the manifest — a deck re-solved and
+      re-uploaded under the same name, which the key-only cache would
+      otherwise serve stale results for indefinitely.
+
+    ``source_head`` / ``manifest_head`` are ``storage.head()`` dicts
+    (``last_modified`` as ISO-8601, possibly None). Unknown or unparsable
+    timestamps make only that signal inconclusive — a backend without
+    timestamps must not churn every open into a re-bake.
+    """
+
+    try:
+        baked = int(manifest.get("bake_version") or 0)
+    except (TypeError, ValueError):
+        baked = 0
+    if baked < EXPECTED_FEA_BAKE_VERSION:
+        return f"bake_version {baked} < {EXPECTED_FEA_BAKE_VERSION}"
+
+    def _ts(head: dict | None):
+        raw = (head or {}).get("last_modified")
+        if not raw:
+            return None
+        from datetime import datetime
+
+        try:
+            return datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+
+    src_ts = _ts(source_head)
+    man_ts = _ts(manifest_head)
+    if src_ts is not None and man_ts is not None:
+        try:
+            if src_ts > man_ts:
+                return "source newer than bake"
+        except TypeError:
+            # Mixed naive/aware timestamps from different backends —
+            # inconclusive, same posture as a missing timestamp.
+            pass
+    return None
+
 
 def fea_artefact_prefix_for(source_key: str) -> str:
     """Per-source storage prefix for streaming-viewer FEA artefacts.
@@ -3497,6 +3557,27 @@ def _fea_to_fea(src, on_progress, *, source_ext, target_ext, **_):
     """
 
     return _via_fea_to_fem(src, source_ext, target_ext, on_progress)
+
+
+@converter(".sin", "fem")
+def _sin_to_fem(src, on_progress, **_):
+    """Extract the FEM input deck SESTRA echoed into a results file.
+
+    A SIN carries the whole input deck beside its result records; this walks
+    the binary record blocks, keeps every input record verbatim and drops the
+    results — extraction, not reconstruction, so nothing an object-model
+    writer fails to model can be silently lost. The product is a standard
+    Input Interface File a Sesam tool (or this viewer) opens directly.
+    """
+
+    on_progress("extracting input deck", 0.2)
+    # Worker-only import: the slim API container imports this module for the
+    # registry but cannot carry ada.fem.
+    from ada.fem.formats.sesam.results.export_fem import export_fem_text
+
+    text = export_fem_text(src)
+    on_progress("writing", 0.9)
+    return text.encode("ascii")
 
 
 _register_passthrough_glb()

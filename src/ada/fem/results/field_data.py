@@ -9,6 +9,30 @@ import numpy as np
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
 
+@dataclass(frozen=True)
+class FieldPresentation:
+    """Optional semantic/presentation metadata for a result field.
+
+    Readers populate this when the source exposes a hierarchy richer than a
+    flat field name (the Position -> Attribute -> Component tree is
+    the first consumer). Generic formats may leave it ``None`` and retain the
+    existing flat-picker behaviour.
+    """
+
+    semantic_key: str
+    group_path: tuple[str, ...]
+    coordinate_system: str = ""
+    surface: str = ""
+    derived: bool = False
+    unit: str = ""
+    component_units: tuple[str, ...] = ()
+    # For categorical fields (a material id, a section id): what each stored
+    # numeric value MEANS, as (value, label) pairs. A tuple of pairs rather
+    # than a dict so the dataclass stays frozen/hashable; the manifest carries
+    # it as a JSON object. Empty for ordinary continuous fields.
+    value_labels: tuple[tuple[float, str], ...] = ()
+
+
 @dataclass
 class FieldData:
     name: str
@@ -17,6 +41,7 @@ class FieldData:
     values: np.ndarray
     eigen_freq: float = None
     eigen_value: float = None
+    presentation: FieldPresentation | None = None
 
 
 class NodalFieldType(str, Enum):
@@ -46,6 +71,10 @@ class NodalFieldData(FieldData):
 class FieldPosition(Enum):
     NODAL = "nodal"
     INT = "integration_point"
+    ELEMENT_NODAL = "element_nodal"
+    ELEMENT_AVERAGE = "element_average"
+    RESULT_POINT = "result_point"
+    LINE_RESULT_POINT = "line_result_point"
 
 
 @dataclass

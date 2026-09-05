@@ -229,6 +229,9 @@ export interface FeaManifestStep {
   value: number;
   /** Picker display label. */
   label: string;
+  /** Result-case name, when the reader knows one -- a Sesam deck names its
+   *  cases (TDRESREF), and "lcc2" identifies a step in a way "10" does not. */
+  name?: string;
 }
 
 export type FeaScalarRange = { [component: string]: [number, number] };
@@ -243,6 +246,9 @@ export type FeaFieldCategory =
   | "reaction"
   | "stress"
   | "strain"
+  /** Model input data (thickness, material, section) painted like a result.
+   *  Results pickers hide the category; an inspect/properties panel lists it. */
+  | "property"
   | "other";
 
 /** One per (logical-field, element-type) bucket for element fields.
@@ -258,11 +264,22 @@ export interface FeaManifestFieldPerType {
    *  integration point, in payload order. Sesam shell fixtures
    *  populate ``layer`` ("top"|"bottom"|"mid") and ``in_plane``
    *  (free-form). Empty when the reader couldn't infer the layout. */
-  ip_layout: Array<{ ip: number; layer: string; in_plane: string }>;
+  ip_layout: Array<{
+    ip: number;
+    layer: string;
+    in_plane: string;
+    /** Optional source-node corner or natural/axial coordinates used for
+     * exact result-point marker placement. */
+    node_index?: number;
+    natural_coordinates?: number[];
+  }>;
   /** Element labels in payload order — frontend maps draw-range
    *  labels back to ``element_labels.indexOf(label)`` to find the
    *  row in the AFEL blob. */
   element_labels: number[];
+  /** Source mesh node indices for each element row. Enables exact marker
+   * placement even when line elements have no triangle draw range. */
+  element_node_indices?: number[][];
   blob: {
     url: string;
     header_bytes: number;
@@ -285,7 +302,30 @@ export interface FeaManifestField {
   /** Semantic tag set by the reader. Drives the warp-source choice
    *  in the simulation controls. */
   category: FeaFieldCategory;
-  support: "nodal" | "element_nodal" | "gauss";
+  support:
+    | "nodal"
+    | "element_nodal"
+    | "element_average"
+    | "result_point"
+    | "line_result_point"
+    | "gauss";
+  /** Optional source-defined hierarchy. Older manifests omit these and use
+   * the existing flat field picker. */
+  semantic_key?: string;
+  group_path?: string[];
+  coordinate_system?: string;
+  surface?: string;
+  /** Separate AFBL fields that represent surfaces of one semantic nodal
+   * result. Element fields normally carry this dimension in ip_layout. */
+  surface_variants?: Array<{ surface: string; field_name: string }>;
+  derived?: boolean;
+  unit?: string;
+  /** Unit aligned with each component. Required when one field mixes
+   * dimensions (for example beam forces and moments). */
+  component_units?: string[];
+  /** Categorical fields only (a material id, a section id): what each stored
+   * numeric value means, keyed by the value's string form. */
+  value_labels?: Record<string, string>;
   /** Drives the deformation-scale slider range in the picker:
    * 'static' = [0, 1] (one-directional displacement, signed sweep
    * isn't physical), 'eigen' = [-1, +1] (mode shape has no
@@ -323,16 +363,29 @@ export interface FeaManifestField {
 
 export interface FeaManifest {
   version: number;
+  /** Freshness stamp of the bake that produced this tree (not the manifest
+   * FORMAT version above). The server compares it against its expected value
+   * and re-bakes older trees; the frontend never needs to read it. */
+  bake_version?: number;
   src: string;
   mesh: {
     url: string;
     n_points: number;
     n_cells: number;
+    /** Solver node ids aligned to the points array — what a node-number
+     * label prints. Omitted when the reader has no identifiers; never
+     * fall back to row indices, which lie on renumbered decks. */
+    node_labels?: number[];
     /** Optional sidecar carrying deduped per-element edge index
      * pairs. When present, the frontend overlays them as a
      * THREE.LineSegments sharing the mesh's position attribute
      * so deformation drives both surface and edges. */
     edges_url?: string;
+    /** The subset of ``edges_url`` belonging to LINE elements, same format.
+     *  Absent on a model with no beams, and on any bake older than the split.
+     *  Drawn in its own colour, and removed from ``edges_url`` before that is
+     *  drawn, so no edge is painted twice. */
+    line_edges_url?: string;
     n_edges?: number;
     /** Optional AFEM sidecar — per-element (label, tri_start,
      * tri_count). Frontend hydrates these into

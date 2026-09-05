@@ -25,6 +25,13 @@ import {animationControllerRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
+import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
+import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
+import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
+import {
+    selectFeaResultComponent,
+    selectFeaResultLayer,
+} from "@/utils/scene/fea/resultSelection";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import {followerUrl} from "@/utils/simChannel";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -286,7 +293,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setColormap,
         setWarpEnabled,
         setScaleFactor,
-        setLayer,
         setIpReduction,
         setNodalAverage,
     } = useFeaAnimationStore();
@@ -310,33 +316,36 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         if (!manifest || !fieldName) return null;
         return manifest.fields.find((f) => f.name_canonical === fieldName) ?? null;
     }, [manifest, fieldName]);
+    const fieldPickerValue = activeField?.surface_variants?.[0]?.field_name
+        ?? fieldName
+        ?? "";
+    const activeUnit = selectedResultUnit(activeField, reduction);
 
     const reductionOptions = useMemo<string[]>(() => {
         if (!activeField) return [];
         const out: string[] = [];
-        if (activeField.kind.startsWith("vector")) out.push("magnitude");
+        if (!activeField.group_path && activeField.kind.startsWith("vector")) out.push("magnitude");
         for (const c of activeField.components) out.push(c);
         return out;
     }, [activeField]);
 
-    // Element-field path: expose Layer / IP reduction pickers when the
-    // active field has per_type buckets. ``layerOptions`` is the union
-    // of ``ip_layout[*].layer`` across all buckets, plus an "all"
-    // sentinel for "no layer filter". Buckets without ip_layout don't
-    // contribute options; the kernel falls back to "all" for them.
+    const fieldHierarchy = useMemo(
+        () => buildFeaResultHierarchy(manifest?.fields ?? []),
+        [manifest],
+    );
+
+    // Element-field path: expose Surface/layer and IP reduction pickers when
+    // the active field has per_type buckets. Exact selectable surfaces omit
+    // the generic "all" reduction because mixing fibres is misleading.
     const isElemField = !!(activeField?.per_type && activeField.per_type.length > 0);
-    const layerOptions = useMemo<string[]>(() => {
-        if (!isElemField) return [];
-        const layers = new Set<string>();
-        for (const bk of activeField!.per_type!) {
-            for (const l of bk.ip_layout ?? []) {
-                if (l.layer) layers.add(l.layer);
-            }
-        }
-        const out = Array.from(layers).sort();
-        out.push("all");
-        return out;
-    }, [activeField, isElemField]);
+    const layerOptions = useMemo<string[]>(
+        () => activeField && isElemField ? availableResultLayers(activeField) : [],
+        [activeField, isElemField],
+    );
+    const hasExactSurface = activeField?.surface === "selectable";
+    const showIpReduction = isElemField
+        && activeField?.support !== "element_nodal"
+        && activeField?.support !== "element_average";
     const ipReductionOptions = ["max_abs", "max", "min", "mean"];
 
     // Composite morph influence = slider factor × user-set scale.
@@ -346,37 +355,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const morphInfluence = factor * scaleFactor;
 
     const onFieldChange = (newFieldName: string) => {
-        if (!sourceName || !manifest) return;
-        const newField = manifest.fields.find(
-            (f) => f.name_canonical === newFieldName,
-        );
-        if (!newField) return;
-        // Snap reduction to the new field's default — the prior
-        // reduction (e.g. "DZ") may not exist on a different field
-        // and would silently break colouring.
-        const newReduction = newField.default_view?.reduction ?? "magnitude";
-        // Element fields carry default ``layer`` + ``ip_reduction`` in
-        // default_view. Switching from nodal → element with a stored
-        // ``layer`` that doesn't exist on this bucket (e.g. "top" on a
-        // solid-only field) would silently fall through to "all" via
-        // layerIpIndices; snapping to the bake's recommended default
-        // gives a more predictable first frame and keeps the dropdown
-        // value in sync with what the kernel actually used.
-        if (newField.per_type && newField.per_type.length > 0) {
-            if (newField.default_view?.layer) setLayer(newField.default_view.layer);
-            if (newField.default_view?.ip_reduction) setIpReduction(newField.default_view.ip_reduction);
-        }
-        // Step 0 too — step counts differ between fields, and a
-        // stepIndex from the prior field would leave the slider out
-        // of bounds on the new one.
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName: newFieldName,
-            stepIndex: 0,
-            reduction: newReduction,
-            displacementScale: morphInfluence,
-        });
+        void selectFeaResultComponent(newFieldName);
     };
 
     const onReductionChange = (newReduction: string) => {
@@ -458,17 +437,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // with the new reduction parameters. Blob is cached so this is
     // CPU-only after the first apply.
     const onLayerChange = (next: string) => {
-        setLayer(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap,
-        });
+        void selectFeaResultLayer(next);
     };
 
     const onIpReductionChange = (next: string) => {
@@ -538,7 +507,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
                             className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
-                            value={fieldName ?? ""}
+                            value={fieldPickerValue}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
                             {/* Both nodal (AFBL blob) and element
@@ -546,16 +515,31 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 the picker doesn't filter — branching
                                 happens in load_fea_streaming based on
                                 ``field.per_type``. */}
-                            {manifest.fields.map((f) => (
-                                <option key={f.name_canonical} value={f.name_canonical}>
-                                    {f.name_canonical}
-                                </option>
+                            {fieldHierarchy.positions.map((position) => (
+                                <optgroup key={position.label} label={position.label}>
+                                    {position.attributes.map(({label, field}) => (
+                                        <option key={field.name_canonical} value={field.name_canonical}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </optgroup>
                             ))}
+                            {fieldHierarchy.ungrouped.length > 0 && (
+                                <optgroup label={fieldHierarchy.positions.length ? "Other" : "Fields"}>
+                                    {fieldHierarchy.ungrouped.map((f) => (
+                                        <option key={f.name_canonical} value={f.name_canonical}>
+                                            {f.name_canonical}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
-                            <span className="text-gray-300 shrink-0">Comp</span>
+                            <span className="text-gray-300 shrink-0">
+                                Comp{activeUnit ? ` [${activeUnit}]` : ""}
+                            </span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                                 value={reduction}
@@ -579,9 +563,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
                                 title={`Step ${stepIndex + 1} of ${nSteps}`}
                             >
+                                {/* The case NAME when the reader knows one. A Sesam deck
+                                    names its cases, and "lcc2" identifies a load
+                                    combination in a way "10" never will -- the
+                                    Capacity mode's run list has always shown them. */}
                                 {activeField.steps.map((s) => (
                                     <option key={s.i} value={s.i}>
-                                        {s.i + 1}/{nSteps} · {s.label}
+                                        {s.i + 1}/{nSteps} · {s.name ?? s.label}
                                     </option>
                                 ))}
                             </select>
@@ -704,14 +692,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         union of layer markers across the field's
                         per_type ip_layouts, plus "all" for no
                         filter. */}
-                    {isElemField && layerOptions.length > 0 && (
+                    {isElemField && layerOptions.length > 1 && (
                         <label className="flex items-center gap-1">
-                            <span className="text-gray-300">Layer</span>
+                            <span className="text-gray-300">Surface/layer</span>
                             <select
                                 className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
-                                title="Which integration-point layer to read"
+                                title={hasExactSurface
+                                    ? "Which shell surface to display"
+                                    : "Which integration-point layer to read"}
                             >
                                 {layerOptions.map((opt) => (
                                     <option key={opt} value={opt}>{opt}</option>
@@ -719,7 +709,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
-                    {isElemField && (
+                    {showIpReduction && (
                         <label className="flex items-center gap-1">
                             <span className="text-gray-300">IP reduction</span>
                             <select

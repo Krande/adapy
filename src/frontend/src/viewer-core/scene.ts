@@ -17,6 +17,7 @@
 // it must never be re-parented or covered by a shell's layout.
 // ---------------------------------------------------------------------------
 export { default as CanvasWrapper } from "@/components/viewer/CanvasWrapper";
+export type { CanvasWrapperProps } from "@/components/viewer/CanvasWrapper";
 
 // ---------------------------------------------------------------------------
 // Deep links. Handles `?file=`, `?gltf=`, procedural/sim params and routes FEA
@@ -46,7 +47,35 @@ export {
   getActiveFeaMesh,
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
+  setFeaUndeformedGhost,
+  setFeaElementEdgesVisible,
+  setFeaResultColorsVisible,
+  hasFeaElementEdges,
 } from "@/utils/scene/handlers/load_fea_streaming";
+export {
+  selectFeaResultComponent,
+  selectFeaResultLayer,
+} from "@/utils/scene/fea/resultSelection";
+// Mode-owned scene colouring: a shell reports mode transitions, core suspends
+// and restores the active FEA field on a mode's declared behalf (issue #308).
+export {
+  notifyActiveModeSceneColor,
+  sceneColorOwner,
+} from "@/utils/scene/fea/modeSceneColor";
+export type { SceneColorMode } from "@/utils/scene/fea/modeSceneColor";
+export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
+export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
+// Reading a picked element back out as numbers, using the same layer filter and
+// IP reduction the colouring used.
+export { feaValuesForElement, elementLabelNumber } from "@/utils/scene/fea/elementValues";
+export type {
+    ElementValuesResult,
+    ElementFieldValues,
+    ElementComponentValue,
+    ElementValueScope,
+} from "@/utils/scene/fea/elementValues";
+export { selectedResultRange, selectedResultUnit } from "@/utils/scene/fea/resultUnits";
+export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
 // Camera, selection and visibility ops. Use these rather than touching the

@@ -21,6 +21,7 @@ import numpy as np
 
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.read_sif import SifReader
+from ada.fem.formats.sesam.results.result_catalog import semantic_name
 from ada.fem.formats.sesam.results.sin_reader import SinFile, open_sin
 
 if TYPE_CHECKING:
@@ -29,7 +30,11 @@ if TYPE_CHECKING:
 # Mirror the SIF reader's card-group lists so a record-type seen in
 # the SIN block index is routed to the same bucket Sif2Mesh expects.
 _OTHER_CARDS = (
+    cards.UNITS,
+    cards.BNDOF,
+    cards.BNTRCOS,
     cards.GUNIVEC,
+    cards.GELTH,
     cards.TDSECT,
     cards.TDMATER,
     cards.MISOSEL,
@@ -38,10 +43,15 @@ _OTHER_CARDS = (
     cards.GSETMEMB,
     cards.TDRESREF,
     cards.GBEAMG,
+    # Beam eccentricities. Without these a stiffener is drawn on its element axis
+    # instead of offset onto the plate it stiffens -- see ``element_eccentricities``.
+    cards.GECCEN,
 )
 _SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC)
 _RESULT_CARDS = (
     cards.RVNODDIS,
+    cards.RDNODREA,
+    cards.RVNODREA,
     cards.RVSTRESS,
     cards.RDPOINTS,
     cards.RDSTRESS,
@@ -144,7 +154,16 @@ class SinReader(SifReader):
         and dereference the wrong fields as element type.
         """
         self._load_static()
-        self.load_step(self.step)
+        recipe = read_result_combinations(self.sin).get(int(self.step)) if self.step is not None else None
+        if recipe:
+            self.load_combination(int(self.step), recipe)
+        else:
+            self.load_step(self.step)
+            if self.step is None:
+                # A full read is what the bake takes, and a deck that stores only
+                # its basic cases would otherwise present its combinations as
+                # names with no data behind them.
+                self.append_unstored_combinations()
 
     def _load_static(self) -> None:
         """Read the step-invariant blocks once: mesh (GCOORD/GNODE/
@@ -223,6 +242,106 @@ class SinReader(SifReader):
             rec = self._read_result_card(card, step=step)
             if rec is not None:
                 self.results.append(rec)
+
+    def load_combination(self, step: int, recipe: dict[int, float], cards: "set[str] | None" = None) -> None:
+        """Materialise a linear ``RDRESCMB`` case from its stored basic cases.
+
+        Combination is deliberately performed on the raw RV component values,
+        before :class:`Sif2Mesh` computes any nonlinear derived quantities such
+        as principal or von Mises stress.  Metadata columns (entity ids,
+        descriptor ids, local systems) must be identical across contributing
+        cases; a drift is an input/schema error and is surfaced.
+        """
+
+        if not getattr(self, "_static_loaded", False):
+            self._load_static()
+        self.step = int(step)
+        want = None if cards is None else set(cards)
+        self.results = list(self._static_results)
+        for card in _RESULT_CARDS:
+            if card.name not in _RV_TYPE_NAMES:
+                continue
+            if want is not None and card.name not in want:
+                continue
+            combined = None
+            for basic_step, factor in recipe.items():
+                rec = self._read_result_card(card, step=int(basic_step))
+                if rec is None or len(rec[1]) <= 1:
+                    continue
+                combined = _accumulate_rv_combination(
+                    card,
+                    combined,
+                    rec[1],
+                    float(factor),
+                    combination_step=int(step),
+                )
+            if combined is not None:
+                self.results.append((card.name, combined))
+
+    def stored_steps(self) -> set[int]:
+        """Result-case ids the SIN physically stores, from the RV* tables."""
+        steps: set[int] = set()
+        for rv in _RV_TYPE_NAMES:
+            if rv not in self.sin.type_blocks:
+                continue
+            ires = self.sin.gather_first_words(rv)
+            if ires.size:
+                steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+        return steps
+
+    def append_unstored_combinations(self, cards: "set[str] | None" = None) -> None:
+        """Add every ``RDRESCMB`` case the SIN does not already store.
+
+        SESTRA's "smart load combinations" store only the basic cases and leave
+        the combinations as recipes; other decks store the combined results
+        outright. Both are normal, and only the first needs anything done — so
+        this superposes exactly the ids that are missing and leaves a deck that
+        already has them untouched.
+
+        Same superposition as :meth:`load_combination`, on the raw RV component
+        values before :class:`Sif2Mesh` derives anything nonlinear from them.
+        Doing it here rather than after the fact is what makes the combined case
+        an ordinary step to everything downstream: von Mises and principal
+        stresses are computed from the combined components, which is what the reference postprocessor
+        does, and not combined after the fact, which would be wrong.
+        """
+        combinations = read_result_combinations(self.sin)
+        if not combinations:
+            return
+        stored = self.stored_steps()
+        missing = {i: r for i, r in combinations.items() if r and i not in stored}
+        if not missing:
+            return
+
+        want = None if cards is None else set(cards)
+        index_of = {name: i for i, (name, _) in enumerate(self.results)}
+        for ires in sorted(missing):
+            for card in _RESULT_CARDS:
+                if card.name not in _RV_TYPE_NAMES:
+                    continue
+                if want is not None and card.name not in want:
+                    continue
+                combined = None
+                for basic_step, factor in missing[ires].items():
+                    rec = self._read_result_card(card, step=int(basic_step))
+                    if rec is None or len(rec[1]) <= 1:
+                        continue
+                    combined = _accumulate_rv_combination(
+                        card,
+                        combined,
+                        rec[1],
+                        float(factor),
+                        combination_step=int(ires),
+                    )
+                if combined is None:
+                    continue
+                at = index_of.get(card.name)
+                if at is None:
+                    index_of[card.name] = len(self.results)
+                    self.results.append((card.name, combined))
+                else:
+                    name, existing = self.results[at]
+                    self.results[at] = (name, _concat_rv_rows(existing, combined))
 
     def _read_result_card(self, card, step):
         """Read one result card → ``(name, rows)`` (or None if the block
@@ -368,12 +487,102 @@ def read_result_names(sin: SinFile) -> dict[int, str]:
     return out
 
 
-_RV_TYPE_NAMES = ("RVNODDIS", "RVSTRESS", "RVFORCES")
+_RV_TYPE_NAMES = ("RVNODDIS", "RVNODREA", "RVSTRESS", "RVFORCES")
 
 # Element field name (as the adapter advertises it) → its RV card, so the
 # streaming reader gathers only that field's card per step instead of all of
 # them once per field. Nodal fields use their card name directly (RVNODDIS).
 _ELEM_FIELD_TO_CARD = {"STRESS": "RVSTRESS", "FORCES": "RVFORCES"}
+for _position in ("resultpoints", "elements", "element_average"):
+    for _attribute in ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS"):
+        _ELEM_FIELD_TO_CARD[semantic_name(_position, _attribute)] = "RVSTRESS"
+    for _attribute in ("G-FORCE", "B-STRESS"):
+        _ELEM_FIELD_TO_CARD[semantic_name(_position, _attribute)] = "RVFORCES"
+_NODAL_FIELD_TO_CARD = {
+    "RVNODDIS": "RVNODDIS",
+    semantic_name("nodes", "DISPLACEMENT"): "RVNODDIS",
+    "REACTION-FORCE": "RVNODREA",
+}
+for _attribute in ("G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "R-STRESS"):
+    _NODAL_FIELD_TO_CARD[semantic_name("nodes", _attribute)] = "RVSTRESS"
+
+
+_RV_VALUE_START = {
+    "RVNODDIS": cards.RVNODDIS.get_indices_from_names(["U1|"]),
+    "RVNODREA": cards.RVNODREA.get_indices_from_names(["F1|"]),
+    "RVSTRESS": cards.RVSTRESS.get_indices_from_names(["irstrs"]) + 1,
+    "RVFORCES": cards.RVFORCES.get_indices_from_names(["irforc|"]) + 1,
+}
+
+
+def _concat_rv_rows(existing, extra):
+    """Append one RV table's data rows to another's, keeping row 0.
+
+    Row 0 is the synthesised super-header (``[-ndim, ndim, *dims]``); every
+    consumer does ``rows[1:]``, and ``dims`` describes the block's declared
+    shape rather than how many rows were materialised — the step-filtered read
+    already returns fewer rows than it claims, so leaving it alone here is the
+    same contract, not a new liberty.
+    """
+    if isinstance(existing, np.ndarray) and isinstance(extra, np.ndarray):
+        if extra.shape[0] <= 1:
+            return existing
+        if existing.shape[1] != extra.shape[1]:
+            raise ValueError(f"cannot append combination rows: width {extra.shape[1]} into {existing.shape[1]}")
+        return np.vstack((existing, extra[1:]))
+    return [*list(existing), *list(extra)[1:]]
+
+
+def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combination_step: int):
+    """Accumulate one basic RV table into a synthetic combination table."""
+
+    import copy
+
+    value_start = int(_RV_VALUE_START[card.name])
+    ires_i = int(card.get_indices_from_names(["ires"]))
+    meta_indices = [i for i in range(value_start) if i != ires_i]
+
+    if isinstance(rows, np.ndarray):
+        current = np.asarray(rows, dtype=np.float64)
+        if accumulated is None:
+            out = current.copy()
+            # NORSAM result values and factors are IEEE float32 words. The reference postprocessor
+            # superposes them in that precision, one contributor at a time.
+            # Keeping the accumulator in float64 changes cancellation-heavy
+            # combinations by visible amounts (several tenths for stresses of
+            # order 1e6), even though every input word is identical.
+            out[1:, value_start:] = np.asarray(current[1:, value_start:], dtype=np.float32) * np.float32(factor)
+            out[1:, ires_i] = combination_step
+            return out
+        out = accumulated
+        if not isinstance(out, np.ndarray) or out.shape != current.shape:
+            raise ValueError(f"{card.name} combination contributors have different table shapes")
+        if not np.array_equal(out[1:, meta_indices], current[1:, meta_indices]):
+            raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
+        accumulated_values = np.asarray(out[1:, value_start:], dtype=np.float32)
+        current_values = np.asarray(current[1:, value_start:], dtype=np.float32)
+        accumulated_values += current_values * np.float32(factor)
+        out[1:, value_start:] = accumulated_values
+        return out
+
+    current_rows = list(rows)
+    if accumulated is None:
+        out = copy.deepcopy(current_rows)
+        for row in out[1:]:
+            row[ires_i] = float(combination_step)
+            for i in range(value_start, len(row)):
+                row[i] = float(np.float32(row[i]) * np.float32(factor))
+        return out
+
+    out = accumulated
+    if isinstance(out, np.ndarray) or len(out) != len(current_rows):
+        raise ValueError(f"{card.name} combination contributors have different row counts")
+    for out_row, row in zip(out[1:], current_rows[1:]):
+        if len(out_row) != len(row) or any(out_row[i] != row[i] for i in meta_indices):
+            raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
+        for i in range(value_start, len(row)):
+            out_row[i] = float(np.float32(out_row[i]) + np.float32(row[i]) * np.float32(factor))
+    return out
 
 
 def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
@@ -510,7 +719,8 @@ class SinStreamReader:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
         self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
-        self._steps = self._discover_steps()
+        self._combinations = read_result_combinations(self.sin)
+        self._steps = sorted(set(self._discover_steps()) | set(self._combinations))
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
         self._mesh = None  # step-invariant Mesh, built once and reused across steps
         self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
@@ -541,7 +751,12 @@ class SinStreamReader:
     def _step_values(self) -> list[float]:
         return [float(s) for s in self._steps]
 
-    def _load_step(self, step: int, cards: "set[str] | None" = None):
+    def _load_step(
+        self,
+        step: int,
+        cards: "set[str] | None" = None,
+        requested_fields: "set[str] | None" = None,
+    ):
         """Materialise just one step's FEAResult from the shared SinFile.
 
         The mesh topology is step-invariant, so :meth:`Sif2Mesh.get_sif_mesh`
@@ -562,14 +777,18 @@ class SinStreamReader:
             self._reader._forces_elements = self._forces_elements
             self._reader._load_static()
         reader = self._reader
-        reader.load_step(int(step), cards=cards)
+        recipe = self._combinations.get(int(step))
+        if recipe:
+            reader.load_combination(int(step), recipe, cards=cards)
+        else:
+            reader.load_step(int(step), cards=cards)
         s2m = Sif2Mesh(reader)
         if self._mesh is None:
             self._mesh = s2m.get_sif_mesh()
         # Reuse the cached mesh; get_sif_results() needs it set (RVFORCES
         # resolves element ids against it) but never rebuilds it.
         s2m.mesh = self._mesh
-        results = s2m.get_sif_results()
+        results = s2m.get_sif_results(requested_fields=requested_fields)
         return FEAResult(
             "remote",
             FEATypes.SESAM,
@@ -593,7 +812,7 @@ class SinStreamReader:
             return self._rep
         return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
 
-    def _field_adapter(self, idx: int, card: str | None):
+    def _field_adapter(self, idx: int, card: str | None, field_name: str):
         """Adapter over step ``idx`` loading only ``card``'s block (one field).
 
         Reuses the cached step-0 representative when available; every other
@@ -605,13 +824,38 @@ class SinStreamReader:
         if idx == 0 and self._rep is not None:
             return self._rep
         cards = {card} if card else None
-        return FEAResultStreamAdapter(self._load_step(self._steps[idx], cards=cards))
+        return FEAResultStreamAdapter(
+            self._load_step(
+                self._steps[idx],
+                cards=cards,
+                requested_fields={field_name},
+            )
+        )
 
     def _with_global_steps(self, specs):
         import dataclasses
 
         labels = self._step_values()
-        return [dataclasses.replace(s, n_steps=len(labels), step_values=labels) for s in specs]
+        # A real-valued RDRESCMB recipe is conclusive static-case metadata.
+        # Do not let the generic monotonic-step heuristic reinterpret case
+        # numbers 1..N as eigen frequencies merely because they increase.
+        analysis_kind = "static" if self._combinations else None
+        return [
+            (
+                s
+                if s.category == "property"
+                # Property fields do not vary by load case: one step, however
+                # many cases the deck stores. Expanding them to the global step
+                # list would bake ten identical copies of a constant.
+                else dataclasses.replace(
+                    s,
+                    n_steps=len(labels),
+                    step_values=labels,
+                    analysis_kind=analysis_kind or s.analysis_kind,
+                )
+            )
+            for s in specs
+        ]
 
     # ── FEAStreamReader protocol ──────────────────────────────────────
     def read_mesh_geometry(self):
@@ -628,9 +872,9 @@ class SinStreamReader:
 
         labels = self._step_values()
         # A nodal field's name is its RV card (RVNODDIS) — gather only that one.
-        card = field_name if field_name in _RV_TYPE_NAMES else None
+        card = _NODAL_FIELD_TO_CARD.get(field_name)
         for i in range(len(self._steps)):
-            ad = self._field_adapter(i, card)
+            ad = self._field_adapter(i, card, field_name)
             emitted = 0
             for sv in ad.iter_field_steps(field_name):
                 yield dataclasses.replace(sv, step_index=i, step_value=labels[i])
@@ -644,10 +888,23 @@ class SinStreamReader:
     def iter_element_field_steps(self, spec):
         import dataclasses
 
+        if spec.category == "property":
+            # Single-step by construction (see _with_global_steps); the values
+            # come from the deck's property tables, not any step's RV block.
+            ad = self._adapter_for(0)
+            ad_spec = next(
+                (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
+                None,
+            )
+            if ad_spec is None:
+                raise RuntimeError(f"SIN property field {spec.name!r}/{spec.elem_type} missing")
+            yield from ad.iter_element_field_steps(ad_spec)
+            return
+
         labels = self._step_values()
         card = _ELEM_FIELD_TO_CARD.get(spec.name)
         for i in range(len(self._steps)):
-            ad = self._field_adapter(i, card)
+            ad = self._field_adapter(i, card, spec.name)
             ad_spec = next(
                 (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
                 None,
