@@ -1104,7 +1104,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
           The polling shape.
         """
         pool = _source_nodes_pool(request)
-        scope_str = str(scope_obj)
+        # prefix(), not str(). `Scope` is a dataclass, so str() is its REPR --
+        # "Scope(kind='shared', id=None)" -- which is not an identifier: it
+        # changes shape if a field is ever added or reordered, and every row
+        # keyed by the old spelling is orphaned without anything reporting it.
+        # prefix() is the canonical scope key the storage layer already uses.
+        scope_str = scope_obj.prefix()
 
         if not source:
             return JSONResponse(
