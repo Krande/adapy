@@ -27,9 +27,14 @@ if TYPE_CHECKING:
 _XML_TEMPLATE = pathlib.Path(__file__).parent / "resources/xml_blank.xml"
 
 
-def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
-    if not isinstance(xml_file, pathlib.Path):
-        xml_file = pathlib.Path(xml_file)
+def build_xml_tree(part: Part, embed_sat=False, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
+    """Build the concept-XML tree for ``part`` without the ACIS body spliced in.
+
+    Returns ``(tree, sat_writer)``; the writer is None unless ``embed_sat``.
+    With ``embed_sat`` the plates carry ``<sat_reference>`` face names into the
+    writer's body, and the caller decides where that body goes — embedded in
+    the XML (``write_xml``) or beside it (the ``.gnx`` workspace writer).
+    """
 
     tree = ET.parse(_XML_TEMPLATE)
     root = tree.getroot()
@@ -66,6 +71,16 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
 
     if writer_postprocessor:
         writer_postprocessor(root, part)
+
+    return tree, sw
+
+
+def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
+    if not isinstance(xml_file, pathlib.Path):
+        xml_file = pathlib.Path(xml_file)
+
+    tree, sw = build_xml_tree(part, embed_sat=embed_sat, writer_postprocessor=writer_postprocessor)
+    structure_domain = tree.getroot().find("./model/structure_domain")
 
     xml_file.parent.mkdir(exist_ok=True, parents=True)
     # A model with no plates has no ACIS body, so there is nothing to embed.

@@ -8618,6 +8618,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ".gltf": "glTF",
         ".glb": "glTF (binary)",
         ".xml": "Genie XML",
+        ".gnx": "Genie workspace",
         ".inp": "Abaqus input",
         ".fem": "Sesam FEM",
         ".sat": "ACIS",

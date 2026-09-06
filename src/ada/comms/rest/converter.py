@@ -334,7 +334,12 @@ _TRIMESH_EXTS: frozenset[str] = frozenset({".obj", ".stl", ".ply", ".dae", ".off
 _PASSTHROUGH_EXTS: frozenset[str] = frozenset({".glb"})
 
 # Source formats that ada-py can load. Required for any non-GLB target.
-_ADA_LOADABLE_EXTS: frozenset[str] = frozenset({".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"})
+_ADA_LOADABLE_EXTS: frozenset[str] = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".gnx", ".inp", ".fem", ".sat", ".acis"}
+)
+# Genie concept-model sources: the XML and the workspace it is zipped into.
+# Loaded by the same reader, so every ".xml"-source fast path applies to both.
+_GXML_SOURCE_EXTS: frozenset[str] = frozenset({".xml", ".gnx"})
 
 # Multi-file analysis bundles, packaged as zip. Currently only Abaqus
 # (`.inp` with `*INCLUDE` chains) is supported; bundle.py rejects other
@@ -717,7 +722,7 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
             return ada.from_ifc(src_path)
         if ext in {".step", ".stp"}:
             return ada.from_step(src_path)
-        if ext == ".xml":
+        if ext in _GXML_SOURCE_EXTS:
             return ada.from_genie_xml(src_path)
         if ext in {".inp", ".fem"}:
             return ada.from_fem(src_path)
@@ -738,7 +743,12 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
 # concept geometry, and the CAD targets where rebuilding concept objects
 # from that mesh is worthwhile.
 _FEM_SOURCE_EXTS: frozenset[str] = frozenset({".inp", ".fem", ".sif"})
-_FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "step", "stp"})
+_FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "gnx", "step", "stp"})
+
+# The Genie targets: a concept XML, or the same XML zipped into a workspace
+# (.gnx) with its ACIS body beside it. One writer family; every routing rule
+# that says "xml" means both.
+_GXML_TARGETS: frozenset[str] = frozenset({"xml", "gnx"})
 
 
 def _apply_fem_to_objects(
@@ -800,7 +810,7 @@ def _gxml_face_streaming(source_ext: str, target_format: str, reconstruct_surfac
     reconstruction (the parametric face emitter can't express advanced faces).
     Shared by ``_apply_fem_to_objects`` (skip the plate build) and
     ``_export_with_ada`` (use the streaming writer) so they stay consistent."""
-    if target_format != "xml":
+    if target_format not in _GXML_TARGETS:
         return False
     if source_ext.lower() not in _FEM_SOURCE_EXTS:
         return False
@@ -834,7 +844,7 @@ def _native_ngeom_mesh_route(
     zero-renderable-object case also falls back (``collect_ngeom_records`` raises), preserving
     the Python path's seeded empty-scene output.
     """
-    if source_ext is None or source_ext.lower() != ".xml":
+    if source_ext is None or source_ext.lower() not in _GXML_SOURCE_EXTS:
         return None
     # Engine choice must resolve to an adacpp record-stream track; occ-builtin / the taxonomy
     # kernels (occ/cgal/hybrid) mean the user asked for a different tessellator — honour it.
@@ -1017,7 +1027,7 @@ def _export_with_ada(
         # record-stream writer wraps every solid in an IfcBuildingElementProxy (no typed
         # products), acceptable only for geometry handoff. The STEP leg stays native by default:
         # STEP products carry name-only semantics either way, so nothing is lost there.
-        if source_ext is not None and source_ext.lower() == ".xml":
+        if source_ext is not None and source_ext.lower() in _GXML_SOURCE_EXTS:
             import os as _os
 
             from ada.cadit.ngeom.export import (
@@ -1060,9 +1070,12 @@ def _export_with_ada(
             else:
                 ms = "cylinder"  # analytic auto-detect
         model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
-    elif target_format == "xml":
+    elif target_format in _GXML_TARGETS:
         on_progress("writing-xml", 0.55)
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
+        # gnx = the same concept XML zipped into a Genie workspace with its ACIS
+        # body beside it; both routes below take the same writer choice.
+        genie_write = model.to_gnx if target_format == "gnx" else model.to_genie_xml
         if source_ext is not None and _gxml_face_streaming(source_ext, target_format, recon):
             # Object-free path: plates stream from the vectorized FEM-shell face
             # source (no Plate objects, no DOM). Default is the analytic auto-detect
@@ -1077,9 +1090,9 @@ def _export_with_ada(
                 ms = "none"
             else:
                 ms = "cylinder"
-            model.to_genie_xml(destination_xml=str(out_path), streaming=True, merge_strategy=ms)
+            genie_write(str(out_path), streaming=True, merge_strategy=ms)
         else:
-            model.to_genie_xml(destination_xml=str(out_path))
+            genie_write(str(out_path))
     else:
         raise UnsupportedFormat(f"unknown target format: {target_format!r}")
     on_progress("ready", 1.0)
@@ -2537,7 +2550,7 @@ def _via_ada_to_step(
             # out): NGEOM records -> adacpp's C++ AP242 writer instead of the OCC XCAF /
             # per-entity Python writers. Wholesale fallback below when adacpp is absent
             # or any object fails to serialize (mirrors the xml->ifc leg).
-            if source_ext.lower() == ".xml":
+            if source_ext.lower() in _GXML_SOURCE_EXTS:
                 from ada.cadit.ngeom.export import (
                     NativeExportUnsupported,
                     native_export_enabled,
@@ -3241,9 +3254,10 @@ def _register_ada_loadable() -> None:
     ]
 
     # Original three targets (glb/ifc/xml) via the long-standing ada
-    # writers.
+    # writers, plus gnx — the Genie workspace the xml writer's output is
+    # zipped into, so it rides every xml row.
     for ext in _ADA_LOADABLE_EXTS:
-        for tgt in ("glb", "ifc", "xml"):
+        for tgt in ("glb", "ifc", "xml", "gnx"):
 
             def _h(
                 src,
@@ -3308,7 +3322,7 @@ def _register_ada_loadable() -> None:
                 else:
                     row_options = glb_options + [glb_tess_engine_option, strict_tess_option]
                 row_options = row_options + _glb_serializer_options(ext)
-            elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
+            elif tgt in ("ifc", "xml", "gnx") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
                 row_options = None
@@ -3453,6 +3467,15 @@ def _register_step_stream_exports() -> None:
             return _via_step_stream_to_xml(src, on_progress)
 
         ConverterRegistry.register(ext, "xml", _h_xml)
+
+        def _h_gnx(src, on_progress, *, _ext=ext, **_kw):
+            # Same streamed scaffold, repacked as a workspace.
+            from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml
+
+            xml_path = _via_step_stream_to_xml(src, on_progress)
+            return gnx_from_genie_xml(xml_path, new_temp_path(suffix=".gnx"))
+
+        ConverterRegistry.register(ext, "gnx", _h_gnx)
 
     # IFC → STEP via the native adacpp IFC B-rep reader → ng:: → AP242 writer (no OCC). Overrides the
     # generic OCC ifc→step ONLY when the native verb is present, so older builds keep the OCC path.
