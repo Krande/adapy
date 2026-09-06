@@ -1071,7 +1071,7 @@ def _export_with_ada(
                 ms = "cylinder"  # analytic auto-detect
         model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
     elif target_format in _GXML_TARGETS:
-        on_progress("writing-xml", 0.55)
+        on_progress("writing-gnx" if target_format == "gnx" else "writing-xml", 0.55)
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
         # gnx = the same concept XML zipped into a Genie workspace with its ACIS
         # body beside it; both routes below take the same writer choice.

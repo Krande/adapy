@@ -163,6 +163,22 @@ def test_convert_page_offers_gnx_wherever_it_offers_xml():
         assert "gnx" in targets, key
 
 
+def test_gnx_and_xml_are_interchangeable_across_the_whole_registry():
+    """Two invariants over EVERY registered source, so a new cell cannot add
+    one without the other: a workspace source converts to exactly what a
+    concept-XML source does, and anything that can become an XML can become
+    a workspace. Also the per-cell option schema — a FEM deck's object-rebuild
+    knobs must show on the gnx row as they do on the xml row."""
+    from ada.comms.rest.converter import ConverterRegistry, supported_targets_for
+
+    assert sorted(supported_targets_for("m/a.gnx")) == sorted(supported_targets_for("m/a.xml"))
+    for ext in ConverterRegistry.all_sources():
+        targets = supported_targets_for(f"m/a{ext}")
+        assert ("xml" in targets) == ("gnx" in targets), ext
+        if "xml" in targets:
+            assert ConverterRegistry.options_for(ext, "gnx") == ConverterRegistry.options_for(ext, "xml"), ext
+
+
 def test_rest_converter_serves_gnx(fem_files):
     """A FEM deck through the worker's convert() entry point comes back as a
     workspace with concept objects rebuilt from the mesh."""

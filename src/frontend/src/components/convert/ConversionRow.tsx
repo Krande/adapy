@@ -262,7 +262,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         ? availableTargets
         : matrixTargets.length > 0
             ? (matrixTargets as TargetFormat[])
-            : ["glb", "ifc", "xml"];
+            : ["glb", "ifc", "xml", "gnx"];
 
     // Per-(from, target) option schema. Pulled from the merged
     // worker matrix; empty list when the pair has no per-job knobs,
