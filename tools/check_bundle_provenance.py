@@ -85,6 +85,17 @@ CORPUS_SUFFIXES = {
 # would swamp the signal and every one of them would be a false orphan.
 STRING_RE = re.compile(r"""["'`]([A-Za-z][A-Za-z0-9 ._:/()\-+%#'&,?!]{3,119})["'`]""")
 HEXISH_RE = re.compile(r"^[0-9a-fA-F]+$")
+# The build's own version stamp: `git rev-parse --short HEAD`, plus "-dirty"
+# whenever the tree is not clean -- and writing index.zip dirties the very tree
+# the build is measuring, so every legitimate local bake carries it (see the
+# rejected-alternative note in the docstring above).
+#
+# It cannot occur in the source, because it names the commit being built. Whether
+# it was REPORTED as an orphan came down to whether the sha happened to start
+# with a letter, since STRING_RE only collects strings that do: 2437ec68a passed
+# and a371f9e11 did not, on the same tree and the same build. A gate that depends
+# on the spelling of a commit hash is not a gate.
+SHA_STAMP_RE = re.compile(r"^[0-9a-f]{7,40}(-dirty)?$")
 _WS_RE = re.compile(r"\s+")
 
 
@@ -102,7 +113,7 @@ def bundle_strings(bundle: Path) -> set[str]:
                 f"relaxing this."
             )
         text = z.read("index.html").decode("utf-8", "replace")
-    return {s for s in STRING_RE.findall(text) if not HEXISH_RE.match(s)}
+    return {s for s in STRING_RE.findall(text) if not HEXISH_RE.match(s) and not SHA_STAMP_RE.match(s)}
 
 
 def corpus_files() -> list[Path]:
