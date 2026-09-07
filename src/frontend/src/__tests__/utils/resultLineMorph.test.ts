@@ -5,6 +5,7 @@ import * as THREE from "three";
 import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 
 import {
+    hasResultLineSegments,
     installResultLineSegments,
     setResultLineSegmentsVisible,
 } from "@/utils/scene/fea/resultLineSegments";
@@ -32,19 +33,17 @@ function oneBeam() {
     return {mesh, line};
 }
 
-/** Run the per-frame hook the renderer would call. */
+/** Run the per-frame hook the renderer would call.
+ *
+ * Called through an unknown-arity cast because ``onBeforeRender``'s signature has
+ * changed across the three.js versions this repo and its plugin overlay resolve;
+ * the hook itself only reads the renderer. */
 function draw(line: LineSegments2): void {
     const renderer = {
         getSize: (target: THREE.Vector2) => target.set(800, 600),
     } as unknown as THREE.WebGLRenderer;
-    line.onBeforeRender(
-        renderer,
-        null as never,
-        null as never,
-        null as never,
-        null as never,
-        null as never,
-    );
+    const hook = line.onBeforeRender as unknown as (...args: unknown[]) => void;
+    hook.call(line, renderer, null, null, null, null, null);
 }
 
 function positionsOf(line: LineSegments2): number[] {
@@ -105,4 +104,15 @@ test("visibility is a switch on what was built, not a rebuild", () => {
     assert.equal(line.visible, false);
     setResultLineSegmentsVisible(mesh, true);
     assert.equal(line.visible, true);
+});
+
+test("a mesh with no beam lines is honest about it", () => {
+    // Only an element field installs them. A nodal field clears them and paints the
+    // shells, so "result colours are on" does not mean "a beam is being drawn in
+    // colour" — and the grey element edge must not stand aside for a line that is
+    // not there.
+    const bare = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    assert.equal(hasResultLineSegments(bare), false);
+    const {mesh} = oneBeam();
+    assert.equal(hasResultLineSegments(mesh), true);
 });

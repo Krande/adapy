@@ -33,7 +33,7 @@ import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
-import {setResultLineSegmentsVisible} from "../fea/resultLineSegments";
+import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
 import {setResultPointMarkersVisible} from "../fea/resultPointMarkers";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../fea/edgeColors";
 import {withoutEdges} from "../fea/edgeSplit";
@@ -140,7 +140,11 @@ export function syncFeaOverlayVisibility(): void {
     if (!active?.mesh) return;
     const store = useFeaAnimationStore.getState();
     const solids = active.beamSolidMesh?.visible ?? false;
-    const colouredLines = store.resultColorsVisible && !solids;
+    // Built, wanted, and not superseded by the solids. All three: only an ELEMENT
+    // field installs coloured lines, so a nodal field has none to stand in for the
+    // grey edge and the beam would simply stop being drawn.
+    const colouredLines =
+        hasResultLineSegments(active.mesh) && store.resultColorsVisible && !solids;
 
     setResultLineSegmentsVisible(active.mesh, colouredLines);
     for (const overlay of elementEdgeOverlays("fea-element-edges")) {

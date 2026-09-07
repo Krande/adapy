@@ -51,6 +51,17 @@ export function clearResultLineSegments(mesh: THREE.Mesh): void {
     delete mesh.userData.__feaLineSelection;
 }
 
+/** Forget the beams entirely — the full set and any isolation of it.
+ *
+ *  Separate from clearing the drawn objects, which happens on every repaint: the
+ *  full set is what a repaint is rebuilt from, so dropping it there would make the
+ *  first repaint after an isolation permanent. */
+export function forgetResultLineSegments(mesh: THREE.Mesh): void {
+    clearResultLineSegments(mesh);
+    delete mesh.userData.__feaLineFull;
+    delete mesh.userData.__feaLineIsolation;
+}
+
 /**
  * Drive a fat line's positions from base + influence * displacement.
  *
@@ -120,6 +131,62 @@ function buildLine(
     return line;
 }
 
+/** Everything needed to draw the beam lines, kept so a subset can be redrawn. */
+interface LineData {
+    positions: Float32Array;
+    colors: Float32Array;
+    displacement: Float32Array;
+    segmentIds: readonly string[];
+}
+
+/** Take the segments belonging to `keep` out of a full set. */
+function subsetOf(data: LineData, keep: ReadonlySet<string>): LineData {
+    const picked: number[] = [];
+    for (let i = 0; i < data.segmentIds.length; i++) {
+        if (keep.has(data.segmentIds[i])) picked.push(i);
+    }
+    const positions = new Float32Array(picked.length * 6);
+    const colors = new Float32Array(picked.length * 6);
+    const displacement = new Float32Array(picked.length * 6);
+    const segmentIds: string[] = new Array(picked.length);
+    for (let out = 0; out < picked.length; out++) {
+        const from = picked[out] * 6;
+        positions.set(data.positions.subarray(from, from + 6), out * 6);
+        colors.set(data.colors.subarray(from, from + 6), out * 6);
+        displacement.set(data.displacement.subarray(from, from + 6), out * 6);
+        segmentIds[out] = data.segmentIds[picked[out]];
+    }
+    return {positions, colors, displacement, segmentIds};
+}
+
+/**
+ * Show only the beams in `keep`, or all of them again when null.
+ *
+ * The counterpart of hiding draw ranges on the mesh, for the elements that have
+ * none. Isolating "the S355 members" hid every plate and left every beam drawn,
+ * because a beam contributes no triangles for a draw range to hide — so the one
+ * kind of element the isolation could not touch was the kind a stiffener
+ * selection is mostly made of.
+ *
+ * A rebuild rather than a visibility flag: the lines are one instanced geometry,
+ * and there is no per-segment `visible`. Cheap — a few thousand floats, on a
+ * click.
+ *
+ * The choice is remembered on the mesh so a repaint (a new step, a new component)
+ * re-applies it. Without that, changing step silently un-isolated the beams.
+ */
+export function setResultLineSegmentsIsolation(
+    mesh: THREE.Mesh,
+    keep: ReadonlySet<string> | null,
+): void {
+    const full = mesh.userData.__feaLineFull as LineData | undefined;
+    if (!full) return;
+    if (keep === null) delete mesh.userData.__feaLineIsolation;
+    else mesh.userData.__feaLineIsolation = keep;
+    const data = keep === null ? full : subsetOf(full, keep);
+    installLines(mesh, data);
+}
+
 /** Install a result-coloured rendering of the line elements.
  *
  * Positions, colours and displacement carry two duplicated vertices per element,
@@ -131,6 +198,20 @@ export function installResultLineSegments(
     displacement: Float32Array,
     segmentIds: readonly string[] = [],
 ): void {
+    mesh.userData.__feaLineFull = {positions, colors, displacement, segmentIds};
+    // A repaint rebuilds these from scratch, so an isolation set before it would
+    // otherwise be lost — the beams would come back while the plates stayed hidden.
+    const keep = mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined;
+    installLines(
+        mesh,
+        keep
+            ? subsetOf({positions, colors, displacement, segmentIds}, keep)
+            : {positions, colors, displacement, segmentIds},
+    );
+}
+
+function installLines(mesh: THREE.Mesh, data: LineData): void {
+    const {positions, colors, displacement, segmentIds} = data;
     clearResultLineSegments(mesh);
     if (positions.length === 0) return;
 
@@ -233,6 +314,17 @@ export function pickResultLineSegment(
     const segment = hit.faceIndex ?? -1;
     if (segment < 0 || segment >= ids.length) return null;
     return {rangeId: ids[segment], point: hit.point.clone(), distance: hit.distance};
+}
+
+/** Has this mesh got coloured beam lines at all?
+ *
+ *  Only an ELEMENT field builds them — a nodal field paints the shells and clears
+ *  them. So "are result colours on" does not answer "is a beam being drawn in
+ *  colour", and treating the two as the same made a beam disappear entirely under a
+ *  displacement field: the grey element edge stood aside for a coloured line that
+ *  was never installed. */
+export function hasResultLineSegments(mesh: THREE.Object3D): boolean {
+    return !!mesh.getObjectByName(RESULT_LINE_SEGMENTS);
 }
 
 /** Show or hide the coloured beam lines — the counterpart to the beam-solid
