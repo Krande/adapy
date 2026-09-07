@@ -2,7 +2,7 @@ import React, {useEffect, useState} from "react";
 
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {COLORMAP_LABELS, COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
+import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {MAX_LEVELS, MIN_LEVELS, contourBands} from "@/utils/scene/fea/contourScale";
 import {applyContourSettings, resetContourBounds} from "@/utils/scene/fea/resultSelection";
 import {selectedResultRange} from "@/utils/scene/fea/resultUnits";
@@ -88,7 +88,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                 >
                     {COLORMAP_NAMES.map((name) => (
                         <option key={name} value={name}>
-                            {COLORMAP_LABELS[name] ?? name}
+                            {name}
                         </option>
                     ))}
                 </select>

@@ -86,3 +86,59 @@ test("null (no mode system) restores like any non-owning mode", () => {
   assert.equal(sceneColorOwner(), null);
   assert.equal(useColorStore.getState().showLegend, true);
 });
+
+// Coming BACK to an owning mode. Suspending is right the first time — the mode
+// has painted nothing yet — and wrong every time after: colour by material in
+// Inspect, glance at Results, come back, and the material colouring was gone,
+// because every entry was treated as a first entry.
+
+test("re-entering an owning mode puts back what it was showing", () => {
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  assert.equal(useColorStore.getState().showLegend, false); // first entry suspends
+
+  // The property painter loads its own field and shows its own legend.
+  useFeaAnimationStore.setState({ fieldName: "props.material", stepIndex: 0 });
+  useColorStore.setState({ min: 1, max: 3, showLegend: true });
+
+  notifyActiveModeSceneColor({ id: "results" });
+  // Leaving reloads the user's field. As in the test above, the reselect needs a
+  // session, so what is observable here is the step and layer going back.
+  assert.equal(useFeaAnimationStore.getState().stepIndex, 3);
+  // Stand in for that reload landing.
+  useFeaAnimationStore.setState({ fieldName: "sesam.elements.g_stress" });
+
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Not suspended this time: Inspect's own view is reloaded instead, so its step
+  // comes back rather than the legend being hidden.
+  assert.equal(sceneColorOwner(), "inspect");
+  assert.equal(useFeaAnimationStore.getState().stepIndex, 0);
+});
+
+test("a mode that painted nothing still suspends every time", () => {
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  notifyActiveModeSceneColor({ id: "results" });
+  useColorStore.setState({ showLegend: true });
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Nothing of its own to show, so the field is set aside as before.
+  assert.equal(useColorStore.getState().showLegend, false);
+});
+
+test("two owning modes remember their own views, not each other's", () => {
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  useFeaAnimationStore.setState({ fieldName: "props.material" });
+  useColorStore.setState({ min: 1, max: 3, showLegend: true });
+
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // Capacity has painted nothing yet, so it suspends rather than inheriting
+  // Inspect's legend.
+  assert.equal(useColorStore.getState().showLegend, false);
+  assert.equal(sceneColorOwner(), "capacity");
+
+  // And leaving still restores the user's ORIGINAL view, not either mode's.
+  useFeaAnimationStore.setState({ fieldName: "sesam.elements.g_stress" });
+  notifyActiveModeSceneColor({ id: "results" });
+  assert.deepEqual(
+    [useColorStore.getState().min, useColorStore.getState().max],
+    [5, 50],
+  );
+});

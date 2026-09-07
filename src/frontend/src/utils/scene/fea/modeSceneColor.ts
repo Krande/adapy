@@ -7,6 +7,12 @@
 // another — and on leaving, the user must find their field exactly as they left
 // it, range and legend included. See issue #308.
 //
+// The same promise runs the other way. Every mode is left as it was found: an
+// owning mode that painted something of its own gets that back when you return
+// to it, rather than being suspended again as though you had never been there.
+// Only the FIRST entry suspends, because only then has the mode painted
+// nothing.
+//
 // Core does the suspending, on the mode's declared behalf. A shell only reports
 // the transition (`notifyActiveModeSceneColor`); it never touches scene state
 // itself, which keeps a shell's "modes change which tools are offered, not what
@@ -49,6 +55,73 @@ interface SavedFieldView {
 let owner: string | null = null;
 let saved: SavedFieldView | null = null;
 
+/**
+ * What each owning mode was last showing, so re-entering it puts that back.
+ *
+ * Suspending is right the FIRST time you enter such a mode — it has painted
+ * nothing of its own yet, and a field from another analysis must not sit
+ * underneath it. It is wrong every time after. Colour by material in Inspect,
+ * glance at Results, come back, and the material colouring was gone: the mode
+ * remembered nothing, so every entry was a first entry.
+ *
+ * Keyed by mode id and kept for the life of the page. A mode the user never
+ * painted anything in has no entry and still suspends, which is the old
+ * behaviour and the right one.
+ */
+const ownerViews = new Map<string, SavedFieldView>();
+
+/** Snapshot what is on screen now. */
+function snapshot(): SavedFieldView {
+  const fea = useFeaAnimationStore.getState();
+  const legend = useColorStore.getState();
+  return {
+    fieldName: fea.fieldName ?? null,
+    reduction: fea.reduction,
+    stepIndex: fea.stepIndex,
+    layer: fea.layer ?? null,
+    legendShown: legend.showLegend,
+    legendMin: legend.min,
+    legendMax: legend.max,
+  };
+}
+
+/** Put a snapshot back on screen: its field, its legend, its colours. */
+function restore(view: SavedFieldView): void {
+  const fea = useFeaAnimationStore.getState();
+  const legend = useColorStore.getState();
+
+  if (view.fieldName && fea.fieldName !== view.fieldName) {
+    // A different field is in the colour buffers. Reload the saved one; the load
+    // rebuilds colours, range and legend, and honours the visibility toggle.
+    fea.setStepIndex(view.stepIndex);
+    if (view.layer) fea.setLayer(view.layer);
+    void import("@/utils/scene/fea/resultSelection")
+      .then(({ selectFeaResultComponent }) =>
+        selectFeaResultComponent(view.fieldName!, view.reduction),
+      )
+      .catch(() => {
+        // The manifest may have been replaced while the mode was away; a
+        // vanished field is not an error worth surfacing on a mode switch.
+      });
+    return;
+  }
+
+  // Buffers already hold it: put the visibility and legend back exactly.
+  void applyColorsVisible(view.fieldName ? fea.resultColorsVisible : false);
+  legend.setMin(view.legendMin);
+  legend.setMax(view.legendMax);
+  legend.setShowLegend(view.legendShown);
+}
+
+/** Suspend: no field colouring, no legend, no change to the user's toggles. */
+function suspend(): void {
+  // Suppressed without being recorded as a user preference: the store's
+  // `resultColorsVisible` toggle stays whatever the user set, and is consulted
+  // again on restore.
+  void applyColorsVisible(false);
+  useColorStore.getState().setShowLegend(false);
+}
+
 /** Which mode currently owns the scene colouring, or null. Exposed for tests
  * and for shells that want to render an indicator. */
 export function sceneColorOwner(): string | null {
@@ -69,29 +142,23 @@ export function sceneColorOwner(): string | null {
  */
 export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   const owns = !!mode?.ownsSceneColor;
+
+  // Whatever is on screen belongs to the mode being left, if that mode owns the
+  // colouring. Recorded before anything is changed, so coming back to it shows
+  // what was there.
+  if (owner !== null && owner !== mode?.id) ownerViews.set(owner, snapshot());
+
   if (owns) {
-    if (owner !== null) {
-      // Owner-to-owner transition: the saved view is still the one to restore.
-      owner = mode!.id;
-      return;
-    }
-    const fea = useFeaAnimationStore.getState();
-    const legend = useColorStore.getState();
-    saved = {
-      fieldName: fea.fieldName ?? null,
-      reduction: fea.reduction,
-      stepIndex: fea.stepIndex,
-      layer: fea.layer ?? null,
-      legendShown: legend.showLegend,
-      legendMin: legend.min,
-      legendMax: legend.max,
-    };
+    // The view to put back when the LAST owning mode is left. Taken only on the
+    // way in from a non-owning mode: owner-to-owner must not overwrite it with
+    // the first owner's own painting, or leaving the second would restore the
+    // first instead of the user's result.
+    if (owner === null) saved = snapshot();
     owner = mode!.id;
-    // Suppress without recording it as a user preference: the store's
-    // `resultColorsVisible` toggle stays whatever the user set, and is
-    // consulted again on restore.
-    void applyColorsVisible(false);
-    legend.setShowLegend(false);
+
+    const own = ownerViews.get(owner);
+    if (own) restore(own);
+    else suspend();
     return;
   }
 
@@ -100,39 +167,14 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   const view = saved;
   saved = null;
   if (!view) return;
-
-  const fea = useFeaAnimationStore.getState();
-  const legend = useColorStore.getState();
-
-  if (view.fieldName && fea.fieldName !== view.fieldName) {
-    // The owning mode loaded its own field into the colour buffers (a property
-    // painter does). Reload the user's field; the load rebuilds colours,
-    // range and legend, and honours the colour-visibility toggle itself.
-    fea.setStepIndex(view.stepIndex);
-    if (view.layer) fea.setLayer(view.layer);
-    void import("@/utils/scene/fea/resultSelection")
-      .then(({ selectFeaResultComponent }) =>
-        selectFeaResultComponent(view.fieldName!, view.reduction),
-      )
-      .catch(() => {
-        // The manifest may have been replaced while the mode was active; a
-        // vanished field is not an error worth surfacing on a mode switch.
-      });
-    return;
-  }
-
-  // Buffers untouched (an overlay painter, or no field at all): put the
-  // visibility and legend back exactly. The store toggle is authoritative for
-  // whether colours show; the legend numbers are restored from the snapshot
-  // because an owning mode may have driven them through paintField.
-  void applyColorsVisible(view.fieldName ? fea.resultColorsVisible : false);
-  legend.setMin(view.legendMin);
-  legend.setMax(view.legendMax);
-  legend.setShowLegend(view.legendShown);
+  restore(view);
 }
 
 /** Test hook: forget any suspended state without side effects. */
 export function _resetSceneColorOwnerForTests(): void {
   owner = null;
   saved = null;
+  // What each owning mode was showing goes too, or one test's Inspect view is
+  // restored into the next one's.
+  ownerViews.clear();
 }

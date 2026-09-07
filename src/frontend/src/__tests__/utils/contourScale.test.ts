@@ -49,7 +49,7 @@ test("levels are whole numbers inside the offered bounds", () => {
 });
 
 test("banding collapses a range onto one colour per band", () => {
-    const map = bandedColormap(getColormap("contour"), 4);
+    const map = bandedColormap(getColormap("sesam"), 4);
     // Everything inside a band is the same colour ...
     assert.equal(sample(map, 0.01), sample(map, 0.24));
     // ... and neighbouring bands are not.
@@ -60,7 +60,7 @@ test("banding collapses a range onto one colour per band", () => {
 });
 
 test("the top of the range belongs to the last band, not to one past it", () => {
-    const map = bandedColormap(getColormap("contour"), 5);
+    const map = bandedColormap(getColormap("sesam"), 5);
     assert.equal(sample(map, 1), sample(map, 0.95));
     // Out of range clamps rather than going black.
     assert.equal(sample(map, 2), sample(map, 1));
@@ -68,12 +68,12 @@ test("the top of the range belongs to the last band, not to one past it", () => 
 });
 
 test("no levels means the colormap is handed back untouched", () => {
-    const raw = getColormap("contour");
+    const raw = getColormap("sesam");
     assert.equal(bandedColormap(raw, null), raw);
 });
 
 test("legend bands cover the range end to end, with the painter's own colours", () => {
-    const bands = contourBands([0, 100], 4, "contour");
+    const bands = contourBands([0, 100], 4, "sesam");
     assert.equal(bands.length, 4);
     assert.equal(bands[0].from, 0);
     assert.equal(bands[3].to, 100);
@@ -81,7 +81,7 @@ test("legend bands cover the range end to end, with the painter's own colours", 
         assert.equal(bands[i].from, bands[i - 1].to);
     }
     // A swatch is exactly what an element in that band is painted.
-    const map = bandedColormap(getColormap("contour"), 4);
+    const map = bandedColormap(getColormap("sesam"), 4);
     const out = new Float32Array(3);
     map(0.6, out);
     const painted = `rgb(${Math.round(out[0] * 255)}, ${Math.round(out[1] * 255)}, ${Math.round(out[2] * 255)})`;
@@ -94,7 +94,7 @@ test("ticks run from the top down and include both ends", () => {
 });
 
 test("categorical entries are the deck's names, sorted, with colours", () => {
-    const entries = categoryEntries({"1": "S355", "2": "eq_mat_soft"}, [1, 2], "contour");
+    const entries = categoryEntries({"1": "S355", "2": "eq_mat_soft"}, [1, 2], "sesam");
     assert.deepEqual(
         entries.map((e) => e.label),
         ["eq_mat_soft", "S355"],
@@ -104,7 +104,7 @@ test("categorical entries are the deck's names, sorted, with colours", () => {
 
 test("a category not on screen is not named in the legend", () => {
     const labels = {"1": "S355", "2": "eq_mat_soft", "3": "eq_mat_stiff"};
-    const entries = categoryEntries(labels, [1, 3], "contour", new Set([1, 3]));
+    const entries = categoryEntries(labels, [1, 3], "sesam", new Set([1, 3]));
     assert.deepEqual(
         entries.map((e) => e.label),
         ["eq_mat_stiff", "S355"],
@@ -112,5 +112,5 @@ test("a category not on screen is not named in the legend", () => {
 });
 
 test("no value labels means no categorical legend", () => {
-    assert.deepEqual(categoryEntries(undefined, [0, 1], "contour"), []);
+    assert.deepEqual(categoryEntries(undefined, [0, 1], "sesam"), []);
 });

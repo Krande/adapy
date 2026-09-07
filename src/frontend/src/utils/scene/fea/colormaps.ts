@@ -153,7 +153,7 @@ export const coolwarm: Colormap = piecewise([
     [1.00, 0.706, 0.016, 0.150],
 ]);
 
-// The contour ramp Sesam's own post-processor draws its legend in: navy at the
+// The ramp Sesam's own post-processor draws its legend in: navy at the
 // bottom, through blue, cyan and green, to yellow, orange and red at the top.
 //
 // Not the same curve as ``abaqus``, and the difference is the point. That one
@@ -169,7 +169,7 @@ export const coolwarm: Colormap = piecewise([
 // bands, so "which elements are over 250" is something you read rather than
 // estimate. See contourScale.ts — banding wraps any colormap and is not baked
 // into this one.
-export const contour: Colormap = piecewise([
+export const sesam: Colormap = piecewise([
     [0.000, 0.00, 0.00, 0.55],
     [0.125, 0.00, 0.20, 0.95],
     [0.250, 0.10, 0.50, 1.00],
@@ -194,7 +194,7 @@ export const grayscale: Colormap = piecewise([
  *  the active selection is stored in feaAnimationStore by name. */
 export const COLORMAPS: Record<string, Colormap> = {
     viridis,
-    contour,
+    sesam,
     abaqus,
     jet,
     coolwarm,
@@ -204,23 +204,18 @@ export const COLORMAPS: Record<string, Colormap> = {
 /** Display order for the dropdown. Default first. */
 export const COLORMAP_NAMES: readonly string[] = [
     "viridis",
-    "contour",
+    "sesam",
     "abaqus",
     "jet",
     "coolwarm",
     "grayscale",
 ] as const;
 
-/** What each colormap is called where a reader can see it. Ids stay stable
- *  because the store and the manifest reference them; labels do not have to. */
-export const COLORMAP_LABELS: Record<string, string> = {
-    viridis: "viridis (perceptual)",
-    contour: "contour (Sesam)",
-    abaqus: "spectrum",
-    jet: "jet (MATLAB)",
-    coolwarm: "cool-warm (signed)",
-    grayscale: "grayscale",
-};
+// No display-name table. Every entry here is shown by its id, which is what the
+// dropdown has always shown — a round of "friendlier" labels renamed abaqus to
+// "spectrum" and jet to "jet (MATLAB)", which is a change nobody asked for to
+// names people had already learned. Adding a colormap adds a name; it does not
+// get to rename the others.
 
 /** Lookup with a viridis fallback so a typo in the store / a manifest
  *  pointing at a colormap we haven't shipped yet doesn't render a

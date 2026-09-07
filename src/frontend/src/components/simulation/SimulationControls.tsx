@@ -23,7 +23,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {animationControllerRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {COLORMAP_LABELS, COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
+import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
@@ -687,7 +687,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         >
                             {COLORMAP_NAMES.map((name) => (
                                 <option key={name} value={name}>
-                                    {COLORMAP_LABELS[name] ?? name}
+                                    {name}
                                 </option>
                             ))}
                         </select>
