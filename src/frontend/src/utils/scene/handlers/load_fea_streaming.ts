@@ -27,6 +27,7 @@ import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
+import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
@@ -97,25 +98,58 @@ export function setBeamSolidsVisible(visible: boolean): void {
     if (active?.beamSolidMesh) {
         active.beamSolidMesh.visible = visible;
     }
-    // The coloured lines are the OTHER rendering of the same elements, so they
-    // show exactly when the solids do not. Drawing both would double the beam and
-    // leave a fat line straddling every section.
-    if (active?.mesh) {
-        setResultLineSegmentsVisible(active.mesh, !visible);
-    }
+    syncFeaOverlayVisibility();
 }
 
 /** Every element-edge wireframe in the active session, main mesh and beam solids. */
-function elementEdgeOverlays(): THREE.LineSegments[] {
+function elementEdgeOverlays(name?: string): THREE.LineSegments[] {
+    const names = name ? [name] : ["fea-element-edges", "fea-beam-element-edges"];
     const out: THREE.LineSegments[] = [];
     for (const parent of [active?.mesh, active?.beamSolidMesh]) {
         if (!parent) continue;
-        for (const name of ["fea-element-edges", "fea-beam-element-edges"]) {
-            const child = parent.getObjectByName(name);
+        for (const each of names) {
+            const child = parent.getObjectByName(each);
             if (child instanceof THREE.LineSegments) out.push(child);
         }
     }
     return out;
+}
+
+/**
+ * Decide which of the three renderings of a beam is on screen, in one place.
+ *
+ * A line element can be drawn three ways and the viewer builds all three: the
+ * extruded section solid, the result-coloured fat line, and the grey element edge
+ * from the mesh's edge sidecar. Each was switched by its own toggle, which is how
+ * a beam came to be drawn twice — with the sections off, the coloured line and the
+ * grey edge sat on the same two nodes, one following the morph and one following
+ * the CPU driver, and the model appeared to have twice as many members as it has.
+ *
+ * The rule, stated once:
+ *
+ *   * solids show when the user asks for them;
+ *   * the coloured line stands in for the solid, so it shows when the solids do
+ *     not and result colouring is on;
+ *   * the grey beam edge yields to the coloured line and to nothing else. It is
+ *     what makes a beam visible with colouring off, and it is still the member's
+ *     mesh line through the middle of a section solid.
+ *
+ * Shell edges are untouched: nothing else draws a shell's element boundaries.
+ */
+export function syncFeaOverlayVisibility(): void {
+    if (!active?.mesh) return;
+    const store = useFeaAnimationStore.getState();
+    const solids = active.beamSolidMesh?.visible ?? false;
+    const colouredLines = store.resultColorsVisible && !solids;
+
+    setResultLineSegmentsVisible(active.mesh, colouredLines);
+    for (const overlay of elementEdgeOverlays("fea-element-edges")) {
+        overlay.visible = store.elementEdgesVisible;
+    }
+    for (const overlay of elementEdgeOverlays("fea-beam-element-edges")) {
+        overlay.visible = store.elementEdgesVisible && !colouredLines;
+    }
+    requestRender();
 }
 
 /**
@@ -129,11 +163,12 @@ function elementEdgeOverlays(): THREE.LineSegments[] {
  * The beam-solid wireframe stays subordinate to the solids themselves — hiding
  * edges must not reveal a wireframe for solids that are switched off.
  */
-export function setFeaElementEdgesVisible(visible: boolean): void {
-    for (const overlay of elementEdgeOverlays()) {
-        overlay.visible = visible;
-    }
-    requestRender();
+export function setFeaElementEdgesVisible(_visible: boolean): void {
+    // Through the shared rule rather than a blanket flip. A beam's grey edge is
+    // suppressed while another rendering already draws that element, and this
+    // toggle must not be what puts it back. Every caller writes the store first,
+    // so the argument is redundant; it is kept for the viewer-core contract.
+    syncFeaOverlayVisibility();
 }
 
 /**
@@ -166,12 +201,12 @@ export function setFeaResultColorsVisible(visible: boolean): void {
         else if (m) setVc(m as THREE.Material);
     }
     if (active?.mesh) {
-        const solids = active.beamSolidMesh?.visible ?? false;
-        setResultLineSegmentsVisible(active.mesh, visible && !solids);
         // Result-point markers are result colouring too.
         setResultPointMarkersVisible(active.mesh, visible);
     }
-    requestRender();
+    // Which of a beam's three renderings is on screen changes with this, so the
+    // shared rule decides rather than this function reaching for one of them.
+    syncFeaOverlayVisibility();
 }
 
 /** Are element edges currently drawn? False when the bake carried none. */
@@ -661,6 +696,23 @@ export async function load_fea_streaming(args: {
     stepIndex: number;
     reduction: string | null;
     displacementScale?: number;
+    /**
+     * The sweep slider's own position, when the caller is starting a session and
+     * wants the slider moved to it.
+     *
+     * Distinct from ``displacementScale`` on purpose. That one is the MORPH
+     * INFLUENCE — the slider position multiplied by the warp-scale knob — and
+     * writing it back into the slider was how selecting a component moved the
+     * indicator without moving the model: at a warp scale of 0.2 a slider on 0.55
+     * sends an influence of 0.11, the slider then read 0.11, and the shape did not
+     * change because the influence had not. Compounding, too: the next selection
+     * would have sent 0.022.
+     *
+     * Omit it and the slider is left where the user put it, which is what every
+     * re-apply wants — component, step, layer, colormap. Only a fresh load passes
+     * it.
+     */
+    sliderFactor?: number;
     /** Colormap ID — one of the keys in ``COLORMAPS``. Optional so
      * existing call-sites that don't care still work; we fall back to
      * the active store value (and from there to viridis if unset). */
@@ -681,6 +733,7 @@ export async function load_fea_streaming(args: {
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
     const displacementScale = args.displacementScale ?? 1;
+    const {sliderFactor} = args;
     const colormap =
         args.colormap ?? useFeaAnimationStore.getState().colormap;
     const stage = (label: string, progress: number) => {
@@ -1093,6 +1146,10 @@ export async function load_fea_streaming(args: {
     if (field) {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
+    // Read once, applied to every surface that carries the field. Splitting the
+    // scale between the shells, the beam solids and the beam lines is how a model
+    // comes to show three different answers to the same question.
+    const contour = useFeaAnimationStore.getState().contour;
     const warpInfo = await resolveWarpSource(
         rangeFetcher,
         fetcher,
@@ -1134,6 +1191,7 @@ export async function load_fea_streaming(args: {
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
             colormap,
+            contour,
             nodalAverage,
             // Only where the deck cannot show beam solids. Where it can, the beam
             // carries its result on its own surface, and a coloured line as well
@@ -1169,6 +1227,7 @@ export async function load_fea_streaming(args: {
                 ipReduction,
                 reduction: reductionStr,
                 colormap,
+                contour,
                 nodalAverage: false,
             });
             if (active.beamSolidWarp) {
@@ -1195,6 +1254,7 @@ export async function load_fea_streaming(args: {
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
             colormap,
+            contour,
         });
 
         // Beam-solid mesh: paint it from the same nodal field.
@@ -1229,6 +1289,7 @@ export async function load_fea_streaming(args: {
                     active.beamSolidWarp,
                     colormap,
                     active.basePositions.length / 3,
+                    contour,
                 );
                 if (sourceColors) {
                     const geom = active.beamSolidMesh.geometry;
@@ -1291,9 +1352,8 @@ export async function load_fea_streaming(args: {
     // whether element edges are drawn. Both outlive the mesh they were set on.
     {
         const s = useFeaAnimationStore.getState();
-        if (active.mesh) setResultLineSegmentsVisible(active.mesh, !s.beamSolidsVisible);
-        setFeaElementEdgesVisible(s.elementEdgesVisible);
         setFeaResultColorsVisible(s.resultColorsVisible);
+        syncFeaOverlayVisibility();
     }
 
     // Register the session with the animation store so
@@ -1311,7 +1371,10 @@ export async function load_fea_streaming(args: {
         animStore.setSessionActive(true);
         const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
         animStore.setRange(range);
-        animStore.setFactor(displacementScale);
+        // Only when the caller asked. See ``sliderFactor`` on the argument type:
+        // the influence and the slider are different numbers, and equating them
+        // moved the indicator on every component change.
+        if (sliderFactor !== undefined) animStore.setFactor(sliderFactor);
         animStore.setStepIndex(stepIndex);
         animStore.setNSteps(field.n_steps);
         // A deformation scale the model can be seen at. Derived from the
@@ -1335,7 +1398,13 @@ export async function load_fea_streaming(args: {
         animStore.setFieldName(fieldName);
         if (reduction != null) animStore.setReduction(reduction);
         animStore.setColormap(colormap);
-        const [legendMin, legendMax] = selectedResultRange(field, reduction ?? "magnitude");
+        // Through the same resolver the kernels used: a pinned range the legend
+        // does not know about is a legend that disagrees with the picture beside
+        // it, which is worse than no legend at all.
+        const [legendMin, legendMax] = resolveContourRange(
+            selectedResultRange(field, reduction ?? "magnitude"),
+            useFeaAnimationStore.getState().contour,
+        );
         const legendStore = useColorStore.getState();
         legendStore.setMin(legendMin);
         legendStore.setMax(legendMax);
@@ -1550,6 +1619,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             stepIndex: 0,
             reduction: field ? reduction : null,
             displacementScale: 1,
+            sliderFactor: 1,
             signal: controller.signal,
             onStage: (stage, progress) => {
                 if (!useConversionStore.getState().jobs[storeKey]) return;

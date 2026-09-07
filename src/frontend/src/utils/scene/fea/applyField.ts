@@ -18,6 +18,7 @@ import * as THREE from "three";
 
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
+import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
 import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
 import {setSourceMorph} from "./sourceMorph";
 import {clearResultPointMarkers} from "./resultPointMarkers";
@@ -66,6 +67,13 @@ export interface ApplyFieldArgs {
      * when missing/unknown so a typo in state doesn't render the mesh
      * black. */
     colormap?: string;
+    /**
+     * How the scale is drawn: discrete bands, and either end of the range pinned.
+     *
+     * Threaded in rather than read from the store so this kernel stays a pure
+     * function of its arguments — the same reason ``colormap`` is a parameter.
+     */
+    contour?: ContourSettings | null;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -99,8 +107,9 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         warpStepValues,
         displacementScale = 1,
         colormap: colormapName,
+        contour,
     } = args;
-    const colormap = getColormap(colormapName);
+    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
     clearResultPointMarkers(mesh);
     clearResultLineSegments(mesh);
 
@@ -148,7 +157,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     const sourceDisplacement = new Float32Array(basePositions.length);
     const sourceColors = new Float32Array(n_points * 3);
 
-    const [rangeMin, rangeMax] = pickRange(colorField, reduction);
+    const [rangeMin, rangeMax] = resolveContourRange(pickRange(colorField, reduction), contour);
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 

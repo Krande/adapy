@@ -153,6 +153,34 @@ export const coolwarm: Colormap = piecewise([
     [1.00, 0.706, 0.016, 0.150],
 ]);
 
+// The contour ramp Sesam's own post-processor draws its legend in: navy at the
+// bottom, through blue, cyan and green, to yellow, orange and red at the top.
+//
+// Not the same curve as ``abaqus``, and the difference is the point. That one
+// puts pure blue at zero and reaches cyan a quarter of the way up, so the bottom
+// half of every plot is one broad wash of blue-green. This one spends its first
+// half getting from navy to cyan through four distinguishable blues, which is
+// where the values are on a structure that is mostly below its limit — the
+// engineers reading these plots have been reading them in these colours for
+// years, and a stress plot they cannot compare to yesterday's is a plot they
+// have to redo somewhere else.
+//
+// Best used with a level count set, which is how that tool draws it: discrete
+// bands, so "which elements are over 250" is something you read rather than
+// estimate. See contourScale.ts — banding wraps any colormap and is not baked
+// into this one.
+export const contour: Colormap = piecewise([
+    [0.000, 0.00, 0.00, 0.55],
+    [0.125, 0.00, 0.20, 0.95],
+    [0.250, 0.10, 0.50, 1.00],
+    [0.375, 0.25, 0.80, 1.00],
+    [0.500, 0.00, 0.93, 0.85],
+    [0.625, 0.10, 0.85, 0.20],
+    [0.750, 0.95, 0.95, 0.00],
+    [0.875, 1.00, 0.55, 0.00],
+    [1.000, 1.00, 0.00, 0.00],
+]);
+
 // Pure linear grayscale. Useful for prints / overlay screenshots where
 // hue would clash with other channels, or for accessibility checks.
 export const grayscale: Colormap = piecewise([
@@ -166,6 +194,7 @@ export const grayscale: Colormap = piecewise([
  *  the active selection is stored in feaAnimationStore by name. */
 export const COLORMAPS: Record<string, Colormap> = {
     viridis,
+    contour,
     abaqus,
     jet,
     coolwarm,
@@ -175,11 +204,23 @@ export const COLORMAPS: Record<string, Colormap> = {
 /** Display order for the dropdown. Default first. */
 export const COLORMAP_NAMES: readonly string[] = [
     "viridis",
+    "contour",
     "abaqus",
     "jet",
     "coolwarm",
     "grayscale",
 ] as const;
+
+/** What each colormap is called where a reader can see it. Ids stay stable
+ *  because the store and the manifest reference them; labels do not have to. */
+export const COLORMAP_LABELS: Record<string, string> = {
+    viridis: "viridis (perceptual)",
+    contour: "contour (Sesam)",
+    abaqus: "spectrum",
+    jet: "jet (MATLAB)",
+    coolwarm: "cool-warm (signed)",
+    grayscale: "grayscale",
+};
 
 /** Lookup with a viridis fallback so a typo in the store / a manifest
  *  pointing at a colormap we haven't shipped yet doesn't render a

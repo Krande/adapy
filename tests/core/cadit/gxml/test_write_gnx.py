@@ -197,3 +197,42 @@ def test_rest_converter_serves_gnx(fem_files):
     root = ET.fromstring(m["modelData.xml"])
     assert root.tag == "DNV_structure_concept_protocol"
     assert len(root.findall(".//straight_beam")) > 0
+
+
+def test_a_sin_exports_to_genie_through_its_own_input_deck(fem_files):
+    """A results file reaches the CAD targets: SESTRA echoes the input deck into
+    the SIN, and a deck is ada-loadable, so xml and gnx are two steps rather than
+    a new writer. Both offered, both produced, and the workspace is a workspace.
+
+    The registry check is the load-bearing half — the viewer's "export for GeniE"
+    reads its formats from ``supported_targets_for`` and was greyed out for the
+    one file type the results work is about.
+    """
+    from ada.comms.rest.converter import (
+        ConverterRegistry,
+        convert,
+        result_bytes,
+        supported_targets_for,
+    )
+
+    sin = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
+
+    targets = supported_targets_for("models/deck.SIN")
+    assert {"xml", "gnx"} <= set(targets), sorted(targets)
+    # The deck's object-rebuild knobs reach the row, as they do for a .fem source.
+    assert ConverterRegistry.options_for(".sin", "gnx") == ConverterRegistry.options_for(".fem", "gnx")
+
+    xml = result_bytes(convert(sin, "models/deck.SIN", "xml"))
+    assert xml.lstrip()[:1] == b"<"
+    assert b"DNV_structure_concept_protocol" in xml
+
+    data = result_bytes(convert(sin, "models/deck.SIN", "gnx"))
+    assert data[:2] == b"PK"
+    tmp = fem_files.parent / "_sin_gnx_probe.gnx"
+    try:
+        tmp.write_bytes(data)
+        m = _members(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    assert set(m) == GNX_MEMBERS
+    assert ET.fromstring(m["modelData.xml"]).tag == "DNV_structure_concept_protocol"

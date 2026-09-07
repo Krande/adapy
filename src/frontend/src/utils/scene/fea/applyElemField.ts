@@ -36,6 +36,8 @@ import * as THREE from "three";
 
 import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
+import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
+import {recordValueByRange, type ValueByRange} from "./visibleValues";
 import {
     ensureElementLocalVertices,
     expandSourceTriples,
@@ -94,6 +96,13 @@ export interface ApplyElemFieldArgs {
     warpStepValues?: Float32Array;
     displacementScale?: number;
     colormap?: string;
+    /**
+     * How the scale is drawn: discrete bands, and either end of the range pinned.
+     *
+     * Threaded in rather than read from the store so this kernel stays a pure
+     * function of its arguments — the same reason ``colormap`` is a parameter.
+     */
+    contour?: ContourSettings | null;
     /**
      * Draw the coloured two-vertex fallback for line elements.
      *
@@ -232,6 +241,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         warpStepValues,
         displacementScale = 1,
         colormap: colormapName,
+        contour,
         nodalAverage = false,
         lineFallback = true,
     } = args;
@@ -250,7 +260,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         );
     }
 
-    const colormap = getColormap(colormapName);
+    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
     const renderToSource = nodalAverage
@@ -270,7 +280,8 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const out_colors = new Float32Array(n_render_points * 3);
     for (let i = 0; i < out_colors.length; i++) out_colors[i] = 0.5;
 
-    const [rangeMin, rangeMax] = pickRange(colorField, reduction);
+    const [rangeMin, rangeMax] = resolveContourRange(pickRange(colorField, reduction), contour);
+    const valueByRange: ValueByRange = new Map();
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 
@@ -367,10 +378,18 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         const ipIndices = layerIpIndices(bucket, layer);
         const elemStride = bucket.n_ips * n_components;
 
+        // What each element ended up painted with, so a legend can say which
+        // values are on screen rather than which values the deck contains. One
+        // entry per element, keyed by the id the mesh hides by.
+
         for (let e = 0; e < bucket.n_elements; e++) {
             const elemBase = e * elemStride;
             const label = bucket.element_labels[e];
             const dr = drawRanges.get(`E${label}`);
+            {
+                const own = computeElementScalar(stepView, elemBase, ipIndices);
+                if (isFinite(own)) valueByRange.set(`E${label}`, own);
+            }
 
             // Line elements have AFEM entries with zero triangles, so their
             // values cannot colour the face mesh. Draw a two-vertex segment
@@ -632,6 +651,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         lineDisplacement[lineOffset + 1] = sourceDisplacement[sourceOffset + 1];
         lineDisplacement[lineOffset + 2] = sourceDisplacement[sourceOffset + 2];
     }
+    recordValueByRange(mesh, valueByRange);
     installResultLineSegments(
         mesh,
         new Float32Array(linePositions),

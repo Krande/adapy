@@ -2,6 +2,7 @@ import {create} from "zustand";
 
 import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
+import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
  *
@@ -81,6 +82,19 @@ export interface FeaAnimationState {
      * active step via ``applyStep`` so the displayed colours update
      * without a re-fetch. */
     colormap: string;
+
+    /**
+     * How the colour scale is drawn: how many discrete bands, and whether either
+     * end of the range is pinned.
+     *
+     * A per-user preference like ``colormap``, and kept across ``reset()`` for
+     * the same reason — someone comparing two load cases at a fixed 0–250 MPa is
+     * doing exactly the thing that must survive loading the second one. The
+     * BOUNDS are the exception and are dropped when the field changes: a
+     * megapascal range pinned onto a displacement field colours everything one
+     * colour, and nothing on screen would say why.
+     */
+    contour: ContourSettings;
 
     /** Whether to drive mesh deformation from the displacement field.
      * Default true (Abaqus CAE behaviour — stresses on the deformed
@@ -173,6 +187,12 @@ export interface FeaAnimationState {
     setFieldName: (n: string | null) => void;
     setReduction: (r: string) => void;
     setColormap: (c: string) => void;
+    /** Set the band count, or null for a continuous ramp. */
+    setContourLevels: (levels: number | null) => void;
+    /** Pin either end of the colour scale. Null means "follow the field". */
+    setContourBounds: (min: number | null, max: number | null) => void;
+    /** Back to the field's own extremes, band count untouched. */
+    resetContourBounds: () => void;
     setWarpEnabled: (enabled: boolean) => void;
     setScaleFactor: (s: number) => void;
     /** Loader-side. Applies a derived scale, but never over a user's own. */
@@ -209,6 +229,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // expect from a stress / displacement plot. Viridis lives one
     // dropdown away in the SimulationControls options panel.
     colormap: "abaqus",
+    // Continuous and auto-ranged until the user asks otherwise — the same scale
+    // the viewer has always drawn.
+    contour: DEFAULT_CONTOUR,
     // Warp on by default — most users picking a stress field want it
     // shown on the deformed shape (Abaqus / Paraview default).
     warpEnabled: true,
@@ -251,6 +274,11 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setFieldName: (fieldName) => set({fieldName}),
     setReduction: (reduction) => set({reduction}),
     setColormap: (colormap) => set({colormap}),
+    setContourLevels: (levels) =>
+        set((state) => ({contour: {...state.contour, levels: normaliseLevels(levels)}})),
+    setContourBounds: (min, max) => set((state) => ({contour: {...state.contour, min, max}})),
+    resetContourBounds: () =>
+        set((state) => ({contour: {...state.contour, min: null, max: null}})),
     setWarpEnabled: (warpEnabled) => set({warpEnabled}),
     setScaleFactor: (scaleFactor) => set({scaleFactor, scaleFactorAuto: false}),
     applyAutoScaleFactor: (scaleFactor) =>
@@ -263,8 +291,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setApplyStep: (cb) => set({applyStep: cb}),
-    reset: () =>
-        set({
+    reset: (): void =>
+        set((state) => ({
             sessionActive: false,
             mesh: null,
             range: DEFAULT_RANGE,
@@ -276,6 +304,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
+            // Bands survive; pinned bounds do not. See ``contour`` above.
+            contour: {...state.contour, min: null, max: null},
             // Don't reset ``colormap``, ``warpEnabled``, ``layer``,
             // ``ipReduction``, ``nodalAverage``, or
             // ``beamSolidsVisible`` on scene clear — all six are
@@ -284,5 +314,5 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // smooth + solid-beams once want them to stick across
             // model swaps.
             applyStep: null,
-        }),
+        })),
 }));

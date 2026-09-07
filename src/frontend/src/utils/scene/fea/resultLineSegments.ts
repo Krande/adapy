@@ -60,10 +60,19 @@ export function clearResultLineSegments(mesh: THREE.Mesh): void {
  */
 function morphDriver(
     line: LineSegments2,
-    base: Float32Array,
+    positions: Float32Array,
     displacement: Float32Array,
     source: THREE.Object3D,
 ): () => void {
+    // A COPY of the undeformed positions, and it has to be.
+    //
+    // LineSegmentsGeometry.setPositions keeps a Float32Array it is handed rather
+    // than copying it, so the array the caller built IS the geometry's instance
+    // buffer. Reading base from it and then writing the deformed result back into
+    // it meant every frame started from the previous frame's answer: the beams
+    // walked further away on each pass of the oscillator while the shells, driven
+    // by a GPU morph off an untouched base, stayed where they were.
+    const base = positions.slice();
     const working = new Float32Array(base.length);
     let applied = Number.NaN;
     return () => {
@@ -77,6 +86,12 @@ function morphDriver(
         if (!attr) return;
         (attr.data.array as Float32Array).set(working);
         attr.data.needsUpdate = true;
+        // Bounds follow the deformed line. LineSegments2.raycast rejects on the
+        // bounding sphere before it looks at a single segment, and a sphere left
+        // around the undeformed beams makes them unclickable exactly when the
+        // model is warped far enough that you want to click one.
+        line.geometry.computeBoundingBox();
+        line.geometry.computeBoundingSphere();
     };
 }
 
@@ -132,6 +147,10 @@ export function installResultLineSegments(
     };
     mesh.add(segments);
 
+    // Which element each drawn segment belongs to, carried on the object the
+    // raycast returns so a hit can be named without a second lookup table.
+    segments.userData.__feaSegmentIds = segmentIds;
+
     // A generic hook rather than an import from the selection machinery: the mesh
     // this hangs off is a CustomBatchedMesh, which has no business knowing about
     // FEA line rendering, and this keeps the dependency pointing one way.
@@ -179,6 +198,41 @@ export function highlightResultLineSegments(
         drive();
     };
     mesh.add(highlight);
+}
+
+/**
+ * The beam under the cursor, or null.
+ *
+ * Line elements are the one part of an FE model with nothing to click. Picking
+ * goes through the main mesh's draw ranges, a beam contributes no triangles to
+ * it, and with the section solids switched off there is simply no surface under
+ * the pointer — the beam is drawn, and clicking it does nothing. That is what
+ * this closes: the drawn line is what gets picked, so what you can see you can
+ * select.
+ *
+ * Screen-space, via LineSegments2's own raycast, so the clickable width is the
+ * width you see plus the caller's threshold rather than a mathematical line
+ * nobody can hit.
+ */
+export function pickResultLineSegment(
+    mesh: THREE.Object3D,
+    raycaster: THREE.Raycaster,
+): {rangeId: string; point: THREE.Vector3; distance: number} | null {
+    const line = mesh.getObjectByName(RESULT_LINE_SEGMENTS) as LineSegments2 | undefined;
+    if (!line || !line.visible) return null;
+    const ids = line.userData.__feaSegmentIds as readonly string[] | undefined;
+    if (!ids || ids.length === 0) return null;
+
+    const hits: THREE.Intersection[] = [];
+    // The line sits on layer 1 so it stays out of the scene-wide raycast; this
+    // one asks it directly, so the layer mask must not be consulted.
+    line.raycast(raycaster, hits);
+    if (hits.length === 0) return null;
+    hits.sort((a, b) => a.distance - b.distance);
+    const hit = hits[0];
+    const segment = hit.faceIndex ?? -1;
+    if (segment < 0 || segment >= ids.length) return null;
+    return {rangeId: ids[segment], point: hit.point.clone(), distance: hit.distance};
 }
 
 /** Show or hide the coloured beam lines — the counterpart to the beam-solid

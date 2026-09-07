@@ -23,7 +23,8 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {animationControllerRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
+import {COLORMAP_LABELS, COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
+import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
@@ -303,6 +304,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // scalar-bar tick density, etc.) land in here without adding
     // top-level buttons.
     const [showOptions, setShowOptions] = useState(false);
+    // The colour scale's own settings — range, bands, ramp. Beside the colormap
+    // dropdown rather than inside it, because a dropdown can pick a ramp and
+    // nothing else, and the range is the half of the decision that makes two load
+    // cases comparable.
+    const [showScale, setShowScale] = useState(false);
 
     const [lo, hi] = range;
     // Step granularity for the factor slider — 200 stops over the
@@ -681,11 +687,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         >
                             {COLORMAP_NAMES.map((name) => (
                                 <option key={name} value={name}>
-                                    {name}
+                                    {COLORMAP_LABELS[name] ?? name}
                                 </option>
                             ))}
                         </select>
                     </label>
+                    <button
+                        type="button"
+                        className={
+                            "rounded-sm px-1.5 py-0.5 text-white " +
+                            (showScale ? "bg-blue-700" : "bg-gray-700 hover:bg-gray-600")
+                        }
+                        onClick={() => setShowScale((v) => !v)}
+                        aria-pressed={showScale}
+                        title="Colour scale: range, contour bands"
+                    >
+                        Scale…
+                    </button>
                     {/* Layer + IP reduction — only for element fields
                         (per_type buckets). Nodal fields have no IP /
                         layer axis. Layer dropdown options are the
@@ -772,6 +790,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         );
                     })()}
                 </div>
+            )}
+
+            {showOptions && showScale && (
+                <ResultScaleSettings onClose={() => setShowScale(false)} />
             )}
         </div>
     );

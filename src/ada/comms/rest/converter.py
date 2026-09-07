@@ -3369,6 +3369,50 @@ def _register_ada_loadable() -> None:
             options=(fem_to_objects_options if ext in _FEM_SOURCE_EXTS else None),
         )
 
+    # A .SIN reaches the CAD targets through its own input deck.
+    #
+    # A results file is not ada-loadable — it is a binary of result records — so it
+    # was offered ``fem`` and ``glb`` and nothing else, and the viewer's "export
+    # this model for GeniE" was greyed out for exactly the file the results work is
+    # about. But the deck IS in there: SESTRA echoes the whole Input Interface File
+    # beside its results, ``_sin_to_fem`` already extracts it verbatim, and a .fem
+    # is ada-loadable. So the chain is extraction followed by the ordinary FEM
+    # export, with the same options and the same writer.
+    #
+    # Two steps rather than one because each half is already tested on its own:
+    # nothing here reimplements either the extraction or the concept rebuild.
+    for tgt in _GXML_TARGETS:
+
+        def _sin_cad(
+            src,
+            on_progress,
+            *,
+            _tgt=tgt,
+            fem_to_objects=None,
+            merge_fem_objects=None,
+            reconstruct_surfaces=None,
+            **_kw,
+        ):
+            from ada.fem.formats.sesam.results.export_fem import export_fem_text
+
+            on_progress("extracting input deck", 0.1)
+            deck = new_temp_path(suffix=".fem")
+            deck.write_text(export_fem_text(src), encoding="ascii")
+            try:
+                return _via_ada(
+                    deck,
+                    ".fem",
+                    _tgt,
+                    on_progress,
+                    fem_to_objects=fem_to_objects,
+                    merge_fem_objects=merge_fem_objects,
+                    reconstruct_surfaces=reconstruct_surfaces,
+                )
+            finally:
+                deck.unlink(missing_ok=True)
+
+        ConverterRegistry.register(".sin", tgt, _sin_cad, options=fem_to_objects_options)
+
 
 def _register_fea_result_to_glb() -> None:
     for ext in _FEA_RESULT_EXTS:

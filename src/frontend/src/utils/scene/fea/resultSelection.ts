@@ -1,6 +1,7 @@
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
 import { load_fea_streaming } from "@/utils/scene/handlers/load_fea_streaming";
 import { availableResultLayers } from "@/utils/scene/fea/resultLayers";
+import type { ContourSettings } from "@/utils/scene/fea/contourScale";
 
 /** Shared action for compact controls and external/docked result trees. */
 export async function selectFeaResultComponent(
@@ -76,4 +77,48 @@ export async function selectFeaResultLayer(layer: string): Promise<void> {
     displacementScale: state.factor * state.scaleFactor,
     colormap: state.colormap,
   });
+}
+
+/**
+ * Change how the colour scale is drawn, and repaint.
+ *
+ * The scale settings live in the store, but nothing on screen reads them again
+ * until a field is applied — so a dialog that only wrote to the store would move
+ * the legend and leave the model in its old colours. One action, called by every
+ * control that can change the scale, so the two can never drift apart.
+ *
+ * No fetch: the field blob is cached, and re-applying the current (field, step,
+ * reduction) is CPU work over data already in memory. The step and the sweep
+ * slider are untouched, which is what makes this safe to call from a live dialog
+ * on every keystroke.
+ */
+export async function applyContourSettings(
+  next: Partial<ContourSettings>,
+): Promise<void> {
+  const state = useFeaAnimationStore.getState();
+  if (next.levels !== undefined) state.setContourLevels(next.levels);
+  if (next.min !== undefined || next.max !== undefined) {
+    const current = useFeaAnimationStore.getState().contour;
+    state.setContourBounds(
+      next.min !== undefined ? next.min : current.min,
+      next.max !== undefined ? next.max : current.max,
+    );
+  }
+  const after = useFeaAnimationStore.getState();
+  const { sourceName, manifest, fieldName } = after;
+  if (!sourceName || !manifest || !fieldName) return;
+  await load_fea_streaming({
+    sourceName,
+    manifest,
+    fieldName,
+    stepIndex: after.stepIndex,
+    reduction: after.reduction,
+    displacementScale: after.factor * after.scaleFactor,
+    colormap: after.colormap,
+  });
+}
+
+/** Back to the field's own extremes, and repaint. */
+export async function resetContourBounds(): Promise<void> {
+  await applyContourSettings({ min: null, max: null });
 }

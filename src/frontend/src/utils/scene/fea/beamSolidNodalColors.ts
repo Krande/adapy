@@ -1,6 +1,7 @@
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {getColormap} from "./colormaps";
+import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
 
 // Colouring the solid beams by a NODAL field.
 //
@@ -78,6 +79,7 @@ export function beamSolidNodalColors(
     warp: ParsedBeamSolidsWarp,
     colormapName: string | undefined,
     nPoints: number,
+    contour?: ContourSettings | null,
 ): Float32Array | null {
     const nc = field.components.length;
     if (nc === 0 || stepValues.length < nPoints * nc) return null;
@@ -86,8 +88,8 @@ export function beamSolidNodalColors(
     if (node0.length < nVerts || node1.length < nVerts || t.length < nVerts) return null;
 
     const scalars = nodalScalars(field, stepValues, reduction, nPoints);
-    const colormap = getColormap(colormapName);
-    const [lo, hi] = pickRange(field, reduction);
+    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
+    const [lo, hi] = resolveContourRange(pickRange(field, reduction), contour);
     const span = hi - lo;
     const scale = span > 0 ? 1 / span : 0;
 
