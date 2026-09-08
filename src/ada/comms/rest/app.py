@@ -8678,6 +8678,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=201,
         )
 
+    @admin.post("/jobs/{job_id}/cancel")
+    async def admin_cancel_job(
+        job_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Cancel and clear any job, whoever started it. Admin only.
+
+        THE JOB THIS EXISTS FOR is the one nothing will ever finish: queued
+        against a capability no live worker serves, or left behind by a pool
+        that was renamed or retired. Nothing pulls it, so it never reaches a
+        terminal status, so ``purge_completed_jobs`` -- which sweeps terminal
+        entries only -- never touches it. The entry stays in the KV bucket
+        forever, is replayed by every registry scan, and reads in the admin
+        panel as work still pending.
+
+        The user-facing ``my-jobs/{job_id}/cancel`` could not clear these:
+        its SQL filters on ``audit_log.user_sub``, so only the person who
+        started a job can stop it, and an operator cleaning up after a retired
+        pool is by definition not that person.
+
+        TWO INDEPENDENT EFFECTS, BOTH REPORTED, because a stuck job can be
+        stuck in either half alone:
+
+        * ``cancelled`` -- the audit row moved from queued/running to
+          cancelled. False if the row is missing or already terminal.
+        * ``purged`` -- the KV entry was dropped. False if there was none.
+
+        404 only when NEITHER did anything, i.e. there was no such job in
+        either place. A row that is already terminal with a leftover KV entry
+        is a real thing to clean up, and reporting that as "not found" would
+        send an operator looking for a job that is right in front of them.
+
+        Note the message may still be in the JetStream stream: this marks
+        state, it does not reach into the stream. A worker that later pulls it
+        checks the audit row before starting and drops it (see
+        ``_should_skip_cancelled`` in worker.py), so a cancelled job stays
+        cancelled -- but the message itself ages out on the stream's own
+        limits rather than disappearing here.
+        """
+        local = local_jobs.registry.get(job_id)
+        local_cancelled = local_jobs.registry.cancel(job_id) if local is not None else False
+
+        pool = getattr(request.app.state, "db_pool", None)
+        cancelled = False
+        if pool is not None:
+            cancelled = await db_module.admin_cancel_audit_by_job(
+                pool,
+                job_id=job_id,
+                reason=f"cancelled by administrator {user.sub}",
+            )
+
+        purged = False
+        queue_obj = getattr(request.app.state, "queue", None)
+        if queue_obj is not None:
+            try:
+                purged = await queue_obj.purge_job(job_id)
+            except Exception:
+                logger.exception("admin: purging KV entry for job %s failed", job_id)
+
+        if not (cancelled or purged or local_cancelled):
+            raise HTTPException(status_code=404, detail="no such job in the audit log or the queue")
+
+        logger.info(
+            "admin: %s cancelled job %s (audit=%s kv=%s local=%s)",
+            user.sub,
+            job_id,
+            cancelled,
+            purged,
+            local_cancelled,
+        )
+        return JSONResponse(
+            {"job_id": job_id, "cancelled": cancelled or local_cancelled, "purged": purged}
+        )
+
     # ── Admin storage view ──────────────────────────────────────────
     #
     # Enriched per-scope listing for the admin storage tab: every

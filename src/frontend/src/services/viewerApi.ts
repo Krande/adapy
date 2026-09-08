@@ -4081,6 +4081,26 @@ export const viewerApi = {
     return jsonOrThrow(r, "adminProvisionCiBot");
   },
 
+  /** Cancel and clear any job, whoever started it. Admin only.
+   *
+   * For a job nothing will ever finish — queued against a capability no
+   * live worker serves, or left behind by a retired pool. The user-facing
+   * my-jobs cancel filters on the job's owner, so an operator cleaning up
+   * after someone else (or after a pool) cannot use it.
+   *
+   * `cancelled` and `purged` are independent: the audit row and the KV
+   * entry can be stuck separately, and a job can need clearing from either
+   * or both. */
+  async adminCancelJob(
+    jobId: string,
+  ): Promise<{ job_id: string; cancelled: boolean; purged: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, "adminCancelJob");
+  },
+
   async adminArchiveProject(projectId: string): Promise<void> {
     const r = await authedFetch(
       `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}`,

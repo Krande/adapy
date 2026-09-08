@@ -3691,6 +3691,24 @@ async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src
         logger.exception("worker: building SIF index for %s failed (non-fatal)", source_key)
 
 
+async def _should_skip_cancelled(db_pool: "asyncpg.Pool | None", job_id: str) -> bool:
+    """True when a job was already cancelled before this worker picked it up.
+
+    Best-effort by design, and the two failure directions are not symmetric:
+    answering False for a cancelled job costs one job run that the mid-run
+    cancel checks then stop, while refusing to run on a failed query would let
+    a database hiccup silently drain the queue. So anything unexpected means
+    "run it".
+    """
+    if db_pool is None:
+        return False
+    try:
+        return await db_module.audit_is_cancelled(db_pool, job_id)
+    except Exception:
+        logger.debug("worker: pre-run cancel check failed for %s", job_id, exc_info=True)
+        return False
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -5329,6 +5347,25 @@ async def _run() -> None:
                             )
                         await msg.ack()
                         continue
+
+                # Already cancelled before anyone started it? Ack and drop.
+                #
+                # Every other cancel check in this file is MID-RUN -- the
+                # convert watchdog's `_cancel_check`, the plugin job's 2-second
+                # poller. Both assume the job is running, which means a job
+                # cancelled while queued was still picked up, started, and only
+                # stopped a couple of seconds later. Harmless for a cancel
+                # clicked during a normal queue wait; not harmless for a job
+                # cancelled precisely BECAUSE nothing was ever going to serve
+                # it (see the admin cancel route), where the worker that
+                # eventually appears is the one that should not touch it.
+                #
+                # Best-effort: no pool means no audit row to consult, and a
+                # failed query must not stop a worker from doing its job.
+                if await _should_skip_cancelled(db_pool, job_id):
+                    logger.info("worker: job %s was cancelled before it started — dropping", job_id)
+                    await msg.ack()
+                    continue
 
                 logger.info(
                     "worker: picked up job %s (delivery %d/%d)",

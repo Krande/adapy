@@ -597,10 +597,77 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
             {entry.job_id && (
                 <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
             )}
+            <StuckJobActions entry={entry}/>
             <div className="text-gray-500 mt-2">
                 No error reported for this entry. Switch to the Metrics tab for
                 CPU / memory / IO data.
             </div>
+        </div>
+    );
+};
+
+// Clearing a job that nothing is ever going to finish.
+//
+// Shown only for a NON-TERMINAL entry with a job id. A done or error row has
+// nothing to cancel, and putting the button there would invite an operator to
+// "fix" a row that is simply history.
+//
+// The job this is for is one queued against a capability no live worker serves
+// — a retired pool, a renamed capability, a worker that never came back. It is
+// never pulled, so it never reaches a terminal status, so the KV sweep (which
+// only touches terminal entries) never clears it: it shows as pending forever.
+// The user-facing cancel cannot reach it either, because that one filters on
+// the job's owner and an operator cleaning up after a pool is not that person.
+const StuckJobActions: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [busy, setBusy] = useState(false);
+    const [done, setDone] = useState<string | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+
+    const status = (entry.status || "").toLowerCase();
+    if (!entry.job_id || (status !== "queued" && status !== "running")) return null;
+
+    const onCancel = async () => {
+        if (
+            !confirm(
+                `Cancel job ${entry.job_id}?\n\n` +
+                "The audit row is marked cancelled and the queue entry is dropped. " +
+                "A worker that picks the message up later will see the cancellation " +
+                "and drop it. If the job is running right now it stops at its next " +
+                "cancellation check, and anything it already wrote stays written.",
+            )
+        ) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            const r = await viewerApi.adminCancelJob(entry.job_id!);
+            // Both halves reported: a job can be stuck in the audit row, in the
+            // queue entry, or in both, and "cancelled" alone would leave an
+            // operator unsure whether the pending entry actually went away.
+            setDone(
+                `audit row ${r.cancelled ? "cancelled" : "unchanged"}, ` +
+                `queue entry ${r.purged ? "dropped" : "not present"}`,
+            );
+        } catch (e) {
+            setErr(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm disabled:opacity-50"
+                onClick={() => void onCancel()}
+                disabled={busy || done != null}
+                title="Cancel this job and drop its queue entry (admin)"
+            >
+                {busy ? "…" : "Cancel job"}
+            </button>
+            {done && <span className="text-[11px] text-gray-400">{done}</span>}
+            {err && <span className="text-[11px] text-red-300">{err}</span>}
         </div>
     );
 };

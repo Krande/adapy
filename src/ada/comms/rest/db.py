@@ -337,6 +337,38 @@ async def cancel_audit_by_job(
     return result.endswith(" 1")
 
 
+async def admin_cancel_audit_by_job(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    reason: str = "cancelled by an administrator",
+) -> bool:
+    """Cancel a job REGARDLESS of who started it. Admin-gated at the route.
+
+    The same UPDATE as :func:`cancel_audit_by_job` without the ownership
+    filter, and deliberately a separate function rather than an optional
+    ``user_sub=None``: a default that silently disables the owner check is one
+    forgotten keyword away from letting any user cancel anybody's work. Two
+    names, two call sites, no way to reach this one by omission.
+
+    The ``status IN ('queued','running')`` filter is kept for the same reason
+    it exists there -- a terminal row must not be rewritten retroactively, and
+    that rule does not relax for an admin.
+    """
+    result = await pool.execute(
+        """
+        UPDATE audit_log
+        SET status = 'cancelled',
+            error = COALESCE(error, $2)
+        WHERE job_id = $1
+          AND status IN ('queued', 'running')
+        """,
+        job_id,
+        reason,
+    )
+    return result.endswith(" 1")
+
+
 async def audit_is_cancelled(pool: asyncpg.Pool, job_id: str) -> bool:
     """True once the job's audit row has been flipped to ``cancelled`` (the cancel
     endpoint's source of truth — the KV status is overwritten by worker progress
