@@ -1,0 +1,3773 @@
+{
+  "_meta": {
+    "note": "generated - do not edit. Regenerate with scripts/gen_dexpi_class_table.py.",
+    "source": "https://gitlab.com/dexpi/Specification",
+    "tag": "V2.0.0",
+    "commit": "260c81c51039789a6148a98af4c6caf23f87a3e2",
+    "generated": "2026-09-08",
+    "license": "CC BY 4.0",
+    "packages": [
+      "Plant",
+      "Core"
+    ],
+    "class_count": 341
+  },
+  "classes": {
+    "AccessNozzle": {
+      "name": "AccessNozzle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AccessNozzle",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Nozzle"
+      ],
+      "rdl": "DEXPI_RDL.ACCESS_NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AccessNozzle"
+    },
+    "ActuatingElectricalFunction": {
+      "name": "ActuatingElectricalFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ActuatingElectricalFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SignalConveyingFunctionTarget",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.ACTUATING_ELECTRICAL_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ActuatingElectricalFunction"
+    },
+    "ActuatingElectricalLocation": {
+      "name": "ActuatingElectricalLocation",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ActuatingElectricalLocation",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ActuatingElectricalLocation"
+    },
+    "ActuatingElectricalSystem": {
+      "name": "ActuatingElectricalSystem",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ActuatingElectricalSystem",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.ACTUATING_ELECTRICAL_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ActuatingElectricalSystem"
+    },
+    "ActuatingElectricalSystemNumberLabel": {
+      "name": "ActuatingElectricalSystemNumberLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ActuatingElectricalSystemNumberLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ActuatingElectricalSystemNumberLabel"
+    },
+    "ActuatingFunction": {
+      "name": "ActuatingFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ActuatingFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SignalConveyingFunctionSource",
+        "Plant/Instrumentation.SignalConveyingFunctionTarget",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.ACTUATING_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ActuatingFunction"
+    },
+    "ActuatingSystem": {
+      "name": "ActuatingSystem",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ActuatingSystem",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.ACTUATING_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ActuatingSystem"
+    },
+    "ActuatingSystemNumberLabel": {
+      "name": "ActuatingSystemNumberLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ActuatingSystemNumberLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ActuatingSystemNumberLabel"
+    },
+    "Agglomerator": {
+      "name": "Agglomerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Agglomerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.AGGLOMERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Agglomerator"
+    },
+    "Agitator": {
+      "name": "Agitator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Agitator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.AGITATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Agitator"
+    },
+    "AgitatorRotor": {
+      "name": "AgitatorRotor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AgitatorRotor",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.AGITATOR_ROTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AgitatorRotor"
+    },
+    "AirCoolingSystem": {
+      "name": "AirCoolingSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AirCoolingSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.HeatExchanger"
+      ],
+      "rdl": "JORD_RDL.AIR_COOLING_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AirCoolingSystem"
+    },
+    "AirEjector": {
+      "name": "AirEjector",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AirEjector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Compressor"
+      ],
+      "rdl": "JORD_RDL.AIR_EJECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AirEjector"
+    },
+    "AlternatingCurrentGenerator": {
+      "name": "AlternatingCurrentGenerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AlternatingCurrentGenerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ElectricGenerator"
+      ],
+      "rdl": "JORD_RDL.ALTERNATING_CURRENT_GENERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AlternatingCurrentGenerator"
+    },
+    "AlternatingCurrentMotor": {
+      "name": "AlternatingCurrentMotor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AlternatingCurrentMotor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Motor"
+      ],
+      "rdl": "JORD_RDL.ALTERNATING_CURRENT_MOTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AlternatingCurrentMotor"
+    },
+    "AlternatingCurrentMotorAsComponent": {
+      "name": "AlternatingCurrentMotorAsComponent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AlternatingCurrentMotorAsComponent",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MotorAsComponent"
+      ],
+      "rdl": "DEXPI_RDL.ALTERNATING_CURRENT_MOTOR_AS_COMPONENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AlternatingCurrentMotorAsComponent"
+    },
+    "AngleBallValve": {
+      "name": "AngleBallValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.AngleBallValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "DEXPI_RDL.ANGLE_BALL_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.AngleBallValve"
+    },
+    "AngleGlobeValve": {
+      "name": "AngleGlobeValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.AngleGlobeValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.ANGLE_GLOBE_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.AngleGlobeValve"
+    },
+    "AnglePlugValve": {
+      "name": "AnglePlugValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.AnglePlugValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "DEXPI_RDL.ANGLE_PLUG_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.AnglePlugValve"
+    },
+    "AngleValve": {
+      "name": "AngleValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.AngleValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.ANGLE_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.AngleValve"
+    },
+    "AttributeRepresentation": {
+      "name": "AttributeRepresentation",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.AttributeRepresentation",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.TextTemplateFragment"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.AttributeRepresentation"
+    },
+    "AxialBlower": {
+      "name": "AxialBlower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AxialBlower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Blower"
+      ],
+      "rdl": "JORD_RDL.AXIAL_BLOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AxialBlower"
+    },
+    "AxialCompressor": {
+      "name": "AxialCompressor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AxialCompressor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Compressor"
+      ],
+      "rdl": "JORD_RDL.AXIAL_COMPRESSOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AxialCompressor"
+    },
+    "AxialFan": {
+      "name": "AxialFan",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.AxialFan",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Fan"
+      ],
+      "rdl": "JORD_RDL.AXIAL_FAN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.AxialFan"
+    },
+    "BallValve": {
+      "name": "BallValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.BallValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.BALL_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.BallValve"
+    },
+    "BatchWeigher": {
+      "name": "BatchWeigher",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.BatchWeigher",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Weigher"
+      ],
+      "rdl": "DEXPI_RDL.BATCH_WEIGHER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.BatchWeigher"
+    },
+    "BlindFlange": {
+      "name": "BlindFlange",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.BlindFlange",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.BLIND_FLANGE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.BlindFlange"
+    },
+    "Blower": {
+      "name": "Blower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Blower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.BLOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Blower"
+    },
+    "Boiler": {
+      "name": "Boiler",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Boiler",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Heater"
+      ],
+      "rdl": "JORD_RDL.BOILER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Boiler"
+    },
+    "Border": {
+      "name": "Border",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Border",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.RepresentationTypeGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Border"
+    },
+    "BreatherValve": {
+      "name": "BreatherValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.BreatherValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.SafetyValveOrFitting"
+      ],
+      "rdl": "DEXPI_RDL.BREATHER_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.BreatherValve"
+    },
+    "BriquettingRoller": {
+      "name": "BriquettingRoller",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.BriquettingRoller",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.BRIQUETTING_ROLLER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.BriquettingRoller"
+    },
+    "Burner": {
+      "name": "Burner",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Burner",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.BURNER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Burner"
+    },
+    "ButterflyValve": {
+      "name": "ButterflyValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.ButterflyValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.BUTTERFLY_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.ButterflyValve"
+    },
+    "CentrifugalBlower": {
+      "name": "CentrifugalBlower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CentrifugalBlower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Blower"
+      ],
+      "rdl": "JORD_RDL.CENTRIFUGAL_BLOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CentrifugalBlower"
+    },
+    "CentrifugalCompressor": {
+      "name": "CentrifugalCompressor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CentrifugalCompressor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Compressor"
+      ],
+      "rdl": "JORD_RDL.CENTRIFUGAL_COMPRESSOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CentrifugalCompressor"
+    },
+    "CentrifugalPump": {
+      "name": "CentrifugalPump",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CentrifugalPump",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Pump"
+      ],
+      "rdl": "JORD_RDL.CENTRIFUGAL_PUMP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CentrifugalPump"
+    },
+    "Centrifuge": {
+      "name": "Centrifuge",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Centrifuge",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.CENTRIFUGE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Centrifuge"
+    },
+    "Chamber": {
+      "name": "Chamber",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Chamber",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.CHAMBER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Chamber"
+    },
+    "ChamberOwner": {
+      "name": "ChamberOwner",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ChamberOwner",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ChamberOwner"
+    },
+    "CheckValve": {
+      "name": "CheckValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.CheckValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingComponent"
+      ],
+      "rdl": "JORD_RDL.CHECK_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.CheckValve"
+    },
+    "Chimney": {
+      "name": "Chimney",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Chimney",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.WasteGasEmitter"
+      ],
+      "rdl": "DEXPI_RDL.CHIMNEY",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Chimney"
+    },
+    "ClampedFlangeCoupling": {
+      "name": "ClampedFlangeCoupling",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.ClampedFlangeCoupling",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "DEXPI_RDL.CLAMPED_FLANGE_COUPLING",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.ClampedFlangeCoupling"
+    },
+    "ColumnInternalsArrangement": {
+      "name": "ColumnInternalsArrangement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ColumnInternalsArrangement",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ColumnInternalsArrangement"
+    },
+    "ColumnPackingsArrangement": {
+      "name": "ColumnPackingsArrangement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ColumnPackingsArrangement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ColumnInternalsArrangement"
+      ],
+      "rdl": "DEXPI_RDL.COLUMN_PACKINGS_ARRANGEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ColumnPackingsArrangement"
+    },
+    "ColumnSection": {
+      "name": "ColumnSection",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ColumnSection",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ColumnSection"
+    },
+    "ColumnTraysArrangement": {
+      "name": "ColumnTraysArrangement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ColumnTraysArrangement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ColumnInternalsArrangement"
+      ],
+      "rdl": "DEXPI_RDL.COLUMN_TRAYS_ARRANGEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ColumnTraysArrangement"
+    },
+    "CombustionEngine": {
+      "name": "CombustionEngine",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CombustionEngine",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Motor"
+      ],
+      "rdl": "JORD_RDL.COMBUSTION_ENGINE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CombustionEngine"
+    },
+    "CombustionEngineAsComponent": {
+      "name": "CombustionEngineAsComponent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CombustionEngineAsComponent",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MotorAsComponent"
+      ],
+      "rdl": "DEXPI_RDL.COMBUSTION_ENGINE_AS_COMPONENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CombustionEngineAsComponent"
+    },
+    "Compensator": {
+      "name": "Compensator",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Compensator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.COMPENSATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Compensator"
+    },
+    "Compressor": {
+      "name": "Compressor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Compressor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.COMPRESSOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Compressor"
+    },
+    "ConceptualModel": {
+      "name": "ConceptualModel",
+      "package": "Core",
+      "qualified_name": "Core/ConceptualModel",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/ConceptualModel"
+    },
+    "ConceptualObject": {
+      "name": "ConceptualObject",
+      "package": "Core",
+      "qualified_name": "Core/ConceptualObject",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/ConceptualObject"
+    },
+    "ConicalStrainer": {
+      "name": "ConicalStrainer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.ConicalStrainer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.CONICAL_STRAINER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.ConicalStrainer"
+    },
+    "ConnectorLine": {
+      "name": "ConnectorLine",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.ConnectorLine",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.ConnectorLine"
+    },
+    "ContinuousWeigher": {
+      "name": "ContinuousWeigher",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ContinuousWeigher",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Weigher"
+      ],
+      "rdl": "DEXPI_RDL.CONTINUOUS_WEIGHER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ContinuousWeigher"
+    },
+    "ControlledActuator": {
+      "name": "ControlledActuator",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ControlledActuator",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.CONTROLLED_ACTUATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ControlledActuator"
+    },
+    "ConvectionDryer": {
+      "name": "ConvectionDryer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ConvectionDryer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Dryer"
+      ],
+      "rdl": "DEXPI_RDL.CONVECTION_DRYER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ConvectionDryer"
+    },
+    "Conveyor": {
+      "name": "Conveyor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Conveyor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.StationaryTransportSystem"
+      ],
+      "rdl": "JORD_RDL.CONVEYOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Conveyor"
+    },
+    "CoolingTower": {
+      "name": "CoolingTower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CoolingTower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.COOLING_TOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CoolingTower"
+    },
+    "CoolingTowerRotor": {
+      "name": "CoolingTowerRotor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CoolingTowerRotor",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.COOLING_TOWER_ROTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CoolingTowerRotor"
+    },
+    "Crusher": {
+      "name": "Crusher",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Crusher",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Mill"
+      ],
+      "rdl": "JORD_RDL.CRUSHER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Crusher"
+    },
+    "CrusherElement": {
+      "name": "CrusherElement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.CrusherElement",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.CRUSHER_UNIT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.CrusherElement"
+    },
+    "CustomLabel": {
+      "name": "CustomLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.CustomLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.CustomLabel"
+    },
+    "CustomSymbol": {
+      "name": "CustomSymbol",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.CustomSymbol",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Symbol"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.CustomSymbol"
+    },
+    "DeviceInformationLabel": {
+      "name": "DeviceInformationLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.DeviceInformationLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.DeviceInformationLabel"
+    },
+    "Diagram": {
+      "name": "Diagram",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Diagram",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.RepresentationGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Diagram"
+    },
+    "DirectCurrentGenerator": {
+      "name": "DirectCurrentGenerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.DirectCurrentGenerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ElectricGenerator"
+      ],
+      "rdl": "DEXPI_RDL.DIRECT_CURRENT_GENERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.DirectCurrentGenerator"
+    },
+    "DirectCurrentMotor": {
+      "name": "DirectCurrentMotor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.DirectCurrentMotor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Motor"
+      ],
+      "rdl": "JORD_RDL.DIRECT_CURRENT_MOTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.DirectCurrentMotor"
+    },
+    "DirectCurrentMotorAsComponent": {
+      "name": "DirectCurrentMotorAsComponent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.DirectCurrentMotorAsComponent",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MotorAsComponent"
+      ],
+      "rdl": "DEXPI_RDL.DIRECT_CURRENT_MOTOR_AS_COMPONENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.DirectCurrentMotorAsComponent"
+    },
+    "DirectPipingConnection": {
+      "name": "DirectPipingConnection",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.DirectPipingConnection",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingConnection"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.DirectPipingConnection"
+    },
+    "Displacer": {
+      "name": "Displacer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Displacer",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.DISPLACER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Displacer"
+    },
+    "DryCoolingTower": {
+      "name": "DryCoolingTower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.DryCoolingTower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.CoolingTower"
+      ],
+      "rdl": "JORD_RDL.DRY_COOLING_TOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.DryCoolingTower"
+    },
+    "Dryer": {
+      "name": "Dryer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Dryer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.DRIER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Dryer"
+    },
+    "DryingChamber": {
+      "name": "DryingChamber",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.DryingChamber",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.DRYING_CHAMBER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.DryingChamber"
+    },
+    "EjectorPump": {
+      "name": "EjectorPump",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.EjectorPump",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Pump"
+      ],
+      "rdl": "JORD_RDL.EJECTOR_PUMP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.EjectorPump"
+    },
+    "ElectricGenerator": {
+      "name": "ElectricGenerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ElectricGenerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.ELECTRIC_GENERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ElectricGenerator"
+    },
+    "ElectricHeater": {
+      "name": "ElectricHeater",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ElectricHeater",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Heater"
+      ],
+      "rdl": "JORD_RDL.ELECTRIC_HEATER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ElectricHeater"
+    },
+    "ElectricalSeparator": {
+      "name": "ElectricalSeparator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ElectricalSeparator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Separator"
+      ],
+      "rdl": "DEXPI_RDL.ELECTRICAL_SEPARATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ElectricalSeparator"
+    },
+    "ElectromagneticFlowMeter": {
+      "name": "ElectromagneticFlowMeter",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.ElectromagneticFlowMeter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.ELECTROMAGNETIC_FLOW_METER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.ElectromagneticFlowMeter"
+    },
+    "ElectronicFrequencyConverter": {
+      "name": "ElectronicFrequencyConverter",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ElectronicFrequencyConverter",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.ELECTRONIC_FREQUENCY_CONVERTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ElectronicFrequencyConverter"
+    },
+    "Ellipse": {
+      "name": "Ellipse",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Ellipse",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Ellipse"
+    },
+    "EllipseArc": {
+      "name": "EllipseArc",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.EllipseArc",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.EllipseArc"
+    },
+    "EngineeringModel": {
+      "name": "EngineeringModel",
+      "package": "Core",
+      "qualified_name": "Core/EngineeringModel",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/EngineeringModel"
+    },
+    "Enterprise": {
+      "name": "Enterprise",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.Enterprise",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.IndustrialComplexParentStructure",
+        "Plant/PlantStructure.PlantSectionParentStructure",
+        "Plant/PlantStructure.PlantStructureItem",
+        "Plant/PlantStructure.ProcessPlantParentStructure",
+        "Plant/PlantStructure.TechnicalItemParentStructure"
+      ],
+      "rdl": "JORD_RDL.ISA95_ENTERPRISE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.Enterprise"
+    },
+    "EquipmentBarLabel": {
+      "name": "EquipmentBarLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.EquipmentBarLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.EquipmentBarLabel"
+    },
+    "EquipmentTagNameLabel": {
+      "name": "EquipmentTagNameLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.EquipmentTagNameLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.EquipmentTagNameLabel"
+    },
+    "EquipmentVent": {
+      "name": "EquipmentVent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.EquipmentVent",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Vent"
+      ],
+      "rdl": "JORD_RDL.CASING_VENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.EquipmentVent"
+    },
+    "Extruder": {
+      "name": "Extruder",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Extruder",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.EXTRUDER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Extruder"
+    },
+    "FailActionLabel": {
+      "name": "FailActionLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.FailActionLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.FailActionLabel"
+    },
+    "Fan": {
+      "name": "Fan",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Fan",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.FAN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Fan"
+    },
+    "Feeder": {
+      "name": "Feeder",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Feeder",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.FEEDER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Feeder"
+    },
+    "Filter": {
+      "name": "Filter",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Filter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.FILTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Filter"
+    },
+    "FilterUnit": {
+      "name": "FilterUnit",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.FilterUnit",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.FILTER_UNIT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.FilterUnit"
+    },
+    "FilteringCentrifuge": {
+      "name": "FilteringCentrifuge",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.FilteringCentrifuge",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Centrifuge"
+      ],
+      "rdl": "DEXPI_RDL.FILTERING_CENTRIFUGE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.FilteringCentrifuge"
+    },
+    "FilteringCentrifugeDrum": {
+      "name": "FilteringCentrifugeDrum",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.FilteringCentrifugeDrum",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.FILTERING_CENTRIFUGE_DRUM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.FilteringCentrifugeDrum"
+    },
+    "FittingLabel": {
+      "name": "FittingLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.FittingLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.FittingLabel"
+    },
+    "FlameArrestor": {
+      "name": "FlameArrestor",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlameArrestor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.SafetyValveOrFitting"
+      ],
+      "rdl": "JORD_RDL.FLAME_ARRESTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlameArrestor"
+    },
+    "Flange": {
+      "name": "Flange",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Flange",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.FLANGE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Flange"
+    },
+    "FlangedConnection": {
+      "name": "FlangedConnection",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlangedConnection",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "DEXPI_RDL.FLANGED_CONNECTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlangedConnection"
+    },
+    "Flare": {
+      "name": "Flare",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Flare",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.WasteGasEmitter"
+      ],
+      "rdl": "DEXPI_RDL.FLARE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Flare"
+    },
+    "FlowDetector": {
+      "name": "FlowDetector",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.FlowDetector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.MeasuringSystem"
+      ],
+      "rdl": "JORD_RDL.FLOW_DETECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.FlowDetector"
+    },
+    "FlowInPipeOffPageConnector": {
+      "name": "FlowInPipeOffPageConnector",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlowInPipeOffPageConnector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeOffPageConnector",
+        "Plant/Piping.PipingSourceItem"
+      ],
+      "rdl": "DEXPI_RDL.FLOW_IN_PIPE_OFF_PAGE_CONNECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlowInPipeOffPageConnector"
+    },
+    "FlowInSignalOffPageConnector": {
+      "name": "FlowInSignalOffPageConnector",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.FlowInSignalOffPageConnector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalOffPageConnector",
+        "Plant/Instrumentation.SignalConveyingFunctionSource"
+      ],
+      "rdl": "DEXPI_RDL.FLOW_IN_SIGNAL_OFF_PAGE_CONNECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.FlowInSignalOffPageConnector"
+    },
+    "FlowMeasuringElement": {
+      "name": "FlowMeasuringElement",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlowMeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "DEXPI_RDL.FLOW_MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlowMeasuringElement"
+    },
+    "FlowNozzle": {
+      "name": "FlowNozzle",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlowNozzle",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.FLOW_NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlowNozzle"
+    },
+    "FlowOutPipeOffPageConnector": {
+      "name": "FlowOutPipeOffPageConnector",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.FlowOutPipeOffPageConnector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeOffPageConnector",
+        "Plant/Piping.PipingTargetItem"
+      ],
+      "rdl": "DEXPI_RDL.FLOW_OUT_PIPE_OFF_PAGE_CONNECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.FlowOutPipeOffPageConnector"
+    },
+    "FlowOutSignalOffPageConnector": {
+      "name": "FlowOutSignalOffPageConnector",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.FlowOutSignalOffPageConnector",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalOffPageConnector",
+        "Plant/Instrumentation.SignalConveyingFunctionTarget"
+      ],
+      "rdl": "DEXPI_RDL.FLOW_OUT_SIGNAL_OFF_PAGE_CONNECTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.FlowOutSignalOffPageConnector"
+    },
+    "ForkliftTruck": {
+      "name": "ForkliftTruck",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ForkliftTruck",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MobileTransportSystem"
+      ],
+      "rdl": "JORD_RDL.FORKLIFT_TRUCK",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ForkliftTruck"
+    },
+    "Funnel": {
+      "name": "Funnel",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Funnel",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.FUNNEL",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Funnel"
+    },
+    "Furnace": {
+      "name": "Furnace",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Furnace",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Heater"
+      ],
+      "rdl": "JORD_RDL.FURNACE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Furnace"
+    },
+    "GasFilter": {
+      "name": "GasFilter",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.GasFilter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Filter"
+      ],
+      "rdl": "JORD_RDL.GAS_FILTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.GasFilter"
+    },
+    "GasTurbine": {
+      "name": "GasTurbine",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.GasTurbine",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Turbine"
+      ],
+      "rdl": "DEXPI_RDL.GAS_TURBINE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.GasTurbine"
+    },
+    "GateValve": {
+      "name": "GateValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.GateValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.GATE_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.GateValve"
+    },
+    "GearBox": {
+      "name": "GearBox",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.GearBox",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.GEARBOX",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.GearBox"
+    },
+    "GlobeCheckValve": {
+      "name": "GlobeCheckValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.GlobeCheckValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.CheckValve"
+      ],
+      "rdl": "DEXPI_RDL.GLOBE_CHECK_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.GlobeCheckValve"
+    },
+    "GlobeValve": {
+      "name": "GlobeValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.GlobeValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.GLOBE_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.GlobeValve"
+    },
+    "GraphicalElement": {
+      "name": "GraphicalElement",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.GraphicalElement",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.GraphicalElement"
+    },
+    "GraphicalPrimitive": {
+      "name": "GraphicalPrimitive",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.GraphicalPrimitive",
+      "abstract": true,
+      "supertypes": [
+        "Core/Diagram.GraphicalElement"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.GraphicalPrimitive"
+    },
+    "GraphicsGroup": {
+      "name": "GraphicsGroup",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.GraphicsGroup",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.GraphicsGroup"
+    },
+    "GravitationalSeparator": {
+      "name": "GravitationalSeparator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.GravitationalSeparator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Separator"
+      ],
+      "rdl": "JORD_RDL.GRAVITY_SEPARATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.GravitationalSeparator"
+    },
+    "Grinder": {
+      "name": "Grinder",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Grinder",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Mill"
+      ],
+      "rdl": "DEXPI_RDL.GRINDER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Grinder"
+    },
+    "GrindingElement": {
+      "name": "GrindingElement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.GrindingElement",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.GRINDING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.GrindingElement"
+    },
+    "HeatExchanger": {
+      "name": "HeatExchanger",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.HeatExchanger",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.HEAT_EXCHANGER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.HeatExchanger"
+    },
+    "HeatExchangerRotor": {
+      "name": "HeatExchangerRotor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.HeatExchangerRotor",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.HEAT_EXCHANGER_ROTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.HeatExchangerRotor"
+    },
+    "HeatedSurfaceDryer": {
+      "name": "HeatedSurfaceDryer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.HeatedSurfaceDryer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Dryer"
+      ],
+      "rdl": "DEXPI_RDL.HEATED_SURFACE_DRYER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.HeatedSurfaceDryer"
+    },
+    "Heater": {
+      "name": "Heater",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Heater",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.HEATER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Heater"
+    },
+    "Hose": {
+      "name": "Hose",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Hose",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.HOSE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Hose"
+    },
+    "IlluminatedSightGlass": {
+      "name": "IlluminatedSightGlass",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.IlluminatedSightGlass",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "DEXPI_RDL.ILLUMINATED_SIGHT_GLASS",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.IlluminatedSightGlass"
+    },
+    "Impeller": {
+      "name": "Impeller",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Impeller",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.IMPELLER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Impeller"
+    },
+    "InLineMixer": {
+      "name": "InLineMixer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.InLineMixer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.term('IN-LINE MIXER')",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.InLineMixer"
+    },
+    "IndustrialComplex": {
+      "name": "IndustrialComplex",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.IndustrialComplex",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantAreaLocatedStructure",
+        "Plant/PlantStructure.PlantSectionParentStructure",
+        "Plant/PlantStructure.PlantStructureItem",
+        "Plant/PlantStructure.TechnicalItemParentStructure"
+      ],
+      "rdl": "DEXPI_RDL.INDUSTRIAL_COMPLEX_ISO10209_2012",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.IndustrialComplex"
+    },
+    "IndustrialComplexParentStructure": {
+      "name": "IndustrialComplexParentStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.IndustrialComplexParentStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.IndustrialComplexParentStructure"
+    },
+    "InlineMeasuringElement": {
+      "name": "InlineMeasuringElement",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.InlineMeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingComponent"
+      ],
+      "rdl": "DEXPI_RDL.INLINE_MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.InlineMeasuringElement"
+    },
+    "InlineMeasuringElementReference": {
+      "name": "InlineMeasuringElementReference",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.InlineMeasuringElementReference",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.MeasuringElement"
+      ],
+      "rdl": "DEXPI_RDL.INLINE_MEASURING_ELEMENT_REFERENCE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.InlineMeasuringElementReference"
+    },
+    "InstrumentNozzle": {
+      "name": "InstrumentNozzle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.InstrumentNozzle",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Nozzle"
+      ],
+      "rdl": "JORD_RDL.INSTRUMENT_NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.InstrumentNozzle"
+    },
+    "InstrumentationLoopFunction": {
+      "name": "InstrumentationLoopFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.InstrumentationLoopFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.INSTRUMENTATION_LOOP_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.InstrumentationLoopFunction"
+    },
+    "InstrumentationNodePosition": {
+      "name": "InstrumentationNodePosition",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.InstrumentationNodePosition",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.NodePosition"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.InstrumentationNodePosition"
+    },
+    "InsulationBreakLabel": {
+      "name": "InsulationBreakLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.InsulationBreakLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.InsulationBreakLabel"
+    },
+    "InsulationLabel": {
+      "name": "InsulationLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.InsulationLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.InsulationLabel"
+    },
+    "InsulationSymbol": {
+      "name": "InsulationSymbol",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.InsulationSymbol",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Symbol"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.InsulationSymbol"
+    },
+    "Kneader": {
+      "name": "Kneader",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Kneader",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Mixer"
+      ],
+      "rdl": "DEXPI_RDL.KNEADER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Kneader"
+    },
+    "Label": {
+      "name": "Label",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Label",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.RepresentationTypeGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Label"
+    },
+    "Lift": {
+      "name": "Lift",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Lift",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.StationaryTransportSystem"
+      ],
+      "rdl": "JORD_RDL.LIFT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Lift"
+    },
+    "LineBlind": {
+      "name": "LineBlind",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.LineBlind",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.LINE_BLIND",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.LineBlind"
+    },
+    "LiquidFilter": {
+      "name": "LiquidFilter",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.LiquidFilter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Filter"
+      ],
+      "rdl": "DEXPI_RDL.LIQUID_FILTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.LiquidFilter"
+    },
+    "LiteralText": {
+      "name": "LiteralText",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.LiteralText",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.TextTemplateFragment"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.LiteralText"
+    },
+    "LoadingUnloadingSystem": {
+      "name": "LoadingUnloadingSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.LoadingUnloadingSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.StationaryTransportSystem"
+      ],
+      "rdl": "getattr(JORD_RDL, 'LOADING_-_UNLOADING_SYSTEM')",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.LoadingUnloadingSystem"
+    },
+    "MPRelevanceLabel": {
+      "name": "MPRelevanceLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.MPRelevanceLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.MPRelevanceLabel"
+    },
+    "MassFlowMeasuringElement": {
+      "name": "MassFlowMeasuringElement",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.MassFlowMeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "DEXPI_RDL.MASS_FLOW_MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.MassFlowMeasuringElement"
+    },
+    "MeasuringElement": {
+      "name": "MeasuringElement",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.MeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.MeasuringElement"
+    },
+    "MeasuringLineFunction": {
+      "name": "MeasuringLineFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.MeasuringLineFunction",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalConveyingFunction"
+      ],
+      "rdl": "DEXPI_RDL.MEASURING_LINE_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.MeasuringLineFunction"
+    },
+    "MeasuringSystem": {
+      "name": "MeasuringSystem",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.MeasuringSystem",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.MEASURING_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.MeasuringSystem"
+    },
+    "MeasuringSystemNumberLabel": {
+      "name": "MeasuringSystemNumberLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.MeasuringSystemNumberLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.MeasuringSystemNumberLabel"
+    },
+    "MechanicalSeparator": {
+      "name": "MechanicalSeparator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.MechanicalSeparator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Separator"
+      ],
+      "rdl": "JORD_RDL.MECHANICAL_SEPARATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.MechanicalSeparator"
+    },
+    "MetaData": {
+      "name": "MetaData",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.MetaData",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.META_DATA",
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.MetaData"
+    },
+    "Mill": {
+      "name": "Mill",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Mill",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.MILL",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Mill"
+    },
+    "Mixer": {
+      "name": "Mixer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Mixer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.MIXER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Mixer"
+    },
+    "MixingElementAssembly": {
+      "name": "MixingElementAssembly",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.MixingElementAssembly",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.MIXING_ELEMENT_ASSEMBLY",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.MixingElementAssembly"
+    },
+    "MobileTransportSystem": {
+      "name": "MobileTransportSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.MobileTransportSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.MOBILE_TRANSPORT_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.MobileTransportSystem"
+    },
+    "Motor": {
+      "name": "Motor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Motor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.MOTOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Motor"
+    },
+    "MotorAsComponent": {
+      "name": "MotorAsComponent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.MotorAsComponent",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/ProcessEquipment.TransmissionDriver"
+      ],
+      "rdl": "DEXPI_RDL.MOTOR_AS_COMPONENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.MotorAsComponent"
+    },
+    "Mount": {
+      "name": "Mount",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Mount",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SensingLocation"
+      ],
+      "rdl": "DEXPI_RDL.MOUNT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Mount"
+    },
+    "NeedleValve": {
+      "name": "NeedleValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.NeedleValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.NEEDLE_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.NeedleValve"
+    },
+    "NodePosition": {
+      "name": "NodePosition",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.NodePosition",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.NodePosition"
+    },
+    "Note": {
+      "name": "Note",
+      "package": "Core",
+      "qualified_name": "Core/Note",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.NOTE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Note"
+    },
+    "NoteIdentifierLabel": {
+      "name": "NoteIdentifierLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.NoteIdentifierLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.NoteIdentifierLabel"
+    },
+    "NoteTextLabel": {
+      "name": "NoteTextLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.NoteTextLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.NoteTextLabel"
+    },
+    "Nozzle": {
+      "name": "Nozzle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Nozzle",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.ActuatingElectricalLocation",
+        "Plant/Instrumentation.SensingLocation",
+        "Plant/Piping.PipingNodeOwner",
+        "Plant/Piping.PipingSourceItem",
+        "Plant/Piping.PipingTargetItem"
+      ],
+      "rdl": "JORD_RDL.NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Nozzle"
+    },
+    "NozzleOwner": {
+      "name": "NozzleOwner",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.NozzleOwner",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.NozzleOwner"
+    },
+    "NozzleStandardLabel": {
+      "name": "NozzleStandardLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.NozzleStandardLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.NozzleStandardLabel"
+    },
+    "OffPageConnectorDescriptionLabel": {
+      "name": "OffPageConnectorDescriptionLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.OffPageConnectorDescriptionLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.OffPageConnectorDescriptionLabel"
+    },
+    "OffPageConnectorNumberLabel": {
+      "name": "OffPageConnectorNumberLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.OffPageConnectorNumberLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.OffPageConnectorNumberLabel"
+    },
+    "OfflineMeasuringElement": {
+      "name": "OfflineMeasuringElement",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.OfflineMeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.MeasuringElement"
+      ],
+      "rdl": "DEXPI_RDL.OFFLINE_MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.OfflineMeasuringElement"
+    },
+    "OperatedValve": {
+      "name": "OperatedValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.OperatedValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingComponent"
+      ],
+      "rdl": "JORD_RDL.OPERATED_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.OperatedValve"
+    },
+    "OperatedValveReference": {
+      "name": "OperatedValveReference",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.OperatedValveReference",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.OPERATED_VALVE_REFERENCE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.OperatedValveReference"
+    },
+    "PackagingSystem": {
+      "name": "PackagingSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.PackagingSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.PACKAGING_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.PackagingSystem"
+    },
+    "PelletizerDisc": {
+      "name": "PelletizerDisc",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.PelletizerDisc",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.PELLETING_DISC",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.PelletizerDisc"
+    },
+    "Penetration": {
+      "name": "Penetration",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Penetration",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PENETRATION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Penetration"
+    },
+    "PersistentIdentifier": {
+      "name": "PersistentIdentifier",
+      "package": "Core",
+      "qualified_name": "Core/PersistentIdentifier",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/PersistentIdentifier"
+    },
+    "Pipe": {
+      "name": "Pipe",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Pipe",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Piping.PipingConnection"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Pipe"
+    },
+    "PipeCoupling": {
+      "name": "PipeCoupling",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeCoupling",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PIPE_COUPLING",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeCoupling"
+    },
+    "PipeFitting": {
+      "name": "PipeFitting",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeFitting",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingComponent"
+      ],
+      "rdl": "DEXPI_RDL.PIPE_FITTING",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeFitting"
+    },
+    "PipeFlangeSpacer": {
+      "name": "PipeFlangeSpacer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeFlangeSpacer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PIPE_FLANGE_SPACER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeFlangeSpacer"
+    },
+    "PipeFlangeSpade": {
+      "name": "PipeFlangeSpade",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeFlangeSpade",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PIPE_FLANGE_SPADE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeFlangeSpade"
+    },
+    "PipeFlowArrow": {
+      "name": "PipeFlowArrow",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.PipeFlowArrow",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Symbol"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.PipeFlowArrow"
+    },
+    "PipeOffPageConnector": {
+      "name": "PipeOffPageConnector",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeOffPageConnector",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Piping.PipingNetworkSegmentItem",
+        "Plant/Piping.PipingNodeOwner"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeOffPageConnector"
+    },
+    "PipeOffPageConnectorObjectReference": {
+      "name": "PipeOffPageConnectorObjectReference",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeOffPageConnectorObjectReference",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeOffPageConnectorReference"
+      ],
+      "rdl": "DEXPI_RDL.PIPE_OFF_PAGE_CONNECTOR_OBJECT_REFERENCE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeOffPageConnectorObjectReference"
+    },
+    "PipeOffPageConnectorReference": {
+      "name": "PipeOffPageConnectorReference",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeOffPageConnectorReference",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeOffPageConnectorReference"
+    },
+    "PipeOffPageConnectorReferenceByNumber": {
+      "name": "PipeOffPageConnectorReferenceByNumber",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeOffPageConnectorReferenceByNumber",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeOffPageConnectorReference"
+      ],
+      "rdl": "DEXPI_RDL.PIPE_OFF_PAGE_CONNECTOR_REFERENCE_BY_NUMBER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeOffPageConnectorReferenceByNumber"
+    },
+    "PipeReducer": {
+      "name": "PipeReducer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeReducer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PIPE_REDUCER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeReducer"
+    },
+    "PipeSlopeSymbol": {
+      "name": "PipeSlopeSymbol",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.PipeSlopeSymbol",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Symbol"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.PipeSlopeSymbol"
+    },
+    "PipeTee": {
+      "name": "PipeTee",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipeTee",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.PIPE_TEE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipeTee"
+    },
+    "PipingClassBreakLabel": {
+      "name": "PipingClassBreakLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.PipingClassBreakLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.PipingClassBreakLabel"
+    },
+    "PipingComponent": {
+      "name": "PipingComponent",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingComponent",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SensingLocation",
+        "Plant/Piping.PipingNetworkSegmentItem",
+        "Plant/Piping.PipingNodeOwner",
+        "Plant/Piping.PipingSourceItem",
+        "Plant/Piping.PipingTargetItem"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingComponent"
+    },
+    "PipingConnection": {
+      "name": "PipingConnection",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingConnection",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingConnection"
+    },
+    "PipingNetworkSegment": {
+      "name": "PipingNetworkSegment",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingNetworkSegment",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.ActuatingElectricalLocation",
+        "Plant/Instrumentation.SensingLocation"
+      ],
+      "rdl": "JORD_RDL.PIPING_NETWORK_SEGMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingNetworkSegment"
+    },
+    "PipingNetworkSegmentItem": {
+      "name": "PipingNetworkSegmentItem",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingNetworkSegmentItem",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingNetworkSegmentItem"
+    },
+    "PipingNetworkSegmentLabel": {
+      "name": "PipingNetworkSegmentLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.PipingNetworkSegmentLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.PipingNetworkSegmentLabel"
+    },
+    "PipingNetworkSystem": {
+      "name": "PipingNetworkSystem",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingNetworkSystem",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "JORD_RDL.PIPING_NETWORK_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingNetworkSystem"
+    },
+    "PipingNetworkSystemLabel": {
+      "name": "PipingNetworkSystemLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.PipingNetworkSystemLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.PipingNetworkSystemLabel"
+    },
+    "PipingNode": {
+      "name": "PipingNode",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingNode",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingNode"
+    },
+    "PipingNodeOwner": {
+      "name": "PipingNodeOwner",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingNodeOwner",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingNodeOwner"
+    },
+    "PipingNodePosition": {
+      "name": "PipingNodePosition",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.PipingNodePosition",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.NodePosition"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.PipingNodePosition"
+    },
+    "PipingSourceItem": {
+      "name": "PipingSourceItem",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingSourceItem",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingSourceItem"
+    },
+    "PipingTargetItem": {
+      "name": "PipingTargetItem",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PipingTargetItem",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PipingTargetItem"
+    },
+    "PlantArea": {
+      "name": "PlantArea",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantArea",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantStructureItem"
+      ],
+      "rdl": "JORD_RDL.AREA_ISA95",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantArea"
+    },
+    "PlantAreaLocatedStructure": {
+      "name": "PlantAreaLocatedStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantAreaLocatedStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantAreaLocatedStructure"
+    },
+    "PlantMetaData": {
+      "name": "PlantMetaData",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.PlantMetaData",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.MetaData"
+      ],
+      "rdl": "DEXPI_RDL.PLANT_META_DATA",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.PlantMetaData"
+    },
+    "PlantModel": {
+      "name": "PlantModel",
+      "package": "Plant",
+      "qualified_name": "Plant/PlantModel",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualModel"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantModel"
+    },
+    "PlantSection": {
+      "name": "PlantSection",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantSection",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantAreaLocatedStructure",
+        "Plant/PlantStructure.PlantStructureItem",
+        "Plant/PlantStructure.TechnicalItemParentStructure"
+      ],
+      "rdl": "DEXPI_RDL.PLANT_SECTION_ISO10209_2012",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantSection"
+    },
+    "PlantSectionParentStructure": {
+      "name": "PlantSectionParentStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantSectionParentStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantSectionParentStructure"
+    },
+    "PlantStructureItem": {
+      "name": "PlantStructureItem",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantStructureItem",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantStructureItem"
+    },
+    "PlantSystem": {
+      "name": "PlantSystem",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantStructureItem"
+      ],
+      "rdl": "DEXPI_RDL.PLANT_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantSystem"
+    },
+    "PlantSystemLocatedStructure": {
+      "name": "PlantSystemLocatedStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantSystemLocatedStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantSystemLocatedStructure"
+    },
+    "PlantTrain": {
+      "name": "PlantTrain",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantTrain",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantStructureItem"
+      ],
+      "rdl": "DEXPI_RDL.PLANT_TRAIN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantTrain"
+    },
+    "PlantTrainLocatedStructure": {
+      "name": "PlantTrainLocatedStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.PlantTrainLocatedStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.PlantTrainLocatedStructure"
+    },
+    "PlateHeatExchanger": {
+      "name": "PlateHeatExchanger",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.PlateHeatExchanger",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.HeatExchanger"
+      ],
+      "rdl": "DEXPI_RDL.PLATE_HEAT_EXCHANGER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.PlateHeatExchanger"
+    },
+    "PlugValve": {
+      "name": "PlugValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PlugValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.PLUG_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PlugValve"
+    },
+    "PolyLine": {
+      "name": "PolyLine",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.PolyLine",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.PolyLine"
+    },
+    "Polygon": {
+      "name": "Polygon",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Polygon",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Polygon"
+    },
+    "Positioner": {
+      "name": "Positioner",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.Positioner",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.POSITIONER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.Positioner"
+    },
+    "PositiveDisplacementFlowMeter": {
+      "name": "PositiveDisplacementFlowMeter",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PositiveDisplacementFlowMeter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.POSITIVE_DISPLACEMENT_FLOW_METER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PositiveDisplacementFlowMeter"
+    },
+    "PressureVessel": {
+      "name": "PressureVessel",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.PressureVessel",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Vessel"
+      ],
+      "rdl": "JORD_RDL.PRESSURE_VESSEL",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.PressureVessel"
+    },
+    "ProcessColumn": {
+      "name": "ProcessColumn",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ProcessColumn",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.PROCESS_COLUMN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ProcessColumn"
+    },
+    "ProcessControlFunction": {
+      "name": "ProcessControlFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ProcessControlFunction",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.ProcessInstrumentationFunction"
+      ],
+      "rdl": "DEXPI_RDL.PROCESS_CONTROL_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ProcessControlFunction"
+    },
+    "ProcessEquipment": {
+      "name": "ProcessEquipment",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ProcessEquipment",
+      "abstract": true,
+      "supertypes": [
+        "Plant/ProcessEquipment.ChamberOwner",
+        "Plant/ProcessEquipment.NozzleOwner",
+        "Plant/ProcessEquipment.TaggedPlantItem",
+        "Plant/ProcessEquipment.TransmissionDriver"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ProcessEquipment"
+    },
+    "ProcessInstrumentationFunction": {
+      "name": "ProcessInstrumentationFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ProcessInstrumentationFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SignalConveyingFunctionSource",
+        "Plant/Instrumentation.SignalConveyingFunctionTarget",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.PROCESS_INSTRUMENTATION_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ProcessInstrumentationFunction"
+    },
+    "ProcessInstrumentationFunctionLabel": {
+      "name": "ProcessInstrumentationFunctionLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ProcessInstrumentationFunctionLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ProcessInstrumentationFunctionLabel"
+    },
+    "ProcessNozzle": {
+      "name": "ProcessNozzle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ProcessNozzle",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Nozzle"
+      ],
+      "rdl": "JORD_RDL.PROCESS_NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ProcessNozzle"
+    },
+    "ProcessPlant": {
+      "name": "ProcessPlant",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.ProcessPlant",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.PlantAreaLocatedStructure",
+        "Plant/PlantStructure.PlantSectionParentStructure",
+        "Plant/PlantStructure.PlantStructureItem",
+        "Plant/PlantStructure.TechnicalItemParentStructure"
+      ],
+      "rdl": "JORD_RDL.PROCESS_PLANT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.ProcessPlant"
+    },
+    "ProcessPlantParentStructure": {
+      "name": "ProcessPlantParentStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.ProcessPlantParentStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.ProcessPlantParentStructure"
+    },
+    "ProcessSignalGeneratingFunction": {
+      "name": "ProcessSignalGeneratingFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.ProcessSignalGeneratingFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Instrumentation.SignalConveyingFunctionSource",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": "DEXPI_RDL.PROCESS_SIGNAL_GENERATING_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.ProcessSignalGeneratingFunction"
+    },
+    "PropertyBreak": {
+      "name": "PropertyBreak",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.PropertyBreak",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/Piping.PipingNetworkSegmentItem",
+        "Plant/Piping.PipingNodeOwner",
+        "Plant/Piping.PipingSourceItem",
+        "Plant/Piping.PipingTargetItem"
+      ],
+      "rdl": "DEXPI_RDL.PROPERTY_BREAK",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.PropertyBreak"
+    },
+    "Pump": {
+      "name": "Pump",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Pump",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.PUMP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Pump"
+    },
+    "QualifiedValue": {
+      "name": "QualifiedValue",
+      "package": "Core",
+      "qualified_name": "Core/QualifiedValue",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/QualifiedValue"
+    },
+    "QualityRelevanceLabel": {
+      "name": "QualityRelevanceLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.QualityRelevanceLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.QualityRelevanceLabel"
+    },
+    "RadialFan": {
+      "name": "RadialFan",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RadialFan",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Fan"
+      ],
+      "rdl": "JORD_RDL.RADIAL_FAN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RadialFan"
+    },
+    "RailWaggon": {
+      "name": "RailWaggon",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RailWaggon",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MobileTransportSystem"
+      ],
+      "rdl": "JORD_RDL.RAIL_WAGGON",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RailWaggon"
+    },
+    "ReciprocatingCompressor": {
+      "name": "ReciprocatingCompressor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ReciprocatingCompressor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Compressor"
+      ],
+      "rdl": "JORD_RDL.RECIPROCATING_COMPRESSOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ReciprocatingCompressor"
+    },
+    "ReciprocatingExtruder": {
+      "name": "ReciprocatingExtruder",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ReciprocatingExtruder",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Extruder"
+      ],
+      "rdl": "JORD_RDL.PISTON_EXTRUDER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ReciprocatingExtruder"
+    },
+    "ReciprocatingPressureAgglomerator": {
+      "name": "ReciprocatingPressureAgglomerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ReciprocatingPressureAgglomerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Agglomerator"
+      ],
+      "rdl": "DEXPI_RDL.RECIPROCATING_PRESSURE_AGGLOMERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ReciprocatingPressureAgglomerator"
+    },
+    "ReciprocatingPump": {
+      "name": "ReciprocatingPump",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ReciprocatingPump",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Pump"
+      ],
+      "rdl": "JORD_RDL.RECIPROCATING_PUMP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ReciprocatingPump"
+    },
+    "ReducerLabel": {
+      "name": "ReducerLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ReducerLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ReducerLabel"
+    },
+    "ReferencedPIDNumberLabel": {
+      "name": "ReferencedPIDNumberLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ReferencedPIDNumberLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ReferencedPIDNumberLabel"
+    },
+    "RepresentationGroup": {
+      "name": "RepresentationGroup",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.RepresentationGroup",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicsGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.RepresentationGroup"
+    },
+    "RepresentationTypeGroup": {
+      "name": "RepresentationTypeGroup",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.RepresentationTypeGroup",
+      "abstract": true,
+      "supertypes": [
+        "Core/Diagram.GraphicsGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.RepresentationTypeGroup"
+    },
+    "RestrictionOrifice": {
+      "name": "RestrictionOrifice",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.RestrictionOrifice",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "DEXPI_RDL.RESTRICTION_ORIFICE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.RestrictionOrifice"
+    },
+    "RevolvingSieve": {
+      "name": "RevolvingSieve",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RevolvingSieve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Sieve"
+      ],
+      "rdl": "DEXPI_RDL.REVOLVING_SIEVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RevolvingSieve"
+    },
+    "Role": {
+      "name": "Role",
+      "package": "Core",
+      "qualified_name": "Core/Role",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Role"
+    },
+    "RotaryCompressor": {
+      "name": "RotaryCompressor",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotaryCompressor",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Compressor"
+      ],
+      "rdl": "JORD_RDL.ROTARY_COMPRESSOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotaryCompressor"
+    },
+    "RotaryMixer": {
+      "name": "RotaryMixer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotaryMixer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Mixer"
+      ],
+      "rdl": "DEXPI_RDL.ROTARY_MIXER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotaryMixer"
+    },
+    "RotaryPump": {
+      "name": "RotaryPump",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotaryPump",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Pump"
+      ],
+      "rdl": "JORD_RDL.ROTARY_PUMP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotaryPump"
+    },
+    "RotatingExtruder": {
+      "name": "RotatingExtruder",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotatingExtruder",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Extruder"
+      ],
+      "rdl": "JORD_RDL.AUGER_EXTRUDER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotatingExtruder"
+    },
+    "RotatingGrowthAgglomerator": {
+      "name": "RotatingGrowthAgglomerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotatingGrowthAgglomerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Agglomerator"
+      ],
+      "rdl": "DEXPI_RDL.ROTATING_GROWTH_AGGLOMERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotatingGrowthAgglomerator"
+    },
+    "RotatingPressureAgglomerator": {
+      "name": "RotatingPressureAgglomerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.RotatingPressureAgglomerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Agglomerator"
+      ],
+      "rdl": "DEXPI_RDL.ROTATING_PRESSURE_AGGLOMERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.RotatingPressureAgglomerator"
+    },
+    "RuptureDisc": {
+      "name": "RuptureDisc",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.RuptureDisc",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.SafetyValveOrFitting"
+      ],
+      "rdl": "JORD_RDL.RUPTURE_DISC",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.RuptureDisc"
+    },
+    "SafetyRelevanceLabel": {
+      "name": "SafetyRelevanceLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SafetyRelevanceLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SafetyRelevanceLabel"
+    },
+    "SafetyValveOrFitting": {
+      "name": "SafetyValveOrFitting",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SafetyValveOrFitting",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipingComponent"
+      ],
+      "rdl": "DEXPI_RDL.SAFETY_VALVE_OR_FITTING",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SafetyValveOrFitting"
+    },
+    "SafetyValveOrFittingLabel": {
+      "name": "SafetyValveOrFittingLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SafetyValveOrFittingLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SafetyValveOrFittingLabel"
+    },
+    "Screw": {
+      "name": "Screw",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Screw",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.SCREW",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Screw"
+    },
+    "ScrubbingSeparator": {
+      "name": "ScrubbingSeparator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ScrubbingSeparator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Separator"
+      ],
+      "rdl": "DEXPI_RDL.SCRUBBING_SEPARATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ScrubbingSeparator"
+    },
+    "SedimentalCentrifuge": {
+      "name": "SedimentalCentrifuge",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SedimentalCentrifuge",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Centrifuge"
+      ],
+      "rdl": "DEXPI_RDL.SEDIMENTAL_CENTRIFUGE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SedimentalCentrifuge"
+    },
+    "SedimentalCentrifugeDrum": {
+      "name": "SedimentalCentrifugeDrum",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SedimentalCentrifugeDrum",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.SEDIMENTAL_CENTRIFUGE_DRUM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SedimentalCentrifugeDrum"
+    },
+    "SensingLocation": {
+      "name": "SensingLocation",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SensingLocation",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SensingLocation"
+    },
+    "Sensorwell": {
+      "name": "Sensorwell",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Sensorwell",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "DEXPI_RDL.SENSORWELL",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Sensorwell"
+    },
+    "SensorwellReference": {
+      "name": "SensorwellReference",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SensorwellReference",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.SENSORWELL_REFERENCE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SensorwellReference"
+    },
+    "Separator": {
+      "name": "Separator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Separator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.SEPARATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Separator"
+    },
+    "Shape": {
+      "name": "Shape",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Shape",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Shape"
+    },
+    "ShapeCatalogue": {
+      "name": "ShapeCatalogue",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.ShapeCatalogue",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.ShapeCatalogue"
+    },
+    "ShapeUsage": {
+      "name": "ShapeUsage",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.ShapeUsage",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalElement"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.ShapeUsage"
+    },
+    "Ship": {
+      "name": "Ship",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Ship",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MobileTransportSystem"
+      ],
+      "rdl": "JORD_RDL.SHIP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Ship"
+    },
+    "Sieve": {
+      "name": "Sieve",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Sieve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.SIEVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Sieve"
+    },
+    "SieveElement": {
+      "name": "SieveElement",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SieveElement",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.SIEVE_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SieveElement"
+    },
+    "SightGlass": {
+      "name": "SightGlass",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SightGlass",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.SIGHT_GLASS",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SightGlass"
+    },
+    "SignalConveyingFunction": {
+      "name": "SignalConveyingFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalConveyingFunction",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "DEXPI_RDL.SIGNAL_CONVEYING_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalConveyingFunction"
+    },
+    "SignalConveyingFunctionLabel": {
+      "name": "SignalConveyingFunctionLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalConveyingFunctionLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalConveyingFunctionLabel"
+    },
+    "SignalConveyingFunctionSource": {
+      "name": "SignalConveyingFunctionSource",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalConveyingFunctionSource",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalConveyingFunctionSource"
+    },
+    "SignalConveyingFunctionTarget": {
+      "name": "SignalConveyingFunctionTarget",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalConveyingFunctionTarget",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalConveyingFunctionTarget"
+    },
+    "SignalHighHighHighLabel": {
+      "name": "SignalHighHighHighLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalHighHighHighLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalHighHighHighLabel"
+    },
+    "SignalHighHighLabel": {
+      "name": "SignalHighHighLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalHighHighLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalHighHighLabel"
+    },
+    "SignalHighLabel": {
+      "name": "SignalHighLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalHighLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalHighLabel"
+    },
+    "SignalLineFunction": {
+      "name": "SignalLineFunction",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalLineFunction",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalConveyingFunction"
+      ],
+      "rdl": "DEXPI_RDL.SIGNAL_LINE_FUNCTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalLineFunction"
+    },
+    "SignalLowLabel": {
+      "name": "SignalLowLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalLowLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalLowLabel"
+    },
+    "SignalLowLowLabel": {
+      "name": "SignalLowLowLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalLowLowLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalLowLowLabel"
+    },
+    "SignalLowLowLowLabel": {
+      "name": "SignalLowLowLowLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.SignalLowLowLowLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.SignalLowLowLowLabel"
+    },
+    "SignalOffPageConnector": {
+      "name": "SignalOffPageConnector",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalOffPageConnector",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalOffPageConnector"
+    },
+    "SignalOffPageConnectorObjectReference": {
+      "name": "SignalOffPageConnectorObjectReference",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalOffPageConnectorObjectReference",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalOffPageConnectorReference"
+      ],
+      "rdl": "DEXPI_RDL.SIGNAL_OFF_PAGE_CONNECTOR_OBJECT_REFERENCE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalOffPageConnectorObjectReference"
+    },
+    "SignalOffPageConnectorReference": {
+      "name": "SignalOffPageConnectorReference",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalOffPageConnectorReference",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalOffPageConnectorReference"
+    },
+    "SignalOffPageConnectorReferenceByNumber": {
+      "name": "SignalOffPageConnectorReferenceByNumber",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.SignalOffPageConnectorReferenceByNumber",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Instrumentation.SignalOffPageConnectorReference"
+      ],
+      "rdl": "DEXPI_RDL.SIGNAL_OFF_PAGE_CONNECTOR_REFERENCE_BY_NUMBER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.SignalOffPageConnectorReferenceByNumber"
+    },
+    "Silencer": {
+      "name": "Silencer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Silencer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.SILENCER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Silencer"
+    },
+    "Silo": {
+      "name": "Silo",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Silo",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Vessel"
+      ],
+      "rdl": "JORD_RDL.SILO",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Silo"
+    },
+    "Site": {
+      "name": "Site",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.Site",
+      "abstract": false,
+      "supertypes": [
+        "Plant/PlantStructure.IndustrialComplexParentStructure",
+        "Plant/PlantStructure.PlantSectionParentStructure",
+        "Plant/PlantStructure.PlantStructureItem",
+        "Plant/PlantStructure.ProcessPlantParentStructure",
+        "Plant/PlantStructure.TechnicalItemParentStructure"
+      ],
+      "rdl": "JORD_RDL.SITE_ISA95",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.Site"
+    },
+    "SpiralHeatExchanger": {
+      "name": "SpiralHeatExchanger",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SpiralHeatExchanger",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.HeatExchanger"
+      ],
+      "rdl": "DEXPI_RDL.SPIRAL_HEAT_EXCHANGER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SpiralHeatExchanger"
+    },
+    "SprayCooler": {
+      "name": "SprayCooler",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SprayCooler",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.CoolingTower"
+      ],
+      "rdl": "DEXPI_RDL.SPRAY_COOLER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SprayCooler"
+    },
+    "SprayNozzle": {
+      "name": "SprayNozzle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SprayNozzle",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.SPRAY_NOZZLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SprayNozzle"
+    },
+    "SpringLoadedAngleGlobeSafetyValve": {
+      "name": "SpringLoadedAngleGlobeSafetyValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SpringLoadedAngleGlobeSafetyValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.SafetyValveOrFitting"
+      ],
+      "rdl": "DEXPI_RDL.SPRING_LOADED_ANGLE_GLOBE_SAFETY_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SpringLoadedAngleGlobeSafetyValve"
+    },
+    "SpringLoadedGlobeSafetyValve": {
+      "name": "SpringLoadedGlobeSafetyValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SpringLoadedGlobeSafetyValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.SafetyValveOrFitting"
+      ],
+      "rdl": "DEXPI_RDL.SPRING_LOADED_GLOBE_SAFETY_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SpringLoadedGlobeSafetyValve"
+    },
+    "Static": {
+      "name": "Static",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Static",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.RepresentationTypeGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Static"
+    },
+    "StaticMixer": {
+      "name": "StaticMixer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.StaticMixer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Mixer"
+      ],
+      "rdl": "JORD_RDL.STATIC_MIXER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.StaticMixer"
+    },
+    "StationarySieve": {
+      "name": "StationarySieve",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.StationarySieve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Sieve"
+      ],
+      "rdl": "DEXPI_RDL.STATIONARY_SCREEN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.StationarySieve"
+    },
+    "StationaryTransportSystem": {
+      "name": "StationaryTransportSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.StationaryTransportSystem",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.STATIONARY_TRANSPORT_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.StationaryTransportSystem"
+    },
+    "SteamGenerator": {
+      "name": "SteamGenerator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SteamGenerator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Heater"
+      ],
+      "rdl": "JORD_RDL.STEAM_GENERATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SteamGenerator"
+    },
+    "SteamTrap": {
+      "name": "SteamTrap",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SteamTrap",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.STEAM_TRAP",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SteamTrap"
+    },
+    "SteamTurbine": {
+      "name": "SteamTurbine",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SteamTurbine",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Turbine"
+      ],
+      "rdl": "JORD_RDL.STEAM_TURBINE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SteamTurbine"
+    },
+    "StraightwayValve": {
+      "name": "StraightwayValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.StraightwayValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.OperatedValve"
+      ],
+      "rdl": "JORD_RDL.STRAIGHTWAY_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.StraightwayValve"
+    },
+    "Strainer": {
+      "name": "Strainer",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.Strainer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting"
+      ],
+      "rdl": "JORD_RDL.STRAINER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.Strainer"
+    },
+    "SubTaggedColumnSection": {
+      "name": "SubTaggedColumnSection",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.SubTaggedColumnSection",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ColumnSection"
+      ],
+      "rdl": "DEXPI_RDL.COLUMN_SECTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.SubTaggedColumnSection"
+    },
+    "SwingCheckValve": {
+      "name": "SwingCheckValve",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.SwingCheckValve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.CheckValve"
+      ],
+      "rdl": "JORD_RDL.SWING_CHECK_VALVE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.SwingCheckValve"
+    },
+    "Symbol": {
+      "name": "Symbol",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Symbol",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.RepresentationTypeGroup"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Symbol"
+    },
+    "TaggedColumnSection": {
+      "name": "TaggedColumnSection",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TaggedColumnSection",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ColumnSection",
+        "Plant/ProcessEquipment.TaggedPlantItem"
+      ],
+      "rdl": "DEXPI_RDL.COLUMN_SECTION",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TaggedColumnSection"
+    },
+    "TaggedPlantItem": {
+      "name": "TaggedPlantItem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TaggedPlantItem",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/PlantStructure.TechnicalItem"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TaggedPlantItem"
+    },
+    "Tank": {
+      "name": "Tank",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Tank",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Vessel"
+      ],
+      "rdl": "JORD_RDL.TANK",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Tank"
+    },
+    "TechnicalItem": {
+      "name": "TechnicalItem",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.TechnicalItem",
+      "abstract": true,
+      "supertypes": [
+        "Plant/PlantStructure.PlantAreaLocatedStructure",
+        "Plant/PlantStructure.PlantSystemLocatedStructure",
+        "Plant/PlantStructure.PlantTrainLocatedStructure"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.TechnicalItem"
+    },
+    "TechnicalItemParentStructure": {
+      "name": "TechnicalItemParentStructure",
+      "package": "Plant/PlantStructure",
+      "qualified_name": "Plant/PlantStructure.TechnicalItemParentStructure",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/PlantStructure.TechnicalItemParentStructure"
+    },
+    "Text": {
+      "name": "Text",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.Text",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.GraphicalPrimitive"
+      ],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.Text"
+    },
+    "TextTemplate": {
+      "name": "TextTemplate",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.TextTemplate",
+      "abstract": false,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.TextTemplate"
+    },
+    "TextTemplateFragment": {
+      "name": "TextTemplateFragment",
+      "package": "Core/Diagram",
+      "qualified_name": "Core/Diagram.TextTemplateFragment",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Core.xml#Core/Diagram.TextTemplateFragment"
+    },
+    "ThinFilmEvaporator": {
+      "name": "ThinFilmEvaporator",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.ThinFilmEvaporator",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.HeatExchanger"
+      ],
+      "rdl": "DEXPI_RDL.THIN_FILM_EVAPORATOR",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.ThinFilmEvaporator"
+    },
+    "TransmissionDriver": {
+      "name": "TransmissionDriver",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TransmissionDriver",
+      "abstract": true,
+      "supertypes": [],
+      "rdl": null,
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TransmissionDriver"
+    },
+    "TransmissionSystem": {
+      "name": "TransmissionSystem",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TransmissionSystem",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject",
+        "Plant/ProcessEquipment.TransmissionDriver"
+      ],
+      "rdl": "JORD_RDL.TRANSMISSION_SYSTEM",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TransmissionSystem"
+    },
+    "Transmitter": {
+      "name": "Transmitter",
+      "package": "Plant/Instrumentation",
+      "qualified_name": "Plant/Instrumentation.Transmitter",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.TRANSMITTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Instrumentation.Transmitter"
+    },
+    "TransportableContainer": {
+      "name": "TransportableContainer",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TransportableContainer",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MobileTransportSystem"
+      ],
+      "rdl": "JORD_RDL.TRANSPORTABLE_CONTAINER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TransportableContainer"
+    },
+    "Truck": {
+      "name": "Truck",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Truck",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.MobileTransportSystem"
+      ],
+      "rdl": "JORD_RDL.TRUCK",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Truck"
+    },
+    "TubeBundle": {
+      "name": "TubeBundle",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TubeBundle",
+      "abstract": false,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "JORD_RDL.TUBE_BUNDLE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TubeBundle"
+    },
+    "TubularHeatExchanger": {
+      "name": "TubularHeatExchanger",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.TubularHeatExchanger",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.HeatExchanger"
+      ],
+      "rdl": "JORD_RDL.TUBULAR_HEAT_EXCHANGER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.TubularHeatExchanger"
+    },
+    "Turbine": {
+      "name": "Turbine",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Turbine",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.TURBINE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Turbine"
+    },
+    "TurbineFlowMeter": {
+      "name": "TurbineFlowMeter",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.TurbineFlowMeter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.TURBINE_FLOW_METER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.TurbineFlowMeter"
+    },
+    "TypicalInformationLabel": {
+      "name": "TypicalInformationLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.TypicalInformationLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.TypicalInformationLabel"
+    },
+    "ValveLabel": {
+      "name": "ValveLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.ValveLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.ValveLabel"
+    },
+    "VariableAreaFlowMeter": {
+      "name": "VariableAreaFlowMeter",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.VariableAreaFlowMeter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.VARIABLE_AREA_FLOW_METER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.VariableAreaFlowMeter"
+    },
+    "VendorNameLabel": {
+      "name": "VendorNameLabel",
+      "package": "Plant/Diagram",
+      "qualified_name": "Plant/Diagram.VendorNameLabel",
+      "abstract": false,
+      "supertypes": [
+        "Core/Diagram.Label"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Diagram.VendorNameLabel"
+    },
+    "Vent": {
+      "name": "Vent",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Vent",
+      "abstract": true,
+      "supertypes": [
+        "Core/ConceptualObject"
+      ],
+      "rdl": "None",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Vent"
+    },
+    "VentLine": {
+      "name": "VentLine",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.VentLine",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.PipeFitting",
+        "Plant/ProcessEquipment.Vent"
+      ],
+      "rdl": "JORD_RDL.VENT_LINE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.VentLine"
+    },
+    "VenturiTube": {
+      "name": "VenturiTube",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.VenturiTube",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "JORD_RDL.VENTURI_TUBE",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.VenturiTube"
+    },
+    "Vessel": {
+      "name": "Vessel",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Vessel",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "JORD_RDL.VESSEL",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Vessel"
+    },
+    "VibratingSieve": {
+      "name": "VibratingSieve",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.VibratingSieve",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.Sieve"
+      ],
+      "rdl": "DEXPI_RDL.VIBRATING_SCREEN",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.VibratingSieve"
+    },
+    "VolumeFlowMeasuringElement": {
+      "name": "VolumeFlowMeasuringElement",
+      "package": "Plant/Piping",
+      "qualified_name": "Plant/Piping.VolumeFlowMeasuringElement",
+      "abstract": false,
+      "supertypes": [
+        "Plant/Piping.InlineMeasuringElement"
+      ],
+      "rdl": "DEXPI_RDL.VOLUME_FLOW_MEASURING_ELEMENT",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/Piping.VolumeFlowMeasuringElement"
+    },
+    "WasteGasEmitter": {
+      "name": "WasteGasEmitter",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.WasteGasEmitter",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.WASTE_GAS_EMITTER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.WasteGasEmitter"
+    },
+    "Weigher": {
+      "name": "Weigher",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.Weigher",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.ProcessEquipment"
+      ],
+      "rdl": "DEXPI_RDL.WEIGHER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.Weigher"
+    },
+    "WetCoolingTower": {
+      "name": "WetCoolingTower",
+      "package": "Plant/ProcessEquipment",
+      "qualified_name": "Plant/ProcessEquipment.WetCoolingTower",
+      "abstract": false,
+      "supertypes": [
+        "Plant/ProcessEquipment.CoolingTower"
+      ],
+      "rdl": "JORD_RDL.WET_COOLING_TOWER",
+      "uri": "https://data.dexpi.org/models/2.0.0/Plant.xml#Plant/ProcessEquipment.WetCoolingTower"
+    }
+  }
+}

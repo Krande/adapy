@@ -97,6 +97,7 @@ ada = [
     "sections/resources/ProfileDB.json",
     "materials/metals/resources/NLMatParams.json",
     "cadit/gxml/write/resources/xml_blank.xml",
+    "cadit/dexpi/resources/*.json",
     "fem/results/resources/results.sql",
     "visit/rendering/resources/index.zip",
     "topo_model/templates_data/*.json"

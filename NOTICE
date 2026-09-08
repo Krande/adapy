@@ -1,0 +1,24 @@
+adapy (ada-py)
+Copyright the adapy contributors.
+
+adapy is licensed under GPL-3.0-or-later; see LICENSE.
+
+This distribution bundles material from third parties, listed below.
+
+--------------------------------------------------------------------------------
+DEXPI Specification
+--------------------------------------------------------------------------------
+
+File:    src/ada/cadit/dexpi/resources/dexpi_classes.json
+Source:  https://gitlab.com/dexpi/Specification
+Tag:     V2.0.0
+Commit:  260c81c51039789a6148a98af4c6caf23f87a3e2
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+         https://creativecommons.org/licenses/by/4.0/
+
+Copyright DEXPI e.V. (https://dexpi.org/).
+
+dexpi_classes.json is a derived work: the class names, package paths, supertypes
+and RDL references of the Plant and Core models, extracted from the
+Specification's model sources by scripts/gen_dexpi_class_table.py. The
+descriptions, diagrams and prose of the specification are not included.
