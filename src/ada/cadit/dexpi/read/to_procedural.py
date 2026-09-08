@@ -140,12 +140,20 @@ class DexpiImportReport:
         return [issue for issue in self.issues if issue.kind == kind]
 
     def summary(self) -> str:
-        """One line naming the counts -- what the importer logs and what an exception says."""
-        systems = len(self.of_kind("system"))
-        equipment = len(self.of_kind("equipment"))
+        """One line naming the counts -- what the importer logs and what an exception says.
+
+        ``stats`` counts what *did* reach the 3D model, not what was attempted, so the total an
+        issue count is reported against is ``stats + dropped`` -- otherwise a document where every
+        system failed reads as "N of (a smaller number)", which parses as nonsense rather than as
+        a complete failure.
+        """
+        systems_dropped = len(self.of_kind("system"))
+        equipment_dropped = len(self.of_kind("equipment"))
+        systems_total = self.stats.get("systems", 0) + systems_dropped
+        equipment_total = self.stats.get("equipment", 0) + equipment_dropped
         return (
-            f"{systems} of {self.stats.get('systems', 0)} system(s) and "
-            f"{equipment} of {self.stats.get('equipment', 0)} equipment did not reach the 3D model"
+            f"{systems_dropped} of {systems_total} system(s) and "
+            f"{equipment_dropped} of {equipment_total} equipment did not reach the 3D model"
         )
 
     def as_dict(self) -> dict:
