@@ -368,6 +368,13 @@ def _equipment_doc_model():
         # Optional per-port colour override as ``#rrggbb``; ``None`` means the
         # frontend derives the colour from ``category``.
         color: Optional[str] = None
+        # Process identity of the nozzle, mirroring ada.Port: its tag in the source
+        # definition, nominal diameter in **metres** (not DN millimetres) and piping
+        # class. Round-tripped under extra="allow" before they were declared here;
+        # declaring them validates them and exposes them to the port editor.
+        tag: Optional[str] = None
+        nominal_diameter: Optional[float] = None
+        spec: Optional[str] = None
 
         @field_validator("color")
         @classmethod

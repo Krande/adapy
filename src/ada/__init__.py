@@ -48,6 +48,7 @@ from ada.api.systems import (
     Port,
     PortDirection,
     System,
+    SystemSegment,
     Voltage,
 )
 from ada.api.transforms import Instance, Placement, Transform
@@ -153,6 +154,7 @@ __all__ = [
     "Port",
     "PortDirection",
     "System",
+    "SystemSegment",
     "PipingSystem",
     "DuctSystem",
     "CableSystem",
