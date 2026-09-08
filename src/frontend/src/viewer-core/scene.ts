@@ -75,6 +75,17 @@ export type {
     ElementValueScope,
 } from "@/utils/scene/fea/elementValues";
 export { selectedResultRange, selectedResultUnit } from "@/utils/scene/fea/resultUnits";
+// Isolating part of a streamed result by named set or by element id: the pure
+// arithmetic over the manifest's groups, and the one function that turns a
+// keep-set into scene visibility (faces, beam lines and edge overlays alike).
+export {
+  complementRanges,
+  drawRangeIdFor,
+  isElementSet,
+  unionMembers,
+} from "@/utils/scene/fea/feaSets";
+export type { FeaSet } from "@/utils/scene/fea/feaSets";
+export { applyFeaGroupVisibility, clearFeaGroupVisibility } from "@/utils/scene/fea/groupVisibility";
 export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------

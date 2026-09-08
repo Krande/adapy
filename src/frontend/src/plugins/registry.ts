@@ -30,7 +30,11 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          (`registerExternalModelClient`, @/services/externalModels)
 //   1.3.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
 //          honoured via `notifyActiveModeSceneColor` — viewer-core 1.3.0)
-export const PLUGIN_API_VERSION = "1.3.0";
+//   1.4.0  no slot change; kept in step with viewer-core 1.4.0 (compute
+//          settings store, set isolation on the scene facade), which is what
+//          a shell's `coreApiRange` is checked against — a shell built for
+//          those exports has to be able to name a core that has them.
+export const PLUGIN_API_VERSION = "1.4.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

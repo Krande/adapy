@@ -56,6 +56,11 @@
 // built against the newer facade fails on an older core at an undefined import,
 // from inside the shell, with nothing naming the mismatch.
 //
+//   1.4.0  `useComputeStore` + `computeJobOptions` on `@/viewer-core/app`:
+//          the user's compute settings (cores, memory) for server-side jobs.
+//          Plus set isolation on `@/viewer-core/scene` — `applyFeaGroupVisibility`
+//          and the `feaSets` arithmetic — so a shell and a result plugin scope
+//          the scene through one path.
 //   1.3.0  `notifyActiveModeSceneColor` + `sceneColorOwner` on
 //          `@/viewer-core/scene`, with `PluginModeSpec.ownsSceneColor`: core
 //          suspends/restores the active FEA field for a mode that paints its
@@ -69,7 +74,7 @@
 //          `feaValuesForElement` for reading a picked element as numbers.
 //   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
 //          `@/viewer-core/scene`
-export const VIEWER_CORE_API_VERSION = "1.3.0";
+export const VIEWER_CORE_API_VERSION = "1.4.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

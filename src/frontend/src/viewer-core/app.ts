@@ -49,6 +49,20 @@ export type { ScopeOption } from "@/state/scopeStore";
 export { requestRender, usePerfStore } from "@/state/perfStore";
 
 // ---------------------------------------------------------------------------
+// Compute settings. What a server-side calculation may spend — cores and
+// memory — as the user sets it. A shell renders the controls; a plugin sends
+// `computeJobOptions()` with its job, and the worker's environment caps it.
+// ---------------------------------------------------------------------------
+export {
+  COMPUTE_MODES,
+  computeJobOptions,
+  computeJobOptionsFrom,
+  isComputeMode,
+  useComputeStore,
+} from "@/state/computeStore";
+export type { ComputeMode, ComputeState } from "@/state/computeStore";
+
+// ---------------------------------------------------------------------------
 // Theme. A shell may ship its own design system, but reading these keeps it in
 // step with the user's panel-chrome choice and with plugin panels, which paint
 // from `effectivePluginTheme`.
