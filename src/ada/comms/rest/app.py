@@ -8622,6 +8622,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="not a member")
         return Response(status_code=204)
 
+    # A bot name is one path-safe token. The colon is excluded because it is
+    # the SEPARATOR: a name containing one could spell another bot's subject
+    # (`ci:<slug>:a:b`) and quietly take over its tokens and its revocation.
+    _CI_BOT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+    def _ci_bot_identity(slug: str, name: str | None) -> tuple[str, str, str]:
+        """``(sub, email, display)`` for a project's CI bot.
+
+        Unnamed is ``ci:<slug>`` -- unchanged, so every token already issued
+        under that subject keeps working and keeps being rotated by the same
+        call as before. A name appends one more segment.
+        """
+        if not name:
+            return f"ci:{slug}", f"ci+{slug}@bot.local", f"CI Bot: {slug}"
+        return f"ci:{slug}:{name}", f"ci+{slug}.{name}@bot.local", f"CI Bot: {slug} / {name}"
+
+    async def _ci_bot_request(request: Request, project_id: str) -> tuple[object, str, str, str, str]:
+        """Shared prologue: validate, resolve the project, build the identity."""
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        name = (str(body.get("name") or "")).strip().lower() or None
+        if name is not None and not _CI_BOT_NAME_RE.match(name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "name must be 1-64 characters of a-z, 0-9, dot, dash or underscore, "
+                    "starting alphanumeric. A colon is not allowed: it separates the "
+                    "project from the bot, so a name containing one could spell another "
+                    "bot's identity."
+                ),
+            )
+        row = await pool.fetchrow(
+            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
+            pid,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        sub, email, display = _ci_bot_identity(row["slug"], name)
+        return pool, pid, sub, email, display
+
     @admin.post("/projects/{project_id}/ci-bot")
     async def admin_provision_ci_bot(
         project_id: str,
@@ -8631,27 +8677,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         One-shot: creates the bot user row if missing, ensures it's a
         project member, revokes any prior tokens, and mints a fresh
-        30-day CLI bearer. The bot's ``sub`` is derived from the
-        project's slug (``ci:<slug>``) so a project rename is the only
-        way to change it.
+        30-day CLI bearer. The token is returned exactly once, and
+        re-calling ROTATES -- prior tokens for that bot stop validating
+        immediately via the per-user revoke cutoff. Always admin-gated.
 
-        The token is returned exactly once. Re-calling rotates: prior
-        tokens for this bot are immediately invalidated via the per-user
-        revoke cutoff. Always admin-gated.
+        MORE THAN ONE BOT PER PROJECT. Body: ``{"name": "..."}``, optional.
+        Without it the subject is ``ci:<slug>``, exactly as before. With it,
+        ``ci:<slug>:<name>``.
+
+        The reason is that one identity per project forces every consumer to
+        share one credential, and the revoke cutoff is stored per SUBJECT --
+        so rotating for one consumer silently breaks the others, and every
+        audit row reads ``ci:<slug>`` no matter which of them acted. Give the
+        build uploader and a data-recording worker a name each and both
+        problems go away: separate rotation, separate revocation, and an audit
+        trail that says which one did the thing.
+
+        Nothing about the token or the revocation model changes to allow it. A
+        distinct subject simply HAS its own cutoff, which is why this is a new
+        segment on the subject rather than a token id and a revocation list.
         """
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-
-        row = await pool.fetchrow(
-            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
-            pid,
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail="project not found")
-        slug = row["slug"]
-        bot_sub = f"ci:{slug}"
-        bot_email = f"ci+{slug}@bot.local"
-        bot_display = f"CI Bot: {slug}"
+        pool, pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
 
         await db_module.upsert_user(pool, bot_sub, bot_email, bot_display)
         await db_module.add_project_member(pool, pid, bot_sub, role="ci")
@@ -8677,6 +8723,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             status_code=201,
         )
+
+    @admin.post("/projects/{project_id}/ci-bot/revoke")
+    async def admin_revoke_ci_bot(
+        project_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        """Kill a CI bot's tokens WITHOUT minting a replacement.
+
+        Until now the only way to invalidate a bot's token was to mint another
+        one, which is the wrong move for a leaked credential or a decommissioned
+        consumer: it hands you a fresh secret you did not want and leaves the
+        bot able to act. Revoking on its own is the thing an operator reaches
+        for when something has gone wrong, and it did not exist.
+
+        The bot stays a project member. Removing it is a separate, deliberate
+        act (``DELETE /projects/{id}/members/{sub}``) -- and keeping the
+        membership means its audit history still resolves to a named principal
+        rather than a bare subject nobody can identify later.
+        """
+        pool, _pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
+        bot_user = User(
+            sub=bot_sub,
+            email=bot_email,
+            display_name=bot_display,
+            groups=frozenset(),
+            is_admin=False,
+        )
+        revoked_at = await auth_module.revoke_cli_tokens(pool, bot_user)
+        logger.info("admin: revoked CI bot tokens for %s", bot_sub)
+        return JSONResponse({"user_sub": bot_sub, "revoked_at": revoked_at})
 
     @admin.post("/jobs/{job_id}/cancel")
     async def admin_cancel_job(

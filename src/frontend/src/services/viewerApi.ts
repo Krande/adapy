@@ -4066,19 +4066,53 @@ export const viewerApi = {
     return jsonOrThrow<AdminProject>(r, "adminCreateProject");
   },
 
-  /** Provision (or rotate the token of) a synthetic ``ci:<slug>``
-   * bot user for a project. Returns the bearer exactly once — the
-   * server does not persist it. Re-calling rotates: the per-user
-   * revoke cutoff is bumped before the new token is minted, so any
-   * tokens issued previously to this bot stop validating. */
+  /** Provision (or rotate the token of) a synthetic CI bot user for a
+   * project. Returns the bearer exactly once — the server does not
+   * persist it. Re-calling rotates: the per-user revoke cutoff is
+   * bumped before the new token is minted, so any tokens issued
+   * previously to that bot stop validating.
+   *
+   * `name` gives the project more than one bot — `ci:<slug>:<name>`
+   * instead of `ci:<slug>`. Without it the subject is unchanged, so
+   * an existing bot keeps its identity and its tokens. Use a name per
+   * consumer: the revoke cutoff is stored per subject, so consumers
+   * sharing one bot cannot be rotated independently, and every audit
+   * row reads the same subject whichever of them acted. */
   async adminProvisionCiBot(
     projectId: string,
+    name?: string,
   ): Promise<{ user_sub: string; token: string; expires_at: number }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/ci-bot`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      },
     );
     return jsonOrThrow(r, "adminProvisionCiBot");
+  },
+
+  /** Invalidate a CI bot's tokens without minting a replacement.
+   *
+   * What you want for a leaked credential or a retired consumer:
+   * rotating would hand you a fresh secret you did not ask for and
+   * leave the bot able to act. The bot stays a project member — remove
+   * it separately, so its audit history still resolves to a named
+   * principal. */
+  async adminRevokeCiBot(
+    projectId: string,
+    name?: string,
+  ): Promise<{ user_sub: string; revoked_at: number }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/ci-bot/revoke`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      },
+    );
+    return jsonOrThrow(r, "adminRevokeCiBot");
   },
 
   /** Cancel and clear any job, whoever started it. Admin only.
