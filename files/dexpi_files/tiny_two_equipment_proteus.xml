@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PlantModel>
+  <PlantInformation OriginatingSystem="adapy" OriginatingSystemVendor="adapy" SchemaVersion="4.1.1" Units="mm" ProjectName="Tiny two equipment example" />
+  <Equipment ID="Tank-1" ComponentClass="Tank">
+    <GenericAttributes Set="DexpiAttributes" Number="3">
+      <GenericAttribute Name="TagNameAssignmentClass" Format="string" Value="T-100" />
+      <GenericAttribute Name="EquipmentDescriptionAssignmentClass" Format="string" Value="Feed tank" />
+      <GenericAttribute Name="NominalCapacity(Volume)" Format="double" Value="26" Units="MetreCubed" />
+    </GenericAttributes>
+    <Position>
+      <Location X="120" Y="300" Z="0" />
+      <Axis X="0" Y="0" Z="1" />
+      <Reference X="1" Y="0" Z="0" />
+    </Position>
+    <Extent>
+      <Min X="90" Y="260" Z="0" />
+      <Max X="150" Y="340" Z="0" />
+    </Extent>
+    <Nozzle ID="Nozzle-1" ComponentClass="Nozzle">
+      <GenericAttributes Set="DexpiAttributes" Number="1">
+        <GenericAttribute Name="SubTagNameAssignmentClass" Format="string" Value="N1" />
+      </GenericAttributes>
+      <ConnectionPoints NumPoints="2" FlowOut="1">
+        <Node ID="Nozzle-1-DefaultNode" />
+        <Node ID="Nozzle-1-Node-1" Type="process">
+          <GenericAttributes Set="DexpiAttributes" Number="2">
+            <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+            <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+          </GenericAttributes>
+        </Node>
+      </ConnectionPoints>
+    </Nozzle>
+    <Nozzle ID="Nozzle-2" ComponentClass="Nozzle">
+      <GenericAttributes Set="DexpiAttributes" Number="1">
+        <GenericAttribute Name="SubTagNameAssignmentClass" Format="string" Value="N2" />
+      </GenericAttributes>
+      <ConnectionPoints NumPoints="2" FlowIn="1">
+        <Node ID="Nozzle-2-DefaultNode" />
+        <Node ID="Nozzle-2-Node-1" Type="process">
+          <GenericAttributes Set="DexpiAttributes" Number="2">
+            <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="50" />
+            <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+          </GenericAttributes>
+        </Node>
+      </ConnectionPoints>
+    </Nozzle>
+  </Equipment>
+  <Equipment ID="CentrifugalPump-1" ComponentClass="CentrifugalPump">
+    <GenericAttributes Set="DexpiAttributes" Number="2">
+      <GenericAttribute Name="TagNameAssignmentClass" Format="string" Value="P-100" />
+      <GenericAttribute Name="EquipmentDescriptionAssignmentClass" Format="string" Value="Feed pump" />
+    </GenericAttributes>
+    <Position>
+      <Location X="320" Y="300" Z="0" />
+      <Axis X="0" Y="0" Z="1" />
+      <Reference X="1" Y="0" Z="0" />
+    </Position>
+    <Extent>
+      <Min X="300" Y="280" Z="0" />
+      <Max X="340" Y="320" Z="0" />
+    </Extent>
+    <Nozzle ID="Nozzle-3" ComponentClass="Nozzle">
+      <GenericAttributes Set="DexpiAttributes" Number="1">
+        <GenericAttribute Name="SubTagNameAssignmentClass" Format="string" Value="S" />
+      </GenericAttributes>
+      <ConnectionPoints NumPoints="2" FlowIn="1">
+        <Node ID="Nozzle-3-DefaultNode" />
+        <Node ID="Nozzle-3-Node-1" Type="process">
+          <GenericAttributes Set="DexpiAttributes" Number="2">
+            <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+            <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+          </GenericAttributes>
+        </Node>
+      </ConnectionPoints>
+    </Nozzle>
+    <Nozzle ID="Nozzle-4" ComponentClass="Nozzle">
+      <GenericAttributes Set="DexpiAttributes" Number="1">
+        <GenericAttribute Name="SubTagNameAssignmentClass" Format="string" Value="D" />
+      </GenericAttributes>
+      <ConnectionPoints NumPoints="2" FlowOut="1">
+        <Node ID="Nozzle-4-DefaultNode" />
+        <Node ID="Nozzle-4-Node-1" Type="process">
+          <GenericAttributes Set="DexpiAttributes" Number="2">
+            <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="50" />
+            <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+          </GenericAttributes>
+        </Node>
+      </ConnectionPoints>
+    </Nozzle>
+  </Equipment>
+  <PipingNetworkSystem ID="PipingNetworkSystem-1" ComponentClass="PipingNetworkSystem">
+    <GenericAttributes Set="DexpiAttributes" Number="5">
+      <GenericAttribute Name="LineNumberAssignmentClass" Format="string" Value="100" />
+      <GenericAttribute Name="FluidCodeAssignmentClass" Format="string" Value="PW" />
+      <GenericAttribute Name="PipingClassCodeAssignmentClass" Format="string" Value="75HB" />
+      <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+      <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+    </GenericAttributes>
+    <PipingNetworkSegment ID="PipingNetworkSegment-1" ComponentClass="PipingNetworkSegment">
+      <GenericAttributes Set="DexpiAttributes" Number="1">
+        <GenericAttribute Name="SegmentNumberAssignmentClass" Format="string" Value="1" />
+      </GenericAttributes>
+      <PipingComponent ID="BallValve-1" ComponentClass="BallValve">
+        <GenericAttributes Set="DexpiAttributes" Number="3">
+          <GenericAttribute Name="TagNameAssignmentClass" Format="string" Value="HV-100" />
+          <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+          <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+        </GenericAttributes>
+        <Position>
+          <Location X="220" Y="300" Z="0" />
+          <Axis X="0" Y="0" Z="1" />
+          <Reference X="1" Y="0" Z="0" />
+        </Position>
+        <Extent>
+          <Min X="212" Y="292" Z="0" />
+          <Max X="228" Y="308" Z="0" />
+        </Extent>
+        <ConnectionPoints NumPoints="3" FlowIn="1" FlowOut="2">
+          <Node ID="BallValve-1-DefaultNode" />
+          <Node ID="BallValve-1-Node-1" Type="process">
+            <GenericAttributes Set="DexpiAttributes" Number="2">
+              <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+              <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+            </GenericAttributes>
+          </Node>
+          <Node ID="BallValve-1-Node-2" Type="process">
+            <GenericAttributes Set="DexpiAttributes" Number="2">
+              <GenericAttribute Name="NominalDiameterNumericalValueRepresentationAssignmentClass" Format="string" Value="80" />
+              <GenericAttribute Name="NominalDiameterTypeRepresentationAssignmentClass" Format="string" Value="DN" />
+            </GenericAttributes>
+          </Node>
+        </ConnectionPoints>
+      </PipingComponent>
+      <Connection FromID="Nozzle-1" FromNode="1" ToID="BallValve-1" ToNode="1" />
+      <Connection FromID="BallValve-1" FromNode="2" ToID="Nozzle-3" ToNode="1" />
+    </PipingNetworkSegment>
+  </PipingNetworkSystem>
+</PlantModel>
