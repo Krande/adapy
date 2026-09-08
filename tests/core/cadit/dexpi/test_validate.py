@@ -271,7 +271,11 @@ def test_graph_signature_is_id_independent():
 def test_graph_signature_paths_carry_the_composition_hierarchy():
     signature = graph_signature(_document())
     assert "PlantModel[]/Tank[T-100]/Nozzle[N1]" in signature["items"]
-    assert "PlantModel[]/Tank[T-100]/Nozzle[N1]#2" in signature["nodes"]
+    # The nozzle's single process node is "#1" even though it sits at ordinal 2 behind the anchor:
+    # a DEXPI 2.0 document has no anchor to sit behind, so counting it would put the two flavours
+    # one apart on every nozzle in every document. See graph_signature's docstring.
+    assert "PlantModel[]/Tank[T-100]/Nozzle[N1]#1" in signature["nodes"]
+    assert "PlantModel[]/Tank[T-100]/Nozzle[N1]#2" not in signature["nodes"]
 
 
 def test_graph_signature_notices_a_rewired_connection():

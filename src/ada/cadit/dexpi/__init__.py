@@ -25,6 +25,7 @@ from .model import (
     ItemKind,
     classify,
 )
+from .store import DexpiStore, read_dexpi
 from .validate import validate_document
 
 __all__ = [
@@ -37,10 +38,12 @@ __all__ = [
     "DexpiItem",
     "DexpiNode",
     "DexpiPlacement",
+    "DexpiStore",
     "ItemKind",
     "canonicalize",
     "classify",
     "graph_signature",
+    "read_dexpi",
     "sniff_flavour",
     "validate_document",
 ]

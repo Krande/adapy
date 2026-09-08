@@ -251,6 +251,11 @@ class DexpiHeader:
     schema_version: str | None = None
     units: str | None = None
     project: str | None = None
+    # DEXPI 2.0 only: the model's own identity, and the ``<Import prefix source>`` declarations that
+    # name the models its ``type`` references resolve against. The sources are recorded and never
+    # fetched -- the prefixes are static names, answered by the vendored class table.
+    model_uri: str | None = None
+    imports: dict[str, str] = field(default_factory=dict)
     raw: ET.Element | None = field(default=None, repr=False)
 
 

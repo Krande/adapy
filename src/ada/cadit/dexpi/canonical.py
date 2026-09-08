@@ -11,8 +11,11 @@ byte-copier can pass:
 
 * :func:`graph_signature` -- *is this the same P&ID?* Same document, expressed without IDs, so a
   Proteus file and its DEXPI 2.0 conversion compare equal. Items are keyed by their path through
-  the composition hierarchy (``CentrifugalPump[P-100]/Nozzle[N1]``) and nodes by their ordinal
-  within the owner, which are the only identities that survive a flavour conversion.
+  the composition hierarchy (``CentrifugalPump[P-100]/Nozzle[N1]``) and nodes by their position
+  among the owner's **process** nodes, which are the only identities that survive a flavour
+  conversion. The Proteus symbol anchor is deliberately excluded: it occupies an ordinal in a
+  Proteus file and has no counterpart at all in DEXPI 2.0, where the symbol placement lives in the
+  diagram, so counting it would make the two flavours disagree on every nozzle in every document.
 
 Never assert byte-identity between two DEXPI files. Attribute order, self-closing form, float
 formatting and the unreliable ``@NumPoints``/``@Number`` counters all differ legitimately, and
@@ -116,7 +119,15 @@ def canonicalize(doc: DexpiDocument) -> dict:
     """
     header = {
         field: getattr(doc.header, field)
-        for field in ("originating_system_vendor", "originating_system_version", "schema_version", "units", "project")
+        for field in (
+            "originating_system_vendor",
+            "originating_system_version",
+            "schema_version",
+            "units",
+            "project",
+            "model_uri",
+            "imports",
+        )
     }
 
     return {
@@ -152,15 +163,40 @@ def item_path(doc: DexpiDocument, item_id: str) -> str:
     return "/".join(parts)
 
 
+def _process_position(item: DexpiItem, node: DexpiNode) -> int | None:
+    """1-based position of ``node`` among ``item``'s process nodes, or None for the anchor.
+
+    A Proteus anchor sits at ordinal 1 and shifts every real connection point after it; a DEXPI 2.0
+    document has no such node. Numbering the process nodes on their own is what makes the two
+    flavours agree.
+    """
+    if node.is_anchor:
+        return None
+
+    position = 0
+    for candidate in sorted(item.nodes, key=lambda n: n.ordinal):
+        if candidate.is_anchor:
+            continue
+        position += 1
+        if candidate is node:
+            return position
+    return None
+
+
 def _node_ref(doc: DexpiDocument, item_id: str | None, node_id: str | None) -> str:
     if item_id is None:
         return "<none>"
     path = item_path(doc, item_id)
     if node_id is None:
         return path
+
     item = doc.items.get(item_id)
     node = item.node_by_id(node_id) if item is not None else None
-    return f"{path}#{node.ordinal}" if node is not None else f"{path}#<missing:{node_id}>"
+    if node is None:
+        return f"{path}#<missing:{node_id}>"
+
+    position = _process_position(item, node)
+    return f"{path}#{position}" if position is not None else f"{path}#anchor"
 
 
 def graph_signature(doc: DexpiDocument) -> dict:
@@ -171,10 +207,13 @@ def graph_signature(doc: DexpiDocument) -> dict:
     """
     items: list[str] = []
     nodes: list[str] = []
-    for item_id in doc.items:
+    for item_id, item in doc.items.items():
         path = item_path(doc, item_id)
         items.append(path)
-        nodes.extend(f"{path}#{node.ordinal}" for node in doc.items[item_id].nodes)
+        for node in item.nodes:
+            position = _process_position(item, node)
+            if position is not None:
+                nodes.append(f"{path}#{position}")
 
     connections = [
         (
