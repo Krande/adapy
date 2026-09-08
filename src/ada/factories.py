@@ -455,6 +455,10 @@ def from_dexpi(
     else:
         a = _dexpi_schematic_assembly(name, doc, catalog)
 
+    # Stashed so Assembly.to_dexpi(from_scratch=False) has a source document to merge edits into --
+    # see ada.cadit.dexpi.write.from_ada.
+    a._dexpi_store = dexpi_doc
+
     if cad_config is not None:
         a.cad_config = cad_config
     a.metadata["dexpi"] = {
