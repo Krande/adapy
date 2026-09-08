@@ -209,6 +209,6 @@ def test_a_physical_quantity_round_trips_through_the_aggregate_form(dexpi_files,
     assert (pressure.value, pressure.units, pressure.format) == ("10", "Bar", "double")
 
     again = read_dexpi(write_dexpi(doc, tmp_path / "quantity.xml"))
-    assert [
-        (a.name, a.value, a.units, a.format) for a in again.items["Separator-1"].attributes
-    ] == [(a.name, a.value, a.units, a.format) for a in doc.items["Separator-1"].attributes]
+    assert [(a.name, a.value, a.units, a.format) for a in again.items["Separator-1"].attributes] == [
+        (a.name, a.value, a.units, a.format) for a in doc.items["Separator-1"].attributes
+    ]

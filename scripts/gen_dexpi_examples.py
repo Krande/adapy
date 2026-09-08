@@ -321,9 +321,7 @@ def _segment(example: Example, item_id: str, line: str, number: str) -> None:
 def _shape_catalogue() -> ET.Element:
     """A Proteus symbol library stub. The reader never descends into one and echoes it whole."""
     catalogue = xml_utils.element("ShapeCatalogue", {"Name": "AdapyExampleSymbols"})
-    symbol = xml_utils.sub_element(
-        catalogue, "Equipment", {"ID": "Symbol-Separator", "ComponentClass": "Separator"}
-    )
+    symbol = xml_utils.sub_element(catalogue, "Equipment", {"ID": "Symbol-Separator", "ComponentClass": "Separator"})
     extent = xml_utils.sub_element(symbol, "Extent")
     xml_utils.point_element(extent, "Min", (0.0, 0.0, 0.0))
     xml_utils.point_element(extent, "Max", (100.0, 40.0, 0.0))

@@ -28,6 +28,9 @@ node_modules/
 .pixi/
 audit_repro/
 audit_repro_*/
+# Optional full DEXPI test corpus, fetched on demand by scripts/fetch_dexpi_testcases.py.
+# Never committed -- only the two curated files under files/dexpi_files/vendor/ are.
+files/dexpi_files/_external/
 # pytest-benchmark timing baselines — machine-specific, regenerate locally
 .benchmarks/
 

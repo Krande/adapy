@@ -371,3 +371,26 @@ def test_the_store_dispatches_to_the_right_reader_for_either_flavour(tmp_path):
     assert [item.tag for item in left.iter_equipment()] == [item.tag for item in right.iter_equipment()]
     assert [item.tag for item in left.iter_nozzles()] == [item.tag for item in right.iter_nozzles()]
     assert len(left.connections_of("V-1")) == len(right.connections_of("Valve1")) == 2
+
+
+# -- T4: cross-flavour convergence over the checked-in example fixtures --------------------------------
+#
+# The pair above is authored twice, by hand, so the contract is legible; the fixtures below are the
+# other kind of evidence -- they are built *once* in Python by scripts/gen_dexpi_examples.py and
+# written through both writers (write_proteus, write_dexpi20), so the pair is a cross-flavour
+# equality proof by construction rather than by careful hand-authoring. T4 re-parses both files that
+# construction produced and asserts the writers did not introduce a disagreement neither reader
+# would have caught on its own.
+
+FIXTURE_PAIRS = ("tiny_two_equipment", "unit_separator")
+
+
+@pytest.mark.parametrize("name", FIXTURE_PAIRS)
+def test_t4_a_generated_fixture_pair_has_the_same_graph_signature(name, example_files):
+    dexpi_files = example_files / "dexpi_files"
+    proteus_doc = read_proteus(dexpi_files / f"{name}_proteus.xml")
+    dexpi20_doc = read_dexpi20(dexpi_files / f"{name}_dexpi20.xml")
+
+    assert proteus_doc.warnings == [] and dexpi20_doc.warnings == []
+    assert validate_document(proteus_doc) == [] and validate_document(dexpi20_doc) == []
+    assert graph_signature(proteus_doc) == graph_signature(dexpi20_doc)
