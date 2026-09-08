@@ -487,6 +487,13 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                             {entry.target_format ? ` → ${entry.target_format}` : ""}
                         </div>
                     </div>
+                    {/* In the HEADER, not on a tab. It is an action on the job,
+                        not part of any one view of it — and a tab called
+                        "Outcome" is the last place someone looks for a button
+                        that changes the outcome. Renders nothing unless the row
+                        is actually cancellable, so it costs no space on the
+                        overwhelming majority of rows, which are history. */}
+                    <StuckJobActions entry={entry}/>
                     {tab === "error" && entry.traceback && (
                         <button
                             type="button"
@@ -597,7 +604,6 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
             {entry.job_id && (
                 <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
             )}
-            <StuckJobActions entry={entry}/>
             <div className="text-gray-500 mt-2">
                 No error reported for this entry. Switch to the Metrics tab for
                 CPU / memory / IO data.
@@ -656,19 +662,31 @@ const StuckJobActions: React.FC<{entry: AuditEntry}> = ({entry}) => {
         }
     };
 
+    // Sits in the modal header, so it is laid out to fit there: a compact
+    // button, and any outcome text truncated with the whole of it on hover
+    // rather than allowed to push the close button off the row.
     return (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="shrink-0 flex items-center gap-2">
+            {done && (
+                <span className="text-[11px] text-gray-400 max-w-[14rem] truncate" title={done}>
+                    {done}
+                </span>
+            )}
+            {err && (
+                <span className="text-[11px] text-red-300 max-w-[14rem] truncate" title={err}>
+                    {err}
+                </span>
+            )}
             <button
-                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm disabled:opacity-50"
+                type="button"
+                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
                 onClick={() => void onCancel()}
                 disabled={busy || done != null}
                 title="Cancel this job and drop its queue entry (admin)"
             >
                 {busy ? "…" : "Cancel job"}
             </button>
-            {done && <span className="text-[11px] text-gray-400">{done}</span>}
-            {err && <span className="text-[11px] text-red-300">{err}</span>}
-        </div>
+        </span>
     );
 };
 
