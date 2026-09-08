@@ -17,6 +17,7 @@ IFC and various Finite Element formats.
 
     documents/steel_detailing
     documents/topology_engine
+    documents/dexpi
     documents/path_to_software_agnosticism
     documents/meshing
     documents/cli
