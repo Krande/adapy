@@ -32,8 +32,7 @@ from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
-from . import failure_capture, local_jobs
-from . import pending_uploads
+from . import failure_capture, local_jobs, pending_uploads
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -3427,8 +3426,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="forbidden")
 
         # This route is generic ("core names no plugin"), so there is no single
-        # field in ``options`` that reliably names the source file — codecheck
-        # calls it ``sin_key``, another plugin might not take a source at all.
+        # field in ``options`` that reliably names the source file — one plugin
+        # might call it ``sin_key``, another might not take a source at all.
         # Scan every string value instead of guessing a field name: any one of
         # them that names a key with an upload still in flight is the same
         # hazard /convert and /fea/manifest gate on, whatever the plugin calls
