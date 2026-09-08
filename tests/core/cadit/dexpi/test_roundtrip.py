@@ -38,12 +38,13 @@ from ada.topo_model.layout import LayoutRules
 # The generated fixtures plus the two vendored official files -- the same four T1 is held to in
 # test_write_proteus.py, now carried through a live Assembly rather than a bare DexpiDocument.
 #
-# ``unit_separator_proteus.xml`` is not in this tuple: several of its lines fan out through a
-# ``PipeTee`` that sits *between* two ``PipingNetworkSegment``s rather than inside one of them, which
-# ``route_system``'s two-ended contract cannot represent -- a pre-existing, documented gap in
-# ``to_procedural._segment_spec`` (Risk 5/6 in the plan), not something a write-back path can or
-# should paper over. It gets its own, weaker test below: what *does* reach the live assembly must
-# still round-trip exactly, and what does not must be the same set the import already reported.
+# ``unit_separator_proteus.xml`` is not in this tuple. Its two ``PipeTee``\ s no longer cost it
+# anything -- they import as branch-point equipment and write back as themselves (see
+# ``test_branch_points.py``) -- but one of its lines still cannot round-trip: ``205/1`` is a relief
+# valve discharging to something the P&ID does not draw, so it has a single end and nothing to route
+# to. A one-ended run is not a gap a write-back path can or should paper over. It gets its own,
+# weaker test below: what *does* reach the live assembly must still round-trip exactly, and what does
+# not must be the same set the import already reported.
 T2_FILES = (
     "tiny_two_equipment_proteus.xml",
     "vendor/P01V01-VER.EX01.xml",
@@ -117,7 +118,7 @@ def test_t2_unedited_unit_separator_keeps_everything_the_import_kept(dexpi_files
     assembly, report = _clean_import(path)
     assert not report.of_kind("equipment"), report.format()
     dropped_names = {issue.name for issue in report.of_kind("system")}
-    assert dropped_names, "this fixture is only interesting if the known branch/tee gap is exercised"
+    assert dropped_names, "this fixture is only interesting while something in it is still dropped"
 
     again = read_dexpi(assembly.to_dexpi(tmp_path / "unit_separator.xml"))
     assert again.warnings == []

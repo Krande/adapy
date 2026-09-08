@@ -34,9 +34,9 @@ the gap report) -- the only handle back to the source item is the *name* the imp
 that name is derived deterministically from the source document alone (the equipment's tag, or a
 line/segment number pair), never from anything the caller passed in. So matching a live object back
 to its source item means recomputing that same derivation over the (still-original) source document
--- :func:`_source_equipment_by_name` and :func:`_source_segment_by_name` mirror
-``to_procedural._equipment_names``/``._system_name`` for exactly that reason, and the two pairs must
-be kept in sync if that naming rule ever changes.
+-- :func:`_source_identity` and :func:`_source_segment_by_name` mirror
+``to_procedural._equipment_names``/``._junction_equipment``/``._system_name`` for exactly that
+reason, and the two sides must be kept in sync if that naming rule ever changes.
 
 **Reconciliation.** An equipment or a system present in the source but absent from the live assembly
 is dropped -- item and every connection that named it -- and logged. One present in the live
@@ -61,6 +61,7 @@ from ada.config import logger
 
 from .. import attributes as attribute_lookup
 from ..equipment_list import (
+    branch_points,
     connection_flow,
     definition_slug,
     equipment_items,
@@ -149,11 +150,18 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
     live_equipment: list[Equipment] = [
         part for part in assembly.get_all_parts_in_assembly() if isinstance(part, Equipment)
     ]
-    source_equipment = _source_equipment_by_name(doc)
+    source_equipment, source_junctions = _source_identity(doc)
     live_by_name = {eq.name: eq for eq in live_equipment}
 
-    port_index: dict[tuple[str, str], tuple[str, str]] = {}
+    # Branch points first, because they must never fall through to the "new in the assembly" path
+    # below: a materialised ``PipeTee`` is a mirror of a piping component the source document
+    # already carries, not equipment adapy authored, and minting a ``ProcessEquipment`` for it
+    # would rewrite the junction and every connection into it.
+    port_index: dict[tuple[str, str], tuple[str, str]] = _junction_port_index(doc, source_junctions, live_by_name)
+
     for name, eq in live_by_name.items():
+        if name in source_junctions:
+            continue
         item = source_equipment.get(name)
         if item is None:
             item = _add_equipment_item(doc, eq, minter)
@@ -188,20 +196,58 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
 # -- equipment identity -------------------------------------------------------------------------------
 
 
-def _source_equipment_by_name(doc: DexpiDocument) -> dict[str, DexpiItem]:
-    """Equipment name -> source item, using the exact naming
-    ``ada.cadit.dexpi.read.to_procedural._equipment_names`` assigns at import time: the item's tag,
-    falling back to its (deduplicated) catalog slug, then deduplicated again against every name
-    already taken. A live ``ada.Equipment.name`` is that string, so this is the only way back to the
-    item it came from -- see the module docstring's "Identity" note.
+def _source_identity(doc: DexpiDocument) -> tuple[dict[str, DexpiItem], dict[str, DexpiItem]]:
+    """``({equipment name: item}, {branch-point name: item})``, using the exact naming the importer
+    assigns -- see the module docstring's "Identity" note.
+
+    One function and **one name pool**, in the importer's own order, because that is what makes the
+    two agree: ``to_procedural`` names the resolved equipment first (the item's tag, falling back to
+    its deduplicated catalog slug) and then the branch points (tag, falling back to the item id)
+    against the names already taken. Splitting the pool would let a tee tagged the same as a vessel
+    come back under a different name here than the one the live ``ada.Equipment`` carries, and the
+    merge would then mint a duplicate instead of finding it.
     """
     used_slugs: set[str] = set()
     used_names: set[str] = set()
-    out: dict[str, DexpiItem] = {}
+    equipment: dict[str, DexpiItem] = {}
     for item in equipment_items(doc):
         slug = _dedupe(definition_slug(item), used_slugs)
         base = (item.tag or "").strip() or slug
-        out[_dedupe(base, used_names)] = item
+        equipment[_dedupe(base, used_names)] = item
+
+    junctions: dict[str, DexpiItem] = {}
+    for item_id in branch_points(doc):
+        item = doc.items[item_id]
+        junctions[_dedupe((item.tag or item.id).strip(), used_names)] = item
+    return equipment, junctions
+
+
+def _junction_port_index(
+    doc: DexpiDocument, junctions: dict[str, DexpiItem], live_by_name: dict[str, Equipment]
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """``{(junction name, port name): (item id, node id)}`` for every branch point still in the
+    assembly.
+
+    Read straight off the source component's own connection nodes -- the same
+    :func:`~ada.cadit.dexpi.equipment_list.nozzle_specs_for` the importer used, so the port names
+    match the live equipment's. Deliberately *not* routed through
+    :func:`_sync_equipment_ports`: that reconciles ``Nozzle`` children, and a piping component
+    carries its nodes on itself, so syncing it would hang nozzles off a ``PipeTee``. The
+    consequence, said plainly: a port added to or removed from a materialised junction in Python
+    does not write back. Nothing in adapy edits one today, and inventing nozzles on a fitting is a
+    worse answer than not writing the edit.
+
+    A junction whose equipment is gone from the assembly is skipped rather than dropped from the
+    document: the component belongs to a segment, and the segment-level reconciliation below is
+    what decides whether that run survives.
+    """
+    flow = connection_flow(doc)
+    out: dict[tuple[str, str], tuple[str, str]] = {}
+    for name, item in junctions.items():
+        if name not in live_by_name:
+            continue
+        for node_id, port_name in port_names(nozzle_specs_for(doc, item, flow)).items():
+            out[(name, port_name)] = (item.id, node_id)
     return out
 
 
@@ -430,16 +476,22 @@ def _descendants(doc: DexpiDocument, item_id: str) -> set[str]:
 def _segment_boundary(doc: DexpiDocument, segment: DexpiItem) -> list[tuple[str, str | None]]:
     """The endpoints outside ``segment`` today, exactly the way
     ``to_procedural._segment_spec`` finds them: everything a connection owned by the segment names
-    that is not one of the segment's own descendants (an off-page connector excepted -- it is
-    composed into the segment but is still an end of the run, never something the run passes
-    through). A segment routed through an in-line component has *more* connections than this -- one
-    per hop -- and none of them should be mistaken for a change just because ``system.ports`` only
-    ever names the two outermost ones.
+    that is not one of the segment's own descendants -- with the same two exceptions, an off-page
+    connector (composed into the segment but still an end of the run) and a branch point (where the
+    run stops and the next one starts, even when this is the segment the file happens to nest the
+    tee under). A segment routed through an in-line component has *more* connections than this --
+    one per hop -- and none of them should be mistaken for a change just because ``system.ports``
+    only ever names the two outermost ones.
+
+    Both exceptions have to track ``to_procedural`` exactly. If this said a tee was interior while
+    the importer said it was an end, every run at a junction would compare unequal to its own
+    unchanged boundary and be rewritten on a no-op round-trip.
     """
+    junctions = branch_points(doc)
     inner = {segment.id} | {
         item_id
         for item_id in _descendants(doc, segment.id)
-        if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR
+        if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR and item_id not in junctions
     }
     ends: list[tuple[str, str | None]] = []
     for connection in doc.connections:

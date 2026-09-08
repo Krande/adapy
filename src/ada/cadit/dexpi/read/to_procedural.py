@@ -10,6 +10,9 @@ two-ended systems, and then routes and models the lot. Four things happen here:
    list to a catalog document -- an envelope, a mass, an IFC class and a port per nozzle, placed on
    the box by the class's nozzle strategy. A ``Chamber`` is folded into its owner (a separator's
    boot is part of the separator as far as routing cares) rather than becoming an asset of its own.
+   A **branch point** -- an in-line fitting that more than one segment ends at, typically a
+   ``PipeTee`` -- is additionally materialised as a small equipment with a port per connection node,
+   because the segments meeting there have to terminate on something (see below).
 2. **Layout.** The resolved envelopes go to :func:`~ada.topo_model.layout.plan_layout`, which
    generates the decks and places each item on one.
 3. **Systems.** One :class:`~ada.topology.entities.TopoSystem` per DEXPI ``PipingNetworkSegment``,
@@ -18,6 +21,11 @@ two-ended systems, and then routes and models the lot. Four things happen here:
    fewer than two, with no branch or tee support anywhere. A DEXPI segment is by definition a
    two-ended run, so segment-per-system is both faithful to the source and routable; the parent
    ``PipingNetworkSystem`` survives as the run's ``MEDIUM`` and as provenance in its ``METADATA``.
+   Segment-per-system is *not* by itself enough where the segments meet at a shared fitting: the
+   three runs at a tee each name the tee as an end, which is neither a nozzle nor an equipment, so
+   all three used to be dropped as unconnectable. Materialising the branch point as equipment
+   (step 1) is what makes each of them a proper two-ended run again -- a 3+-way junction still never
+   becomes one system, which is the thing ``route_system`` genuinely cannot do.
 4. **Nothing is lost quietly.** Every segment that could not be turned into a system, and every
    equipment the layout could not place, is collected into a :class:`DexpiImportReport`. The
    compiler drops an unwireable system with a ``logger.warning`` and skips an unroutable run the
@@ -53,7 +61,13 @@ from ada.topology.entities import SystemConnection, TopoSpace, TopoSystem
 
 from .. import attributes, class_table
 from ..equipment_defaults import build_default_doc
-from ..equipment_list import ResolvedEquipment, connection_flow, resolve_equipment
+from ..equipment_list import (
+    ResolvedEquipment,
+    branch_points,
+    connection_flow,
+    nozzle_specs_for,
+    resolve_equipment,
+)
 from ..model import DexpiDocument, DexpiItem, ItemKind
 from ..nozzle_placers import nozzle_from_node, port_names
 
@@ -73,6 +87,10 @@ InlineComponents = Literal["metadata", "equipment"]
 #: giving it a considered size would be inventing data the P&ID does not hold.
 _INLINE_BBOX = [0.4, 0.4, 0.4]
 _INLINE_IFC = "IfcValve"
+
+#: IFC class for a branch point materialised as its own equipment. Same envelope as an in-line
+#: component -- a tee body is a detail too -- but a fitting rather than a valve.
+_JUNCTION_IFC = "IfcPipeFitting"
 
 #: Height of a site terminal above the floor of the deck it is placed on, and the fraction of the
 #: deck height to fall back to on a deck shallower than that.
@@ -306,12 +324,18 @@ def dexpi_to_procedural_doc(
 
     items = [_layout_item(entry, names[entry.slug]) for entry in resolved]
     provenance = {names[entry.slug]: _equipment_metadata(entry) for entry in resolved}
+    taken = set(names.values())
 
-    segments = [_segment_spec(doc, item, index, report) for item in _routable_segments(doc)]
+    # Before the segments, because every one of them that ends at a branch point needs the
+    # junction's ports already in the index to resolve that end.
+    junctions = branch_points(doc)
+    items.extend(_junction_equipment(doc, junctions, catalog, index, provenance, taken))
+
+    segments = [_segment_spec(doc, item, index, report, junctions) for item in _routable_segments(doc)]
     segments = [spec for spec in segments if spec is not None]
 
     if inline_components == "equipment":
-        items.extend(_inline_equipment(doc, segments, catalog, index, provenance, names))
+        items.extend(_inline_equipment(doc, segments, catalog, index, provenance, taken))
 
     _group_by_connectivity(items, segments)
     plan = plan_layout(items, rules)
@@ -443,33 +467,102 @@ def _restore_base_placements(out: dict, base_doc: dict | None) -> None:
     ]
 
 
+def _unique_name(base: str, taken: set[str]) -> str:
+    """``base``, suffixed until it is free, and claimed in ``taken``.
+
+    One pool across resolved equipment, branch points and materialised in-line components: they all
+    land in the same equipment map, keyed by name, so a tag a P&ID happens to reuse must not let one
+    of them shadow another.
+    """
+    name = base or "equipment"
+    suffix = 1
+    while name in taken:
+        suffix += 1
+        name = f"{base}-{suffix}"
+    taken.add(name)
+    return name
+
+
+def _junction_equipment(
+    doc: DexpiDocument,
+    junctions: dict[str, list[str]],
+    catalog: dict,
+    index: _Index,
+    provenance: dict[str, dict],
+    taken: set[str],
+) -> list[LayoutItem]:
+    """Materialise each branch point as a small equipment with a port per connection node.
+
+    Unconditional, unlike :func:`_inline_equipment`: a junction is not a detail a caller can choose
+    to skip, because without it every run that meets there is dropped. The ports come from the
+    fitting's own connection nodes, so a tee gets exactly its three, and each segment resolves its
+    end to the specific node it named rather than to the fitting as a whole.
+
+    No ``group`` is set, so :func:`_group_by_connectivity` folds the junction in with the equipment
+    its runs reach -- which is the one placement heuristic that matters here, since a tee stranded
+    on a far deck makes every run through it a long one.
+    """
+    flow = connection_flow(doc)
+    out: list[LayoutItem] = []
+    for item_id, segment_ids in junctions.items():
+        item = doc.items[item_id]
+        name = _unique_name((item.tag or item.id).strip(), taken)
+        specs = nozzle_specs_for(doc, item, flow)
+        document = build_default_doc(
+            item.class_name,
+            specs,
+            bbox=_INLINE_BBOX,
+            strategy="generic",
+            ifc_element_class=_JUNCTION_IFC,
+            tag=item.tag,
+            dexpi_id=item.id,
+        )
+        slug = slugify(f"{name}-{item.id}")
+        catalog[slug] = document
+        index.add_owner(item.id, name)
+        for nozzle_id, port_name in port_names(specs).items():
+            index.add_port(nozzle_id, name, port_name)
+        provenance[name] = {
+            "dexpi": {
+                "dexpi_id": item.id,
+                "dexpi_class": class_table.resolve(item.class_name),
+                "tag": item.tag,
+                "branch_point_of": [_system_name(doc, doc.items[sid]) for sid in segment_ids],
+            }
+        }
+        out.append(
+            LayoutItem(
+                name=name,
+                type_slug=slug,
+                lx=_INLINE_BBOX[0],
+                ly=_INLINE_BBOX[1],
+                lz=_INLINE_BBOX[2],
+                mass=float(document.get("mass") or 0.0),
+            )
+        )
+    return out
+
+
 def _inline_equipment(
     doc: DexpiDocument,
     segments: list[_SegmentSpec],
     catalog: dict,
     index: _Index,
     provenance: dict[str, dict],
-    names: dict[str, str],
+    taken: set[str],
 ) -> list[LayoutItem]:
     """Materialise each segment's in-line components as their own small equipment.
 
     Off by default, because a real P&ID carries dozens of valves per unit and they would otherwise
-    flood the equipment listing and the mass rollup. When it is on, each component gets its own
-    catalog entry with ports generated from its actual connection nodes -- so it is a real placed
-    object with real nozzles, just not one the run passes through.
+        flood the equipment listing and the mass rollup. When it is on, each component gets its own
+        catalog entry with ports generated from its actual connection nodes -- so it is a real placed
+        object with real nozzles, just not one the run passes through.
     """
-    taken = set(names.values())
     flow = connection_flow(doc)
     out: list[LayoutItem] = []
     for spec in segments:
         for component in spec.components:
-            base = (component.tag or slugify(component.class_name) or component.id).strip()
-            name = base
-            suffix = 1
-            while name in taken:
-                suffix += 1
-                name = f"{base}-{suffix}"
-            taken.add(name)
+            name = _unique_name((component.tag or slugify(component.class_name) or component.id).strip(), taken)
 
             specs = [
                 nozzle_from_node(node, owner_class=component.class_name, flow=flow.get(node.id))
@@ -575,7 +668,11 @@ def _system_name(doc: DexpiDocument, segment: DexpiItem) -> str:
 
 
 def _segment_spec(
-    doc: DexpiDocument, segment: DexpiItem, index: _Index, report: DexpiImportReport
+    doc: DexpiDocument,
+    segment: DexpiItem,
+    index: _Index,
+    report: DexpiImportReport,
+    junctions: dict[str, list[str]],
 ) -> _SegmentSpec | None:
     """One segment as a system entity, or None with a reported reason.
 
@@ -585,15 +682,21 @@ def _segment_spec(
     three-ended one is a branch, which :func:`~ada.topology.routing.route_system` has no concept of.
     """
     name = _system_name(doc, segment)
-    # An off-page connector is composed INTO the segment in a real Proteus file, and it is still an
-    # end of the run rather than something the run passes through -- so it is deliberately not
-    # counted as interior. Everything else inside the segment is.
+    # Two kinds of child are ends of the run rather than something it passes through, and so are
+    # deliberately not counted as interior. An off-page connector, which a real Proteus file
+    # composes INTO the segment; and a branch point (see
+    # :func:`~ada.cadit.dexpi.equipment_list.branch_points`), which is where this run stops and the
+    # next one starts -- the segment that happens to own the tee in the file has
+    # no more claim to route through it than the two that reference it from outside. Everything
+    # else inside the segment is interior.
     inner = {segment.id} | {
         item_id
         for item_id in _descendants(doc, segment.id)
-        if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR
+        if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR and item_id not in junctions
     }
-    components = [item for item in doc.children(segment.id) if item.kind is ItemKind.PIPING_COMPONENT]
+    components = [
+        item for item in doc.children(segment.id) if item.kind is ItemKind.PIPING_COMPONENT and item.id not in junctions
+    ]
 
     ends: list[_Endpoint] = []
     for connection in doc.connections:

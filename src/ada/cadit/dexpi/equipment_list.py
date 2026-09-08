@@ -37,13 +37,14 @@ from ada.serialize.xlsx import WorkbookSerializer
 
 from . import attributes, class_table
 from .equipment_defaults import build_default_doc
-from .model import DexpiDocument, DexpiItem
+from .model import DexpiDocument, DexpiItem, ItemKind
 from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node, port_names
 
 __all__ = [
     "EquipmentTypeRow",
     "NozzleRow",
     "ResolvedEquipment",
+    "branch_points",
     "connection_flow",
     "definition_slug",
     "dexpi_equipment_resolver",
@@ -151,6 +152,37 @@ def equipment_items(doc: DexpiDocument) -> list[DexpiItem]:
         if any(class_table.is_a(a.class_name, "ProcessEquipment") for a in doc.ancestors(item.id))
     }
     return sorted((item for item in out if item.id not in owned), key=lambda item: item.id)
+
+
+def branch_points(doc: DexpiDocument) -> dict[str, list[str]]:
+    """Branch points: in-line fitting ID -> the IDs of the segments meeting at it, in ID order.
+
+    A ``PipeTee`` (or any other passive fitting) that more than one ``PipingNetworkSegment`` names
+    as a connection end is a junction, and it is a *different* problem from "no branch support". The
+    3-way junction itself genuinely cannot be one routed system -- ``ada.topology.routing`` has no
+    such concept, and one system per segment is the answer to that. But each individual run into or
+    out of the tee is an ordinary two-ended run; it only failed to import because its end named a
+    fitting, which is neither a nozzle nor an equipment. So the importer materialises the fitting as
+    a small equipment with a port per connection node and all of them resolve.
+
+    A fitting referenced by exactly one segment is **not** a junction: it is an ordinary in-line
+    component the run passes through, and it stays interior to that run (carried as metadata, or as
+    its own equipment under ``inline_components="equipment"``).
+
+    Lives here, next to :func:`equipment_items`, because the rule has to be *identical* on both
+    sides: the importer places these as equipment and the merge writer has to recognise the same
+    ones on the way back out, or a round-trip rewrites a ``PipeTee`` as a new ``ProcessEquipment``.
+    """
+    owners: dict[str, set[str]] = {}
+    for connection in doc.connections:
+        owner = doc.items.get(connection.owner_id) if connection.owner_id else None
+        if owner is None or owner.kind is not ItemKind.PIPING_SEGMENT:
+            continue
+        for item_id in (connection.from_item, connection.to_item):
+            item = doc.items.get(item_id) if item_id else None
+            if item is not None and item.kind is ItemKind.PIPING_COMPONENT:
+                owners.setdefault(item.id, set()).add(owner.id)
+    return {item_id: sorted(segments) for item_id, segments in sorted(owners.items()) if len(segments) > 1}
 
 
 def connection_flow(doc: DexpiDocument) -> dict[str, str]:

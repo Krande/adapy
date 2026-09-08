@@ -67,10 +67,10 @@ Reading a P&ID
     )
 
     print(sorted(eq.name for eq in a.get_all_parts_in_assembly() if isinstance(eq, ada.Equipment)))
-    # ['E-201', 'P-201A', 'P-201B', 'V-201']
+    # ['E-201', 'P-201A', 'P-201B', 'TE-203', 'TE-204', 'V-201']
 
     print(sorted(s.name for s in a.systems))
-    # ['201/1', '202/1', '206/1']
+    # ['201/1', '202/1', '203/1', '203/2', '203/3', '204/1', '204/2', '204/3', '206/1']
 
     a.to_ifc("separator_unit.ifc")
 
@@ -80,7 +80,10 @@ Three steps happen inside (:mod:`ada.cadit.dexpi.read.to_procedural`):
    then per-class override, then the shipped class default -- to an envelope, an IFC class and a
    port per actual nozzle, placed on the box by a class-specific strategy (``vessel``/``pump``/
    ``exchanger``/``generic``). A nested ``Chamber`` (a separator's boot) folds into its owning
-   equipment rather than becoming an asset of its own.
+   equipment rather than becoming an asset of its own. A **branch point** -- an in-line fitting
+   that more than one segment ends at, typically a ``PipeTee`` -- is materialised too, as a small
+   ``IfcPipeFitting`` with one port per connection node; ``TE-203`` and ``TE-204`` above are the
+   two in this file, and they are why the runs through them exist at all.
 2. **Layout.** The resolved envelopes go to :func:`ada.topo_model.layout.plan_layout`, which
    generates deck spaces and shelf-packs equipment onto them -- see *The generated layout is not a
    plot plan*, below.
@@ -90,24 +93,28 @@ Three steps happen inside (:mod:`ada.cadit.dexpi.read.to_procedural`):
    ``PipingNetworkSystem`` survives as the run's medium and provenance metadata.
 
 The above example is the checked-in ``unit_separator_proteus.xml`` fixture, and it is a good
-illustration of an honest gap, not a cherry-picked clean run: only 3 of its 9 DEXPI segments turn
-into routed systems, because six of them run through a real pipe branch (``PipeTee``) rather than
-ending at a nozzle, equipment or off-page connector --
-:func:`~ada.topology.routing.route_system` routes exactly ``ports[0] -> ports[-1]`` and has no
-branch/tee support at all (see the gap table below). **Nothing is dropped silently**: every system
-or equipment that did not reach the 3D model is collected into
-``assembly.metadata["dexpi"]["report"]`` and summarised in one ``logger.warning`` line;
-:func:`~ada.cadit.dexpi.read.to_procedural.dexpi_import_report` renders it as a table:
+illustration of an honest gap, not a cherry-picked clean run: 9 of its 10 DEXPI segments turn into
+routed systems and the tenth is reported rather than dropped. That last one, ``205/1``, is a relief
+valve discharging to something the P&ID does not draw -- a genuinely one-ended run, and
+:func:`~ada.topology.routing.route_system` routes exactly ``ports[0] -> ports[-1]``, so there is
+nothing to route it to. **Nothing is dropped silently**: every system or equipment that did not
+reach the 3D model is collected into ``assembly.metadata["dexpi"]["report"]`` and summarised in one
+``logger.warning`` line; :func:`~ada.cadit.dexpi.read.to_procedural.dexpi_import_report` renders it
+as a table:
 
 .. code-block:: text
 
-    7 of 3 system(s) and 0 of 4 equipment did not reach the 3D model:
+    1 of 10 system(s) and 0 of 6 equipment did not reach the 3D model:
 
     Kind    Name   Stage         Reason
-    ------  -----  ------------  ------------------------------------------------------------------
-    system  203/1  connectivity  1 endpoint(s) outside the segment; a routed run needs exactly two
-    system  203/2  connectivity  from end: PipeTee 'PipeTee-1' is not a nozzle, equipment or off-page connector
-    ...
+    ------  -----  ------------  -----------------------------------------------------------------
+    system  205/1  connectivity  1 endpoint(s) outside the segment; a routed run needs exactly two
+
+Six of those nine runs meet at one of the file's two tees, and used to be lost with them: a segment
+whose end names a ``PipeTee`` names neither a nozzle nor an equipment nor an off-page connector.
+The junction itself still never becomes one system -- ``route_system`` has no branch concept, and
+that is why there is one system per DEXPI segment -- but each run *into* a junction is an ordinary
+two-ended run once the fitting it ends at is a real placed object with real ports.
 
 Pass ``strict=True`` to raise instead of returning a partially-built model with a warning. Other
 useful arguments: ``definitions`` (the equipment override list, see below), ``base_doc`` (merge onto
@@ -178,8 +185,11 @@ What is modelled, what is not
        placement rule); ``Nozzle`` -> ``Port`` (flow direction, DN, spec, category, with the
        ``Nozzle``-is-not-electrical rule above); ``Chamber`` -> nested equipment (folded into its
        owner); ``PipingNetworkSegment`` -> a two-ended ``TopoSystem``/piping system; the connection
-       graph; ``PipeOffPageConnector`` -> a site terminal; in-line components (as run metadata by
-       default, or opt-in equipment); ``TagName``/``LineNumber``/``FluidCode``/``PipingClassCode``/
+       graph; ``PipeOffPageConnector`` -> a site terminal; a branch point (a passive fitting more
+       than one segment ends at, e.g. a ``PipeTee``) -> an ``IfcPipeFitting`` equipment with a port
+       per connection node, so each run meeting there stays two-ended and routes; in-line components
+       (as run metadata by default, or opt-in equipment);
+       ``TagName``/``LineNumber``/``FluidCode``/``PipingClassCode``/
        nominal diameter; every import gap collected into ``assembly.metadata["dexpi"]["report"]``
        rather than dropped silently.
    * - Deferred to metadata + verbatim echo
@@ -197,10 +207,13 @@ What is modelled, what is not
        DEXPI-driven duct systems (a P&ID has no ducting concept at all -- ``"duct"`` is only ever
        produced when a definition list marks a line as one); routing across multiple decks with
        vertical shafts; feeding ``relocate.propose_relocations`` back into the layout automatically
-       when a run fails to route; a DEXPI segment that ends at a ``PipeTee`` rather than a nozzle,
-       equipment or off-page connector (see the worked example above) -- this needs branch/tee
-       support in ``route_system`` that does not exist yet, so such segments land in the import
-       report rather than the model.
+       when a run fails to route; a genuinely one-ended segment -- a relief valve discharging to
+       something the P&ID does not draw (``205/1`` in the worked example above) -- which has nothing
+       to route to and so lands in the import report rather than the model; routing a junction as
+       *one* branched system rather than as the several two-ended runs that meet at it, which needs
+       branch/tee support in ``route_system`` that does not exist yet (the runs themselves do route
+       -- see the branch-point row above -- but no single ``System`` spans the tee, and no fitting
+       geometry is modelled at the junction beyond the placed ``IfcPipeFitting`` box).
    * - Never
      - Live RDL registry lookups (the symbol table ships with an out-of-tree package adapy does not
        depend on); XSD validation of DEXPI 2.0 (would need ``lxml``/``xmlschema`` -- structural
@@ -211,7 +224,9 @@ Two real adapy gaps surfaced by this work, worth naming rather than working arou
 ``ada.Equipment`` has no placement frame, so ``Port.get_global_position`` ignores rotation (harmless
 today because equipment rotation is baked into each port's position when it is placed); and
 ``route_system`` has no branch/tee support, which is the reason a DEXPI segment must be two-ended to
-route at all -- see the worked example above.
+route at all. The second is worked around rather than closed: materialising a branch point as
+equipment gives every run at a tee two real ends, but the tee is still three runs meeting at a box,
+not one branched system.
 
 Writing back to DEXPI
 ------------------------

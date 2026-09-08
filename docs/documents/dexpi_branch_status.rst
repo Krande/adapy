@@ -19,6 +19,7 @@ As of this writing the branch carries:
 
 .. code-block:: text
 
+    fix(dexpi): route the runs that meet at a shared PipeTee
     feat(dexpi): merge writer, Assembly.to_dexpi, pickle case (PR 10)
     fix(dexpi): import report summary compared dropped count against the wrong denominator
     feat(dexpi): corpus fetch script, guarded corpus test, gap-report docs (PR 11)
@@ -39,10 +40,9 @@ tests/core/systems`` passes in full, ``pixi run lint-check`` is clean, and the b
 ``main`` has been grepped for local paths, usernames, host names and organisation identifiers with
 zero hits at every checkpoint.
 
-**A fix for a real bug found by manually running the flagship example may be in flight when you
-read this** -- check the git log for a commit touching
-``src/ada/cadit/dexpi/read/to_procedural.py`` after the ones listed above, and see "Known gap:
-branch points at passive fittings" below before assuming it is still open.
+The branch-point bug that was open when the first version of this document was written has since
+been fixed -- see "A shared branch point is not the same problem as no branch support" below, which
+now records what the fix turned out to involve rather than what still had to be done.
 
 The one pre-existing, unrelated test failure on a Windows checkout with a non-UTF-8 default
 codepage is ``tests/core/cadit/step/test_ada_ext_codegen.py::test_ada_ext_header_matches_schema``
@@ -151,16 +151,42 @@ Deck pitch is uniform across a layout plan, not chosen per deck
 A shared branch point (e.g. a ``PipeTee``) is not the same problem as "no branch support"
     ``route_system`` genuinely cannot route a 3+-way junction as one system, and the plan's
     segment-per-system design is the right answer to that. But a passive fitting referenced as an
-    endpoint by *more than one* ``PipingNetworkSegment`` is a different case: it needs a small
-    materialised equipment-with-ports at the junction so each segment still resolves as a proper
-    two-ended run. This was found by running the checked-in realistic fixture
+    endpoint by *more than one* ``PipingNetworkSegment`` is a different case: each run *into* the
+    junction is an ordinary two-ended run, and only failed because its end named a fitting rather
+    than a nozzle. **Fixed** (see the commit at the top of the log above): the importer materialises
+    such a fitting as a small ``IfcPipeFitting`` equipment with one port per connection node, and the
+    flagship fixture went from 3 of 10 runs routed to 9 of 10. The tenth, ``205/1``, is not a branch
+    point at all -- it is a relief valve discharging to something the P&ID never draws, so it has one
+    end and is correctly reported instead of routed.
+
+    This was found by running the checked-in realistic fixture
     (``files/dexpi_files/unit_separator_proteus.xml``) end to end with the default layout -- it has
     two such tees -- something none of the automated tests happened to exercise, because the
     importer's own test fixture and the example-file generator's fixture were built by different
-    people at different times and never run together until this was checked by hand. **Check the
-    git log to see whether the fix for this landed** (a commit touching
-    ``read/to_procedural.py`` after PR 10); if not, it is the next thing to do, and the brief that
-    was written for it is preserved in git history / on the task that produced this document.
+    people at different times and never run together until this was checked by hand.
+
+Three things about the branch-point fix that are not obvious from the diff
+    First, the segment that *nests* the tee in the XML has no more claim to route through it than
+    the two that reference it from outside, so the junction has to be pulled out of that segment's
+    interior set as well. Miss that half and the two outside runs resolve while the nesting one is
+    still reported as having a single endpoint -- which is exactly how the original symptom split
+    into two different-looking report lines for the same cause.
+
+    Second, **the merge writer has to know the same rule**. A materialised tee is an ``ada.Equipment``
+    whose name is a tag the source's ``equipment_items`` never yields, so the writer took it for
+    equipment adapy had authored and minted a fresh ``ProcessEquipment`` for it, rewriting the tee
+    and every connection into it on an unedited round-trip. The rule therefore lives in
+    ``equipment_list.branch_points`` -- one definition, imported by both sides -- and
+    ``from_ada._segment_boundary`` excludes junctions exactly the way
+    ``to_procedural._segment_spec`` does. The naming pool has to be shared too (one
+    ``_source_identity`` pass, equipment then junctions), or a tee tagged like a vessel comes back
+    under a different name than the live object carries.
+
+    Third, "reported as connected" and "geometrically connected" are different claims, and only the
+    second is worth having. ``test_branch_points.py`` therefore checks the routed pipe ends land
+    *on* the tee's port positions (they do, to 1e-9 m) and that the three ports are taken by three
+    different runs -- a wiring-only assertion passes happily when all three runs resolve to the same
+    port and three pipes converge on one point.
 
 Process notes for whoever continues this
 -------------------------------------------
