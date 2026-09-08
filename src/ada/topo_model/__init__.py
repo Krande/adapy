@@ -40,6 +40,14 @@ from .engine_catalog import (
 from .equipment import create_pump, create_switchboard, create_tank
 from .excel import ProceduralModelMeta
 from .jacket import JacketStru
+from .layout import (
+    LayoutItem,
+    LayoutPlan,
+    LayoutRules,
+    apply_layout,
+    plan_layout,
+    validate_equipment_in_cells,
+)
 from .penetration import (
     PenetrationBlueprintBase,
     StandardPenetrations,
@@ -55,6 +63,9 @@ __all__ = [
     "DESIGN_RULESETS",
     "EquipmentType",
     "JacketStru",
+    "LayoutItem",
+    "LayoutPlan",
+    "LayoutRules",
     "PenetrationBlueprintBase",
     "ProceduralBuilder",
     "ProceduralCatalog",
@@ -62,6 +73,7 @@ __all__ = [
     "StandardPenetrations",
     "SteelStru",
     "SystemTemplate",
+    "apply_layout",
     "build_routing_grid",
     "build_topo_model",
     "build_topo_model_with_systems",
@@ -71,6 +83,7 @@ __all__ = [
     "design_ruleset_specs",
     "detailing_engine_specs",
     "make_space_boxes",
+    "plan_layout",
     "procedural_blueprint_specs",
     "procedural_cell_type_specs",
     "procedural_engine_specs",
@@ -88,4 +101,5 @@ __all__ = [
     "run_self_collides",
     "standard_design_rules",
     "standard_penetration_modeller",
+    "validate_equipment_in_cells",
 ]
