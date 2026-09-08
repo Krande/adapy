@@ -68,6 +68,7 @@ IFC and various Finite Element formats.
     :caption: Ongoing Work
 
     documents/ifc_database
+    documents/dexpi_branch_status
 
 .. toctree::
     :hidden:
