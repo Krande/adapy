@@ -130,7 +130,7 @@ def test_both_halves_are_reported_independently(admin_client):
     Collapsing that into one flag would leave an operator unable to tell
     whether the pending entry they were looking at actually went away."""
     client, state = admin_client
-    state["cancelled"] = False           # row already terminal or missing …
+    state["cancelled"] = False  # row already terminal or missing …
     client.app.state.queue = _FakeQueue(present=True)  # … but the KV entry lingers
 
     r = client.post(CANCEL.format("job-123"))

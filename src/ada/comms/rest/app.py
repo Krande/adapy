@@ -651,6 +651,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 },
                 "viewerImageTag": viewer_tag,
                 "workerImageTag": worker_tag,
+                # The adapy git ref this image was built from. Neither
+                # identifier above can carry it: viewerImageTag is the
+                # ASSEMBLING repo's commit, and the version is stamped from
+                # adapy's last release tag -- so a branch cut from a release
+                # with no version bump is indistinguishable from the release,
+                # and which one is deployed lives only in the inputs of
+                # whichever CI run built it. Empty on a build not told.
+                "adapyBuildRef": os.environ.get("ADA_ADAPY_REF", "").strip() or None,
                 "extraSourceExts": extra_source_exts,
                 "streamingOnlyExts": streaming_only_exts,
                 "conversionMatrix": conversion_matrix,
@@ -8825,9 +8833,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             purged,
             local_cancelled,
         )
-        return JSONResponse(
-            {"job_id": job_id, "cancelled": cancelled or local_cancelled, "purged": purged}
-        )
+        return JSONResponse({"job_id": job_id, "cancelled": cancelled or local_cancelled, "purged": purged})
 
     # ── Admin storage view ──────────────────────────────────────────
     #
@@ -9097,6 +9103,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_SCOPE = {_json.dumps(a.scope)};\n"
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
+            # See the Build: line in the Options panel. Emitted even when
+            # empty, so a viewer that simply was not told is distinguishable
+            # from one running an older image that could not have been.
+            f"window.ADAPY_BUILD_REF = {_json.dumps(os.environ.get('ADA_ADAPY_REF', '').strip() or None)};\n"
             f"window.ADAPY_VERSION = {_json.dumps(adapy_version)};\n"
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"

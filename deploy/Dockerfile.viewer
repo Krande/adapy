@@ -118,9 +118,23 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 # python, deps), so no pixi binary needed at runtime.
 FROM debian:bookworm-slim AS runtime
 ARG IMAGE_TAG=dev
+# WHICH ADAPY THIS IS, which nothing else in the image can answer.
+#
+# IMAGE_TAG is set by whatever assembles the image, and for a composed
+# deployment that is the assembling repo's commit, not adapy's. The version the
+# viewer reports is stamped from adapy's last RELEASE TAG. So an image built
+# from a branch cut off `v0.64.1` with no version bump reports `0.64.1` and the
+# assembler's commit -- character for character what an image built from the
+# release tag reports. Which one is actually deployed then exists nowhere in
+# the running system, only in the inputs of whichever CI run produced it.
+#
+# Empty by default: a local `docker build` that was not told anything says
+# nothing, rather than claiming a ref it cannot know.
+ARG ADAPY_REF=""
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    ADA_IMAGE_TAG=${IMAGE_TAG}
+    ADA_IMAGE_TAG=${IMAGE_TAG} \
+    ADA_ADAPY_REF=${ADAPY_REF}
 WORKDIR /app
 
 COPY --from=env-builder /work/.pixi/envs/viewer-api-slim /env
