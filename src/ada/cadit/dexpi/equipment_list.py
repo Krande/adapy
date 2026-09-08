@@ -27,6 +27,7 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
+from dataclasses import dataclass
 from typing import Annotated, Any, Callable, ClassVar, Literal
 
 from pydantic import BaseModel, Field
@@ -37,17 +38,20 @@ from ada.serialize.xlsx import WorkbookSerializer
 from . import attributes, class_table
 from .equipment_defaults import build_default_doc
 from .model import DexpiDocument, DexpiItem
-from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node
+from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node, port_names
 
 __all__ = [
     "EquipmentTypeRow",
     "NozzleRow",
+    "ResolvedEquipment",
+    "connection_flow",
     "definition_slug",
     "dexpi_equipment_resolver",
     "equipment_items",
     "load_equipment_definitions",
     "merge_definitions",
     "nozzle_specs_for",
+    "resolve_equipment",
     "write_equipment_definitions",
 ]
 
@@ -149,7 +153,29 @@ def equipment_items(doc: DexpiDocument) -> list[DexpiItem]:
     return sorted((item for item in out if item.id not in owned), key=lambda item: item.id)
 
 
-def nozzle_specs_for(doc: DexpiDocument, item: DexpiItem) -> list[NozzleSpec]:
+def connection_flow(doc: DexpiDocument) -> dict[str, str]:
+    """Nozzle/node ID -> ``"in"`` or ``"out"``, derived from the connectivity graph.
+
+    Proteus records a node's flow direction on the node itself (``@FlowIn``/``@FlowOut``); **DEXPI
+    2.0 records none at all** -- direction is implied by which end of a ``Pipe`` the node sits on.
+    So the graph is asked instead: an item at the SOURCE end of a connection has fluid leaving it
+    (an outlet), one at the TARGET end has fluid arriving (an inlet). Used only as the fallback for
+    a node that does not declare its own flow, so a Proteus document is unaffected and a 2.0 one
+    stops producing nothing but ``INOUT`` ports.
+    """
+    out: dict[str, str] = {}
+    for connection in doc.connections:
+        for item_id, node_id, flow in (
+            (connection.from_item, connection.from_node, "out"),
+            (connection.to_item, connection.to_node, "in"),
+        ):
+            for key in (item_id, node_id):
+                if key is not None:
+                    out.setdefault(key, flow)
+    return out
+
+
+def nozzle_specs_for(doc: DexpiDocument, item: DexpiItem, flow: dict[str, str] | None = None) -> list[NozzleSpec]:
     """Every connection of ``item``, ready to place.
 
     Nozzles on the item's chambers are included: a separator's boot is part of the separator as far
@@ -157,17 +183,41 @@ def nozzle_specs_for(doc: DexpiDocument, item: DexpiItem) -> list[NozzleSpec]:
     not descended into -- that gets its own definition. An item that carries its connection nodes
     directly, with no ``Nozzle`` children at all, contributes those nodes instead, so a piping-only
     file still yields ports.
+
+    ``flow`` is the :func:`connection_flow` fallback for nozzles whose nodes do not declare a
+    direction of their own.
     """
     specs: list[NozzleSpec] = []
+    flow = flow or {}
     spec_code = attributes.spec_of(item)
     for owner in _owned(doc, item):
         children = [child for child in doc.children(owner.id) if class_table.is_a(child.class_name, "Nozzle")]
         for child in sorted(children, key=lambda child: child.id):
-            specs.append(nozzle_from_item(child, spec=attributes.spec_of(child) or spec_code))
+            specs.append(
+                nozzle_from_item(
+                    child,
+                    spec=attributes.spec_of(child) or spec_code,
+                    flow=_flow_of(flow, child.id, *(node.id for node in child.process_nodes)),
+                )
+            )
         if not children:
             for node in owner.process_nodes:
-                specs.append(nozzle_from_node(node, owner_class=owner.class_name, spec=spec_code))
+                specs.append(
+                    nozzle_from_node(
+                        node,
+                        owner_class=owner.class_name,
+                        spec=spec_code,
+                        flow=_flow_of(flow, node.id),
+                    )
+                )
     return specs
+
+
+def _flow_of(flow: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        if key in flow:
+            return flow[key]
+    return None
 
 
 def _owned(doc: DexpiDocument, item: DexpiItem) -> list[DexpiItem]:
@@ -179,8 +229,25 @@ def _owned(doc: DexpiDocument, item: DexpiItem) -> list[DexpiItem]:
     return out
 
 
-def merge_definitions(dexpi_doc: DexpiDocument, overrides: Any = None) -> dict[str, dict]:
-    """Resolve every equipment in ``dexpi_doc`` to a catalog document, ``{slug: doc}``.
+@dataclass(frozen=True)
+class ResolvedEquipment:
+    """One DEXPI item and everything the importer needs to place and wire it.
+
+    ``slug`` is the catalog key (and so the value of ``TopoEquipment.DESCRIPTION``); ``doc`` is the
+    validated catalog document; ``ports`` maps each nozzle's DEXPI ID to the port name the document
+    actually carries. That last map is the reason this exists rather than a bare ``{slug: doc}``:
+    a connection in the P&ID names a *nozzle*, a run in adapy names a *port*, and only the placer
+    knows which name a nozzle ended up with once duplicate tags were deduplicated.
+    """
+
+    item: DexpiItem
+    slug: str
+    doc: dict
+    ports: dict[str, str]
+
+
+def resolve_equipment(dexpi_doc: DexpiDocument, overrides: Any = None) -> list[ResolvedEquipment]:
+    """Resolve every equipment in ``dexpi_doc``, in the order :func:`equipment_items` gives them.
 
     ``overrides`` is a definition list -- a path to a JSON/XLSX file, an already-loaded dict, or
     None. Its keys are matched against the item's tag first and its DEXPI class second, so a
@@ -190,7 +257,8 @@ def merge_definitions(dexpi_doc: DexpiDocument, overrides: Any = None) -> dict[s
     enforces, so nothing that leaves here can fail later inside the compiler.
     """
     table = _as_definitions(overrides)
-    out: dict[str, dict] = {}
+    flow = connection_flow(dexpi_doc)
+    out: list[ResolvedEquipment] = []
     used: set[str] = set()
 
     for item in equipment_items(dexpi_doc):
@@ -201,20 +269,56 @@ def merge_definitions(dexpi_doc: DexpiDocument, overrides: Any = None) -> dict[s
         per_class = _lookup(table, class_name, item.class_name)
         per_tag = _lookup(table, tag, slug)
 
+        specs = nozzle_specs_for(dexpi_doc, item, flow)
         # Geometry first: ports are generated against the FINAL envelope, so an override that
         # resizes the box without listing ports still gets nozzles that sit on it.
         doc = build_default_doc(
             class_name,
-            nozzle_specs_for(dexpi_doc, item),
+            specs,
             bbox=_first(per_tag, per_class, "bbox"),
             strategy=_first(per_tag, per_class, "nozzle_layout"),
             tag=tag,
             dexpi_id=item.id,
         )
+        ports = port_names(specs)
         for override in (per_class, per_tag):
             doc.update(copy.deepcopy(override))
-        out[slug] = validate_equipment_doc(doc)
+            # An override that supplies its own ports replaces the generated list outright, so the
+            # generated nozzle map no longer describes the document; fall back to matching a
+            # nozzle to the port carrying its tag, and report nothing where even that fails.
+            if override.get("ports") is not None:
+                ports = _ports_by_tag(specs, doc.get("ports") or [])
+        out.append(ResolvedEquipment(item=item, slug=slug, doc=validate_equipment_doc(doc), ports=ports))
     return out
+
+
+def _ports_by_tag(specs: list[NozzleSpec], ports: list[dict]) -> dict[str, str]:
+    """Nozzle ID -> port name, matched on tag then on name, for a hand-written port list.
+
+    A definition list that spells its own ports out is authoritative, and its author is free to
+    name them anything; this is the best honest guess at which nozzle each one answers for. A
+    nozzle with no match is simply absent, which surfaces as a reported endpoint rather than a
+    connection to a port that does not exist.
+    """
+    by_tag = {str(port.get("tag")): port["name"] for port in ports if port.get("tag")}
+    by_name = {port["name"]: port["name"] for port in ports}
+    out: dict[str, str] = {}
+    for spec in specs:
+        match = by_tag.get(str(spec.tag)) if spec.tag else None
+        match = match if match is not None else by_name.get(spec.name)
+        if match is not None:
+            out[spec.id] = match
+    return out
+
+
+def merge_definitions(dexpi_doc: DexpiDocument, overrides: Any = None) -> dict[str, dict]:
+    """Every equipment in ``dexpi_doc`` as a catalog, ``{slug: document}``.
+
+    The catalog shape :class:`~ada.topo_model.builder.ProceduralBuilder` resolves against; see
+    :func:`resolve_equipment` for the same answer with the source item and the nozzle-to-port map
+    still attached.
+    """
+    return {resolved.slug: resolved.doc for resolved in resolve_equipment(dexpi_doc, overrides)}
 
 
 def dexpi_equipment_resolver(dexpi_doc: DexpiDocument, overrides: Any = None) -> Callable[[str], dict | None]:

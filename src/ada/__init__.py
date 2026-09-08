@@ -91,7 +91,9 @@ configure_logger()
 
 
 from ada.factories import (  # noqa: E402 - imported after the API symbols the factories use
+    dexpi_to_procedural,
     from_acis,
+    from_dexpi,
     from_fem,
     from_fem_res,
     from_genie_xml,
@@ -115,6 +117,8 @@ __all__ = [
     "from_acis",
     "from_pickle",
     "from_genie_xml",
+    "from_dexpi",
+    "dexpi_to_procedural",
     "from_fem_res",
     "logger",
     "Beam",

@@ -44,6 +44,7 @@ __all__ = [
     "nozzle_from_item",
     "nozzle_from_node",
     "place_nozzles",
+    "port_names",
 ]
 
 # Height fractions of the envelope reserved per service, so a signal connection can never land on
@@ -161,28 +162,40 @@ def nozzle_from_node(
     tag: str | None = None,
     spec: str | None = None,
     category: str | None = None,
+    flow: str | None = None,
 ) -> NozzleSpec:
     """A :class:`NozzleSpec` for a bare connection node -- an item whose connection points are on
-    the item itself rather than on child ``Nozzle`` objects."""
+    the item itself rather than on child ``Nozzle`` objects.
+
+    ``flow`` is the fallback used when the node itself does not declare one; see
+    :func:`nozzle_from_item` for why it exists.
+    """
     node_tag = tag if tag is not None else node.tag
     return NozzleSpec(
         id=node.id,
         name=slugify(name or node_tag or node.id) or slugify(node.id) or "port",
         tag=node_tag,
         category=category or category_for(owner_class, node.node_type),
-        direction=direction_for(node.flow),
+        direction=direction_for(node.flow or flow),
         nominal_diameter=node.nominal_diameter,
         spec=spec,
         hint=_hint(node),
     )
 
 
-def nozzle_from_item(item: DexpiItem, *, spec: str | None = None) -> NozzleSpec:
+def nozzle_from_item(item: DexpiItem, *, spec: str | None = None, flow: str | None = None) -> NozzleSpec:
     """A :class:`NozzleSpec` for a DEXPI ``Nozzle`` item.
 
     Tag, nominal diameter and piping class come off the nozzle's own attributes; flow comes from
     its first process node, which is where Proteus records ``FlowIn``/``FlowOut``. The anchor node
     is skipped -- it is the symbol's insertion point, not a connection.
+
+    ``flow`` (``"in"``/``"out"``) is the fallback for when the node does not declare one, and it is
+    not an optional nicety: **DEXPI 2.0 has no** ``FlowIn``/``FlowOut`` **at all** -- direction is
+    implied by which end of a ``Pipe`` a node sits on -- so without it every port of a 2.0 document
+    would come out ``INOUT`` and every vessel would have its feed and its draw-off on the shell.
+    :func:`ada.cadit.dexpi.equipment_list.connection_flow` derives the fallback from the
+    connectivity, which answers for both flavours.
     """
     node = next(iter(item.process_nodes), None)
     tag = item.tag
@@ -191,7 +204,7 @@ def nozzle_from_item(item: DexpiItem, *, spec: str | None = None) -> NozzleSpec:
         name=slugify(tag or item.id) or slugify(item.id) or "port",
         tag=tag,
         category=category_for(item.class_name, node.node_type if node is not None else None),
-        direction=direction_for(node.flow if node is not None else None),
+        direction=direction_for((node.flow if node is not None else None) or flow),
         nominal_diameter=attributes.nominal_diameter_of(item),
         spec=spec if spec is not None else attributes.spec_of(item),
         hint=_hint(node) if node is not None else None,
@@ -222,7 +235,7 @@ def place_nozzles(
         raise ValueError(f"unknown nozzle-layout strategy {strategy!r} (known: {sorted(PLACERS)})")
 
     lx, ly, lz = _envelope(bbox)
-    ordered = sorted(nozzles, key=lambda spec: _sort_key(spec.id))
+    ordered = _ordered(nozzles)
     if not ordered:
         return []
 
@@ -249,9 +262,26 @@ def place_nozzles(
     return ports
 
 
+def port_names(nozzles: Iterable[NozzleSpec]) -> dict[str, str]:
+    """Nozzle ID -> the port name :func:`place_nozzles` emits for that nozzle.
+
+    The importer writes ``SystemConnection.PORT`` from this map, so a run's endpoint names the same
+    string the catalog document does and the wiring is name-matched end to end. It has to be asked
+    for rather than assumed, because :func:`place_nozzles` deduplicates: two nozzles sharing a tag
+    do not both keep it, and only the placer knows which one won.
+    """
+    ordered = _ordered(nozzles)
+    return dict(zip((spec.id for spec in ordered), _unique_names(ordered)))
+
+
 # ---------------------------------------------------------------------------
 # Ordering and naming
 # ---------------------------------------------------------------------------
+def _ordered(nozzles: Iterable[NozzleSpec]) -> list[NozzleSpec]:
+    """The nozzles in the one order everything downstream assumes: by ID, naturally sorted."""
+    return sorted(nozzles, key=lambda spec: _sort_key(spec.id))
+
+
 def _sort_key(value: str) -> tuple:
     """Natural sort key: ``N2`` before ``N10``, and total over any pair of strings.
 
