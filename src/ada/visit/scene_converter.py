@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, OrderedDict
 
+from ada.config import logger
 from ada.core.guid import create_guid
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
@@ -62,6 +63,12 @@ class SceneConverter:
     # Picked well above any plausible real bufferView count so the
     # postprocessor can detect them unambiguously.
     _LINEAGE_PLACEHOLDER_BASE = 2_000_000_000
+
+    # Memoised quantity take-off (``asset.extras["model_stats"]``). The
+    # ``_done`` flag rather than a None check, so a source that legitimately has
+    # no take-off is not recomputed on every export.
+    _model_stats: dict | None = field(default=None, init=False, repr=False)
+    _model_stats_done: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
@@ -303,10 +310,54 @@ class SceneConverter:
             self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
             self._update_extensions(tree)
 
-        if self.params.gltf_asset_extras_dict is not None:
-            extras = tree.get("asset", {}).get("extras", {})
-            extras.update(self.params.gltf_asset_extras_dict)
-            tree["asset"]["extras"] = extras
+        extras_updates: dict = {}
+        if self.params.embed_model_stats:
+            model_stats = self.build_model_stats()
+            if model_stats is not None:
+                extras_updates["model_stats"] = model_stats
+        explicit_extras = self.params.gltf_asset_extras_dict
+        if explicit_extras is not None:
+            # An explicit extras dict wins over the computed take-off, so a
+            # caller can override or blank out ``model_stats`` if it needs to.
+            extras_updates.update(explicit_extras)
+        if explicit_extras is not None or extras_updates:
+            asset = tree.setdefault("asset", {})
+            extras = asset.get("extras") or {}
+            extras.update(extras_updates)
+            asset["extras"] = extras
+
+    def build_model_stats(self) -> dict | None:
+        """Discipline-organised quantity take-off for a Part/Assembly source.
+
+        The GLB carries only triangles, so per-discipline mass / centre-of-
+        gravity / beam-and-plate quantities can only come from the structured
+        model. The hosted (REST) viewer gets these from a ``.stats.json``
+        sidecar written by the compile worker; on the local ``.show()`` path
+        there is no server, so we embed the same document in the GLB itself
+        (``asset.extras["model_stats"]``) and the viewer reads it from there.
+
+        Returns ``None`` for non-Part sources (FEA results, raw scenes) and for
+        a take-off that raised — statistics are a nicety, never a reason for a
+        render to fail."""
+        if self._model_stats_done:
+            return self._model_stats
+
+        self._model_stats_done = True
+
+        from ada import Assembly, Part
+
+        if not isinstance(self.source, (Part, Assembly)):
+            return None
+
+        try:
+            from ada.topo_model.takeoff import model_takeoff
+
+            self._model_stats = model_takeoff(self.source, source_name=self.source.name)
+        except Exception as e:
+            logger.warning(f"Unable to compute model take-off for {self.source!r}: {e}")
+            self._model_stats = None
+
+        return self._model_stats
 
     @property
     def scene(self) -> trimesh.Scene:
