@@ -225,12 +225,83 @@ const MemberPane: React.FC<{
         }
     };
 
+    // A bot's name is the segment after `ci:<slug>:`. Undefined for the
+    // original unnamed bot, whose subject is just `ci:<slug>` — passing no
+    // name is what keeps that one addressable, so an existing token is never
+    // orphaned by this becoming multi-bot.
+    const ciBotName = (sub: string): string | undefined => {
+        const prefix = `ci:${project.slug}:`;
+        return sub.startsWith(prefix) ? sub.slice(prefix.length) : undefined;
+    };
+
+    const provisionCiBot = async (name?: string) => {
+        setCiBotBusy(true);
+        setCiBotErr(null);
+        try {
+            const r = await viewerApi.adminProvisionCiBot(project.id, name);
+            setCiBot(r);
+            // refresh members so the freshly-added ci:… row shows up
+            await reload();
+        } catch (e) {
+            setCiBotErr(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setCiBotBusy(false);
+        }
+    };
+
+    // Minting a NEW bot asks for a name. One bot per consumer is the point:
+    // the revoke cutoff is stored per subject, so consumers sharing a bot
+    // cannot be rotated independently and every audit row names the same
+    // principal whichever of them acted. Empty is still allowed — that is the
+    // original `ci:<slug>`, and it must stay reachable.
     const onMintCiBot = async () => {
-        const existing = members.find((m) => m.role === "ci");
-        const verb = existing ? "Rotate" : "Mint";
+        const name = prompt(
+            `Name for a CI bot on "${project.name}"?\n\n` +
+            "One per consumer — e.g. ada-build, e3d-worker. Each gets its own " +
+            "token, its own rotation and its own audit trail.\n\n" +
+            "Leave blank for the project's original unnamed bot (ci:" + project.slug + ").",
+            "",
+        );
+        if (name === null) return;
+        const trimmed = name.trim().toLowerCase();
+        const sub = trimmed ? `ci:${project.slug}:${trimmed}` : `ci:${project.slug}`;
+        if (
+            members.some((m) => m.user_sub === sub) &&
+            !confirm(
+                `${sub} already exists. Rotate its token?\n\n` +
+                "Every token previously issued to THIS bot stops working immediately. " +
+                "Other bots on this project are unaffected.",
+            )
+        ) {
+            return;
+        }
+        await provisionCiBot(trimmed || undefined);
+    };
+
+    const onRotateCiBot = async (sub: string) => {
         if (
             !confirm(
-                `${verb} CI bot token for "${project.name}"? Any token previously issued to the bot stops working.`,
+                `Rotate the token for ${sub}?\n\n` +
+                "Every token previously issued to this bot stops working immediately. " +
+                "Other bots on this project are unaffected.",
+            )
+        ) {
+            return;
+        }
+        await provisionCiBot(ciBotName(sub));
+    };
+
+    // Revoke WITHOUT minting: for a leaked credential or a retired consumer,
+    // where rotating would hand back a fresh secret nobody asked for and leave
+    // the bot able to act. Membership is left alone deliberately — removing it
+    // is the neighbouring button, and keeping it means this bot's audit history
+    // still resolves to a named principal.
+    const onRevokeCiBot = async (sub: string) => {
+        if (
+            !confirm(
+                `Revoke every token for ${sub}?\n\n` +
+                "No replacement is minted — anything using this bot stops working " +
+                "until a token is rotated for it. The bot stays a project member.",
             )
         ) {
             return;
@@ -238,9 +309,7 @@ const MemberPane: React.FC<{
         setCiBotBusy(true);
         setCiBotErr(null);
         try {
-            const r = await viewerApi.adminProvisionCiBot(project.id);
-            setCiBot(r);
-            // refresh members so the freshly-added ci:<slug> row shows up
+            await viewerApi.adminRevokeCiBot(project.id, ciBotName(sub));
             await reload();
         } catch (e) {
             setCiBotErr(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -273,13 +342,9 @@ const MemberPane: React.FC<{
                                 className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
                                 onClick={() => void onMintCiBot()}
                                 disabled={ciBotBusy}
-                                title="Mint or rotate the CI bot bearer for this project"
+                                title="Mint a CI bot bearer for this project (one per consumer)"
                             >
-                                {ciBotBusy
-                                    ? "…"
-                                    : members.some((m) => m.role === "ci")
-                                        ? "Rotate CI bot"
-                                        : "Mint CI bot"}
+                                {ciBotBusy ? "…" : "Mint CI bot"}
                             </button>
                             <button
                                 className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm"
@@ -364,12 +429,34 @@ const MemberPane: React.FC<{
                             </Td>
                             <Td>
                                 {!project.archived_at && (
-                                    <button
-                                        className="text-red-400 hover:text-red-300"
-                                        onClick={() => onRemove(m.user_sub)}
-                                    >
-                                        remove
-                                    </button>
+                                    <span className="flex gap-2 whitespace-nowrap">
+                                        {m.role === "ci" && (
+                                            <>
+                                                <button
+                                                    className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                                                    onClick={() => void onRotateCiBot(m.user_sub)}
+                                                    disabled={ciBotBusy}
+                                                    title="Mint a fresh token; the current one stops working"
+                                                >
+                                                    rotate
+                                                </button>
+                                                <button
+                                                    className="text-amber-400 hover:text-amber-300 disabled:opacity-50"
+                                                    onClick={() => void onRevokeCiBot(m.user_sub)}
+                                                    disabled={ciBotBusy}
+                                                    title="Kill its tokens without minting a replacement"
+                                                >
+                                                    revoke
+                                                </button>
+                                            </>
+                                        )}
+                                        <button
+                                            className="text-red-400 hover:text-red-300"
+                                            onClick={() => onRemove(m.user_sub)}
+                                        >
+                                            remove
+                                        </button>
+                                    </span>
                                 )}
                             </Td>
                         </tr>
@@ -393,12 +480,32 @@ const MemberPane: React.FC<{
                                     </div>
                                 </div>
                                 {!project.archived_at && (
-                                    <button
-                                        className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded-sm border border-red-900"
-                                        onClick={() => onRemove(m.user_sub)}
-                                    >
-                                        Remove
-                                    </button>
+                                    <div className="flex shrink-0 gap-1">
+                                        {m.role === "ci" && (
+                                            <>
+                                                <button
+                                                    className="text-blue-300 hover:text-blue-200 text-xs px-2 py-1 rounded-sm border border-blue-900 disabled:opacity-50"
+                                                    onClick={() => void onRotateCiBot(m.user_sub)}
+                                                    disabled={ciBotBusy}
+                                                >
+                                                    Rotate
+                                                </button>
+                                                <button
+                                                    className="text-amber-300 hover:text-amber-200 text-xs px-2 py-1 rounded-sm border border-amber-900 disabled:opacity-50"
+                                                    onClick={() => void onRevokeCiBot(m.user_sub)}
+                                                    disabled={ciBotBusy}
+                                                >
+                                                    Revoke
+                                                </button>
+                                            </>
+                                        )}
+                                        <button
+                                            className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded-sm border border-red-900"
+                                            onClick={() => onRemove(m.user_sub)}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </li>

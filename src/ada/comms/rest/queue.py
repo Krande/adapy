@@ -783,6 +783,30 @@ class JobQueue:
     # a transient progress cache for in-flight polling.
     _TERMINAL_STATUSES = frozenset({JOB_STATUS_DONE, JOB_STATUS_ERROR, "cancelled"})
 
+    async def purge_job(self, job_id: str) -> bool:
+        """Drop one job's KV entry outright. Returns False if there was none.
+
+        For a job that will never reach a terminal state on its own -- queued
+        against a capability no live worker serves, so nothing ever pulls it
+        and ``purge_completed_jobs`` (terminal statuses only) never sweeps it.
+        Such an entry sits in the bucket forever, is replayed by every registry
+        scan, and shows in the admin panel as work still pending.
+
+        PURGE, not update: an update leaves the entry to be swept later on a
+        grace timer that only applies to terminal rows, which is how these
+        accumulated in the first place. Postgres keeps the durable record
+        (``audit_log`` says cancelled), so nothing is lost with the entry.
+        """
+        if self._kv is None:
+            return False
+        try:
+            await self._kv.purge(job_id)
+            return True
+        except KeyNotFoundError:
+            return False
+        except BucketNotFoundError:
+            return False
+
     async def purge_completed_jobs(self, grace_s: float = 600.0) -> int:
         """Drop KV entries for jobs that reached a terminal state more than
         ``grace_s`` ago, so the bucket stays small and ``keys()`` scans stay

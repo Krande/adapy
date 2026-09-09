@@ -28,12 +28,20 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //   1.1.0  placement (`dock` / `modes`) — see the section below
 //   1.2.0  browser-side external-model providers
 //          (`registerExternalModelClient`, @/services/externalModels)
-//   1.3.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
-//          honoured via `notifyActiveModeSceneColor` — viewer-core 1.3.0)
-//   1.4.0  no slot change; kept in step with viewer-core 1.4.0 (compute
-//          settings store, set isolation on the scene facade), which is what
-//          a shell's `coreApiRange` is checked against — a shell built for
-//          those exports has to be able to name a core that has them.
+//   1.3.0  `trackJob` — hand a worker job to the global toast instead of
+//          watching it from inside a panel
+//   1.4.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
+//          honoured via `notifyActiveModeSceneColor`), and kept in step with
+//          viewer-core 1.4.0 (compute settings store, set isolation on the
+//          scene facade) -- which is what a shell's `coreApiRange` is checked
+//          against, so a shell built for those exports can name a core that
+//          has them.
+//
+//          This entry was 1.3.0 on this branch. main published 1.3.0 as
+//          `trackJob` first, and asa-weld-gen 3.13.0 already depends on that
+//          meaning under `plugin_api >= 1.3.0`, so the number could not be
+//          reused for a different capability. Moving up costs nothing here,
+//          and keeps the viewer-core parity above intact.
 export const PLUGIN_API_VERSION = "1.4.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
@@ -256,6 +264,19 @@ export interface AdaPluginContext {
    * match core's chrome in light + dark without hardcoding colours. */
   theme: PluginTheme;
   log: (level: PluginLogLevel, msg: string, ...args: unknown[]) => void;
+  /** Hand a worker job to the viewer's global progress toast (1.3.0).
+   *
+   * WHAT IT REPLACES. A panel that enqueues a job and awaits its own poll loop is
+   * the only thing watching it, so closing the panel unmounts the watcher and the
+   * job disappears from the UI while running perfectly well server-side. The
+   * toast is mounted at app level and outlives every panel, and core already
+   * repopulates it from `my-jobs` on load — so a tracked job also survives a page
+   * reload, which no panel-local loop can.
+   *
+   * Returns the store key for the toast entry. Fire-and-forget: the poll is
+   * detached, which is the point.
+   */
+  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string}) => string;
 }
 
 export type ActivationPredicate = (ctx: AdaPluginContext) => boolean;

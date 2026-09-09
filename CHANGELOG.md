@@ -2,6 +2,42 @@
 
 
 
+## v0.67.1 (2026-09-09)
+
+### Fix
+
+* fix(packaging): ship the REST migrations, and build the conda package in CI so a gap like that is visible (#335)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`ef46490`](https://github.com/Krande/adapy/commit/ef46490a8e5e220c0944dd38f20ab3487005b23a))
+
+
+## v0.67.0 (2026-09-09)
+
+### Feature
+
+* feat: source-node write route, plugin-job cron, admin job cancel, named CI bots (#330)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`939c777`](https://github.com/Krande/adapy/commit/939c77769e6bce1fe7360473841e8c170272d6fb))
+
+
+## v0.66.0 (2026-09-09)
+
+### Feature
+
+* feat(dexpi): DEXPI P&amp;ID in, routed 3D model out (#334)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`acce165`](https://github.com/Krande/adapy/commit/acce165b6abd843913490acff2b302519f90cae7))
+
+
+## v0.65.0 (2026-09-09)
+
+### Feature
+
+* feat(viewer): a transport-neutral seam for the Stats panel, so local models populate it (#333)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`6b35c77`](https://github.com/Krande/adapy/commit/6b35c77ebfb88a0556d563c6ae6889cb877f3769))
+
+
 ## v0.64.2 (2026-09-09)
 
 ### Fix

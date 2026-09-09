@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  AUDIT_DEFAULT_RANGE,
   AUDIT_FILTER_KEYS,
   AUDIT_RANGES,
   AUDIT_REFRESH_INTERVALS,
@@ -21,6 +22,8 @@ function reset() {
 }
 
 test("a fresh store carries the page limit and no active filter", () => {
+  // The default time window is not an "active filter": it has its own visible
+  // control and is excluded from AUDIT_FILTER_KEYS, so the badge stays at zero.
   reset();
   const { filters } = useAuditFilterStore.getState();
   assert.equal(filters.limit, 100);
@@ -116,8 +119,8 @@ test("every filter key the bar renders is counted", () => {
 });
 
 test("the range ladder is coarse-to-fine and starts at all time", () => {
-  // Order is the control's order; "All time" first keeps the default at the
-  // top and preserves the previous behaviour as the no-op choice.
+  // Order is the control's order; "All time" first keeps the widest window at
+  // the top, where a reader looking for it expects it.
   assert.equal(AUDIT_RANGES[0].value, "");
   const rest = AUDIT_RANGES.slice(1).map((r) => r.value);
   assert.deepEqual(rest, ["30d", "7d", "24h", "6h", "1h", "15m", "5m"]);
@@ -138,13 +141,30 @@ test("the window is not counted as a chip filter", () => {
   assert.equal(countActiveAuditFilters({ limit: 100, since: "6h", status: "error" }), 1);
 });
 
-test("reset clears the window too", () => {
+test("reset returns the window to the default rather than to all time", () => {
+  // Reset means "back to where the panel opens", and the panel opens on a
+  // bounded window. Clearing `since` outright would make the one control an
+  // operator reaches for to get their bearings the one that widens the view to
+  // the whole table.
   reset();
   const s = () => useAuditFilterStore.getState();
   s().patch({ since: "6h", until: "2026-09-01T00:00:00.000Z" });
   s().reset();
-  assert.equal(s().filters.since, undefined);
-  assert.equal(s().filters.until, undefined);
+  assert.equal(s().filters.since, AUDIT_DEFAULT_RANGE);
+  assert.equal(s().filters.until, undefined, "reset kept a custom upper bound");
+});
+
+test("the panel opens on a bounded window, and it is one the picker shows", () => {
+  // An unbounded default makes every count a lifetime total and makes the
+  // panel slowest on the deployment that has been busiest. A default outside
+  // AUDIT_RANGES would open reading as a custom range nobody set.
+  reset();
+  assert.equal(useAuditFilterStore.getState().filters.since, AUDIT_DEFAULT_RANGE);
+  assert.ok(
+    AUDIT_RANGES.some((r) => r.value === AUDIT_DEFAULT_RANGE),
+    "the default window is not one of the presets",
+  );
+  assert.notEqual(AUDIT_DEFAULT_RANGE, "", "the default window is unbounded");
 });
 
 test("switching to a preset drops a custom upper bound", () => {

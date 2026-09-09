@@ -56,6 +56,16 @@ class RenderParams:
     # ~7 B amortised. Flip off only for raw-bytes consumers that don't
     # need the Properties panel and skip HTTP gzip.
     embed_object_metadata: bool = True
+    # When True, compute the discipline-organised quantity take-off
+    # (:func:`ada.topo_model.takeoff.model_takeoff`) for a Part/Assembly source
+    # and write it into the GLB's ``asset.extras["model_stats"]``. This is what
+    # lets the viewer's Stats panel populate on the LOCAL ``.show()`` path,
+    # where there is no REST backend to serve the ``.stats.json`` sidecar the
+    # hosted viewer fetches. Bounded in size (major-items list is capped at 12
+    # rows, so a whole-model take-off is a couple of kB of JSON) and computed
+    # best-effort — a failure is logged and never breaks the render. Turn off
+    # for raw-bytes consumers that don't need the panel.
+    embed_model_stats: bool = True
     force_y_is_up: bool = False
 
     def __post_init__(self):

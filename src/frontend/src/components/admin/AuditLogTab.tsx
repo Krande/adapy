@@ -487,6 +487,13 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                             {entry.target_format ? ` → ${entry.target_format}` : ""}
                         </div>
                     </div>
+                    {/* In the HEADER, not on a tab. It is an action on the job,
+                        not part of any one view of it — and a tab called
+                        "Outcome" is the last place someone looks for a button
+                        that changes the outcome. Renders nothing unless the row
+                        is actually cancellable, so it costs no space on the
+                        overwhelming majority of rows, which are history. */}
+                    <StuckJobActions entry={entry}/>
                     {tab === "error" && entry.traceback && (
                         <button
                             type="button"
@@ -597,11 +604,157 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
             {entry.job_id && (
                 <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
             )}
+            <QueueRouting entry={entry}/>
             <div className="text-gray-500 mt-2">
                 No error reported for this entry. Switch to the Metrics tab for
                 CPU / memory / IO data.
             </div>
         </div>
+    );
+};
+
+// Which pool a still-pending job is waiting on.
+//
+// THE ONE FACT THAT EXPLAINS A STUCK JOB, and it was not on screen anywhere. A job
+// routed to a pool no worker subscribes to is accepted and then never delivered:
+// nothing pulls it, so it is never redelivered, so it never reaches the
+// delivery-attempt cap that would record an error. The row stays `queued` with no
+// error, no retry, and no line in any worker's log — and every visible field looks
+// normal. Reading the pool off the queue entry is how that gets diagnosed in one
+// look instead of by reading queue source.
+//
+// Only for a non-terminal row: for history the pool is a spent detail, and the
+// queue entry has usually been swept anyway, which would make this a 404 on most
+// rows an operator opens.
+const QueueRouting: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [pool, setPool] = useState<string | null | undefined>(undefined);
+    const [gone, setGone] = useState(false);
+    const status = (entry.status || "").toLowerCase();
+    const pending = !!entry.job_id && (status === "queued" || status === "running");
+
+    useEffect(() => {
+        if (!pending || !entry.job_id) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const job = await viewerApi.convertStatus(entry.job_id!);
+                if (!cancelled) setPool(job.target_capability ?? null);
+            } catch {
+                // A 404 means the entry is no longer in the queue at all, which is
+                // itself the answer for a row still claiming to be queued: there
+                // is nothing left to deliver. Not an error worth a red box.
+                if (!cancelled) setGone(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [pending, entry.job_id]);
+
+    if (!pending) return null;
+    if (gone) {
+        return (
+            <div className="text-amber-300">
+                No queue entry for this job — nothing is left to deliver, so this row will not
+                move on its own. Cancel it to clear the status.
+            </div>
+        );
+    }
+    if (pool === undefined) return <div className="text-gray-500">Pool: looking up…</div>;
+    return (
+        <div>
+            Pool: <span className="font-mono">{pool || "base"}</span>
+            {!pool && (
+                <span className="text-amber-300">
+                    {" "}— routed to the default pool, which a specialised worker does not subscribe to
+                </span>
+            )}
+        </div>
+    );
+};
+
+// Clearing a job that nothing is ever going to finish.
+//
+// Shown only for a NON-TERMINAL entry with a job id. A done or error row has
+// nothing to cancel, and putting the button there would invite an operator to
+// "fix" a row that is simply history.
+//
+// The job this is for is one queued against a capability no live worker serves
+// — a retired pool, a renamed capability, a worker that never came back. It is
+// never pulled, so it never reaches a terminal status, so the KV sweep (which
+// only touches terminal entries) never clears it: it shows as pending forever.
+// The user-facing cancel cannot reach it either, because that one filters on
+// the job's owner and an operator cleaning up after a pool is not that person.
+const StuckJobActions: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [busy, setBusy] = useState(false);
+    const [done, setDone] = useState<string | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+
+    const status = (entry.status || "").toLowerCase();
+    if (!entry.job_id || (status !== "queued" && status !== "running")) return null;
+
+    const onCancel = async () => {
+        if (
+            !confirm(
+                `Cancel job ${entry.job_id}?\n\n` +
+                "The audit row is marked cancelled and the queue entry is dropped. " +
+                "A worker that picks the message up later will see the cancellation " +
+                "and drop it. If the job is running right now it stops at its next " +
+                "cancellation check, and anything it already wrote stays written.",
+            )
+        ) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            const r = await viewerApi.adminCancelJob(entry.job_id!);
+            // Both halves reported: a job can be stuck in the audit row, in the
+            // queue entry, or in both, and "cancelled" alone would leave an
+            // operator unsure whether the pending entry actually went away.
+            setDone(
+                `audit row ${r.cancelled ? "cancelled" : "unchanged"}, ` +
+                `queue entry ${r.purged ? "dropped" : "not present"}`,
+            );
+            // Reload the table the row came from. Without this the row it was
+            // cancelled from still reads `queued`, so the operator's next move is
+            // to wonder whether the cancel took and press it again -- on a job
+            // that is already gone. The store's nonce is the same mechanism the
+            // filter bar and the refresh button use, so one reload happens rather
+            // than this component fetching its own view of the world.
+            if (r.cancelled || r.purged) useAuditFilterStore.getState().refresh();
+        } catch (e) {
+            setErr(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // Sits in the modal header, so it is laid out to fit there: a compact
+    // button, and any outcome text truncated with the whole of it on hover
+    // rather than allowed to push the close button off the row.
+    return (
+        <span className="shrink-0 flex items-center gap-2">
+            {done && (
+                <span className="text-[11px] text-gray-400 max-w-[14rem] truncate" title={done}>
+                    {done}
+                </span>
+            )}
+            {err && (
+                <span className="text-[11px] text-red-300 max-w-[14rem] truncate" title={err}>
+                    {err}
+                </span>
+            )}
+            <button
+                type="button"
+                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
+                onClick={() => void onCancel()}
+                disabled={busy || done != null}
+                title="Cancel this job and drop its queue entry (admin)"
+            >
+                {busy ? "…" : "Cancel job"}
+            </button>
+        </span>
     );
 };
 

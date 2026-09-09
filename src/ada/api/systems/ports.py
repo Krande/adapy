@@ -48,6 +48,16 @@ class Port:
     connected_system: System | None = field(default=None, repr=False)
     is_site: bool = field(default=False, repr=False)
     guid: str = field(default_factory=create_guid, repr=False)
+    #: Process identity of the connection as the source document knows it. ``name``
+    #: stays adapy's identifier — it is what ``add_port``/``get_port`` key on and what
+    #: the IFC writer emits — so an imported nozzle keeps its own tag here.
+    tag: str | None = field(default=None, repr=False)
+    #: Nominal diameter in **metres**, adapy's base unit; a DN value in millimetres
+    #: must be converted by the caller.
+    nominal_diameter: float | None = field(default=None, repr=False)
+    #: Piping class / specification code governing the connection.
+    spec: str | None = field(default=None, repr=False)
+    metadata: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.position, Point):

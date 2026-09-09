@@ -11,9 +11,11 @@ import type {AuditFilters} from "@/services/viewerApi";
 // sub-tab would mean the drill-down had to hand state sideways to a sibling,
 // and the two surfaces could disagree about what "filtered" means.
 //
-// Not persisted, deliberately. A status filter is a step in an investigation,
-// not a preference — coming back tomorrow to an admin panel silently showing
-// only failures is a support ticket, not a convenience.
+// The filters are not persisted, deliberately. A status filter is a step in an
+// investigation, not a preference — coming back tomorrow to an admin panel
+// silently showing only failures is a support ticket, not a convenience. The
+// one exception is the time window; see AUDIT_DEFAULT_RANGE for why it is safe
+// where a status filter is not.
 /** Auto-refresh choices. Off is the default and deliberately so: a panel that
  * silently re-polls forever is a background load nobody asked for, and on a
  * shared deployment it is multiplied by whoever left a tab open.
@@ -56,8 +58,6 @@ export interface AuditFilterState {
  * complete and callers never have to remember to add it. */
 export const AUDIT_PAGE_LIMIT = 100;
 
-const EMPTY: AuditFilters = {limit: AUDIT_PAGE_LIMIT};
-
 /** The time window presets, coarse to fine.
  *
  * The rungs are the ones an operator actually reaches for: "is it running
@@ -76,6 +76,75 @@ export const AUDIT_RANGES: {value: string; label: string}[] = [
     {value: "15m", label: "Last 15 minutes"},
     {value: "5m", label: "Last 5 minutes"},
 ];
+
+/** The window the Audit tab opens on when the operator has expressed no
+ * preference, and the fallback when a stored one cannot be read.
+ *
+ * 24 HOURS RATHER THAN ALL TIME. An overview over an unbounded window is
+ * dominated by history: the tiles answer "what has this deployment ever done"
+ * when the question being asked is "what is happening now", and on a table with
+ * months in it the few interesting rows are a rounding error in every count. It
+ * also makes the panel's cost grow with the age of the deployment, so the view
+ * that matters most on a busy day is the slowest one to load.
+ *
+ * A value from AUDIT_RANGES, so the picker shows it selected rather than
+ * reading as a custom range. */
+export const AUDIT_DEFAULT_RANGE = "24h";
+
+/** Where the operator's chosen window is remembered.
+ *
+ * WHY THE WINDOW IS PERSISTED WHEN NO OTHER FILTER IS. The objection to
+ * persisting a filter is that it can hide rows without saying so. The range
+ * cannot: its control is always visible, even when the filter bar is collapsed,
+ * and it is spelled out in words next to the counts. So whoever wants a
+ * default other than 24h sets it with the control they already use — there is
+ * no setting to go and find, and nothing new to render.
+ *
+ * Only values from AUDIT_RANGES are stored. A custom absolute range is
+ * deliberately NOT remembered: "since 2026-08-01T00:00" is the right answer to
+ * one question today and stale by next week, and a default nobody can see
+ * themselves having chosen is exactly the failure persistence is accused of. */
+const AUDIT_RANGE_STORAGE_KEY = "ada-audit-range";
+
+function isKnownAuditRange(v: unknown): v is string {
+    return typeof v === "string" && AUDIT_RANGES.some((r) => r.value === v);
+}
+
+/** The remembered window, or AUDIT_DEFAULT_RANGE. ``undefined`` means all time
+ * — that is how the range control spells it (see AuditFilterBar), so the empty
+ * string is what gets stored, and it is mapped back here rather than leaking
+ * into the filter. */
+function loadDefaultAuditRange(): string | undefined {
+    let stored: unknown = null;
+    try {
+        stored = localStorage.getItem(AUDIT_RANGE_STORAGE_KEY);
+    } catch {
+        // No storage at all: a private window, blocked site data, or a test
+        // runner with no DOM. The built-in default is the whole fallback.
+        return AUDIT_DEFAULT_RANGE;
+    }
+    if (!isKnownAuditRange(stored)) return AUDIT_DEFAULT_RANGE;
+    return stored || undefined;
+}
+
+function rememberAuditRange(since: string | undefined): void {
+    const value = since ?? "";
+    if (!isKnownAuditRange(value)) return;
+    try {
+        localStorage.setItem(AUDIT_RANGE_STORAGE_KEY, value);
+    } catch {
+        // Not being able to remember the choice is no reason to refuse it.
+    }
+}
+
+/** The filter a fresh panel starts from, and what ``reset()`` returns to.
+ *
+ * A function rather than a constant because the window is read from storage:
+ * a module-level object would freeze whatever was stored at import time, and
+ * ``reset()`` would then undo a range the operator chose in this same session. */
+function defaultAuditFilters(): AuditFilters {
+    return {limit: AUDIT_PAGE_LIMIT, since: loadDefaultAuditRange()};
+}
 
 /** Filter keys the operator can actually set — i.e. everything except the
  * paging machinery. Used for "is anything filtered?" and for the chip row.
@@ -101,7 +170,7 @@ export function countActiveAuditFilters(f: AuditFilters): number {
 }
 
 export const useAuditFilterStore = create<AuditFilterState>()((set) => ({
-    filters: EMPTY,
+    filters: defaultAuditFilters(),
     refreshNonce: 0,
     autoRefreshMs: 0,
     lastRefreshedAt: Date.now(),
@@ -110,13 +179,21 @@ export const useAuditFilterStore = create<AuditFilterState>()((set) => ({
     // ``before_id`` is a page cursor, never part of a filter change: keeping
     // it would ask the server to continue paging a result set that no longer
     // exists. Every mutation below drops it.
-    patch: (next) =>
+    patch: (next) => {
+        // Moving the range control is the act that sets the default. Guarded on
+        // the key being present, not on its value, so choosing "All time" is
+        // remembered as readily as narrowing.
+        if ("since" in next) rememberAuditRange(next.since);
         set((s) => ({
             filters: {...s.filters, ...next, before_id: undefined},
             lastRefreshedAt: Date.now(),
-        })),
+        }));
+    },
+    // Wholesale replace. Deliberately does NOT touch the remembered window:
+    // this is the programmatic entry point, and a caller rebuilding the filter
+    // object is not the operator stating a preference.
     set: (next) => set({filters: {...next, before_id: undefined}, lastRefreshedAt: Date.now()}),
-    reset: () => set({filters: EMPTY, lastRefreshedAt: Date.now()}),
+    reset: () => set({filters: defaultAuditFilters(), lastRefreshedAt: Date.now()}),
     toggleStatus: (status) =>
         set((s) => ({
             lastRefreshedAt: Date.now(),

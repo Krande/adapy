@@ -1,0 +1,1112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Model name="Separator package example">
+  <Import prefix="Core" source="https://data.dexpi.org/models/2.0.0/Core.xml" />
+  <Import prefix="Plant" source="https://data.dexpi.org/models/2.0.0/Plant.xml" />
+  <Object type="Core/EngineeringModel">
+    <Data property="OriginatingSystemName">
+      <String>adapy</String>
+    </Data>
+    <Data property="OriginatingSystemVendorName">
+      <String>adapy</String>
+    </Data>
+    <Components property="ConceptualModel">
+      <Object id="PlantModel1" type="Plant/PlantModel">
+        <Components property="TaggedPlantItems">
+          <Object id="PlantSection-1" type="Plant/PlantStructure.PlantSection">
+            <Data property="TagName">
+              <String>U-200</String>
+            </Data>
+            <Data property="EquipmentDescription">
+              <String>Separation unit</String>
+            </Data>
+          </Object>
+          <Object id="Separator-1" type="Plant/ProcessEquipment.Separator">
+            <Data property="TagName">
+              <String>V-201</String>
+            </Data>
+            <Data property="EquipmentDescription">
+              <String>Three phase separator</String>
+            </Data>
+            <Data property="UpperLimitDesignPressure">
+              <AggregatedDataValue type="Core/PhysicalQuantities.PhysicalQuantity">
+                <Data property="Value">
+                  <Double>10</Double>
+                </Data>
+                <Data property="Unit">
+                  <DataReference data="Bar" />
+                </Data>
+              </AggregatedDataValue>
+            </Data>
+            <Data property="UpperLimitDesignTemperature">
+              <AggregatedDataValue type="Core/PhysicalQuantities.PhysicalQuantity">
+                <Data property="Value">
+                  <Double>120</Double>
+                </Data>
+                <Data property="Unit">
+                  <DataReference data="DegreeCelsius" />
+                </Data>
+              </AggregatedDataValue>
+            </Data>
+            <Data property="ProjectPhase">
+              <String>FEED</String>
+            </Data>
+            <Data property="CriticalityRating">
+              <String>A</String>
+            </Data>
+            <Components property="Nozzles">
+              <Object id="Nozzle-1" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>N1</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>150</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-1-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>150</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-2" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>N2</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>200</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-2-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>200</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-3" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>N3</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>100</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-3-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-4" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>N4</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>80</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-4-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+            <Components property="Chambers">
+              <Object id="Chamber-1" type="Plant/ProcessEquipment.Chamber">
+                <Data property="SubTagName">
+                  <String>Boot</String>
+                </Data>
+                <Data property="NominalDiameter">
+                  <AggregatedDataValue type="Core/PhysicalQuantities.PhysicalQuantity">
+                    <Data property="Value">
+                      <Double>0.6</Double>
+                    </Data>
+                    <Data property="Unit">
+                      <DataReference data="Metre" />
+                    </Data>
+                  </AggregatedDataValue>
+                </Data>
+                <Components property="Nozzles">
+                  <Object id="Nozzle-5" type="Plant/ProcessEquipment.Nozzle">
+                    <Data property="SubTagName">
+                      <String>N5</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>50</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="Nozzle-5-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>50</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="CentrifugalPump-1" type="Plant/ProcessEquipment.CentrifugalPump">
+            <Data property="TagName">
+              <String>P-201A</String>
+            </Data>
+            <Data property="EquipmentDescription">
+              <String>Condensate pump</String>
+            </Data>
+            <Components property="Nozzles">
+              <Object id="Nozzle-6" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>S</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>100</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-6-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-7" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>D</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>80</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-7-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="CentrifugalPump-2" type="Plant/ProcessEquipment.CentrifugalPump">
+            <Data property="TagName">
+              <String>P-201B</String>
+            </Data>
+            <Data property="EquipmentDescription">
+              <String>Condensate pump</String>
+            </Data>
+            <Components property="Nozzles">
+              <Object id="Nozzle-8" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>S</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>100</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-8-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-9" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>D</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>80</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-9-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="TubularHeatExchanger-1" type="Plant/ProcessEquipment.TubularHeatExchanger">
+            <Data property="TagName">
+              <String>E-201</String>
+            </Data>
+            <Data property="EquipmentDescription">
+              <String>Condensate cooler</String>
+            </Data>
+            <Components property="Nozzles">
+              <Object id="Nozzle-10" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>T1</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>80</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-10-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="Nozzle-11" type="Plant/ProcessEquipment.Nozzle">
+                <Data property="SubTagName">
+                  <String>T2</String>
+                </Data>
+                <Data property="NominalDiameterNumericalValueRepresentation">
+                  <String>50</String>
+                </Data>
+                <Data property="NominalDiameterTypeRepresentation">
+                  <String>DN</String>
+                </Data>
+                <Components property="Nodes">
+                  <Object id="Nozzle-11-Node-1" type="Plant/Piping.PipingNode">
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>50</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+        </Components>
+        <Components property="PipingNetworkSystems">
+          <Object id="PipingNetworkSystem-1" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>201</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>HC</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>150</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-1" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="PipeOffPageConnector-1" type="Plant/Piping.FlowInPipeOffPageConnector">
+                    <Data property="TagName">
+                      <String>OPC-201</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="PipeOffPageConnector-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>150</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="Strainer-1" type="Plant/Piping.Strainer">
+                    <Data property="TagName">
+                      <String>ST-201</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>150</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="Strainer-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>150</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="Strainer-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>150</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="BallValve-1" type="Plant/Piping.BallValve">
+                    <Data property="TagName">
+                      <String>HV-201</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>150</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="BallValve-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>150</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="BallValve-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>150</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#PipeOffPageConnector-1" />
+                    <References property="SourceNode" objects="#PipeOffPageConnector-1-Node-1" />
+                    <References property="TargetItem" objects="#Strainer-1" />
+                    <References property="TargetNode" objects="#Strainer-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Strainer-1" />
+                    <References property="SourceNode" objects="#Strainer-1-Node-2" />
+                    <References property="TargetItem" objects="#BallValve-1" />
+                    <References property="TargetNode" objects="#BallValve-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#BallValve-1" />
+                    <References property="SourceNode" objects="#BallValve-1-Node-2" />
+                    <References property="TargetItem" objects="#Nozzle-1" />
+                    <References property="TargetNode" objects="#Nozzle-1-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="PipingNetworkSystem-2" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>202</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>GA</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>200</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-2" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="GlobeValve-1" type="Plant/Piping.GlobeValve">
+                    <Data property="TagName">
+                      <String>PV-202</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>200</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="GlobeValve-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>200</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="GlobeValve-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>200</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="RestrictionOrifice-1" type="Plant/Piping.RestrictionOrifice">
+                    <Data property="TagName">
+                      <String>RO-202</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>200</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="RestrictionOrifice-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>200</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="RestrictionOrifice-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>200</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="PipeOffPageConnector-2" type="Plant/Piping.FlowOutPipeOffPageConnector">
+                    <Data property="TagName">
+                      <String>OPC-202</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="PipeOffPageConnector-2-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>200</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-2" />
+                    <References property="SourceNode" objects="#Nozzle-2-Node-1" />
+                    <References property="TargetItem" objects="#GlobeValve-1" />
+                    <References property="TargetNode" objects="#GlobeValve-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#GlobeValve-1" />
+                    <References property="SourceNode" objects="#GlobeValve-1-Node-2" />
+                    <References property="TargetItem" objects="#RestrictionOrifice-1" />
+                    <References property="TargetNode" objects="#RestrictionOrifice-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#RestrictionOrifice-1" />
+                    <References property="SourceNode" objects="#RestrictionOrifice-1-Node-2" />
+                    <References property="TargetItem" objects="#PipeOffPageConnector-2" />
+                    <References property="TargetNode" objects="#PipeOffPageConnector-2-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="PipingNetworkSystem-3" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>203</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>HC</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>100</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-3" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="PipeTee-1" type="Plant/Piping.PipeTee">
+                    <Data property="TagName">
+                      <String>TE-203</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="PipeTee-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="PipeTee-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="PipeTee-1-Node-3" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-3" />
+                    <References property="SourceNode" objects="#Nozzle-3-Node-1" />
+                    <References property="TargetItem" objects="#PipeTee-1" />
+                    <References property="TargetNode" objects="#PipeTee-1-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="PipingNetworkSegment-4" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>2</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="GateValve-1" type="Plant/Piping.GateValve">
+                    <Data property="TagName">
+                      <String>HV-203A</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="GateValve-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="GateValve-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#PipeTee-1" />
+                    <References property="SourceNode" objects="#PipeTee-1-Node-2" />
+                    <References property="TargetItem" objects="#GateValve-1" />
+                    <References property="TargetNode" objects="#GateValve-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#GateValve-1" />
+                    <References property="SourceNode" objects="#GateValve-1-Node-2" />
+                    <References property="TargetItem" objects="#Nozzle-6" />
+                    <References property="TargetNode" objects="#Nozzle-6-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="PipingNetworkSegment-5" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>3</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="GateValve-2" type="Plant/Piping.GateValve">
+                    <Data property="TagName">
+                      <String>HV-203B</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>100</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="GateValve-2-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="GateValve-2-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>100</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#PipeTee-1" />
+                    <References property="SourceNode" objects="#PipeTee-1-Node-3" />
+                    <References property="TargetItem" objects="#GateValve-2" />
+                    <References property="TargetNode" objects="#GateValve-2-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#GateValve-2" />
+                    <References property="SourceNode" objects="#GateValve-2-Node-2" />
+                    <References property="TargetItem" objects="#Nozzle-8" />
+                    <References property="TargetNode" objects="#Nozzle-8-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="PipingNetworkSystem-4" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>204</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>HC</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>80</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-6" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="PipeTee-2" type="Plant/Piping.PipeTee">
+                    <Data property="TagName">
+                      <String>TE-204</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="PipeTee-2-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="PipeTee-2-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="PipeTee-2-Node-3" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="SwingCheckValve-1" type="Plant/Piping.SwingCheckValve">
+                    <Data property="TagName">
+                      <String>NRV-204A</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="SwingCheckValve-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="SwingCheckValve-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-7" />
+                    <References property="SourceNode" objects="#Nozzle-7-Node-1" />
+                    <References property="TargetItem" objects="#SwingCheckValve-1" />
+                    <References property="TargetNode" objects="#SwingCheckValve-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#SwingCheckValve-1" />
+                    <References property="SourceNode" objects="#SwingCheckValve-1-Node-2" />
+                    <References property="TargetItem" objects="#PipeTee-2" />
+                    <References property="TargetNode" objects="#PipeTee-2-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="PipingNetworkSegment-7" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>2</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="SwingCheckValve-2" type="Plant/Piping.SwingCheckValve">
+                    <Data property="TagName">
+                      <String>NRV-204B</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="SwingCheckValve-2-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="SwingCheckValve-2-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-9" />
+                    <References property="SourceNode" objects="#Nozzle-9-Node-1" />
+                    <References property="TargetItem" objects="#SwingCheckValve-2" />
+                    <References property="TargetNode" objects="#SwingCheckValve-2-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#SwingCheckValve-2" />
+                    <References property="SourceNode" objects="#SwingCheckValve-2-Node-2" />
+                    <References property="TargetItem" objects="#PipeTee-2" />
+                    <References property="TargetNode" objects="#PipeTee-2-Node-2" />
+                  </Object>
+                </Components>
+              </Object>
+              <Object id="PipingNetworkSegment-8" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>3</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="PipeReducer-1" type="Plant/Piping.PipeReducer">
+                    <Data property="TagName">
+                      <String>RE-204</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="PipeReducer-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="PipeReducer-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                  <Object id="PropertyBreak-1" type="Plant/Piping.PropertyBreak">
+                    <Data property="PipingClassCode">
+                      <String>150HB</String>
+                    </Data>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#PipeTee-2" />
+                    <References property="SourceNode" objects="#PipeTee-2-Node-3" />
+                    <References property="TargetItem" objects="#PipeReducer-1" />
+                    <References property="TargetNode" objects="#PipeReducer-1-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#PipeReducer-1" />
+                    <References property="SourceNode" objects="#PipeReducer-1-Node-2" />
+                    <References property="TargetItem" objects="#Nozzle-10" />
+                    <References property="TargetNode" objects="#Nozzle-10-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="PipingNetworkSystem-5" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>205</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>HC</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>80</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-9" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="SafetyValveOrFitting-1" type="Plant/Piping.SafetyValveOrFitting">
+                    <Data property="TagName">
+                      <String>PSV-205</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>80</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="SafetyValveOrFitting-1-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="SafetyValveOrFitting-1-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>80</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-4" />
+                    <References property="SourceNode" objects="#Nozzle-4-Node-1" />
+                    <References property="TargetItem" objects="#SafetyValveOrFitting-1" />
+                    <References property="TargetNode" objects="#SafetyValveOrFitting-1-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+          <Object id="PipingNetworkSystem-6" type="Plant/Piping.PipingNetworkSystem">
+            <Data property="LineNumber">
+              <String>206</String>
+            </Data>
+            <Data property="FluidCode">
+              <String>HC</String>
+            </Data>
+            <Data property="PipingClassCode">
+              <String>75HB</String>
+            </Data>
+            <Data property="NominalDiameterNumericalValueRepresentation">
+              <String>50</String>
+            </Data>
+            <Data property="NominalDiameterTypeRepresentation">
+              <String>DN</String>
+            </Data>
+            <Components property="Segments">
+              <Object id="PipingNetworkSegment-10" type="Plant/Piping.PipingNetworkSegment">
+                <Data property="SegmentNumber">
+                  <String>1</String>
+                </Data>
+                <Components property="Items">
+                  <Object id="GlobeValve-2" type="Plant/Piping.GlobeValve">
+                    <Data property="TagName">
+                      <String>HV-206</String>
+                    </Data>
+                    <Data property="NominalDiameterNumericalValueRepresentation">
+                      <String>50</String>
+                    </Data>
+                    <Data property="NominalDiameterTypeRepresentation">
+                      <String>DN</String>
+                    </Data>
+                    <Components property="Nodes">
+                      <Object id="GlobeValve-2-Node-1" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>50</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                      <Object id="GlobeValve-2-Node-2" type="Plant/Piping.PipingNode">
+                        <Data property="NominalDiameterNumericalValueRepresentation">
+                          <String>50</String>
+                        </Data>
+                        <Data property="NominalDiameterTypeRepresentation">
+                          <String>DN</String>
+                        </Data>
+                      </Object>
+                    </Components>
+                  </Object>
+                </Components>
+                <Components property="Connections">
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#Nozzle-5" />
+                    <References property="SourceNode" objects="#Nozzle-5-Node-1" />
+                    <References property="TargetItem" objects="#GlobeValve-2" />
+                    <References property="TargetNode" objects="#GlobeValve-2-Node-1" />
+                  </Object>
+                  <Object type="Plant/Piping.Pipe">
+                    <References property="SourceItem" objects="#GlobeValve-2" />
+                    <References property="SourceNode" objects="#GlobeValve-2-Node-2" />
+                    <References property="TargetItem" objects="#Nozzle-11" />
+                    <References property="TargetNode" objects="#Nozzle-11-Node-1" />
+                  </Object>
+                </Components>
+              </Object>
+            </Components>
+          </Object>
+        </Components>
+        <Components property="ProcessInstrumentationFunctions">
+          <Object id="ProcessInstrumentationFunction-1" type="Plant/Instrumentation.ProcessInstrumentationFunction">
+            <Data property="TagName">
+              <String>LIC-201</String>
+            </Data>
+          </Object>
+        </Components>
+        <Components property="ActuatingSystems">
+          <Object id="ActuatingSystem-1" type="Plant/Instrumentation.ActuatingSystem">
+            <Data property="ActuatingSystemNumber">
+              <String>PV-202.01</String>
+            </Data>
+            <References property="is fulfilled by" objects="#GlobeValve-1" />
+          </Object>
+        </Components>
+      </Object>
+    </Components>
+  </Object>
+</Model>

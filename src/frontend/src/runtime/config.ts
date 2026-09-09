@@ -70,6 +70,13 @@ declare global {
         // empty so the offline / desktop bundle stays clean.
         VIEWER_IMAGE_TAG?: string | null;
         WORKER_IMAGE_TAG?: string | null;
+        // The adapy git ref this viewer image was BUILT FROM, baked in
+        // at image build. Neither of the two tags above can carry it:
+        // VIEWER_IMAGE_TAG is the assembling repo's commit, and
+        // ADAPY_VERSION is stamped from adapy's last release tag — so a
+        // branch cut from a release with no version bump renders exactly
+        // like the release itself. Null for a build that was not told.
+        ADAPY_BUILD_REF?: string | null;
         // Union of source-file extensions every currently-registered
         // worker advertises on top of adapy's base set. The upload
         // picker merges this with its built-in list so capability
@@ -135,6 +142,7 @@ export const runtime = {
     // when the worker hasn't reported in yet.
     viewerImageTag: (): string => (w().VIEWER_IMAGE_TAG || "").trim(),
     workerImageTag: (): string => (w().WORKER_IMAGE_TAG || "").trim(),
+    adapyBuildRef: (): string => (w().ADAPY_BUILD_REF || "").trim(),
     extraSourceExts: (): readonly string[] => w().EXTRA_SOURCE_EXTS ?? [],
     streamingOnlyExts: (): readonly string[] => w().STREAMING_ONLY_EXTS ?? [],
     conversionMatrix: () => w().CONVERSION_MATRIX ?? [],
