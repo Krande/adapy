@@ -655,6 +655,13 @@ const StuckJobActions: React.FC<{entry: AuditEntry}> = ({entry}) => {
                 `audit row ${r.cancelled ? "cancelled" : "unchanged"}, ` +
                 `queue entry ${r.purged ? "dropped" : "not present"}`,
             );
+            // Reload the table the row came from. Without this the row it was
+            // cancelled from still reads `queued`, so the operator's next move is
+            // to wonder whether the cancel took and press it again -- on a job
+            // that is already gone. The store's nonce is the same mechanism the
+            // filter bar and the refresh button use, so one reload happens rather
+            // than this component fetching its own view of the world.
+            if (r.cancelled || r.purged) useAuditFilterStore.getState().refresh();
         } catch (e) {
             setErr(e instanceof ApiError ? e.detail || e.message : String(e));
         } finally {
