@@ -126,7 +126,7 @@ def write_proteus(doc: DexpiDocument) -> ET.Element:
     :func:`ada.cadit.dexpi.write.write_dexpi` is the path that puts it on disk.
     """
     echo = doc.flavour is DexpiFlavour.PROTEUS
-    owned = _connections_by_owner(doc)
+    owned = _connections_by_owner(doc, echo)
 
     root = xml_utils.element("PlantModel")
     root.append(_header_element(doc, echo))
@@ -153,14 +153,60 @@ def _items(doc: DexpiDocument, ids: list[str]) -> list[DexpiItem]:
     return [doc.items[item_id] for item_id in ids if item_id in doc.items]
 
 
-def _connections_by_owner(doc: DexpiDocument) -> dict[str | None, list[DexpiConnection]]:
+def _echoed_elements(doc: DexpiDocument, echo: bool) -> set[int]:
+    """``id()`` of every source element that reaches the output inside a verbatim echo.
+
+    Mirrors what :func:`_append_unmodelled` and the ``doc.extras`` pass actually copy, walking the
+    same items in the same order the writer emits them. Identity is the right test because the echo
+    copies the *source* elements this document was parsed from, so the objects are the same ones
+    :attr:`DexpiConnection.raw` points at. The document holds a reference to every element in play
+    for as long as the write runs, so no ``id()`` here can be a recycled one.
+    """
+    if not echo:
+        return set()
+
+    echoed: set[int] = set()
+
+    def collect(element: ET.Element) -> None:
+        echoed.add(id(element))
+        for child in element:
+            collect(child)
+
+    def visit(item: DexpiItem) -> None:
+        if item.raw is not None:
+            for child in item.raw:
+                if child.tag in _REGENERATED_TAGS or child.get("ID") in doc.items:
+                    continue
+                collect(child)
+        for child_item in _items(doc, item.child_ids):
+            visit(child_item)
+
+    for item in _items(doc, doc.root_ids):
+        visit(item)
+    for extra in doc.extras:
+        collect(extra)
+
+    return echoed
+
+
+def _connections_by_owner(doc: DexpiDocument, echo: bool) -> dict[str | None, list[DexpiConnection]]:
     """Group the connectivity graph by the item each edge is written inside.
 
     An owner that is not an item of the document is keyed under None and emitted at document level,
     which is where Proteus puts a connection that belongs to no segment.
+
+    A connection nested inside a construct the model does not carry -- the ``<Connection>`` in an
+    ``<InformationFlow>``, say -- is a different case, and it is skipped entirely: the echo copies
+    its owner out whole, connection and all, so emitting it a second time from the model would
+    write it twice. That was 14 of the 220 files in the official corpus, DEXPI 1.2 signal
+    connectivity above all, and it is invisible to a fixture set that has no such construct in it.
     """
+    echoed = _echoed_elements(doc, echo)
+
     grouped: dict[str | None, list[DexpiConnection]] = {}
     for connection in doc.connections:
+        if connection.raw is not None and id(connection.raw) in echoed:
+            continue
         key = connection.owner_id if connection.owner_id in doc.items else None
         grouped.setdefault(key, []).append(connection)
     return grouped

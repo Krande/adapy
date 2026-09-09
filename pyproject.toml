@@ -135,7 +135,15 @@ profile = "black"
 # Keep isort happy during transition; match Ruff’s view of the world
 src_paths = ["src"]
 skip = [".pixi", "node_modules", "temp", "examples"]
-skip_glob = ["**/node_modules/**", "**/temp/**", "**/_build/**"]
+# files/dexpi_files/_external/ is the official DEXPI corpus fetched on demand by
+# scripts/fetch_dexpi_testcases.py -- third-party CC BY 4.0 code, git-ignored and not ours to
+# format. black and ruff skip it via .gitignore; isort does not read .gitignore, so it is named here.
+skip_glob = [
+    "**/node_modules/**",
+    "**/temp/**",
+    "**/_build/**",
+    "**/files/dexpi_files/_external/**",
+]
 
 
 [tool.pytest.ini_options]

@@ -264,6 +264,28 @@ network. A run against the full corpus is a good pre-release check: it is what c
 (rather than 1-based) positional node indexing that DEXPI 1.3 actually uses in the wild, which a
 smaller fixture set would not have exposed.
 
+It has since earned its keep twice more, on the first full run after the writers landed -- 15 of
+the 220 files failed, both causes invisible to any fixture the branch had:
+
+*A connection nested in an element the model does not carry was written twice.* The
+``<Connection>`` inside an ``<InformationFlow>`` is echoed verbatim along with its owner *and* was
+re-emitted from ``doc.connections`` at document level, so an unedited round-trip gained a second,
+owner-less copy of the edge -- connectivity the P&ID never had. 14 files, DEXPI 1.2 signal
+connectivity above all. The writer now skips any connection whose source element the echo already
+carries, tested by element identity against the source parse.
+
+*A full RDL URI in* ``ComponentClass`` *changed the class on the way through.* Emitters are not
+supposed to write ``ComponentClass="http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction"``,
+and some do. ``class_table.resolve`` took the last *dot* before the last slash, which lands in the
+host name and yields the class ``org/rdl/ProcessInstrumentationFunction``; the writer emitted that
+and the reader then resolved it differently coming back in. Taking the path segment off first fixes
+it and makes ``resolve`` idempotent, which is the property the round-trip actually depends on.
+
+Both are pinned by checked-in fixtures in ``tests/core/cadit/dexpi/test_write_proteus.py``, so CI
+holds them without the corpus. Note that fetching the corpus puts third-party code in the tree:
+``pyproject.toml`` names ``_external/`` in isort's skip list, because isort -- unlike black and
+ruff -- does not read ``.gitignore`` and would otherwise fail ``pixi run lint-check`` on it.
+
 Licensing and attribution
 ----------------------------
 

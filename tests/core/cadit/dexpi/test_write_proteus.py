@@ -324,3 +324,107 @@ def test_a_from_scratch_document_names_adapy_as_its_originating_system():
     header = write_proteus(_from_scratch_nozzles()).find("PlantInformation")
     assert header.get("OriginatingSystem") == "adapy"
     assert header.get("Date") is None and header.get("Time") is None
+
+
+# -- connections carried inside an echoed subtree ------------------------------------------------
+#
+# Found by running the full official corpus (scripts/fetch_dexpi_testcases.py), which no checked-in
+# fixture covered: 14 of its 220 files wrote a connection twice. Both shapes below are reduced from
+# real DEXPI 1.2 files, so the regression is pinned without needing the opt-in corpus.
+
+SIGNAL_IN_AN_INFORMATION_FLOW = """
+<PlantModel>
+  <PlantInformation OriginatingSystem="Test Kit" SchemaVersion="4.1.1" Units="mm"/>
+  <ProcessInstrumentationFunction ID="PIF-1" ComponentClass="ProcessInstrumentationFunction">
+    <ConnectionPoints NumPoints="1">
+      <Node ID="PIF-1-Node-1"><Position><Location X="0" Y="0" Z="0"/></Position></Node>
+    </ConnectionPoints>
+    <InformationFlow ID="InformationFlow-1">
+      <Connection FromID="Nozzle-1" ToID="PIF-1"/>
+    </InformationFlow>
+  </ProcessInstrumentationFunction>
+  <Equipment ID="Equipment-1" ComponentClass="Tank">
+    <Nozzle ID="Nozzle-1" ComponentClass="Nozzle">
+      <ConnectionPoints NumPoints="1">
+        <Node ID="Nozzle-1-Node-1"><Position><Location X="0" Y="0" Z="0"/></Position></Node>
+      </ConnectionPoints>
+    </Nozzle>
+  </Equipment>
+</PlantModel>
+"""
+
+
+def test_a_connection_inside_an_echoed_element_is_not_also_written_at_document_level():
+    """``<InformationFlow>`` is not in the neutral model, so it is echoed verbatim -- with the
+    ``<Connection>`` nested in it.
+
+    The connection is also in ``doc.connections``, and emitting it from the model as well wrote it
+    twice: once inside the echoed flow and once on the root. The duplicate reads back as a second,
+    owner-less edge, so the P&ID gains connectivity it never had.
+    """
+    doc = read_proteus(ET.fromstring(SIGNAL_IN_AN_INFORMATION_FLOW))
+    assert len(doc.connections) == 1
+    assert doc.connections[0].owner_id == "InformationFlow-1"
+
+    root = write_proteus(doc)
+
+    assert len(root.findall(".//Connection")) == 1
+    assert root.find("Connection") is None, "the echoed copy is the only one; nothing on the root"
+    assert root.find(".//InformationFlow/Connection") is not None
+
+
+def test_the_echoed_connection_survives_a_re_read_with_its_owner():
+    """Deduplicating must not degrade to dropping: the edge still comes back, still owned."""
+    doc = read_proteus(ET.fromstring(SIGNAL_IN_AN_INFORMATION_FLOW))
+    again = read_proteus(write_proteus(doc))
+
+    assert canonicalize(again) == canonicalize(doc)
+    assert [(c.from_item, c.to_item, c.owner_id) for c in again.connections] == [
+        ("Nozzle-1", "PIF-1", "InformationFlow-1")
+    ]
+
+
+def test_a_document_level_connection_is_still_written_on_the_root():
+    """The other half of the rule: an edge that no echoed element carries must still be emitted."""
+    doc = read_proteus(
+        ET.fromstring(
+            """
+            <PlantModel>
+              <Equipment ID="Equipment-1" ComponentClass="Tank">
+                <ConnectionPoints NumPoints="1">
+                  <Node ID="Equipment-1-Node-1"><Position><Location X="0" Y="0" Z="0"/></Position></Node>
+                </ConnectionPoints>
+              </Equipment>
+              <Connection FromID="Equipment-1" ToID="Equipment-1"/>
+            </PlantModel>
+            """
+        )
+    )
+    root = write_proteus(doc)
+
+    assert root.find("Connection") is not None
+    assert len(root.findall(".//Connection")) == 1
+
+
+def test_a_component_class_written_as_a_full_rdl_uri_round_trips():
+    """``ComponentClass="http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction"``.
+
+    Neither flavour is supposed to put a URI there, but emitters do. Resolving the last *dot* first
+    landed inside the host name and produced the class ``org/rdl/ProcessInstrumentationFunction``,
+    which the writer emitted and the reader then resolved differently on the way back in -- so the
+    document changed class on an unedited round-trip.
+    """
+    doc = read_proteus(
+        ET.fromstring(
+            """
+            <PlantModel>
+              <ProcessInstrumentationFunction ID="PIF-1"
+                  ComponentClass="http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction"/>
+            </PlantModel>
+            """
+        )
+    )
+    assert doc.items["PIF-1"].class_name == "ProcessInstrumentationFunction"
+
+    again = read_proteus(write_proteus(doc))
+    assert canonicalize(again) == canonicalize(doc)

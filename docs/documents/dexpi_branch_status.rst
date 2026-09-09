@@ -188,6 +188,39 @@ Three things about the branch-point fix that are not obvious from the diff
     different runs -- a wiring-only assertion passes happily when all three runs resolve to the same
     port and three pipes converge on one point.
 
+The official corpus finds what fixtures cannot, and it found two more
+    The first full run of ``scripts/fetch_dexpi_testcases.py`` + ``test_external_corpus.py`` after
+    the writers landed failed 15 of 220 files. Neither cause was reachable from any checked-in
+    fixture, and both were in the *unedited* round-trip -- nothing to do with the 3D path.
+
+    **A connection nested in an unmodelled element was written twice** (14 files). A
+    ``<Connection>`` inside an ``<InformationFlow>`` is echoed verbatim with its owner, because the
+    model does not carry information flows -- and it is *also* in ``doc.connections``, so
+    ``_connections_by_owner`` emitted it again at document level. The re-read then saw two edges
+    where the source had one, the second owner-less. It is worth being clear about why the obvious
+    alternative is wrong: stripping ``<Connection>`` out of the echo instead and always emitting
+    from the model does not work, because the writer cannot place an edge inside an element that is
+    not an item, so the connection would come back at document level with its owner lost and T1
+    would still fail. The echo keeps it; the model side stands down. The test is element identity
+    against the source parse -- ``id(connection.raw) in echoed`` -- which is exact rather than a
+    guess from ``owner_id``, and covers the ``doc.extras`` case as well as the per-item one.
+
+    **A full RDL URI in** ``ComponentClass`` **changed class on the way through** (1 file).
+    ``class_table.resolve`` split on the last dot before the last slash, so
+    ``http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction`` resolved to
+    ``org/rdl/ProcessInstrumentationFunction`` -- the dot it found was in the *host name*. The
+    writer emitted that string and the reader resolved it again differently on the way back in. The
+    real defect is that ``resolve`` was not idempotent; taking the path segment off before the dot
+    makes it so, and a round-trip through a writer that emits resolved names depends on exactly
+    that property. Worth remembering that emitters put things in ``ComponentClass`` the spec does
+    not allow.
+
+    Both are pinned by inline fixtures in ``test_write_proteus.py`` (all four fail without the
+    fixes, checked by reverting), so CI holds them without the git-ignored corpus. One process
+    wrinkle the fetch introduces: ``_external/`` is third-party code in the working tree, and isort
+    does not read ``.gitignore`` the way black and ruff do, so ``pixi run lint-check`` fails on it
+    until the directory is named in ``[tool.isort] skip_glob`` -- which it now is.
+
 Process notes for whoever continues this
 -------------------------------------------
 

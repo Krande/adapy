@@ -60,13 +60,20 @@ def resolve(name: str) -> str:
     A DEXPI 2.0 ``type`` puts the model prefix before a single slash and the dotted path inside the
     model after it, so the class name is whatever follows the last dot -- or the last slash for a
     class that sits directly in a model.
+
+    The slash is taken off *before* the dot, which matters for the one form neither flavour is
+    supposed to use but emitters do anyway: a full RDL URI in ``ComponentClass``, as in
+    ``http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction``. Splitting on the last dot
+    first lands in the *host name* and yields ``org/rdl/ProcessInstrumentationFunction``. Doing it
+    in this order also makes ``resolve`` idempotent -- its own output resolves to itself -- which a
+    read/write round-trip needs, because the writer emits the resolved name and the reader resolves
+    it again.
     """
     token = name.strip()
     if "#" in token:
         token = token.rsplit("#", 1)[-1]
-    if "." in token:
-        return token.rsplit(".", 1)[-1]
-    return token.rsplit("/", 1)[-1]
+    token = token.rsplit("/", 1)[-1]
+    return token.rsplit(".", 1)[-1]
 
 
 def get(name: str) -> dict | None:
