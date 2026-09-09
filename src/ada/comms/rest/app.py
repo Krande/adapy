@@ -6752,7 +6752,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
             return {"skipped": reason}
 
-        await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=job_id)
+        # CLEARED ON SUCCESS, not only on claim. The tick's claim clears it, but
+        # "Run now" calls this function directly and bypasses the claim -- so a
+        # schedule that skipped once and then fired successfully kept displaying the
+        # old skip note indefinitely, which reads as the current state and sent
+        # someone looking for a queued job that had finished long before.
+        #
+        # Written here rather than at each call site because every successful
+        # firing, however it was triggered, makes the previous skip history.
+        await db_module.update_plugin_job_schedule(
+            pool, sched_id, last_job_id=job_id, last_skipped_reason=None
+        )
         logger.info(
             "plugin-job scheduler: fired %s (%s) -> job %s",
             schedule_row["name"],

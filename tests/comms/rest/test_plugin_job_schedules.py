@@ -489,3 +489,31 @@ def test_a_row_the_worker_could_never_close_does_not_block_the_schedule(pg_clien
     finally:
         asyncio.run(_clear_stale_row())
         pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_a_successful_firing_clears_the_previous_skip_note():
+    """The note is cleared on CLAIM, and "Run now" bypasses the claim.
+
+    So a schedule that skipped once and then fired successfully kept showing the old
+    note -- which reads as the current state, and sent someone looking for a queued
+    job that had finished long before. Every successful firing makes the previous
+    skip history, however it was triggered.
+    """
+    pool = await _fresh_pool()
+    try:
+        row = await dbm.create_plugin_job_schedule(
+            pool, next_fire_at=datetime.datetime.now(datetime.timezone.utc), **_schedule_kwargs()
+        )
+        await dbm.set_plugin_job_schedule_skip_reason(pool, row["id"], "previous job still queued or running")
+        assert (await dbm.get_plugin_job_schedule(pool, row["id"]))["last_skipped_reason"]
+
+        # What the fire path does on success.
+        updated = await dbm.update_plugin_job_schedule(
+            pool, row["id"], last_job_id="job-xyz", last_skipped_reason=None
+        )
+        assert updated["last_job_id"] == "job-xyz"
+        assert updated["last_skipped_reason"] is None, "a successful firing left a stale skip note"
+    finally:
+        await dbm.close_pool(pool)

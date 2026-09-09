@@ -3232,6 +3232,16 @@ async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
                 resp.read()
             return True
         except urllib.error.HTTPError as exc:
+            # THE BODY IS READ AND LOGGED, not just the status. A bare code is how
+            # two separate failures today each cost an hour: the server says what
+            # went wrong in the body, and throwing it away leaves the reader
+            # inferring from a number. Read defensively -- a body that cannot be
+            # read must not replace the error with a different one.
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:500]
+            except Exception:  # noqa: BLE001
+                pass
             # Logged at warning rather than retried: a 4xx will be just as wrong
             # next time.
             #
@@ -3249,7 +3259,14 @@ async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
                     exc.code,
                 )
             else:
-                logger.warning("worker: audit report for job %s refused (%s)", job_id, exc.code)
+                # A 5xx here is the API failing to record, which is worth the body:
+                # it is the only place the reason exists.
+                logger.warning(
+                    "worker: audit report for job %s refused (%s)%s",
+                    job_id,
+                    exc.code,
+                    f": {detail}" if detail else "",
+                )
             return False
         except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
             logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
