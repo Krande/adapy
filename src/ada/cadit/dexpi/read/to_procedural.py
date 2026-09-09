@@ -82,7 +82,10 @@ __all__ = [
     "InlineComponents",
     "default_layout_rules",
     "dexpi_import_report",
+    "ResolvedDexpi",
     "dexpi_to_procedural_doc",
+    "dexpi_to_resolved",
+    "resolved_to_procedural_doc",
 ]
 
 InlineComponents = Literal["metadata", "equipment"]
@@ -345,15 +348,39 @@ class _Index:
 # --------------------------------------------------------------------------- #
 # The importer
 # --------------------------------------------------------------------------- #
-def dexpi_to_procedural_doc(
+@dataclasses.dataclass
+class ResolvedDexpi:
+    """A P&ID read but not placed -- the output of :func:`dexpi_to_resolved`.
+
+    Everything here is settled by the source: which equipment exists, how big each one is, where its
+    ports sit on its own box, and what is connected to what. **Nothing here has a plant coordinate**,
+    because a P&ID states none. Placing it is :func:`resolved_to_procedural_doc`, which needs deck
+    bounds that only a build can supply.
+    """
+
+    #: Unplaced footprints, one per equipment the layout will have to find room for.
+    items: list[LayoutItem]
+    #: One entry per routable segment and signal line: the system entity and its two endpoints.
+    segments: list["_SegmentSpec"]
+    #: ``{slug: equipment document}`` -- the compiler's ``equipment_resolver``.
+    catalog: dict
+    #: ``{equipment name: metadata}``, stamped onto the placed rows by the build.
+    provenance: dict
+    #: Read-stage gaps only. Whether a vessel *fits* depends on deck bounds, so it can only ever be
+    #: a build gap and is reported there.
+    report: DexpiImportReport
+    source: str | None = None
+    flavour: str = ""
+    warnings: list[str] = dataclasses.field(default_factory=list)
+
+
+def dexpi_to_resolved(
     doc: DexpiDocument,
     *,
     definitions: Any = None,
-    layout: LayoutRules | dict | None = None,
-    base_doc: dict | None = None,
     inline_components: InlineComponents = "metadata",
-) -> tuple[dict, dict]:
-    """Convert ``doc`` into ``(procedural document, equipment catalog)``.
+) -> ResolvedDexpi:
+    """Resolve ``doc`` into a :class:`ResolvedDexpi` -- read, but not placed.
 
     The document is the compiler's commit format (``spaces``/``equipments``/``systems``, see
     :class:`ada.comms.rest.procedural.ProceduralDoc`) and the catalog is ``{slug: equipment
@@ -379,7 +406,6 @@ def dexpi_to_procedural_doc(
     if inline_components not in ("metadata", "equipment"):
         raise ValueError(f"inline_components must be 'metadata' or 'equipment', got {inline_components!r}")
 
-    rules = _layout_rules(layout)
     report = DexpiImportReport()
 
     resolved = resolve_equipment(doc, definitions)
@@ -410,6 +436,44 @@ def dexpi_to_procedural_doc(
     items.extend(_instrument_equipment(doc, catalog, index, provenance, taken))
     segments.extend(_signal_specs(doc, index, report))
 
+    # What the read produced, which is what its own summary line counts against. The build keeps a
+    # separate tally of what reached 3D; the two are different numbers answering different questions.
+    report.stats = {"equipment": len(items), "systems": len(segments)}
+
+    return ResolvedDexpi(
+        items=items,
+        segments=segments,
+        catalog=catalog,
+        provenance=provenance,
+        report=report,
+        source=doc.source,
+        flavour=doc.flavour.value,
+        warnings=list(doc.warnings),
+    )
+
+
+def resolved_to_procedural_doc(
+    resolved: "ResolvedDexpi",
+    *,
+    layout: LayoutRules | dict | None = None,
+    base_doc: dict | None = None,
+) -> tuple[dict, dict]:
+    """Place ``resolved`` under ``layout`` and return ``(procedural document, equipment catalog)``.
+
+    The build half. Everything here needs deck bounds to have an answer at all -- generating the
+    decks, packing the equipment onto them, seating a site terminal on a deck edge -- which is
+    exactly why none of it belongs to reading a P&ID.
+
+    ``resolved`` is **not** modified: the layout stamps a group onto every item and site-terminal
+    placement writes positions onto a segment's endpoints, so a second build with different bounds
+    would otherwise inherit the first one's placements. Both are copied per call.
+    """
+    rules = _layout_rules(layout)
+    report = DexpiImportReport(issues=list(resolved.report.issues))
+
+    items = [dataclasses.replace(item) for item in resolved.items]
+    segments = [_copy_segment(spec) for spec in resolved.segments]
+
     _group_by_connectivity(items, segments)
     plan = plan_layout(items, rules)
     for name in plan.unplaced:
@@ -417,7 +481,7 @@ def dexpi_to_procedural_doc(
 
     out = apply_layout(dict(base_doc or {}), plan)
     _restore_base_placements(out, base_doc)
-    _stamp_equipment_metadata(out, provenance)
+    _stamp_equipment_metadata(out, resolved.provenance)
 
     spaces = [TopoSpace(**_no_none(row)) for row in out.get("spaces") or []]
     placements = {row.get("NAME"): row for row in out.get("equipments") or [] if isinstance(row, dict)}
@@ -437,12 +501,46 @@ def dexpi_to_procedural_doc(
 
     report.stats = {"equipment": len(out.get("equipments") or []), "systems": len(out["systems"])}
     out["dexpi"] = {
-        "source": doc.source,
-        "flavour": doc.flavour.value,
-        "reader_warnings": list(doc.warnings),
+        "source": resolved.source,
+        "flavour": resolved.flavour,
+        "reader_warnings": list(resolved.warnings),
         "report": report.as_dict(),
     }
-    return out, catalog
+    return out, resolved.catalog
+
+
+def _copy_segment(spec: "_SegmentSpec") -> "_SegmentSpec":
+    """A segment safe to place: fresh entity and fresh endpoints, same source item.
+
+    Only the two mutated things are copied. ``item`` is a :class:`DexpiItem` holding the source
+    ``ET.Element``; deep-copying it per build would be both expensive and pointless, since nothing
+    downstream of here writes to it.
+    """
+    return _SegmentSpec(
+        item=spec.item,
+        entity=spec.entity.model_copy(deep=True),
+        ends=[dataclasses.replace(end) for end in spec.ends],
+        components=spec.components,
+    )
+
+
+def dexpi_to_procedural_doc(
+    doc: DexpiDocument,
+    *,
+    definitions: Any = None,
+    layout: LayoutRules | dict | None = None,
+    base_doc: dict | None = None,
+    inline_components: InlineComponents = "metadata",
+) -> tuple[dict, dict]:
+    """Read ``doc`` and place it in one call -- :func:`dexpi_to_resolved` then
+    :func:`resolved_to_procedural_doc`.
+
+    Kept because the pair is what most callers want and because it is the shape
+    ``ada.dexpi_to_procedural`` exposes. Take the two halves separately to resolve a P&ID once and
+    place it several ways.
+    """
+    resolved = dexpi_to_resolved(doc, definitions=definitions, inline_components=inline_components)
+    return resolved_to_procedural_doc(resolved, layout=layout, base_doc=base_doc)
 
 
 # --------------------------------------------------------------------------- #

@@ -337,11 +337,16 @@ The relocate feedback loop was proposing nothing, and silently
     (once for the native view). It is pure CPU and worth the correctness; memoise it if it ever
     shows up in a profile.
 
-    Third, and this is the subtle one: **producing the native view has to run the layout**, with a
-    placeholder ``ProceduralBuildSpec()``, because that is how the conversion is shaped. Any
-    layout-stage gap it produces is therefore about deck bounds nobody asked for. Those issues are
-    stripped from the read report and re-collected on the build's, or a *read* would report a
-    failure only a *build* can have. ``test_bounds_too_small_is_a_build_gap_not_a_read_one`` pins it.
+    Third, the conversion itself has since been split, which is what made the API honest rather than
+    merely well-arranged. ``dexpi_to_resolved`` reads (equipment resolved to envelopes and ports,
+    segments to systems, no coordinates) and ``resolved_to_procedural_doc`` places. Before the split
+    the read had to run the whole monolithic conversion once with a placeholder
+    ``ProceduralBuildSpec()`` purely to shape its output, then discard the coordinates *and filter
+    the resulting layout-stage issues out of its report* -- special-case code whose only job was to
+    hide the effects of running something that should not have run. That filter is gone, and
+    ``test_reading_runs_no_layout_at_all`` asserts the layout engine is called zero times by a read
+    and exactly once, with the build's own bounds, by a build.
+    ``test_bounds_too_small_is_a_build_gap_not_a_read_one`` pins the report split.
 
     Fourth, ``Equipment.origin`` is the box's **base centre** (``X + LX/2, Y + LY/2, Z``), so an
     unplaced equipment is *not* at ``(0,0,0)`` -- it sits at its own half-extents. Asserting

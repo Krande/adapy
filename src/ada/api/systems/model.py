@@ -143,49 +143,37 @@ class SystemModel:
         import pathlib as _pathlib
 
         from ada.cadit.dexpi.read.to_procedural import (
-            DexpiImportReport,
-            dexpi_to_procedural_doc,
+            dexpi_to_resolved,
+            resolved_to_procedural_doc,
         )
         from ada.cadit.dexpi.store import read_dexpi
         from ada.config import logger
-        from ada.topo_model.build_spec import ProceduralBuildSpec
 
         document = read_dexpi(path, flavour=flavour)
         name = name or (document.header.project or _pathlib.Path(path).stem)
 
+        # Read only: equipment resolved to envelopes and ports, segments to systems. No decks and no
+        # coordinates -- those need bounds a build supplies, and asking for them here would mean
+        # running a layout nobody asked for and then reporting its failures as reading failures.
+        resolved = dexpi_to_resolved(document, definitions=definitions, inline_components=inline_components)
+
         def procedural_factory(spec):
-            """The compiler's input for this P&ID, under ``spec``'s layout rules.
+            """The compiler's input, placed under ``spec``'s layout rules.
 
-            Re-run per build rather than computed once: the decks and the equipment coordinates it
-            contains are products of the build's ``LayoutRules``, so a second build with different
-            deck bounds must get a different document from the same model.
+            Re-run per build rather than computed once: the decks and coordinates it contains are
+            products of those rules, so a second build with different bounds must get a different
+            document from the same resolved read.
             """
-            return dexpi_to_procedural_doc(
-                document,
-                definitions=definitions,
-                layout=spec.layout,
-                base_doc=spec.base_doc,
-                inline_components=inline_components,
-            )
+            return resolved_to_procedural_doc(resolved, layout=spec.layout, base_doc=spec.base_doc)
 
-        # Resolved once for the native view with default rules. The rules cannot matter here --
-        # nothing on the model carries a coordinate -- and the placements they produce are discarded
-        # by _native_objects.
-        doc, catalog = procedural_factory(ProceduralBuildSpec())
-        report = DexpiImportReport.from_dict((doc.get("dexpi") or {}).get("report"))
-        # Layout-stage gaps are dropped here, and that is not a convenience. Producing the native
-        # view has to run the conversion, which runs the layout, which needs deck bounds -- so it
-        # used a placeholder ``ProceduralBuildSpec()``. Any "no cell is large enough" it produced is
-        # therefore about bounds nobody asked for, and keeping it would let a *read* report a
-        # failure that only a *build* can have. The build reports its own, against real rules.
-        report.issues = [issue for issue in report.issues if issue.stage != "layout"]
-        equipment, systems = _native_objects(doc, catalog)
+        report = resolved.report
+        equipment, systems = _native_objects(resolved)
 
         model = cls(
             name=name,
             equipment=equipment,
             systems=systems,
-            catalog=catalog,
+            catalog=resolved.catalog,
             report=report,
             source_document=document,
             procedural_factory=procedural_factory,
@@ -260,24 +248,53 @@ class SystemModel:
         return write_model_merged(self, destination, flavour=flavour)
 
 
-def _native_objects(doc: dict, catalog: dict):
-    """``(equipment, systems)`` as live adapy objects, with placement discarded.
+def _native_objects(resolved):
+    """``(equipment, systems)`` as live adapy objects, built straight from the resolved read.
 
-    The procedural document has been through the layout, because that is the shape the compiler's
-    input takes -- but a coordinate is not something the P&ID said, so none of it is carried onto
-    the native model. Every piece of equipment is rebuilt at the origin and its ports come out of
-    the catalog relative to its own box, which is exactly the frame a schematic has.
+    Every piece of equipment is placed at ``X=Y=Z=0``, so its ports come out of the catalog relative
+    to its own box -- exactly the frame a schematic has, and the only one the source supports.
+    Nothing here runs a layout: the footprints come from :attr:`ResolvedDexpi.items`, which is what
+    the layout would have consumed rather than anything it produced.
     """
     from ada.api.spatial.equipment import Equipment
     from ada.topo_model.compile import _equipment_to_object, _wire_systems
     from ada.topology.entities import TopoEquipment
 
     objects = []
-    for row in doc.get("equipments") or []:
-        entity = TopoEquipment(**{k: v for k, v in row.items() if v is not None})
-        at_origin = entity.model_copy(update={"X": 0.0, "Y": 0.0, "Z": 0.0})
-        objects.append(_equipment_to_object(at_origin, catalog.get))
+    for item in resolved.items:
+        cog = item.cog or (0.0, 0.0, item.lz / 2.0)
+        entity = TopoEquipment(
+            NAME=item.name,
+            DESCRIPTION=item.type_slug,
+            # No space, because there are no decks yet -- the layout generates those. FLOOR is the
+            # neutral seating; nothing reads it until something places this.
+            SPACE_NAME="",
+            SPACE_LOC="FLOOR",
+            X=0.0,
+            Y=0.0,
+            Z=0.0,
+            LX=item.lx,
+            LY=item.ly,
+            LZ=item.lz,
+            COGx=cog[0],
+            COGy=cog[1],
+            COGz=cog[2],
+            massDry=item.mass,
+            massCont=0.0,
+        )
+        objects.append(_equipment_to_object(entity, resolved.catalog.get))
 
     equipment = [obj for obj in objects if isinstance(obj, Equipment)]
-    systems = _wire_systems(doc.get("systems") or [], {eq.name: eq for eq in equipment})
+
+    # The connectivity is known at read time -- which equipment and which port each run ends on was
+    # settled when the endpoints resolved. Only a site terminal's *position* needs decks, and that
+    # is filled in by the build; here it is simply left at its default, because nothing about the
+    # wiring depends on it.
+    specs = []
+    for spec in resolved.segments:
+        entity = spec.entity.model_copy(deep=True)
+        entity.CONNECTIONS = [end.to_connection() for end in spec.ends]
+        specs.append(entity.model_dump())
+
+    systems = _wire_systems(specs, {eq.name: eq for eq in equipment})
     return equipment, systems

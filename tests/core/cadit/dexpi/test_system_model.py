@@ -171,3 +171,77 @@ def test_a_definitions_function_returning_nonsense_says_which_item():
     """Silently contributing nothing would come back as a model the wrong size, three steps away."""
     with pytest.raises(TypeError, match="must return an equipment document"):
         ada.SystemModel.from_dexpi(_UNIT_SEPARATOR, definitions=lambda item: "3 metres")
+
+
+# -- the read really does not place anything -----------------------------------------------------
+
+
+def test_reading_runs_no_layout_at_all(monkeypatch):
+    """The read used to run a layout with placeholder deck bounds purely to shape its output, then
+    discard the coordinates and filter the resulting "no cell is large enough" out of its report.
+
+    That filter was the tell: special-case code whose only job was to hide the effects of running
+    something that should not have run. Asserting the call count is the direct check, and it fails
+    the moment anyone reintroduces a placement step on the read side.
+    """
+    from ada.cadit.dexpi.read import to_procedural
+
+    calls = []
+    real = to_procedural.plan_layout
+    monkeypatch.setattr(to_procedural, "plan_layout", lambda items, rules: (calls.append(rules), real(items, rules))[1])
+
+    model = ada.SystemModel.from_dexpi(_UNIT_SEPARATOR)
+    assert calls == [], "reading a P&ID ran the layout engine"
+
+    model.to_assembly(ProceduralBuildSpec(layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0)))
+    assert len(calls) == 1, "building did not run the layout exactly once"
+    assert calls[0].max_length == 24.0, "the build did not use its own deck bounds"
+
+
+def test_placing_does_not_write_back_onto_the_resolved_read():
+    """Placing stamps a connectivity ``group`` onto every layout item and writes ``CONNECTIONS``
+    onto every segment entity. Those belong to *a* placement, not to the read.
+
+    Asserting on the resulting placements would prove nothing -- both writes happen to be
+    idempotent, so the values come out the same whether or not the read is copied first. What is
+    observable, and what this pins, is that the read itself comes back unmarked.
+    """
+    from ada.cadit.dexpi.read.to_procedural import (
+        dexpi_to_resolved,
+        resolved_to_procedural_doc,
+    )
+    from ada.cadit.dexpi.store import read_dexpi
+
+    resolved = dexpi_to_resolved(read_dexpi(_UNIT_SEPARATOR))
+    # Some groups are a read-time fact -- an in-line valve belongs to the run it sits on. The build
+    # then merges them across the connectivity graph, and that merge is what must not persist.
+    groups_before = [item.group for item in resolved.items]
+    assert all(spec.entity.CONNECTIONS == [] for spec in resolved.segments)
+
+    resolved_to_procedural_doc(resolved, layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0))
+
+    assert [item.group for item in resolved.items] == groups_before, "a build wrote groups back onto the read"
+    assert all(spec.entity.CONNECTIONS == [] for spec in resolved.segments), "a build wrote connections back"
+
+
+def test_placing_a_resolved_read_does_not_consume_it():
+    """Placing must leave the resolved read able to be placed again -- differently."""
+    from ada.cadit.dexpi.read.to_procedural import (
+        dexpi_to_resolved,
+        resolved_to_procedural_doc,
+    )
+    from ada.cadit.dexpi.store import read_dexpi
+
+    resolved = dexpi_to_resolved(read_dexpi(_UNIT_SEPARATOR))
+    before = [(item.name, item.lx, item.ly, item.lz) for item in resolved.items]
+
+    resolved_to_procedural_doc(resolved, layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0))
+    tight, _ = resolved_to_procedural_doc(
+        resolved, layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0)
+    )
+    roomy, _ = resolved_to_procedural_doc(
+        resolved, layout=LayoutRules(max_length=60.0, max_width=40.0, deck_height=8.0)
+    )
+
+    assert [(item.name, item.lx, item.ly, item.lz) for item in resolved.items] == before
+    assert len(tight["spaces"]) != len(roomy["spaces"]) or tight["equipments"] != roomy["equipments"]
