@@ -184,36 +184,96 @@ const CronField: React.FC<{
     </>
 );
 
-/** Scope picker: the projects this admin can see, plus shared.
+/** Sentinel for the "type it yourself" option.
  *
- * Free text as well as a list, because the wire format accepts scopes this list
- * cannot enumerate (a corpus, or a project that exists but is archived), and a
- * picker that silently cannot express a valid value is worse than a text box. */
-const ScopeField: React.FC<{
+ * Not a valid scope (which is `shared` or `<kind>:<id>`) and not a valid plugin
+ * slug (kebab-case), so it cannot collide with a value the select legitimately
+ * holds. */
+const OTHER = "__other__";
+
+/** A dropdown of the known values, with an explicit way out.
+ *
+ * A DROPDOWN, because a `<datalist>` shows nothing until the operator starts
+ * typing -- so a field with suggestions is indistinguishable from a bare text box,
+ * and they have to already know what to type to discover what is available.
+ *
+ * WITH AN ESCAPE HATCH, because the API accepts values this list cannot
+ * enumerate, on purpose: a plugin id no live worker currently serves (a schedule
+ * may be created before its worker exists, or outlive a pool that is down), an
+ * archived project, a corpus scope. A picker that cannot express a valid value is
+ * the failure the text box was guarding against.
+ *
+ * A value that is not in the list is shown as its own selected entry rather than
+ * silently replaced -- which is what editing a schedule whose worker is offline
+ * looks like, and losing the value there would rewrite the schedule while the
+ * operator was changing its cron.
+ */
+const ChoiceField: React.FC<{
     value: string;
     onChange: (v: string) => void;
-    projects: AdminProject[];
-}> = ({value, onChange, projects}) => (
-    <>
-        <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            list="plugin-schedule-scopes"
-            placeholder="project:my-project"
-            className={`${INPUT} font-mono w-56`}
-            title='Wire-format scope: "shared", or "project:<slug>"'
-        />
-        <datalist id="plugin-schedule-scopes">
-            <option value="shared"/>
-            {projects.map((p) => (
-                <option key={p.slug} value={`project:${p.slug}`}>
-                    {p.name}
-                </option>
-            ))}
-        </datalist>
-    </>
-);
+    options: {value: string; label: string}[];
+    placeholder?: string;
+    title?: string;
+    width?: string;
+}> = ({value, onChange, options, placeholder, title, width = "w-56"}) => {
+    const known = options.some((o) => o.value === value);
+    const [typing, setTyping] = useState(false);
+    // Shown as text whenever the operator asked for it, or whenever the value
+    // cannot be represented by the list -- otherwise the select would have to
+    // claim something the field does not hold.
+    const custom = typing || (!!value && !known);
+    return (
+        <>
+            <select
+                value={custom ? OTHER : value}
+                onChange={(e) => {
+                    if (e.target.value === OTHER) {
+                        setTyping(true);
+                        return;
+                    }
+                    setTyping(false);
+                    onChange(e.target.value);
+                }}
+                className={`${INPUT} font-mono ${width}`}
+                title={title}
+            >
+                {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                        {o.label}
+                    </option>
+                ))}
+                <option value={OTHER}>other…</option>
+            </select>
+            {custom && (
+                <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder}
+                    className={`${INPUT} font-mono ${width}`}
+                    title={title}
+                    autoFocus={typing}
+                />
+            )}
+        </>
+    );
+};
+
+/** The scopes to offer: shared, plus every live project. */
+function scopeOptions(projects: AdminProject[]): {value: string; label: string}[] {
+    return [
+        {value: "shared", label: "shared"},
+        ...projects.map((p) => ({value: `project:${p.slug}`, label: `project:${p.slug}`})),
+    ];
+}
+
+/** The plugins to offer, by slug. Title first where there is one, because the
+ * slug is the wire value and not always readable. */
+function pluginOptions(plugins: BackendPluginSpec[]): {value: string; label: string}[] {
+    return plugins
+        .map((p) => ({value: p.slug, label: p.title && p.title !== p.slug ? `${p.slug} — ${p.title}` : p.slug}))
+        .sort((a, b) => a.value.localeCompare(b.value));
+}
 
 const NewScheduleForm: React.FC<{
     plugins: BackendPluginSpec[];
@@ -291,22 +351,13 @@ const NewScheduleForm: React.FC<{
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Plugin</span>
-                <input
-                    type="text"
+                <ChoiceField
                     value={pluginId}
-                    onChange={(e) => setPluginId(e.target.value)}
-                    list="plugin-schedule-plugins"
+                    onChange={setPluginId}
+                    options={pluginOptions(plugins)}
                     placeholder="plugin id"
-                    className={`${INPUT} font-mono w-48`}
-                    title="An id no live worker serves is accepted: a schedule may outlive a pool being down"
+                    title="Only plugins a live worker advertises are listed; an id none serves is still accepted, because a schedule may outlive a pool being down"
                 />
-                <datalist id="plugin-schedule-plugins">
-                    {plugins.map((p) => (
-                        <option key={p.slug} value={p.slug}>
-                            {p.title || p.slug}
-                        </option>
-                    ))}
-                </datalist>
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Cron expression</span>
@@ -314,7 +365,13 @@ const NewScheduleForm: React.FC<{
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Scope</span>
-                <ScopeField value={scope} onChange={setScope} projects={projects}/>
+                <ChoiceField
+                    value={scope}
+                    onChange={setScope}
+                    options={scopeOptions(projects)}
+                    placeholder="corpus:my-corpus"
+                    title={'Wire-format scope: "shared" or "project:<slug>". Archived projects and corpus scopes are valid and not listed.'}
+                />
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Capability</span>
@@ -419,7 +476,13 @@ const EditForm: React.FC<{
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Scope</span>
-                <ScopeField value={scope} onChange={setScope} projects={projects}/>
+                <ChoiceField
+                    value={scope}
+                    onChange={setScope}
+                    options={scopeOptions(projects)}
+                    placeholder="corpus:my-corpus"
+                    title={'Wire-format scope: "shared" or "project:<slug>". Archived projects and corpus scopes are valid and not listed.'}
+                />
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Capability</span>
