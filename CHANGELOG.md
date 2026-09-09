@@ -2,6 +2,16 @@
 
 
 
+## v0.68.0 (2026-09-09)
+
+### Feature
+
+* feat(sesam): SIN result fields, load combinations, units, and viewer rendering (#326)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`028790e`](https://github.com/Krande/adapy/commit/028790ef8fa3b8576b8ad248b1087fcab48053c2))
+
+
 ## v0.67.1 (2026-09-09)
 
 ### Fix
