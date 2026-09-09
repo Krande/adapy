@@ -102,6 +102,13 @@ export interface ConvertResponse {
   cached: boolean;
   scope_kind?: string;
   scope_id?: string | null;
+  /** The worker pool this job was routed to, as a NATS subject token.
+   *
+   * The API returns the whole queue record, and this field is the one that
+   * explains a job nothing picks up: a pool no worker subscribes to accepts the
+   * job and then never delivers it, so there is no error, no retry and no worker
+   * log line — only a row that stays `queued`. */
+  target_capability?: string | null;
 }
 
 export interface ConvertTargetsResponse {

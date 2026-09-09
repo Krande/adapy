@@ -604,10 +604,71 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
             {entry.job_id && (
                 <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
             )}
+            <QueueRouting entry={entry}/>
             <div className="text-gray-500 mt-2">
                 No error reported for this entry. Switch to the Metrics tab for
                 CPU / memory / IO data.
             </div>
+        </div>
+    );
+};
+
+// Which pool a still-pending job is waiting on.
+//
+// THE ONE FACT THAT EXPLAINS A STUCK JOB, and it was not on screen anywhere. A job
+// routed to a pool no worker subscribes to is accepted and then never delivered:
+// nothing pulls it, so it is never redelivered, so it never reaches the
+// delivery-attempt cap that would record an error. The row stays `queued` with no
+// error, no retry, and no line in any worker's log — and every visible field looks
+// normal. Reading the pool off the queue entry is how that gets diagnosed in one
+// look instead of by reading queue source.
+//
+// Only for a non-terminal row: for history the pool is a spent detail, and the
+// queue entry has usually been swept anyway, which would make this a 404 on most
+// rows an operator opens.
+const QueueRouting: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [pool, setPool] = useState<string | null | undefined>(undefined);
+    const [gone, setGone] = useState(false);
+    const status = (entry.status || "").toLowerCase();
+    const pending = !!entry.job_id && (status === "queued" || status === "running");
+
+    useEffect(() => {
+        if (!pending || !entry.job_id) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const job = await viewerApi.convertStatus(entry.job_id!);
+                if (!cancelled) setPool(job.target_capability ?? null);
+            } catch {
+                // A 404 means the entry is no longer in the queue at all, which is
+                // itself the answer for a row still claiming to be queued: there
+                // is nothing left to deliver. Not an error worth a red box.
+                if (!cancelled) setGone(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [pending, entry.job_id]);
+
+    if (!pending) return null;
+    if (gone) {
+        return (
+            <div className="text-amber-300">
+                No queue entry for this job — nothing is left to deliver, so this row will not
+                move on its own. Cancel it to clear the status.
+            </div>
+        );
+    }
+    if (pool === undefined) return <div className="text-gray-500">Pool: looking up…</div>;
+    return (
+        <div>
+            Pool: <span className="font-mono">{pool || "base"}</span>
+            {!pool && (
+                <span className="text-amber-300">
+                    {" "}— routed to the default pool, which a specialised worker does not subscribe to
+                </span>
+            )}
         </div>
     );
 };
