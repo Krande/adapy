@@ -3232,10 +3232,24 @@ async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
                 resp.read()
             return True
         except urllib.error.HTTPError as exc:
-            # Logged at warning rather than retried. A 4xx will be just as wrong
-            # next time, and a 404 is the ordinary case of a queue entry already
-            # swept -- which is not a fault worth a traceback.
-            logger.warning("worker: audit report for job %s refused (%s)", job_id, exc.code)
+            # Logged at warning rather than retried: a 4xx will be just as wrong
+            # next time.
+            #
+            # 404/405 IS NAMED, because the bare status is actively misleading. A
+            # viewer that predates this route has no handler for the path, so the
+            # SPA's catch-all answers the GET shape and POST comes back 405 -- a
+            # status that reads as "the API refused this" when it means "this API
+            # does not have the feature yet". An afternoon went into a 405 that
+            # meant something equally structural, so this one says what to do.
+            if exc.code in (404, 405):
+                logger.warning(
+                    "worker: this viewer has no POST /api/jobs/{id}/status route (%s), so job "
+                    "outcomes stay `queued` in the audit log until it is updated. The jobs "
+                    "themselves are unaffected.",
+                    exc.code,
+                )
+            else:
+                logger.warning("worker: audit report for job %s refused (%s)", job_id, exc.code)
             return False
         except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
             logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
