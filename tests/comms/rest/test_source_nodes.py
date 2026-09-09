@@ -627,3 +627,67 @@ def test_a_refused_request_is_not_retried_but_a_server_error_is(worker_mod, shar
     with pytest.raises(RuntimeError, match="503"):
         rec._request("https://viewer.example/api/scopes/shared/source-nodes", {"source": "s", "nodes": []})
     assert calls["n"] == worker_mod._RestSourceNodesRecorder._ATTEMPTS
+
+
+def test_the_cursor_read_asks_for_no_source_and_parses_its_timestamps(worker_mod, shared_scope):
+    """``sources()`` is the cursor a scanning writer needs BEFORE it knows any refs.
+
+    ``get`` answers "is this node current", which needs refs the caller already
+    holds. A sweep asking "how far did I get" has none, and without this it must
+    re-read a fixed window every run — wasteful, and unsound, because a window is
+    a guess about the gap between runs that a missed run makes wrong.
+    """
+    rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", shared_scope)
+    urls = []
+
+    def fake_request(url, payload=None):
+        urls.append(url)
+        return {
+            "sources": [
+                {
+                    "source": "e3d",
+                    "nodes": 1234,
+                    "last_changed_at": "2026-09-09T09:53:46+00:00",
+                    "observed_at": "2026-09-09T09:53:47Z",
+                }
+            ]
+        }
+
+    rec._request = fake_request
+    got = rec.sources()
+
+    # No `source` and no `refs`: that is the shape the route answers with the
+    # per-source summary rather than with nodes.
+    assert urls == [rec._url()]
+    assert "source=" not in urls[0] and "refs=" not in urls[0]
+
+    assert got[0]["source"] == "e3d"
+    assert got[0]["nodes"] == 1234
+    # Parsed back to aware datetimes, like every other value these recorders
+    # hand back — a plugin must not be able to tell the two apart by type.
+    assert got[0]["last_changed_at"].tzinfo is not None
+    assert got[0]["observed_at"].tzinfo is not None, "a trailing Z must parse too"
+
+
+def test_an_unreadable_cursor_reads_as_absent_rather_than_failing_the_sweep(worker_mod, shared_scope):
+    """None means "no cursor", and the caller then cold-starts.
+
+    That is the safe direction: a cold start over-reads, where refusing the sweep
+    loses the run entirely and a guessed timestamp could skip changes.
+    """
+    rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", shared_scope)
+    rec._request = lambda url, payload=None: {
+        "sources": [{"source": "e3d", "nodes": 1, "last_changed_at": "not a timestamp", "observed_at": None}]
+    }
+    assert rec.sources()[0]["last_changed_at"] is None
+
+
+def test_both_recorders_expose_the_same_cursor_surface(worker_mod, shared_scope):
+    """The pool facade and the HTTP one are one surface with two backings. A
+    method on only one of them is a plugin that works on a worker with a database
+    and silently does less on a worker without one."""
+    rest = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", shared_scope)
+    pool_facade = worker_mod._SyncSourceNodesFacade(object(), shared_scope, None)
+    for name in ("record", "get", "sources", "scope"):
+        assert hasattr(rest, name), f"REST recorder is missing {name}"
+        assert hasattr(pool_facade, name), f"pool facade is missing {name}"

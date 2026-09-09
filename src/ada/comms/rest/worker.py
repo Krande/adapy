@@ -2915,6 +2915,25 @@ class _SyncSourceNodesFacade:
             db_module.get_source_nodes(self._pool, scope=self._scope_key, source=source, node_refs=node_refs)
         )
 
+    def sources(self) -> list:
+        """What each source has recorded here: ``source``, ``nodes``,
+        ``last_changed_at``, ``observed_at``.
+
+        THE CURSOR, for a writer that scans a source for changes. ``get`` answers
+        "is this node current", which needs refs the caller already holds;
+        this answers "how far have I got", which is what a sweep needs BEFORE it
+        knows any refs. Without it a scheduled scan has nowhere to keep a
+        watermark and must re-read a fixed window every run -- which is both
+        wasteful and unsound, because a window is a guess about how long the gap
+        between runs was, and a missed run makes the guess wrong.
+
+        ``last_changed_at`` is the watermark: a MAX over what is recorded, so it
+        moves forward only as changes are actually observed.
+        """
+        from . import db as db_module
+
+        return self._run(db_module.list_source_node_sources(self._pool, scope=self._scope_key))
+
 
 class _RestSourceNodesRecorder:
     """The same recording surface as :class:`_SyncSourceNodesFacade`, over HTTP.
@@ -3071,6 +3090,37 @@ class _RestSourceNodesRecorder:
                 batch.append(ref)
                 size += len(quote(ref)) + 1
         return out
+
+    def sources(self) -> list:
+        """The same cursor read as the pool facade's ``sources``.
+
+        Timestamps are parsed back into aware datetimes so a plugin cannot tell
+        the two recorders apart by what they hand back -- the whole point of this
+        class being a surface rather than a different API.
+        """
+        out = []
+        for row in self._request(self._url()).get("sources") or []:
+            out.append(
+                {
+                    "source": row.get("source"),
+                    "nodes": row.get("nodes"),
+                    "last_changed_at": self._parse_dt(row.get("last_changed_at")),
+                    "observed_at": self._parse_dt(row.get("observed_at")),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _parse_dt(value):
+        if not value:
+            return None
+        try:
+            return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            # A timestamp this cannot read is not worth failing a sweep over; the
+            # caller treats None as "no cursor" and falls back to a cold start,
+            # which is the safe direction (over-read, never skip).
+            return None
 
     @staticmethod
     def _node_from_json(raw: dict):
