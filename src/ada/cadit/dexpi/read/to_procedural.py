@@ -46,6 +46,7 @@ from :func:`~ada.topo_model.layout.plan_layout`.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
@@ -65,11 +66,15 @@ from ..equipment_list import (
     ResolvedEquipment,
     branch_points,
     connection_flow,
+    instrument_items,
     nozzle_specs_for,
+    operated_component,
     resolve_equipment,
+    signal_lines,
+    signal_terminal,
 )
 from ..model import DexpiDocument, DexpiItem, ItemKind
-from ..nozzle_placers import nozzle_from_node, port_names
+from ..nozzle_placers import NozzleSpec, nozzle_from_node, port_names
 
 __all__ = [
     "DexpiImportReport",
@@ -91,6 +96,34 @@ _INLINE_IFC = "IfcValve"
 #: IFC class for a branch point materialised as its own equipment. Same envelope as an in-line
 #: component -- a tee body is a detail too -- but a fitting rather than a valve.
 _JUNCTION_IFC = "IfcPipeFitting"
+
+#: Envelope for an instrument materialised as its own equipment. Smaller than an in-line component
+#: on purpose: a transmitter or a controller is a box on a stand, not a body the process runs
+#: through, and the P&ID says nothing about its size either way.
+_INSTRUMENT_BBOX = [0.3, 0.3, 0.3]
+
+#: DEXPI instrumentation class -> IFC4 distribution *control* element. These are deliberately not
+#: ``IfcBuildingElementProxy``: an actuator and a controller are different things to anyone reading
+#: the exported IFC, and IFC4 has the classes to say so.
+_INSTRUMENT_IFC: dict[str, str] = {
+    "ActuatingSystem": "IfcActuator",
+    "ActuatingElectricalSystem": "IfcActuator",
+    "ControlledActuator": "IfcActuator",
+    # The function an actuating system performs. It is the acting half of a loop and belongs with
+    # the actuators, not in the IfcFlowInstrument catch-all it would otherwise fall to -- the
+    # supertype DAG does not connect it to ControlledActuator.
+    "ActuatingFunction": "IfcActuator",
+    "Positioner": "IfcActuator",
+    "ProcessSignalGeneratingSystem": "IfcSensor",
+    "ProcessSignalGeneratingFunction": "IfcSensor",
+    "ProcessInstrumentationFunction": "IfcController",
+}
+_INSTRUMENT_IFC_DEFAULT = "IfcFlowInstrument"
+
+#: Suffix for the synthetic signal port given to an instrument that declares no connection node of
+#: its own -- which is most of them: a DEXPI instrument states its connectivity with associations,
+#: not with ``<ConnectionPoints>``, so there is no node to derive a port from.
+_SIGNAL_PORT_KEY = "#signal"
 
 #: Height of a site terminal above the floor of the deck it is placed on, and the fraction of the
 #: deck height to fall back to on a deck shallower than that.
@@ -275,6 +308,8 @@ class _Index:
     def __init__(self, resolved: Iterable[ResolvedEquipment], names: dict[str, str]) -> None:
         self.ports: dict[str, tuple[str, str]] = {}
         self.owners: dict[str, str] = {}
+        self.signal_ports: dict[str, list[tuple[str, str]]] = {}
+        self._signal_used: dict[str, int] = {}
         for entry in resolved:
             name = names[entry.slug]
             self.owners[entry.item.id] = name
@@ -286,6 +321,24 @@ class _Index:
 
     def add_port(self, key: str, equipment: str, port: str) -> None:
         self.ports[key] = (equipment, port)
+
+    def add_signal_port(self, item_id: str, equipment: str, port: str) -> None:
+        """Offer one of ``item_id``'s ports for a signal line to terminate on.
+
+        A pool rather than a single port because an instrument is routinely an end of more than one
+        line -- a controller reads a transmitter and drives a valve -- and ``System.connect`` refuses
+        a port that is already wired, so sharing one would silently drop every line after the first.
+        """
+        self.signal_ports.setdefault(item_id, []).append((equipment, port))
+
+    def take_signal_port(self, item_id: str) -> tuple[str, str] | None:
+        """The next unused signal port on ``item_id``, or None when the pool is empty."""
+        pool = self.signal_ports.get(item_id) or []
+        used = self._signal_used.get(item_id, 0)
+        if used >= len(pool):
+            return None
+        self._signal_used[item_id] = used + 1
+        return pool[used]
 
 
 # --------------------------------------------------------------------------- #
@@ -350,6 +403,11 @@ def dexpi_to_procedural_doc(
 
     if inline_components == "equipment":
         items.extend(_inline_equipment(doc, segments, catalog, index, provenance, taken))
+
+    # After the in-line components, so an actuator can be grouped with the valve it operates by the
+    # name that valve was actually placed under.
+    items.extend(_instrument_equipment(doc, catalog, index, provenance, taken))
+    segments.extend(_signal_specs(doc, index, report))
 
     _group_by_connectivity(items, segments)
     plan = plan_layout(items, rules)
@@ -552,6 +610,142 @@ def _junction_equipment(
                 ly=_INLINE_BBOX[1],
                 lz=_INLINE_BBOX[2],
                 mass=float(document.get("mass") or 0.0),
+            )
+        )
+    return out
+
+
+def _instrument_ifc(class_name: str) -> str:
+    """The IFC class for an instrument, resolved up the DEXPI supertype DAG."""
+    name = class_table.resolve(class_name)
+    if name in _INSTRUMENT_IFC:
+        return _INSTRUMENT_IFC[name]
+    for dexpi_class, ifc_class in _INSTRUMENT_IFC.items():
+        if class_table.is_a(name, dexpi_class):
+            return ifc_class
+    return _INSTRUMENT_IFC_DEFAULT
+
+
+def _instrument_equipment(
+    doc: DexpiDocument,
+    catalog: dict,
+    index: _Index,
+    provenance: dict[str, dict],
+    taken: set[str],
+) -> list[LayoutItem]:
+    """Materialise each connected instrument as a small equipment with a signal port.
+
+    Instrumentation used to stop at the document: a controller, a transmitter and the actuator on a
+    control valve were carried as metadata and echoed back out by the writer, and none of them
+    existed in 3D. That makes the model quietly untruthful in a specific way -- the P&ID says this
+    controller drives that valve, and the 3D model contains no controller, no actuator and nothing
+    joining them.
+
+    The ports are ``signal``, not ``process``, and the distinction is load-bearing rather than
+    cosmetic: ``System.connect`` refuses a category mismatch, so a signal run wired to a process
+    port is dropped by the compiler with a warning. An instrument that declares real connection
+    nodes gets a port per node; the majority declare none at all -- DEXPI states instrument
+    connectivity with associations rather than ``<ConnectionPoints>`` -- and get one synthetic
+    signal port instead, keyed so :func:`_signal_specs` can find it again.
+
+    An actuator is grouped with the valve it operates, so shelf packing keeps them on the same
+    stretch of deck instead of putting a positioner on another level from its valve. That is the
+    same cheap heuristic :func:`_group_by_connectivity` applies to process equipment, applied to the
+    one relationship instrumentation states outright.
+    """
+    flow = connection_flow(doc)
+    instruments = instrument_items(doc)
+    # How many signal lines end on each instrument, so it can be given that many ports.
+    terminals: dict[str, int] = {}
+    for ends in signal_lines(doc).values():
+        for end_id in ends:
+            target = signal_terminal(doc, end_id)
+            if target is not None:
+                terminals[target.id] = terminals.get(target.id, 0) + 1
+
+    out: list[LayoutItem] = []
+    for item in instruments:
+        operated = operated_component(doc, item)
+        # An actuator must not be named after the valve it drives: with the valve materialised too
+        # the model then carries PV-202 and PV-202-2 and neither name says which is which. DEXPI
+        # numbers the actuating system itself (PV-202.01), so that wins; failing that the valve tag
+        # is qualified rather than borrowed outright.
+        base = (
+            item.tag
+            or attributes.value_of(item, attributes.ACTUATING_SYSTEM_NUMBER)
+            or (f"{operated.tag}-ACT" if operated is not None and operated.tag else None)
+            or item.id
+        ).strip()
+        name = _unique_name(base, taken)
+
+        # An instrument's own nodes are signal connections whatever the node type says: the
+        # category_for default is "process", which is right for a nozzle and wrong for a
+        # transmitter, and System.connect would refuse the run on the mismatch.
+        specs = [
+            dataclasses.replace(
+                nozzle_from_node(node, owner_class=item.class_name, flow=flow.get(node.id)),
+                category="signal",
+            )
+            for node in item.process_nodes
+        ]
+        # Most instruments declare no connection points at all -- DEXPI states their connectivity
+        # with associations -- so ports are synthesised instead, one per line that ends here. One
+        # port would not do: a controller that reads a transmitter and drives a valve is the end of
+        # two lines, and System.connect refuses a port that is already wired.
+        wanted_ports = max(1, terminals.get(item.id, 0))
+        while len(specs) < wanted_ports:
+            ordinal = len(specs) + 1
+            specs.append(
+                NozzleSpec(
+                    id=f"{item.id}{_SIGNAL_PORT_KEY}{ordinal}",
+                    name=f"S{ordinal}",
+                    category="signal",
+                )
+            )
+
+        document = build_default_doc(
+            item.class_name,
+            specs,
+            bbox=_INSTRUMENT_BBOX,
+            strategy="generic",
+            ifc_element_class=_instrument_ifc(item.class_name),
+            tag=item.tag,
+            dexpi_id=item.id,
+        )
+        slug = slugify(f"{name}-{item.id}")
+        catalog[slug] = document
+        index.add_owner(item.id, name)
+        for nozzle_id, port_name in port_names(specs).items():
+            index.add_port(nozzle_id, name, port_name)
+            index.add_signal_port(item.id, name, port_name)
+        # A signal line names the *function* an instrument performs as often as the instrument
+        # itself, so a descendant resolves to this object's port too -- otherwise the run terminates
+        # on an ActuatingFunction that was never placed. A descendant that is a placed instrument in
+        # its own right is left alone: a loop function owns its own sensing element, and mapping the
+        # element onto its parent would put both ends of the line between them on one object.
+        placed = {other.id for other in instruments}
+        for descendant in _descendants(doc, item.id):
+            if descendant not in placed:
+                index.add_owner(descendant, name)
+
+        provenance[name] = {
+            "dexpi": {
+                "dexpi_id": item.id,
+                "dexpi_class": class_table.resolve(item.class_name),
+                "tag": item.tag,
+                "instrument": True,
+                "operates": operated.tag or operated.id if operated is not None else None,
+            }
+        }
+        out.append(
+            LayoutItem(
+                name=name,
+                type_slug=slug,
+                lx=_INSTRUMENT_BBOX[0],
+                ly=_INSTRUMENT_BBOX[1],
+                lz=_INSTRUMENT_BBOX[2],
+                mass=float(document.get("mass") or 0.0),
+                group=(operated.tag or operated.id) if operated is not None else None,
             )
         )
     return out
@@ -762,6 +956,94 @@ def _segment_spec(
         },
     )
     return _SegmentSpec(item=segment, entity=entity, ends=ends, components=components)
+
+
+def _signal_endpoint(doc: DexpiDocument, index: _Index, end_id: str, role: str) -> _Endpoint:
+    """One end of a signal line, resolved to a placed object's port.
+
+    ``signal_terminal`` decides *which* object the end means -- the instrument rather than the
+    function it performs, the valve rather than the positioner's own reference to it. This then
+    finds that object's port: its synthetic signal port if it has one, otherwise any port the index
+    already holds for it, so a line that terminates on a nozzle or a materialised valve still lands
+    somewhere real.
+    """
+    end = _Endpoint(item_id=end_id, node_id=None, role=role)  # type: ignore[arg-type]
+    target = signal_terminal(doc, end_id)
+    if target is None:
+        end.problem = f"{end_id!r} is not an item in the document"
+        return end
+
+    port = index.take_signal_port(target.id) or index.ports.get(target.id)
+    if port is None:
+        end.problem = (
+            f"{class_table.resolve(target.class_name)} {target.id!r} is not placed in the model "
+            "with a free signal port, so a signal run has nothing to terminate on"
+        )
+        return end
+
+    end.equipment, end.port = port
+    return end
+
+
+def _signal_specs(
+    doc: DexpiDocument,
+    index: _Index,
+    report: DexpiImportReport,
+) -> list[_SegmentSpec]:
+    """Every signal line that names both ends, as a routable two-ended system.
+
+    The instrumentation counterpart of :func:`_segment_spec`, and deliberately a separate function
+    because the two flavours of connectivity are stated in different ways. A piping segment owns
+    ``<Connection>`` elements naming node indices; a ``SignalConveyingFunction`` owns nothing and
+    states its ends as ``has logical start``/``has logical end`` associations, because it is a
+    *function* rather than a pipe -- what it joins is a logical fact and the line drawn on the sheet
+    is presentation. Reading only the piping form is why none of this reached 3D before.
+
+    An end that resolves to nothing placed is reported rather than guessed at, the same contract a
+    piping run gets.
+    """
+    out: list[_SegmentSpec] = []
+    for item_id, (start_id, end_id) in signal_lines(doc).items():
+        item = doc.items[item_id]
+        name = _system_name(doc, item)
+
+        ends = [
+            _signal_endpoint(doc, index, start_id, "from"),
+            _signal_endpoint(doc, index, end_id, "to"),
+        ]
+        problem = next((end for end in ends if end.problem is not None), None)
+        if problem is not None:
+            report.add("system", name, "connectivity", f"{problem.role} end: {problem.problem}")
+            continue
+        if ends[0].equipment == ends[1].equipment:
+            report.add(
+                "system",
+                name,
+                "connectivity",
+                f"both ends resolve to {ends[0].equipment!r}; a routed run needs two distinct objects",
+            )
+            continue
+
+        parent = next((a for a in doc.ancestors(item.id) if a.kind is ItemKind.INSTRUMENTATION), None)
+        entity = TopoSystem(
+            NAME=name,
+            TYPE=_system_type(doc, item),  # type: ignore[arg-type]
+            MEDIUM=None,
+            CONNECTIONS=[],
+            METADATA={
+                "dexpi": {
+                    "dexpi_id": item.id,
+                    "dexpi_class": class_table.resolve(item.class_name),
+                    "signal_line": True,
+                    "logical_start": start_id,
+                    "logical_end": end_id,
+                    "loop_id": parent.id if parent is not None else None,
+                    "loop_tag": parent.tag if parent is not None else None,
+                }
+            },
+        )
+        out.append(_SegmentSpec(item=item, entity=entity, ends=ends, components=[]))
+    return out
 
 
 def _component_metadata(item: DexpiItem) -> dict:

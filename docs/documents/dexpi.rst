@@ -87,7 +87,12 @@ Three steps happen inside (:mod:`ada.cadit.dexpi.read.to_procedural`):
 2. **Layout.** The resolved envelopes go to :func:`ada.topo_model.layout.plan_layout`, which
    generates deck spaces and shelf-packs equipment onto them -- see *The generated layout is not a
    plot plan*, below.
-3. **Systems.** One :class:`~ada.topology.entities.TopoSystem` per DEXPI ``PipingNetworkSegment``,
+3. **Instrumentation.** Every instrument a signal line ends on -- and every actuating system bound
+   to the valve it drives -- becomes a small placed object with ``signal`` ports, classed as the
+   IFC4 control element its DEXPI role implies (``IfcController``, ``IfcSensor``, ``IfcActuator``).
+   Each ``SignalConveyingFunction`` then becomes a routed run between two of them. See
+   *Instrumentation is connectivity, not decoration*, below.
+4. **Systems.** One :class:`~ada.topology.entities.TopoSystem` per DEXPI ``PipingNetworkSegment``,
    named ``<line number>/<segment number>``, then routed with the standard design rules. A
    ``PipeOffPageConnector`` becomes a site terminal (``is_site=True``); the parent
    ``PipingNetworkSystem`` survives as the run's medium and provenance metadata.
@@ -153,6 +158,44 @@ location?" test types every ordinary process nozzle in the model as electrical.
 ``ada.cadit.dexpi.nozzle_placers.category_for`` resolves the ``Nozzle`` family first, before any
 instrumentation supertype test, for exactly that reason.
 
+Instrumentation is connectivity, not decoration
+-------------------------------------------------
+
+A P&ID's instrumentation is what says *this controller drives that valve*. It used to stop at the
+document: instruments were carried as metadata and echoed back out by the writer, and a model built
+from a P&ID contained no controller, no actuator and nothing joining them. Across the official
+corpus that was 174 devices and 103 signal runs that simply were not there.
+
+They are modelled now, and two details make the difference between that working and quietly not:
+
+**Signal connectivity is stated differently from piping connectivity.** A ``PipingNetworkSegment``
+owns ``<Connection>`` elements naming positional node indices. A ``SignalConveyingFunction`` owns
+none at all -- it is a *function*, so what it joins is stated as ``has logical start`` and
+``has logical end`` associations, and the line drawn on the sheet is presentation. Reading only the
+piping form is exactly why none of this reached 3D before.
+
+**The sensing and acting halves of one loop are two devices.** DEXPI nests them inside the loop
+function that owns them: ``PI 4712.01`` in the official ``C01`` file contains its own
+``ProcessSignalGeneratingFunction`` *and* the signal line joining that element to the indicator.
+Folding a nested instrument into its owner -- the rule a ``Chamber`` follows -- collapses both ends
+of that line onto one object, and the run is then rejected for having no two distinct ends. So
+instrumentation deliberately does **not** fold: membership is "something the signal graph refers
+to, or something bound to a component it operates".
+
+Ports are ``signal`` rather than ``process``, which is load-bearing and not cosmetic:
+``System.connect`` refuses a category mismatch and the compiler then drops the whole run with only a
+warning. An instrument gets one port per line that ends on it -- a controller that reads a
+transmitter and drives a valve is the end of two, and a port already wired cannot take a second.
+
+An actuator is placed with the valve it operates (via ``is fulfilled by``) and named from its own
+``ActuatingSystemNumber``: DEXPI numbers the actuator on ``PV-202`` as ``PV-202.01``, and letting it
+borrow the valve's tag instead would put two objects called ``PV-202`` in the model with nothing to
+tell them apart.
+
+What is *not* claimed: a signal run is routed with the same rules as a pipe, so a pair of
+instruments packed close together can fail to route on bend clearance. Those failures are reported
+in the import report like any other, not hidden.
+
 The generated layout is not a plot plan
 ------------------------------------------
 
@@ -193,7 +236,7 @@ What is modelled, what is not
        nominal diameter; every import gap collected into ``assembly.metadata["dexpi"]["report"]``
        rather than dropped silently.
    * - Deferred to metadata + verbatim echo
-     - ``InstrumentComponent``, ``ActuatingSystem``, ``InstrumentationLoopFunction``,
+     - ``InstrumentComponent``, ``InstrumentationLoopFunction``,
        ``MeasuringSystem``, ``PropertyBreak``, ``PlantStructureItem``, ``Association`` links,
        ``ShapeCatalogue``/``Presentation``/``Drawing``/``Label``, ``CenterLine``/``PolyLine``
        geometry, custom attribute sets, physical quantities with units (parsed to

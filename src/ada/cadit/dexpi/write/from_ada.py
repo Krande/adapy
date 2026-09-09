@@ -65,7 +65,9 @@ from ..equipment_list import (
     connection_flow,
     definition_slug,
     equipment_items,
+    instrument_items,
     nozzle_specs_for,
+    operated_component,
 )
 from ..model import (
     DexpiAttribute,
@@ -150,7 +152,7 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
     live_equipment: list[Equipment] = [
         part for part in assembly.get_all_parts_in_assembly() if isinstance(part, Equipment)
     ]
-    source_equipment, source_junctions = _source_identity(doc)
+    source_equipment, source_junctions, source_instruments = _source_identity(doc)
     live_by_name = {eq.name: eq for eq in live_equipment}
 
     # Branch points first, because they must never fall through to the "new in the assembly" path
@@ -160,7 +162,9 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
     port_index: dict[tuple[str, str], tuple[str, str]] = _junction_port_index(doc, source_junctions, live_by_name)
 
     for name, eq in live_by_name.items():
-        if name in source_junctions:
+        # Junctions and instruments are both mirrors of items the source already carries, so neither
+        # may fall through to the "new in the assembly" path below.
+        if name in source_junctions or name in source_instruments:
             continue
         item = source_equipment.get(name)
         if item is None:
@@ -196,16 +200,23 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
 # -- equipment identity -------------------------------------------------------------------------------
 
 
-def _source_identity(doc: DexpiDocument) -> tuple[dict[str, DexpiItem], dict[str, DexpiItem]]:
-    """``({equipment name: item}, {branch-point name: item})``, using the exact naming the importer
-    assigns -- see the module docstring's "Identity" note.
+def _source_identity(
+    doc: DexpiDocument,
+) -> tuple[dict[str, DexpiItem], dict[str, DexpiItem], dict[str, DexpiItem]]:
+    """``({equipment name: item}, {branch-point name: item}, {instrument name: item})``, using the
+    exact naming the importer assigns -- see the module docstring's "Identity" note.
 
     One function and **one name pool**, in the importer's own order, because that is what makes the
     two agree: ``to_procedural`` names the resolved equipment first (the item's tag, falling back to
-    its deduplicated catalog slug) and then the branch points (tag, falling back to the item id)
-    against the names already taken. Splitting the pool would let a tee tagged the same as a vessel
-    come back under a different name here than the one the live ``ada.Equipment`` carries, and the
-    merge would then mint a duplicate instead of finding it.
+    its deduplicated catalog slug), then the branch points (tag, falling back to the item id), then
+    the instruments, each against the names already taken. Splitting the pool would let a tee tagged
+    the same as a vessel come back under a different name here than the one the live
+    ``ada.Equipment`` carries, and the merge would then mint a duplicate instead of finding it.
+
+    Instruments are in this pool for exactly the reason branch points are, and they were added after
+    the same failure: a materialised actuator is an ``ada.Equipment`` whose name
+    ``equipment_items`` never yields, so without it the writer took the actuator for something adapy
+    had authored and minted a fresh ``ProcessEquipment`` on an *unedited* round-trip.
     """
     used_slugs: set[str] = set()
     used_names: set[str] = set()
@@ -219,7 +230,18 @@ def _source_identity(doc: DexpiDocument) -> tuple[dict[str, DexpiItem], dict[str
     for item_id in branch_points(doc):
         item = doc.items[item_id]
         junctions[_dedupe((item.tag or item.id).strip(), used_names)] = item
-    return equipment, junctions
+
+    instruments: dict[str, DexpiItem] = {}
+    for item in instrument_items(doc):
+        operated = operated_component(doc, item)
+        base = (
+            item.tag
+            or attribute_lookup.value_of(item, attribute_lookup.ACTUATING_SYSTEM_NUMBER)
+            or (f"{operated.tag}-ACT" if operated is not None and operated.tag else None)
+            or item.id
+        ).strip()
+        instruments[_dedupe(base, used_names)] = item
+    return equipment, junctions, instruments
 
 
 def _junction_port_index(

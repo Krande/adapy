@@ -20,6 +20,7 @@ from typing import Any, Iterable
 from . import units
 
 __all__ = [
+    "ACTUATING_SYSTEM_NUMBER",
     "EQUIPMENT_DESCRIPTION",
     "FLUID_CODE",
     "LINE_NUMBER",
@@ -53,6 +54,10 @@ NOMINAL_DIAMETER_REPRESENTATION = "NominalDiameterRepresentationAssignmentClass"
 NOMINAL_DIAMETER_TYPE_REPRESENTATION = "NominalDiameterTypeRepresentationAssignmentClass"
 EQUIPMENT_DESCRIPTION = "EquipmentDescriptionAssignmentClass"
 MATERIAL_OF_CONSTRUCTION_CODE = "MaterialOfConstructionCodeAssignmentClass"
+#: An actuating system's own identity. DEXPI numbers it after the valve it drives
+#: (``PV-202.01`` for the actuator on ``PV-202``), which is the only name that tells the two
+#: apart -- an actuator borrowing its valve's tag reads as a second copy of the valve.
+ACTUATING_SYSTEM_NUMBER = "ActuatingSystemNumber"
 
 # The RDL role suffixes DEXPI appends to a property name when it names the attribute itself.
 _ROLE_SUFFIXES = ("AssignmentClass", "Specialization")

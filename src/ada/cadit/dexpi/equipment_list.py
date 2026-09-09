@@ -46,6 +46,10 @@ __all__ = [
     "ResolvedEquipment",
     "branch_points",
     "connection_flow",
+    "instrument_items",
+    "operated_component",
+    "signal_lines",
+    "signal_terminal",
     "definition_slug",
     "dexpi_equipment_resolver",
     "equipment_items",
@@ -214,6 +218,153 @@ def branch_points(doc: DexpiDocument) -> dict[str, list[str]]:
             if item is not None and item.kind is ItemKind.PIPING_COMPONENT:
                 owners.setdefault(item.id, set()).add(owner.id)
     return {item_id: sorted(segments) for item_id, segments in sorted(owners.items()) if len(segments) > 1}
+
+
+#: The two association types a signal-carrying item uses to name its ends. DEXPI states signal
+#: connectivity this way -- 121 "has logical start" and 118 "has logical end" across the official
+#: corpus -- rather than with the ``<Connection>`` elements piping uses. A ``SignalConveyingFunction``
+#: is a *function*, not a pipe: what it joins is stated logically, and the drawing's signal line is
+#: presentation.
+SIGNAL_START = "has logical start"
+SIGNAL_END = "has logical end"
+
+#: Instrumentation classes that are a physical thing to place, as opposed to a function, a grouping
+#: or a line. ``InstrumentationLoopFunction`` is deliberately absent: a loop is a collection of the
+#: others, and materialising it would put a box in the model for something that is not an object.
+_PLACEABLE_INSTRUMENTS = (
+    "ProcessInstrumentationFunction",
+    "ActuatingSystem",
+    "ControlledActuator",
+    "ProcessSignalGeneratingSystem",
+    "ProcessSignalGeneratingFunction",
+    # The actuating counterpart of ProcessSignalGeneratingFunction, and placeable for the same
+    # reason: a loop function owns both the element that senses and the one that acts, the signal
+    # line runs between them, and treating only the sensing half as a device leaves every
+    # controller-to-valve line with both ends on one object.
+    "ActuatingFunction",
+    "Positioner",
+)
+
+#: Classes that carry a signal rather than terminate one -- these become runs, not objects.
+_SIGNAL_CARRIERS = (
+    "SignalConveyingFunction",
+    "SignalLineFunction",
+    "MeasuringLineFunction",
+)
+
+
+def _association_target(item: DexpiItem, association_type: str) -> str | None:
+    """The first item ``item`` points at with ``association_type``, or None."""
+    for association in item.associations or []:
+        if association.type == association_type and association.target_ids:
+            return association.target_ids[0]
+    return None
+
+
+def signal_lines(doc: DexpiDocument) -> dict[str, tuple[str, str]]:
+    """Signal-carrying item ID -> ``(start item ID, end item ID)``, for the ones that state both.
+
+    A ``SignalConveyingFunction`` (or a ``SignalLineFunction``/``MeasuringLineFunction``) is the
+    instrumentation counterpart of a ``PipingNetworkSegment``, and it is the reason a P&ID's
+    instrumentation is connectivity rather than decoration: it is what says *this controller drives
+    that valve*. Its ends are :data:`SIGNAL_START`/:data:`SIGNAL_END` associations, not
+    ``<Connection>`` elements -- piping and signal state their topology in two different ways, and
+    reading only the piping one is why signal lines never reached the 3D model at all.
+
+    A carrier that names fewer than two ends is omitted rather than guessed at, exactly as a
+    one-ended piping segment is.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    for item in doc.items.values():
+        name = class_table.resolve(item.class_name)
+        if not any(class_table.is_a(name, carrier) for carrier in _SIGNAL_CARRIERS):
+            continue
+        start = _association_target(item, SIGNAL_START)
+        end = _association_target(item, SIGNAL_END)
+        if start and end and start in doc.items and end in doc.items:
+            out[item.id] = (start, end)
+    return dict(sorted(out.items()))
+
+
+def _is_placeable_instrument(item: DexpiItem) -> bool:
+    name = class_table.resolve(item.class_name)
+    return any(class_table.is_a(name, cls) for cls in _PLACEABLE_INSTRUMENTS)
+
+
+def signal_terminal(doc: DexpiDocument, item_id: str) -> DexpiItem | None:
+    """The physical object a signal line's end refers to, or None if the document has no such item.
+
+    A signal end frequently names a *function* rather than a thing -- an ``ActuatingFunction`` or a
+    ``ProcessSignalGeneratingFunction`` nested inside the instrument that performs it. The object to
+    terminate a run on is then the enclosing instrument, so this walks up to the nearest placeable
+    ancestor, exactly as a ``Chamber`` folds into the equipment that owns it. Across the official
+    corpus that is 35 of 236 ends; another 186 already name a placeable instrument outright.
+
+    An end that names something outside instrumentation altogether -- a ``BallValve`` a positioner
+    sits on, a ``Nozzle`` a transmitter senses at -- is returned as itself. It is a real object the
+    rest of the importer already knows how to place, and the signal run should land on it rather
+    than on an instrument invented to stand in for it.
+    """
+    item = doc.items.get(item_id)
+    if item is None:
+        return None
+    if item.kind is not ItemKind.INSTRUMENTATION:
+        return item
+    for candidate in [item, *doc.ancestors(item_id)]:
+        if _is_placeable_instrument(candidate):
+            return candidate
+    return item
+
+
+def instrument_items(doc: DexpiDocument) -> list[DexpiItem]:
+    """The instrumentation items to materialise as placed objects, in ID order.
+
+    An instrument earns a body in the model when it is a placeable *thing* -- a controller, a
+    transmitter, an actuator -- and either a signal line terminates on it or it is bound to the
+    piping component it operates. Functions, loops and the signal lines themselves are excluded: a
+    ``SignalConveyingFunction`` becomes a run, an ``InstrumentationLoopFunction`` is a grouping, and
+    giving either a box would put geometry in the model for something with no physical extent.
+
+    Nesting deliberately does **not** fold an instrument into its owner, which is the opposite of
+    the rule a ``Chamber`` follows and worth spelling out. DEXPI nests the sensing element inside
+    the loop function it belongs to -- ``PI 4712.01`` in the official ``C01`` file contains both its
+    ``ProcessSignalGeneratingFunction`` and the ``SignalConveyingFunction`` joining that element to
+    the indicator. Those are two real devices, a transmitter down at the process and an indicator in
+    the control room, and the signal line between them is the whole point. Folding the child into
+    the parent collapses both ends of that line onto one object and the run is then rejected for
+    having no two distinct ends to route between.
+
+    So membership is exactly "something the signal graph refers to, or something bound to a
+    component it operates". A parent that is not itself an end of a line is not pulled in merely for
+    owning one that is.
+    """
+    wanted: dict[str, DexpiItem] = {}
+    for ends in signal_lines(doc).values():
+        for end_id in ends:
+            target = signal_terminal(doc, end_id)
+            if target is not None and target.kind is ItemKind.INSTRUMENTATION and _is_placeable_instrument(target):
+                wanted[target.id] = target
+
+    for item in doc.items.values():
+        if item.kind is ItemKind.INSTRUMENTATION and _is_placeable_instrument(item):
+            if _association_target(item, "is fulfilled by") is not None:
+                wanted[item.id] = item
+
+    return sorted(wanted.values(), key=lambda i: i.id)
+
+
+def operated_component(doc: DexpiDocument, item: DexpiItem) -> DexpiItem | None:
+    """The piping component ``item`` actuates, via its ``is fulfilled by`` association.
+
+    An ``ActuatingSystem`` on a P&ID is not free-standing: it sits on the valve it drives, and the
+    association is the only statement of which one. Used to place the actuator with its valve rather
+    than wherever shelf packing happens to drop it.
+    """
+    target_id = _association_target(item, "is fulfilled by")
+    target = doc.items.get(target_id) if target_id else None
+    if target is not None and target.kind is ItemKind.PIPING_COMPONENT:
+        return target
+    return None
 
 
 def connection_flow(doc: DexpiDocument) -> dict[str, str]:
