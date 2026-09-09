@@ -2,6 +2,13 @@
 
 
 
+## v0.64.2 (2026-09-09)
+
+### Fix
+
+* fix(rest): guard against jobs dispatching against an unfinished upload (#331) ([`6cdb41c`](https://github.com/Krande/adapy/commit/6cdb41ccc41c61737c58669af6b3c828cc1a98a2))
+
+
 ## v0.64.1 (2026-09-05)
 
 ### Fix

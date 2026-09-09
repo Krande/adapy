@@ -876,6 +876,23 @@ class Sif2Mesh:
 
         sif = self.sif
 
+        if sif.nodes is None or sif.node_ids is None:
+            # Both stay None unless _load_static (read_sin.py) / the SIF parse
+            # actually saw a GCOORD/GNODE record — the guard that would
+            # otherwise be a bare `TypeError: 'NoneType' object is not
+            # subscriptable` several frames below, on the coordinate slice, with
+            # nothing in the message to say which of "no such records exist"
+            # (wrong file) or "not all of them have arrived yet" (a truncated or
+            # still-in-progress upload — see rest/pending_uploads.py, which
+            # exists to stop this exact request from reaching here) it was.
+            source = getattr(getattr(sif, "sin", None), "path", None)
+            where = f" ({source})" if source else ""
+            raise ValueError(
+                f"no GCOORD/GNODE mesh records found{where} — the file may be truncated "
+                "(an interrupted or still-in-progress upload) or is not a Sesam results "
+                "deck for the super-element being read"
+            )
+
         nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=np.asarray(sif.node_ids[:, 0], dtype=int))
         sorted_elem_data = sorted(sif.elements, key=lambda x: x[0])
         elem_blocks = []
