@@ -2,6 +2,15 @@
 
 
 
+## v0.66.0 (2026-09-09)
+
+### Feature
+
+* feat(dexpi): DEXPI P&amp;ID in, routed 3D model out (#334)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`acce165`](https://github.com/Krande/adapy/commit/acce165b6abd843913490acff2b302519f90cae7))
+
+
 ## v0.65.0 (2026-09-09)
 
 ### Feature
