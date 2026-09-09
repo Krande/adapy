@@ -691,3 +691,51 @@ def test_both_recorders_expose_the_same_cursor_surface(worker_mod, shared_scope)
     for name in ("record", "get", "sources", "scope"):
         assert hasattr(rest, name), f"REST recorder is missing {name}"
         assert hasattr(pool_facade, name), f"pool facade is missing {name}"
+
+
+def test_the_recorder_puts_one_path_segment_where_the_route_expects_one(worker_mod):
+    """THE BUG THIS PINS. The recorder built its URL from `scope.prefix()` -- the
+    STORAGE key -- which is `projects/<uuid>` for a project. A `/` in a path segment
+    makes the URL one segment too long, so it matches a different route or none, and
+    the server answers 405. Nothing in that status mentions scopes, so it read as
+    "the API refused the request" and the write was reported as a warning on an
+    otherwise successful job. Every REST source-node write ever attempted failed
+    this way.
+    """
+    from ada.comms.rest.scope import Scope
+
+    project = Scope.project("a7ac7fc4-5214-4afc-be5f-7a8d866a5c6f")
+    rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", project)
+
+    url = rec._url()
+    path = url.split("viewer.example", 1)[1]
+    assert path == "/api/scopes/project:a7ac7fc4-5214-4afc-be5f-7a8d866a5c6f/source-nodes", path
+    # The load-bearing property, stated as itself so a future refactor cannot
+    # reintroduce the bug by changing how the segment is built.
+    segment = path.split("/api/scopes/", 1)[1].rsplit("/source-nodes", 1)[0]
+    assert "/" not in segment and "%2F" not in segment
+
+    # The ROW KEY is still the prefix: the route computes it from the parsed scope,
+    # so the wire form in the URL and the prefix in the table agree.
+    assert rec.scope == project.prefix() == "projects/a7ac7fc4-5214-4afc-be5f-7a8d866a5c6f"
+
+
+def test_a_shared_scope_url_is_unchanged_by_the_fix(worker_mod):
+    """Shared is the one scope whose prefix has no slash, which is why this went
+    unnoticed: every test and every shared-scope deployment worked."""
+    from ada.comms.rest.scope import Scope
+
+    rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", Scope.shared())
+    assert rec._url().endswith("/api/scopes/shared/source-nodes")
+
+
+def test_a_user_scope_refuses_to_invent_a_wire_form(worker_mod):
+    """The parser accepts only `user:me`, so there is no path segment that names
+    someone else's scope. Returning `user:me` anyway would make a worker write into
+    the token owner's scope -- correct-looking data in the wrong place, which is
+    worse than an error."""
+    from ada.comms.rest.scope import Scope
+
+    rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", Scope.user("someone"))
+    with pytest.raises(ValueError, match="user:me"):
+        rec._url()

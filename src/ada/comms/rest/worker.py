@@ -476,6 +476,25 @@ async def _audit_done(
     """Patch the audit_log row for this job with its final outcome.
     Best-effort: a DB hiccup must never break job processing."""
     if db_pool is None:
+        # A worker without a pool reports over the API instead. Without this the
+        # row never leaves `queued`, so every job this pool ever ran reads as
+        # pending -- see _report_job_status_over_api.
+        metrics = metrics or {}
+        await _report_job_status_over_api(
+            job_id,
+            {
+                "status": status,
+                "error": error,
+                "traceback": traceback,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "worker_image_tag": _WORKER_IMAGE_TAG,
+                **{
+                    key: metrics[key]
+                    for key in ("cpu_user_ms", "cpu_sys_ms", "peak_rss_kb", "read_bytes", "write_bytes")
+                    if metrics.get(key) is not None
+                },
+            },
+        )
         return
     metrics = metrics or {}
     # Preserve the input of a failed job while it still exists: the row outlives
@@ -2990,9 +3009,17 @@ class _RestSourceNodesRecorder:
         return self._scope.prefix()
 
     def _url(self, query: str = "") -> str:
+        """The route's URL for this scope.
+
+        ``wire()``, NOT ``prefix()``. The prefix is the storage key and contains a
+        ``/`` for every scope except shared, which makes the path one segment too
+        long: it matches a different route, or none, and comes back 405 -- a status
+        that says nothing about scopes and reads as "the API refused the request".
+        That was this client's behaviour for every write it ever made.
+        """
         from urllib.parse import quote
 
-        return f"{self._base}/api/scopes/{quote(self._scope_key, safe='')}/source-nodes{query}"
+        return f"{self._base}/api/scopes/{quote(self._scope.wire(), safe=':')}/source-nodes{query}"
 
     def _request(self, url: str, payload: "dict | None" = None) -> dict:
         """One call, retried on transient failure.
@@ -3160,6 +3187,65 @@ def _rest_source_nodes_config() -> "tuple[str, str] | None":
         )
         return None
     return base, token
+
+
+async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
+    """Tell the API what a job is doing, for a worker with no database pool.
+
+    WHY: both audit hops -- the running mark and the final outcome -- are gated on
+    a pool, so on a pool-less worker the audit row stays `queued` for ever while
+    the job runs, finishes and is swept. The queue record is accurate the whole
+    time, so the conversion toast follows along and the Audit tab shows every job
+    on that pool as permanently pending. An operator then cannot tell a healthy
+    pool from a broken one, and anything reasoning over non-terminal rows blocks on
+    jobs that finished minutes ago.
+
+    The same argument, and the same mechanism, as the source-node REST recorder: a
+    worker that already reaches this API should not need Postgres credentials to
+    say what it just did.
+
+    BEST EFFORT, ALWAYS. Returns whether it landed, and never raises: a report is
+    commentary on work that has already happened, and failing a finished job
+    because its commentary did not arrive would be strictly worse than the gap this
+    closes. Blocking HTTP on the event loop's executor, because this is called from
+    async code and the recorder idiom here is urllib.
+    """
+    cfg = _rest_source_nodes_config()
+    if cfg is None:
+        return False
+    base, token = cfg
+
+    def _post() -> bool:
+        import json as _json
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        url = f"{base}/api/jobs/{urllib.parse.quote(job_id, safe='')}/status"
+        body = _json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=20.0) as resp:
+                resp.read()
+            return True
+        except urllib.error.HTTPError as exc:
+            # Logged at warning rather than retried. A 4xx will be just as wrong
+            # next time, and a 404 is the ordinary case of a queue entry already
+            # swept -- which is not a fault worth a traceback.
+            logger.warning("worker: audit report for job %s refused (%s)", job_id, exc.code)
+            return False
+        except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
+            logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
+            return False
+
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, _post)
+    except Exception:  # noqa: BLE001
+        logger.exception("worker: audit report for job %s could not be dispatched", job_id)
+        return False
 
 
 def _source_nodes_recorder(db_pool, scope, loop):
@@ -3858,6 +3944,12 @@ async def _process_one(
             )
         except Exception:
             logger.exception("worker: audit running-mark failed for job %s", job_id)
+    else:
+        # No pool: report it over the API instead, so the Audit tab does not show
+        # this job as queued for the whole time it is running.
+        await _report_job_status_over_api(
+            job_id, {"status": "running", "worker_image_tag": _WORKER_IMAGE_TAG}
+        )
 
     # component_build has no source file — it synthesizes geometry from
     # a registered ConnectionSpec + user inputs carried in
