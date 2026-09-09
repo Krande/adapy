@@ -17,6 +17,7 @@ IFC and various Finite Element formats.
 
     documents/steel_detailing
     documents/topology_engine
+    documents/dexpi
     documents/path_to_software_agnosticism
     documents/meshing
     documents/cli
@@ -67,6 +68,7 @@ IFC and various Finite Element formats.
     :caption: Ongoing Work
 
     documents/ifc_database
+    documents/dexpi_branch_status
 
 .. toctree::
     :hidden:

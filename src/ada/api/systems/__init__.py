@@ -13,6 +13,7 @@ from .base import (
 )
 from .categories import PortCategory, Voltage
 from .ports import Port, PortDirection
+from .segments import SystemSegment
 from .validation import (
     PortIssue,
     SiteInterface,
@@ -35,6 +36,7 @@ __all__ = [
     "PortIssue",
     "SiteInterface",
     "System",
+    "SystemSegment",
     "Voltage",
     "equipments_with_missing_io",
     "find_unconnected_ports",

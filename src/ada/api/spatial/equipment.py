@@ -26,10 +26,13 @@ class Equipment(Part):
         footprint: list[tuple[float, float]] = None,
         ports: list[Port] | None = None,
         ifc_element_class: str = "IfcBuildingElementProxy",
+        tag: str | None = None,
+        metadata: dict | None = None,
+        guid: str | None = None,
     ):
         from ada import Point
 
-        super(Equipment, self).__init__(name=name)
+        super(Equipment, self).__init__(name=name, metadata=metadata, guid=guid)
         self.mass = mass
         self.cog = cog
         if not isinstance(origin, Point):
@@ -49,6 +52,9 @@ class Equipment(Part):
         # IFC element entity emitted for this equipment (e.g. "IfcPump", "IfcTank").
         # Distinct from Part.ifc_class, which picks the *spatial* entity type.
         self.ifc_element_class = ifc_element_class
+        # Item tag as the source document knows it (a P&ID equipment tag, say).
+        # ``name`` stays adapy's identifier; this records the process identity.
+        self.tag = tag
         self.ports: list[Port] = []
         for port in ports if ports is not None else []:
             self.add_port(port)
@@ -60,6 +66,19 @@ class Equipment(Part):
         port.parent = self
         self.ports.append(port)
         return port
+
+    def all_ports(self, include_nested: bool = True) -> list[Port]:
+        """This equipment's own ports, followed by those of any nested child
+        ``Equipment``. A vessel modelled with sub-compartments hangs each
+        compartment's nozzles on a child equipment one level down, so the
+        nozzle list of the item as a whole is only complete with those included.
+        ``include_nested=False`` returns :attr:`ports` unchanged."""
+        ports = list(self.ports)
+        if include_nested:
+            for part in self.get_all_subparts():
+                if isinstance(part, Equipment):
+                    ports.extend(part.ports)
+        return ports
 
     def get_port(self, name: str) -> Port:
         for port in self.ports:

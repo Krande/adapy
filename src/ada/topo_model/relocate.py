@@ -23,19 +23,22 @@ walls, so the engine skips the expensive OCC blueprint build and only *routes*.
 
 from __future__ import annotations
 
+import copy
 from typing import Iterable
 
 import ada
 from ada.topology.entities import TopoEquipment, TopoSpace
 
 from .compile import (
+    _augment_grid_with_ports,
     _equipment_to_object,
     _occupy_equipment,
     _routing_grid,
+    _system_half_extent,
     _wire_systems,
 )
 
-__all__ = ["propose_relocations", "run_self_collides"]
+__all__ = ["apply_relocations", "propose_relocations", "relocate_doc", "run_self_collides"]
 
 
 # One grid pitch, matching the default spacing of
@@ -164,6 +167,32 @@ def _build_equipment_map(
     return equipment_map
 
 
+def _probe_grid(spaces: list[TopoSpace], equipment_map: dict[str, ada.Equipment], systems: list):
+    """The routing grid this engine probes on, built the way the compiler builds its own.
+
+    Split out from :func:`_route_and_collect` so the one thing that makes the probe agree with
+    :func:`ada.topo_model.compile._build_systems` is directly testable. Two steps matter and both
+    were missing:
+
+    * every port coordinate is inserted as a grid line **before** occupancy is stamped, so the
+      blocking covers all the lines the router will use -- a line inserted later, mid-routing,
+      threads un-blocked straight through an equipment box;
+    * the clearance carries the compiler's margin, so a run keeps a real gap from a box rather
+      than grazing it.
+
+    Without them the probe is strictly more permissive than the compiler: it calls a model clean
+    that the compiler then fails to route, so no problems are found and no moves are proposed --
+    exactly when they are wanted.
+    """
+    grid = _routing_grid(spaces, list(equipment_map.values()))
+    _augment_grid_with_ports(grid, systems)
+    half_extent = max((_system_half_extent(s) for s in systems), default=0.0)
+    clearance = half_extent + max(0.05, 0.25 * half_extent) if half_extent else 0.0
+    for eq in equipment_map.values():
+        _occupy_equipment(grid, eq, clearance)
+    return grid
+
+
 def _route_and_collect(
     specs: list[dict], equipment_map: dict[str, ada.Equipment], spaces: list[TopoSpace], design_rules
 ) -> set[str]:
@@ -177,9 +206,24 @@ def _route_and_collect(
       (:func:`run_self_collides` on the planned polyline).
 
     Mirrors the routing half of :func:`ada.topo_model.compile._build_systems`
-    (same grid, same clearance-inflated occupancy, same ``run_design`` call) but
-    with no cell graph / penetrations — routing feasibility doesn't depend on the
-    built walls."""
+    (same grid, same port augmentation, same clearance-inflated occupancy, same
+    ``run_design`` call) but with no cell graph / penetrations — routing
+    feasibility doesn't depend on the built walls.
+
+    **The port augmentation and the clearance margin are not optional detail.**
+    Without them this probe is strictly more permissive than the compiler, and
+    reports a model as routing cleanly that the compiler then fails to route —
+    which makes the proposals useless precisely when they are wanted, because the
+    search finds nothing to fix. Inserting every port coordinate as a grid line up
+    front is what makes the occupancy cover all the lines the router will actually
+    use; a line inserted later, mid-routing, threads un-blocked straight through an
+    equipment box. That single difference was the whole discrepancy on the file
+    this was measured against.
+
+    A system that cannot be *wired* is invisible here by construction — it never
+    becomes a route to fail — so a wiring failure is not a problem this engine can
+    propose a move for. That is a real limit, not an oversight: moving equipment
+    does not fix a port that is already connected to another system."""
     from ada.topology import run_design
     from ada.topology.routing import run_half_extent
 
@@ -187,10 +231,7 @@ def _route_and_collect(
     if not systems:
         return set()
 
-    grid = _routing_grid(spaces, list(equipment_map.values()))
-    clearance = max((run_half_extent(s) for s in systems), default=0.0)
-    for eq in equipment_map.values():
-        _occupy_equipment(grid, eq, clearance)
+    grid = _probe_grid(spaces, equipment_map, systems)
 
     result = run_design(
         systems,
@@ -303,6 +344,98 @@ def _overlaps_other(
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
+def apply_relocations(doc: dict, proposals: Iterable[dict]) -> dict:
+    """A copy of ``doc`` with each proposal's move applied to its equipment's placement.
+
+    The counterpart to :func:`propose_relocations`, which deliberately only ever *proposes* --
+    "relocations are NEVER applied automatically" is the right default for a tool a human drives,
+    and the wrong one for a caller that has already decided to accept them. Keeping the two apart
+    means accepting a proposal is an explicit act either way.
+
+    A proposal's ``from``/``to`` are equipment *origins* (base centres), while the document places
+    equipment by its corner ``X``/``Y``. The two differ by a constant half-extent per equipment, so
+    the move is applied as the origin **delta** rather than by converting the origin back to a
+    corner -- same answer, and it cannot drift if the origin convention ever changes.
+
+    Unknown equipment names are ignored rather than raising: a proposal list may outlive an edit to
+    the document, and dropping a stale move is better than refusing the rest of them.
+    """
+    out = copy.deepcopy(doc)
+    rows = {row.get("NAME"): row for row in (out.get("equipments") or []) if isinstance(row, dict)}
+
+    for proposal in proposals:
+        row = rows.get(proposal.get("equipment"))
+        if row is None:
+            continue
+        origin_from = proposal.get("from") or [0.0, 0.0, 0.0]
+        origin_to = proposal.get("to") or origin_from
+        row["X"] = float(row.get("X") or 0.0) + (float(origin_to[0]) - float(origin_from[0]))
+        row["Y"] = float(row.get("Y") or 0.0) + (float(origin_to[1]) - float(origin_from[1]))
+    return out
+
+
+def relocate_doc(
+    doc: dict,
+    *,
+    equipment_resolver=None,
+    design_rules=None,
+    max_moves: int = 4,
+    max_passes: int = 2,
+) -> tuple[dict, dict]:
+    """Propose relocations, apply them, and repeat while they keep helping.
+
+    Closes the loop the generated layout leaves open. :func:`ada.topo_model.layout.plan_layout`
+    packs equipment on footprint alone and has no idea whether the runs between them will route;
+    :func:`propose_relocations` knows exactly which moves would clear a run that failed, and nothing
+    fed that back. This is the feedback edge: plan, route, move what did not fit, route again.
+
+    More than one pass is worth having because a single call is bounded twice over -- by
+    ``max_moves`` and by the internal candidate-route budget -- so a document with many bad runs can
+    still be improving when the first call returns. Passes stop as soon as one proposes nothing, so
+    a model that already routes costs one routing probe and no moves.
+
+    Returns ``(document, record)``. The document is a copy; ``doc`` is never modified. The record is
+    JSON-able and reports what actually happened::
+
+        {"applied": [proposal, ...],      # in the order they were applied
+         "unresolved": [system names],    # still not routing cleanly after the last pass
+         "baseline_problems": int,        # how many runs failed before any move
+         "passes": int}
+    """
+    applied: list[dict] = []
+    current = doc
+    baseline: int | None = None
+    unresolved: list[str] = []
+    passes = 0
+
+    for _ in range(max(1, int(max_passes))):
+        result = propose_relocations(
+            current,
+            equipment_resolver=equipment_resolver,
+            design_rules=design_rules,
+            max_moves=max_moves,
+        )
+        passes += 1
+        if baseline is None:
+            baseline = int(result.get("baseline_problems") or 0)
+        unresolved = list(result.get("unresolved") or [])
+
+        proposals = list(result.get("proposals") or [])
+        if not proposals:
+            break
+        current = apply_relocations(current, proposals)
+        applied.extend(proposals)
+        if not unresolved:
+            break
+
+    return current, {
+        "applied": applied,
+        "unresolved": unresolved,
+        "baseline_problems": baseline or 0,
+        "passes": passes,
+    }
+
+
 def propose_relocations(
     doc: dict,
     *,

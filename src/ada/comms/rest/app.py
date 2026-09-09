@@ -32,7 +32,7 @@ from ada.core.file_system import new_temp_path
 
 from . import auth as auth_module
 from . import db as db_module
-from . import failure_capture, local_jobs
+from . import failure_capture, local_jobs, pending_uploads
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -125,6 +125,41 @@ async def _parse_rename_body(request: Request) -> tuple[str, str]:
 
 def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
+
+
+#: How long a presigned upload URL is valid, and — via pending_uploads — how
+#: long an unfinished upload blocks a job against its key before the entry is
+#: reaped. One literal rather than two so the two can't drift apart: a mint
+#: that outlives the block on it would let a job dispatch against a key the
+#: browser is still (validly) PUTting to.
+_UPLOAD_URL_TTL_SECONDS = 3600
+
+
+def _human_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"  # pragma: no cover — no upload gets here
+
+
+def _pending_upload_detail(key: str, pending: pending_uploads.PendingUpload) -> str:
+    """409 message for a job that would dispatch against a still-uploading key.
+
+    A plain string, matching every other ``HTTPException`` in this module —
+    most error-to-message paths on the frontend surface ``detail`` verbatim
+    (``ApiError`` / ``readDetail`` in viewerApi.ts read the response body as
+    text, not parsed JSON), so the useful part has to be IN the sentence
+    rather than a sibling field nothing downstream of a generic catch reads.
+    The structured form (``upload_progress`` alongside ``status``) is what
+    ``GET /files`` returns instead — real JSON, read by dedicated code.
+    """
+    if pending.loaded is not None and pending.total is not None and pending.total > 0:
+        pct = round(100 * pending.loaded / pending.total)
+        return f"{key} is still uploading ({pct}% — {_human_bytes(pending.loaded)} / {_human_bytes(pending.total)})"
+    if pending.size_hint:
+        return f"{key} is still uploading (0 / {_human_bytes(pending.size_hint)})"
+    return f"{key} is still uploading"
 
 
 #: The `app_settings` key an admin edits. Mirrored into the KV meta keyspace
@@ -942,11 +977,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # 30 ms for an unaudited scope with the same file count. is_hidden_key still runs; it
             # is now cheap agreement rather than the mechanism.
             files = await storage.list(scope_obj, skip_prefixes=HIDDEN_PREFIXES)
-            return JSONResponse(
-                {
-                    "files": [{"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)],
-                }
-            )
+            rows = {f.key: {"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)}
+            # A key with a pending upload gets the "uploading" fields whether or
+            # not it already appears above — present-but-pending means the PUT
+            # landed and /upload-complete simply hasn't run yet; absent-but-
+            # pending means it either has not landed or the store does not hide
+            # a partial object from a concurrent listing. Either way the caller
+            # should not treat it as ready.
+            for key, pending in pending_uploads.list_for_scope(scope_obj).items():
+                fields = pending.as_dict()
+                if key in rows:
+                    # Real bytes are already listed with a real size — a
+                    # missing size_hint must not clobber it back to 0.
+                    fields.pop("size", None)
+                    rows[key].update(fields)
+                else:
+                    rows[key] = {"key": key, **fields}
+            return JSONResponse({"files": list(rows.values())})
 
         files = await storage.list(scope_obj)
 
@@ -987,6 +1034,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             entry = sources.get(src_key)
             if entry is not None:
                 entry["derived"] = derived_list
+        # Same merge as the plain listing above, in this richer shape. A key
+        # already in ``sources`` (the object landed; only /upload-complete
+        # hasn't run) keeps its real size/format and gains the upload fields;
+        # one that isn't there yet is added as a synthetic row so the convert
+        # page shows "uploading" instead of the file simply not existing.
+        for key, pending in pending_uploads.list_for_scope(scope_obj).items():
+            fields = pending.as_dict()
+            entry = sources.get(key)
+            if entry is None:
+                sources[key] = {
+                    "key": key,
+                    "last_modified": None,
+                    "format": _format_label(key),
+                    "available_targets": supported_targets_for(key),
+                    "derived": [],
+                    **fields,
+                }
+            else:
+                # Real bytes are already listed with a real size — a missing
+                # size_hint must not clobber it back to 0.
+                fields.pop("size", None)
+                entry.update(fields)
         out = sorted(
             sources.values(),
             key=lambda e: e.get("last_modified") or "",
@@ -2290,10 +2359,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not is_versions_artefact_key(key) and not is_published_asset_key(key) and not await _is_accepted_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         try:
-            url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=3600)
+            url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=_UPLOAD_URL_TTL_SECONDS)
         except Exception as exc:
             logger.exception("presign failed for %s", key)
             raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc
+        # Size is a client-supplied hint, not verified against anything — it only
+        # ever reaches a progress bar (as "0 / size_hint" until a heartbeat says
+        # otherwise) or a 409 body, never a decision. See pending_uploads.
+        raw_size = body.get("size")
+        size_hint = raw_size if isinstance(raw_size, int) and raw_size >= 0 else None
+        pending_uploads.mark_pending(
+            scope_obj, key, user_id=user.sub, size_hint=size_hint, ttl_seconds=_UPLOAD_URL_TTL_SECONDS
+        )
         # Hint that the client should gzip + send Content-Encoding=gzip
         # when this key's extension is in the compressible list. The
         # encoding header is *not* signed into the presigned URL —
@@ -2308,7 +2385,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "url": url,
                 "key": key,
                 "method": "PUT",
-                "expires_in_seconds": 3600,
+                "expires_in_seconds": _UPLOAD_URL_TTL_SECONDS,
                 "content_encoding": _content_encoding_for(key),
             }
         )
@@ -2349,8 +2426,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         meta = await storage.head(scope_obj, key)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"object not found at {key}; was the PUT successful?")
+        # Only now — head() confirms the object is there, which is the closest
+        # this process gets to "the PUT actually finished". Left pending on a
+        # 404 above: an upload that failed or is still mid-flight must keep
+        # blocking jobs against this key, not clear the gate on the strength of
+        # a failed finalise call.
+        pending_uploads.mark_complete(scope_obj, key)
         await _audit(request, user, scope_obj, "upload", key=key, status="ok")
         return JSONResponse({"key": key, "size": meta["size"]}, status_code=201)
+
+    @api.post("/scopes/{scope}/upload-progress")
+    async def api_scope_upload_progress(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> Response:
+        """Heartbeat from the browser's own upload-progress events.
+
+        Body: ``{key, loaded, total}``. The API cannot observe a direct
+        browser→object-store PUT itself — that is the whole point of a
+        presigned URL — so the only source of real progress is the XHR
+        ``upload`` progress event already wired in ``putToPresignedUrl``. This
+        endpoint exists so that progress reaches somewhere OTHER than the tab
+        doing the upload: a second tab, a second viewer, or the same tab after
+        a reload, all read it back via ``GET /scopes/{scope}/files``.
+
+        Best-effort like ``_audit``: a call for a key with no pending upload
+        (already completed, expired, or never registered — e.g. the browser
+        raced its own ``/upload-complete``) is not an error, just nothing to
+        update. 204 either way; the body only needs to distinguish "keep
+        heartbeating" from "stop", which the caller gets from whether a later
+        ``GET /files`` still shows this key as uploading.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        key = (str(body.get("key") or "")).strip().lstrip("/")
+        if not key:
+            raise HTTPException(status_code=400, detail="key required")
+        try:
+            loaded = int(body.get("loaded"))
+            total = int(body.get("total"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="loaded and total must be integers") from None
+        pending_uploads.heartbeat(scope_obj, key, loaded=loaded, total=total)
+        return Response(status_code=204)
 
     @api.post("/scopes/{scope}/download-url")
     async def api_scope_download_url(
@@ -2463,6 +2584,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 conversion_options = cleaned
         if not source_key:
             raise HTTPException(status_code=400, detail="source_key required")
+        pending = pending_uploads.get(scope_obj, source_key)
+        if pending is not None:
+            raise HTTPException(status_code=409, detail=_pending_upload_detail(source_key, pending))
         if not await _is_accepted_source(source_key):
             raise HTTPException(status_code=415, detail=f"unsupported source format: {source_key}")
         if target_format not in TARGET_FORMATS:
@@ -2593,6 +2717,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="utility_name required")
         if not isinstance(raw_kwargs, dict):
             raise HTTPException(status_code=400, detail="kwargs must be an object")
+        pending = pending_uploads.get(scope_obj, source_key)
+        if pending is not None:
+            raise HTTPException(status_code=409, detail=_pending_upload_detail(source_key, pending))
         # Gate against the live worker-advertised utility set so we don't enqueue
         # a job no worker can serve.
         advertised = {u.get("name") for u in await _worker_advertised_utilities()}
@@ -2896,6 +3023,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source_key = (key or "").strip().lstrip("/")
         if not source_key:
             raise HTTPException(status_code=400, detail="key required")
+        pending = pending_uploads.get(scope_obj, source_key)
+        if pending is not None:
+            raise HTTPException(status_code=409, detail=_pending_upload_detail(source_key, pending))
         if not is_fea_artefact_source(source_key):
             # adapy ships built-in stream readers for .rmed and .sif;
             # capability workers register additional ones at startup
@@ -3671,6 +3801,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj = await _resolve_project_scope(getattr(request.app.state, "db_pool", None), scope_obj)
         if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
             raise HTTPException(status_code=403, detail="forbidden")
+
+        # This route is generic ("core names no plugin"), so there is no single
+        # field in ``options`` that reliably names the source file — one plugin
+        # might call it ``sin_key``, another might not take a source at all.
+        # Scan every string value instead of guessing a field name: any one of
+        # them that names a key with an upload still in flight is the same
+        # hazard /convert and /fea/manifest gate on, whatever the plugin calls
+        # it in its own options shape.
+        for opt_value in options.values():
+            if not isinstance(opt_value, str) or not opt_value:
+                continue
+            pending = pending_uploads.get(scope_obj, opt_value)
+            if pending is not None:
+                raise HTTPException(status_code=409, detail=_pending_upload_detail(opt_value, pending))
 
         # Read the advertised spec ONCE: it decides both whether this request
         # needs an admin and which pool it routes to.

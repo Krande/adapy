@@ -1,0 +1,36 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PlantModel>
+  <PlantInformation Application="Dexpi" ApplicationVersion="1.3.1" Date="2019-07-08" Discipline="PID" Is3D="no" OriginatingSystem="P&amp;ID Toolbox" OriginatingSystemVendor="pnb plants &amp; bytes GmbH, Aachen, Germany" OriginatingSystemVersion="0.9" SchemaVersion="4.1.1" Time="03:02:01" Units="mm">
+    <UnitsOfMeasure/>
+  </PlantInformation>
+  <Equipment ID="Tank-1" ComponentClass="Tank" ComponentClassURI="http://data.posccaesar.org/rdl/RDS445139">
+    <GenericAttributes Set="DexpiAttributes" Number="4">
+      <GenericAttribute Name="CylinderLength" AttributeURI="http://sandbox.dexpi.org/rdl/CylinderLength" Value="4" Format="double" Units="Metre" UnitsURI="http://data.posccaesar.org/rdl/RDS1332674"/>
+      <GenericAttribute Name="EquipmentDescriptionAssignmentClass" AttributeURI="http://data.posccaesar.org/rdl/RDS2181987301" Language="en" Value="Tank" Format="string"/>
+      <GenericAttribute Name="NominalCapacity(Volume)" AttributeURI="http://sandbox.dexpi.org/rdl/NominalCapacity(Volume)" Value="26" Format="double" Units="MetreCubed" UnitsURI="http://data.posccaesar.org/rdl/RDS1349099"/>
+      <GenericAttribute Name="TagNameAssignmentClass" AttributeURI="http://sandbox.dexpi.org/rdl/TagNameAssignmentClass" Format="string" Value="T4750"/>
+    </GenericAttributes>
+    <Equipment ID="Chamber-1" ComponentClass="Chamber" ComponentClassURI="http://data.posccaesar.org/rdl/RDS903151421">
+      <GenericAttributes Set="DexpiAttributes" Number="7">
+        <GenericAttribute Name="LowerLimitDesignPressure" AttributeURI="http://data.posccaesar.org/rdl/RDS360674" Value="-1" Format="double" Units="Bar" UnitsURI="http://data.posccaesar.org/rdl/RDS1314539"/>
+        <GenericAttribute Name="LowerLimitDesignTemperature" AttributeURI="http://data.posccaesar.org/rdl/RDS360494" Value="-45" Format="double" Units="DegreeCelsius" UnitsURI="http://data.posccaesar.org/rdl/RDS1322684"/>
+        <GenericAttribute Name="MaterialOfConstructionCodeAssignmentClass" AttributeURI="http://data.posccaesar.org/rdl/RDS1460719741" Format="string" Value="1.4306"/>
+        <GenericAttribute Name="NominalDiameter" AttributeURI="http://data.posccaesar.org/rdl/RDS366794" Value="2" Format="double" Units="Metre" UnitsURI="http://data.posccaesar.org/rdl/RDS1332674"/>
+        <GenericAttribute Name="SubTagNameAssignmentClass" AttributeURI="http://sandbox.dexpi.org/rdl/SubTagNameAssignmentClass" Format="string" Value="Chamber 1"/>
+        <GenericAttribute Name="UpperLimitDesignPressure" AttributeURI="http://data.posccaesar.org/rdl/RDS1470835011" Value="0.1" Format="double" Units="Bar" UnitsURI="http://data.posccaesar.org/rdl/RDS1314539"/>
+        <GenericAttribute Name="UpperLimitDesignTemperature" AttributeURI="http://data.posccaesar.org/rdl/RDS360449" Value="100" Format="double" Units="DegreeCelsius" UnitsURI="http://data.posccaesar.org/rdl/RDS1322684"/>
+      </GenericAttributes>
+    </Equipment>
+    <Equipment ID="Chamber-2" ComponentClass="Chamber" ComponentClassURI="http://data.posccaesar.org/rdl/RDS903151421">
+      <GenericAttributes Set="DexpiAttributes" Number="7">
+        <GenericAttribute Name="LowerLimitDesignPressure" AttributeURI="http://data.posccaesar.org/rdl/RDS360674" Value="-0.1" Format="double" Units="Bar" UnitsURI="http://data.posccaesar.org/rdl/RDS1314539"/>
+        <GenericAttribute Name="LowerLimitDesignTemperature" AttributeURI="http://data.posccaesar.org/rdl/RDS360494" Value="-45" Format="double" Units="DegreeCelsius" UnitsURI="http://data.posccaesar.org/rdl/RDS1322684"/>
+        <GenericAttribute Name="MaterialOfConstructionCodeAssignmentClass" AttributeURI="http://data.posccaesar.org/rdl/RDS1460719741" Format="string" Value="1.4305"/>
+        <GenericAttribute Name="NominalDiameter" AttributeURI="http://data.posccaesar.org/rdl/RDS366794" Value="2" Format="double" Units="Metre" UnitsURI="http://data.posccaesar.org/rdl/RDS1332674"/>
+        <GenericAttribute Name="SubTagNameAssignmentClass" AttributeURI="http://sandbox.dexpi.org/rdl/SubTagNameAssignmentClass" Format="string" Value="Chamber 2"/>
+        <GenericAttribute Name="UpperLimitDesignPressure" AttributeURI="http://data.posccaesar.org/rdl/RDS1470835011" Value="0.1" Format="double" Units="Bar" UnitsURI="http://data.posccaesar.org/rdl/RDS1314539"/>
+        <GenericAttribute Name="UpperLimitDesignTemperature" AttributeURI="http://data.posccaesar.org/rdl/RDS360449" Value="100" Format="double" Units="DegreeCelsius" UnitsURI="http://data.posccaesar.org/rdl/RDS1322684"/>
+      </GenericAttributes>
+    </Equipment>
+  </Equipment>
+</PlantModel>
