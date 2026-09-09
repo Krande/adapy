@@ -100,7 +100,15 @@ ada = [
     "cadit/dexpi/resources/*.json",
     "fem/results/resources/results.sql",
     "visit/rendering/resources/index.zip",
-    "topo_model/templates_data/*.json"
+    "topo_model/templates_data/*.json",
+    # The REST API's schema migrations, applied at boot under an advisory lock.
+    # WITHOUT THIS LINE THE PACKAGE SHIPS NONE OF THEM: they are data files beside
+    # python modules, so nothing in the build notices they are gone, every test
+    # passes (tests run from a checkout, where the files are simply there), and a
+    # conda- or wheel-installed API cannot migrate a database at all. Confirmed by
+    # building the conda-forge recipe against a checkout: 30 files here, 0 in the
+    # package. See tools/localise_feedstock_recipe.py, which exists because of it.
+    "comms/rest/migrations/*.sql"
 ]
 
 

@@ -201,6 +201,69 @@ jobs:
           if: steps.scope.outputs.run == 'true'
           run: python3 tools/check_bundle_provenance.py -v
 
+    # Build the conda package the way conda-forge does, from THIS checkout.
+    #
+    # Everything else in this workflow runs from a checkout, so nothing else can see what the
+    # PACKAGE contains. Two faults reached a release through that blind spot: `ada-py` shipped 30
+    # migrations as 0, because `[tool.setuptools.package-data]` did not name them, so a
+    # conda-installed API could not create its schema while a checkout worked perfectly; and the
+    # 0.67.0 feedstock build failed on DEXPI tests loading a script the recipe does not ship as a
+    # test file. Both were found after the fact, by the feedstock, not by us.
+    #
+    # This clones the real feedstock, points its recipe at the checkout (rattler-build has no flag
+    # for that -- see tools/localise_feedstock_recipe.py) and builds. Tests run too, so the
+    # feedstock's own definition of what ships and what it runs is checked before a release rather
+    # than after one.
+    conda-package:
+        name: Conda package (feedstock recipe)
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            fetch-depth: 0
+
+        # Only a change that can alter what is packaged, or what the packaged tests assume, can
+        # change the answer. Inline rather than an `on: paths:` filter so the job always reports a
+        # status and can be a required check -- the same shape as the bundle-provenance job above.
+        - name: Could this PR change what the package contains?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if echo "$CHANGED" | grep -qE '^(pyproject\.toml$|src/ada/.*\.(sql|json|xml|zip)$|tests/|files/|scripts/|tools/localise_feedstock_recipe\.py$|\.github/workflows/pr-tests\.yml$)'; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "Nothing here changes what is packaged or what the packaged tests assume."
+            fi
+
+        - uses: prefix-dev/setup-pixi@v0.10.2
+          if: steps.scope.outputs.run == 'true'
+          with:
+            pixi-version: v0.68.0
+            environments: tests
+            cache: true
+
+        - name: Clone the feedstock
+          if: steps.scope.outputs.run == 'true'
+          run: git clone --depth 1 https://github.com/conda-forge/ada-py-feedstock.git "$RUNNER_TEMP/feedstock"
+
+        - name: Point its recipe at this checkout
+          if: steps.scope.outputs.run == 'true'
+          run: |
+            pixi run -e tests python tools/localise_feedstock_recipe.py               "$RUNNER_TEMP/feedstock/recipe/recipe.yaml"               --checkout "$GITHUB_WORKSPACE" --pyproject pyproject.toml
+            sed -n '1,25p' "$RUNNER_TEMP/feedstock/recipe/recipe.yaml"
+
+        # The recipe's own variant config and channels; passing -c as well is rejected
+        # ("channel_sources and channels cannot both be set").
+        - name: Build and run the recipe's tests
+          if: steps.scope.outputs.run == 'true'
+          run: |
+            cd "$RUNNER_TEMP/feedstock"
+            pixi exec -s rattler-build rattler-build build               -r recipe/recipe.yaml -m .ci_support/linux_64_.yaml               --output-dir "$RUNNER_TEMP/out"
+
     # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
     # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the
     # viewer runtime ships a CURATED subset of it (see the COPY block in deploy/Dockerfile.viewer),
