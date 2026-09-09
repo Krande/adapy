@@ -1313,6 +1313,128 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"scope": scope_str, "source": source, "recorded": written})
 
+    #: Statuses a worker may report for its own job. A closed set, because this
+    #: route writes the audit log -- the record of what this deployment did -- and
+    #: "whatever the caller sent" is not a status vocabulary.
+    _REPORTABLE_JOB_STATUSES = ("running", "done", "error", "cancelled")
+
+    @api.post("/jobs/{job_id}/status")
+    async def api_job_status_report(
+        job_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Report a job's progress into the audit log. Body: ``{status, ...}``.
+
+        WHY THIS EXISTS. The audit row is written `queued` by the API at enqueue
+        and moved by the WORKER -- through a database pool. A worker without
+        ``DATABASE_URL`` is a supported deployment and announces itself as one at
+        startup, and on such a worker both status hops are no-ops: the row stays
+        `queued` for ever while the job runs, finishes and is swept. The queue
+        record is accurate throughout, so the conversion toast follows along
+        happily and the Audit tab -- the surface an operator actually audits with
+        -- shows every job on that pool as permanently pending.
+        
+        That is worse than a cosmetic gap. A permanently-`queued` row is
+        indistinguishable from a job nothing will ever run, so an operator cannot
+        tell a healthy pool from a broken one, and anything that reasons over
+        non-terminal rows (the plugin-job concurrent-fire guard, for one) blocks
+        on jobs that finished minutes ago.
+
+        Same argument, and the same answer, as ``POST
+        /scopes/{scope}/source-nodes``: a worker that can already reach this API
+        should not need a second and far more powerful credential to say what it
+        just did.
+
+        AUTHORISATION IS THE JOB'S SCOPE, matching ``GET /convert/{job_id}``:
+        the queue record names the scope, and a caller who may read that scope's
+        jobs may report on them. The write is deliberately narrow -- a status from
+        a closed set plus the outcome fields the in-process path already writes --
+        so the route cannot be used to edit an audit row into saying something
+        else. A terminal row is never moved again, so a late or duplicated report
+        cannot rewrite history.
+        """
+        # THE REQUEST IS VALIDATED BEFORE THE DEPLOYMENT IS CONSULTED. A malformed
+        # status is wrong whether or not this deployment has a database, and
+        # answering 200 "recorded: false" to it would tell a caller its typo was
+        # merely unused rather than invalid.
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        status = (str(body.get("status") or "")).strip().lower()
+        if status not in _REPORTABLE_JOB_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"status must be one of {', '.join(_REPORTABLE_JOB_STATUSES)}",
+            )
+
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            # No audit log to write. Not an error: the deployment has no database,
+            # which is exactly the case where nobody is reading audit rows either.
+            return JSONResponse({"job_id": job_id, "recorded": False, "reason": "no database configured"})
+
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="no job queue configured")
+        job = await queue.get(job_id)
+        if job is None:
+            # The queue entry is swept ~15 minutes after a job goes terminal, so a
+            # report that arrives after that cannot be authorised against a scope
+            # any more. 404 rather than a guess.
+            raise HTTPException(status_code=404, detail=f"job {job_id} not found")
+        job_scope = (
+            Scope.shared()
+            if job.scope_kind == "shared"
+            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
+        )
+        if not await scope_can_access(user, job_scope, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        def _int(name: str) -> int | None:
+            value = body.get(name)
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{name} must be an integer") from None
+
+        def _text(name: str, limit: int) -> str | None:
+            value = body.get(name)
+            if value is None:
+                return None
+            # Truncated rather than refused: a traceback is the most useful thing
+            # in a failure report and the least predictable in length, and losing
+            # the whole report because the tail was long would be the wrong trade.
+            return str(value)[:limit]
+
+        if status == "running":
+            await db_module.mark_audit_running(
+                pool,
+                job_id=job_id,
+                worker_image_tag=_text("worker_image_tag", 200),
+            )
+            return JSONResponse({"job_id": job_id, "recorded": True, "status": status})
+
+        await db_module.update_audit_by_job(
+            pool,
+            job_id=job_id,
+            status=status,
+            error=_text("error", 4000),
+            traceback=_text("traceback", 20000),
+            duration_ms=_int("duration_ms"),
+            cpu_user_ms=_int("cpu_user_ms"),
+            cpu_sys_ms=_int("cpu_sys_ms"),
+            peak_rss_kb=_int("peak_rss_kb"),
+            read_bytes=_int("read_bytes"),
+            write_bytes=_int("write_bytes"),
+            worker_image_tag=_text("worker_image_tag", 200),
+        )
+        return JSONResponse({"job_id": job_id, "recorded": True, "status": status})
+
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(
         key: str,
