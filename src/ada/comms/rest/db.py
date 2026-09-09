@@ -4296,33 +4296,45 @@ async def set_plugin_job_schedule_skip_reason(pool: asyncpg.Pool, schedule_id: s
         logger.exception("plugin-job scheduler: could not record skip reason for %s", schedule_id)
 
 
-async def plugin_job_in_flight(pool: asyncpg.Pool, *, scope_kind: str, scope_id, plugin_id: str) -> bool:
-    """Is a job for this plugin and scope still queued or running?
+async def plugin_job_in_flight_jobs(pool: asyncpg.Pool, *, scope_kind: str, scope_id, plugin_id: str) -> list[str]:
+    """Job ids for this plugin and scope whose audit row is still queued or running.
 
-    The concurrent-fire guard, and it matters more for a plugin than for an audit
-    sweep: a plugin job can hold a single licensed workstation for minutes, so two
-    overlapping firings do not merely double the load -- they contend for one
-    resource, and the loser tends to fail in a way that reads as the plugin's
-    fault rather than as a scheduling one.
+    The concurrent-fire guard's first pass, and the guard matters more for a plugin
+    than for an audit sweep: a plugin job can hold a single licensed workstation
+    for minutes, so two overlapping firings do not merely double the load -- they
+    contend for one resource, and the loser tends to fail in a way that reads as
+    the plugin's fault rather than as a scheduling one.
+
+    IDS, NOT A BOOLEAN, because this row alone cannot answer the question. The
+    terminal status is written by the WORKER, so a worker with no database pool
+    cannot write it -- it says as much at startup -- and in that deployment every
+    plugin job stays `queued` here for good. A boolean would then report a finished
+    job as still in flight and block its schedule permanently after the first
+    firing, which is a worse failure than the double-firing it set out to prevent.
+    The caller checks these ids against the queue, which the worker does update.
 
     Matched on the synthetic source key's prefix, which is where the plugin id
     lives; audit_log carries no plugin column. ``starts_with`` rather than
     ``LIKE``: that key begins with an underscore, which LIKE reads as a
     single-character wildcard.
+
+    Rows with no ``job_id`` are skipped: there is nothing to check them against,
+    and one is not evidence of a running job -- it is an audit row that never got
+    as far as being queued.
     """
     prefix = f"_synthetic/plugin_job/{plugin_id}/"
-    row = await pool.fetchrow(
+    rows = await pool.fetch(
         """
-        SELECT 1 FROM audit_log
+        SELECT job_id FROM audit_log
         WHERE target_format = 'plugin_job'
           AND status IN ('queued', 'running')
           AND scope_kind = $1
           AND scope_id IS NOT DISTINCT FROM $2
           AND starts_with(key, $3)
-        LIMIT 1
+          AND job_id IS NOT NULL
         """,
         scope_kind,
         scope_id,
         prefix,
     )
-    return row is not None
+    return [str(r["job_id"]) for r in rows]

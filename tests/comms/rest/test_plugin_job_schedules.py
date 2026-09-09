@@ -321,16 +321,18 @@ async def test_the_in_flight_guard_keys_on_plugin_and_scope():
     pool = await _fresh_pool()
     try:
         await pool.execute("DELETE FROM audit_log WHERE scope_kind = 'shared'")
-        assert not await dbm.plugin_job_in_flight(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN)
+        assert await dbm.plugin_job_in_flight_jobs(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN) == []
 
         await pool.execute(
-            "INSERT INTO audit_log (user_sub, scope_kind, scope_id, action, key, target_format, status) "
-            "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'running')",
+            "INSERT INTO audit_log (user_sub, scope_kind, scope_id, action, key, target_format, status, job_id) "
+            "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'running', 'job-1')",
             _source_key(PLUGIN, {"a": 1}),
         )
-        assert await dbm.plugin_job_in_flight(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN)
+        assert await dbm.plugin_job_in_flight_jobs(
+            pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN
+        ) == ["job-1"]
         # A different plugin is not blocked by this one's run.
-        assert not await dbm.plugin_job_in_flight(pool, scope_kind="shared", scope_id=None, plugin_id="other")
+        assert await dbm.plugin_job_in_flight_jobs(pool, scope_kind="shared", scope_id=None, plugin_id="other") == []
     finally:
         await pool.execute("DELETE FROM audit_log WHERE scope_kind = 'shared'")
         await dbm.close_pool(pool)
@@ -343,11 +345,11 @@ async def test_a_terminal_job_does_not_block_the_next_firing():
     try:
         await pool.execute("DELETE FROM audit_log WHERE scope_kind = 'shared'")
         await pool.execute(
-            "INSERT INTO audit_log (user_sub, scope_kind, scope_id, action, key, target_format, status) "
-            "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'ok')",
+            "INSERT INTO audit_log (user_sub, scope_kind, scope_id, action, key, target_format, status, job_id) "
+            "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'ok', 'job-2')",
             _source_key(PLUGIN, {"a": 1}),
         )
-        assert not await dbm.plugin_job_in_flight(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN)
+        assert await dbm.plugin_job_in_flight_jobs(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN) == []
     finally:
         await pool.execute("DELETE FROM audit_log WHERE scope_kind = 'shared'")
         await dbm.close_pool(pool)
@@ -427,4 +429,63 @@ def test_an_explicitly_named_pool_still_fires_when_the_fleet_is_empty(pg_client)
         if fired.status_code == 409:
             assert "no online worker advertises" not in fired.json()["detail"]
     finally:
+        pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")
+
+
+@needs_postgres
+def test_a_row_the_worker_could_never_close_does_not_block_the_schedule(pg_client):
+    """The audit row's terminal status is written by the WORKER.
+
+    A worker with no database pool cannot write it — it says so at startup — so in
+    that deployment every plugin job stays `queued` in the log forever. A guard
+    that trusted the row alone would let a schedule fire exactly ONCE and then
+    block itself permanently, which is a worse failure than the double-firing the
+    guard exists to prevent.
+
+    Here the row says `queued` and the queue has no entry for it, which is the
+    decisive half: nothing is going to run that job whatever the row claims.
+    """
+    plugin_id = "stale-row-plugin"
+    pool_name = "some-pool"
+    created = pg_client.post(
+        "/api/admin/plugin-jobs/schedules",
+        json={
+            "name": f"stale-row-{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M%S%f}",
+            "cron_expr": "0 * * * *",
+            "scope": "shared",
+            "plugin_id": plugin_id,
+            # Named so the firing does not ALSO need a live worker to route.
+            "capability": pool_name,
+        },
+    )
+    assert created.status_code == 201, created.text
+    schedule_id = created.json()["id"]
+
+    import asyncio
+
+    from ada.comms.rest import db as _dbm
+
+    async def _seed_stale_row():
+        p = await _dbm.init_pool(POSTGRES_URL)
+        await p.execute(
+            "INSERT INTO audit_log (user_sub, scope_kind, scope_id, action, key, target_format, status, job_id) "
+            "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'queued', 'ghost-job')",
+            f"_synthetic/plugin_job/{plugin_id}/deadbeef",
+        )
+        await _dbm.close_pool(p)
+
+    async def _clear_stale_row():
+        p = await _dbm.init_pool(POSTGRES_URL)
+        await p.execute("DELETE FROM audit_log WHERE job_id = 'ghost-job'")
+        await _dbm.close_pool(p)
+
+    asyncio.run(_seed_stale_row())
+    try:
+        fired = pg_client.post(f"/api/admin/plugin-jobs/schedules/{schedule_id}/run")
+        if fired.status_code == 409:
+            assert "still queued or running" not in fired.json()["detail"], (
+                "a row no worker can ever close blocked the schedule"
+            )
+    finally:
+        asyncio.run(_clear_stale_row())
         pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")

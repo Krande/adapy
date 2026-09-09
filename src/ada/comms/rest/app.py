@@ -6540,12 +6540,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # the next slot is the next chance, which is the same choice the audit
         # scheduler makes and for the same reason.
         try:
-            in_flight = await db_module.plugin_job_in_flight(
+            candidates = await db_module.plugin_job_in_flight_jobs(
                 pool,
                 scope_kind=scope_obj.kind,
                 scope_id=scope_obj.id,
                 plugin_id=plugin_id,
             )
+            # THE AUDIT ROW IS NOT THE ANSWER ON ITS OWN. Its terminal status is
+            # written by the worker, so a worker with no database pool never writes
+            # one -- it announces that at startup -- and in such a deployment every
+            # plugin job stays `queued` in the log forever. Trusting the row alone
+            # would let a schedule fire exactly ONCE and then block itself for good,
+            # which is a worse failure than the double-firing the guard prevents.
+            #
+            # So each candidate is checked against the queue, which the worker DOES
+            # update. A missing entry is decisive too: it means the job is gone from
+            # the queue entirely, so nothing is going to run it whatever the row says.
+            in_flight = None
+            for candidate in candidates:
+                entry = await queue.get(candidate) if queue.enabled else None
+                if entry is None:
+                    continue
+                if str(getattr(entry, "status", "") or "").lower() in ("queued", "running"):
+                    in_flight = candidate
+                    break
         except Exception:
             logger.exception("plugin-job scheduler: concurrent-fire check failed for %s", sched_id)
             # Not firing is the safe half of an unknown: a duplicate run on a
@@ -6553,8 +6571,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reason = "could not check whether a previous job is still running; slot skipped"
             await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
             return {"skipped": reason}
-        if in_flight:
-            reason = f"previous {plugin_id} job still queued or running"
+        if in_flight is not None:
+            reason = f"previous {plugin_id} job {in_flight} still queued or running"
             await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
             return {"skipped": reason}
 
