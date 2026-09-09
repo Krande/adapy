@@ -113,6 +113,13 @@ export interface ConvertResponse {
   cached: boolean;
   scope_kind?: string;
   scope_id?: string | null;
+  /** The worker pool this job was routed to, as a NATS subject token.
+   *
+   * The API returns the whole queue record, and this field is the one that
+   * explains a job nothing picks up: a pool no worker subscribes to accepts the
+   * job and then never delivers it, so there is no error, no retry and no worker
+   * log line — only a row that stays `queued`. */
+  target_capability?: string | null;
 }
 
 export interface ConvertTargetsResponse {
@@ -962,6 +969,56 @@ export interface AuditSchedule {
   created_at: string | null;
   created_by: string | null;
   archived_at: string | null;
+}
+
+// One recurring plugin job. Separate from AuditSchedule because the payloads
+// differ: an audit sweep names a worker pool and a corpus, a plugin job names a
+// plugin and an arbitrary options document that only the plugin understands.
+//
+// The scheduler tick enqueues these through exactly the path
+// ``POST /plugins/{id}/jobs`` uses, so a scheduled firing is indistinguishable
+// from a user-initiated one to the worker — and it stamps a timestamp into the
+// options on every firing, because core hashes the options into the job's
+// source key and byte-identical options would cache-hit the first run forever.
+export interface PluginJobSchedule {
+  id: string;
+  name: string;
+  cron_expr: string;
+  /** Wire-format scope ("shared", "project:<slug>"), resolved at fire time. */
+  scope: string;
+  plugin_id: string;
+  /** Handed to the plugin verbatim. Core neither validates nor interprets it. */
+  options: Record<string, unknown>;
+  /** Capability override; null routes to whatever the plugin's live spec says. */
+  capability: string | null;
+  enabled: boolean;
+  last_fired_at: string | null;
+  next_fire_at: string | null;
+  /** Why the last DUE slot produced no job — an unresolvable scope, a previous
+   * run still in flight. Cleared on a successful claim. Without it a skipped
+   * schedule is indistinguishable from one that fired and failed elsewhere. */
+  last_skipped_reason: string | null;
+  last_job_id: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  archived_at: string | null;
+}
+
+// One backend plugin the deployment currently offers, as reported by GET
+// /plugins: the union of the static built-ins and whatever a live worker
+// advertises. A plugin is listed only while a pool providing it is online.
+export interface BackendPluginSpec {
+  slug: string;
+  id?: string;
+  title?: string;
+  /** Pool tag a job for this plugin is routed to. */
+  worker_capability?: string;
+  /** Option name whose VALUE shards the capability (`<cap>-<value>`). */
+  capability_option?: string;
+  /** EFFECTIVE admin gate, not merely what the worker declared. */
+  requires_admin?: boolean;
+  origin?: string;
+  online?: boolean;
 }
 
 export interface AuditFilters {
@@ -3574,6 +3631,110 @@ export const viewerApi = {
     return jsonOrThrow(r, `adminAuditScheduleFireNow(${scheduleId})`);
   },
 
+  /** The backend plugins this deployment currently offers. Used to suggest a
+   * ``plugin_id`` when scheduling one — a suggestion and not a constraint,
+   * because the API deliberately accepts an id no live worker serves: a
+   * schedule may be created before its worker exists or outlive a pool that is
+   * down for a day. */
+  async listBackendPlugins(): Promise<{ plugins: BackendPluginSpec[] }> {
+    const r = await authedFetch(`${runtime.apiBase()}/plugins`);
+    return jsonOrThrow(r, "listBackendPlugins");
+  },
+
+  /** Admin: list live plugin-job schedules. Archived rows hidden. */
+  async adminPluginJobSchedulesList(): Promise<{
+    schedules: PluginJobSchedule[];
+  }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/plugin-jobs/schedules`,
+    );
+    return jsonOrThrow(r, "adminPluginJobSchedulesList");
+  },
+
+  /** Admin: create a recurring plugin job. ``cron_expr`` is validated
+   * server-side (croniter), and ``options.scheduled_at`` is refused — the tick
+   * owns that key. */
+  async adminPluginJobScheduleCreate(body: {
+    name: string;
+    cron_expr: string;
+    scope: string;
+    plugin_id: string;
+    options?: Record<string, unknown>;
+    capability?: string | null;
+    enabled?: boolean;
+  }): Promise<PluginJobSchedule> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/plugin-jobs/schedules`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return jsonOrThrow(r, "adminPluginJobScheduleCreate");
+  },
+
+  /** Admin: partial update — only the keys present are written. Changing
+   * ``cron_expr``, or re-enabling a schedule, recomputes ``next_fire_at``
+   * server-side so a long-past slot does not fire immediately and then again. */
+  async adminPluginJobScheduleUpdate(
+    scheduleId: string,
+    body: Partial<{
+      name: string;
+      cron_expr: string;
+      scope: string;
+      plugin_id: string;
+      options: Record<string, unknown>;
+      capability: string | null;
+      enabled: boolean;
+    }>,
+  ): Promise<PluginJobSchedule> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/plugin-jobs/schedules/${encodeURIComponent(scheduleId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return jsonOrThrow(r, `adminPluginJobScheduleUpdate(${scheduleId})`);
+  },
+
+  /** Admin: soft-delete. The tick excludes archived rows, so it stops firing
+   * immediately, and the name becomes re-usable. */
+  async adminPluginJobScheduleArchive(scheduleId: string): Promise<void> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/plugin-jobs/schedules/${encodeURIComponent(scheduleId)}`,
+      { method: "DELETE" },
+    );
+    if (!r.ok) {
+      throw new ApiError(
+        `adminPluginJobScheduleArchive(${scheduleId})`,
+        r.status,
+        await readDetail(r),
+      );
+    }
+  },
+
+  /** Admin: fire a schedule now, without waiting for its slot.
+   *
+   * This is how a newly created schedule gets verified at all: short of this,
+   * an admin has no way to learn whether its options, scope and plugin actually
+   * produce a job until the cron comes round. ``next_fire_at`` is left alone,
+   * so the scheduled slot still happens. 409 when state said no — the guard
+   * against a previous run still being in flight — with the reason in the body. */
+  async adminPluginJobScheduleRunNow(scheduleId: string): Promise<{
+    job_id: string;
+    schedule: string;
+    plugin_id: string;
+  }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/plugin-jobs/schedules/${encodeURIComponent(scheduleId)}/run`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, `adminPluginJobScheduleRunNow(${scheduleId})`);
+  },
+
   /** Admin: read the configured issue-tracker target (M5). Tokens
    * never come back — only the env var name + a present/missing
    * flag for the serving replica. */
@@ -4112,19 +4273,73 @@ export const viewerApi = {
     return jsonOrThrow<AdminProject>(r, "adminCreateProject");
   },
 
-  /** Provision (or rotate the token of) a synthetic ``ci:<slug>``
-   * bot user for a project. Returns the bearer exactly once — the
-   * server does not persist it. Re-calling rotates: the per-user
-   * revoke cutoff is bumped before the new token is minted, so any
-   * tokens issued previously to this bot stop validating. */
+  /** Provision (or rotate the token of) a synthetic CI bot user for a
+   * project. Returns the bearer exactly once — the server does not
+   * persist it. Re-calling rotates: the per-user revoke cutoff is
+   * bumped before the new token is minted, so any tokens issued
+   * previously to that bot stop validating.
+   *
+   * `name` gives the project more than one bot — `ci:<slug>:<name>`
+   * instead of `ci:<slug>`. Without it the subject is unchanged, so
+   * an existing bot keeps its identity and its tokens. Use a name per
+   * consumer: the revoke cutoff is stored per subject, so consumers
+   * sharing one bot cannot be rotated independently, and every audit
+   * row reads the same subject whichever of them acted. */
   async adminProvisionCiBot(
     projectId: string,
+    name?: string,
   ): Promise<{ user_sub: string; token: string; expires_at: number }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/ci-bot`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      },
     );
     return jsonOrThrow(r, "adminProvisionCiBot");
+  },
+
+  /** Invalidate a CI bot's tokens without minting a replacement.
+   *
+   * What you want for a leaked credential or a retired consumer:
+   * rotating would hand you a fresh secret you did not ask for and
+   * leave the bot able to act. The bot stays a project member — remove
+   * it separately, so its audit history still resolves to a named
+   * principal. */
+  async adminRevokeCiBot(
+    projectId: string,
+    name?: string,
+  ): Promise<{ user_sub: string; revoked_at: number }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/ci-bot/revoke`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(name ? { name } : {}),
+      },
+    );
+    return jsonOrThrow(r, "adminRevokeCiBot");
+  },
+
+  /** Cancel and clear any job, whoever started it. Admin only.
+   *
+   * For a job nothing will ever finish — queued against a capability no
+   * live worker serves, or left behind by a retired pool. The user-facing
+   * my-jobs cancel filters on the job's owner, so an operator cleaning up
+   * after someone else (or after a pool) cannot use it.
+   *
+   * `cancelled` and `purged` are independent: the audit row and the KV
+   * entry can be stuck separately, and a job can need clearing from either
+   * or both. */
+  async adminCancelJob(
+    jobId: string,
+  ): Promise<{ job_id: string; cancelled: boolean; purged: boolean }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/admin/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, "adminCancelJob");
   },
 
   async adminArchiveProject(projectId: string): Promise<void> {

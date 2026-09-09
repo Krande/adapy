@@ -55,6 +55,39 @@ class Scope:
             return f"corpus/{self.id}"
         raise AssertionError(f"unknown scope kind {self.kind!r}")
 
+    def wire(self) -> str:
+        """This scope as the API PATH SEGMENT that parses back to it.
+
+        The inverse of the REST layer's scope parser, and distinct from
+        :meth:`prefix` -- which is the storage key. Both are strings that name a
+        scope and they are NOT interchangeable: ``prefix()`` for a project is
+        ``projects/<uuid>``, and a ``/`` in a path segment makes the URL match a
+        different route (or none), which surfaces as a 405 rather than as anything
+        that mentions scopes.
+
+        This exists because that mistake was made: the source-node REST recorder
+        built its URL from ``prefix()``, so every write it ever attempted hit a
+        405 and was reported as "the API refused the request". A method whose name
+        says which string it is, is the fix -- the previous state of affairs
+        offered only ``prefix()``, which looks plausible in a URL.
+
+        A ``user`` scope has no wire form a third party can use: the parser
+        accepts only ``user:me``, deliberately, and returning that here would make
+        a caller acting for someone else write into its OWN scope. Silently
+        correct-looking data in the wrong place is worse than an error, so this
+        refuses.
+        """
+        if self.kind == "shared":
+            return "shared"
+        if self.kind in ("project", "corpus"):
+            return f"{self.kind}:{self.id}"
+        if self.kind == "user":
+            raise ValueError(
+                "a user scope has no wire form that names it to another caller: the API accepts "
+                "only 'user:me', which would resolve to whoever is calling"
+            )
+        raise AssertionError(f"unknown scope kind {self.kind!r}")
+
     @classmethod
     def shared(cls) -> "Scope":
         return cls(kind="shared")

@@ -344,6 +344,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _scheduler_loop(app.state.db_pool),
                 name="audit-scheduler",
             )
+        # Plugin-job scheduler. Same conditions as the audit scheduler above and
+        # for the same reason: without a pool there are no schedules to read, and
+        # without a queue there is nothing to enqueue onto.
+        app.state.plugin_scheduler_task = None
+        if app.state.db_pool is not None and queue.enabled:
+            app.state.plugin_scheduler_task = asyncio.create_task(
+                _plugin_schedule_loop(app.state.db_pool),
+                name="plugin-job-scheduler",
+            )
         # Issue-bot poller (M5). Only needs the DB pool — the bot
         # talks to an HTTP forge, not NATS, so a queue-less deploy
         # can still publish failure issues. Skipped without a pool.
@@ -401,6 +410,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # down.
         for attr in (
             "scheduler_task",
+            "plugin_scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
             "worker_prune_task",
@@ -686,6 +696,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 },
                 "viewerImageTag": viewer_tag,
                 "workerImageTag": worker_tag,
+                # The adapy git ref this image was built from. Neither
+                # identifier above can carry it: viewerImageTag is the
+                # ASSEMBLING repo's commit, and the version is stamped from
+                # adapy's last release tag -- so a branch cut from a release
+                # with no version bump is indistinguishable from the release,
+                # and which one is deployed lives only in the inputs of
+                # whichever CI run built it. Empty on a build not told.
+                "adapyBuildRef": os.environ.get("ADA_ADAPY_REF", "").strip() or None,
                 "extraSourceExts": extra_source_exts,
                 "streamingOnlyExts": streaming_only_exts,
                 "conversionMatrix": conversion_matrix,
@@ -1122,8 +1140,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── Source-node change tracking ──────────────────────────────────
     #
     # "Has the external source moved since I exported this?" -- see
-    # migrations/028_source_nodes.sql. Read-only here: rows are written by the
-    # plugin that drives the source, through the worker's source_nodes facade.
+    # migrations/028_source_nodes.sql. Rows are written by the plugin that
+    # drives the source: through the worker's ``source_nodes`` facade when that
+    # worker has a pool, and through the POST below when it does not (a worker
+    # outside the cluster reaches this API and nothing else).
     # A deployment with no Postgres answers 503 rather than an empty list,
     # because "nothing has changed" and "nobody is recording changes" must not
     # look the same to a consumer deciding whether to trust an asset.
@@ -1235,6 +1255,254 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "truncated": len(nodes) >= limit,
             }
         )
+
+    _SOURCE_NODE_WRITE_LIMIT = 10000
+
+    def _parse_source_node(raw, index: int) -> dict:
+        """One posted node -> the dict ``record_source_nodes`` takes.
+
+        Strict about ``last_changed_at`` on purpose. That column only ever
+        moves FORWARD (``GREATEST`` in the upsert), so a timestamp written
+        wrong is not a transient wrong answer -- it is permanent, and no later
+        correct observation can pull it back. A naive timestamp is the way that
+        happens in practice: a writer in CET posting local wall-clock is read as
+        UTC, lands up to two hours in the FUTURE, and every consumer then
+        believes its export is stale forever. Cheap to reject, unfixable to
+        accept, so an offset is required rather than assumed.
+        """
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail=f"nodes[{index}] must be an object")
+        node_ref = (str(raw.get("node_ref") or "")).strip()
+        if not node_ref:
+            raise HTTPException(status_code=400, detail=f"nodes[{index}] is missing node_ref")
+        changed = raw.get("last_changed_at")
+        if isinstance(changed, str):
+            try:
+                changed = datetime.datetime.fromisoformat(changed.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"nodes[{index}].last_changed_at is not an ISO-8601 timestamp: {changed!r}",
+                )
+        if not isinstance(changed, datetime.datetime):
+            raise HTTPException(
+                status_code=400,
+                detail=f"nodes[{index}] is missing last_changed_at (an ISO-8601 timestamp)",
+            )
+        if changed.tzinfo is None or changed.tzinfo.utcoffset(changed) is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"nodes[{index}].last_changed_at has no UTC offset. This column only moves "
+                    "forward, so a mis-read timestamp is permanent -- send an offset "
+                    "(…Z or …+02:00) rather than local wall-clock."
+                ),
+            )
+
+        def _opt(field: str):
+            val = raw.get(field)
+            if val is None:
+                return None
+            val = str(val).strip()
+            return val or None
+
+        return {
+            "node_ref": node_ref,
+            "parent_ref": _opt("parent_ref"),
+            "name": _opt("name"),
+            "last_changed_at": changed,
+            "last_changed_by": _opt("last_changed_by"),
+        }
+
+    @api.post("/scopes/{scope}/source-nodes")
+    async def api_source_nodes_record(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Record observed source nodes. Body: ``{source, nodes: [...]}``.
+
+        WHY A ROUTE EXISTS AT ALL. Until now the only way to write this table
+        was the worker's ``source_nodes`` facade, which is a database pool --
+        so recording required the writer to hold Postgres credentials. That is
+        fine for a worker inside the cluster and wrong for one outside it. A
+        worker that joins the job queue from another network is a supported
+        deployment, and such a worker deliberately runs without
+        ``DATABASE_URL``: one fewer credential, and no route from outside to
+        the database. Change tracking was therefore silently inert on exactly
+        the workers most likely to be driving an external source -- the plugin
+        warned, recorded nothing, and its caller re-scanned from cold forever.
+        A writer that can already reach this API over HTTPS should not need a
+        second, far more powerful credential to say "this node moved".
+
+        Authorisation is the scope's own: ``_scope_from_path`` has already
+        rejected a caller who is not a member of a project scope, which is the
+        same gate that decides who may write that scope's blobs.
+
+        Nodes are capped per request; the writer chunks. A roll-up stamps every
+        node ABOVE a changed leaf (the writer's job -- see
+        ``record_source_nodes``), so the natural batch is thousands of rows and
+        an uncapped body is a proxy-sized surprise rather than a feature.
+        """
+        pool = _source_nodes_pool(request)
+        scope_str = scope_obj.prefix()  # prefix(), not str() -- see the GET above.
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        source = (str(body.get("source") or "")).strip()
+        if not source:
+            raise HTTPException(status_code=400, detail="source is required")
+        raw_nodes = body.get("nodes")
+        if not isinstance(raw_nodes, list):
+            raise HTTPException(status_code=400, detail="nodes must be a list")
+        if len(raw_nodes) > _SOURCE_NODE_WRITE_LIMIT:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"at most {_SOURCE_NODE_WRITE_LIMIT} nodes per request, got {len(raw_nodes)}. "
+                    "Post in chunks; the upsert is idempotent."
+                ),
+            )
+        nodes = [_parse_source_node(n, i) for i, n in enumerate(raw_nodes)]
+
+        # An empty list is accepted rather than 400: a sweep that found nothing
+        # changed is a normal outcome, and making the writer special-case it
+        # invites the writer to skip the call and lose the "I ran" signal.
+        written = await db_module.record_source_nodes(pool, scope=scope_str, source=source, nodes=nodes)
+        logger.info(
+            "source-nodes: %s recorded %d node(s) for source=%s scope=%s",
+            getattr(user, "sub", "?"),
+            written,
+            source,
+            scope_str,
+        )
+        return JSONResponse({"scope": scope_str, "source": source, "recorded": written})
+
+    #: Statuses a worker may report for its own job. A closed set, because this
+    #: route writes the audit log -- the record of what this deployment did -- and
+    #: "whatever the caller sent" is not a status vocabulary.
+    _REPORTABLE_JOB_STATUSES = ("running", "done", "error", "cancelled")
+
+    @api.post("/jobs/{job_id}/status")
+    async def api_job_status_report(
+        job_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Report a job's progress into the audit log. Body: ``{status, ...}``.
+
+        WHY THIS EXISTS. The audit row is written `queued` by the API at enqueue
+        and moved by the WORKER -- through a database pool. A worker without
+        ``DATABASE_URL`` is a supported deployment and announces itself as one at
+        startup, and on such a worker both status hops are no-ops: the row stays
+        `queued` for ever while the job runs, finishes and is swept. The queue
+        record is accurate throughout, so the conversion toast follows along
+        happily and the Audit tab -- the surface an operator actually audits with
+        -- shows every job on that pool as permanently pending.
+
+        That is worse than a cosmetic gap. A permanently-`queued` row is
+        indistinguishable from a job nothing will ever run, so an operator cannot
+        tell a healthy pool from a broken one, and anything that reasons over
+        non-terminal rows (the plugin-job concurrent-fire guard, for one) blocks
+        on jobs that finished minutes ago.
+
+        Same argument, and the same answer, as ``POST
+        /scopes/{scope}/source-nodes``: a worker that can already reach this API
+        should not need a second and far more powerful credential to say what it
+        just did.
+
+        AUTHORISATION IS THE JOB'S SCOPE, matching ``GET /convert/{job_id}``:
+        the queue record names the scope, and a caller who may read that scope's
+        jobs may report on them. The write is deliberately narrow -- a status from
+        a closed set plus the outcome fields the in-process path already writes --
+        so the route cannot be used to edit an audit row into saying something
+        else. A terminal row is never moved again, so a late or duplicated report
+        cannot rewrite history.
+        """
+        # THE REQUEST IS VALIDATED BEFORE THE DEPLOYMENT IS CONSULTED. A malformed
+        # status is wrong whether or not this deployment has a database, and
+        # answering 200 "recorded: false" to it would tell a caller its typo was
+        # merely unused rather than invalid.
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        status = (str(body.get("status") or "")).strip().lower()
+        if status not in _REPORTABLE_JOB_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"status must be one of {', '.join(_REPORTABLE_JOB_STATUSES)}",
+            )
+
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            # No audit log to write. Not an error: the deployment has no database,
+            # which is exactly the case where nobody is reading audit rows either.
+            return JSONResponse({"job_id": job_id, "recorded": False, "reason": "no database configured"})
+
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="no job queue configured")
+        job = await queue.get(job_id)
+        if job is None:
+            # The queue entry is swept ~15 minutes after a job goes terminal, so a
+            # report that arrives after that cannot be authorised against a scope
+            # any more. 404 rather than a guess.
+            raise HTTPException(status_code=404, detail=f"job {job_id} not found")
+        job_scope = (
+            Scope.shared()
+            if job.scope_kind == "shared"
+            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
+        )
+        if not await scope_can_access(user, job_scope, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        def _int(name: str) -> int | None:
+            value = body.get(name)
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{name} must be an integer") from None
+
+        def _text(name: str, limit: int) -> str | None:
+            value = body.get(name)
+            if value is None:
+                return None
+            # Truncated rather than refused: a traceback is the most useful thing
+            # in a failure report and the least predictable in length, and losing
+            # the whole report because the tail was long would be the wrong trade.
+            return str(value)[:limit]
+
+        if status == "running":
+            await db_module.mark_audit_running(
+                pool,
+                job_id=job_id,
+                worker_image_tag=_text("worker_image_tag", 200),
+            )
+            return JSONResponse({"job_id": job_id, "recorded": True, "status": status})
+
+        await db_module.update_audit_by_job(
+            pool,
+            job_id=job_id,
+            status=status,
+            error=_text("error", 4000),
+            traceback=_text("traceback", 20000),
+            duration_ms=_int("duration_ms"),
+            cpu_user_ms=_int("cpu_user_ms"),
+            cpu_sys_ms=_int("cpu_sys_ms"),
+            peak_rss_kb=_int("peak_rss_kb"),
+            read_bytes=_int("read_bytes"),
+            write_bytes=_int("write_bytes"),
+            worker_image_tag=_text("worker_image_tag", 200),
+        )
+        return JSONResponse({"job_id": job_id, "recorded": True, "status": status})
 
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(
@@ -3399,6 +3667,115 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return True
         return plugin_id in gated
 
+    async def _enqueue_plugin_job(
+        *,
+        plugin_id: str,
+        options: dict,
+        scope_obj: Scope,
+        capability: str | None = None,
+        user,
+        pool=None,
+        request: Request | None = None,
+        derived_prefix: str | None = None,
+        derived_key: str | None = None,
+        plugin_spec: dict | None = None,
+    ) -> str:
+        """Enqueue one plugin job and return its job id.
+
+        ONE ENQUEUE PATH, two callers: ``POST /plugins/{id}/jobs`` and the
+        plugin-job scheduler's tick. That is not tidiness -- it is the property
+        that makes a scheduled firing indistinguishable from a user-initiated one
+        to the worker, so capability routing, audit rows, cancellation and the
+        cached-blob short circuit cannot drift between them. A second enqueue for
+        the scheduler would be a second set of those behaviours to keep in step.
+
+        AUTHORISATION IS THE CALLER'S. This helper does not check scope access or
+        the plugin's admin gate: the route does both before calling, and the tick
+        runs as the system identity by construction. Putting the checks here would
+        read as safer and would in fact be looser, because the tick would then be
+        passing a synthetic admin through a gate built for real users.
+        """
+        import hashlib as _hashlib
+
+        # Synthetic source_key over (plugin_id, options hash) so identical
+        # requests cache-hit. A SCHEDULE therefore has to vary its options, which
+        # is what SCHEDULE_FIRE_TOKEN is for -- see the note on it.
+        opts_hash = _hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        source_key = f"_synthetic/plugin_job/{plugin_id}/{opts_hash}"
+        if not isinstance(derived_key, str) or not derived_key.strip():
+            derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
+
+        if plugin_spec is None:
+            for _spec in (await _live_worker_specs("plugin_specs")).values():
+                if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                    plugin_spec = _spec
+                    break
+
+        # Route to the pool advertising this plugin's worker_capability. An
+        # explicit override wins; otherwise read it off the live spec.
+        target_capability = None
+        if isinstance(capability, str) and capability.strip():
+            target_capability = capability_token(capability)
+        elif plugin_spec is not None:
+            cap = plugin_spec.get("worker_capability")
+            if isinstance(cap, str) and cap.strip():
+                target_capability = capability_token(cap)
+            # SHARDED POOLS: a plugin may advertise `capability_option` naming one
+            # of its own options; supplying it routes to `<capability>-<value>`.
+            # See the long note on the route for why subject routing rather than
+            # NAKing is how non-interchangeable workers are kept apart.
+            opt_name = plugin_spec.get("capability_option")
+            if target_capability and isinstance(opt_name, str) and opt_name:
+                shard = capability_token(options.get(opt_name))
+                if shard:
+                    target_capability = f"{target_capability}-{shard}"
+
+        # No queue: run it here, in a thread. A single-node viewer otherwise has
+        # no way to run a plugin job at all.
+        if not queue.enabled:
+            try:
+                local = local_jobs.start_plugin_job(
+                    plugin_id=plugin_id,
+                    options=options,
+                    derived_prefix=derived_prefix,
+                    derived_key=derived_key,
+                    storage=storage,
+                    scope=scope_obj,
+                )
+            except LookupError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            return local.job_id
+
+        job = await queue.enqueue(
+            source_key,
+            target_format="plugin_job",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "plugin_id": plugin_id,
+                "options": options,
+                "derived_prefix": derived_prefix,
+            },
+            derived_key=derived_key,
+            target_capability=target_capability,
+            # Hold the publish until the audit row exists -- publishing first is
+            # what strands a row at "queued" with no message left to recover it.
+            publish=False,
+        )
+        await _audit(
+            request,
+            user,
+            scope_obj,
+            "plugin_job",
+            key=source_key,
+            target_format="plugin_job",
+            status="queued",
+            job_id=job.job_id,
+            pool=pool,
+        )
+        await queue.publish(job)
+        return job.job_id
+
     @api.post("/plugins/{plugin_id}/jobs")
     async def api_plugin_job(
         plugin_id: str,
@@ -3457,114 +3834,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail=f"plugin job {plugin_id!r} is restricted to administrators",
                 )
 
-        # No source file — synthetic source_key over (plugin_id, options hash) so
-        # identical requests cache-hit. derived_key holds the JSON summary the
-        # plugin returns (the sidecar bundle lives under derived_prefix).
+        # Everything from here is shared with the plugin-job scheduler -- see
+        # _enqueue_plugin_job. The checks above (scope access, the admin gate) are
+        # this route's alone, which is why they are not in the helper.
         import hashlib as _hashlib
 
         opts_hash = _hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-        source_key = f"_synthetic/plugin_job/{plugin_id}/{opts_hash}"
         derived_key = body.get("derived_key")
         if not isinstance(derived_key, str) or not derived_key.strip():
             derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
-
-        # Route to the pool advertising this plugin's worker_capability. Caller may
-        # override; otherwise read it off the live plugin spec so the right pool
-        # (e.g. a capacity worker) picks the job up.
-        target_capability = body.get("capability")
-        if isinstance(target_capability, str) and target_capability.strip():
-            target_capability = capability_token(target_capability)
-        else:
-            target_capability = None
-            if plugin_spec is not None:
-                cap = plugin_spec.get("worker_capability")
-                if isinstance(cap, str) and cap.strip():
-                    target_capability = capability_token(cap)
-                # SHARDED POOLS. A plugin may advertise `capability_option`
-                # naming one of its own options; when the request supplies
-                # that option the job routes to `<capability>-<value>`
-                # instead of `<capability>`.
-                #
-                # This exists because a pool is one durable consumer: every
-                # worker in it competes for the same messages, so workers
-                # that are NOT interchangeable — each holding a different
-                # licence, dataset or device — cannot share one. Routing
-                # them apart by NAKing the wrong ones is the design this
-                # replaced; it burned the delivery budget and dead-lettered
-                # valid jobs (see the note on `pull_subscribe`).
-                #
-                # Subject routing does it instead, and the worker needs no
-                # new code: it just lists the sharded token in
-                # ADA_WORKER_CAPABILITIES. Core still names no plugin and
-                # knows nothing about what the option MEANS.
-                #
-                # An absent or unusable option falls back to the bare
-                # capability rather than erroring, so a worker that
-                # subscribes to both serves unqualified requests too, and a
-                # single-worker deployment never has to qualify anything.
-                opt_name = plugin_spec.get("capability_option")
-                if target_capability and isinstance(opt_name, str) and opt_name:
-                    shard = capability_token(options.get(opt_name))
-                    if shard:
-                        target_capability = f"{target_capability}-{shard}"
-
-        # No queue: run it here, in a thread, and hand back a job id the status
-        # endpoint below can serve. A single-node viewer (the examples, a laptop)
-        # otherwise has no way to run a plugin job at all — the button was dead in
-        # exactly the setup that puts the model in front of you. The plugin sees an
-        # identical contract either way, so nothing about it knows which path ran.
-        if not queue.enabled:
-            try:
-                local = local_jobs.start_plugin_job(
-                    plugin_id=plugin_id,
-                    options=options,
-                    derived_prefix=body.get("derived_prefix"),
-                    derived_key=derived_key,
-                    storage=storage,
-                    scope=scope_obj,
-                )
-            except LookupError as exc:
-                # The plugin's backend is not importable in THIS process. With a
-                # worker that is the pool's problem; here it is the answer.
-                raise HTTPException(status_code=501, detail=str(exc)) from exc
-            return JSONResponse({"job_id": local.job_id, "derived_key": derived_key})
-
-        job = await queue.enqueue(
-            source_key,
-            target_format="plugin_job",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={
-                "plugin_id": plugin_id,
-                "options": options,
-                "derived_prefix": body.get("derived_prefix"),
-            },
+        job_id = await _enqueue_plugin_job(
+            plugin_id=plugin_id,
+            options=options,
+            scope_obj=scope_obj,
+            capability=body.get("capability"),
+            user=user,
+            request=request,
+            derived_prefix=body.get("derived_prefix"),
             derived_key=derived_key,
-            target_capability=target_capability,
-            # Hold the publish until the audit row exists. A plugin_job is short
-            # (tens of ms — often just the cached-blob short circuit), which is
-            # well inside the time this handler takes to get its INSERT in, and
-            # the worker's terminal write is UPDATE ... WHERE job_id with no
-            # upsert. Publishing first is what strands a row at "queued" with no
-            # message and no KV entry left to recover it from.
-            publish=False,
+            plugin_spec=plugin_spec,
         )
-        # Register as a first-class audit task (row keyed by job_id). Without this
-        # the worker's mark_audit_running/_audit_done no-op, /my-jobs shows nothing,
-        # and cancel/metrics/profiling can't attach. action + target_format are
-        # free-text; "plugin_job" keeps it filterable from conversions.
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "plugin_job",
-            key=source_key,
-            target_format="plugin_job",
-            status="queued",
-            job_id=job.job_id,
-        )
-        await queue.publish(job)
-        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+        return JSONResponse({"job_id": job_id, "derived_key": derived_key})
 
     # Settings whose key begins with this prefix are readable by ANY
     # authenticated user; every other key in app_settings stays admin-only.
@@ -6242,6 +6532,387 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             name=f"audit-dispatch-{run['id']}",
         )
 
+    # ── Plugin-job schedules (cron for plugin jobs) ───────────────
+
+    #: Options key the tick stamps with each firing's timestamp.
+    #:
+    #: ALWAYS, AND THERE IS NO WAY TO TURN IT OFF. Core hashes a plugin job's
+    #: options into its source key so identical requests cache-hit, which is
+    #: right for a user pressing a button twice and catastrophic for a schedule:
+    #: byte-identical options every hour means the second firing and every one
+    #: after returns the FIRST run's summary. Hourly green ticks, the worker never
+    #: touched, and a caller trusting data that stopped moving.
+    #:
+    #: Read by nobody. It exists to change the hash, exactly as `refresh` does on
+    #: the plugin-job read path -- and it is stamped by the TICK rather than
+    #: offered as a schedule field, because a scheduled run that legitimately
+    #: answers "same as last time" cannot be told apart from one that never
+    #: happened.
+    SCHEDULE_FIRE_TOKEN = "scheduled_at"
+
+    def _plugin_schedule_options(schedule_row: dict, fired_at) -> dict:
+        """The options to dispatch: the schedule's own, plus the fire token."""
+        options = dict(schedule_row.get("options") or {})
+        options[SCHEDULE_FIRE_TOKEN] = fired_at.isoformat()
+        return options
+
+    @admin.get("/plugin-jobs/schedules")
+    async def admin_plugin_job_schedules_list(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        include_archived = request.query_params.get("include_archived") in ("1", "true", "yes")
+        rows = await db_module.list_plugin_job_schedules(pool, include_archived=include_archived)
+        return JSONResponse({"schedules": rows})
+
+    @admin.post("/plugin-jobs/schedules")
+    async def admin_plugin_job_schedules_create(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Create a schedule.
+
+        Body: ``{"name", "cron_expr", "scope", "plugin_id", "options",
+        "capability", "enabled"}``.
+
+        ``plugin_id`` is NOT checked against the live plugin registry. A schedule
+        may legitimately be created before the worker that serves it exists, or
+        survive a pool being down for a day; refusing here would make the admin
+        panel depend on a worker being up to configure anything. An id nothing
+        serves shows up as a queued job that nobody picks up, which is already
+        visible in /my-jobs.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        name = (body.get("name") or "").strip()
+        cron_expr = _validate_cron(body.get("cron_expr") or "")
+        scope_str = (body.get("scope") or "").strip()
+        plugin_id = (body.get("plugin_id") or "").strip()
+        options = body.get("options") or {}
+        capability = (body.get("capability") or "").strip() or None
+        enabled = bool(body.get("enabled", True))
+
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        if not scope_str:
+            raise HTTPException(status_code=400, detail="scope required")
+        if not plugin_id:
+            raise HTTPException(status_code=400, detail="plugin_id required")
+        if not isinstance(options, dict):
+            raise HTTPException(status_code=400, detail="options must be an object")
+        if SCHEDULE_FIRE_TOKEN in options:
+            # Refused rather than silently overwritten: a caller who set it
+            # believes it means something, and the tick is about to replace it.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"options.{SCHEDULE_FIRE_TOKEN} is reserved — the scheduler stamps it on every "
+                    "firing so that two firings never share an options hash and cache-hit"
+                ),
+            )
+        # Parses only. Slug-to-id resolution happens at fire time so renaming a
+        # project does not strand a schedule.
+        _ = _parse_scope(scope_str, user)
+
+        try:
+            row = await db_module.create_plugin_job_schedule(
+                pool,
+                name=name,
+                cron_expr=cron_expr,
+                scope=scope_str,
+                plugin_id=plugin_id,
+                options=options,
+                capability=capability,
+                enabled=enabled,
+                next_fire_at=_next_fire(cron_expr),
+                created_by=user.sub,
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise HTTPException(status_code=409, detail=f"schedule name {name!r} already in use") from exc
+            raise
+        return JSONResponse(row, status_code=201)
+
+    @admin.patch("/plugin-jobs/schedules/{schedule_id}")
+    async def admin_plugin_job_schedules_update(
+        schedule_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Partial update. Only the fields present in the body move."""
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        fields: dict = {}
+
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            fields["name"] = name
+        if "cron_expr" in body:
+            fields["cron_expr"] = _validate_cron(body.get("cron_expr") or "")
+            # A changed expression makes the stored next_fire_at meaningless, so
+            # it is recomputed here rather than left to drift until the next fire.
+            fields["next_fire_at"] = _next_fire(fields["cron_expr"])
+        if "scope" in body:
+            scope_str = (body.get("scope") or "").strip()
+            if not scope_str:
+                raise HTTPException(status_code=400, detail="scope cannot be empty")
+            _ = _parse_scope(scope_str, user)
+            fields["scope"] = scope_str
+        if "plugin_id" in body:
+            plugin_id = (body.get("plugin_id") or "").strip()
+            if not plugin_id:
+                raise HTTPException(status_code=400, detail="plugin_id cannot be empty")
+            fields["plugin_id"] = plugin_id
+        if "options" in body:
+            options = body.get("options") or {}
+            if not isinstance(options, dict):
+                raise HTTPException(status_code=400, detail="options must be an object")
+            if SCHEDULE_FIRE_TOKEN in options:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"options.{SCHEDULE_FIRE_TOKEN} is reserved — the scheduler stamps it",
+                )
+            fields["options"] = options
+        if "capability" in body:
+            fields["capability"] = (body.get("capability") or "").strip() or None
+        if "enabled" in body:
+            fields["enabled"] = bool(body.get("enabled"))
+            # Re-enabling a schedule whose next_fire_at is long past would fire
+            # immediately and then again on its real slot. Recomputed from now.
+            if fields["enabled"]:
+                current = await db_module.get_plugin_job_schedule(pool, schedule_id)
+                if current is None:
+                    raise HTTPException(status_code=404, detail="schedule not found")
+                fields.setdefault("next_fire_at", _next_fire(current["cron_expr"]))
+
+        row = await db_module.update_plugin_job_schedule(pool, schedule_id, **fields)
+        if row is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return JSONResponse(row)
+
+    @admin.delete("/plugin-jobs/schedules/{schedule_id}")
+    async def admin_plugin_job_schedules_archive(schedule_id: str, request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        if not await db_module.archive_plugin_job_schedule(pool, schedule_id):
+            raise HTTPException(status_code=404, detail="schedule not found, or already archived")
+        return JSONResponse({"archived": schedule_id})
+
+    @admin.post("/plugin-jobs/schedules/{schedule_id}/run")
+    async def admin_plugin_job_schedules_run_now(schedule_id: str, request: Request) -> JSONResponse:
+        """Fire a schedule immediately, without waiting for its slot.
+
+        The reason this exists is that a schedule is otherwise unverifiable: an
+        admin who has just created one has no way to learn whether its options,
+        scope and plugin actually produce a job short of waiting for the cron to
+        come round. It does not disturb the timetable -- ``next_fire_at`` is left
+        alone, so the scheduled slot still happens.
+        """
+        pool = _require_pool(request)
+        row = await db_module.get_plugin_job_schedule(pool, schedule_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        from datetime import datetime, timezone
+
+        outcome = await _plugin_schedule_fire(pool, row, fired_at=datetime.now(timezone.utc))
+        if outcome.get("skipped"):
+            # 409: the request was valid, the state said no. The reason is the
+            # useful half.
+            raise HTTPException(status_code=409, detail=outcome["skipped"])
+        return JSONResponse(outcome)
+
+    async def _plugin_schedule_loop(pool) -> None:
+        """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.
+
+        A deliberate mirror of ``_scheduler_loop`` above: same interval, same
+        drain-the-backlog inner loop, same "one tick's exception must not kill the
+        loop" posture. The two are separate because their payloads are, not
+        because they disagree about how ticking works.
+        """
+        from datetime import datetime, timezone
+
+        TICK_INTERVAL_S = 30.0
+        logger.info("plugin-job scheduler: starting (tick every %ss)", TICK_INTERVAL_S)
+        try:
+            while True:
+                try:
+                    now = datetime.now(timezone.utc)
+                    while True:
+                        try:
+                            # Claimed with a placeholder next_fire_at and
+                            # corrected below, once this row's cron_expr is known.
+                            row = await db_module.claim_due_plugin_job_schedule(pool, now=now, next_fire_at=now)
+                        except Exception:
+                            logger.exception("plugin-job scheduler: claim failed")
+                            break
+                        if row is None:
+                            break
+                        try:
+                            await db_module.update_plugin_job_schedule(
+                                pool,
+                                row["id"],
+                                next_fire_at=_next_fire(row["cron_expr"], after=now),
+                            )
+                        except Exception as exc:
+                            # next_fire_at is now `now`, so this row would be
+                            # claimed again on the next tick and spin. Disable it
+                            # and say why rather than let it hammer the queue.
+                            logger.exception("plugin-job scheduler: could not advance %s", row["id"])
+                            await db_module.update_plugin_job_schedule(pool, row["id"], enabled=False)
+                            await db_module.set_plugin_job_schedule_skip_reason(
+                                pool,
+                                row["id"],
+                                f"disabled: could not compute the next firing from {row['cron_expr']!r}: {exc}",
+                            )
+                            continue
+
+                        await _plugin_schedule_fire(pool, row, fired_at=now)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("plugin-job scheduler: tick failed")
+                await asyncio.sleep(TICK_INTERVAL_S)
+        except asyncio.CancelledError:
+            logger.info("plugin-job scheduler: stopped")
+            raise
+
+    async def _plugin_schedule_fire(pool, schedule_row: dict, *, fired_at) -> dict:
+        """Enqueue one schedule's job. Returns what happened.
+
+        ``{"job_id": ..., "schedule": ...}`` on a firing, or
+        ``{"skipped": "<reason>"}`` when state said no. Every skip is also written
+        to the row, because a schedule that silently does nothing is the failure
+        this whole feature exists to remove.
+        """
+        sched_id = schedule_row["id"]
+        plugin_id = schedule_row["plugin_id"]
+
+        try:
+            scope_obj = _parse_scope(schedule_row["scope"], _SystemUser())
+            scope_obj = await _resolve_project_scope(pool, scope_obj)
+        except HTTPException as exc:
+            reason = f"scope {schedule_row['scope']!r} did not resolve ({exc.status_code}): {exc.detail}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        except Exception as exc:
+            logger.exception("plugin-job scheduler: scope resolution crashed for %s", sched_id)
+            reason = f"scope resolution crashed: {exc}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        # Concurrent-fire guard. A plugin job can hold a single licensed
+        # workstation for minutes, so an overlapping firing does not just double
+        # the load -- the two contend for one resource and the loser fails in a
+        # way that reads as the plugin's fault. The missed slot is NOT backfired:
+        # the next slot is the next chance, which is the same choice the audit
+        # scheduler makes and for the same reason.
+        try:
+            candidates = await db_module.plugin_job_in_flight_jobs(
+                pool,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                plugin_id=plugin_id,
+            )
+            # THE AUDIT ROW IS NOT THE ANSWER ON ITS OWN. Its terminal status is
+            # written by the worker, so a worker with no database pool never writes
+            # one -- it announces that at startup -- and in such a deployment every
+            # plugin job stays `queued` in the log forever. Trusting the row alone
+            # would let a schedule fire exactly ONCE and then block itself for good,
+            # which is a worse failure than the double-firing the guard prevents.
+            #
+            # So each candidate is checked against the queue, which the worker DOES
+            # update. A missing entry is decisive too: it means the job is gone from
+            # the queue entirely, so nothing is going to run it whatever the row says.
+            in_flight = None
+            for candidate in candidates:
+                entry = await queue.get(candidate) if queue.enabled else None
+                if entry is None:
+                    continue
+                if str(getattr(entry, "status", "") or "").lower() in ("queued", "running"):
+                    in_flight = candidate
+                    break
+        except Exception:
+            logger.exception("plugin-job scheduler: concurrent-fire check failed for %s", sched_id)
+            # Not firing is the safe half of an unknown: a duplicate run on a
+            # single-seat resource is worse than a missed slot.
+            reason = "could not check whether a previous job is still running; slot skipped"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        if in_flight is not None:
+            reason = f"previous {plugin_id} job {in_flight} still queued or running"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        # ROUTING IS RESOLVED HERE, AND A SLOT THAT CANNOT ROUTE IS SKIPPED.
+        #
+        # A plugin job's pool comes from the plugin's LIVE spec, which exists only
+        # while a worker advertising it is online. Enqueuing anyway is not a
+        # smaller failure than skipping: with no spec there is no capability, and
+        # a job with no capability goes to the default pool, which no specialised
+        # worker subscribes to. Nothing ever pulls it -- so it is not retried, and
+        # it never reaches the delivery-attempt cap that would mark it failed. It
+        # sits at "queued" for good, with nothing in any worker's log to explain
+        # it, which is the single worst outcome available here.
+        #
+        # A missed slot is recoverable and says so; the next slot is the next
+        # chance, and `last_skipped_reason` names what was wrong. This matters most
+        # during a worker restart, which is exactly when an unattended schedule is
+        # most likely to fire into an empty fleet.
+        #
+        # An explicitly configured capability is trusted and fires regardless: the
+        # admin named the pool, and a pool may be legitimately empty for a while.
+        capability = (schedule_row.get("capability") or "").strip() or None
+        plugin_spec = None
+        if capability is None:
+            for _spec in (await _live_worker_specs("plugin_specs")).values():
+                if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                    plugin_spec = _spec
+                    break
+            if plugin_spec is None:
+                reason = (
+                    f"no online worker advertises {plugin_id!r}, so the job could not be routed to a "
+                    f"pool; slot skipped rather than queued where nothing would ever pull it"
+                )
+                await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+                return {"skipped": reason}
+
+        options = _plugin_schedule_options(schedule_row, fired_at)
+        try:
+            job_id = await _enqueue_plugin_job(
+                plugin_id=plugin_id,
+                options=options,
+                scope_obj=scope_obj,
+                capability=capability,
+                user=_SystemUser(),
+                pool=pool,
+                plugin_spec=plugin_spec,
+            )
+        except HTTPException as exc:
+            reason = f"enqueue refused ({exc.status_code}): {exc.detail}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        except Exception as exc:
+            logger.exception("plugin-job scheduler: enqueue crashed for %s", sched_id)
+            reason = f"enqueue crashed: {exc}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        # CLEARED ON SUCCESS, not only on claim. The tick's claim clears it, but
+        # "Run now" calls this function directly and bypasses the claim -- so a
+        # schedule that skipped once and then fired successfully kept displaying the
+        # old skip note indefinitely, which reads as the current state and sent
+        # someone looking for a queued job that had finished long before.
+        #
+        # Written here rather than at each call site because every successful
+        # firing, however it was triggered, makes the previous skip history.
+        await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=job_id, last_skipped_reason=None)
+        logger.info(
+            "plugin-job scheduler: fired %s (%s) -> job %s",
+            schedule_row["name"],
+            plugin_id,
+            job_id,
+        )
+        return {"job_id": job_id, "schedule": schedule_row["name"], "plugin_id": plugin_id}
+
     # ── Issue-bot configuration + poller (M5) ─────────────────────
 
     # Settings keys for the audit-failure → issue-tracker bridge.
@@ -8638,6 +9309,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="not a member")
         return Response(status_code=204)
 
+    # A bot name is one path-safe token. The colon is excluded because it is
+    # the SEPARATOR: a name containing one could spell another bot's subject
+    # (`ci:<slug>:a:b`) and quietly take over its tokens and its revocation.
+    _CI_BOT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+    def _ci_bot_identity(slug: str, name: str | None) -> tuple[str, str, str]:
+        """``(sub, email, display)`` for a project's CI bot.
+
+        Unnamed is ``ci:<slug>`` -- unchanged, so every token already issued
+        under that subject keeps working and keeps being rotated by the same
+        call as before. A name appends one more segment.
+        """
+        if not name:
+            return f"ci:{slug}", f"ci+{slug}@bot.local", f"CI Bot: {slug}"
+        return f"ci:{slug}:{name}", f"ci+{slug}.{name}@bot.local", f"CI Bot: {slug} / {name}"
+
+    async def _ci_bot_request(request: Request, project_id: str) -> tuple[object, str, str, str, str]:
+        """Shared prologue: validate, resolve the project, build the identity."""
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        name = (str(body.get("name") or "")).strip().lower() or None
+        if name is not None and not _CI_BOT_NAME_RE.match(name):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "name must be 1-64 characters of a-z, 0-9, dot, dash or underscore, "
+                    "starting alphanumeric. A colon is not allowed: it separates the "
+                    "project from the bot, so a name containing one could spell another "
+                    "bot's identity."
+                ),
+            )
+        row = await pool.fetchrow(
+            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
+            pid,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        sub, email, display = _ci_bot_identity(row["slug"], name)
+        return pool, pid, sub, email, display
+
     @admin.post("/projects/{project_id}/ci-bot")
     async def admin_provision_ci_bot(
         project_id: str,
@@ -8647,27 +9364,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         One-shot: creates the bot user row if missing, ensures it's a
         project member, revokes any prior tokens, and mints a fresh
-        30-day CLI bearer. The bot's ``sub`` is derived from the
-        project's slug (``ci:<slug>``) so a project rename is the only
-        way to change it.
+        30-day CLI bearer. The token is returned exactly once, and
+        re-calling ROTATES -- prior tokens for that bot stop validating
+        immediately via the per-user revoke cutoff. Always admin-gated.
 
-        The token is returned exactly once. Re-calling rotates: prior
-        tokens for this bot are immediately invalidated via the per-user
-        revoke cutoff. Always admin-gated.
+        MORE THAN ONE BOT PER PROJECT. Body: ``{"name": "..."}``, optional.
+        Without it the subject is ``ci:<slug>``, exactly as before. With it,
+        ``ci:<slug>:<name>``.
+
+        The reason is that one identity per project forces every consumer to
+        share one credential, and the revoke cutoff is stored per SUBJECT --
+        so rotating for one consumer silently breaks the others, and every
+        audit row reads ``ci:<slug>`` no matter which of them acted. Give the
+        build uploader and a data-recording worker a name each and both
+        problems go away: separate rotation, separate revocation, and an audit
+        trail that says which one did the thing.
+
+        Nothing about the token or the revocation model changes to allow it. A
+        distinct subject simply HAS its own cutoff, which is why this is a new
+        segment on the subject rather than a token id and a revocation list.
         """
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-
-        row = await pool.fetchrow(
-            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
-            pid,
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail="project not found")
-        slug = row["slug"]
-        bot_sub = f"ci:{slug}"
-        bot_email = f"ci+{slug}@bot.local"
-        bot_display = f"CI Bot: {slug}"
+        pool, pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
 
         await db_module.upsert_user(pool, bot_sub, bot_email, bot_display)
         await db_module.add_project_member(pool, pid, bot_sub, role="ci")
@@ -8693,6 +9410,109 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             status_code=201,
         )
+
+    @admin.post("/projects/{project_id}/ci-bot/revoke")
+    async def admin_revoke_ci_bot(
+        project_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        """Kill a CI bot's tokens WITHOUT minting a replacement.
+
+        Until now the only way to invalidate a bot's token was to mint another
+        one, which is the wrong move for a leaked credential or a decommissioned
+        consumer: it hands you a fresh secret you did not want and leaves the
+        bot able to act. Revoking on its own is the thing an operator reaches
+        for when something has gone wrong, and it did not exist.
+
+        The bot stays a project member. Removing it is a separate, deliberate
+        act (``DELETE /projects/{id}/members/{sub}``) -- and keeping the
+        membership means its audit history still resolves to a named principal
+        rather than a bare subject nobody can identify later.
+        """
+        pool, _pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
+        bot_user = User(
+            sub=bot_sub,
+            email=bot_email,
+            display_name=bot_display,
+            groups=frozenset(),
+            is_admin=False,
+        )
+        revoked_at = await auth_module.revoke_cli_tokens(pool, bot_user)
+        logger.info("admin: revoked CI bot tokens for %s", bot_sub)
+        return JSONResponse({"user_sub": bot_sub, "revoked_at": revoked_at})
+
+    @admin.post("/jobs/{job_id}/cancel")
+    async def admin_cancel_job(
+        job_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Cancel and clear any job, whoever started it. Admin only.
+
+        THE JOB THIS EXISTS FOR is the one nothing will ever finish: queued
+        against a capability no live worker serves, or left behind by a pool
+        that was renamed or retired. Nothing pulls it, so it never reaches a
+        terminal status, so ``purge_completed_jobs`` -- which sweeps terminal
+        entries only -- never touches it. The entry stays in the KV bucket
+        forever, is replayed by every registry scan, and reads in the admin
+        panel as work still pending.
+
+        The user-facing ``my-jobs/{job_id}/cancel`` could not clear these:
+        its SQL filters on ``audit_log.user_sub``, so only the person who
+        started a job can stop it, and an operator cleaning up after a retired
+        pool is by definition not that person.
+
+        TWO INDEPENDENT EFFECTS, BOTH REPORTED, because a stuck job can be
+        stuck in either half alone:
+
+        * ``cancelled`` -- the audit row moved from queued/running to
+          cancelled. False if the row is missing or already terminal.
+        * ``purged`` -- the KV entry was dropped. False if there was none.
+
+        404 only when NEITHER did anything, i.e. there was no such job in
+        either place. A row that is already terminal with a leftover KV entry
+        is a real thing to clean up, and reporting that as "not found" would
+        send an operator looking for a job that is right in front of them.
+
+        Note the message may still be in the JetStream stream: this marks
+        state, it does not reach into the stream. A worker that later pulls it
+        checks the audit row before starting and drops it (see
+        ``_should_skip_cancelled`` in worker.py), so a cancelled job stays
+        cancelled -- but the message itself ages out on the stream's own
+        limits rather than disappearing here.
+        """
+        local = local_jobs.registry.get(job_id)
+        local_cancelled = local_jobs.registry.cancel(job_id) if local is not None else False
+
+        pool = getattr(request.app.state, "db_pool", None)
+        cancelled = False
+        if pool is not None:
+            cancelled = await db_module.admin_cancel_audit_by_job(
+                pool,
+                job_id=job_id,
+                reason=f"cancelled by administrator {user.sub}",
+            )
+
+        purged = False
+        queue_obj = getattr(request.app.state, "queue", None)
+        if queue_obj is not None:
+            try:
+                purged = await queue_obj.purge_job(job_id)
+            except Exception:
+                logger.exception("admin: purging KV entry for job %s failed", job_id)
+
+        if not (cancelled or purged or local_cancelled):
+            raise HTTPException(status_code=404, detail="no such job in the audit log or the queue")
+
+        logger.info(
+            "admin: %s cancelled job %s (audit=%s kv=%s local=%s)",
+            user.sub,
+            job_id,
+            cancelled,
+            purged,
+            local_cancelled,
+        )
+        return JSONResponse({"job_id": job_id, "cancelled": cancelled or local_cancelled, "purged": purged})
 
     # ── Admin storage view ──────────────────────────────────────────
     #
@@ -8962,6 +9782,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_SCOPE = {_json.dumps(a.scope)};\n"
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
+            # See the Build: line in the Options panel. Emitted even when
+            # empty, so a viewer that simply was not told is distinguishable
+            # from one running an older image that could not have been.
+            f"window.ADAPY_BUILD_REF = {_json.dumps(os.environ.get('ADA_ADAPY_REF', '').strip() or None)};\n"
             f"window.ADAPY_VERSION = {_json.dumps(adapy_version)};\n"
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"

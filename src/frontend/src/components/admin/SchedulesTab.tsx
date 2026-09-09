@@ -1,43 +1,23 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {AuditSchedule, Corpus, viewerApi} from "@/services/viewerApi";
 
-// Admin tab — manage recurring audit schedules (M4 of the audit
-// panel design in the admin audit-panel design notes).
+import PluginJobSchedulesSection from "./PluginJobSchedulesTab";
+import {CRON_PRESETS, fmtRelative, fmtTimestamp} from "./scheduleFormat";
+
+// Admin tab — everything in this deployment that runs on a timer.
 //
-// Each row pairs a cron expression with a (scope, worker_pool) sweep
-// target. The API's scheduler tick claims due rows and fires the
-// same dispatcher used by ``POST /admin/audit/runs``. This tab is
-// pure CRUD + a "fire now" override; firing semantics live entirely
-// server-side so the UI can't desync against the actual fire log.
-
-function fmtTimestamp(iso: string | null): string {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
-}
-
-function fmtRelative(iso: string | null): string {
-    if (!iso) return "";
-    const ms = new Date(iso).getTime() - Date.now();
-    const sign = ms >= 0 ? "in" : "ago";
-    const abs = Math.abs(ms);
-    if (abs < 60_000) return `${sign === "in" ? "in <1m" : "<1m ago"}`;
-    if (abs < 3600_000) return `${sign} ${Math.round(abs / 60_000)}m`;
-    if (abs < 86400_000) return `${sign} ${Math.round(abs / 3600_000)}h`;
-    return `${sign} ${Math.round(abs / 86400_000)}d`;
-}
-
-// Common 5-field cron patterns the admin can pick from instead of
-// hand-typing. Free-text input remains available — these are just
-// shortcuts for the cases that account for ~all real usage.
-const CRON_PRESETS: {label: string; expr: string}[] = [
-    {label: "Every hour",        expr: "0 * * * *"},
-    {label: "Every 4 hours",     expr: "0 */4 * * *"},
-    {label: "Daily 02:00 UTC",   expr: "0 2 * * *"},
-    {label: "Weekly (Mon 02:00)", expr: "0 2 * * 1"},
-    {label: "Weekdays 02:00",    expr: "0 2 * * 1-5"},
-];
+// Two kinds, two sections: recurring AUDIT SWEEPS (M4 of the admin audit-panel
+// design notes) and recurring PLUGIN JOBS. They are separate tables with
+// different payloads — a sweep names a worker pool and a corpus, a plugin job
+// names a plugin and an arbitrary options document — but they answer one
+// question, "what fires here and when", and an operator who has to look in two
+// places to answer it will eventually miss one.
+//
+// Each audit row pairs a cron expression with a (scope, worker_pool) sweep
+// target. The API's scheduler tick claims due rows and fires the same dispatcher
+// used by ``POST /admin/audit/runs``. This tab is pure CRUD + a "fire now"
+// override; firing semantics live entirely server-side so the UI can't desync
+// against the actual fire log.
 
 const NewScheduleForm: React.FC<{
     corpora: Corpus[];
@@ -292,7 +272,7 @@ const ScheduleRow: React.FC<{
     );
 };
 
-const SchedulesTab: React.FC = () => {
+const AuditSchedulesSection: React.FC = () => {
     const [schedules, setSchedules] = useState<AuditSchedule[]>([]);
     const [corpora, setCorpora] = useState<Corpus[]>([]);
     const [capabilities, setCapabilities] = useState<string[]>([]);
@@ -343,28 +323,51 @@ const SchedulesTab: React.FC = () => {
     }, []);
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col">
             <NewScheduleForm
                 corpora={corpora}
                 capabilities={capabilities}
                 onCreated={load}
             />
-            <div className="flex-1 min-h-0 overflow-auto">
-                {listError && (
-                    <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
-                )}
-                {schedules.length === 0 && !listError && (
-                    <div className="text-xs text-gray-500 italic px-3 py-4">
-                        No schedules yet. Add one above to start firing audits
-                        on a cron pattern.
-                    </div>
-                )}
-                {schedules.map((s) => (
-                    <ScheduleRow key={s.id} schedule={s} onChanged={load}/>
-                ))}
-            </div>
+            {listError && (
+                <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
+            )}
+            {schedules.length === 0 && !listError && (
+                <div className="text-xs text-gray-500 italic px-3 py-4">
+                    No schedules yet. Add one above to start firing audits
+                    on a cron pattern.
+                </div>
+            )}
+            {schedules.map((s) => (
+                <ScheduleRow key={s.id} schedule={s} onChanged={load}/>
+            ))}
         </div>
     );
 };
+
+const SectionHeading: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
+    <div className="px-3 py-2 border-b border-gray-800 bg-gray-900/70 sticky top-0 z-10">
+        <h3 className="text-sm font-medium text-gray-100">{title}</h3>
+        <p className="text-[11px] text-gray-500 mt-0.5">{children}</p>
+    </div>
+);
+
+// One scroll container for both sections, rather than a scroll box each: two
+// independently scrolling panes in one tab means the second one is a strip of
+// rows with no visible end, and whichever the pointer happens to be over eats
+// the wheel.
+const SchedulesTab: React.FC = () => (
+    <div className="h-full overflow-auto">
+        <SectionHeading title="Audit sweeps">
+            Re-convert a corpus on a cron pattern and compare the result against its baseline.
+        </SectionHeading>
+        <AuditSchedulesSection/>
+        <SectionHeading title="Plugin jobs">
+            Run a backend plugin on a cron pattern. The API enqueues it through the same path a
+            user pressing the button uses, so nothing has to be scheduled on the worker&apos;s machine.
+        </SectionHeading>
+        <PluginJobSchedulesSection/>
+    </div>
+);
 
 export default SchedulesTab;

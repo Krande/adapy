@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildLabel, buildStamp } from "../../utils/buildLabel";
+import { adapyRefStamp, buildLabel, buildStamp } from "../../utils/buildLabel";
 
 test("a build-time git sha wins, because it is the most precise answer", () => {
     assert.equal(buildStamp("43ae2883", "v1.2.1"), "43ae2883");
@@ -42,4 +42,48 @@ test("with no version, the stamp carries the line", () => {
 
 test("a build with neither still renders something a bug report can quote", () => {
     assert.equal(buildLabel("", "", "", 7), "7");
+});
+
+// --- the adapy ref -----------------------------------------------------------
+//
+// The case none of the above can see. A branch cut from v0.64.1 with no version
+// bump reports version 0.64.1, and the image tag is the ASSEMBLING repo's commit
+// and run number — so a viewer built from a feature branch and one built from
+// the release render identically, character for character.
+
+test("a ref that only repeats the version is not shown", () => {
+    // Both spellings: the manifest pins `v0.64.1`, a caller might pass `0.64.1`.
+    assert.equal(adapyRefStamp("0.64.1", "v0.64.1"), "");
+    assert.equal(adapyRefStamp("0.64.1", "0.64.1"), "");
+    assert.equal(buildLabel("0.64.1", "", "sha-0f54f92-44", 7, "v0.64.1"), "0.64.1 (0f54f92-44)");
+});
+
+test("a ref the version does not imply IS shown", () => {
+    // The exact shape that caused a wrong conclusion about what was deployed.
+    assert.equal(
+        buildLabel("0.64.1", "", "sha-0f54f92-44", 7, "feat/source-nodes-write-route"),
+        "0.64.1 (0f54f92-44, adapy feat/source-nodes-write-route)",
+    );
+});
+
+test("a resolved commit rides along without changing what is suppressed", () => {
+    // A branch moves, so the ref is stamped as `<ref>@<sha>`. Only the NAME is
+    // compared — otherwise appending the sha would be what made every release
+    // build start printing a ref that says nothing.
+    assert.equal(adapyRefStamp("0.64.1", "v0.64.1@abc1234"), "");
+    assert.equal(
+        adapyRefStamp("0.64.1", "feat/source-nodes-write-route@427b39bd"),
+        "feat/source-nodes-write-route@427b39bd",
+    );
+});
+
+test("a ref with no other provenance still qualifies the line", () => {
+    assert.equal(buildLabel("0.64.1", "", "", 7, "some-branch"), "0.64.1 (adapy some-branch)");
+    assert.equal(buildLabel("", "", "", 7, "some-branch"), "adapy some-branch");
+});
+
+test("no ref changes nothing, so every existing build renders as before", () => {
+    assert.equal(adapyRefStamp("0.64.1", ""), "");
+    assert.equal(adapyRefStamp("0.64.1", "   "), "");
+    assert.equal(buildLabel("0.61.0", "43ae2883", "v1.2.1", 7), "0.61.0 (43ae2883)");
 });

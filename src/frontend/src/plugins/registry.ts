@@ -28,7 +28,9 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //   1.1.0  placement (`dock` / `modes`) — see the section below
 //   1.2.0  browser-side external-model providers
 //          (`registerExternalModelClient`, @/services/externalModels)
-export const PLUGIN_API_VERSION = "1.2.0";
+//   1.3.0  `trackJob` — hand a worker job to the global toast instead of
+//          watching it from inside a panel
+export const PLUGIN_API_VERSION = "1.3.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -239,6 +241,19 @@ export interface AdaPluginContext {
    * match core's chrome in light + dark without hardcoding colours. */
   theme: PluginTheme;
   log: (level: PluginLogLevel, msg: string, ...args: unknown[]) => void;
+  /** Hand a worker job to the viewer's global progress toast (1.3.0).
+   *
+   * WHAT IT REPLACES. A panel that enqueues a job and awaits its own poll loop is
+   * the only thing watching it, so closing the panel unmounts the watcher and the
+   * job disappears from the UI while running perfectly well server-side. The
+   * toast is mounted at app level and outlives every panel, and core already
+   * repopulates it from `my-jobs` on load — so a tracked job also survives a page
+   * reload, which no panel-local loop can.
+   *
+   * Returns the store key for the toast entry. Fire-and-forget: the poll is
+   * detached, which is the point.
+   */
+  trackJob: (opts: {jobId: string; label: string; derivedKey?: string; storeKey?: string}) => string;
 }
 
 export type ActivationPredicate = (ctx: AdaPluginContext) => boolean;

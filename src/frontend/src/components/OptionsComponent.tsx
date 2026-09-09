@@ -60,8 +60,15 @@ function OptionsComponent() {
     const adapy_version = runtime.adapyVersion();
     const frontend_sha = runtime.frontendSha();
     const viewer_image_tag = runtime.viewerImageTag();
+    const adapy_build_ref = runtime.adapyBuildRef();
 
-    const build_label = buildLabel(adapy_version, frontend_sha, viewer_image_tag, unique_version_id);
+    const build_label = buildLabel(
+        adapy_version,
+        frontend_sha,
+        viewer_image_tag,
+        unique_version_id,
+        adapy_build_ref,
+    );
     const versionInfo = (
         <div className="text-xs text-gray-300">
             Build: <span className="font-mono">{build_label}</span>

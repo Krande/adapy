@@ -476,6 +476,25 @@ async def _audit_done(
     """Patch the audit_log row for this job with its final outcome.
     Best-effort: a DB hiccup must never break job processing."""
     if db_pool is None:
+        # A worker without a pool reports over the API instead. Without this the
+        # row never leaves `queued`, so every job this pool ever ran reads as
+        # pending -- see _report_job_status_over_api.
+        metrics = metrics or {}
+        await _report_job_status_over_api(
+            job_id,
+            {
+                "status": status,
+                "error": error,
+                "traceback": traceback,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "worker_image_tag": _WORKER_IMAGE_TAG,
+                **{
+                    key: metrics[key]
+                    for key in ("cpu_user_ms", "cpu_sys_ms", "peak_rss_kb", "read_bytes", "write_bytes")
+                    if metrics.get(key) is not None
+                },
+            },
+        )
         return
     metrics = metrics or {}
     # Preserve the input of a failed job while it still exists: the row outlives
@@ -2915,6 +2934,365 @@ class _SyncSourceNodesFacade:
             db_module.get_source_nodes(self._pool, scope=self._scope_key, source=source, node_refs=node_refs)
         )
 
+    def sources(self) -> list:
+        """What each source has recorded here: ``source``, ``nodes``,
+        ``last_changed_at``, ``observed_at``.
+
+        THE CURSOR, for a writer that scans a source for changes. ``get`` answers
+        "is this node current", which needs refs the caller already holds;
+        this answers "how far have I got", which is what a sweep needs BEFORE it
+        knows any refs. Without it a scheduled scan has nowhere to keep a
+        watermark and must re-read a fixed window every run -- which is both
+        wasteful and unsound, because a window is a guess about how long the gap
+        between runs was, and a missed run makes the guess wrong.
+
+        ``last_changed_at`` is the watermark: a MAX over what is recorded, so it
+        moves forward only as changes are actually observed.
+        """
+        from . import db as db_module
+
+        return self._run(db_module.list_source_node_sources(self._pool, scope=self._scope_key))
+
+
+class _RestSourceNodesRecorder:
+    """The same recording surface as :class:`_SyncSourceNodesFacade`, over HTTP.
+
+    For a worker that has NO database pool. Joining the job queue from outside
+    the cluster is a supported deployment, and such a worker is normally run
+    without ``DATABASE_URL`` on purpose -- one fewer credential, and no route
+    from outside in to the database. But a plugin that drives an external
+    source is exactly the kind of work that lands on such a worker, and until
+    this existed it could not record anything: the facade IS a pool, so change
+    tracking was silently inert precisely where it was most wanted.
+
+    This talks to the API instead, with the same bearer token the worker's
+    operator already holds. It is a strictly smaller credential than Postgres,
+    and it crosses the same boundary the job queue already crosses.
+
+    Plain ``urllib``, and blocking, deliberately:
+
+    * a plugin entrypoint runs in an executor THREAD, so blocking here blocks
+      that thread and nothing else -- unlike the pool facade there is no event
+      loop to bridge back onto, which removes the only tricky part;
+    * it adds no dependency to a worker that may be installed anywhere.
+
+    Configured by ``ADA_VIEWER_API_URL`` and ``ADA_VIEWER_TOKEN`` -- the names
+    an out-of-cluster deployment already uses for API access, so the worker
+    reads the credential its host has rather than inventing a second spelling
+    of it.
+    """
+
+    # Chunked because a roll-up stamps every node ABOVE a changed leaf, so the
+    # natural batch is thousands of rows. The write cap matches the route's;
+    # the read budget is a URL LENGTH rather than a count, because refs go in a
+    # query string and proxies start dropping long ones well before the server
+    # would object.
+    _WRITE_CHUNK = 2000
+    _READ_REF_CHARS = 3000
+    _TIMEOUT_S = 60.0
+    _ATTEMPTS = 3
+
+    def __init__(self, base_url: str, token: str, scope):
+        self._base = base_url.rstrip("/")
+        self._token = token
+        self._scope = scope
+
+    @property
+    def scope(self) -> str:
+        return self._scope_key
+
+    @property
+    def _scope_key(self) -> str:
+        """The same key the pool facade uses -- prefix(), never str(). A
+        recorder that keyed rows differently from the other recorder would
+        write a second, invisible half of the table."""
+        return self._scope.prefix()
+
+    def _url(self, query: str = "") -> str:
+        """The route's URL for this scope.
+
+        ``wire()``, NOT ``prefix()``. The prefix is the storage key and contains a
+        ``/`` for every scope except shared, which makes the path one segment too
+        long: it matches a different route, or none, and comes back 405 -- a status
+        that says nothing about scopes and reads as "the API refused the request".
+        That was this client's behaviour for every write it ever made.
+        """
+        from urllib.parse import quote
+
+        return f"{self._base}/api/scopes/{quote(self._scope.wire(), safe=':')}/source-nodes{query}"
+
+    def _request(self, url: str, payload: "dict | None" = None) -> dict:
+        """One call, retried on transient failure.
+
+        Retrying is safe because the write is an idempotent upsert (and the
+        read is a read). It is worth doing because the caller is typically a
+        scheduled sweep over a link nobody controls, and losing a whole sweep
+        to one blip means the next one restarts from a colder cursor.
+        """
+        import json as _json
+        import urllib.error
+        import urllib.request
+
+        body = None if payload is None else _json.dumps(payload).encode("utf-8")
+        last: Exception | None = None
+        for attempt in range(self._ATTEMPTS):
+            req = urllib.request.Request(url, data=body, method="POST" if body is not None else "GET")
+            req.add_header("Authorization", f"Bearer {self._token}")
+            req.add_header("Accept", "application/json")
+            if body is not None:
+                req.add_header("Content-Type", "application/json")
+            try:
+                with urllib.request.urlopen(req, timeout=self._TIMEOUT_S) as resp:
+                    return _json.loads(resp.read().decode("utf-8") or "{}")
+            except urllib.error.HTTPError as exc:
+                detail = ""
+                try:
+                    detail = exc.read().decode("utf-8", "replace")[:500]
+                except Exception:
+                    pass
+                # A 4xx is the request being wrong, and it will be just as
+                # wrong next time. Only a server-side or transport failure is
+                # worth a second go.
+                if exc.code < 500:
+                    raise RuntimeError(f"source-node API refused the request ({exc.code}): {detail}") from exc
+                last = RuntimeError(f"source-node API error {exc.code}: {detail}")
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                last = RuntimeError(f"source-node API unreachable: {type(exc).__name__}: {exc}")
+            if attempt + 1 < self._ATTEMPTS:
+                time.sleep(2**attempt)
+        raise last if last is not None else RuntimeError("source-node API call failed")
+
+    @staticmethod
+    def _node_json(node: dict) -> dict:
+        changed = node.get("last_changed_at")
+        if hasattr(changed, "isoformat"):
+            if getattr(changed, "tzinfo", None) is None:
+                raise ValueError(
+                    f"last_changed_at for node {node.get('node_ref')!r} has no timezone. "
+                    "Send an aware datetime: this value only ever moves forward, so a "
+                    "local wall-clock time read as UTC is a permanently wrong record."
+                )
+            changed = changed.isoformat()
+        out = {"node_ref": node.get("node_ref"), "last_changed_at": changed}
+        for field in ("parent_ref", "name", "last_changed_by"):
+            if node.get(field) is not None:
+                out[field] = node[field]
+        return out
+
+    def record(self, source: str, nodes: list) -> int:
+        """Upsert observed nodes for one source. Returns rows written.
+
+        The same contract as the pool facade's ``record``, including that the
+        writer is expected to stamp every node above a changed leaf.
+        ``last_changed_at`` must be timezone-aware: it is serialised to
+        ISO-8601 here and the route rejects an offset-less timestamp, because
+        that column only ever moves forward and a mis-read value can never be
+        corrected downward.
+        """
+        if not nodes:
+            return 0
+        written = 0
+        for start in range(0, len(nodes), self._WRITE_CHUNK):
+            chunk = nodes[start : start + self._WRITE_CHUNK]
+            payload = {"source": source, "nodes": [self._node_json(n) for n in chunk]}
+            written += int(self._request(self._url(), payload).get("recorded") or 0)
+        return written
+
+    def get(self, source: str, node_refs: list) -> list:
+        """What is already recorded, so a writer can avoid restating it."""
+        from urllib.parse import quote, urlencode
+
+        wanted = [str(r) for r in node_refs if r]
+        if not wanted:
+            return []
+        out: list = []
+        batch: list[str] = []
+        size = 0
+        for ref in wanted + [None]:  # the trailing None flushes the last batch
+            if (ref is None or size + len(quote(ref)) > self._READ_REF_CHARS) and batch:
+                query = "?" + urlencode({"source": source, "refs": ",".join(batch)})
+                out.extend(self._node_from_json(n) for n in self._request(self._url(query)).get("nodes") or [])
+                batch, size = [], 0
+            if ref is not None:
+                batch.append(ref)
+                size += len(quote(ref)) + 1
+        return out
+
+    def sources(self) -> list:
+        """The same cursor read as the pool facade's ``sources``.
+
+        Timestamps are parsed back into aware datetimes so a plugin cannot tell
+        the two recorders apart by what they hand back -- the whole point of this
+        class being a surface rather than a different API.
+        """
+        out = []
+        for row in self._request(self._url()).get("sources") or []:
+            out.append(
+                {
+                    "source": row.get("source"),
+                    "nodes": row.get("nodes"),
+                    "last_changed_at": self._parse_dt(row.get("last_changed_at")),
+                    "observed_at": self._parse_dt(row.get("observed_at")),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _parse_dt(value):
+        if not value:
+            return None
+        try:
+            return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            # A timestamp this cannot read is not worth failing a sweep over; the
+            # caller treats None as "no cursor" and falls back to a cold start,
+            # which is the safe direction (over-read, never skip).
+            return None
+
+    @staticmethod
+    def _node_from_json(raw: dict):
+        """Rebuild the same :class:`~.db.SourceNode` the pool facade returns, so
+        a plugin cannot tell the two recorders apart by what they hand back."""
+
+        def _dt(value):
+            return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+
+        return db_module.SourceNode(
+            node_ref=raw.get("node_ref"),
+            parent_ref=raw.get("parent_ref"),
+            name=raw.get("name"),
+            last_changed_at=_dt(raw.get("last_changed_at")),
+            last_changed_by=raw.get("last_changed_by"),
+            observed_at=_dt(raw.get("observed_at")),
+        )
+
+
+def _rest_source_nodes_config() -> "tuple[str, str] | None":
+    """``(base_url, token)`` for API recording, or None if not configured.
+
+    Separate from the recorder so boot can report which way this worker is set
+    up without inventing a scope to probe with.
+    """
+    base = (os.environ.get("ADA_VIEWER_API_URL") or "").strip().rstrip("/")
+    token = (os.environ.get("ADA_VIEWER_TOKEN") or "").strip()
+    if not base or not token:
+        return None
+    if not base.startswith(("http://", "https://")):
+        # Reported, not ignored: whoever set this meant to enable recording,
+        # and silently falling back to "cannot record" is the exact failure
+        # this path exists to remove.
+        logger.warning(
+            "worker: ADA_VIEWER_API_URL=%r is not an http(s) URL; source-node recording stays disabled",
+            base,
+        )
+        return None
+    return base, token
+
+
+async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
+    """Tell the API what a job is doing, for a worker with no database pool.
+
+    WHY: both audit hops -- the running mark and the final outcome -- are gated on
+    a pool, so on a pool-less worker the audit row stays `queued` for ever while
+    the job runs, finishes and is swept. The queue record is accurate the whole
+    time, so the conversion toast follows along and the Audit tab shows every job
+    on that pool as permanently pending. An operator then cannot tell a healthy
+    pool from a broken one, and anything reasoning over non-terminal rows blocks on
+    jobs that finished minutes ago.
+
+    The same argument, and the same mechanism, as the source-node REST recorder: a
+    worker that already reaches this API should not need Postgres credentials to
+    say what it just did.
+
+    BEST EFFORT, ALWAYS. Returns whether it landed, and never raises: a report is
+    commentary on work that has already happened, and failing a finished job
+    because its commentary did not arrive would be strictly worse than the gap this
+    closes. Blocking HTTP on the event loop's executor, because this is called from
+    async code and the recorder idiom here is urllib.
+    """
+    cfg = _rest_source_nodes_config()
+    if cfg is None:
+        return False
+    base, token = cfg
+
+    def _post() -> bool:
+        import json as _json
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        url = f"{base}/api/jobs/{urllib.parse.quote(job_id, safe='')}/status"
+        body = _json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=20.0) as resp:
+                resp.read()
+            return True
+        except urllib.error.HTTPError as exc:
+            # THE BODY IS READ AND LOGGED, not just the status. A bare code is how
+            # two separate failures today each cost an hour: the server says what
+            # went wrong in the body, and throwing it away leaves the reader
+            # inferring from a number. Read defensively -- a body that cannot be
+            # read must not replace the error with a different one.
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:500]
+            except Exception:  # noqa: BLE001
+                pass
+            # Logged at warning rather than retried: a 4xx will be just as wrong
+            # next time.
+            #
+            # 404/405 IS NAMED, because the bare status is actively misleading. A
+            # viewer that predates this route has no handler for the path, so the
+            # SPA's catch-all answers the GET shape and POST comes back 405 -- a
+            # status that reads as "the API refused this" when it means "this API
+            # does not have the feature yet". An afternoon went into a 405 that
+            # meant something equally structural, so this one says what to do.
+            if exc.code in (404, 405):
+                logger.warning(
+                    "worker: this viewer has no POST /api/jobs/{id}/status route (%s), so job "
+                    "outcomes stay `queued` in the audit log until it is updated. The jobs "
+                    "themselves are unaffected.",
+                    exc.code,
+                )
+            else:
+                # A 5xx here is the API failing to record, which is worth the body:
+                # it is the only place the reason exists.
+                logger.warning(
+                    "worker: audit report for job %s refused (%s)%s",
+                    job_id,
+                    exc.code,
+                    f": {detail}" if detail else "",
+                )
+            return False
+        except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
+            logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
+            return False
+
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, _post)
+    except Exception:  # noqa: BLE001
+        logger.exception("worker: audit report for job %s could not be dispatched", job_id)
+        return False
+
+
+def _source_nodes_recorder(db_pool, scope, loop):
+    """The recorder this worker can offer a plugin, or None.
+
+    Order matters: a pool is the direct path and wins wherever it exists. The
+    REST recorder is the fallback for a worker that has no pool but does have
+    API credentials, and ``None`` -- a plugin told plainly that nothing here
+    can record -- stays a supported outcome rather than an error, because a
+    worker configured for neither is a perfectly ordinary worker.
+    """
+    if db_pool is not None:
+        return _SyncSourceNodesFacade(db_pool, scope, loop)
+    cfg = _rest_source_nodes_config()
+    return None if cfg is None else _RestSourceNodesRecorder(cfg[0], cfg[1], scope)
+
 
 class _SyncStorageFacade:
     """Synchronous view of the async :class:`Storage`, scoped to one job.
@@ -3233,11 +3611,15 @@ async def _run_plugin_job(
         )
         if _accepts_cancel:
             kwargs["cancel_event"] = cancel_event
-        # Only when this worker actually has a pool. Passing a facade that cannot
-        # reach a database would turn a supported deployment into a plugin that
-        # fails at its first write instead of one that knows it cannot record.
-        if _accepts_source_nodes and db_pool is not None:
-            kwargs["source_nodes"] = _SyncSourceNodesFacade(db_pool, scope, loop)
+        # A pool where there is one, the API where there is not, and the kwarg
+        # left ABSENT when neither is configured. Passing a recorder that
+        # cannot reach anything would turn a supported deployment into a
+        # plugin that fails at its first write instead of one that knows it
+        # cannot record -- which is a distinction plugins are written against.
+        if _accepts_source_nodes:
+            _recorder = _source_nodes_recorder(db_pool, scope, loop)
+            if _recorder is not None:
+                kwargs["source_nodes"] = _recorder
         if not profile_enabled:
             return fn(opts.get("options") or {}, **kwargs)
 
@@ -3476,6 +3858,24 @@ async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src
         logger.exception("worker: building SIF index for %s failed (non-fatal)", source_key)
 
 
+async def _should_skip_cancelled(db_pool: "asyncpg.Pool | None", job_id: str) -> bool:
+    """True when a job was already cancelled before this worker picked it up.
+
+    Best-effort by design, and the two failure directions are not symmetric:
+    answering False for a cancelled job costs one job run that the mid-run
+    cancel checks then stop, while refusing to run on a failed query would let
+    a database hiccup silently drain the queue. So anything unexpected means
+    "run it".
+    """
+    if db_pool is None:
+        return False
+    try:
+        return await db_module.audit_is_cancelled(db_pool, job_id)
+    except Exception:
+        logger.debug("worker: pre-run cancel check failed for %s", job_id, exc_info=True)
+        return False
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -3575,6 +3975,10 @@ async def _process_one(
             )
         except Exception:
             logger.exception("worker: audit running-mark failed for job %s", job_id)
+    else:
+        # No pool: report it over the API instead, so the Audit tab does not show
+        # this job as queued for the whole time it is running.
+        await _report_job_status_over_api(job_id, {"status": "running", "worker_image_tag": _WORKER_IMAGE_TAG})
 
     # component_build has no source file — it synthesizes geometry from
     # a registered ConnectionSpec + user inputs carried in
@@ -4896,6 +5300,23 @@ async def _run() -> None:
             "worker: no DATABASE_URL — job outcomes will not be recorded in the audit log, "
             "and this worker reports no package manifest. Both are expected without a pool."
         )
+        # Source-node change tracking is the third consequence, and unlike the
+        # other two it has an alternative -- so say which way this worker is
+        # configured. Silence here is what made a pool-less worker look like it
+        # was tracking changes when it was discarding them.
+        _sn_cfg = _rest_source_nodes_config()
+        if _sn_cfg is not None:
+            logger.info(
+                "worker: source-node changes will be recorded through the API at %s "
+                "(ADA_VIEWER_API_URL + ADA_VIEWER_TOKEN)",
+                _sn_cfg[0],
+            )
+        else:
+            logger.info(
+                "worker: source-node changes will NOT be recorded — a plugin that tracks an "
+                "external source will report that it cannot record. Set ADA_VIEWER_API_URL and "
+                "ADA_VIEWER_TOKEN to record over the API instead of a pool."
+            )
 
     # Subscribe to every capability this worker advertises, one durable
     # pull-subscriber each. NATS does the routing, so a worker only ever sees
@@ -5097,6 +5518,25 @@ async def _run() -> None:
                             )
                         await msg.ack()
                         continue
+
+                # Already cancelled before anyone started it? Ack and drop.
+                #
+                # Every other cancel check in this file is MID-RUN -- the
+                # convert watchdog's `_cancel_check`, the plugin job's 2-second
+                # poller. Both assume the job is running, which means a job
+                # cancelled while queued was still picked up, started, and only
+                # stopped a couple of seconds later. Harmless for a cancel
+                # clicked during a normal queue wait; not harmless for a job
+                # cancelled precisely BECAUSE nothing was ever going to serve
+                # it (see the admin cancel route), where the worker that
+                # eventually appears is the one that should not touch it.
+                #
+                # Best-effort: no pool means no audit row to consult, and a
+                # failed query must not stop a worker from doing its job.
+                if await _should_skip_cancelled(db_pool, job_id):
+                    logger.info("worker: job %s was cancelled before it started — dropping", job_id)
+                    await msg.ack()
+                    continue
 
                 logger.info(
                     "worker: picked up job %s (delivery %d/%d)",
