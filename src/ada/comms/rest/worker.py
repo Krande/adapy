@@ -3978,9 +3978,7 @@ async def _process_one(
     else:
         # No pool: report it over the API instead, so the Audit tab does not show
         # this job as queued for the whole time it is running.
-        await _report_job_status_over_api(
-            job_id, {"status": "running", "worker_image_tag": _WORKER_IMAGE_TAG}
-        )
+        await _report_job_status_over_api(job_id, {"status": "running", "worker_image_tag": _WORKER_IMAGE_TAG})
 
     # component_build has no source file — it synthesizes geometry from
     # a registered ConnectionSpec + user inputs carried in

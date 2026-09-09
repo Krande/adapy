@@ -1403,7 +1403,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         record is accurate throughout, so the conversion toast follows along
         happily and the Audit tab -- the surface an operator actually audits with
         -- shows every job on that pool as permanently pending.
-        
+
         That is worse than a cosmetic gap. A permanently-`queued` row is
         indistinguishable from a job nothing will ever run, so an operator cannot
         tell a healthy pool from a broken one, and anything that reasons over
@@ -6904,9 +6904,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         #
         # Written here rather than at each call site because every successful
         # firing, however it was triggered, makes the previous skip history.
-        await db_module.update_plugin_job_schedule(
-            pool, sched_id, last_job_id=job_id, last_skipped_reason=None
-        )
+        await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=job_id, last_skipped_reason=None)
         logger.info(
             "plugin-job scheduler: fired %s (%s) -> job %s",
             schedule_row["name"],

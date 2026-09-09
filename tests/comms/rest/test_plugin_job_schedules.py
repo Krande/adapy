@@ -328,9 +328,9 @@ async def test_the_in_flight_guard_keys_on_plugin_and_scope():
             "VALUES ('system', 'shared', NULL, 'plugin_job', $1, 'plugin_job', 'running', 'job-1')",
             _source_key(PLUGIN, {"a": 1}),
         )
-        assert await dbm.plugin_job_in_flight_jobs(
-            pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN
-        ) == ["job-1"]
+        assert await dbm.plugin_job_in_flight_jobs(pool, scope_kind="shared", scope_id=None, plugin_id=PLUGIN) == [
+            "job-1"
+        ]
         # A different plugin is not blocked by this one's run.
         assert await dbm.plugin_job_in_flight_jobs(pool, scope_kind="shared", scope_id=None, plugin_id="other") == []
     finally:
@@ -392,7 +392,7 @@ def test_a_slot_that_cannot_be_routed_is_skipped_rather_than_queued(pg_client):
 
         # Recorded, not merely returned: a schedule that silently does nothing is
         # the failure the whole skip-reason mechanism exists to remove.
-        row = pg_client.get(f"/api/admin/plugin-jobs/schedules").json()["schedules"]
+        row = pg_client.get("/api/admin/plugin-jobs/schedules").json()["schedules"]
         mine = next(s for s in row if s["id"] == schedule_id)
         assert "no online worker advertises" in (mine["last_skipped_reason"] or "")
         assert mine["last_job_id"] is None, "a skipped slot must not look like it produced a job"
@@ -483,9 +483,9 @@ def test_a_row_the_worker_could_never_close_does_not_block_the_schedule(pg_clien
     try:
         fired = pg_client.post(f"/api/admin/plugin-jobs/schedules/{schedule_id}/run")
         if fired.status_code == 409:
-            assert "still queued or running" not in fired.json()["detail"], (
-                "a row no worker can ever close blocked the schedule"
-            )
+            assert (
+                "still queued or running" not in fired.json()["detail"]
+            ), "a row no worker can ever close blocked the schedule"
     finally:
         asyncio.run(_clear_stale_row())
         pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")
@@ -510,9 +510,7 @@ async def test_a_successful_firing_clears_the_previous_skip_note():
         assert (await dbm.get_plugin_job_schedule(pool, row["id"]))["last_skipped_reason"]
 
         # What the fire path does on success.
-        updated = await dbm.update_plugin_job_schedule(
-            pool, row["id"], last_job_id="job-xyz", last_skipped_reason=None
-        )
+        updated = await dbm.update_plugin_job_schedule(pool, row["id"], last_job_id="job-xyz", last_skipped_reason=None)
         assert updated["last_job_id"] == "job-xyz"
         assert updated["last_skipped_reason"] is None, "a successful firing left a stale skip note"
     finally:

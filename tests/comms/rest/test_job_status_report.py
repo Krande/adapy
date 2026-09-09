@@ -49,9 +49,7 @@ def _settings(tmp_path: pathlib.Path, database_url: str = "") -> Settings:
             kv_bucket="ada-viewer-jobs",
             durable="ada-viewer-worker",
         ),
-        auth=AuthConfig(
-            enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""
-        ),
+        auth=AuthConfig(enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""),
         database_url=database_url,
     )
 
@@ -102,9 +100,7 @@ def test_the_reportable_statuses_are_the_ones_the_worker_actually_sends():
     # inside create_app, and asserting on it here is what keeps it honest.
     assert '_REPORTABLE_JOB_STATUSES = ("running", "done", "error", "cancelled")' in source
 
-    worker_source = pathlib.Path(
-        pathlib.Path(app_module.__file__).parent / "worker.py"
-    ).read_text(encoding="utf-8")
+    worker_source = pathlib.Path(pathlib.Path(app_module.__file__).parent / "worker.py").read_text(encoding="utf-8")
     # Every status the worker passes to _audit_done must be in that set.
     for literal in ('"done"', '"error"', '"cancelled"'):
         assert f"_audit_done(db_pool, job_id, {literal}" in worker_source or literal in worker_source
