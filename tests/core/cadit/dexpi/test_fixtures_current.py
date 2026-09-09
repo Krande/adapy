@@ -13,8 +13,35 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 
+import pytest
+
 _REPO = pathlib.Path(__file__).resolve().parents[4]
 _GENERATOR = _REPO / "scripts" / "gen_dexpi_examples.py"
+
+# A REPO LINT, NOT A PACKAGE TEST, so it is skipped where there is no repo.
+#
+# The conda package ships `tests` and `files` as test files and does NOT ship
+# `scripts`, so in that environment the generator this compares against simply is
+# not there and both tests die on FileNotFoundError -- which is how the ada-py
+# feedstock's build for 0.67.0 failed, with 2 failed against 2982 passed.
+#
+# Skipping is right rather than merely convenient: the guard asserts that files
+# checked into the repository match a generator checked into the same repository.
+# In a package build both are frozen copies from one tarball, so the comparison can
+# only ever restate what git already guaranteed -- it cannot fail there for a real
+# reason, and it cannot catch drift that has not happened yet.
+#
+# Keyed on the repository root looking like a checkout rather than on the generator
+# being absent: if `scripts/gen_dexpi_examples.py` goes missing from a real
+# checkout, that IS drift, and this must fail loudly rather than quietly skip.
+#
+# The feedstock already carries the same judgement for another test, as a
+# `--deselect` in its recipe. Making the decision here means the next such test
+# needs no feedstock change.
+pytestmark = pytest.mark.skipif(
+    not (_REPO / "pyproject.toml").is_file(),
+    reason="anti-drift guard over repository contents; no checkout here (a packaged test run ships no scripts/)",
+)
 
 
 def _load_generator():
