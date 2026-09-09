@@ -309,6 +309,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _scheduler_loop(app.state.db_pool),
                 name="audit-scheduler",
             )
+        # Plugin-job scheduler. Same conditions as the audit scheduler above and
+        # for the same reason: without a pool there are no schedules to read, and
+        # without a queue there is nothing to enqueue onto.
+        app.state.plugin_scheduler_task = None
+        if app.state.db_pool is not None and queue.enabled:
+            app.state.plugin_scheduler_task = asyncio.create_task(
+                _plugin_schedule_loop(app.state.db_pool),
+                name="plugin-job-scheduler",
+            )
         # Issue-bot poller (M5). Only needs the DB pool — the bot
         # talks to an HTTP forge, not NATS, so a queue-less deploy
         # can still publish failure issues. Skipped without a pool.
@@ -366,6 +375,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # down.
         for attr in (
             "scheduler_task",
+            "plugin_scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
             "worker_prune_task",
@@ -3405,6 +3415,115 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return True
         return plugin_id in gated
 
+    async def _enqueue_plugin_job(
+        *,
+        plugin_id: str,
+        options: dict,
+        scope_obj: Scope,
+        capability: str | None = None,
+        user,
+        pool=None,
+        request: Request | None = None,
+        derived_prefix: str | None = None,
+        derived_key: str | None = None,
+        plugin_spec: dict | None = None,
+    ) -> str:
+        """Enqueue one plugin job and return its job id.
+
+        ONE ENQUEUE PATH, two callers: ``POST /plugins/{id}/jobs`` and the
+        plugin-job scheduler's tick. That is not tidiness -- it is the property
+        that makes a scheduled firing indistinguishable from a user-initiated one
+        to the worker, so capability routing, audit rows, cancellation and the
+        cached-blob short circuit cannot drift between them. A second enqueue for
+        the scheduler would be a second set of those behaviours to keep in step.
+
+        AUTHORISATION IS THE CALLER'S. This helper does not check scope access or
+        the plugin's admin gate: the route does both before calling, and the tick
+        runs as the system identity by construction. Putting the checks here would
+        read as safer and would in fact be looser, because the tick would then be
+        passing a synthetic admin through a gate built for real users.
+        """
+        import hashlib as _hashlib
+
+        # Synthetic source_key over (plugin_id, options hash) so identical
+        # requests cache-hit. A SCHEDULE therefore has to vary its options, which
+        # is what SCHEDULE_FIRE_TOKEN is for -- see the note on it.
+        opts_hash = _hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        source_key = f"_synthetic/plugin_job/{plugin_id}/{opts_hash}"
+        if not isinstance(derived_key, str) or not derived_key.strip():
+            derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
+
+        if plugin_spec is None:
+            for _spec in (await _live_worker_specs("plugin_specs")).values():
+                if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                    plugin_spec = _spec
+                    break
+
+        # Route to the pool advertising this plugin's worker_capability. An
+        # explicit override wins; otherwise read it off the live spec.
+        target_capability = None
+        if isinstance(capability, str) and capability.strip():
+            target_capability = capability_token(capability)
+        elif plugin_spec is not None:
+            cap = plugin_spec.get("worker_capability")
+            if isinstance(cap, str) and cap.strip():
+                target_capability = capability_token(cap)
+            # SHARDED POOLS: a plugin may advertise `capability_option` naming one
+            # of its own options; supplying it routes to `<capability>-<value>`.
+            # See the long note on the route for why subject routing rather than
+            # NAKing is how non-interchangeable workers are kept apart.
+            opt_name = plugin_spec.get("capability_option")
+            if target_capability and isinstance(opt_name, str) and opt_name:
+                shard = capability_token(options.get(opt_name))
+                if shard:
+                    target_capability = f"{target_capability}-{shard}"
+
+        # No queue: run it here, in a thread. A single-node viewer otherwise has
+        # no way to run a plugin job at all.
+        if not queue.enabled:
+            try:
+                local = local_jobs.start_plugin_job(
+                    plugin_id=plugin_id,
+                    options=options,
+                    derived_prefix=derived_prefix,
+                    derived_key=derived_key,
+                    storage=storage,
+                    scope=scope_obj,
+                )
+            except LookupError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            return local.job_id
+
+        job = await queue.enqueue(
+            source_key,
+            target_format="plugin_job",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "plugin_id": plugin_id,
+                "options": options,
+                "derived_prefix": derived_prefix,
+            },
+            derived_key=derived_key,
+            target_capability=target_capability,
+            # Hold the publish until the audit row exists -- publishing first is
+            # what strands a row at "queued" with no message left to recover it.
+            publish=False,
+        )
+        await _audit(
+            request,
+            user,
+            scope_obj,
+            "plugin_job",
+            key=source_key,
+            target_format="plugin_job",
+            status="queued",
+            job_id=job.job_id,
+            pool=pool,
+        )
+        await queue.publish(job)
+        return job.job_id
+
     @api.post("/plugins/{plugin_id}/jobs")
     async def api_plugin_job(
         plugin_id: str,
@@ -3449,114 +3568,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail=f"plugin job {plugin_id!r} is restricted to administrators",
                 )
 
-        # No source file — synthetic source_key over (plugin_id, options hash) so
-        # identical requests cache-hit. derived_key holds the JSON summary the
-        # plugin returns (the sidecar bundle lives under derived_prefix).
+        # Everything from here is shared with the plugin-job scheduler -- see
+        # _enqueue_plugin_job. The checks above (scope access, the admin gate) are
+        # this route's alone, which is why they are not in the helper.
         import hashlib as _hashlib
 
         opts_hash = _hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-        source_key = f"_synthetic/plugin_job/{plugin_id}/{opts_hash}"
         derived_key = body.get("derived_key")
         if not isinstance(derived_key, str) or not derived_key.strip():
             derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
-
-        # Route to the pool advertising this plugin's worker_capability. Caller may
-        # override; otherwise read it off the live plugin spec so the right pool
-        # (e.g. a capacity worker) picks the job up.
-        target_capability = body.get("capability")
-        if isinstance(target_capability, str) and target_capability.strip():
-            target_capability = capability_token(target_capability)
-        else:
-            target_capability = None
-            if plugin_spec is not None:
-                cap = plugin_spec.get("worker_capability")
-                if isinstance(cap, str) and cap.strip():
-                    target_capability = capability_token(cap)
-                # SHARDED POOLS. A plugin may advertise `capability_option`
-                # naming one of its own options; when the request supplies
-                # that option the job routes to `<capability>-<value>`
-                # instead of `<capability>`.
-                #
-                # This exists because a pool is one durable consumer: every
-                # worker in it competes for the same messages, so workers
-                # that are NOT interchangeable — each holding a different
-                # licence, dataset or device — cannot share one. Routing
-                # them apart by NAKing the wrong ones is the design this
-                # replaced; it burned the delivery budget and dead-lettered
-                # valid jobs (see the note on `pull_subscribe`).
-                #
-                # Subject routing does it instead, and the worker needs no
-                # new code: it just lists the sharded token in
-                # ADA_WORKER_CAPABILITIES. Core still names no plugin and
-                # knows nothing about what the option MEANS.
-                #
-                # An absent or unusable option falls back to the bare
-                # capability rather than erroring, so a worker that
-                # subscribes to both serves unqualified requests too, and a
-                # single-worker deployment never has to qualify anything.
-                opt_name = plugin_spec.get("capability_option")
-                if target_capability and isinstance(opt_name, str) and opt_name:
-                    shard = capability_token(options.get(opt_name))
-                    if shard:
-                        target_capability = f"{target_capability}-{shard}"
-
-        # No queue: run it here, in a thread, and hand back a job id the status
-        # endpoint below can serve. A single-node viewer (the examples, a laptop)
-        # otherwise has no way to run a plugin job at all — the button was dead in
-        # exactly the setup that puts the model in front of you. The plugin sees an
-        # identical contract either way, so nothing about it knows which path ran.
-        if not queue.enabled:
-            try:
-                local = local_jobs.start_plugin_job(
-                    plugin_id=plugin_id,
-                    options=options,
-                    derived_prefix=body.get("derived_prefix"),
-                    derived_key=derived_key,
-                    storage=storage,
-                    scope=scope_obj,
-                )
-            except LookupError as exc:
-                # The plugin's backend is not importable in THIS process. With a
-                # worker that is the pool's problem; here it is the answer.
-                raise HTTPException(status_code=501, detail=str(exc)) from exc
-            return JSONResponse({"job_id": local.job_id, "derived_key": derived_key})
-
-        job = await queue.enqueue(
-            source_key,
-            target_format="plugin_job",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={
-                "plugin_id": plugin_id,
-                "options": options,
-                "derived_prefix": body.get("derived_prefix"),
-            },
+        job_id = await _enqueue_plugin_job(
+            plugin_id=plugin_id,
+            options=options,
+            scope_obj=scope_obj,
+            capability=body.get("capability"),
+            user=user,
+            request=request,
+            derived_prefix=body.get("derived_prefix"),
             derived_key=derived_key,
-            target_capability=target_capability,
-            # Hold the publish until the audit row exists. A plugin_job is short
-            # (tens of ms — often just the cached-blob short circuit), which is
-            # well inside the time this handler takes to get its INSERT in, and
-            # the worker's terminal write is UPDATE ... WHERE job_id with no
-            # upsert. Publishing first is what strands a row at "queued" with no
-            # message and no KV entry left to recover it from.
-            publish=False,
+            plugin_spec=plugin_spec,
         )
-        # Register as a first-class audit task (row keyed by job_id). Without this
-        # the worker's mark_audit_running/_audit_done no-op, /my-jobs shows nothing,
-        # and cancel/metrics/profiling can't attach. action + target_format are
-        # free-text; "plugin_job" keeps it filterable from conversions.
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "plugin_job",
-            key=source_key,
-            target_format="plugin_job",
-            status="queued",
-            job_id=job.job_id,
-        )
-        await queue.publish(job)
-        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+        return JSONResponse({"job_id": job_id, "derived_key": derived_key})
 
     # Settings whose key begins with this prefix are readable by ANY
     # authenticated user; every other key in app_settings stays admin-only.
@@ -6233,6 +6265,327 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _audit_dispatch(run["id"], s, worker_pool, "system", pool),
             name=f"audit-dispatch-{run['id']}",
         )
+
+    # ── Plugin-job schedules (cron for plugin jobs) ───────────────
+
+    #: Options key the tick stamps with each firing's timestamp.
+    #:
+    #: ALWAYS, AND THERE IS NO WAY TO TURN IT OFF. Core hashes a plugin job's
+    #: options into its source key so identical requests cache-hit, which is
+    #: right for a user pressing a button twice and catastrophic for a schedule:
+    #: byte-identical options every hour means the second firing and every one
+    #: after returns the FIRST run's summary. Hourly green ticks, the worker never
+    #: touched, and a caller trusting data that stopped moving.
+    #:
+    #: Read by nobody. It exists to change the hash, exactly as `refresh` does on
+    #: the plugin-job read path -- and it is stamped by the TICK rather than
+    #: offered as a schedule field, because a scheduled run that legitimately
+    #: answers "same as last time" cannot be told apart from one that never
+    #: happened.
+    SCHEDULE_FIRE_TOKEN = "scheduled_at"
+
+    def _plugin_schedule_options(schedule_row: dict, fired_at) -> dict:
+        """The options to dispatch: the schedule's own, plus the fire token."""
+        options = dict(schedule_row.get("options") or {})
+        options[SCHEDULE_FIRE_TOKEN] = fired_at.isoformat()
+        return options
+
+    @admin.get("/plugin-jobs/schedules")
+    async def admin_plugin_job_schedules_list(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        include_archived = request.query_params.get("include_archived") in ("1", "true", "yes")
+        rows = await db_module.list_plugin_job_schedules(pool, include_archived=include_archived)
+        return JSONResponse({"schedules": rows})
+
+    @admin.post("/plugin-jobs/schedules")
+    async def admin_plugin_job_schedules_create(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Create a schedule.
+
+        Body: ``{"name", "cron_expr", "scope", "plugin_id", "options",
+        "capability", "enabled"}``.
+
+        ``plugin_id`` is NOT checked against the live plugin registry. A schedule
+        may legitimately be created before the worker that serves it exists, or
+        survive a pool being down for a day; refusing here would make the admin
+        panel depend on a worker being up to configure anything. An id nothing
+        serves shows up as a queued job that nobody picks up, which is already
+        visible in /my-jobs.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        name = (body.get("name") or "").strip()
+        cron_expr = _validate_cron(body.get("cron_expr") or "")
+        scope_str = (body.get("scope") or "").strip()
+        plugin_id = (body.get("plugin_id") or "").strip()
+        options = body.get("options") or {}
+        capability = (body.get("capability") or "").strip() or None
+        enabled = bool(body.get("enabled", True))
+
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        if not scope_str:
+            raise HTTPException(status_code=400, detail="scope required")
+        if not plugin_id:
+            raise HTTPException(status_code=400, detail="plugin_id required")
+        if not isinstance(options, dict):
+            raise HTTPException(status_code=400, detail="options must be an object")
+        if SCHEDULE_FIRE_TOKEN in options:
+            # Refused rather than silently overwritten: a caller who set it
+            # believes it means something, and the tick is about to replace it.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"options.{SCHEDULE_FIRE_TOKEN} is reserved — the scheduler stamps it on every "
+                    "firing so that two firings never share an options hash and cache-hit"
+                ),
+            )
+        # Parses only. Slug-to-id resolution happens at fire time so renaming a
+        # project does not strand a schedule.
+        _ = _parse_scope(scope_str, user)
+
+        try:
+            row = await db_module.create_plugin_job_schedule(
+                pool,
+                name=name,
+                cron_expr=cron_expr,
+                scope=scope_str,
+                plugin_id=plugin_id,
+                options=options,
+                capability=capability,
+                enabled=enabled,
+                next_fire_at=_next_fire(cron_expr),
+                created_by=user.sub,
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise HTTPException(status_code=409, detail=f"schedule name {name!r} already in use") from exc
+            raise
+        return JSONResponse(row, status_code=201)
+
+    @admin.patch("/plugin-jobs/schedules/{schedule_id}")
+    async def admin_plugin_job_schedules_update(
+        schedule_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Partial update. Only the fields present in the body move."""
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        fields: dict = {}
+
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            fields["name"] = name
+        if "cron_expr" in body:
+            fields["cron_expr"] = _validate_cron(body.get("cron_expr") or "")
+            # A changed expression makes the stored next_fire_at meaningless, so
+            # it is recomputed here rather than left to drift until the next fire.
+            fields["next_fire_at"] = _next_fire(fields["cron_expr"])
+        if "scope" in body:
+            scope_str = (body.get("scope") or "").strip()
+            if not scope_str:
+                raise HTTPException(status_code=400, detail="scope cannot be empty")
+            _ = _parse_scope(scope_str, user)
+            fields["scope"] = scope_str
+        if "plugin_id" in body:
+            plugin_id = (body.get("plugin_id") or "").strip()
+            if not plugin_id:
+                raise HTTPException(status_code=400, detail="plugin_id cannot be empty")
+            fields["plugin_id"] = plugin_id
+        if "options" in body:
+            options = body.get("options") or {}
+            if not isinstance(options, dict):
+                raise HTTPException(status_code=400, detail="options must be an object")
+            if SCHEDULE_FIRE_TOKEN in options:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"options.{SCHEDULE_FIRE_TOKEN} is reserved — the scheduler stamps it",
+                )
+            fields["options"] = options
+        if "capability" in body:
+            fields["capability"] = (body.get("capability") or "").strip() or None
+        if "enabled" in body:
+            fields["enabled"] = bool(body.get("enabled"))
+            # Re-enabling a schedule whose next_fire_at is long past would fire
+            # immediately and then again on its real slot. Recomputed from now.
+            if fields["enabled"]:
+                current = await db_module.get_plugin_job_schedule(pool, schedule_id)
+                if current is None:
+                    raise HTTPException(status_code=404, detail="schedule not found")
+                fields.setdefault("next_fire_at", _next_fire(current["cron_expr"]))
+
+        row = await db_module.update_plugin_job_schedule(pool, schedule_id, **fields)
+        if row is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return JSONResponse(row)
+
+    @admin.delete("/plugin-jobs/schedules/{schedule_id}")
+    async def admin_plugin_job_schedules_archive(schedule_id: str, request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        if not await db_module.archive_plugin_job_schedule(pool, schedule_id):
+            raise HTTPException(status_code=404, detail="schedule not found, or already archived")
+        return JSONResponse({"archived": schedule_id})
+
+    @admin.post("/plugin-jobs/schedules/{schedule_id}/run")
+    async def admin_plugin_job_schedules_run_now(schedule_id: str, request: Request) -> JSONResponse:
+        """Fire a schedule immediately, without waiting for its slot.
+
+        The reason this exists is that a schedule is otherwise unverifiable: an
+        admin who has just created one has no way to learn whether its options,
+        scope and plugin actually produce a job short of waiting for the cron to
+        come round. It does not disturb the timetable -- ``next_fire_at`` is left
+        alone, so the scheduled slot still happens.
+        """
+        pool = _require_pool(request)
+        row = await db_module.get_plugin_job_schedule(pool, schedule_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        from datetime import datetime, timezone
+
+        outcome = await _plugin_schedule_fire(pool, row, fired_at=datetime.now(timezone.utc))
+        if outcome.get("skipped"):
+            # 409: the request was valid, the state said no. The reason is the
+            # useful half.
+            raise HTTPException(status_code=409, detail=outcome["skipped"])
+        return JSONResponse(outcome)
+
+    async def _plugin_schedule_loop(pool) -> None:
+        """Tick every 30 s, claim due schedules, enqueue them as plugin jobs.
+
+        A deliberate mirror of ``_scheduler_loop`` above: same interval, same
+        drain-the-backlog inner loop, same "one tick's exception must not kill the
+        loop" posture. The two are separate because their payloads are, not
+        because they disagree about how ticking works.
+        """
+        from datetime import datetime, timezone
+
+        TICK_INTERVAL_S = 30.0
+        logger.info("plugin-job scheduler: starting (tick every %ss)", TICK_INTERVAL_S)
+        try:
+            while True:
+                try:
+                    now = datetime.now(timezone.utc)
+                    while True:
+                        try:
+                            # Claimed with a placeholder next_fire_at and
+                            # corrected below, once this row's cron_expr is known.
+                            row = await db_module.claim_due_plugin_job_schedule(pool, now=now, next_fire_at=now)
+                        except Exception:
+                            logger.exception("plugin-job scheduler: claim failed")
+                            break
+                        if row is None:
+                            break
+                        try:
+                            await db_module.update_plugin_job_schedule(
+                                pool,
+                                row["id"],
+                                next_fire_at=_next_fire(row["cron_expr"], after=now),
+                            )
+                        except Exception as exc:
+                            # next_fire_at is now `now`, so this row would be
+                            # claimed again on the next tick and spin. Disable it
+                            # and say why rather than let it hammer the queue.
+                            logger.exception("plugin-job scheduler: could not advance %s", row["id"])
+                            await db_module.update_plugin_job_schedule(pool, row["id"], enabled=False)
+                            await db_module.set_plugin_job_schedule_skip_reason(
+                                pool,
+                                row["id"],
+                                f"disabled: could not compute the next firing from {row['cron_expr']!r}: {exc}",
+                            )
+                            continue
+
+                        await _plugin_schedule_fire(pool, row, fired_at=now)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("plugin-job scheduler: tick failed")
+                await asyncio.sleep(TICK_INTERVAL_S)
+        except asyncio.CancelledError:
+            logger.info("plugin-job scheduler: stopped")
+            raise
+
+    async def _plugin_schedule_fire(pool, schedule_row: dict, *, fired_at) -> dict:
+        """Enqueue one schedule's job. Returns what happened.
+
+        ``{"job_id": ..., "schedule": ...}`` on a firing, or
+        ``{"skipped": "<reason>"}`` when state said no. Every skip is also written
+        to the row, because a schedule that silently does nothing is the failure
+        this whole feature exists to remove.
+        """
+        sched_id = schedule_row["id"]
+        plugin_id = schedule_row["plugin_id"]
+
+        try:
+            scope_obj = _parse_scope(schedule_row["scope"], _SystemUser())
+            scope_obj = await _resolve_project_scope(pool, scope_obj)
+        except HTTPException as exc:
+            reason = f"scope {schedule_row['scope']!r} did not resolve ({exc.status_code}): {exc.detail}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        except Exception as exc:
+            logger.exception("plugin-job scheduler: scope resolution crashed for %s", sched_id)
+            reason = f"scope resolution crashed: {exc}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        # Concurrent-fire guard. A plugin job can hold a single licensed
+        # workstation for minutes, so an overlapping firing does not just double
+        # the load -- the two contend for one resource and the loser fails in a
+        # way that reads as the plugin's fault. The missed slot is NOT backfired:
+        # the next slot is the next chance, which is the same choice the audit
+        # scheduler makes and for the same reason.
+        try:
+            in_flight = await db_module.plugin_job_in_flight(
+                pool,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                plugin_id=plugin_id,
+            )
+        except Exception:
+            logger.exception("plugin-job scheduler: concurrent-fire check failed for %s", sched_id)
+            # Not firing is the safe half of an unknown: a duplicate run on a
+            # single-seat resource is worse than a missed slot.
+            reason = "could not check whether a previous job is still running; slot skipped"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        if in_flight:
+            reason = f"previous {plugin_id} job still queued or running"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        options = _plugin_schedule_options(schedule_row, fired_at)
+        try:
+            job_id = await _enqueue_plugin_job(
+                plugin_id=plugin_id,
+                options=options,
+                scope_obj=scope_obj,
+                capability=schedule_row.get("capability"),
+                user=_SystemUser(),
+                pool=pool,
+            )
+        except HTTPException as exc:
+            reason = f"enqueue refused ({exc.status_code}): {exc.detail}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+        except Exception as exc:
+            logger.exception("plugin-job scheduler: enqueue crashed for %s", sched_id)
+            reason = f"enqueue crashed: {exc}"
+            await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+            return {"skipped": reason}
+
+        await db_module.update_plugin_job_schedule(pool, sched_id, last_job_id=job_id)
+        logger.info(
+            "plugin-job scheduler: fired %s (%s) -> job %s",
+            schedule_row["name"],
+            plugin_id,
+            job_id,
+        )
+        return {"job_id": job_id, "schedule": schedule_row["name"], "plugin_id": plugin_id}
 
     # ── Issue-bot configuration + poller (M5) ─────────────────────
 
