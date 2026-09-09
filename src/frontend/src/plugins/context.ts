@@ -4,6 +4,7 @@
 // zustand stores, runtime config) — kept out of the registry so the registry
 // stays unit-testable under plain node.
 
+import { trackJob } from "@/services/jobTracking";
 import { runtime } from "@/runtime/config";
 import { sceneRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
@@ -152,6 +153,11 @@ export function makePluginContext(
     // panel kept whatever tokens were current at its last unrelated render.
     theme: theme ?? effectivePluginTheme(useThemeStore.getState()),
     log,
+    // The scope is resolved HERE rather than asked of the plugin: a job belongs to
+    // the scope it was enqueued in, and letting a caller pass a different one would
+    // make the toast poll a job the API will not authorise it for.
+    trackJob: (opts) =>
+      trackJob({...opts, scopeUrl: scopeUrlPart(useScopeStore.getState().current)}),
   };
 }
 

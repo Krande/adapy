@@ -35,6 +35,9 @@ function fakeCtx(): AdaPluginContext {
       unloadModel() {},
     },
     scope: () => "user:me",
+    // Required by AdaPluginContext since plugin API 1.3.0. A stub: these fixtures
+    // assert on registration, not on job tracking.
+    trackJob: () => "",
     theme: {
       bg: "#111827",
       surface: "#1f2937",

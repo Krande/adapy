@@ -21,75 +21,13 @@
 import {useEffect} from "react";
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {useConversionStore} from "@/state/conversionStore";
+import {pollJobUntilTerminal} from "@/services/jobTracking";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 
-const POLL_INTERVAL_MS = 1500;
-const MAX_POLL_ATTEMPTS = 60 * 30; // ~45 min ceiling, generous for big bakes.
-
-async function pollUntilTerminal(
-    jobId: string,
-    storeKey: string,
-    scopeUrl: string,
-    signal: {aborted: boolean},
-): Promise<void> {
-    const store = useConversionStore.getState();
-    for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-        if (signal.aborted) return;
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        if (signal.aborted) return;
-        try {
-            const status = await viewerApi.convertStatus(jobId);
-            const prev = useConversionStore.getState().jobs[storeKey];
-            if (!prev) return; // user dismissed it
-            store.setJob(storeKey, {
-                ...prev,
-                status: status.status,
-                progress: status.progress,
-                stage: status.stage,
-                error: status.error,
-                derivedKey: status.derived_key || prev.derivedKey,
-            });
-            if (
-                status.status === "done" ||
-                status.status === "error" ||
-                status.status === "cancelled"
-            ) return;
-        } catch (err) {
-            // A 404 is not a blip: the job is GONE server-side. Its status
-            // row lives in the queue's KV, which expires, while the audit row
-            // that /my-jobs reads does not -- so a job whose KV entry aged out
-            // (or was never written) leaves an audit row stuck at `queued`
-            // forever. Treating that as a blip polls it for the full
-            // MAX_POLL_ATTEMPTS ceiling and the toast never resolves; worse,
-            // the row survives reload, so it comes back on every refresh.
-            // Mark it terminal here and cancel the row, exactly as the wasm-
-            // branch below does for its own orphans.
-            if (err instanceof ApiError && err.status === 404) {
-                const prev = useConversionStore.getState().jobs[storeKey];
-                if (prev) {
-                    store.setJob(storeKey, {
-                        ...prev,
-                        status: "cancelled",
-                        error: "job is no longer known to the server",
-                    });
-                }
-                void viewerApi
-                    .auditLocalUpdate(scopeUrl, jobId, {
-                        status: "cancelled",
-                        error: "job no longer known to the server",
-                    })
-                    .catch(() => {});
-                return;
-            }
-            // Anything else is a genuine blip — log and keep polling; the next
-            // tick typically succeeds. Don't poison the toast with a false
-            // error state.
-            // eslint-disable-next-line no-console
-            console.warn(`[restore-jobs] poll ${jobId} blip`, err);
-        }
-    }
-}
+// The poll loop lives in services/jobTracking.ts, shared with `trackJob`. Two
+// implementations of "poll a job to terminal" drift, and the 404 handling in it was
+// learned the hard way -- a second copy would not have it.
 
 export function useRestoreInflightJobs(): void {
     const current = useScopeStore((s) => s.current);
@@ -163,7 +101,7 @@ export function useRestoreInflightJobs(): void {
                     error: j.error,
                     startedAt: Date.now(),
                 });
-                void pollUntilTerminal(j.job_id, storeKey, scopeUrl, cancel);
+                void pollJobUntilTerminal(j.job_id, storeKey, scopeUrl, cancel);
             }
         })();
 
