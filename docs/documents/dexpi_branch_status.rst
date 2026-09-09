@@ -254,10 +254,27 @@ Running the 3D import over the corpus is a second, different gate
     silently stops matching, because the tag is not there. Fixed on ``DexpiItem.tag`` so both
     flavours and both sides get it, with the generic attribute still winning where both exist.
 
-    What remains is one thing wearing many hats: 234 of the 310 system issues the corpus reports are
-    ``N endpoint(s) outside the segment; a routed run needs exactly two`` (169 with one endpoint, 65
-    with none). That is the branch/tee limitation at scale, and it is the next real piece of work,
-    not a collection of small bugs.
+    234 of the 310 system issues the corpus reports are ``N endpoint(s) outside the segment; a
+    routed run needs exactly two`` (169 with one endpoint, 65 with none). **That is not the
+    branch/tee limitation at scale**, which is the natural but wrong reading -- an earlier version
+    of this document said exactly that before the cases were taken apart. 50 of them own a bare
+    ``<Connection />`` with no ends at all; 93 own one with a single end named and the other simply
+    absent; 30 end at an in-line component nothing else references (a real dead end); 16 end at a
+    component referenced only by an *instrumentation* owner, i.e. a signal line to a valve, not a
+    piping junction. These drawings do not state their connectivity in the data model; the
+    ``<CenterLine>`` carries it as geometry.
+
+    Recovering it from that geometry was measured and rejected, and the measurement is worth
+    repeating rather than trusting: a first pass found 135 centre-line free ends landing *exactly*
+    on a connection node, which looks conclusive until you notice that for a connection with one
+    end named, one end of the centre line is the named item's own node and matches trivially.
+    Measuring only the genuinely unknown end gives 19 exact matches against 73 that match nothing.
+    Not a foundation to infer connectivity on.
+
+    The real branch case is smaller and worth sizing honestly before anyone builds for it: 89
+    branch points across 21 of the 220 files, 37 of degree two (a pass-through, not a branch) and 52
+    of degree three. All of them already route, as separate two-ended runs into a materialised
+    fitting; what does not exist is one ``System`` spanning the junction.
 
 Process notes for whoever continues this
 -------------------------------------------

@@ -318,9 +318,32 @@ visibly, every **tag-keyed** entry in an equipment definition list stopped match
 tag it keys on did not exist. ``DexpiItem.tag`` now falls back to the XML attribute; across the
 corpus that is 253 equipment items tagged where 6 remain genuinely untagged.
 
-What the corpus still reports rather than models is dominated by one thing: 234 of the 310 system
-issues are ``N endpoint(s) outside the segment; a routed run needs exactly two``. That is the
-branch/tee limitation in the *Deferred to follow-up work* row below, seen at scale.
+What the corpus still reports rather than models is dominated by one line -- 234 of the 310 system
+issues are ``N endpoint(s) outside the segment; a routed run needs exactly two`` -- and it is worth
+being precise about what that number is, because the obvious reading of it is wrong. It is **not**
+the branch/tee limitation at scale. Taking the cases apart:
+
+* 50 segments own no usable connection at all: the file writes a bare ``<Connection />`` with
+  neither ``FromID`` nor ``ToID``.
+* 93 own a connection with one end named and the other simply absent
+  (``<Connection FromID="..."/>``).
+* 30 end at an in-line component that no other segment or system references -- a genuine dead end
+  in the drawing.
+* 16 end at a component that *is* referenced elsewhere, but by an instrumentation owner (a signal
+  line to a valve), not by another piping segment. Not a piping junction.
+
+In other words the bulk of these P&IDs do not state the connectivity in the data model at all; the
+``<CenterLine>`` carries it as drawing geometry instead. Inferring the missing ends from that
+geometry was measured and rejected: of the free ends that are genuinely unknown, only 19 land on
+another item's connection node and 73 match nothing. (A first pass suggested 135 exact matches,
+which was an artefact -- for a connection with one end named, one end of the centre line trivially
+coincides with the item that *is* named.) These runs are reported because the drawing does not say
+where they go, which is the honest outcome rather than a gap in adapy.
+
+The genuine branch case is smaller and separate: 89 branch points across 21 of the 220 files, 37 of
+them where exactly two segments meet (a pass-through, not a branch) and 52 where three do. Those 52
+do route today -- as three two-ended runs meeting at a materialised fitting -- and what is missing
+is a single ``System`` spanning the junction, which is the *Deferred to follow-up work* row below.
 
 Licensing and attribution
 ----------------------------
