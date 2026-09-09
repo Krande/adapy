@@ -1,0 +1,215 @@
+{
+  "_meta": {
+    "note": "CURATED ENGINEERING DEFAULTS, hand-maintained. Edit freely.",
+    "authority": "adapy. This file is NOT part of the DEXPI specification, is not derived from it, and carries no DEXPI authorship -- unlike the generated dexpi_classes.json next to it, which is. The only thing shared with the spec is the class names used as keys.",
+    "purpose": "A P&ID says what an item is, never how big it is or where its nozzles sit. These are plausible starting sizes so a DEXPI import can be laid out and routed; they are placeholders for real vendor data, not engineering deliverables. Override per tag or per class with an equipment definition list (ada.cadit.dexpi.equipment_list).",
+    "units": "metres and kilograms",
+    "bbox": "[lx, ly, lz]: the equipment-local envelope. The local origin is the footprint centre at the base, so the box spans x in [-lx/2, lx/2], y in [-ly/2, ly/2], z in [0, lz] -- the same frame ada.Equipment ports use.",
+    "ifc": "IFC4 element class the equipment is written as.",
+    "nozzles": "Nozzle-layout strategy, resolved by ada.cadit.dexpi.nozzle_placers.PLACERS. Nozzle POSITIONS are generated per item from its actual DEXPI nozzles, never fixed per class -- the count varies item by item.",
+    "density": "Apparent envelope density in kg/m3 (dry and empty, mass over the whole bbox, not the material density). Mass = density * lx * ly * lz, so an overridden bbox still gets a proportionate mass. An entry may instead give an explicit 'mass' in kg, which wins and does not scale.",
+    "resolution": "Looked up by DEXPI class name; a class with no entry of its own inherits the nearest entry up its supertype DAG (ada.cadit.dexpi.class_table.is_a). 'ProcessEquipment' is the catch-all for the 142 Plant/ProcessEquipment classes, so a few dozen entries answer for all of them. Chamber and Nozzle do NOT derive from ProcessEquipment (both come straight off Core/ConceptualObject), hence Chamber's own entry."
+  },
+  "defaults": {
+    "Agitator": {
+      "bbox": [1.0, 1.0, 2.0],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "generic",
+      "density": 400.0,
+      "note": "Drive plus shaft standing on its vessel; the mounting nozzle is the vessel's, not the agitator's."
+    },
+    "Blower": {
+      "bbox": [1.5, 1.2, 1.2],
+      "ifc": "IfcFan",
+      "nozzles": "pump",
+      "density": 400.0,
+      "note": "Packaged blower on a skid: side suction, top discharge, same layout as a pump."
+    },
+    "Centrifuge": {
+      "bbox": [2.5, 1.5, 1.5],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "generic",
+      "density": 700.0,
+      "note": "Horizontal decanter; heavy for its size because the bowl and drive dominate the mass."
+    },
+    "Chamber": {
+      "bbox": [1.0, 1.0, 1.0],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "generic",
+      "density": 200.0,
+      "note": "A sub-volume of its owner (a separator boot, a jacket). Normally folded into the owning equipment; sized only for the case where it is materialised on its own."
+    },
+    "Compressor": {
+      "bbox": [3.0, 2.0, 2.0],
+      "ifc": "IfcCompressor",
+      "nozzles": "pump",
+      "density": 500.0,
+      "note": "Machine, driver and baseplate as one envelope."
+    },
+    "CoolingTower": {
+      "bbox": [6.0, 6.0, 8.0],
+      "ifc": "IfcCoolingTower",
+      "nozzles": "vessel",
+      "density": 120.0,
+      "note": "Induced-draught cell: a large, mostly empty air volume, so the envelope density is low."
+    },
+    "Dryer": {
+      "bbox": [4.0, 3.0, 4.0],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "vessel",
+      "density": 200.0
+    },
+    "ElectricGenerator": {
+      "bbox": [3.0, 1.5, 1.5],
+      "ifc": "IfcElectricGenerator",
+      "nozzles": "generic",
+      "density": 700.0,
+      "note": "Copper and laminations in a compact frame."
+    },
+    "Fan": {
+      "bbox": [1.2, 1.2, 1.2],
+      "ifc": "IfcFan",
+      "nozzles": "pump",
+      "density": 250.0
+    },
+    "Filter": {
+      "bbox": [1.5, 1.5, 2.5],
+      "ifc": "IfcFilter",
+      "nozzles": "vessel",
+      "density": 250.0,
+      "note": "Vertical cartridge/bag housing: a pressure vessel with an inlet, an outlet and a drain."
+    },
+    "HeatExchanger": {
+      "bbox": [4.0, 1.5, 1.5],
+      "ifc": "IfcHeatExchanger",
+      "nozzles": "exchanger",
+      "density": 500.0,
+      "note": "Long in X so the two ends of the exchanger strategy fall on the +/-X faces."
+    },
+    "Heater": {
+      "bbox": [3.0, 3.0, 5.0],
+      "ifc": "IfcBoiler",
+      "nozzles": "vessel",
+      "density": 350.0,
+      "note": "Fired heater / package boiler; refractory carries much of the mass."
+    },
+    "Mill": {
+      "bbox": [3.0, 2.0, 3.0],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "generic",
+      "density": 800.0,
+      "note": "Crushers and grinders are the densest process items on a plant -- cast bodies and grinding media."
+    },
+    "Mixer": {
+      "bbox": [2.5, 2.5, 3.5],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 200.0,
+      "note": "Agitated vessel: feeds on top, product out of the bottom."
+    },
+    "MobileTransportSystem": {
+      "bbox": [12.0, 2.5, 3.0],
+      "ifc": "IfcTransportElement",
+      "nozzles": "generic",
+      "density": 150.0,
+      "note": "A road tanker/waggon envelope, present on a P&ID as a loading interface."
+    },
+    "Motor": {
+      "bbox": [1.2, 0.8, 0.8],
+      "ifc": "IfcElectricMotor",
+      "nozzles": "generic",
+      "density": 900.0,
+      "note": "The densest common item: an iron and copper block with no void."
+    },
+    "PlateHeatExchanger": {
+      "bbox": [1.5, 1.0, 2.0],
+      "ifc": "IfcHeatExchanger",
+      "nozzles": "exchanger",
+      "density": 400.0,
+      "note": "A plate pack is tall and thin where a shell-and-tube is long."
+    },
+    "PressureVessel": {
+      "bbox": [2.5, 2.5, 6.0],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 300.0,
+      "note": "Thicker walled than an atmospheric tank of the same envelope, hence the higher density."
+    },
+    "ProcessColumn": {
+      "bbox": [2.0, 2.0, 15.0],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 250.0,
+      "note": "Slender and tall; internals (trays or packing) add to the shell mass. NB a single column makes an auto-generated deck very tall unless the layout is given an explicit deck_height."
+    },
+    "ProcessEquipment": {
+      "bbox": [2.0, 2.0, 2.0],
+      "ifc": "IfcBuildingElementProxy",
+      "nozzles": "generic",
+      "density": 200.0,
+      "note": "The catch-all. Every Plant/ProcessEquipment class inherits this when nothing more specific matches, so it must stay deliberately unremarkable: a man-sized box that will not distort a layout."
+    },
+    "Pump": {
+      "bbox": [1.5, 0.8, 1.0],
+      "ifc": "IfcPump",
+      "nozzles": "pump",
+      "density": 700.0,
+      "note": "Pump, motor and baseplate. Matches the create_pump archetype in ada.topo_model.equipment."
+    },
+    "Separator": {
+      "bbox": [5.0, 2.5, 2.5],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 250.0,
+      "note": "Horizontal two/three-phase separator: long in X, feed in, gas and liquid out."
+    },
+    "Silo": {
+      "bbox": [4.0, 4.0, 10.0],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 100.0,
+      "note": "Thin-walled bulk-solids storage; light for its very large envelope."
+    },
+    "StationaryTransportSystem": {
+      "bbox": [10.0, 1.0, 1.5],
+      "ifc": "IfcTransportElement",
+      "nozzles": "generic",
+      "density": 120.0,
+      "note": "Conveyor / lift: a long, light run rather than a compact machine."
+    },
+    "Tank": {
+      "bbox": [4.0, 4.0, 6.0],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 120.0,
+      "note": "Atmospheric storage tank; thin shell over a large volume."
+    },
+    "TubularHeatExchanger": {
+      "bbox": [6.0, 1.2, 1.2],
+      "ifc": "IfcHeatExchanger",
+      "nozzles": "exchanger",
+      "density": 500.0,
+      "note": "Shell-and-tube: longer and narrower than the generic exchanger because the tube bundle sets the length."
+    },
+    "Turbine": {
+      "bbox": [4.0, 2.0, 2.0],
+      "ifc": "IfcEngine",
+      "nozzles": "pump",
+      "density": 600.0
+    },
+    "Vessel": {
+      "bbox": [3.0, 3.0, 5.0],
+      "ifc": "IfcTank",
+      "nozzles": "vessel",
+      "density": 150.0,
+      "note": "The vessel family's own default, between an atmospheric tank and a pressure vessel."
+    },
+    "WasteGasEmitter": {
+      "bbox": [1.0, 1.0, 20.0],
+      "ifc": "IfcChimney",
+      "nozzles": "vessel",
+      "density": 200.0,
+      "note": "Flare or stack: a narrow column of height, fed from the bottom."
+    }
+  }
+}

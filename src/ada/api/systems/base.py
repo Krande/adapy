@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, ClassVar, Iterable
 
 from .categories import PortCategory, Voltage
 from .ports import Port, PortDirection
+from .segments import SystemSegment
 
 if TYPE_CHECKING:
     from ada.api.spatial.equipment import Equipment
@@ -45,6 +46,10 @@ class System:
         self.medium = medium
         self.metadata = metadata if metadata is not None else {}
         self.ports: list[Port] = []
+        #: Optional breakdown of the run into named segments with their in-line
+        #: components (see :class:`~.segments.SystemSegment`). Empty unless a
+        #: producer fills it in; routing never reads it.
+        self.segments: list[SystemSegment] = []
         self.routed_path: list[Point] | None = None
         self.route_geometry: list = []
         #: Bend-artifact warnings from the last geometry build (see

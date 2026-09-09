@@ -9,6 +9,7 @@ attached to the returned assembly, so a downstream conversion (e.g.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import pathlib
 from typing import TYPE_CHECKING, Literal
@@ -351,3 +352,175 @@ def from_genie_xml(
         a._topology_store = store
         p._topology_store = store
     return a
+
+
+def dexpi_to_procedural(
+    path: str | pathlib.Path,
+    *,
+    flavour: str | None = None,
+    definitions=None,
+    layout=None,
+    base_doc: dict | None = None,
+    inline_components: Literal["metadata", "equipment"] = "metadata",
+) -> tuple[dict, dict]:
+    """Read a DEXPI P&ID and return ``(procedural document, equipment catalog)``.
+
+    The useful seam under :func:`from_dexpi`: the document is the compiler's own commit format, so
+    it feeds ``ProceduralBuilder.from_dict`` or ``to_excel`` for inspection and hand-editing before
+    anything is built, and the catalog's ``.get`` is already a valid ``equipment_resolver``. See
+    :func:`ada.cadit.dexpi.read.to_procedural.dexpi_to_procedural_doc` for the arguments.
+    """
+    from ada.cadit.dexpi.read.to_procedural import dexpi_to_procedural_doc
+    from ada.cadit.dexpi.store import read_dexpi
+
+    return dexpi_to_procedural_doc(
+        read_dexpi(path, flavour=flavour),
+        definitions=definitions,
+        layout=layout,
+        base_doc=base_doc,
+        inline_components=inline_components,
+    )
+
+
+def from_dexpi(
+    path: str | pathlib.Path,
+    *,
+    spec=None,
+    name: str | None = None,
+    flavour: str | None = None,
+    definitions=None,
+    inline_components: Literal["metadata", "equipment"] = "metadata",
+    strict: bool = False,
+) -> Assembly:
+    """Build a 3D model from a DEXPI P&ID -- either flavour, sniffed from the root tag.
+
+    The one-call path, and a composition of two steps you can take separately:
+    :meth:`ada.SystemModel.from_dexpi` reads the P&ID into the adapy-native model of the plant, and
+    :meth:`~ada.api.systems.model.SystemModel.to_assembly` builds it. Reach for the two-step form to
+    look at what the P&ID resolved to before committing to a build, to vary the build rules without
+    re-reading, or to write the model back out:
+
+    .. code-block:: python
+
+        model = ada.SystemModel.from_dexpi("unit.xml")
+        print(sorted(eq.name for eq in model.equipment))
+        assembly = model.to_assembly(ProceduralBuildSpec(layout=LayoutRules(deck_height=5.0)))
+        model.to_dexpi("out.xml")
+
+    ``spec`` is the :class:`~ada.topo_model.build_spec.ProceduralBuildSpec` -- deck bounds, design
+    ruleset, whether to route, whether to feed routing failures back into the layout.
+    ``definitions`` and ``inline_components`` are *read* arguments: they decide what the P&ID
+    resolves to and what exists, not where any of it stands.
+
+    **The layout is generated, not designed.** Shelf packing on physical size has no process sense
+    whatsoever: a pump can land at the far end of a deck from the vessel it feeds. Expect to move
+    things, and note that DEXPI's own 2D coordinates are drawing millimetres, never plant
+    coordinates.
+    """
+    from ada.api.systems.model import SystemModel
+
+    model = SystemModel.from_dexpi(
+        path,
+        name=name,
+        flavour=flavour,
+        definitions=definitions,
+        inline_components=inline_components,
+        strict=strict,
+    )
+    return model.to_assembly(spec)
+
+
+@contextlib.contextmanager
+def _dexpi_build_warnings():
+    """Collect the warnings the procedural compiler drops systems with.
+
+    ``_wire_systems`` and ``run_design(skip_failed=True)`` both report a lost run with nothing but
+    ``logger.warning``, which is right for a compiler and useless to someone who asked for their
+    P&ID. adapy's logger does not propagate to the root, so this attaches to it directly rather
+    than going through ``logging.capture``.
+    """
+    import logging
+
+    records: list[logging.LogRecord] = []
+
+    class _Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    ada_logger = logging.getLogger("ada")
+    handler = _Collector(level=logging.WARNING)
+    previous = ada_logger.level
+    ada_logger.addHandler(handler)
+    if previous > logging.WARNING or previous == logging.NOTSET:
+        ada_logger.setLevel(logging.WARNING)
+    try:
+        yield records
+    finally:
+        ada_logger.removeHandler(handler)
+        ada_logger.setLevel(previous)
+
+
+def _collect_build_issues(assembly: Assembly, doc: dict, records, report) -> None:
+    """Record every system that asked for geometry and did not get it.
+
+    Presence of geometry is the check, not the log line: a run is in the model or it is not, and
+    that survives any rewording of the compiler's warnings. The captured warnings only supply the
+    *reason*, and a system with no matching warning still gets an entry.
+    """
+    routed: set[str] = set()
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
+        if part.name != "Systems":
+            continue
+        for obj in part.get_all_physical_objects():
+            routed.add(str(obj.name).rsplit("_route", 1)[0])
+
+    reasons: dict[str, str] = {}
+    for record in records:
+        message = str(record.msg)
+        if "skipping system" not in message and "skipping geometry for system" not in message:
+            continue
+        args = record.args if isinstance(record.args, tuple) else (record.args,)
+        if not args:
+            continue
+        reasons.setdefault(str(args[0]), str(args[-1]) if len(args) > 1 else "no route found")
+
+    for spec in doc.get("systems") or []:
+        system_name = spec.get("NAME")
+        if system_name in routed:
+            continue
+        stage = "wiring" if system_name in reasons and "unknown" in reasons[system_name] else "routing"
+        report.add("system", system_name, stage, reasons.get(system_name, "no routed geometry was produced"))
+
+
+def _dexpi_schematic_assembly(name: str, doc: dict, catalog: dict) -> Assembly:
+    """The schematic-only assembly: placed equipment with their ports, and unrouted systems.
+
+    No structure, no grid, no routing -- the model a write-back path needs, and the fastest way to
+    look at what a P&ID resolved to before committing to a 3D build.
+    """
+    from ada.api.spatial.equipment import Equipment
+    from ada.topo_model.compile import (
+        _equipment_to_object,
+        _wire_systems,
+        equipment_space_offset,
+    )
+    from ada.topology.entities import TopoEquipment, TopoSpace
+
+    spaces = {row["NAME"]: TopoSpace(**_strip_none(row)) for row in doc.get("spaces") or []}
+    objects = []
+    for row in doc.get("equipments") or []:
+        entity = TopoEquipment(**_strip_none(row))
+        offset = equipment_space_offset(entity, spaces.get(entity.SPACE_NAME))
+        objects.append(_equipment_to_object(entity, catalog.get, offset))
+
+    a = Assembly(name=name) / (Part("Equipment") / objects)
+    equipment_map = {obj.name: obj for obj in objects if isinstance(obj, Equipment)}
+    a.systems.extend(_wire_systems(doc.get("systems") or [], equipment_map))
+    return a
+
+
+def _strip_none(row: dict) -> dict:
+    """Drop explicit nulls before ``Topo*(**row)`` -- a field typed ``float`` with a ``None``
+    default accepts the default but rejects ``None`` as an argument (mirrors
+    ``ada.topo_model.builder._strip_none``)."""
+    return {k: v for k, v in row.items() if v is not None}

@@ -371,7 +371,12 @@ def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
 
 
 def _build_systems(
-    doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None
+    doc: dict,
+    equipment_map: dict,
+    spaces: list[TopoSpace],
+    cell_graph,
+    design_rules=None,
+    built_systems_out: list | None = None,
 ) -> list[ada.Part]:
     """Wire each system's equipment ports then drive both engine phases with the
     ``design_rules`` ruleset (plan the routes, plan the penetrations, model the
@@ -379,7 +384,13 @@ def _build_systems(
     Penetrations part when systems cross built walls). Specs that can't be wired
     (missing equipment/port) are skipped here; runs that can't be routed are
     skipped inside the engine (``skip_failed=True``) — so one bad run doesn't
-    sink the whole compile."""
+    sink the whole compile.
+
+    ``built_systems_out``, when given, is extended in place with the wired
+    ``ada.api.systems.System`` objects (ports connected, ``route_geometry``
+    populated) — the caller's hook for registering them on ``Assembly.systems``,
+    which this function has no assembly to reach. Optional and additive so the
+    two direct test callers of this private function are unaffected."""
     from ada.config import logger
     from ada.topology import run_design
 
@@ -393,6 +404,9 @@ def _build_systems(
 
     # Phase 0: wire ports (spec -> connected System).
     built_systems = _wire_systems(specs, equipment_map)
+
+    if built_systems_out is not None:
+        built_systems_out.extend(built_systems)
 
     if not built_systems:
         return []

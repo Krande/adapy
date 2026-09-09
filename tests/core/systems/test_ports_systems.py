@@ -36,6 +36,79 @@ def test_port_coercion_and_global_position():
     assert tuple(port.get_global_position()) == (1.5, 2.0, 4.0)
 
 
+def test_port_process_identity_fields_default_to_empty():
+    port = ada.Port("out", (0, 0, 0), (0, 0, 1))
+    assert port.tag is None
+    assert port.nominal_diameter is None
+    assert port.spec is None
+    assert port.metadata == {}
+    # each Port gets its own metadata dict, not a shared class-level one
+    port.metadata["line"] = "100-PL-001"
+    assert ada.Port("in", (0, 0, 0), (0, 0, 1)).metadata == {}
+
+
+def test_port_positional_construction_still_works():
+    """The process-identity fields were appended after ``guid``, so every
+    pre-existing positional call site keeps its meaning."""
+    port = ada.Port("out", (0, 0, 1), (0, 0, 1), ada.PortDirection.OUT, "electrical")
+    assert (port.name, port.direction, port.category) == ("out", ada.PortDirection.OUT, "electrical")
+    assert tuple(port.position) == (0.0, 0.0, 1.0)
+    assert port.tag is None
+    # ... and the repr is unchanged by the additions
+    assert repr(port) == "Port('out', category='electrical', direction=OUT, parent=None, connected_system=None)"
+
+
+def test_port_carries_source_identity():
+    port = ada.Port("N1", (0, 0, 1), (0, 0, 1), tag="V-201-N1", nominal_diameter=0.15, spec="CS150")
+    assert (port.tag, port.nominal_diameter, port.spec) == ("V-201-N1", 0.15, "CS150")
+
+
+def test_equipment_forwards_metadata_and_guid_to_root():
+    eq = ada.Equipment(
+        "V-201", 1.0, (0, 0, 0), (0, 0, 0), 1, 1, 1, tag="V-201", metadata={"source": "unit"}, guid="0" * 22
+    )
+    assert eq.guid == "0" * 22
+    assert eq.metadata == {"source": "unit"}
+    assert eq.tag == "V-201"
+    # omitting them keeps the pre-existing behaviour: a fresh guid, empty metadata
+    plain = ada.Equipment("e", 1.0, (0, 0, 0), (0, 0, 0), 1, 1, 1)
+    assert plain.guid and plain.guid != eq.guid
+    assert plain.metadata == {} and plain.tag is None
+
+
+def test_all_ports_includes_nested_equipment():
+    """A vessel's sub-compartment hangs its own nozzles one level down; the
+    vessel's full nozzle list must include them."""
+    vessel = ada.Equipment("V-201", 1.0, (0, 0, 0), (0, 0, 0), 2, 2, 5)
+    vessel.add_port(ada.Port("inlet", (0, 0, 5), (0, 0, 1), ada.PortDirection.IN))
+    boot = ada.Equipment("V-201-BOOT", 1.0, (0, 0, 0), (0, 0, -1), 1, 1, 1)
+    boot.add_port(ada.Port("water_out", (0, 0, -1), (0, 0, -1), ada.PortDirection.OUT))
+    vessel / boot
+
+    assert [p.name for p in vessel.all_ports()] == ["inlet", "water_out"]
+    assert [p.name for p in vessel.all_ports(include_nested=False)] == ["inlet"]
+    assert [p.name for p in vessel.ports] == ["inlet"]
+
+
+def test_system_segments_default_empty_and_record_components():
+    from ada.api.systems import SystemSegment
+
+    sys1 = ada.PipingSystem("CW")
+    assert sys1.segments == []
+
+    pump = _pump()
+    seg = SystemSegment("100/1", from_port=pump.get_port("discharge"), to_port=None)
+    assert (seg.name, seg.to_port) == ("100/1", None)
+    assert seg.components == [] and seg.metadata == {}
+
+    seg.components.append({"class": "BallValve", "tag": "HV-101"})
+    sys1.segments.append(seg)
+    assert [s.name for s in sys1.segments] == ["100/1"]
+    # a second segment starts from its own empty component list
+    assert SystemSegment("100/2").components == []
+    assert ada.SystemSegment is SystemSegment
+
+
 def test_get_port_lists_available_names():
     pump = _pump()
     with pytest.raises(KeyError, match="suction"):
@@ -151,6 +224,11 @@ def test_code_specs_are_catalog_shaped():
     assert eq_specs["switchboard"]["doc"]["ifc_element_class"] == "IfcElectricDistributionBoard"
     for s in eq_specs.values():
         validate_equipment_doc(s["doc"])  # raises on invalid
+    # a code archetype and a catalog doc must expose the same port shape, so the
+    # process-identity fields are advertised even when the archetype leaves them unset
+    pump_port = eq_specs["pump"]["doc"]["ports"][0]
+    assert {"tag", "nominal_diameter", "spec"} <= set(pump_port)
+    assert (pump_port["tag"], pump_port["nominal_diameter"], pump_port["spec"]) == (None, None, None)
 
     assert list_system_types() == ["piping", "duct", "cable", "electrical"]
     sys_specs = {s["slug"]: s for s in system_type_specs()}

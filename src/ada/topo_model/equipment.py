@@ -282,6 +282,9 @@ def equipment_archetype_specs() -> list[dict]:
                             "direction_vector": [float(v) for v in p.direction_vector],
                             "direction": p.direction.value,
                             "category": p.category,
+                            "tag": p.tag,
+                            "nominal_diameter": p.nominal_diameter,
+                            "spec": p.spec,
                         }
                         for p in eq.ports
                     ],
@@ -324,6 +327,7 @@ def build_equipment_from_catalog(
     eq = ada.Equipment(name, mass, cog=cog, origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class=ifc_class)
     for spec in catalog_doc.get("ports") or []:
         direction = _PORT_DIRECTIONS.get(str(spec.get("direction", "INOUT")).upper(), PortDirection.INOUT)
+        nominal_diameter = spec.get("nominal_diameter")
         eq.add_port(
             Port(
                 spec["name"],
@@ -331,6 +335,9 @@ def build_equipment_from_catalog(
                 tuple(spec.get("direction_vector", (0, 0, 1))),
                 direction,
                 spec.get("category", "process"),
+                tag=spec.get("tag"),
+                nominal_diameter=float(nominal_diameter) if nominal_diameter is not None else None,
+                spec=spec.get("spec"),
             )
         )
     if add_body:

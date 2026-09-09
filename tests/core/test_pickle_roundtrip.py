@@ -25,6 +25,34 @@ def test_pickle_roundtrip(tmp_path):
     assert b is not a
 
 
+def test_pickle_roundtrip_keeps_the_dexpi_store(tmp_path):
+    """``_dexpi_store`` holds an ``xml.etree.ElementTree`` element on ``DexpiItem.raw``, which
+    pickles fine on its own -- checked explicitly rather than assumed, per a plain ``ET.Element``
+    round-tripping cleanly through ``pickle`` in general but this repo never having exercised it
+    hanging off an Assembly before."""
+    import xml.etree.ElementTree as ET
+
+    from ada.cadit.dexpi.canonical import canonicalize
+    from ada.cadit.dexpi.model import DexpiDocument, DexpiHeader, DexpiItem, ItemKind
+
+    doc = DexpiDocument(header=DexpiHeader(project="p"))
+    doc.add(
+        DexpiItem(
+            id="Tank-1", class_name="Tank", kind=ItemKind.EQUIPMENT, raw=ET.fromstring("<Equipment ID='Tank-1'/>")
+        )
+    )
+
+    a = ada.Assembly("a")
+    a.dexpi_store = doc
+
+    out = a.to_pickle(tmp_path / "asm_dexpi.pkl")
+    b = ada.from_pickle(out)
+
+    assert b.dexpi_store is not None
+    assert b.dexpi_store is not doc  # fresh deep copy, like the rest of the reloaded assembly
+    assert canonicalize(b.dexpi_store) == canonicalize(doc)
+
+
 def test_from_pickle_rejects_non_assembly(tmp_path):
     import pickle
 

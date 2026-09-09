@@ -604,15 +604,26 @@ class ProceduralBuilder:
     def build_systems(self) -> None:
         """Wire each system's ports, route the runs over the model grid and model
         the penetrations where a run crosses a built wall/deck; add the resulting
-        ``Systems`` (and ``Penetrations``) parts to the assembly. No-op when there
-        are no systems."""
+        ``Systems`` (and ``Penetrations``) parts to the assembly, and register the
+        wired ``ada.api.systems.System`` objects on ``self.assembly.systems`` (the
+        IFC writer's ``write_ifc_systems`` reads that list to name/group the
+        ``IfcDistributionSystem`` and connect its endpoint ports — without it the
+        systems the compiler routed are geometry only, invisible to IFC export).
+        No-op when there are no systems."""
         spec_doc = {
             "systems": [s.model_dump() for s in self.systems],
             "no_go_walls": self.no_go_walls,
         }
+        built_systems: list = []
         self.systems_parts = _build_systems(
-            spec_doc, self.equipment_map, self.spaces, self.cell_graph, self.design_rules
+            spec_doc,
+            self.equipment_map,
+            self.spaces,
+            self.cell_graph,
+            self.design_rules,
+            built_systems_out=built_systems,
         )
+        self.assembly.systems.extend(built_systems)
         for part in self.systems_parts:
             self.assembly.add_part(part)
 

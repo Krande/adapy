@@ -48,8 +48,10 @@ from ada.api.systems import (
     Port,
     PortDirection,
     System,
+    SystemSegment,
     Voltage,
 )
+from ada.api.systems.model import SystemModel
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
@@ -90,7 +92,9 @@ configure_logger()
 
 
 from ada.factories import (  # noqa: E402 - imported after the API symbols the factories use
+    dexpi_to_procedural,
     from_acis,
+    from_dexpi,
     from_fem,
     from_fem_res,
     from_genie_xml,
@@ -104,6 +108,7 @@ from ada.factories import (  # noqa: E402 - imported after the API symbols the f
 __all__ = [
     "Assembly",
     "Part",
+    "SystemModel",
     "Connection",
     "FEM",
     "from_ifc",
@@ -114,6 +119,8 @@ __all__ = [
     "from_acis",
     "from_pickle",
     "from_genie_xml",
+    "from_dexpi",
+    "dexpi_to_procedural",
     "from_fem_res",
     "logger",
     "Beam",
@@ -153,6 +160,7 @@ __all__ = [
     "Port",
     "PortDirection",
     "System",
+    "SystemSegment",
     "PipingSystem",
     "DuctSystem",
     "CableSystem",

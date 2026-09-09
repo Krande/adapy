@@ -7,7 +7,14 @@ from __future__ import annotations
 
 import copy
 
-from ada.topo_model.relocate import propose_relocations, run_self_collides
+import pytest
+
+from ada.topo_model.relocate import (
+    apply_relocations,
+    propose_relocations,
+    relocate_doc,
+    run_self_collides,
+)
 
 
 def _eq(name, desc, x, y, z, lx, ly, lz, space="Room"):
@@ -30,16 +37,11 @@ def _eq(name, desc, x, y, z, lx, ly, lz, space="Room"):
     }
 
 
-def _apply(doc: dict, proposals: list[dict]) -> dict:
-    """Apply the relocation proposals to a copy of ``doc`` — moving each named
-    equipment so its origin (X+LX/2, Y+LY/2, Z) lands on the proposed ``to``."""
-    out = copy.deepcopy(doc)
-    by_name = {e["NAME"]: e for e in out["equipments"]}
-    for p in proposals:
-        e = by_name[p["equipment"]]
-        e["X"] = p["to"][0] - e["LX"] / 2
-        e["Y"] = p["to"][1] - e["LY"] / 2
-    return out
+#: This used to be a private helper here, inverting the origin convention by hand. It is now
+#: ``relocate.apply_relocations``; the alias keeps the existing tests reading the same, and the two
+#: agreeing is worth something -- the public function adds the origin *delta* to X/Y rather than
+#: reconstructing the corner from ``to``, and these tests pin that the answers match.
+_apply = apply_relocations
 
 
 # --------------------------------------------------------------------------- #
@@ -146,3 +148,136 @@ def test_clean_doc_gets_no_proposals():
     assert result["baseline_problems"] == 0
     assert result["proposals"] == []
     assert result["unresolved"] == []
+
+
+# --------------------------------------------------------------------------- #
+# (d) applying proposals, and the loop that closes back onto the layout
+# --------------------------------------------------------------------------- #
+def test_apply_relocations_does_not_mutate_the_input():
+    doc = _cramped_doc()
+    before = copy.deepcopy(doc)
+    result = propose_relocations(doc)
+
+    apply_relocations(doc, result["proposals"])
+
+    assert doc == before, "apply_relocations must return a copy, never edit in place"
+
+
+def test_apply_relocations_moves_the_origin_exactly_where_proposed():
+    """The document places equipment by its corner and a proposal names its origin; the two differ
+    by a constant half-extent, so applying the delta must land the origin on ``to``."""
+    doc = _cramped_doc()
+    result = propose_relocations(doc)
+    proposal = result["proposals"][0]
+
+    moved = apply_relocations(doc, result["proposals"])
+    row = next(e for e in moved["equipments"] if e["NAME"] == proposal["equipment"])
+
+    assert row["X"] + row["LX"] / 2 == pytest.approx(proposal["to"][0])
+    assert row["Y"] + row["LY"] / 2 == pytest.approx(proposal["to"][1])
+
+
+def test_an_unknown_equipment_name_is_skipped_not_raised():
+    """A proposal list can outlive an edit to the document; dropping a stale move beats refusing
+    the rest of them."""
+    doc = _cramped_doc()
+    stale = [{"equipment": "NoSuchPump", "from": [0, 0, 0], "to": [5, 0, 0]}]
+
+    assert apply_relocations(doc, stale)["equipments"] == doc["equipments"]
+
+
+def test_relocate_doc_clears_the_runs_that_did_not_route():
+    """The feedback edge itself: plan, route, move what did not fit, route again."""
+    doc = _cramped_doc()
+    assert propose_relocations(doc)["baseline_problems"] >= 1
+
+    moved, record = relocate_doc(doc)
+
+    assert record["applied"], "nothing was applied, so nothing was fed back"
+    assert record["baseline_problems"] >= 1
+    assert record["unresolved"] == []
+    assert propose_relocations(moved)["baseline_problems"] == 0
+
+
+def test_relocate_doc_leaves_a_clean_document_alone():
+    """A model that already routes costs one probe and no moves."""
+    doc = {
+        "spaces": [{"NAME": "Room", "X": 0, "Y": 0, "Z": 0, "DX": 20, "DY": 20, "DZ": 5}],
+        "equipments": [
+            _eq("PumpA", "pump", 3, 3, 0, 1, 1, 1),
+            _eq("PumpB", "pump", 12, 12, 0, 1, 1, 1),
+        ],
+        "systems": [
+            {
+                "NAME": "Cool",
+                "TYPE": "duct",
+                "MEDIUM": "air",
+                "CONNECTIONS": [
+                    {"EQUIPMENT": "PumpA", "PORT": "suction"},
+                    {"EQUIPMENT": "PumpB", "PORT": "suction"},
+                ],
+            }
+        ],
+    }
+
+    moved, record = relocate_doc(doc)
+
+    assert record["applied"] == []
+    assert record["passes"] == 1
+    assert moved == doc
+
+
+def test_relocate_doc_never_mutates_the_document_it_was_given():
+    doc = _cramped_doc()
+    before = copy.deepcopy(doc)
+
+    relocate_doc(doc)
+
+    assert doc == before
+
+
+# --------------------------------------------------------------------------- #
+# (e) the probe has to agree with the compiler, or it proposes nothing
+# --------------------------------------------------------------------------- #
+def test_the_probe_grid_carries_the_port_lines_the_compiler_inserts():
+    """This is the difference between the loop working and silently doing nothing.
+
+    ``_route_and_collect`` mirrors the routing half of ``compile._build_systems``. It used to skip
+    ``_augment_grid_with_ports``, which made it strictly *more permissive* than the compiler: it
+    reported a model as routing cleanly that the compiler then failed to route, so
+    ``propose_relocations`` found no baseline problems and proposed nothing.
+
+    Asserted against a bare ``_routing_grid`` rather than against a routing outcome on purpose: a
+    fixture cramped enough to fail in *both* probes cannot tell the two apart, so an outcome-based
+    assertion here is vacuous. This compares the grids directly.
+    """
+    from ada.topo_model.compile import _routing_grid, _wire_systems
+    from ada.topo_model.relocate import _build_equipment_map, _probe_grid
+    from ada.topology.entities import TopoEquipment, TopoSpace
+
+    # Equipment deliberately placed OFF the 0.5 m lattice, because that is the only case where
+    # augmentation changes anything: a port that already lands on a grid line needs no new line,
+    # which is why the cramped fixture above cannot tell the two grids apart.
+    doc = _cramped_doc()
+    doc["equipments"] = [
+        _eq("PumpA", "pump", 2.3, 5.1, 0, 1, 1, 1),
+        _eq("PumpB", "pump", 3.3, 5.1, 0, 1, 1, 1),
+    ]
+    spaces = [TopoSpace(**s) for s in doc["spaces"]]
+    equipments = [TopoEquipment(**e) for e in doc["equipments"]]
+    positions = {e.NAME: (float(e.X), float(e.Y)) for e in equipments}
+
+    equipment_map = _build_equipment_map(equipments, positions, None)
+    systems = _wire_systems(doc["systems"], _build_equipment_map(equipments, positions, None))
+    assert systems, "fixture no longer wires; every assertion below would be vacuous"
+
+    bare = _routing_grid(spaces, list(equipment_map.values()))
+    probed = _probe_grid(spaces, equipment_map, systems)
+
+    def lines(grid):
+        return (len(grid.x_list), len(grid.y_list), len(grid.z_list))
+
+    assert lines(probed) > lines(bare), "the probe grid gained no port lines over a bare routing grid"
+    # And occupancy is stamped on it, so the blocking covers those new lines rather than
+    # leaving them as a free corridor through an equipment box.
+    assert probed.occupancy, "the probe grid carries no occupancy at all"
