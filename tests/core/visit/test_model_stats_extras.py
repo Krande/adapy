@@ -122,3 +122,87 @@ def test_the_take_off_is_computed_once_per_converter(small_assembly):
         takeoff_mod.model_takeoff = real
 
     assert calls["n"] == 1
+
+
+# -- the procedural document ----------------------------------------------------------------------
+#
+# The viewer's "Procedural equipment"/"Procedural system" panels read the cellbuilder store, which
+# was only ever filled by a REST call. On the websocket path they rendered nothing, even though the
+# document that answers them is what the assembly was compiled from. It rides in the GLB now.
+
+
+def _procedural_assembly() -> ada.Assembly:
+    """A tiny procedural model, compiled the way any caller would."""
+    from ada.topo_model.compile import build_procedural_assembly
+
+    doc = {
+        "spaces": [{"NAME": "Deck1", "X": 0, "Y": 0, "Z": 0, "DX": 12, "DY": 8, "DZ": 4}],
+        "equipments": [
+            {
+                "NAME": "P-101",
+                "DESCRIPTION": "pump",
+                "SPACE_NAME": "Deck1",
+                "SPACE_LOC": "FLOOR",
+                "X": 2,
+                "Y": 2,
+                "Z": 0,
+                "LX": 1,
+                "LY": 1,
+                "LZ": 1,
+                "COGx": 0,
+                "COGy": 0,
+                "COGz": 0.5,
+                "massDry": 100,
+                "massCont": 0,
+            }
+        ],
+        "systems": [],
+    }
+    return build_procedural_assembly(doc, name="ProceduralModel")
+
+
+def test_the_compiler_keeps_the_document_it_built_from():
+    """Stamped at the one entry every procedural build goes through, so it is not a favour to any
+    one importer."""
+    assembly = _procedural_assembly()
+
+    doc = assembly.metadata["procedural_doc"]
+    assert [row["NAME"] for row in doc["equipments"]] == ["P-101"]
+
+
+def test_glb_carries_the_procedural_document():
+    """What the panels need -- which equipment a body belongs to, its space, size and masses -- is
+    only in the document; the GLB is triangles and names."""
+    glb = SceneConverter(_procedural_assembly(), RenderParams()).build_glb()
+
+    doc = asset_extras(glb).get("procedural_doc")
+    assert doc is not None, "the panels have nothing to read"
+    assert [row["NAME"] for row in doc["equipments"]] == ["P-101"]
+    assert doc["equipments"][0]["SPACE_NAME"] == "Deck1"
+
+
+def test_embed_procedural_doc_false_leaves_it_out():
+    glb = SceneConverter(_procedural_assembly(), RenderParams(embed_procedural_doc=False)).build_glb()
+
+    assert "procedural_doc" not in asset_extras(glb)
+
+
+def test_an_assembly_with_no_procedural_provenance_carries_no_document(small_assembly):
+    """An IFC import or a hand-built model has none, and must not grow an empty one."""
+    glb = SceneConverter(small_assembly, RenderParams()).build_glb()
+
+    assert "procedural_doc" not in asset_extras(glb)
+
+
+def test_a_document_that_will_not_serialise_never_breaks_the_render(small_assembly):
+    """Panels are a nicety; a render is not allowed to fail for one."""
+
+    class Unserialisable:
+        pass
+
+    small_assembly.metadata["procedural_doc"] = {"equipments": [Unserialisable()]}
+
+    glb = SceneConverter(small_assembly, RenderParams()).build_glb()
+
+    # It renders, and the un-encodable document is simply absent rather than half-written.
+    assert glb_json(glb) is not None

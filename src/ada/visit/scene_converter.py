@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, OrderedDict
 
@@ -69,6 +70,11 @@ class SceneConverter:
     # no take-off is not recomputed on every export.
     _model_stats: dict | None = field(default=None, init=False, repr=False)
     _model_stats_done: bool = field(default=False, init=False, repr=False)
+
+    # Memoised procedural document (``asset.extras["procedural_doc"]``), same
+    # ``_done`` reasoning as the take-off above.
+    _procedural_doc: dict | None = field(default=None, init=False, repr=False)
+    _procedural_doc_done: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
@@ -315,6 +321,10 @@ class SceneConverter:
             model_stats = self.build_model_stats()
             if model_stats is not None:
                 extras_updates["model_stats"] = model_stats
+        if self.params.embed_procedural_doc:
+            procedural_doc = self.build_procedural_doc()
+            if procedural_doc is not None:
+                extras_updates["procedural_doc"] = procedural_doc
         explicit_extras = self.params.gltf_asset_extras_dict
         if explicit_extras is not None:
             # An explicit extras dict wins over the computed take-off, so a
@@ -325,6 +335,43 @@ class SceneConverter:
             extras = asset.get("extras") or {}
             extras.update(extras_updates)
             asset["extras"] = extras
+
+    def build_procedural_doc(self) -> dict | None:
+        """The procedural document this assembly was compiled from, JSON-safe.
+
+        The GLB carries triangles and object names. Which equipment a clicked body belongs to, what
+        space it stands in, its masses and rotation, and which systems touch which of its ports are
+        only in the document the compiler was given -- and those are exactly the rows the viewer's
+        procedural panels display. Carrying it in the GLB is what makes those panels work on a
+        transport with no backend to ask.
+
+        Returns ``None`` for an assembly that was not compiled from a procedural document (an IFC
+        import, a hand-built model), and for one whose document will not serialise -- panels are a
+        nicety and never a reason for a render to fail.
+        """
+        if self._procedural_doc_done:
+            return self._procedural_doc
+
+        self._procedural_doc_done = True
+
+        doc = getattr(self.source, "metadata", None)
+        doc = (doc or {}).get("procedural_doc") if isinstance(doc, dict) else None
+        if not isinstance(doc, dict):
+            return None
+
+        try:
+            safe = _json_safe(doc)
+            # Actually encode it. ``_json_safe`` handles the shapes this document is known to carry
+            # (pydantic entities, numpy scalars) and passes anything else through untouched, so a
+            # value it does not recognise would otherwise raise later -- while trimesh serialises
+            # the whole glTF tree, where the render dies and the cause is unrecognisable.
+            json.dumps(safe)
+        except Exception as exc:  # noqa: BLE001 - never break a render over a panel
+            logger.warning("could not carry the procedural document into the GLB: %s", exc)
+            self._procedural_doc = None
+        else:
+            self._procedural_doc = safe
+        return self._procedural_doc
 
     def build_model_stats(self) -> dict | None:
         """Discipline-organised quantity take-off for a Part/Assembly source.
@@ -363,3 +410,23 @@ class SceneConverter:
     def scene(self) -> trimesh.Scene:
         """Cached scene object."""
         return self._scene
+
+
+def _json_safe(value):
+    """``value`` reduced to something ``json.dumps`` accepts.
+
+    The procedural document is mostly plain data but carries pydantic entities in places (a
+    ``TopoSystem`` per system, for instance), and numpy scalars wherever a coordinate has been
+    through the layout. Both serialise fine once asked; neither does implicitly.
+    """
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return _json_safe(dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    item = getattr(value, "item", None)
+    if callable(item) and hasattr(value, "dtype"):
+        return item()
+    return value

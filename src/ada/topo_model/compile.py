@@ -743,4 +743,11 @@ def build_procedural_assembly(
     builder.build_lofts()
     builder.build_equipment()
     builder.build_systems()
+
+    # Keep the document that produced this assembly on it. The compiled model is triangles and
+    # named objects; which equipment a body came from, what space it stands in, its masses, and
+    # which systems touch it are only in the document -- and the viewer's procedural panels are
+    # built to show exactly that. Stamped here, at the one entry every procedural build goes
+    # through, so it is not a DEXPI-specific favour.
+    builder.assembly.metadata["procedural_doc"] = doc
     return builder.assembly

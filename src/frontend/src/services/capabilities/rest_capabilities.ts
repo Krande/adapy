@@ -12,11 +12,15 @@
 // implementations. The module is cached after the first call.
 
 import type { ModelStats } from "@/utils/stats/modelStats";
+import type { ProceduralDoc } from "@/services/viewerApi";
 import type {
   CapabilityTransport,
   ModelStatsCapability,
   ModelStatsResult,
   ModelStatsSource,
+  ProceduralModelCapability,
+  ProceduralModelResult,
+  ProceduralModelSource,
   StatsExportFormat,
   ViewerCapabilities,
 } from "./types";
@@ -49,7 +53,35 @@ export class RESTModelStatsCapability implements ModelStatsCapability {
   }
 }
 
+
+export class RESTProceduralModelCapability implements ProceduralModelCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  /** The stored model is editable and committable, so the panels stay interactive. */
+  readonly canEdit = true;
+
+  async fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult> {
+    const { scope, modelId } = source;
+    if (!scope || !modelId) return { available: false };
+    try {
+      const { viewerApi } = await import("@/services/viewerApi");
+      const detail = await viewerApi.getProceduralModel(scope, modelId);
+      return { available: Boolean(detail?.doc), doc: detail?.doc ?? null };
+    } catch {
+      // A model that cannot be fetched is reported absent rather than thrown: the panels degrade
+      // to empty, exactly as they do for an assembly that never had a procedural document.
+      return { available: false };
+    }
+  }
+
+  /** The stored model is the authority here; an embedded copy must not race it. */
+  adoptEmbeddedModel(_doc: ProceduralDoc | null): boolean {
+    return false;
+  }
+}
+
 export class RESTCapabilities implements ViewerCapabilities {
   readonly transport: CapabilityTransport = "rest";
   readonly stats: ModelStatsCapability = new RESTModelStatsCapability();
+  readonly procedural: ProceduralModelCapability = new RESTProceduralModelCapability();
 }
