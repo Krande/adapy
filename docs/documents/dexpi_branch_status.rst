@@ -276,6 +276,32 @@ Running the 3D import over the corpus is a second, different gate
     of degree three. All of them already route, as separate two-ended runs into a materialised
     fitting; what does not exist is one ``System`` spanning the junction.
 
+The relocate feedback loop was proposing nothing, and silently
+    ``propose_relocations`` has always known which equipment moves would clear a run that failed to
+    route; nothing fed that back into the layout. Wiring it up (``from_dexpi(relocate=True)``,
+    ``relocate.apply_relocations`` / ``relocate_doc``) turned out to be the easy half.
+
+    The hard half: it proposed **nothing**, on a model the compiler had just failed to route. The
+    engine's own routing probe (``_route_and_collect``) is supposed to mirror
+    ``compile._build_systems``, and it diverged in a way that only ever errs one direction -- it
+    skipped ``_augment_grid_with_ports`` and used a clearance with no margin, so its occupancy did
+    not cover the lines the router would actually use. A port that did not land on the 0.5 m lattice
+    left an un-blocked corridor through an equipment box. The probe therefore reported zero problems
+    where the compiler reported two, and a search that sees no problems proposes no moves.
+
+    Measured, not guessed: on ``C01V01-HEX.EX02`` the compiler fails two runs; the probe found none;
+    adding the port augmentation alone reproduced one of them (the other fails to *wire*, which no
+    routing probe can see and no relocation can fix). With the fix the flagship path goes from two
+    routing failures to one, cleared by a single 0.5 m shift.
+
+    Two traps if you touch this again. First, ``_cramped_doc`` in ``test_relocate.py`` **cannot**
+    tell the two probes apart -- it fails in both -- so an outcome-based assertion there is vacuous
+    and passes with the fix reverted. I wrote that test first and it did exactly that. The grid
+    comparison now used needs equipment placed *off* the lattice, or the two grids come out
+    identical and the test is vacuous again for a second reason. Second, a relocation proposal names
+    equipment *origins* while the document places equipment by its *corner*; apply the delta rather
+    than reconstructing the corner, and the two conventions cannot drift apart.
+
 Process notes for whoever continues this
 -------------------------------------------
 

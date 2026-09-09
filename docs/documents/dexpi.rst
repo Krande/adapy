@@ -212,9 +212,22 @@ is uniform across the whole plan, so leaving it unset makes it "the tallest item
 one 15 m ``ProcessColumn`` would make *every* deck 16 m tall. ``base_doc`` lets a re-import keep
 placements you have already corrected by hand instead of regenerating them.
 
-Once a model is built and routed, :func:`ada.topo_model.relocate.propose_relocations` is the
-existing follow-up tool: it looks at which runs did not route cleanly and proposes the equipment
-moves that would clear them. Plan first with ``from_dexpi``, relocate after.
+Once a model is built and routed, :func:`ada.topo_model.relocate.propose_relocations` looks at
+which runs did not route cleanly and proposes the equipment moves that would clear them. Plan first
+with ``from_dexpi``, relocate after -- or pass ``relocate=True`` and let the import close that loop
+itself: the model is routed, the moves that would clear the failures are computed and applied, and
+it is routed again. Off by default, because a relocation changes where equipment stands; every
+applied move is recorded in ``assembly.metadata["dexpi"]["relocations"]``, naming the runs it was
+made for.
+
+Making that loop work needed a fix in :mod:`~ada.topo_model.relocate` worth knowing about, because
+the symptom was silence rather than an error. The engine's routing probe is meant to mirror the
+compiler's, but it skipped the step that inserts every port coordinate as a grid line before
+occupancy is stamped -- so a port that did not already land on the lattice left an un-blocked
+corridor straight through an equipment box. That made the probe strictly more permissive than the
+compiler: it reported a model as routing cleanly that the compiler then failed to route, found no
+baseline problems, and proposed nothing at all. Its docstring's claim that "routing feasibility
+doesn't depend on the built walls" is right about walls and was wrong about this.
 
 What is modelled, what is not
 --------------------------------

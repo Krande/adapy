@@ -289,3 +289,41 @@ def test_strict_still_raises_for_a_pid_with_nothing_to_lay_out(tmp_path):
 
     with pytest.raises(ValueError, match="no equipment resolved"):
         ada.from_dexpi(path, strict=True)
+
+
+# -- feeding the router's failures back into the layout -------------------------------------------
+
+
+def test_relocate_is_off_by_default_and_records_nothing(tmp_path):
+    """A relocation moves where equipment stands, so it stays an explicit choice."""
+    path = write_unit_pid(tmp_path)
+
+    a = ada.from_dexpi(path, layout=UNIT_LAYOUT)
+
+    assert "relocations" not in a.metadata["dexpi"]
+
+
+def test_relocate_records_every_move_it_applied(tmp_path):
+    """The generated layout packs on footprint alone and cannot know whether the runs will route;
+    ``propose_relocations`` knows exactly which moves would clear a failed run, and nothing fed that
+    back. With ``relocate=True`` the loop closes, and what it did is readable afterwards."""
+    path = write_unit_pid(tmp_path)
+
+    a = ada.from_dexpi(path, layout=UNIT_LAYOUT, relocate=True)
+
+    record = a.metadata["dexpi"]["relocations"]
+    assert set(record) == {"applied", "unresolved", "baseline_problems", "passes"}
+    assert record["passes"] >= 1
+    for move in record["applied"]:
+        assert move["equipment"] and move["from"] != move["to"]
+        assert move["fixes"], "a recorded move must name the runs it was made for"
+
+
+def test_relocate_never_loses_a_system_that_already_routed(tmp_path):
+    """The loop must not trade one cleared run for another broken one."""
+    path = write_unit_pid(tmp_path)
+
+    before = ada.from_dexpi(path, layout=UNIT_LAYOUT)
+    after = ada.from_dexpi(path, layout=UNIT_LAYOUT, relocate=True)
+
+    assert _routed_runs(after) >= _routed_runs(before)

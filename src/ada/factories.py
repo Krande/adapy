@@ -393,6 +393,7 @@ def from_dexpi(
     inline_components: Literal["metadata", "equipment"] = "metadata",
     build_3d: bool = True,
     route: bool = True,
+    relocate: bool | int = False,
     design_rules: str = "standard",
     strict: bool = False,
     cad_config: "CadConfig | None" = None,
@@ -420,6 +421,14 @@ def from_dexpi(
     overrides the shipped class defaults per tag or per class. ``route=False`` places the equipment
     but leaves the systems unrouted. ``inline_components="equipment"`` materialises each in-line
     valve as its own small equipment instead of recording it in the run's metadata.
+
+    ``relocate`` closes the loop between the generated layout and the router. Shelf packing places
+    equipment on footprint alone and cannot know whether the runs between them will route; with
+    ``relocate=True`` (or a pass count) the model is routed, the equipment moves that would clear
+    the runs that failed are computed by :func:`ada.topo_model.relocate.propose_relocations`, those
+    moves are applied and the model is routed again. Off by default, because a relocation changes
+    where equipment stands and that should be an explicit choice; every move that is applied is
+    recorded in ``assembly.metadata["dexpi"]["relocations"]`` so the plan can be read back.
 
     **Nothing is dropped quietly.** The compiler skips an unwireable system and an unroutable run
     with only a log warning, which is how an import comes back looking complete with half the pipes
@@ -465,6 +474,26 @@ def from_dexpi(
         )
         build_3d = False
 
+    relocations: dict | None = None
+    if build_3d and relocate:
+        from ada.topo_model.relocate import relocate_doc
+
+        # design_rules is left None on purpose: ``propose_relocations`` resolves the slug off the
+        # document itself (``doc["design_rules"]``, stamped above), and this parameter takes an
+        # already-resolved ruleset object rather than the slug.
+        doc, relocations = relocate_doc(
+            doc,
+            equipment_resolver=catalog.get,
+            max_passes=2 if relocate is True else max(1, int(relocate)),
+        )
+        if relocations["applied"]:
+            logger.info(
+                "dexpi: relocated %d equipment over %d pass(es) to clear %d unroutable run(s)",
+                len(relocations["applied"]),
+                relocations["passes"],
+                relocations["baseline_problems"],
+            )
+
     if build_3d:
         with _dexpi_build_warnings() as records:
             a = build_procedural_assembly(doc, name=name, equipment_resolver=catalog.get)
@@ -484,6 +513,8 @@ def from_dexpi(
         "reader_warnings": list(dexpi_doc.warnings),
         "report": report.as_dict(),
     }
+    if relocations is not None:
+        a.metadata["dexpi"]["relocations"] = relocations
     if not report.is_clean:
         if strict:
             raise ValueError(f"DEXPI import of {pathlib.Path(path).name}: {report.format()}")
