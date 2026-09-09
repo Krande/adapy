@@ -20,7 +20,24 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "tools"))
+_TOOLS = pathlib.Path(__file__).resolve().parents[3] / "tools"
+
+# SKIPPED AT MODULE LEVEL, before the import below, because the thing it imports is
+# not in the package. The recipe ships `tests` and `files`; `tools/` is not among
+# them, so in a packaged test run this module raises ModuleNotFoundError during
+# COLLECTION -- and a `pytestmark` skip cannot help, because collection has already
+# failed by the time marks are read.
+#
+# Found by the conda-package job on its first run, against this very commit. That is
+# the same fault class the job exists to catch, and this module happened to be an
+# instance of it: a test about the repository, unable to run anywhere else.
+if not (_TOOLS / "localise_feedstock_recipe.py").is_file():
+    pytest.skip(
+        "tests the repository's tools/, which a packaged test run does not ship",
+        allow_module_level=True,
+    )
+
+sys.path.insert(0, str(_TOOLS))
 
 from localise_feedstock_recipe import (  # noqa: E402
     RecipeRewriteError,
