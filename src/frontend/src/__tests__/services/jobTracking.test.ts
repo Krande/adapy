@@ -35,59 +35,70 @@ const { trackJob } = await import("@/services/jobTracking");
 // The poll itself is not exercised here: it needs a fetch and a clock, and the
 // behaviour worth pinning is what lands in the store the instant a caller hands a
 // job over — that is what makes the toast appear at all.
+//
+// EVERY TEST CLEARS UP AFTER ITSELF, and that is load-bearing rather than tidiness.
+// `trackJob` starts a detached poll by design, and on a blip the poll keeps going —
+// so an entry left in the store after the last assertion keeps a 1.5 s timer pending
+// for the full attempt ceiling. Node stays alive while a timer is pending, so the
+// whole suite hangs for 45 minutes instead of exiting. Clearing the entry makes the
+// poll return on its next tick.
 
-function reset(): void {
+function clearAll(): void {
   for (const key of Object.keys(useConversionStore.getState().jobs)) {
     useConversionStore.getState().clearJob(key);
   }
 }
 
-test("a tracked job appears in the store the toast renders from", () => {
-  reset();
+/** Run a body with the store empty before and after. The `after` half is what
+ *  stops the suite hanging; see the note above. */
+function withCleanStore(body: () => void): () => void {
+  return () => {
+    clearAll();
+    try {
+      body();
+    } finally {
+      clearAll();
+    }
+  };
+}
+
+test("a tracked job appears in the store the toast renders from", withCleanStore(() => {
   const key = trackJob({ jobId: "job-1", scopeUrl: "shared", label: "Project tree" });
 
   const entry = useConversionStore.getState().jobs[key];
   assert.ok(entry, "nothing was put in the store, so no toast would appear");
   assert.equal(entry.jobId, "job-1");
-  assert.equal(entry.sourceKey, "Project tree", "the label is what the toast shows");
-});
+  assert.equal(entry.sourceKey, "Project tree", "the label is what the toast shows");}));
 
-test("it starts at queued, not running", () => {
+test("it starts at queued, not running", withCleanStore(() => {
   // The worker may not have picked it up yet. Claiming `running` makes a job
   // waiting for a busy pool look stuck, and a single-seat pool is exactly where
   // jobs wait.
-  reset();
   const key = trackJob({ jobId: "job-2", scopeUrl: "shared", label: "x" });
   const entry = useConversionStore.getState().jobs[key];
   assert.equal(entry.status, "queued");
-  assert.equal(entry.progress, 0);
-});
+  assert.equal(entry.progress, 0);}));
 
-test("two jobs with the same label do not overwrite each other", () => {
+test("two jobs with the same label do not overwrite each other", withCleanStore(() => {
   // The default key is the job id, which is always unique. Keying on the label
   // would make a second run of the same thing replace the first one's toast —
   // and the first job is still running.
-  reset();
   const a = trackJob({ jobId: "job-a", scopeUrl: "shared", label: "Project tree" });
   const b = trackJob({ jobId: "job-b", scopeUrl: "shared", label: "Project tree" });
   assert.notEqual(a, b);
   const jobs = useConversionStore.getState().jobs;
   assert.equal(Object.keys(jobs).length, 2);
   assert.equal(jobs[a].jobId, "job-a");
-  assert.equal(jobs[b].jobId, "job-b");
-});
+  assert.equal(jobs[b].jobId, "job-b");}));
 
-test("a caller may name its own store key", () => {
+test("a caller may name its own store key", withCleanStore(() => {
   // For a caller that wants one toast per logical operation rather than per job —
   // a two-job chain that should read as one piece of work.
-  reset();
   const key = trackJob({ jobId: "job-3", scopeUrl: "shared", label: "Export", storeKey: "e3d:export" });
   assert.equal(key, "e3d:export");
-  assert.equal(useConversionStore.getState().jobs["e3d:export"].jobId, "job-3");
-});
+  assert.equal(useConversionStore.getState().jobs["e3d:export"].jobId, "job-3");}));
 
-test("a derived key is carried when the caller knows it, and empty when it does not", () => {
-  reset();
+test("a derived key is carried when the caller knows it, and empty when it does not", withCleanStore(() => {
   const withKey = trackJob({
     jobId: "job-4",
     scopeUrl: "shared",
@@ -101,14 +112,11 @@ test("a derived key is carried when the caller knows it, and empty when it does 
     useConversionStore.getState().jobs[without].derivedKey,
     "",
     "an unknown derived key must be empty, not undefined — the poll fills it in from the job",
-  );
-});
+  );}));
 
-test("dismissing a tracked job removes it, so the poll has nothing to update", () => {
+test("dismissing a tracked job removes it, so the poll has nothing to update", withCleanStore(() => {
   // The poll reads the entry back on every tick and returns when it is gone. That
   // is how a dismissed toast stops polling without a second cancellation channel.
-  reset();
   const key = trackJob({ jobId: "job-6", scopeUrl: "shared", label: "z" });
   useConversionStore.getState().clearJob(key);
-  assert.equal(useConversionStore.getState().jobs[key], undefined);
-});
+  assert.equal(useConversionStore.getState().jobs[key], undefined);}));

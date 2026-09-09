@@ -43,10 +43,18 @@ export async function pollJobUntilTerminal(
         if (signal.aborted) return;
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         if (signal.aborted) return;
+        // DISMISSAL IS CHECKED BEFORE THE REQUEST, not after it. This check used to
+        // live inside the try, after the fetch -- so it was only reached when the
+        // fetch SUCCEEDED. With the API unreachable, every attempt threw, took the
+        // blip path, and looped: a dismissed toast went on polling for the full
+        // ceiling, 45 minutes, against a server it could not reach. Nothing was
+        // watching the result, and in a test process the pending timer kept node
+        // alive for the same 45 minutes rather than letting the suite exit.
+        if (!useConversionStore.getState().jobs[storeKey]) return;
         try {
             const status = await viewerApi.convertStatus(jobId);
             const prev = useConversionStore.getState().jobs[storeKey];
-            if (!prev) return; // user dismissed it
+            if (!prev) return; // dismissed while this request was in flight
             store.setJob(storeKey, {
                 ...prev,
                 status: status.status,
