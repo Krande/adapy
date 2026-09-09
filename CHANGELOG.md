@@ -2,6 +2,15 @@
 
 
 
+## v0.65.0 (2026-09-09)
+
+### Feature
+
+* feat(viewer): a transport-neutral seam for the Stats panel, so local models populate it (#333)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`6b35c77`](https://github.com/Krande/adapy/commit/6b35c77ebfb88a0556d563c6ae6889cb877f3769))
+
+
 ## v0.64.2 (2026-09-09)
 
 ### Fix
