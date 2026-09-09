@@ -85,7 +85,18 @@ export interface MeResponse {
   projects: Array<{ id: string; slug: string; name: string; role: string }>;
 }
 
-export interface FileEntry {
+/** Present, and "uploading", while the key's presigned upload hasn't
+ * completed (server-side: pending_uploads.py) — a listing row in this state
+ * has no confirmed bytes behind it yet, whatever `size` says. `size` is a
+ * best-effort 0 until either the client's own size hint or a heartbeat says
+ * otherwise; `upload_progress` is absent until at least one heartbeat has
+ * landed. */
+export interface UploadingFields {
+  status: "uploading";
+  upload_progress?: { loaded: number; total: number; updated_at: number | null };
+}
+
+export interface FileEntry extends Partial<UploadingFields> {
   key: string;
   size: number;
 }
@@ -1014,7 +1025,7 @@ export interface DerivedBlob {
   last_modified: string | null;
 }
 
-export interface AdminFileEntry {
+export interface AdminFileEntry extends Partial<UploadingFields> {
   key: string;
   size: number;
   last_modified: string | null;
@@ -1854,6 +1865,12 @@ export const viewerApi = {
   async requestUploadUrl(
     scope: ScopeUrl,
     key: string,
+    /** The file's byte size, if known. Not verified against anything server-
+     * side — it never gates a decision, only seeds the "uploading" row a
+     * second tab or a page reload would otherwise show with no size at all
+     * until the first upload-progress heartbeat arrives. Always known here:
+     * every caller has a `File`, whose `.size` is free to read. */
+    size?: number,
   ): Promise<{
     url: string;
     key: string;
@@ -1872,10 +1889,39 @@ export const viewerApi = {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify(
+          typeof size === "number" ? { key, size } : { key },
+        ),
       },
     );
     return jsonOrThrow(r, `requestUploadUrl(${key})`);
+  },
+
+  /** Heartbeat the browser's own upload-progress event to the server, so a
+   * SECOND tab, a second user, or the same tab after a reload can see real
+   * progress via `GET /files` instead of a bare "uploading" with no number —
+   * the API cannot observe a direct browser→object-store PUT any other way.
+   * Best-effort: swallow failures rather than surface them, since a missed
+   * heartbeat is a slightly stale progress bar, never a broken upload — the
+   * PUT itself does not go through this call at all. */
+  async uploadProgress(
+    scope: ScopeUrl,
+    key: string,
+    loaded: number,
+    total: number,
+  ): Promise<void> {
+    try {
+      await authedFetch(
+        `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/upload-progress`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key, loaded, total }),
+        },
+      );
+    } catch {
+      // Best-effort — see the docstring above.
+    }
   },
 
   /** Request a presigned GET URL for direct, Range-capable download from

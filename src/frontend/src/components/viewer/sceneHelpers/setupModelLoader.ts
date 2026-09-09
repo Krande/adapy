@@ -18,6 +18,8 @@ import {DEFAULT_SOURCE_UP_AXIS, uprightSceneBox, type SourceUpAxis} from "@/util
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {capabilities} from "@/services/capabilities";
+import {useStatsStore} from "@/state/statsStore";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -68,6 +70,18 @@ export async function setupModelLoaderAsync(
     const modelStore = useModelState.getState()
     const optionsStore = useOptionsStore.getState()
     const animationStore = useAnimationStore.getState()
+
+    // The quantity take-off adapy embeds in the GLB itself
+    // (asset.extras.model_stats, written by SceneConverter when the rendered
+    // source is a Part/Assembly). On the websocket path this is the ONLY way
+    // stats can reach the viewer — there is no server to serve the .stats.json
+    // sidecar the hosted viewer fetches. Hand it to the stats capability; the
+    // REST implementation declines it (the server-side sidecar stays the
+    // authority there) and nothing happens, so hosted behaviour is unchanged.
+    const embedded_stats = (gltf as any).parser.json.asset?.extras?.model_stats ?? null;
+    if (capabilities.stats.adoptEmbeddedStats(embedded_stats)) {
+        void useStatsStore.getState().refreshStats();
+    }
 
     // access the raw JSON
     const ada_ext_data = (gltf as any).parser.json.extensions?.ADA_EXT_data;

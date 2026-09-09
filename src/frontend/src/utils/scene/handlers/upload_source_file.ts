@@ -188,9 +188,28 @@ export async function uploadFile(
         // and the error bubbles to the caller — we don't transparently
         // fall back to the buffered path because that would silently
         // 413 on this same request anyway.
-        const presigned = await viewerApi.requestUploadUrl(scope, key);
+        const presigned = await viewerApi.requestUploadUrl(scope, key, file.size);
+        // The server cannot observe this PUT — that is the whole point of a
+        // presigned URL — so the progress event firing right here, in THIS
+        // tab, is the only place real numbers exist. Heartbeat a throttled
+        // copy back so a second tab, a second user, or this same tab after a
+        // reload can see them too (GET /files -> upload_progress), not just a
+        // static "uploading". Throttled rather than every event: XHR fires
+        // progress dozens of times a second on a fast link, and the value a
+        // heartbeat exists to serve — another VIEWER's progress bar — does
+        // not need finer resolution than that.
+        let lastHeartbeatAt = 0;
+        const HEARTBEAT_MIN_INTERVAL_MS = 1000;
+        const heartbeatingOnProgress = (loaded: number, total: number) => {
+            opts?.onProgress?.(loaded, total);
+            const now = Date.now();
+            if (loaded >= total || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
+                lastHeartbeatAt = now;
+                void viewerApi.uploadProgress(scope, key, loaded, total);
+            }
+        };
         await putToPresignedUrl(
-            presigned.url, file, opts?.onProgress, presigned.content_encoding,
+            presigned.url, file, heartbeatingOnProgress, presigned.content_encoding,
         );
         await viewerApi.completeUpload(scope, key);
     } else {

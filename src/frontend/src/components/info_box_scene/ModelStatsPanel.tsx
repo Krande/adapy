@@ -442,6 +442,10 @@ const ModelStatsPanel = () => {
   const closeDetail = useStatsStore((s) => s.closeDetail);
   const setExportMenuOpen = useStatsStore((s) => s.setExportMenuOpen);
   const exportStats = useStatsStore((s) => s.exportStats);
+  // Building the xlsx/csv is a backend job. On the local (websocket) path the
+  // take-off came embedded in the GLB and there is no backend to ask, so the
+  // split-button is hidden rather than shown doing nothing.
+  const canExport = useStatsStore((s) => s.canExport);
 
   React.useEffect(() => {
     if (!open) return;
@@ -475,41 +479,43 @@ const ModelStatsPanel = () => {
           </div>
           <span className="flex-1" />
           {/* export split-button */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setExportMenuOpen(!exportMenuOpen)}
-              aria-haspopup="true"
-              aria-expanded={exportMenuOpen}
-              disabled={exporting}
-              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
-            >
-              <DownloadIcon /> Export <span aria-hidden="true" className="opacity-70">▾</span>
-            </button>
-            {exportMenuOpen && (
-              <div className="absolute right-0 top-[calc(100%+6px)] min-w-40 bg-gray-800 border border-gray-600 rounded-md shadow-xl p-1 z-10">
-                <button
-                  type="button"
-                  onClick={() => void exportStats("xlsx")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
-                >
-                  <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">XLSX</span>
-                  Excel workbook
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void exportStats("csv")}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
-                >
-                  <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">CSV</span>
-                  Comma-separated
-                </button>
-                <div className="text-[11px] text-gray-400 px-2 pt-1.5 mt-1 border-t border-gray-700">
-                  XLSX = whole model · CSV = active tab.
+          {canExport && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                aria-haspopup="true"
+                aria-expanded={exportMenuOpen}
+                disabled={exporting}
+                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold px-2.5 py-1.5 disabled:opacity-60"
+              >
+                <DownloadIcon /> Export <span aria-hidden="true" className="opacity-70">▾</span>
+              </button>
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-[calc(100%+6px)] min-w-40 bg-gray-800 border border-gray-600 rounded-md shadow-xl p-1 z-10">
+                  <button
+                    type="button"
+                    onClick={() => void exportStats("xlsx")}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
+                  >
+                    <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">XLSX</span>
+                    Excel workbook
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void exportStats("csv")}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-700 text-left"
+                  >
+                    <span className="text-[10px] font-bold border border-gray-500 rounded px-1 py-0.5 text-gray-300">CSV</span>
+                    Comma-separated
+                  </button>
+                  <div className="text-[11px] text-gray-400 px-2 pt-1.5 mt-1 border-t border-gray-700">
+                    XLSX = whole model · CSV = active tab.
+                  </div>
                 </div>
-              </div>
             )}
           </div>
+          )}
           <button
             type="button"
             onClick={closeDetail}
