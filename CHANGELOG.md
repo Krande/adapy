@@ -2,6 +2,15 @@
 
 
 
+## v0.67.0 (2026-09-09)
+
+### Feature
+
+* feat: source-node write route, plugin-job cron, admin job cancel, named CI bots (#330)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`939c777`](https://github.com/Krande/adapy/commit/939c77769e6bce1fe7360473841e8c170272d6fb))
+
+
 ## v0.66.0 (2026-09-09)
 
 ### Feature
