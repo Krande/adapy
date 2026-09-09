@@ -8,6 +8,15 @@ import {
     viewerApi,
 } from "@/services/viewerApi";
 
+import PluginOptionsForm from "./PluginOptionsForm";
+import {
+    PluginJobOption,
+    PluginOptionValue,
+    buildOptionValues,
+    declaredOptions,
+    pickUndeclaredOptions,
+    seedOptionValues,
+} from "./pluginOptionFields";
 import {parseScheduleOptions} from "./pluginScheduleOptions";
 import {CRON_PRESETS, fmtRelative, fmtTimestamp} from "./scheduleFormat";
 
@@ -31,6 +40,115 @@ function errText(e: unknown, fallback: string): string {
     if (e instanceof ApiError) return e.detail || e.message;
     return (e as Error)?.message || fallback;
 }
+
+/** Form state for a schedule's options, in whichever of the two shapes is live.
+ *
+ * TWO SHAPES, NOT ONE. Fields are what an admin should see: the plugin declares
+ * its options, so the panel can offer dropdowns and checkboxes instead of asking
+ * someone to know a key vocabulary and write JSON. But the fields cannot be the
+ * only way in — a plugin may accept options it has not declared, the panel's
+ * plugin list only covers workers that are online right now, and a schedule
+ * written before a declaration existed must still be editable. So raw JSON stays,
+ * one button away, and switching between the two carries the document across.
+ */
+function useOptionsEditor(decls: PluginJobOption[], existing?: Record<string, unknown>) {
+    const [mode, setMode] = useState<"form" | "raw">(decls.length ? "form" : "raw");
+    const [values, setValues] = useState<Record<string, PluginOptionValue>>(() =>
+        seedOptionValues(decls, existing),
+    );
+    const [extras, setExtras] = useState<Record<string, unknown>>(() =>
+        pickUndeclaredOptions(decls, existing),
+    );
+    const [rawText, setRawText] = useState(() => JSON.stringify(existing ?? {}, null, 2));
+
+    // Re-seed when the SELECTED PLUGIN changes, which is what changes the
+    // declaration. Keyed on the declaration rather than on `decls` identity: the
+    // spec list is refetched, so the array is a new object each time while saying
+    // the same thing, and reseeding on that would wipe the form under the admin.
+    const declKey = useMemo(() => JSON.stringify(decls.map((d) => [d.name, d.type])), [decls]);
+    useEffect(() => {
+        setValues(seedOptionValues(decls, existing));
+        setExtras(pickUndeclaredOptions(decls, existing));
+        setMode(decls.length ? "form" : "raw");
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [declKey]);
+
+    const built = mode === "form" ? buildOptionValues(decls, values, extras) : parseScheduleOptions(rawText);
+
+    const toggle = useCallback(() => {
+        if (mode === "form") {
+            // Carry what the fields say into the text, so "edit as JSON" starts
+            // from the document being built rather than from a stale one.
+            const b = buildOptionValues(decls, values, extras);
+            if (!("error" in b)) setRawText(JSON.stringify(b.options, null, 2));
+            setMode("raw");
+            return;
+        }
+        const parsed = parseScheduleOptions(rawText);
+        if (!("error" in parsed)) {
+            setValues(seedOptionValues(decls, parsed.options));
+            // Anything hand-written that no field covers survives the trip back.
+            setExtras(pickUndeclaredOptions(decls, parsed.options));
+        }
+        setMode("form");
+    }, [mode, decls, values, extras, rawText]);
+
+    return {mode, values, setValues, rawText, setRawText, extras, built, toggle, hasDecls: decls.length > 0};
+}
+
+type OptionsEditor = ReturnType<typeof useOptionsEditor>;
+
+const OptionsBlock: React.FC<{decls: PluginJobOption[]; editor: OptionsEditor; rows?: number}> = ({
+    decls,
+    editor,
+    rows = 3,
+}) => {
+    const {mode, values, setValues, rawText, setRawText, extras, built, toggle, hasDecls} = editor;
+    const extraKeys = Object.keys(extras);
+    return (
+        <div className="w-full flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-300">Options</span>
+                {hasDecls ? (
+                    <button
+                        type="button"
+                        onClick={toggle}
+                        className="text-[11px] text-blue-300 hover:text-blue-200 underline"
+                    >
+                        {mode === "form" ? "edit as JSON" : "back to fields"}
+                    </button>
+                ) : (
+                    <span className="text-[11px] text-gray-500">
+                        this plugin advertises no options, so they go in as JSON
+                    </span>
+                )}
+            </div>
+            {mode === "form" ? (
+                <PluginOptionsForm decls={decls} values={values} onChange={setValues}/>
+            ) : (
+                <textarea
+                    value={rawText}
+                    onChange={(e) => setRawText(e.target.value)}
+                    rows={rows}
+                    spellCheck={false}
+                    className={`${INPUT} font-mono w-full text-xs`}
+                />
+            )}
+            {mode === "form" && extraKeys.length > 0 && (
+                // Said out loud, because they are being sent and no field shows
+                // them: silence here reads as "those options are gone".
+                <div className="text-[11px] text-gray-500">
+                    kept as written: {extraKeys.join(", ")}
+                </div>
+            )}
+            {"error" in built && (
+                <div className="text-[11px] text-amber-300" role="alert">
+                    options: {built.error}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const INPUT = "bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100";
 
@@ -106,13 +224,21 @@ const NewScheduleForm: React.FC<{
     const [cronExpr, setCronExpr] = useState("0 * * * *");
     const [scope, setScope] = useState("shared");
     const [pluginId, setPluginId] = useState("");
-    const [optionsText, setOptionsText] = useState("{}");
     const [capability, setCapability] = useState("");
     const [enabled, setEnabled] = useState(true);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
-    const parsed = useMemo(() => parseScheduleOptions(optionsText), [optionsText]);
+    // The declaration belongs to the plugin the admin has chosen. Matched on the
+    // typed id rather than on a selection, because the field accepts ids the
+    // picker does not list — one of those simply gets no fields, which is the
+    // same position every plugin was in before any of them declared anything.
+    const decls = useMemo(
+        () => declaredOptions(plugins.find((pl) => pl.slug === pluginId.trim())),
+        [plugins, pluginId],
+    );
+    const editor = useOptionsEditor(decls);
+    const parsed = editor.built;
     const optionsError = "error" in parsed ? parsed.error : null;
 
     const onSubmit = useCallback(
@@ -210,23 +336,7 @@ const NewScheduleForm: React.FC<{
                 />
                 <span>Enabled</span>
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1 w-full">
-                <span>
-                    Options <span className="text-gray-500">(JSON, handed to the plugin verbatim)</span>
-                </span>
-                <textarea
-                    value={optionsText}
-                    onChange={(e) => setOptionsText(e.target.value)}
-                    rows={3}
-                    spellCheck={false}
-                    className={`${INPUT} font-mono w-full text-xs`}
-                />
-            </label>
-            {optionsError && (
-                <div className="w-full text-xs text-amber-300" role="alert">
-                    options: {optionsError}
-                </div>
-            )}
+            <OptionsBlock decls={decls} editor={editor}/>
             <button
                 type="submit"
                 disabled={busy || optionsError !== null}
@@ -251,18 +361,27 @@ const NewScheduleForm: React.FC<{
  * loses the firing history the row carries. */
 const EditForm: React.FC<{
     schedule: PluginJobSchedule;
+    plugins: BackendPluginSpec[];
     projects: AdminProject[];
     onDone: () => void;
     onCancel: () => void;
-}> = ({schedule, projects, onDone, onCancel}) => {
+}> = ({schedule, plugins, projects, onDone, onCancel}) => {
     const [cronExpr, setCronExpr] = useState(schedule.cron_expr);
     const [scope, setScope] = useState(schedule.scope);
     const [capability, setCapability] = useState(schedule.capability ?? "");
-    const [optionsText, setOptionsText] = useState(() => JSON.stringify(schedule.options ?? {}, null, 2));
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
-    const parsed = useMemo(() => parseScheduleOptions(optionsText), [optionsText]);
+    // A schedule may outlive the worker that served it, so the declaration can be
+    // missing here even though the row is perfectly valid. That falls back to raw
+    // JSON rather than to an empty form, which would look like a schedule with no
+    // options at all.
+    const decls = useMemo(
+        () => declaredOptions(plugins.find((pl) => pl.slug === schedule.plugin_id)),
+        [plugins, schedule.plugin_id],
+    );
+    const editor = useOptionsEditor(decls, schedule.options ?? {});
+    const parsed = editor.built;
     const optionsError = "error" in parsed ? parsed.error : null;
 
     const save = useCallback(
@@ -312,21 +431,7 @@ const EditForm: React.FC<{
                     className={`${INPUT} font-mono w-40`}
                 />
             </label>
-            <label className="text-xs text-gray-300 flex flex-col gap-1 w-full">
-                <span>Options (JSON)</span>
-                <textarea
-                    value={optionsText}
-                    onChange={(e) => setOptionsText(e.target.value)}
-                    rows={4}
-                    spellCheck={false}
-                    className={`${INPUT} font-mono w-full text-xs`}
-                />
-            </label>
-            {optionsError && (
-                <div className="w-full text-[11px] text-amber-300" role="alert">
-                    options: {optionsError}
-                </div>
-            )}
+            <OptionsBlock decls={decls} editor={editor} rows={4}/>
             {err && (
                 <div className="w-full text-[11px] text-red-400" role="alert">
                     {err}
@@ -355,9 +460,10 @@ const EditForm: React.FC<{
 
 const ScheduleRow: React.FC<{
     schedule: PluginJobSchedule;
+    plugins: BackendPluginSpec[];
     projects: AdminProject[];
     onChanged: () => void;
-}> = ({schedule, projects, onChanged}) => {
+}> = ({schedule, plugins, projects, onChanged}) => {
     const [busy, setBusy] = useState<string | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [note, setNote] = useState<string | null>(null);
@@ -490,6 +596,7 @@ const ScheduleRow: React.FC<{
             {editing && (
                 <EditForm
                     schedule={schedule}
+                    plugins={plugins}
                     projects={projects}
                     onDone={() => {
                         setEditing(false);
@@ -558,7 +665,7 @@ const PluginJobSchedulesSection: React.FC = () => {
                 </div>
             )}
             {schedules.map((s) => (
-                <ScheduleRow key={s.id} schedule={s} projects={projects} onChanged={load}/>
+                <ScheduleRow key={s.id} schedule={s} plugins={plugins} projects={projects} onChanged={load}/>
             ))}
         </div>
     );
