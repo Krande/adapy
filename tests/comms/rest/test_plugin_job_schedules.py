@@ -84,6 +84,21 @@ def app_client(tmp_path: pathlib.Path):
         yield client
 
 
+@pytest.fixture
+def pg_client(tmp_path: pathlib.Path):
+    """A client whose app has a real database, so the admin routes work.
+
+    Separate from ``app_client`` rather than parameterised: most of this file is
+    about behaviour that does NOT need Postgres, and it should keep running where
+    Postgres is absent.
+    """
+    if not POSTGRES_URL:
+        pytest.skip("ADA_TEST_POSTGRES_URL not set")
+    app = create_app(_settings(tmp_path, POSTGRES_URL))
+    with TestClient(app) as client:
+        yield client
+
+
 # --- the cache-bust ----------------------------------------------------------
 
 
@@ -336,3 +351,80 @@ async def test_a_terminal_job_does_not_block_the_next_firing():
     finally:
         await pool.execute("DELETE FROM audit_log WHERE scope_kind = 'shared'")
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+def test_a_slot_that_cannot_be_routed_is_skipped_rather_than_queued(pg_client):
+    """The failure this prevents is the worst-shaped one available here.
+
+    A plugin job's pool comes from the plugin's LIVE spec, so during a worker
+    restart there is no spec to read. Enqueuing anyway sends the job to the default
+    pool, which no specialised worker subscribes to: nothing pulls it, so it is
+    never retried and never reaches the delivery cap that would mark it failed. It
+    sits at "queued" for good, with nothing in any worker's log to explain it --
+    and an unattended schedule is most likely to fire into an empty fleet exactly
+    when the fleet is being restarted.
+
+    A missed slot is recoverable and says why.
+    """
+    plugin_id = "nobody-serves-this-plugin"
+    created = pg_client.post(
+        "/api/admin/plugin-jobs/schedules",
+        json={
+            "name": f"routing-guard-{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M%S%f}",
+            "cron_expr": "0 * * * *",
+            "scope": "shared",
+            "plugin_id": plugin_id,
+            "options": {"action": "whatever"},
+        },
+    )
+    assert created.status_code == 201, created.text
+    schedule_id = created.json()["id"]
+
+    try:
+        # 409: the request was valid, the state said no. The reason is the useful
+        # half, and it is the same text the row keeps.
+        fired = pg_client.post(f"/api/admin/plugin-jobs/schedules/{schedule_id}/run")
+        assert fired.status_code == 409, fired.text
+        assert "no online worker advertises" in fired.json()["detail"]
+
+        # Recorded, not merely returned: a schedule that silently does nothing is
+        # the failure the whole skip-reason mechanism exists to remove.
+        row = pg_client.get(f"/api/admin/plugin-jobs/schedules").json()["schedules"]
+        mine = next(s for s in row if s["id"] == schedule_id)
+        assert "no online worker advertises" in (mine["last_skipped_reason"] or "")
+        assert mine["last_job_id"] is None, "a skipped slot must not look like it produced a job"
+    finally:
+        pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")
+
+
+@needs_postgres
+def test_an_explicitly_named_pool_still_fires_when_the_fleet_is_empty(pg_client):
+    """The admin named the pool, so routing does not depend on a live spec.
+
+    A pool can be legitimately empty for a while -- scaled to zero, mid-deploy --
+    and refusing here would make a deliberate configuration unusable whenever the
+    workers happen to be down.
+    """
+    created = pg_client.post(
+        "/api/admin/plugin-jobs/schedules",
+        json={
+            "name": f"explicit-pool-{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M%S%f}",
+            "cron_expr": "0 * * * *",
+            "scope": "shared",
+            "plugin_id": "nobody-serves-this-either",
+            "options": {"action": "whatever"},
+            "capability": "some-pool",
+        },
+    )
+    assert created.status_code == 201, created.text
+    schedule_id = created.json()["id"]
+    try:
+        fired = pg_client.post(f"/api/admin/plugin-jobs/schedules/{schedule_id}/run")
+        # Not a routing refusal. Without a queue configured this deployment runs
+        # the job locally instead, so either outcome is fine -- what matters is
+        # that it was not skipped for want of a spec.
+        if fired.status_code == 409:
+            assert "no online worker advertises" not in fired.json()["detail"]
+    finally:
+        pg_client.delete(f"/api/admin/plugin-jobs/schedules/{schedule_id}")

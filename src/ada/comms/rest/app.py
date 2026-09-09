@@ -6558,15 +6558,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
             return {"skipped": reason}
 
+        # ROUTING IS RESOLVED HERE, AND A SLOT THAT CANNOT ROUTE IS SKIPPED.
+        #
+        # A plugin job's pool comes from the plugin's LIVE spec, which exists only
+        # while a worker advertising it is online. Enqueuing anyway is not a
+        # smaller failure than skipping: with no spec there is no capability, and
+        # a job with no capability goes to the default pool, which no specialised
+        # worker subscribes to. Nothing ever pulls it -- so it is not retried, and
+        # it never reaches the delivery-attempt cap that would mark it failed. It
+        # sits at "queued" for good, with nothing in any worker's log to explain
+        # it, which is the single worst outcome available here.
+        #
+        # A missed slot is recoverable and says so; the next slot is the next
+        # chance, and `last_skipped_reason` names what was wrong. This matters most
+        # during a worker restart, which is exactly when an unattended schedule is
+        # most likely to fire into an empty fleet.
+        #
+        # An explicitly configured capability is trusted and fires regardless: the
+        # admin named the pool, and a pool may be legitimately empty for a while.
+        capability = (schedule_row.get("capability") or "").strip() or None
+        plugin_spec = None
+        if capability is None:
+            for _spec in (await _live_worker_specs("plugin_specs")).values():
+                if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
+                    plugin_spec = _spec
+                    break
+            if plugin_spec is None:
+                reason = (
+                    f"no online worker advertises {plugin_id!r}, so the job could not be routed to a "
+                    f"pool; slot skipped rather than queued where nothing would ever pull it"
+                )
+                await db_module.set_plugin_job_schedule_skip_reason(pool, sched_id, reason)
+                return {"skipped": reason}
+
         options = _plugin_schedule_options(schedule_row, fired_at)
         try:
             job_id = await _enqueue_plugin_job(
                 plugin_id=plugin_id,
                 options=options,
                 scope_obj=scope_obj,
-                capability=schedule_row.get("capability"),
+                capability=capability,
                 user=_SystemUser(),
                 pool=pool,
+                plugin_spec=plugin_spec,
             )
         except HTTPException as exc:
             reason = f"enqueue refused ({exc.status_code}): {exc.detail}"
