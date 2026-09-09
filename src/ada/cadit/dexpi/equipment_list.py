@@ -135,22 +135,53 @@ def definition_slug(item: DexpiItem) -> str:
     return slugify(item.tag or "") or slugify(f"{class_table.resolve(item.class_name)}-{item.id}")
 
 
+#: Proteus element tag that declares a plant asset regardless of what its ``ComponentClass`` says.
+#: See :func:`is_equipment` for why the tag has to be consulted at all.
+_PROTEUS_EQUIPMENT_TAG = "Equipment"
+
+
+def is_equipment(item: DexpiItem) -> bool:
+    """Is ``item`` a plant asset an equipment definition is wanted for?
+
+    The primary rule is ``is_a(cls, "ProcessEquipment")``, which is what the class hierarchy
+    demands: there is no DEXPI class called ``Equipment``, and ``Chamber``/``Nozzle`` come straight
+    off ``Core/ConceptualObject`` rather than off ``ProcessEquipment``.
+
+    That rule alone is not enough for real files, though, and the official corpus is emphatic about
+    it. The vendored class table is generated from the **DEXPI 2.0.0** specification, while a
+    DEXPI 1.2 export names its equipment out of the emitter's own symbol library --
+    ``ComponentClass="Pumps"``, ``"VerticalDrums"``, ``"Shell&TubeExchangers"``. None of those are
+    DEXPI classes, so ``is_a`` answers False for every one and a P&ID full of equipment resolves to
+    no equipment at all: 72 of the 220 official test cases, including ``C01 the complete DEXPI
+    PnID``, produced an empty layout and then a hard error from the procedural builder.
+
+    In those files the Proteus element tag *is* the statement of intent -- the emitter wrote
+    ``<Equipment>`` -- so it is honoured when the class is not recognisable. ``Chamber`` and
+    ``Nozzle`` are excluded explicitly rather than by omission, because Proteus spells a chamber
+    ``<Equipment ComponentClass="Chamber">`` and it would otherwise be promoted to an asset of its
+    own by the very tag that is supposed to identify its owner.
+
+    An unknown class still resolves to a physical envelope:
+    :func:`~ada.cadit.dexpi.equipment_defaults.resolve_defaults` reports ``source="fallback"`` and
+    hands back the ``ProcessEquipment`` catch-all, which is the honest answer for a vendor class
+    nothing in the table describes.
+    """
+    if class_table.is_a(item.class_name, "ProcessEquipment"):
+        return True
+    if item.composition_role != _PROTEUS_EQUIPMENT_TAG:
+        return False
+    return item.kind not in (ItemKind.CHAMBER, ItemKind.NOZZLE)
+
+
 def equipment_items(doc: DexpiDocument) -> list[DexpiItem]:
     """The items an equipment definition is wanted for, in ID order.
 
-    Membership is decided by ``is_a(cls, "ProcessEquipment")`` and nothing else. That is the
-    explicit rule the class hierarchy demands: there is no DEXPI class called ``Equipment`` (that
-    is only the Proteus element tag), and ``Chamber`` and ``Nozzle`` come straight off
-    ``Core/ConceptualObject`` rather than off ``ProcessEquipment``, so neither is picked up here.
-    Equipment nested inside other equipment is skipped too -- it is folded into its owner, the same
-    way a chamber is.
+    Membership is :func:`is_equipment`. Equipment nested inside other equipment is skipped -- it is
+    folded into its owner, the same way a chamber is -- and the nesting test uses the same
+    predicate, or an item under a legacy-classed owner would escape the fold.
     """
-    out = [item for item in doc.items.values() if class_table.is_a(item.class_name, "ProcessEquipment")]
-    owned = {
-        item.id
-        for item in out
-        if any(class_table.is_a(a.class_name, "ProcessEquipment") for a in doc.ancestors(item.id))
-    }
+    out = [item for item in doc.items.values() if is_equipment(item)]
+    owned = {item.id for item in out if any(is_equipment(a) for a in doc.ancestors(item.id))}
     return sorted((item for item in out if item.id not in owned), key=lambda item: item.id)
 
 

@@ -197,8 +197,30 @@ class DexpiItem:
 
     @property
     def tag(self) -> str | None:
-        """The item's tag name, or its sub-tag for a nozzle or chamber."""
-        return attribute_lookup.tag_of(self)
+        """The item's tag name, or its sub-tag for a nozzle or chamber.
+
+        Proteus states the tag two different ways and files in the wild pick one: as a
+        ``TagNameAssignmentClass`` generic attribute, or as a plain ``TagName`` XML attribute on the
+        element itself. 122 of the 220 official test cases -- ``C01 the complete DEXPI PnID`` among
+        them -- carry only the latter, so reading the generic attribute alone leaves those items
+        untagged. They then fall back to a class-and-ID slug (``verticaldrums-equipment-1`` instead
+        of ``T4750``), and, worse, every *tag-keyed* entry in an equipment definition list stops
+        matching without saying so, because the tag it is keyed on no longer exists.
+
+        The generic attribute wins where both are present: it is the DEXPI-modelled statement, and
+        the XML attribute is the Proteus serialization detail. The writer is unaffected either way
+        -- it echoes ``TagName`` back out of ``metadata["proteus_attributes"]``.
+        """
+        tag = attribute_lookup.tag_of(self)
+        if tag:
+            return tag
+
+        proteus = self.metadata.get("proteus_attributes") or {}
+        for key in ("TagName", "SubTagName"):
+            value = str(proteus.get(key) or "").strip()
+            if value:
+                return value
+        return None
 
     @property
     def process_nodes(self) -> list[DexpiNode]:

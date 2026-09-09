@@ -120,9 +120,14 @@ class ImportIssue:
     adapy can connect to), ``layout`` (no cell would hold it), ``wiring`` (the compiler refused the
     connection) or ``routing`` (no path was found) -- because the fix differs completely between
     them.
+
+    ``kind="model"`` is the whole-document case rather than one lost item: a P&ID that yields no
+    3D model at all, because nothing in it resolved to equipment to lay out. It carries no count of
+    its own, so :meth:`DexpiImportReport.summary` states it instead of the per-item tallies, which
+    are all zero in that situation and read as a clean import if left to speak alone.
     """
 
-    kind: Literal["system", "equipment"]
+    kind: Literal["system", "equipment", "model"]
     name: str
     stage: str
     reason: str
@@ -169,10 +174,19 @@ class DexpiImportReport:
         equipment_dropped = len(self.of_kind("equipment"))
         systems_total = self.stats.get("systems", 0) + systems_dropped
         equipment_total = self.stats.get("equipment", 0) + equipment_dropped
-        return (
+        counts = (
             f"{systems_dropped} of {systems_total} system(s) and "
             f"{equipment_dropped} of {equipment_total} equipment did not reach the 3D model"
         )
+
+        # A document-level failure has no per-item counts behind it -- every tally above is 0 of 0,
+        # which reads as a clean import. Say what actually happened instead.
+        document = "; ".join(issue.reason for issue in self.of_kind("model"))
+        if not document:
+            return counts
+        if systems_dropped or equipment_dropped:
+            return f"{document}; {counts}"
+        return document
 
     def as_dict(self) -> dict:
         return {"issues": [issue.as_dict() for issue in self.issues], "stats": dict(self.stats)}

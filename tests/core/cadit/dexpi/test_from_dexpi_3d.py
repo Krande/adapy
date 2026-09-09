@@ -172,3 +172,120 @@ def test_strict_raises_on_anything_that_did_not_reach_the_model(tmp_path):
 
     assembly = ada.from_dexpi(path, layout=cramped, build_3d=False)
     assert not DexpiImportReport.from_dict(assembly.metadata["dexpi"]["report"]).is_clean
+
+
+# -- what the wider official corpus insisted on ---------------------------------------------------
+#
+# Running ada.from_dexpi over all 220 files of the official TrainingTestCases (see
+# scripts/fetch_dexpi_testcases.py) raised ValueError on 72 of them. Both causes are reduced to
+# inline fixtures here, so CI holds them without the git-ignored corpus.
+
+LEGACY_CLASSED_PID = """<?xml version="1.0" encoding="utf-8"?>
+<PlantModel>
+  <PlantInformation OriginatingSystem="Test Kit" SchemaVersion="4.1.1" Units="mm"/>
+  <Equipment ID="Equipment-1" TagName="T4750" ComponentClass="VerticalDrums"
+             ComponentName="Beh m gewoelbten Boeden">
+    <Nozzle ID="Nozzle-1" TagName="N1" ComponentClass="Nozzle">
+      <ConnectionPoints NumPoints="1">
+        <Node ID="Nozzle-1-Node-1"><Position><Location X="0" Y="0" Z="0"/></Position></Node>
+      </ConnectionPoints>
+    </Nozzle>
+  </Equipment>
+  <Equipment ID="Equipment-2" TagName="P4711" ComponentClass="Pumps"
+             ComponentName="Verdraengungspumpe allgemein">
+    <Nozzle ID="Nozzle-2" TagName="N1" ComponentClass="Nozzle">
+      <ConnectionPoints NumPoints="1">
+        <Node ID="Nozzle-2-Node-1"><Position><Location X="0" Y="0" Z="0"/></Position></Node>
+      </ConnectionPoints>
+    </Nozzle>
+  </Equipment>
+</PlantModel>
+"""
+
+NO_EQUIPMENT_PID = """<?xml version="1.0" encoding="utf-8"?>
+<PlantModel>
+  <PlantInformation OriginatingSystem="Test Kit" SchemaVersion="4.1.1" Units="mm"/>
+  <ProcessInstrumentationFunction ID="PIF-1" TagName="FI 11"
+                                  ComponentClass="ProcessInstrumentationFunction"/>
+</PlantModel>
+"""
+
+
+def test_equipment_classed_out_of_a_vendor_symbol_library_is_still_equipment(tmp_path):
+    """``ComponentClass="VerticalDrums"``/``"Pumps"`` -- what a DEXPI 1.2 export actually writes.
+
+    The vendored class table is generated from the DEXPI 2.0.0 specification, so
+    ``is_a(cls, "ProcessEquipment")`` is False for every one of these and a P&ID full of equipment
+    resolved to no equipment at all. The Proteus ``<Equipment>`` tag is the emitter's statement of
+    intent and is honoured when the class is not recognisable.
+    """
+    path = tmp_path / "legacy.xml"
+    path.write_text(LEGACY_CLASSED_PID, encoding="utf-8")
+
+    a = ada.from_dexpi(path)
+
+    assert sorted(e.name for e in a.get_all_parts_in_assembly() if isinstance(e, ada.Equipment)) == [
+        "P4711",
+        "T4750",
+    ]
+
+
+def test_a_chamber_is_not_promoted_by_the_tag_that_identifies_its_owner(tmp_path):
+    """Proteus spells a chamber ``<Equipment ComponentClass="Chamber">``.
+
+    The tag rule above must not turn a separator's boot into a plant asset of its own; it stays
+    folded into its owner, which is what the class-based rule already did.
+    """
+    path = tmp_path / "chamber.xml"
+    path.write_text(
+        LEGACY_CLASSED_PID.replace(
+            '<Equipment ID="Equipment-2" TagName="P4711" ComponentClass="Pumps"\n'
+            '             ComponentName="Verdraengungspumpe allgemein">',
+            '<Equipment ID="Equipment-2" TagName="boot" ComponentClass="Chamber">',
+        ),
+        encoding="utf-8",
+    )
+    doc = ada.dexpi_to_procedural(path)[0]
+
+    names = {eq.get("NAME") or eq.get("name") for eq in (doc.get("equipments") or [])}
+    assert "boot" not in names
+
+
+def test_a_pid_with_nothing_to_lay_out_is_reported_not_raised(tmp_path):
+    """An instrumentation-only sheet has no equipment, so the layout has no decks.
+
+    ``ProceduralBuilder`` rightly refuses to compile an empty document, but that ValueError reached
+    the caller for 43 of the 220 official files -- for drawings adapy had read perfectly well. It is
+    a property of the P&ID, so it is reported like any other gap and the schematic model comes back.
+    """
+    path = tmp_path / "instrumentation_only.xml"
+    path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
+
+    a = ada.from_dexpi(path)
+
+    report = DexpiImportReport.from_dict(a.metadata["dexpi"]["report"])
+    assert [issue.kind for issue in report.issues] == ["model"]
+    assert report.of_kind("model")[0].stage == "layout"
+    assert "no equipment resolved" in report.of_kind("model")[0].reason
+
+
+def test_the_document_level_reason_is_what_the_summary_says(tmp_path):
+    """With no items lost individually, every per-item tally is "0 of 0" -- which reads as a clean
+    import. The summary has to state the document-level reason instead."""
+    path = tmp_path / "instrumentation_only.xml"
+    path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
+
+    a = ada.from_dexpi(path)
+
+    summary = DexpiImportReport.from_dict(a.metadata["dexpi"]["report"]).summary()
+    assert "no equipment resolved" in summary
+    assert "0 of 0" not in summary
+
+
+def test_strict_still_raises_for_a_pid_with_nothing_to_lay_out(tmp_path):
+    """Reporting instead of raising is the ``strict=False`` contract, not a decision to go quiet."""
+    path = tmp_path / "instrumentation_only.xml"
+    path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no equipment resolved"):
+        ada.from_dexpi(path, strict=True)

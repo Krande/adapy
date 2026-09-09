@@ -286,6 +286,42 @@ holds them without the corpus. Note that fetching the corpus puts third-party co
 ``pyproject.toml`` names ``_external/`` in isort's skip list, because isort -- unlike black and
 ruff -- does not read ``.gitignore`` and would otherwise fail ``pixi run lint-check`` on it.
 
+Running the *3D import* over the same corpus -- not just the round-trip the test asserts -- was
+worth another three. ``ada.from_dexpi`` raised on 72 of the 220 files before them and on none
+after; equipment resolved went from 266 to 348 and systems built from 84 to 135:
+
+*Equipment named out of a vendor symbol library was not recognised as equipment.* The shipped class
+table is generated from the DEXPI **2.0.0** specification, but a DEXPI 1.2 export classes its
+equipment out of the emitter's own library -- ``ComponentClass="Pumps"``, ``"VerticalDrums"``,
+``"Shell&TubeExchangers"``. ``is_a(cls, "ProcessEquipment")`` is False for every one, so a P&ID full
+of equipment resolved to none at all, the layout generated no decks, and the procedural builder
+raised. Where the class is not recognisable the Proteus ``<Equipment>`` element tag is now honoured
+as the emitter's statement of intent (``equipment_list.is_equipment``); ``Chamber`` and ``Nozzle``
+are excluded explicitly, because Proteus spells a chamber ``<Equipment ComponentClass="Chamber">``.
+An unrecognised class still resolves to an envelope -- ``resolve_defaults`` reports
+``source="fallback"`` and hands back the ``ProcessEquipment`` catch-all.
+
+*A P&ID with nothing to lay out raised instead of reporting.* An instrumentation-only sheet has no
+equipment, so the generated layout has no decks, and ``ProceduralBuilder`` rightly refuses to
+compile an empty document -- but that ``ValueError`` reached the caller for drawings adapy had read
+perfectly well. It is a property of the P&ID, so it is now an ``ImportIssue`` of kind ``model`` and
+the schematic assembly comes back; ``strict=True`` still raises. Because a document-level failure
+has no per-item counts behind it, ``DexpiImportReport.summary`` states the reason rather than the
+tallies, which would otherwise read ``0 of 0 ... did not reach the 3D model`` -- indistinguishable
+from a clean import.
+
+*The tag was read from only one of the two places Proteus puts it.* ``TagName`` is carried both as
+a ``TagNameAssignmentClass`` generic attribute and as a plain XML attribute on the element, and 122
+of the 220 files -- ``C01`` among them -- write only the latter. Items came back untagged, fell
+back to a class-and-ID slug (``verticaldrums-equipment-1`` rather than ``T4750``), and, less
+visibly, every **tag-keyed** entry in an equipment definition list stopped matching, because the
+tag it keys on did not exist. ``DexpiItem.tag`` now falls back to the XML attribute; across the
+corpus that is 253 equipment items tagged where 6 remain genuinely untagged.
+
+What the corpus still reports rather than models is dominated by one thing: 234 of the 310 system
+issues are ``N endpoint(s) outside the segment; a routed run needs exactly two``. That is the
+branch/tee limitation in the *Deferred to follow-up work* row below, seen at scale.
+
 Licensing and attribution
 ----------------------------
 

@@ -221,6 +221,44 @@ The official corpus finds what fixtures cannot, and it found two more
     does not read ``.gitignore`` the way black and ruff do, so ``pixi run lint-check`` fails on it
     until the directory is named in ``[tool.isort] skip_glob`` -- which it now is.
 
+Running the 3D import over the corpus is a second, different gate
+    ``test_external_corpus.py`` asserts the read/write round-trip and nothing else. Running
+    ``ada.from_dexpi`` -- layout, systems, routing -- over the same 220 files is a separate check
+    and it found three more defects. Before them ``from_dexpi`` raised on 72 of 220; after them, on
+    none. Equipment resolved went 266 -> 348, systems built 84 -> 135.
+
+    **The class table is DEXPI 2.0.0; the files are not.** A 1.2 export names equipment out of the
+    emitter's symbol library (``ComponentClass="Pumps"``, ``"VerticalDrums"``,
+    ``"Shell&TubeExchangers"``), so ``is_a(cls, "ProcessEquipment")`` -- the rule
+    ``equipment_items`` documented as "and nothing else" -- answered False for all of it. A P&ID
+    full of equipment resolved to no equipment, and the failure surfaced two steps later as a
+    builder error about an empty document, which is why it read as a layout bug rather than a
+    recognition one. The Proteus ``<Equipment>`` tag is now honoured when the class is
+    unrecognisable. Watch the exclusion: Proteus spells a chamber
+    ``<Equipment ComponentClass="Chamber">``, so the tag rule would promote a separator boot to a
+    plant asset of its own if ``Chamber``/``Nozzle`` were not excluded by kind. The predicate is
+    ``equipment_list.is_equipment`` and the merge writer inherits it for free, which is the whole
+    reason the rule lives in that module -- same lesson as ``branch_points``.
+
+    **A P&ID with no equipment is not an error.** Instrumentation-only sheets have nothing to lay
+    out, so the layout has no decks and ``ProceduralBuilder`` refuses to compile. Reporting it as an
+    ``ImportIssue`` of kind ``model`` and returning the schematic assembly is the ``strict=False``
+    contract; ``strict=True`` still raises. The summary needed widening too, or a document that
+    produced nothing at all reports ``0 of 0 system(s) and 0 of 0 equipment did not reach the 3D
+    model``, which is indistinguishable from a clean import.
+
+    **The tag is in two places and adapy read one.** ``TagName`` appears both as a
+    ``TagNameAssignmentClass`` generic attribute and as a plain XML attribute; 122 of 220 files
+    write only the XML attribute. The visible symptom is cosmetic (``verticaldrums-equipment-1``
+    instead of ``T4750``); the invisible one is not -- an equipment definition list keyed **by tag**
+    silently stops matching, because the tag is not there. Fixed on ``DexpiItem.tag`` so both
+    flavours and both sides get it, with the generic attribute still winning where both exist.
+
+    What remains is one thing wearing many hats: 234 of the 310 system issues the corpus reports are
+    ``N endpoint(s) outside the segment; a routed run needs exactly two`` (169 with one endpoint, 65
+    with none). That is the branch/tee limitation at scale, and it is the next real piece of work,
+    not a collection of small bugs.
+
 Process notes for whoever continues this
 -------------------------------------------
 

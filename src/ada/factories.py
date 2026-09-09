@@ -448,6 +448,23 @@ def from_dexpi(
     if not route:
         doc["systems"] = []
 
+    # A P&ID with nothing to lay out -- an instrumentation-only sheet, a signal-loop test case, or
+    # any drawing whose items all resolved to something other than equipment -- produces a layout
+    # with no decks in it, and ``ProceduralBuilder`` rightly refuses to compile an empty document.
+    # That is a property of the drawing rather than a fault in it, so it is reported like every
+    # other gap and the schematic model is returned, instead of the caller getting a bare
+    # ValueError out of the builder for a file adapy read perfectly well. 43 of the 220 official
+    # test cases are this shape.
+    if build_3d and not (doc.get("spaces") or doc.get("loft_members")):
+        report.add(
+            "model",
+            name,
+            "layout",
+            "no equipment resolved, so the generated layout has no decks and no 3D model was "
+            "built; the schematic model (items and ports, no structure or routing) is returned",
+        )
+        build_3d = False
+
     if build_3d:
         with _dexpi_build_warnings() as records:
             a = build_procedural_assembly(doc, name=name, equipment_resolver=catalog.get)
