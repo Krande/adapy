@@ -334,7 +334,12 @@ _TRIMESH_EXTS: frozenset[str] = frozenset({".obj", ".stl", ".ply", ".dae", ".off
 _PASSTHROUGH_EXTS: frozenset[str] = frozenset({".glb"})
 
 # Source formats that ada-py can load. Required for any non-GLB target.
-_ADA_LOADABLE_EXTS: frozenset[str] = frozenset({".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"})
+_ADA_LOADABLE_EXTS: frozenset[str] = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".gnx", ".inp", ".fem", ".sat", ".acis"}
+)
+# Genie concept-model sources: the XML and the workspace it is zipped into.
+# Loaded by the same reader, so every ".xml"-source fast path applies to both.
+_GXML_SOURCE_EXTS: frozenset[str] = frozenset({".xml", ".gnx"})
 
 # Multi-file analysis bundles, packaged as zip. Currently only Abaqus
 # (`.inp` with `*INCLUDE` chains) is supported; bundle.py rejects other
@@ -456,6 +461,66 @@ _FEA_META_SUFFIX = ".meta.json"
 # Distinct from `_FEA_META_SUFFIX` (the legacy steps/fields inventory)
 # so the two can coexist during the streaming-viewer rollout.
 _FEA_ARTEFACT_SUFFIX = ".fea/"
+
+# The minimum ``bake_version`` a cached streaming-FEA manifest must carry to
+# be served as-is; older (or unstamped) bakes are re-baked so a deck opened
+# after an upgrade gains what the newer bake produces (property fields, node
+# labels, ...) instead of serving its old artefacts forever. A pinned copy of
+# ``ada.fem.results.artefacts.FEA_BAKE_VERSION`` — the slim API container
+# cannot import ada.fem — kept equal by a test.
+EXPECTED_FEA_BAKE_VERSION = 3
+
+
+def fea_manifest_stale_reason(
+    manifest: dict,
+    source_head: dict | None,
+    manifest_head: dict | None,
+) -> str | None:
+    """Why a cached streaming-FEA manifest should be re-baked, or ``None``.
+
+    Two independent signals:
+
+    * the bake predates the current bake output (``bake_version`` below
+      :data:`EXPECTED_FEA_BAKE_VERSION`; an unstamped manifest counts as 0);
+    * the SOURCE object is newer than the manifest — a deck re-solved and
+      re-uploaded under the same name, which the key-only cache would
+      otherwise serve stale results for indefinitely.
+
+    ``source_head`` / ``manifest_head`` are ``storage.head()`` dicts
+    (``last_modified`` as ISO-8601, possibly None). Unknown or unparsable
+    timestamps make only that signal inconclusive — a backend without
+    timestamps must not churn every open into a re-bake.
+    """
+
+    try:
+        baked = int(manifest.get("bake_version") or 0)
+    except (TypeError, ValueError):
+        baked = 0
+    if baked < EXPECTED_FEA_BAKE_VERSION:
+        return f"bake_version {baked} < {EXPECTED_FEA_BAKE_VERSION}"
+
+    def _ts(head: dict | None):
+        raw = (head or {}).get("last_modified")
+        if not raw:
+            return None
+        from datetime import datetime
+
+        try:
+            return datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+
+    src_ts = _ts(source_head)
+    man_ts = _ts(manifest_head)
+    if src_ts is not None and man_ts is not None:
+        try:
+            if src_ts > man_ts:
+                return "source newer than bake"
+        except TypeError:
+            # Mixed naive/aware timestamps from different backends —
+            # inconclusive, same posture as a missing timestamp.
+            pass
+    return None
 
 
 def fea_artefact_prefix_for(source_key: str) -> str:
@@ -657,7 +722,7 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
             return ada.from_ifc(src_path)
         if ext in {".step", ".stp"}:
             return ada.from_step(src_path)
-        if ext == ".xml":
+        if ext in _GXML_SOURCE_EXTS:
             return ada.from_genie_xml(src_path)
         if ext in {".inp", ".fem"}:
             return ada.from_fem(src_path)
@@ -678,7 +743,12 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
 # concept geometry, and the CAD targets where rebuilding concept objects
 # from that mesh is worthwhile.
 _FEM_SOURCE_EXTS: frozenset[str] = frozenset({".inp", ".fem", ".sif"})
-_FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "step", "stp"})
+_FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "gnx", "step", "stp"})
+
+# The Genie targets: a concept XML, or the same XML zipped into a workspace
+# (.gnx) with its ACIS body beside it. One writer family; every routing rule
+# that says "xml" means both.
+_GXML_TARGETS: frozenset[str] = frozenset({"xml", "gnx"})
 
 
 def _apply_fem_to_objects(
@@ -740,7 +810,7 @@ def _gxml_face_streaming(source_ext: str, target_format: str, reconstruct_surfac
     reconstruction (the parametric face emitter can't express advanced faces).
     Shared by ``_apply_fem_to_objects`` (skip the plate build) and
     ``_export_with_ada`` (use the streaming writer) so they stay consistent."""
-    if target_format != "xml":
+    if target_format not in _GXML_TARGETS:
         return False
     if source_ext.lower() not in _FEM_SOURCE_EXTS:
         return False
@@ -774,7 +844,7 @@ def _native_ngeom_mesh_route(
     zero-renderable-object case also falls back (``collect_ngeom_records`` raises), preserving
     the Python path's seeded empty-scene output.
     """
-    if source_ext is None or source_ext.lower() != ".xml":
+    if source_ext is None or source_ext.lower() not in _GXML_SOURCE_EXTS:
         return None
     # Engine choice must resolve to an adacpp record-stream track; occ-builtin / the taxonomy
     # kernels (occ/cgal/hybrid) mean the user asked for a different tessellator — honour it.
@@ -957,7 +1027,7 @@ def _export_with_ada(
         # record-stream writer wraps every solid in an IfcBuildingElementProxy (no typed
         # products), acceptable only for geometry handoff. The STEP leg stays native by default:
         # STEP products carry name-only semantics either way, so nothing is lost there.
-        if source_ext is not None and source_ext.lower() == ".xml":
+        if source_ext is not None and source_ext.lower() in _GXML_SOURCE_EXTS:
             import os as _os
 
             from ada.cadit.ngeom.export import (
@@ -1000,9 +1070,12 @@ def _export_with_ada(
             else:
                 ms = "cylinder"  # analytic auto-detect
         model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
-    elif target_format == "xml":
-        on_progress("writing-xml", 0.55)
+    elif target_format in _GXML_TARGETS:
+        on_progress("writing-gnx" if target_format == "gnx" else "writing-xml", 0.55)
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
+        # gnx = the same concept XML zipped into a Genie workspace with its ACIS
+        # body beside it; both routes below take the same writer choice.
+        genie_write = model.to_gnx if target_format == "gnx" else model.to_genie_xml
         if source_ext is not None and _gxml_face_streaming(source_ext, target_format, recon):
             # Object-free path: plates stream from the vectorized FEM-shell face
             # source (no Plate objects, no DOM). Default is the analytic auto-detect
@@ -1017,9 +1090,9 @@ def _export_with_ada(
                 ms = "none"
             else:
                 ms = "cylinder"
-            model.to_genie_xml(destination_xml=str(out_path), streaming=True, merge_strategy=ms)
+            genie_write(str(out_path), streaming=True, merge_strategy=ms)
         else:
-            model.to_genie_xml(destination_xml=str(out_path))
+            genie_write(str(out_path))
     else:
         raise UnsupportedFormat(f"unknown target format: {target_format!r}")
     on_progress("ready", 1.0)
@@ -2477,7 +2550,7 @@ def _via_ada_to_step(
             # out): NGEOM records -> adacpp's C++ AP242 writer instead of the OCC XCAF /
             # per-entity Python writers. Wholesale fallback below when adacpp is absent
             # or any object fails to serialize (mirrors the xml->ifc leg).
-            if source_ext.lower() == ".xml":
+            if source_ext.lower() in _GXML_SOURCE_EXTS:
                 from ada.cadit.ngeom.export import (
                     NativeExportUnsupported,
                     native_export_enabled,
@@ -3181,9 +3254,10 @@ def _register_ada_loadable() -> None:
     ]
 
     # Original three targets (glb/ifc/xml) via the long-standing ada
-    # writers.
+    # writers, plus gnx — the Genie workspace the xml writer's output is
+    # zipped into, so it rides every xml row.
     for ext in _ADA_LOADABLE_EXTS:
-        for tgt in ("glb", "ifc", "xml"):
+        for tgt in ("glb", "ifc", "xml", "gnx"):
 
             def _h(
                 src,
@@ -3248,7 +3322,7 @@ def _register_ada_loadable() -> None:
                 else:
                     row_options = glb_options + [glb_tess_engine_option, strict_tess_option]
                 row_options = row_options + _glb_serializer_options(ext)
-            elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
+            elif tgt in ("ifc", "xml", "gnx") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
                 row_options = None
@@ -3294,6 +3368,50 @@ def _register_ada_loadable() -> None:
             _step,
             options=(fem_to_objects_options if ext in _FEM_SOURCE_EXTS else None),
         )
+
+    # A .SIN reaches the CAD targets through its own input deck.
+    #
+    # A results file is not ada-loadable — it is a binary of result records — so it
+    # was offered ``fem`` and ``glb`` and nothing else, and the viewer's "export
+    # this model for GeniE" was greyed out for exactly the file the results work is
+    # about. But the deck IS in there: SESTRA echoes the whole Input Interface File
+    # beside its results, ``_sin_to_fem`` already extracts it verbatim, and a .fem
+    # is ada-loadable. So the chain is extraction followed by the ordinary FEM
+    # export, with the same options and the same writer.
+    #
+    # Two steps rather than one because each half is already tested on its own:
+    # nothing here reimplements either the extraction or the concept rebuild.
+    for tgt in _GXML_TARGETS:
+
+        def _sin_cad(
+            src,
+            on_progress,
+            *,
+            _tgt=tgt,
+            fem_to_objects=None,
+            merge_fem_objects=None,
+            reconstruct_surfaces=None,
+            **_kw,
+        ):
+            from ada.fem.formats.sesam.results.export_fem import export_fem_text
+
+            on_progress("extracting input deck", 0.1)
+            deck = new_temp_path(suffix=".fem")
+            deck.write_text(export_fem_text(src), encoding="ascii")
+            try:
+                return _via_ada(
+                    deck,
+                    ".fem",
+                    _tgt,
+                    on_progress,
+                    fem_to_objects=fem_to_objects,
+                    merge_fem_objects=merge_fem_objects,
+                    reconstruct_surfaces=reconstruct_surfaces,
+                )
+            finally:
+                deck.unlink(missing_ok=True)
+
+        ConverterRegistry.register(".sin", tgt, _sin_cad, options=fem_to_objects_options)
 
 
 def _register_fea_result_to_glb() -> None:
@@ -3393,6 +3511,15 @@ def _register_step_stream_exports() -> None:
             return _via_step_stream_to_xml(src, on_progress)
 
         ConverterRegistry.register(ext, "xml", _h_xml)
+
+        def _h_gnx(src, on_progress, *, _ext=ext, **_kw):
+            # Same streamed scaffold, repacked as a workspace.
+            from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml
+
+            xml_path = _via_step_stream_to_xml(src, on_progress)
+            return gnx_from_genie_xml(xml_path, new_temp_path(suffix=".gnx"))
+
+        ConverterRegistry.register(ext, "gnx", _h_gnx)
 
     # IFC → STEP via the native adacpp IFC B-rep reader → ng:: → AP242 writer (no OCC). Overrides the
     # generic OCC ifc→step ONLY when the native verb is present, so older builds keep the OCC path.
@@ -3497,6 +3624,27 @@ def _fea_to_fea(src, on_progress, *, source_ext, target_ext, **_):
     """
 
     return _via_fea_to_fem(src, source_ext, target_ext, on_progress)
+
+
+@converter(".sin", "fem")
+def _sin_to_fem(src, on_progress, **_):
+    """Extract the FEM input deck SESTRA echoed into a results file.
+
+    A SIN carries the whole input deck beside its result records; this walks
+    the binary record blocks, keeps every input record verbatim and drops the
+    results — extraction, not reconstruction, so nothing an object-model
+    writer fails to model can be silently lost. The product is a standard
+    Input Interface File a Sesam tool (or this viewer) opens directly.
+    """
+
+    on_progress("extracting input deck", 0.2)
+    # Worker-only import: the slim API container imports this module for the
+    # registry but cannot carry ada.fem.
+    from ada.fem.formats.sesam.results.export_fem import export_fem_text
+
+    text = export_fem_text(src)
+    on_progress("writing", 0.9)
+    return text.encode("ascii")
 
 
 _register_passthrough_glb()

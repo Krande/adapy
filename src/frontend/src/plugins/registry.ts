@@ -30,7 +30,19 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          (`registerExternalModelClient`, @/services/externalModels)
 //   1.3.0  `trackJob` — hand a worker job to the global toast instead of
 //          watching it from inside a panel
-export const PLUGIN_API_VERSION = "1.3.0";
+//   1.4.0  mode-owned scene colouring (`PluginModeSpec.ownsSceneColor`,
+//          honoured via `notifyActiveModeSceneColor`), and kept in step with
+//          viewer-core 1.4.0 (compute settings store, set isolation on the
+//          scene facade) -- which is what a shell's `coreApiRange` is checked
+//          against, so a shell built for those exports can name a core that
+//          has them.
+//
+//          This entry was 1.3.0 on this branch. main published 1.3.0 as
+//          `trackJob` first, and asa-weld-gen 3.13.0 already depends on that
+//          meaning under `plugin_api >= 1.3.0`, so the number could not be
+//          reused for a different capability. Moving up costs nothing here,
+//          and keeps the viewer-core parity above intact.
+export const PLUGIN_API_VERSION = "1.4.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -117,6 +129,17 @@ export interface PluginModeSpec {
    * living in a panel and a feature having a home.
    */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /**
+   * While this mode is active, core suspends the viewer's active FEA field
+   * colouring — vertex colours and legend — and restores it, exactly as it was,
+   * on leaving. For a mode that paints its own colouring (a check overlay, a
+   * property painter) and would otherwise show another mode's field underneath
+   * it. Declarative on purpose: no lifecycle to get wrong, no ordering between
+   * plugins, and a shell keeps its "modes do not mutate scene state" property —
+   * core does the suspending, on the mode's stated behalf, when the shell
+   * reports the transition via `notifyActiveModeSceneColor`.
+   */
+  ownsSceneColor?: boolean;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";

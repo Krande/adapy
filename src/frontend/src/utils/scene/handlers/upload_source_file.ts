@@ -89,7 +89,7 @@ async function putToPresignedUrl(
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
     ".ifc", ".step", ".stp",
-    ".xml", ".inp", ".fem",
+    ".xml", ".gnx", ".inp", ".fem",
     ".sat", ".acis",
     ".obj", ".stl", ".ply", ".dae", ".off",
     // Multi-file analysis bundles. Worker unpacks + validates the

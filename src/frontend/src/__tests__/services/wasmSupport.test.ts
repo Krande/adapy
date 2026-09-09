@@ -18,8 +18,9 @@ test("detectWasmFormat maps source extensions to the right pyodide stack", () =>
     // FEM decks read via ada.from_fem.
     assert.deepEqual(detectWasmFormat("a.inp"), {format: "fem", ext: "inp"});
     assert.deepEqual(detectWasmFormat("a.fem"), {format: "fem", ext: "fem"});
-    // Genie xml.
+    // Genie xml, and the workspace it is zipped into — one reader for both.
     assert.deepEqual(detectWasmFormat("a.xml"), {format: "genie", ext: "xml"});
+    assert.deepEqual(detectWasmFormat("a.GNX"), {format: "genie", ext: "gnx"});
     // Sesam SIF/SIN results → single GLB via FEAResult.to_gltf (fea_glb stack).
     assert.deepEqual(detectWasmFormat("a.sif"), {format: "fea_glb", ext: "sif"});
     assert.deepEqual(detectWasmFormat("a.SIN"), {format: "fea_glb", ext: "sin"});
@@ -49,6 +50,12 @@ test("wasmSupportsConversion consults the per-source target matrix", () => {
     assert.equal(wasmSupportsConversion("a.step", "ifc"), true);
     assert.equal(wasmSupportsConversion("a.step", "step"), true); // genuine writer round-trip
     assert.equal(wasmSupportsConversion("a.fem", "glb"), true);
+    // gnx rides beside xml: a workspace source converts to what an xml source
+    // does, and every source that can write xml can write gnx.
+    for (const src of ["a.sat", "a.ifc", "a.step", "a.fem", "a.xml", "a.gnx"]) {
+        assert.equal(wasmSupportsConversion(src, "xml"), true, src);
+        assert.equal(wasmSupportsConversion(src, "gnx"), true, src);
+    }
     // No-op self-conversions aren't real conversions.
     assert.equal(wasmSupportsConversion("a.glb", "glb"), false);
     assert.equal(wasmSupportsConversion("a.fem", "fem"), false);

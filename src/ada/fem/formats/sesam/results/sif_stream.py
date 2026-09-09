@@ -236,6 +236,10 @@ class SifStreamReader:
 
         out = []
         for s in specs:
+            if s.category == "property":
+                # Properties don't vary by load case: one step, not N copies.
+                out.append(s)
+                continue
             labels = self._labels_for(s.support)
             out.append(dataclasses.replace(s, n_steps=len(labels), step_values=labels))
         return out
@@ -270,6 +274,19 @@ class SifStreamReader:
 
     def iter_element_field_steps(self, spec):
         import dataclasses
+
+        if spec.category == "property":
+            # Single-step by construction; values come from the deck's property
+            # tables, not any step's RV block.
+            ad = self._adapter_for(0)
+            ad_spec = next(
+                (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
+                None,
+            )
+            if ad_spec is None:
+                raise RuntimeError(f"SIF property field {spec.name!r}/{spec.elem_type} missing")
+            yield from ad.iter_element_field_steps(ad_spec)
+            return
 
         labels = self._plain_labels()  # element fields aren't LIS-enriched
         card = _ELEM_FIELD_TO_CARD.get(spec.name)

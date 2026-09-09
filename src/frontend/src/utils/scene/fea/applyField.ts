@@ -18,6 +18,12 @@ import * as THREE from "three";
 
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {getColormap} from "./colormaps";
+import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
+import {expandSourceTriples, sourceVertexIndices} from "./elementLocalGeometry";
+import {setSourceMorph} from "./sourceMorph";
+import {clearResultPointMarkers} from "./resultPointMarkers";
+import {clearResultLineSegments} from "./resultLineSegments";
+import {translationOffsets, warpValue} from "./warpComponents";
 
 export interface ApplyFieldArgs {
     /** The mesh whose geometry we deform. We need the mesh (not just
@@ -61,6 +67,13 @@ export interface ApplyFieldArgs {
      * when missing/unknown so a typo in state doesn't render the mesh
      * black. */
     colormap?: string;
+    /**
+     * How the scale is drawn: discrete bands, and either end of the range pinned.
+     *
+     * Threaded in rather than read from the store so this kernel stays a pure
+     * function of its arguments — the same reason ``colormap`` is a parameter.
+     */
+    contour?: ContourSettings | null;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -94,11 +107,16 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         warpStepValues,
         displacementScale = 1,
         colormap: colormapName,
+        contour,
     } = args;
-    const colormap = getColormap(colormapName);
+    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
+    clearResultPointMarkers(mesh);
+    clearResultLineSegments(mesh);
 
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
+    const renderToSource = sourceVertexIndices(geometry, n_points);
+    const renderBasePositions = expandSourceTriples(basePositions, renderToSource);
     const n_components = colorField.components.length;
     if (colorStepValues.length !== n_points * n_components) {
         throw new Error(
@@ -113,8 +131,12 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // (the user picked displacement), this still works — the loop
     // reads two component slices from the same backing array.
     let warpComponents = 0;
+    // Which slots inside one point's record are the translation. NOT always the
+    // first three -- see translationOffsets.
+    let warpAxes: [number, number, number] = [0, 1, 2];
     if (warpField && warpStepValues) {
         warpComponents = warpField.components.length;
+        warpAxes = translationOffsets(warpField);
         if (warpStepValues.length !== n_points * warpComponents) {
             throw new Error(
                 `applyFieldToMesh: warpStepValues length ${warpStepValues.length} doesn't match ` +
@@ -132,10 +154,10 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // even when no warp source is active; the influence stays at
     // whatever the user has on the slider but the deltas are zero,
     // so the geometry sits at base positions.
-    const displacement = new Float32Array(basePositions.length);
-    const out_colors = new Float32Array(n_points * 3);
+    const sourceDisplacement = new Float32Array(basePositions.length);
+    const sourceColors = new Float32Array(n_points * 3);
 
-    const [rangeMin, rangeMax] = pickRange(colorField, reduction);
+    const [rangeMin, rangeMax] = resolveContourRange(pickRange(colorField, reduction), contour);
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 
@@ -145,9 +167,9 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
 
         if (warpComponents > 0 && warpStepValues) {
             const warpStride = v * warpComponents;
-            displacement[base + 0] = warpStepValues[warpStride] || 0;
-            displacement[base + 1] = warpComponents >= 2 ? warpStepValues[warpStride + 1] || 0 : 0;
-            displacement[base + 2] = warpComponents >= 3 ? warpStepValues[warpStride + 2] || 0 : 0;
+            sourceDisplacement[base + 0] = warpValue(warpStepValues, warpStride, warpAxes[0]);
+            sourceDisplacement[base + 1] = warpValue(warpStepValues, warpStride, warpAxes[1]);
+            sourceDisplacement[base + 2] = warpValue(warpStepValues, warpStride, warpAxes[2]);
         }
         // else: displacement[base..base+2] left at 0 from Float32Array
         //       initialisation, so morph delta is identity.
@@ -168,15 +190,17 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
             scalar = colorStepValues[colorStride] || 0;
         }
         const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
-        colormap(t, out_colors, base);
+        colormap(t, sourceColors, base);
     }
+    const displacement = expandSourceTriples(sourceDisplacement, renderToSource);
+    const out_colors = expandSourceTriples(sourceColors, renderToSource);
 
     // 1. Reset the position attribute to the un-deformed base. The
     //    morph delta is what carries the deformation; the base must
     //    stay static or repeated applies stack onto each other.
     const posAttr = geometry.getAttribute("position");
     if (posAttr) {
-        (posAttr.array as Float32Array).set(basePositions);
+        (posAttr.array as Float32Array).set(renderBasePositions);
         posAttr.needsUpdate = true;
     }
 
@@ -253,7 +277,14 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // normals array. For viz that's acceptable: lighting on the
     // morphed shape uses base normals, which is consistent with how
     // GLTF morph clips behave by default.
+    // The element-edge wireframe indexes SOURCE vertices and shares the position
+    // buffer this geometry had before any element-local expansion — so it needs
+    // the unexpanded deltas, not the ones installed above. See sourceMorph.ts.
+    setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
+    setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
+
     geometry.computeVertexNormals();
+
 
     // 6. Force the renderer to rebuild the cached morph DataArrayTexture.
     //    See the long-form comment on the morphAttributes assignment

@@ -53,7 +53,9 @@ def test_stream_reader_nodal_values_match_adapter(fem_files):
         assert len(a) == len(b) == 20
         for x, y in zip(a, b):
             assert x.values.shape == y.values.shape
-            assert np.allclose(x.values, y.values)
+            # Derived nodal fields carry NaN where a node is ineligible for
+            # averaging; the two readers must agree on those cells too.
+            assert np.allclose(x.values, y.values, equal_nan=True)
 
 
 def test_stream_reader_element_values_match_adapter(fem_files):
@@ -68,10 +70,12 @@ def test_stream_reader_element_values_match_adapter(fem_files):
         assert spec.element_labels == rspec.element_labels  # order is load-bearing
         a = list(ref.iter_element_field_steps(rspec))
         b = list(strm.iter_element_field_steps(spec))
-        assert len(a) == len(b) == 20
+        # Result fields carry every mode; property fields are one step by design.
+        expected_steps = 1 if spec.category == "property" else 20
+        assert len(a) == len(b) == expected_steps
         for x, y in zip(a, b):
             assert x.values.shape == y.values.shape
-            assert np.allclose(x.values, y.values)
+            assert np.allclose(x.values, y.values, equal_nan=True)
 
 
 def test_make_sif_reader_defaults_to_streaming(fem_files, monkeypatch):
@@ -99,7 +103,7 @@ def test_stream_reader_nodal_labels_lis_enriched(fem_files):
     for name in ref_n:
         assert np.allclose(ref_n[name], strm_n[name])
     # LIS was actually applied: the labels are frequencies, not 1..20.
-    assert not np.allclose(strm_n["RVNODDIS"], np.arange(1, 21, dtype=float))
+    assert not np.allclose(strm_n["sesam.nodes.displacement"], np.arange(1, 21, dtype=float))
 
     ref_e = {(s.name, s.elem_type): s.step_values for s in ref.element_field_specs()}
     strm_e = {(s.name, s.elem_type): s.step_values for s in strm.element_field_specs()}

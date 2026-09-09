@@ -85,6 +85,12 @@ def _export_assembly(asm, target: str) -> bytes:
         asm.to_genie_xml("/tmp/_wasm_out.xml")
         with open("/tmp/_wasm_out.xml", "rb") as fh:
             out = fh.read()
+    elif target == "gnx":
+        # The Genie workspace: the same concept XML zipped with its SAT body,
+        # pure python on top of the xml writer, so the browser can make it too.
+        asm.to_gnx("/tmp/_wasm_out.gnx")
+        with open("/tmp/_wasm_out.gnx", "rb") as fh:
+            out = fh.read()
     elif target == "ifc":
         asm.to_ifc("/tmp/_wasm_out.ifc")
         with open("/tmp/_wasm_out.ifc", "rb") as fh:

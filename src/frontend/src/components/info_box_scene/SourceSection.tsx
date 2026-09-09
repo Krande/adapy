@@ -16,6 +16,7 @@ const FORMAT_NAMES: Record<string, string> = {
     ".stp": "STEP",
     ".ifc": "IFC",
     ".xml": "Genie XML",
+    ".gnx": "Genie workspace",
     ".sat": "ACIS",
     ".acis": "ACIS",
     ".stl": "STL",

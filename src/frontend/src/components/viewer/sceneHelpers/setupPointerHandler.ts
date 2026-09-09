@@ -10,6 +10,8 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {useOptionsStore} from "@/state/optionsStore";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import CameraControls from "camera-controls";
 
@@ -100,6 +102,16 @@ export function setupPointerHandler(
             }
         }
 
+        // 1a) The beam under the cursor, if any.
+        //
+        // Line elements have no triangles, so they are invisible to both the GPU
+        // picker and the mesh raycast: with section solids off a beam was drawn
+        // and could not be clicked. Resolved against the DRAWN line, and only
+        // preferred over the mesh hit when it is actually in front — a stiffener
+        // grid on a deck plate would otherwise swallow every click meant for the
+        // plate behind it.
+        const beamPick = pickFeaBeam(e, camera, renderer);
+
         // 1b) GPU mesh picking — O(1) regardless of triangle count and
         //     morph-aware for free. Replaces the linear CPU raycast over
         //     every triangle in the scene. On a 3M-tri mobile FEA model
@@ -122,9 +134,18 @@ export function setupPointerHandler(
                         raycastPointOnFace(
                             e, camera, renderer, meshPick.mesh, meshPick.faceStart ?? 0, meshPick.faceLen ?? 0,
                         );
+                    const surface = exact ?? meshPick.worldPosition.clone();
+                    if (beamPick && beamInFront(beamPick, surface, camera)) {
+                        await handleClickMesh(
+                            {object: meshPick.mesh, point: beamPick.point, distance: 0} as THREE.Intersection,
+                            e,
+                            beamPick.rangeId,
+                        );
+                        return;
+                    }
                     const fakeIntersection: THREE.Intersection = {
                         object: meshPick.mesh,
-                        point: exact ?? meshPick.worldPosition.clone(),
+                        point: surface,
                         faceIndex: undefined,
                         distance: 0,
                     } as THREE.Intersection;
@@ -141,9 +162,18 @@ export function setupPointerHandler(
                 // with a raycast against just the picked mesh; that also yields the triangle index the
                 // raycast face-picking path needs. Falls back to the vertex above MAX_REFINE_TRIS.
                 const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
+                const surface = refined?.point ?? meshPick.worldPosition.clone();
+                if (beamPick && beamInFront(beamPick, surface, camera)) {
+                    await handleClickMesh(
+                        {object: meshPick.mesh, point: beamPick.point, distance: 0} as THREE.Intersection,
+                        e,
+                        beamPick.rangeId,
+                    );
+                    return;
+                }
                 const fakeIntersection: THREE.Intersection = {
                     object: meshPick.mesh,
-                    point: refined?.point ?? meshPick.worldPosition.clone(),
+                    point: surface,
                     faceIndex: refined?.faceIndex,
                     distance: 0,
                 } as THREE.Intersection;
@@ -181,6 +211,18 @@ export function setupPointerHandler(
             }
         }
 
+        if (beamPick && (!nearestMesh || beamPick.distance <= nearestMesh.distance)) {
+            const feaMesh = useFeaAnimationStore.getState().mesh;
+            if (feaMesh) {
+                await handleClickMesh(
+                    {object: feaMesh, point: beamPick.point, distance: 0} as THREE.Intersection,
+                    e,
+                    beamPick.rangeId,
+                );
+                return;
+            }
+        }
+
         if (nearestMesh) {
             // Only imported geometry (CustomBatchedMesh) is selectable. If the first opaque
             // hit is anything else — a section-plane cap, a helper, a non-shape mesh — treat
@@ -207,6 +249,59 @@ export function setupPointerHandler(
         container.removeEventListener("click", () => {
         });
     };
+}
+
+/**
+ * The FEA beam line under the cursor, or null.
+ *
+ * Its own raycaster, because the scene-wide one deliberately excludes layer 1 —
+ * where the coloured beam lines live so they are drawn and never picked by
+ * accident. Asking the line object directly keeps that arrangement and still
+ * makes a deliberate click on a beam work.
+ *
+ * ``Line2.threshold`` widens the target in the same screen-space pixels the line
+ * is drawn in: four either side of a three-pixel line is a comfortable target
+ * without becoming a trap for clicks aimed at what is behind it.
+ */
+function pickFeaBeam(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+): {rangeId: string; point: THREE.Vector3; distance: number} | null {
+    const mesh = useFeaAnimationStore.getState().mesh;
+    if (!mesh) return null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const ray = new THREE.Raycaster();
+    ray.params.Line2 = {threshold: 4};
+    ray.setFromCamera(pointer, camera);
+    // LineSegments2 reads the camera off the raycaster for its screen-space path.
+    ray.camera = camera;
+    try {
+        return pickResultLineSegment(mesh, ray);
+    } catch (err) {
+        console.warn("FEA beam picking threw; ignoring the beam:", err);
+        return null;
+    }
+}
+
+/**
+ * Is the beam in front of the surface the mesh picker found?
+ *
+ * "In front" with a small tolerance, because a stiffener modelled on a plate sits
+ * exactly ON it and floating-point depth would otherwise pick the winner. The
+ * tolerance is relative to the distance from the camera, so it holds at any zoom.
+ */
+function beamInFront(
+    beam: {distance: number},
+    surface: THREE.Vector3,
+    camera: THREE.PerspectiveCamera,
+): boolean {
+    const surfaceDistance = camera.position.distanceTo(surface);
+    return beam.distance <= surfaceDistance * 1.002;
 }
 
 /** World-space surface point under the cursor, for the double-tap

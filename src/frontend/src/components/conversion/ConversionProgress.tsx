@@ -311,6 +311,7 @@ const STAGE_LABEL: Record<string, string> = {
     "writing-ifc": "Writing IFC…",
     "writing-step": "Writing STEP…",
     "writing-xml": "Writing Genie XML…",
+    "writing-gnx": "Writing Genie workspace…",
     exporting: "Exporting…",
     convert: "Converting…",
     upload: "Uploading result…",

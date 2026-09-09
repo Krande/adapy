@@ -15,17 +15,29 @@ import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batc
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
-import {sceneRef} from "@/state/refs";
+import {modelKeyMapRef, sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useColorStore} from "@/state/colorLegendStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
+import {resolveContourRange} from "../fea/contourScale";
+import {selectedResultRange} from "../fea/resultUnits";
+import {translationOffsets, warpValue} from "../fea/warpComponents";
+import {autoWarpScale} from "../fea/warpScale";
+import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
+import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
+import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
+import {setResultPointMarkersVisible} from "../fea/resultPointMarkers";
+import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../fea/edgeColors";
+import {withoutEdges} from "../fea/edgeSplit";
+import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
@@ -43,6 +55,9 @@ interface ActiveFeaStreaming {
     /** Snapshot of the mesh's original positions, used to compute
      * displacement-from-base on every step change. */
     basePositions: Float32Array;
+    /** The bake's element-edge index, kept so the undeformed reference wireframe
+     *  can be built and rebuilt without re-fetching the sidecar. */
+    edgeIndices?: Uint32Array;
     /** Optional beam-solid mesh — present when the manifest carries
      *  ``beam_solids_url``. Hosts beam (line) elements tessellated as
      *  3D extruded sections. Shares the FEA root group with the main
@@ -64,7 +79,6 @@ interface ActiveFeaStreaming {
      *  boundaries (AFEG over the solid mesh). Position + morph
      *  attributes are linked to the beam-solid mesh after the first
      *  apply seeds the morph attribute. */
-    beamSolidEdges?: THREE.LineSegments;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -84,15 +98,130 @@ export function setBeamSolidsVisible(visible: boolean): void {
     if (active?.beamSolidMesh) {
         active.beamSolidMesh.visible = visible;
     }
-    if (active?.beamSolidEdges) {
-        // The wireframe lives as a child of beamSolidMesh, so it would
-        // inherit ancestor invisibility, but ``mesh.visible = false``
-        // does not propagate through three's render walk by itself for
-        // children added to a non-Mesh group. Setting it directly is
-        // both belt-and-braces and lets future refactors detach the
-        // wireframe to a sibling without losing the link.
-        active.beamSolidEdges.visible = visible;
+    syncFeaOverlayVisibility();
+}
+
+/** Every element-edge wireframe in the active session, main mesh and beam solids. */
+function elementEdgeOverlays(name?: string): THREE.LineSegments[] {
+    const names = name ? [name] : ["fea-element-edges", "fea-beam-element-edges"];
+    const out: THREE.LineSegments[] = [];
+    for (const parent of [active?.mesh, active?.beamSolidMesh]) {
+        if (!parent) continue;
+        for (const each of names) {
+            const child = parent.getObjectByName(each);
+            if (child instanceof THREE.LineSegments) out.push(child);
+        }
     }
+    return out;
+}
+
+/**
+ * Decide which of the three renderings of a beam is on screen, in one place.
+ *
+ * A line element can be drawn three ways and the viewer builds all three: the
+ * extruded section solid, the result-coloured fat line, and the grey element edge
+ * from the mesh's edge sidecar. Each was switched by its own toggle, which is how
+ * a beam came to be drawn twice — with the sections off, the coloured line and the
+ * grey edge sat on the same two nodes, one following the morph and one following
+ * the CPU driver, and the model appeared to have twice as many members as it has.
+ *
+ * The rule, stated once:
+ *
+ *   * solids show when the user asks for them;
+ *   * the coloured line stands in for the solid, so it shows when the solids do
+ *     not and result colouring is on;
+ *   * the grey beam edge yields to the coloured line and to nothing else. It is
+ *     what makes a beam visible with colouring off, and it is still the member's
+ *     mesh line through the middle of a section solid.
+ *
+ * Shell edges are untouched: nothing else draws a shell's element boundaries.
+ */
+export function syncFeaOverlayVisibility(): void {
+    if (!active?.mesh) return;
+    const store = useFeaAnimationStore.getState();
+    const solids = active.beamSolidMesh?.visible ?? false;
+    // Built, wanted, and not superseded by the solids. All three: only an ELEMENT
+    // field installs coloured lines, so a nodal field has none to stand in for the
+    // grey edge and the beam would simply stop being drawn.
+    const colouredLines =
+        hasResultLineSegments(active.mesh) && store.resultColorsVisible && !solids;
+
+    setResultLineSegmentsVisible(active.mesh, colouredLines);
+    for (const overlay of elementEdgeOverlays("fea-element-edges")) {
+        overlay.visible = store.elementEdgesVisible;
+    }
+    for (const overlay of elementEdgeOverlays("fea-beam-element-edges")) {
+        overlay.visible = store.elementEdgesVisible && !colouredLines;
+    }
+    requestRender();
+}
+
+/**
+ * Show or hide the element-edge wireframe on the loaded result.
+ *
+ * A RUNTIME toggle, unlike the ``hideElementEdges`` perf flag: that one is read
+ * when the mesh is built and decides whether the overlay is created at all, so
+ * flipping it does nothing to a model already on screen. This flips `visible` on
+ * what exists, which is what a toolbar button has to do.
+ *
+ * The beam-solid wireframe stays subordinate to the solids themselves — hiding
+ * edges must not reveal a wireframe for solids that are switched off.
+ */
+export function setFeaElementEdgesVisible(_visible: boolean): void {
+    // Through the shared rule rather than a blanket flip. A beam's grey edge is
+    // suppressed while another rendering already draws that element, and this
+    // toggle must not be what puts it back. Every caller writes the store first,
+    // so the argument is redundant; it is kept for the viewer-core contract.
+    syncFeaOverlayVisibility();
+}
+
+/**
+ * Paint the model with the result field, or show it in its base material.
+ *
+ * Off is not "no result" — the step, the field and the legend's range are all
+ * still what they were. It is the geometry question separated from the value
+ * question: turning colour off is how you look at the MESH, at a section cut, at
+ * where a beam actually sits, without a contour on top of it.
+ *
+ * Every surface that carries the field is covered, not just the shells: the
+ * beam-solid mesh, and the coloured beam lines that stand in for it when solids
+ * are off. Leaving either behind would say the colouring was still partly on,
+ * which is worse than not offering the switch.
+ */
+export function setFeaResultColorsVisible(visible: boolean): void {
+    const setVc = (mat: THREE.Material) => {
+        if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== visible) {
+            (mat as unknown as {vertexColors: boolean}).vertexColors = visible;
+            mat.needsUpdate = true;
+        }
+    };
+    for (const target of [active?.mesh, active?.beamSolidMesh]) {
+        if (!target) continue;
+        // The beam-solid mesh only carries vertex colours when a field actually
+        // painted it; forcing them on would tint it by whatever is in the buffer.
+        if (visible && target === active?.beamSolidMesh && !target.geometry.getAttribute("color")) continue;
+        const m = target.material;
+        if (Array.isArray(m)) m.forEach(setVc);
+        else if (m) setVc(m as THREE.Material);
+    }
+    if (active?.mesh) {
+        // Result-point markers are result colouring too.
+        setResultPointMarkersVisible(active.mesh, visible);
+    }
+    // Which of a beam's three renderings is on screen changes with this, so the
+    // shared rule decides rather than this function reaching for one of them.
+    syncFeaOverlayVisibility();
+}
+
+/** Are element edges currently drawn? False when the bake carried none. */
+export function feaElementEdgesVisible(): boolean {
+    const overlays = elementEdgeOverlays();
+    return overlays.length > 0 && overlays.some((o) => o.visible);
+}
+
+/** Does the loaded result carry an element-edge wireframe to toggle? */
+export function hasFeaElementEdges(): boolean {
+    return elementEdgeOverlays().length > 0;
 }
 
 /**
@@ -149,6 +278,7 @@ export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = fals
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
+    useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
     // Drop any "go to node" marker + active-row state. The marker
     // mesh would otherwise survive into the next loaded model and
@@ -406,6 +536,16 @@ async function tryLoadBeamSolids(
                 rangesPlain[rid] = [entry.triStart * 3, entry.triCount * 3];
             }
         }
+        // The Outliner resolves a clicked row through ``modelKeyMapRef``:
+        // ``model_key`` -> an object whose subtree holds the named mesh.
+        // ``setupModelLoader`` registers the main FEA mesh when it loads the GLB;
+        // nothing registered this one. So clicking a beam in the tree set the
+        // Properties name and made NO 3d selection -- the status bar stayed on
+        // "No selection", nothing highlighted, and every selection-driven
+        // behaviour was silently skipped for beams.
+        if (!modelKeyMapRef.current) modelKeyMapRef.current = new Map();
+        modelKeyMapRef.current.set(uniqueKey, custom);
+
         // Best-effort cache install — if it fails, the mesh still
         // renders, the click just won't resolve.
         void cacheAndBuildTree(uniqueKey, {
@@ -452,6 +592,11 @@ function installBeamSolidWarp(
 
     if (warpField && warpStepValues) {
         const nc = warpField.components.length;
+        // WHICH slots hold the translation. A Sesam displacement field is
+        // ["ALL","X","Y","Z","RX","RY","RZ"] -- reading slots 0..2 warps every
+        // vertex by (ALL, X, Y), and since `ALL` is a non-negative aggregate the
+        // beams visibly fly off. See translationOffsets.
+        const axes = translationOffsets(warpField);
         const n0 = warp.node0;
         const n1 = warp.node1;
         const ts = warp.t;
@@ -460,15 +605,12 @@ function installBeamSolidWarp(
             const a = n0[v] * nc;
             const b = n1[v] * nc;
             const out = v * 3;
-            // Pre-fetch up to first 3 components per endpoint; treat
-            // missing components as zero (1D / 2D displacement fields
-            // shouldn't appear today, but defensive).
-            const ax = warpStepValues[a] || 0;
-            const ay = nc >= 2 ? warpStepValues[a + 1] || 0 : 0;
-            const az = nc >= 3 ? warpStepValues[a + 2] || 0 : 0;
-            const bx = warpStepValues[b] || 0;
-            const by = nc >= 2 ? warpStepValues[b + 1] || 0 : 0;
-            const bz = nc >= 3 ? warpStepValues[b + 2] || 0 : 0;
+            const ax = warpValue(warpStepValues, a, axes[0]);
+            const ay = warpValue(warpStepValues, a, axes[1]);
+            const az = warpValue(warpStepValues, a, axes[2]);
+            const bx = warpValue(warpStepValues, b, axes[0]);
+            const by = warpValue(warpStepValues, b, axes[1]);
+            const bz = warpValue(warpStepValues, b, axes[2]);
             const omt = 1 - t;
             displacement[out + 0] = omt * ax + t * bx;
             displacement[out + 1] = omt * ay + t * by;
@@ -480,12 +622,25 @@ function installBeamSolidWarp(
     // reaction field or turn warp off.
 
     const geom = beamSolid.geometry;
+
+    // In the geometry's CURRENT vertex numbering, which is not always the one the
+    // warp sidecar is written in. Painting an element field expands this geometry to
+    // element-local vertices and swaps its position buffer -- 33,812 vertices become
+    // 172,260 -- and the expansion is cached, so it survives a switch back to a nodal
+    // field. A morph sized for the original count is silently ignored by three.js,
+    // which is why beam solids sat undeformed while everything around them moved.
+    // `sourceVertexIndices` returns the cached map, or the identity when the geometry
+    // was never expanded, so this is a no-op on the untouched case.
+    const renderToSource = sourceVertexIndices(geom, nVerts);
+    const renderPositions = expandSourceTriples(basePositions, renderToSource);
+    const renderDisplacement = expandSourceTriples(displacement, renderToSource);
+
     const posAttr = geom.getAttribute("position");
-    if (posAttr) {
-        (posAttr.array as Float32Array).set(basePositions);
+    if (posAttr && posAttr.count === renderToSource.length) {
+        (posAttr.array as Float32Array).set(renderPositions);
         posAttr.needsUpdate = true;
     }
-    geom.morphAttributes.position = [new THREE.BufferAttribute(displacement, 3)];
+    geom.morphAttributes.position = [new THREE.BufferAttribute(renderDisplacement, 3)];
     geom.morphTargetsRelative = true;
 
     // Share the main mesh's influences array so a single write to
@@ -498,6 +653,14 @@ function installBeamSolidWarp(
         beamSolid.morphTargetInfluences = [0];
         beamSolid.morphTargetDictionary = {displacement: 0};
     }
+
+    // The beam-solid element-edge wireframe: same story as the main mesh's, and
+    // the one the user sees as black lines hanging in space. Its index is written
+    // against the ORIGINAL beam-solid vertices and it holds the position attribute
+    // this geometry had before the element-local expansion swapped one in, so the
+    // unexpanded `displacement` is what fits it. Installed BEFORE
+    // linkLineMorphToMesh runs, which then leaves it alone precisely because it
+    // brought its own.
 
     // Enable morph targets on every material slot so the GPU
     // actually applies the delta. The PBR material from the GLB
@@ -537,6 +700,23 @@ export async function load_fea_streaming(args: {
     stepIndex: number;
     reduction: string | null;
     displacementScale?: number;
+    /**
+     * The sweep slider's own position, when the caller is starting a session and
+     * wants the slider moved to it.
+     *
+     * Distinct from ``displacementScale`` on purpose. That one is the MORPH
+     * INFLUENCE — the slider position multiplied by the warp-scale knob — and
+     * writing it back into the slider was how selecting a component moved the
+     * indicator without moving the model: at a warp scale of 0.2 a slider on 0.55
+     * sends an influence of 0.11, the slider then read 0.11, and the shape did not
+     * change because the influence had not. Compounding, too: the next selection
+     * would have sent 0.022.
+     *
+     * Omit it and the slider is left where the user put it, which is what every
+     * re-apply wants — component, step, layer, colormap. Only a fresh load passes
+     * it.
+     */
+    sliderFactor?: number;
     /** Colormap ID — one of the keys in ``COLORMAPS``. Optional so
      * existing call-sites that don't care still work; we fall back to
      * the active store value (and from there to viridis if unset). */
@@ -557,6 +737,7 @@ export async function load_fea_streaming(args: {
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
     const displacementScale = args.displacementScale ?? 1;
+    const {sliderFactor} = args;
     const colormap =
         args.colormap ?? useFeaAnimationStore.getState().colormap;
     const stage = (label: string, progress: number) => {
@@ -793,63 +974,25 @@ export async function load_fea_streaming(args: {
             active.beamSolidMesh = beamSolid.mesh;
             active.beamSolidBasePositions = beamSolid.basePositions;
 
-            // AFEG over the beam-solid mesh: element-boundary edges
-            // (perimeter + axial seams between adjacent beam-elements).
-            // Without these the solid beams render as one continuous
-            // tube; with them the user can see where one beam ends and
-            // the next starts. Same wiring pattern as the main mesh's
-            // wireframe — share position + morph attributes so the
-            // wireframe deforms in lockstep. Gated by the same
-            // `hideElementEdges` perf toggle as the main wireframe.
-            if (
-                manifest.mesh.beam_solids_edges_url
-                && !usePerfStore.getState().hideElementEdges
-            ) {
-                try {
-                    const beamEdgeIndices = await fetchMeshEdges(
-                        fetcher,
-                        manifest.mesh.beam_solids_edges_url,
-                    );
-                    if (beamEdgeIndices.length > 0) {
-                        const lineGeom = new THREE.BufferGeometry();
-                        lineGeom.setAttribute(
-                            "position",
-                            beamSolid.mesh.geometry.attributes.position,
-                        );
-                        lineGeom.setIndex(
-                            new THREE.BufferAttribute(beamEdgeIndices, 1),
-                        );
-                        const lineMat = new THREE.LineBasicMaterial({
-                            color: 0x111111,
-                            depthTest: true,
-                        });
-                        const segments = new THREE.LineSegments(lineGeom, lineMat);
-                        segments.name = "fea-beam-solid-element-edges";
-                        // Clip the element-edge wireframe with the model under section planes.
-                        segments.userData.__clipWithModel = true;
-                        // Layer 1: rendered but not pickable — beam-solid
-                        // face picking goes through the parent
-                        // CustomBatchedMesh; the wireframe is decorative.
-                        segments.layers.set(1);
-                        // Inherit beam-solid visibility so toggling the
-                        // solid mesh on/off hides its wireframe too.
-                        segments.visible = beamSolid.mesh.visible;
-                        // Morph attribute + influences are linked after
-                        // installBeamSolidWarp seeds them — see
-                        // applyFieldToBeamSolids further below.
-                        beamSolid.mesh.add(segments);
-                        active.beamSolidEdges = segments;
-                    }
-                } catch (err) {
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        "[fea-streaming] failed to load beam-solid edges:",
-                        err,
-                    );
-                }
-            }
+            // No element-edge wireframe over the beam solids.
+            //
+            // There used to be one, drawn from the AFEG sidecar: the perimeter of
+            // each extruded section plus the seams between adjacent beam
+            // elements. It is the wrong thing to call a mesh line. A beam element
+            // IS a line — two nodes and the span between them — and its mesh line
+            // should be that line whether or not the section is drawn around it.
+            // Outlining the extrusion instead put a rectangle round every section
+            // end and read as mesh that the model does not have.
+            //
+            // Nothing replaces it, because nothing needs to: the main mesh's edge
+            // sidecar already carries one edge per line element (see
+            // get_mesh_topology — "Line elements contribute edges but no
+            // triangles"), so beams keep exactly the mesh line they have with the
+            // sections switched off. The bake still writes beam_solids_edges_url;
+            // it is simply no longer consumed.
 
             // AFBV: per-vertex (node0, node1, t). Required so the
+
             // solid mesh deforms with the rest of the structure
             // when warp is applied. Best-effort fetch — without it
             // the solid mesh still renders but stays at base
@@ -889,12 +1032,41 @@ export async function load_fea_streaming(args: {
                     fetcher,
                     manifest.mesh.edges_url,
                 );
-                if (edgeIndices.length > 0) {
+                if (active) active.edgeIndices = edgeIndices;
+
+                // Beams get their own, dimmer colour. A shell's element edges are a
+                // grid you read element size off; a beam's edge is a member. In one
+                // colour the members vanish into the grid, so the bake now says
+                // which edges are which and they are drawn as two overlays.
+                //
+                // Split rather than overdrawn: the same pair painted twice at the
+                // same depth is a z-fight, and which colour wins is then decided by
+                // the driver.
+                let lineEdgeIndices: Uint32Array | null = null;
+                if (manifest.mesh.line_edges_url) {
+                    try {
+                        const fetched = await fetchMeshEdges(
+                            fetcher,
+                            manifest.mesh.line_edges_url,
+                        );
+                        if (fetched.length > 0) lineEdgeIndices = fetched;
+                    } catch (err) {
+                        // A missing or unreadable split is not worth failing a load
+                        // over — everything simply stays one colour, as before.
+                        // eslint-disable-next-line no-console
+                        console.warn("[fea-streaming] failed to load line edges:", err);
+                    }
+                }
+                const shellEdgeIndices = lineEdgeIndices
+                    ? withoutEdges(edgeIndices, lineEdgeIndices)
+                    : edgeIndices;
+
+                if (shellEdgeIndices.length > 0) {
                     const lineGeom = new THREE.BufferGeometry();
                     lineGeom.setAttribute("position", mesh.geometry.attributes.position);
-                    lineGeom.setIndex(new THREE.BufferAttribute(edgeIndices, 1));
+                    lineGeom.setIndex(new THREE.BufferAttribute(shellEdgeIndices, 1));
                     const lineMat = new THREE.LineBasicMaterial({
-                        color: 0x111111,
+                        color: FEA_EDGE_COLOR,
                         depthTest: true,
                         // Transparent (opacity stays 1 — colour unchanged) so the
                         // element-edge wireframe joins the transparent render pass
@@ -932,6 +1104,24 @@ export async function load_fea_streaming(args: {
                     // morph attribute — see linkLineMorphToMesh.
                     mesh.add(segments);
                 }
+
+                // The beam edges, same geometry and morph story, own colour.
+                if (lineEdgeIndices && lineEdgeIndices.length > 0) {
+                    const beamGeom = new THREE.BufferGeometry();
+                    beamGeom.setAttribute("position", mesh.geometry.attributes.position);
+                    beamGeom.setIndex(new THREE.BufferAttribute(lineEdgeIndices, 1));
+                    const beamMat = new THREE.LineBasicMaterial({
+                        color: FEA_BEAM_EDGE_COLOR,
+                        depthTest: true,
+                        transparent: true,
+                    });
+                    const beamSegments = new THREE.LineSegments(beamGeom, beamMat);
+                    beamSegments.name = "fea-beam-element-edges";
+                    beamSegments.renderOrder = 3;
+                    beamSegments.userData.__clipWithModel = true;
+                    beamSegments.layers.set(1);
+                    mesh.add(beamSegments);
+                }
             } catch (err) {
                 // Wireframe overlay is decorative — log and continue
                 // so a missing/corrupt sidecar doesn't block rendering.
@@ -960,6 +1150,10 @@ export async function load_fea_streaming(args: {
     if (field) {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
+    // Read once, applied to every surface that carries the field. Splitting the
+    // scale between the shells, the beam solids and the beam lines is how a model
+    // comes to show three different answers to the same question.
+    const contour = useFeaAnimationStore.getState().contour;
     const warpInfo = await resolveWarpSource(
         rangeFetcher,
         fetcher,
@@ -1001,7 +1195,17 @@ export async function load_fea_streaming(args: {
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
             colormap,
+            contour,
             nodalAverage,
+            // Only where the deck cannot show beam solids. Where it can, the beam
+            // carries its result on its own surface, and a coloured line as well
+            // puts two renderings of one beam in the same place -- the black
+            // element-edge overlay against the coloured line, neither legible.
+            // Always build them. Which of the two renderings you SEE is a
+            // visibility question, not a build-time one -- gating on whether the
+            // bake carried solids meant a deck that had them showed black beams
+            // the moment you switched the solids off.
+            lineFallback: true,
         });
         // Beam-solid mesh — paint with the same AFEL data. Beam
         // labels appear in both drawRanges maps, but the main-mesh
@@ -1027,6 +1231,7 @@ export async function load_fea_streaming(args: {
                 ipReduction,
                 reduction: reductionStr,
                 colormap,
+                contour,
                 nodalAverage: false,
             });
             if (active.beamSolidWarp) {
@@ -1053,30 +1258,65 @@ export async function load_fea_streaming(args: {
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
             colormap,
+            contour,
         });
 
-        // Beam-solid mesh: nodal fields don't have a sensible
-        // per-vertex value here (the beam-solid vertices aren't FEA
-        // nodes). Turn vertexColors off so any stale element-field
-        // colouring stops contributing and the GLB's base material
-        // shows. Cheap toggle — no buffer rewrite needed.
+        // Beam-solid mesh: paint it from the same nodal field.
         //
-        // Warp is independent of colour: install the lerped nodal
-        // warp on the beam-solid mesh so a displacement field flexes
-        // the solid beams in lockstep with the rest of the structure.
-        // Without this, scaling the morph influence ×100 would leave
-        // rigid solid beams sitting at undeformed positions while the
-        // shells fly off.
+        // This used to switch vertex colours off, on the reasoning that a
+        // beam-solid vertex is not an FEA node. True of the vertex, false of the
+        // beam: the AFBV sidecar names each vertex's two end nodes and its axial
+        // parameter, which is the very interpolation installBeamSolidWarp uses to
+        // MOVE that vertex. Anything that can be interpolated to a position can be
+        // interpolated to a colour, so a displacement field now paints the beams as
+        // well as the shells — as the reference postprocessor does, and as an element field already did
+        // here. Base material on a beam that has a value does not read as "no data";
+        // it reads as zero.
+        //
+        // Warp is independent of colour: install the lerped nodal warp so a
+        // displacement field flexes the solid beams in lockstep with the rest of the
+        // structure. Without it, scaling the morph influence ×100 leaves rigid solid
+        // beams at undeformed positions while the shells fly off.
         if (active.beamSolidMesh) {
-            const disableVc = (mat: THREE.Material) => {
-                if ("vertexColors" in mat) {
-                    (mat as unknown as {vertexColors: boolean}).vertexColors = false;
+            const setVc = (mat: THREE.Material, on: boolean) => {
+                if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== on) {
+                    (mat as unknown as {vertexColors: boolean}).vertexColors = on;
                     mat.needsUpdate = true;
                 }
             };
+            let painted = false;
+            if (active.beamSolidWarp && active.beamSolidBasePositions) {
+                const sourceColors = beamSolidNodalColors(
+                    field,
+                    colorStepValues,
+                    reductionStr,
+                    active.beamSolidWarp,
+                    colormap,
+                    active.basePositions.length / 3,
+                    contour,
+                );
+                if (sourceColors) {
+                    const geom = active.beamSolidMesh.geometry;
+                    // Through the element-local expansion, if one is cached on this
+                    // geometry from an earlier element field. Same reason the morph
+                    // goes through it: a buffer sized for the original vertex count
+                    // does not fit an expanded geometry.
+                    const nSource = active.beamSolidWarp.n_verts;
+                    const renderToSource = sourceVertexIndices(geom, nSource);
+                    const renderColors = expandSourceTriples(sourceColors, renderToSource);
+                    const existing = geom.getAttribute("color");
+                    if (existing && existing.count === renderToSource.length && existing.itemSize === 3) {
+                        (existing.array as Float32Array).set(renderColors);
+                        existing.needsUpdate = true;
+                    } else {
+                        geom.setAttribute("color", new THREE.BufferAttribute(renderColors, 3));
+                    }
+                    painted = true;
+                }
+            }
             const m = active.beamSolidMesh.material;
-            if (Array.isArray(m)) m.forEach(disableVc);
-            else if (m) disableVc(m as THREE.Material);
+            if (Array.isArray(m)) m.forEach((mat) => setVc(mat, painted));
+            else if (m) setVc(m as THREE.Material, painted);
 
             if (active.beamSolidWarp && active.beamSolidBasePositions) {
                 installBeamSolidWarp(
@@ -1107,6 +1347,19 @@ export async function load_fea_streaming(args: {
         linkLineMorphToMesh(active.beamSolidMesh);
     }
 
+    // Re-apply the undeformed-wireframe preference. It survives loads and step
+    // changes, and the ghost has to be rebuilt after one: the base positions it
+    // copies belong to the source that was just loaded.
+    refreshUndeformedGhost();
+
+    // Re-apply the view preferences a load resets: which beam rendering shows, and
+    // whether element edges are drawn. Both outlive the mesh they were set on.
+    {
+        const s = useFeaAnimationStore.getState();
+        setFeaResultColorsVisible(s.resultColorsVisible);
+        syncFeaOverlayVisibility();
+    }
+
     // Register the session with the animation store so
     // SimulationControls renders the deformation-scale slider /
     // play / stop instead of the GLTF-clip controls. Range follows
@@ -1122,12 +1375,44 @@ export async function load_fea_streaming(args: {
         animStore.setSessionActive(true);
         const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
         animStore.setRange(range);
-        animStore.setFactor(displacementScale);
+        // Only when the caller asked. See ``sliderFactor`` on the argument type:
+        // the influence and the slider are different numbers, and equating them
+        // moved the indicator on every component change.
+        if (sliderFactor !== undefined) animStore.setFactor(sliderFactor);
         animStore.setStepIndex(stepIndex);
         animStore.setNSteps(field.n_steps);
+        // A deformation scale the model can be seen at. Derived from the
+        // displacement field and the model size, and only ever applied while the
+        // user has not set a scale of their own.
+        {
+            const geom = active.mesh.geometry;
+            // Recompute rather than trust a cached box: a stale one from an
+            // earlier state made the derived scale wobble between field
+            // switches, and a number that changes on its own is worse than a
+            // number that is slightly off. Base positions do not change, so
+            // this is the same answer every time.
+            geom.computeBoundingBox();
+            const size = geom.boundingBox
+                ? geom.boundingBox.min.distanceTo(geom.boundingBox.max)
+                : 0;
+            animStore.applyAutoScaleFactor(
+                autoWarpScale(findDisplacementField(manifest), size),
+            );
+        }
         animStore.setFieldName(fieldName);
         if (reduction != null) animStore.setReduction(reduction);
         animStore.setColormap(colormap);
+        // Through the same resolver the kernels used: a pinned range the legend
+        // does not know about is a legend that disagrees with the picture beside
+        // it, which is worse than no legend at all.
+        const [legendMin, legendMax] = resolveContourRange(
+            selectedResultRange(field, reduction ?? "magnitude"),
+            useFeaAnimationStore.getState().contour,
+        );
+        const legendStore = useColorStore.getState();
+        legendStore.setMin(legendMin);
+        legendStore.setMax(legendMax);
+        legendStore.setShowLegend(true);
     } else {
         // Field-less FEM mesh (model only): no results -> NO simulation session, so
         // SimulationControls + the results-only "show in data" action stay hidden. The
@@ -1137,6 +1422,7 @@ export async function load_fea_streaming(args: {
         animStore.setFieldName(null);
         animStore.setNSteps(1);
         animStore.setStepIndex(0);
+        useColorStore.getState().setShowLegend(false);
     }
 
     // applyStep closure captures the *current* (sourceName, manifest,
@@ -1282,7 +1568,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                     json: async (rel) =>
                         JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
                     bytes: async (rel, range) =>
-                        range ? rangeFetcher(rel, range.start, range.end) : fetcher(rel),
+                        range ? (await rangeFetcher(rel, range.start, range.end)).buf : fetcher(rel),
                 };
                 void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
             } catch (err) {
@@ -1324,15 +1610,20 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         // stress-only output).
         const field =
             manifest.fields.find((f) => f.category === "displacement") ??
-            manifest.fields[0];
-        const reduction = field.default_view?.reduction ?? "magnitude";
+            manifest.fields[0] ??
+            // A result-less deck (a design-model .fem/.inp/.med bake, or an
+            // input deck exported from a SIN) has geometry and no fields at
+            // all. Mesh-only is the correct open, not a crash on fields[0].
+            null;
+        const reduction = field?.default_view?.reduction ?? "magnitude";
         await load_fea_streaming({
             sourceName,
             manifest,
-            fieldName: field.name_canonical,
+            fieldName: field ? field.name_canonical : null,
             stepIndex: 0,
-            reduction,
+            reduction: field ? reduction : null,
             displacementScale: 1,
+            sliderFactor: 1,
             signal: controller.signal,
             onStage: (stage, progress) => {
                 if (!useConversionStore.getState().jobs[storeKey]) return;
@@ -1396,6 +1687,17 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
     for (const child of mesh.children) {
         if (!(child instanceof THREE.LineSegments)) continue;
         const lineGeom = child.geometry as THREE.BufferGeometry;
+        // A child that brought its own morph keeps it. The element-edge overlay
+        // SHARES the parent's position buffer, so the parent's per-vertex deltas
+        // are exactly what it needs. The result-line renderer does not: it has
+        // two vertices per beam in its own buffer and its own deltas to match.
+        // Forcing the parent's array onto it hands it deltas of the wrong length
+        // read against the wrong vertices, which is why the coloured beams drifted
+        // away from the black outline instead of moving with it.
+        if (
+            lineGeom.morphAttributes.position
+            && lineGeom.morphAttributes.position !== mesh.geometry.morphAttributes.position
+        ) continue;
         // morphAttributes is per-geometry; sharing the same array of
         // BufferAttributes makes both geometries reference the same
         // morph delta data on the GPU.
@@ -1427,4 +1729,31 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
         // on the first call (no renderer state yet).
         lineGeom.dispatchEvent({type: "dispose"});
     }
+}
+
+/**
+ * Show or hide the undeformed reference wireframe on the active FEA session.
+ *
+ * Reads the flag from the store rather than taking it, so a caller that has just
+ * set the preference and a caller re-applying it after a load are the same call.
+ * A no-op when nothing is loaded, or when the bake carried no edge sidecar —
+ * there is no honest reference to draw from a triangulation alone.
+ */
+export function refreshUndeformedGhost(): void {
+    if (!active?.mesh) return;
+    const show = useFeaAnimationStore.getState().showUndeformed;
+    if (!show || !active.edgeIndices || active.edgeIndices.length === 0) {
+        clearUndeformedGhost(active.mesh);
+        if (active.beamSolidMesh) clearUndeformedGhost(active.beamSolidMesh);
+        requestRender();
+        return;
+    }
+    installUndeformedGhost(active.mesh, active.basePositions, active.edgeIndices);
+    requestRender();
+}
+
+/** Set the preference and apply it in one call — what a toolbar toggle wants. */
+export function setFeaUndeformedGhost(show: boolean): void {
+    useFeaAnimationStore.getState().setShowUndeformed(show);
+    refreshUndeformedGhost();
 }

@@ -339,8 +339,23 @@ def from_genie_xml(
     """
     from ada.cadit.gxml.store import GxmlStore
 
-    gxml = GxmlStore(xml_path)
-    p = gxml.to_part(extract_joints=extract_joints)
+    if str(xml_path).lower().endswith(".gnx"):
+        # A Genie workspace: the same concept XML zipped up with its ACIS body
+        # in a separate member. Unpack into a self-contained XML (body embedded
+        # back in) and read that; the reader's SAT side-file lands beside it.
+        import tempfile
+
+        from ada.cadit.gxml.write.write_gnx import genie_xml_from_gnx
+
+        with tempfile.TemporaryDirectory() as td:
+            unpacked = genie_xml_from_gnx(xml_path, pathlib.Path(td) / (pathlib.Path(xml_path).stem + ".xml"))
+            gxml = GxmlStore(unpacked)
+            p = gxml.to_part(extract_joints=extract_joints)
+            if build_topology_store and len(gxml.sat_factory.sat_store.sat_records) == 0:
+                gxml.sat_factory.load_sat_data_from_file()
+    else:
+        gxml = GxmlStore(xml_path)
+        p = gxml.to_part(extract_joints=extract_joints)
     name = name if name is not None else p.name
     a = Assembly(name=name, schema=ifc_schema, cad_config=cad_config) / p
     if build_topology_store:

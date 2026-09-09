@@ -7,7 +7,10 @@ from ada.calc.ec3_ex import ec3_654
 
 def test_read_static_line_results(cantilever_dir):
     results = ada.from_fem_res(cantilever_dir / "sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF")
-    assert len(results.results) == 2
+    # Raw records are retained; semantic derived fields are added alongside.
+    names = {r.name for r in results.results}
+    assert {"RVNODDIS", "FORCES"} <= names
+    assert any(n.startswith("sesam.") for n in names)
 
     elem_id = 1
     elem_1 = results.mesh.get_elem_by_id(elem_id)
@@ -21,7 +24,9 @@ def test_read_static_line_results(cantilever_dir):
 
 def test_read_static_shell_results(cantilever_dir):
     results = ada.from_fem_res(cantilever_dir / "sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF")
-    assert len(results.results) == 2
+    names = {r.name for r in results.results}
+    assert {"RVNODDIS", "STRESS"} <= names
+    assert any(n.startswith("sesam.") for n in names)
 
     # results.to_fem_file("temp/sesam_shell.vtu")
     # results.to_gltf("temp/sesam.glb", 1, "RVNODDIS", warp_field="RVNODDIS", warp_step=1, warp_scale=10)

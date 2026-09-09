@@ -52,17 +52,20 @@ export interface WasmFormat {
 // from the matrix (see serializerMatrix.ts); this table only decides which
 // (source, target) cells the browser can be handed at all.
 const WASM_TARGETS_BY_FORMAT: Record<PyodideSourceFormat, readonly string[]> = {
-    sat: ["glb", "obj", "stl", "step", "xml", "ifc"],
-    ifc: ["glb", "obj", "stl", "step", "xml", "ifc"],
+    // gnx rides beside xml everywhere: a Genie workspace is the same concept
+    // XML zipped with its SAT body (pure python), so whatever can write the
+    // one can write the other.
+    sat: ["glb", "obj", "stl", "step", "xml", "gnx", "ifc"],
+    ifc: ["glb", "obj", "stl", "step", "xml", "gnx", "ifc"],
     // STEP via the kernel-free stream reader (from_step reader="stream") for
     // non-GLB; GLB stays on the adacpp fast path.
-    step: ["glb", "ifc", "xml", "stl", "obj", "step"],
+    step: ["glb", "ifc", "xml", "gnx", "stl", "obj", "step"],
     mesh: ["glb", "obj", "stl"],
     // FEM decks: from_fem geometry writers + deck↔deck rewrites (inp/fem/med);
     // identity pairs (inp→inp, fem→fem) excluded by the self-conversion guard.
-    fem: ["glb", "ifc", "step", "xml", "obj", "stl", "inp", "fem", "med"],
-    // Genie xml: from_genie_xml → geometry writers.
-    genie: ["glb", "ifc", "step", "xml", "obj", "stl"],
+    fem: ["glb", "ifc", "step", "xml", "gnx", "obj", "stl", "inp", "fem", "med"],
+    // Genie xml / gnx workspace: from_genie_xml → geometry writers.
+    genie: ["glb", "ifc", "step", "xml", "gnx", "obj", "stl"],
     fea: [], // FEA sources go through the bake path (isWasmFeaSource), not this matrix
     // SIF/SIN result → single tessellated GLB (read_sif/read_sin → FEAResult
     // .to_gltf, all pure-python+numpy+trimesh). This is the registry's lone
@@ -97,7 +100,7 @@ export function detectWasmFormat(sourceKey: string): WasmFormat | null {
     // only the registry's single-GLB conversion cell.
     if (ext === "sif" || ext === "sin") return {format: "fea_glb", ext};
     if ((WASM_FEM_DECK_EXTS as readonly string[]).includes(ext)) return {format: "fem", ext};
-    if (ext === "xml") return {format: "genie", ext};
+    if (ext === "xml" || ext === "gnx") return {format: "genie", ext};
     if ((WASM_MESH_EXTS as readonly string[]).includes(ext)) return {format: "mesh", ext};
     return null;
 }

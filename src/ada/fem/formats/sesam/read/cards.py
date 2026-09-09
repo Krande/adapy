@@ -91,11 +91,15 @@ MAT_MAP = {
 }
 
 # Nodes
+UNITS = DataCard("UNITS", ("nfield", "id", "lenfac", "forfac", "tempfac"))
 GNODE = DataCard("GNODE", ("nodex", "nodeno", "ndof", "odof"))
 GCOORD = DataCard("GCOORD", ("id", "x", "y", "z"))
+BNDOF = DataCard("BNDOF", ("nodeno", "transd", "transr"))
+BNTRCOS = DataCard("BNTRCOS", ("transno", "c11", "c21", "c31", "c12", "c22", "c32", "c13", "c23", "c33"))
 
 # Elements
 GELMNT1 = DataCard("GELMNT1", ("elnox", "elno", "eltyp", "eltyad", "nids"))
+GECCEN = DataCard("GECCEN", ("eccno", "ex", "ey", "ez"))
 GELREF1 = DataCard(
     "GELREF1",
     (
@@ -257,6 +261,10 @@ RDNODRES = DataCard("RDNODRES", ["nfield", "irdva", "lenrec"])
 RVNODDIS = DataCard(
     "RVNODDIS", ["nfield", "ires", "inod", "irdva|", "itrans|", "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"]
 )
+RDNODREA = DataCard("RDNODREA", ["nfield", "irrea", "lenrec", "bulk"])
+RVNODREA = DataCard(
+    "RVNODREA", ["nfield", "ires", "inod", "irrea|", "irboc|", "itrans|", "F1|", "F2|", "F3|", "F4|", "F5|", "F6|"]
+)
 RDPOINTS = DataCard(
     "RDPOINTS", ["nfield", "ispalt", "iielno", "icoref", "ieltyp", "nsp", "ijkdim", "nsptra", "nlay", "bulk"]
 )
@@ -271,9 +279,7 @@ re_rvforces = RVFORCES.to_ff_re()
 re_rdforces = RDFORCES.to_ff_re()
 
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
-re_rvnodrea = get_ff_regex(
-    "RVNODREA", "nfield", "ires", "inod", "irrea|", "irboc|", "itrans|", "F1|", "F2|", "F3|", "F4|", "F5|", "F6|"
-)
+re_rvnodrea = RVNODREA.to_ff_re()
 
 # Result-case combination definitions. ``bulk`` is ``nres`` triplets of
 # ``(component IRES, real factor, imag factor)`` — the combined result IRES

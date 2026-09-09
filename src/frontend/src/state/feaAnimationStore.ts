@@ -2,6 +2,7 @@ import {create} from "zustand";
 
 import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
+import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
  *
@@ -82,6 +83,19 @@ export interface FeaAnimationState {
      * without a re-fetch. */
     colormap: string;
 
+    /**
+     * How the colour scale is drawn: how many discrete bands, and whether either
+     * end of the range is pinned.
+     *
+     * A per-user preference like ``colormap``, and kept across ``reset()`` for
+     * the same reason — someone comparing two load cases at a fixed 0–250 MPa is
+     * doing exactly the thing that must survive loading the second one. The
+     * BOUNDS are the exception and are dropped when the field changes: a
+     * megapascal range pinned onto a displacement field colours everything one
+     * colour, and nothing on screen would say why.
+     */
+    contour: ContourSettings;
+
     /** Whether to drive mesh deformation from the displacement field.
      * Default true (Abaqus CAE behaviour — stresses on the deformed
      * shape). For reaction-force fields the warp is force-off
@@ -99,6 +113,24 @@ export interface FeaAnimationState {
      *  and the user wants to exaggerate the deformed shape without
      *  changing the underlying field values. */
     scaleFactor: number;
+
+    /** Whether `scaleFactor` is still the loader's automatic choice.
+     *  Cleared the moment the user types a scale of their own, after which the
+     *  loader stops touching it -- an explicit number the viewer silently
+     *  overwrites on the next model is worse than no automation at all.
+     *  Kept across ``reset()`` like the other per-user preferences. */
+    scaleFactorAuto: boolean;
+
+    /** Draw the undeformed shape as a static wireframe behind the deformed one.
+     *  A reference, the way every FE post-processor offers one: at any useful
+     *  exaggeration the deformed shape has left the original far behind, and
+     *  "far behind WHAT" is the question this answers. Persisted across
+     *  ``reset()`` like the other per-user view preferences. */
+    showUndeformed: boolean;
+    /** Draw the element-edge wireframe over the result. */
+    elementEdgesVisible: boolean;
+    /** Paint the model with the result field, or show it in its base material. */
+    resultColorsVisible: boolean;
 
     /** Layer filter for element fields with multi-IP shell stacks.
      *  ``top``/``bottom``/``mid`` pick the matching IPs out of the
@@ -155,8 +187,19 @@ export interface FeaAnimationState {
     setFieldName: (n: string | null) => void;
     setReduction: (r: string) => void;
     setColormap: (c: string) => void;
+    /** Set the band count, or null for a continuous ramp. */
+    setContourLevels: (levels: number | null) => void;
+    /** Pin either end of the colour scale. Null means "follow the field". */
+    setContourBounds: (min: number | null, max: number | null) => void;
+    /** Back to the field's own extremes, band count untouched. */
+    resetContourBounds: () => void;
     setWarpEnabled: (enabled: boolean) => void;
     setScaleFactor: (s: number) => void;
+    /** Loader-side. Applies a derived scale, but never over a user's own. */
+    applyAutoScaleFactor: (s: number) => void;
+    setShowUndeformed: (v: boolean) => void;
+    setElementEdgesVisible: (v: boolean) => void;
+    setResultColorsVisible: (v: boolean) => void;
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
@@ -186,11 +229,21 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // expect from a stress / displacement plot. Viridis lives one
     // dropdown away in the SimulationControls options panel.
     colormap: "abaqus",
+    // Continuous and auto-ranged until the user asks otherwise — the same scale
+    // the viewer has always drawn.
+    contour: DEFAULT_CONTOUR,
     // Warp on by default — most users picking a stress field want it
     // shown on the deformed shape (Abaqus / Paraview default).
     warpEnabled: true,
-    // Identity scale by default — exaggeration is an explicit opt-in.
+    // Identity until the loader derives one from the model and the field. It
+    // stays 1 when there is nothing to derive from, which is the old behaviour.
     scaleFactor: 1.0,
+    scaleFactorAuto: true,
+    // Off by default: it doubles the line count on screen, and a user who has not
+    // exaggerated anything has nothing to compare against yet.
+    showUndeformed: false,
+    elementEdgesVisible: true,
+    resultColorsVisible: true,
     // Default layer / IP reduction mirror the bake's
     // ``default_view.layer`` / ``ip_reduction`` keys (artefacts.py
     // build_manifest). When a nodal field is active these are
@@ -221,15 +274,25 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setFieldName: (fieldName) => set({fieldName}),
     setReduction: (reduction) => set({reduction}),
     setColormap: (colormap) => set({colormap}),
+    setContourLevels: (levels) =>
+        set((state) => ({contour: {...state.contour, levels: normaliseLevels(levels)}})),
+    setContourBounds: (min, max) => set((state) => ({contour: {...state.contour, min, max}})),
+    resetContourBounds: () =>
+        set((state) => ({contour: {...state.contour, min: null, max: null}})),
     setWarpEnabled: (warpEnabled) => set({warpEnabled}),
-    setScaleFactor: (scaleFactor) => set({scaleFactor}),
+    setScaleFactor: (scaleFactor) => set({scaleFactor, scaleFactorAuto: false}),
+    applyAutoScaleFactor: (scaleFactor) =>
+        set((s) => (s.scaleFactorAuto ? {scaleFactor} : {})),
+    setShowUndeformed: (showUndeformed) => set({showUndeformed}),
+    setElementEdgesVisible: (elementEdgesVisible) => set({elementEdgesVisible}),
+    setResultColorsVisible: (resultColorsVisible) => set({resultColorsVisible}),
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setApplyStep: (cb) => set({applyStep: cb}),
-    reset: () =>
-        set({
+    reset: (): void =>
+        set((state) => ({
             sessionActive: false,
             mesh: null,
             range: DEFAULT_RANGE,
@@ -241,6 +304,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
+            // Bands survive; pinned bounds do not. See ``contour`` above.
+            contour: {...state.contour, min: null, max: null},
             // Don't reset ``colormap``, ``warpEnabled``, ``layer``,
             // ``ipReduction``, ``nodalAverage``, or
             // ``beamSolidsVisible`` on scene clear — all six are
@@ -249,5 +314,5 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             // smooth + solid-beams once want them to stick across
             // model swaps.
             applyStep: null,
-        }),
+        })),
 }));

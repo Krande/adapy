@@ -174,6 +174,11 @@ class Mesh:
     vectors: dict[int, list] = None
     elem_data: np.ndarray = None  # el_id, mat_id, sec_id, vec_id
     sets: dict[str, FemSet] = None
+    # {elem_id: [per-node global offset vector | None]}. Sesam models a stiffener on
+    # the plate's own nodes and pushes it onto the plate with this; without it the
+    # profile is drawn centred on the element axis, floating beside the plate it is
+    # welded to. None for readers that carry no eccentricity concept.
+    eccentricities: dict[int, list] = None
 
     def get_elem_by_id(self, elem_id: int) -> Elem:
         from ada.base.types import GeomRepr
@@ -402,6 +407,14 @@ class Mesh:
                 # Assign FemSection similarly to get_elem_by_id
                 fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{elem_id}", [el]), mat, sec, local_z=vec)
                 el.fem_sec = fs
+
+                # Deliberately NOT attaching el.eccentricity here. The raw GECCEN
+                # vector is not a shift that can be applied on its own: it positions
+                # the section's CENTROID, and adapy's profile builders put the local
+                # origin somewhere else, differently per section type. Handing it to
+                # line_elem_to_beam moved L sections off plates they were already
+                # flush against. The bake corrects for the origin before using it —
+                # see fem/results/beam_placement.py.
 
                 line_elems.append(el)
 

@@ -451,6 +451,45 @@ class Assembly(Part):
 
         return destination_xml
 
+    def to_gnx(
+        self,
+        destination_gnx,
+        writer_postprocessor: Callable[[ET.Element, Part], None] = None,
+        streaming: bool = False,
+        merge_strategy=None,
+    ):
+        """Write a Genie (DNV) workspace file (``.gnx``).
+
+        The workspace is the concept XML ``to_genie_xml`` writes plus its ACIS
+        body, zipped the way Genie saves one — so the OS association opens the
+        model straight into Genie, with no import step. The SAT body is always
+        built (this is ``embed_sat=True``; a workspace has no polygon-only mode
+        because Genie stores the body beside the XML, never rebuilds it).
+
+        ``streaming``/``merge_strategy`` take the streaming XML writer's route
+        through a temporary XML and repack it, for large FEM-derived models.
+        """
+        import pathlib
+        import tempfile
+
+        from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml, write_gnx
+
+        destination_gnx = pathlib.Path(destination_gnx)
+        if streaming or merge_strategy is not None:
+            with tempfile.TemporaryDirectory() as td:
+                tmp_xml = pathlib.Path(td) / (destination_gnx.stem + ".xml")
+                self.to_genie_xml(
+                    tmp_xml,
+                    writer_postprocessor=writer_postprocessor,
+                    streaming=True,
+                    merge_strategy=merge_strategy,
+                )
+                gnx_from_genie_xml(tmp_xml, destination_gnx)
+        else:
+            write_gnx(self, destination_gnx, writer_postprocessor=writer_postprocessor)
+        logger.info(f'Genie workspace "{destination_gnx}" created')
+        return destination_gnx
+
     def get_ifc_source_by_name(self, ifc_file):
         from ada.cadit.ifc.read.reader_utils import open_ifc
 

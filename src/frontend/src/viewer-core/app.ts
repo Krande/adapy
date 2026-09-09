@@ -49,6 +49,20 @@ export type { ScopeOption } from "@/state/scopeStore";
 export { requestRender, usePerfStore } from "@/state/perfStore";
 
 // ---------------------------------------------------------------------------
+// Compute settings. What a server-side calculation may spend — cores and
+// memory — as the user sets it. A shell renders the controls; a plugin sends
+// `computeJobOptions()` with its job, and the worker's environment caps it.
+// ---------------------------------------------------------------------------
+export {
+  COMPUTE_MODES,
+  computeJobOptions,
+  computeJobOptionsFrom,
+  isComputeMode,
+  useComputeStore,
+} from "@/state/computeStore";
+export type { ComputeMode, ComputeState } from "@/state/computeStore";
+
+// ---------------------------------------------------------------------------
 // Theme. A shell may ship its own design system, but reading these keeps it in
 // step with the user's panel-chrome choice and with plugin panels, which paint
 // from `effectivePluginTheme`.
@@ -101,3 +115,12 @@ export { UiShellSwitcher } from "@/plugins/UiShellSwitcher";
 // a tab that looks slightly foreign is a smaller problem than a tab that
 // silently does not exist.
 export { default as ExternalModelsTab } from "@/components/admin/ExternalModelsTab";
+
+// The whole admin surface, for the same reason as the tab above but at the
+// panel level: the one existing shell forked the entire panel, and upstream's
+// tab consolidation (audit sub-tabs, performance, procedural) left the fork
+// listing tabs core had retired — visible only as a typecheck error. Mounting
+// this instead cannot drift. `embedded` mode exists for exactly the floating
+// in-viewer host a shell would put it in; the full-page `/admin` route works
+// unchanged.
+export { default as AdminPanel } from "@/components/admin/AdminPanel";

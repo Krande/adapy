@@ -31,6 +31,7 @@ export const AUDIT_TARGETS = [
     "glb",
     "ifc",
     "xml",
+    "gnx",
     "step",
     "stl",
     "obj",
