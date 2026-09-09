@@ -2,6 +2,15 @@
 
 
 
+## v0.67.1 (2026-09-09)
+
+### Fix
+
+* fix(packaging): ship the REST migrations, and build the conda package in CI so a gap like that is visible (#335)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`ef46490`](https://github.com/Krande/adapy/commit/ef46490a8e5e220c0944dd38f20ab3487005b23a))
+
+
 ## v0.67.0 (2026-09-09)
 
 ### Feature
