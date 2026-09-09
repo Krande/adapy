@@ -302,6 +302,58 @@ The relocate feedback loop was proposing nothing, and silently
     equipment *origins* while the document places equipment by its *corner*; apply the delta rather
     than reconstructing the corner, and the two conventions cannot drift apart.
 
+``from_dexpi`` returned an Assembly, and that was the wrong container
+    The signature had reached thirteen arguments and roughly half of them -- ``layout``,
+    ``base_doc``, ``build_3d``, ``route``, ``relocate``, ``design_rules`` -- said nothing about
+    DEXPI. They described how to *build*. That is the symptom; the cause is that an ``Assembly`` is a
+    **spatial** container and a P&ID has no coordinates, so forcing the schematic into one was a
+    category error. It showed: ``build_3d=False`` returned an assembly built from a procedural
+    document and catalog that were then discarded, so you could not build from it afterwards. A dead
+    end nobody had a reason to visit.
+
+    There are three layers now. ``DexpiDocument`` is the faithful parse. :class:`ada.SystemModel` is
+    the adapy-native model -- equipment with real ports and the systems joining them, **no
+    coordinates**. ``Assembly`` is the 3D build. ``ada.SystemModel.from_dexpi`` reads,
+    ``model.to_assembly(spec)`` builds, ``model.to_dexpi()`` writes back, and ``ada.from_dexpi``
+    composes the first two so every top-level ``ada.from_*`` still hands back an Assembly.
+
+    Named ``SystemModel`` rather than ``ProcessModel`` after checking the code rather than the
+    intuition: adapy already has ``DuctSystem``, ``CableSystem`` and ``ElectricalSystem`` as peers of
+    ``PipingSystem``, and the take-off treats HVAC and electrical as disciplines in their own right.
+    A pure cabling model is first-class here, so "process" would have over-claimed.
+
+    Four things about the split that are not obvious from the diff:
+
+    First, **the export belongs on the model, not the assembly**, and not merely for tidiness: DEXPI
+    cannot express a coordinate, so nothing a build produces is writable back and the built assembly
+    has literally nothing to contribute. ``Assembly.to_dexpi`` and ``Assembly._dexpi_store`` are
+    gone; ``Assembly`` no longer mentions DEXPI at all.
+
+    Second, **the layout still runs inside the read**, and the model hides it. ``SystemModel`` holds
+    a ``procedural_factory`` callable rather than a finished procedural document, because the decks
+    and coordinates in that document are products of the build's ``LayoutRules`` -- storing one
+    would bake a single layout into the model and make a second build with different bounds
+    impossible. The factory is re-run per build. Cost: resolution runs twice for a single build
+    (once for the native view). It is pure CPU and worth the correctness; memoise it if it ever
+    shows up in a profile.
+
+    Third, and this is the subtle one: **producing the native view has to run the layout**, with a
+    placeholder ``ProceduralBuildSpec()``, because that is how the conversion is shaped. Any
+    layout-stage gap it produces is therefore about deck bounds nobody asked for. Those issues are
+    stripped from the read report and re-collected on the build's, or a *read* would report a
+    failure only a *build* can have. ``test_bounds_too_small_is_a_build_gap_not_a_read_one`` pins it.
+
+    Fourth, ``Equipment.origin`` is the box's **base centre** (``X + LX/2, Y + LY/2, Z``), so an
+    unplaced equipment is *not* at ``(0,0,0)`` -- it sits at its own half-extents. Asserting
+    ``origin == (0,0,0)`` never holds, and asserting on ``placement.origin`` holds for placed
+    equipment too, so it proves nothing. Both mistakes were made and caught here; the helper
+    ``_is_unplaced`` in ``test_system_model.py`` is the correct test.
+
+    The equipment definition list now also accepts a **callable** ``(item) -> document | None``, for
+    a definition that must be computed rather than tabulated. Its return value is validated exactly
+    like a table entry, because a resolver quietly contributing nothing comes back as a model the
+    wrong size three steps downstream.
+
 Process notes for whoever continues this
 -------------------------------------------
 

@@ -385,141 +385,49 @@ def dexpi_to_procedural(
 def from_dexpi(
     path: str | pathlib.Path,
     *,
+    spec=None,
     name: str | None = None,
     flavour: str | None = None,
     definitions=None,
-    layout=None,
-    base_doc: dict | None = None,
     inline_components: Literal["metadata", "equipment"] = "metadata",
-    build_3d: bool = True,
-    route: bool = True,
-    relocate: bool | int = False,
-    design_rules: str = "standard",
     strict: bool = False,
-    cad_config: "CadConfig | None" = None,
 ) -> Assembly:
     """Build a 3D model from a DEXPI P&ID -- either flavour, sniffed from the root tag.
 
-    A P&ID says what the plant is and how it is connected, and nothing about where any of it
-    stands. The gap is closed in three steps (see
-    :mod:`ada.cadit.dexpi.read.to_procedural`): each item resolves through the equipment definition
-    list to a physical envelope with real 3D nozzles, :func:`ada.topo_model.layout.plan_layout`
-    generates the decks and places everything on them, and each DEXPI ``PipingNetworkSegment``
-    becomes a two-ended system. With ``build_3d`` (the default) the result is then compiled --
-    structure, placed equipment, A*-routed runs and the wall/deck penetrations they cross -- and
-    returned as an :class:`~ada.Assembly`. With ``build_3d=False`` you get the schematic-only
-    assembly: the same equipment and ports, no structure and no routing, which is what a
-    write-back path wants.
+    The one-call path, and a composition of two steps you can take separately:
+    :meth:`ada.SystemModel.from_dexpi` reads the P&ID into the adapy-native model of the plant, and
+    :meth:`~ada.api.systems.model.SystemModel.to_assembly` builds it. Reach for the two-step form to
+    look at what the P&ID resolved to before committing to a build, to vary the build rules without
+    re-reading, or to write the model back out:
+
+    .. code-block:: python
+
+        model = ada.SystemModel.from_dexpi("unit.xml")
+        print(sorted(eq.name for eq in model.equipment))
+        assembly = model.to_assembly(ProceduralBuildSpec(layout=LayoutRules(deck_height=5.0)))
+        model.to_dexpi("out.xml")
+
+    ``spec`` is the :class:`~ada.topo_model.build_spec.ProceduralBuildSpec` -- deck bounds, design
+    ruleset, whether to route, whether to feed routing failures back into the layout.
+    ``definitions`` and ``inline_components`` are *read* arguments: they decide what the P&ID
+    resolves to and what exists, not where any of it stands.
 
     **The layout is generated, not designed.** Shelf packing on physical size has no process sense
-    whatsoever: a pump can land at the far end of a deck from the vessel it feeds. Pass
-    ``layout=LayoutRules(...)`` to set the deck bounds and pitch, ``base_doc`` to keep placements
-    you have already corrected, and expect to move things. DEXPI's own 2D coordinates are drawing
-    millimetres and are never read as plant coordinates.
-
-    ``definitions`` is the equipment definition list (a JSON/XLSX path or a loaded dict) that
-    overrides the shipped class defaults per tag or per class. ``route=False`` places the equipment
-    but leaves the systems unrouted. ``inline_components="equipment"`` materialises each in-line
-    valve as its own small equipment instead of recording it in the run's metadata.
-
-    ``relocate`` closes the loop between the generated layout and the router. Shelf packing places
-    equipment on footprint alone and cannot know whether the runs between them will route; with
-    ``relocate=True`` (or a pass count) the model is routed, the equipment moves that would clear
-    the runs that failed are computed by :func:`ada.topo_model.relocate.propose_relocations`, those
-    moves are applied and the model is routed again. Off by default, because a relocation changes
-    where equipment stands and that should be an explicit choice; every move that is applied is
-    recorded in ``assembly.metadata["dexpi"]["relocations"]`` so the plan can be read back.
-
-    **Nothing is dropped quietly.** The compiler skips an unwireable system and an unroutable run
-    with only a log warning, which is how an import comes back looking complete with half the pipes
-    missing. Every one of them is collected into
-    ``assembly.metadata["dexpi"]["report"]``, summarised in one WARNING, and rendered by
-    :func:`ada.cadit.dexpi.read.to_procedural.dexpi_import_report`. ``strict=True`` raises instead.
+    whatsoever: a pump can land at the far end of a deck from the vessel it feeds. Expect to move
+    things, and note that DEXPI's own 2D coordinates are drawing millimetres, never plant
+    coordinates.
     """
-    from ada.cadit.dexpi.read.to_procedural import (
-        DexpiImportReport,
-        dexpi_to_procedural_doc,
-    )
-    from ada.cadit.dexpi.store import read_dexpi
-    from ada.topo_model.compile import build_procedural_assembly
+    from ada.api.systems.model import SystemModel
 
-    dexpi_doc = read_dexpi(path, flavour=flavour)
-    name = name or (dexpi_doc.header.project or pathlib.Path(path).stem)
-    doc, catalog = dexpi_to_procedural_doc(
-        dexpi_doc,
+    model = SystemModel.from_dexpi(
+        path,
+        name=name,
+        flavour=flavour,
         definitions=definitions,
-        layout=layout,
-        base_doc=base_doc,
         inline_components=inline_components,
+        strict=strict,
     )
-    report = DexpiImportReport.from_dict((doc.get("dexpi") or {}).get("report"))
-    doc["design_rules"] = design_rules
-    if not route:
-        doc["systems"] = []
-
-    # A P&ID with nothing to lay out -- an instrumentation-only sheet, a signal-loop test case, or
-    # any drawing whose items all resolved to something other than equipment -- produces a layout
-    # with no decks in it, and ``ProceduralBuilder`` rightly refuses to compile an empty document.
-    # That is a property of the drawing rather than a fault in it, so it is reported like every
-    # other gap and the schematic model is returned, instead of the caller getting a bare
-    # ValueError out of the builder for a file adapy read perfectly well. 43 of the 220 official
-    # test cases are this shape.
-    if build_3d and not (doc.get("spaces") or doc.get("loft_members")):
-        report.add(
-            "model",
-            name,
-            "layout",
-            "no equipment resolved, so the generated layout has no decks and no 3D model was "
-            "built; the schematic model (items and ports, no structure or routing) is returned",
-        )
-        build_3d = False
-
-    relocations: dict | None = None
-    if build_3d and relocate:
-        from ada.topo_model.relocate import relocate_doc
-
-        # design_rules is left None on purpose: ``propose_relocations`` resolves the slug off the
-        # document itself (``doc["design_rules"]``, stamped above), and this parameter takes an
-        # already-resolved ruleset object rather than the slug.
-        doc, relocations = relocate_doc(
-            doc,
-            equipment_resolver=catalog.get,
-            max_passes=2 if relocate is True else max(1, int(relocate)),
-        )
-        if relocations["applied"]:
-            logger.info(
-                "dexpi: relocated %d equipment over %d pass(es) to clear %d unroutable run(s)",
-                len(relocations["applied"]),
-                relocations["passes"],
-                relocations["baseline_problems"],
-            )
-
-    if build_3d:
-        with _dexpi_build_warnings() as records:
-            a = build_procedural_assembly(doc, name=name, equipment_resolver=catalog.get)
-        _collect_build_issues(a, doc, records, report)
-    else:
-        a = _dexpi_schematic_assembly(name, doc, catalog)
-
-    # Stashed so Assembly.to_dexpi(from_scratch=False) has a source document to merge edits into --
-    # see ada.cadit.dexpi.write.from_ada.
-    a._dexpi_store = dexpi_doc
-
-    if cad_config is not None:
-        a.cad_config = cad_config
-    a.metadata["dexpi"] = {
-        "source": str(path),
-        "flavour": dexpi_doc.flavour.value,
-        "reader_warnings": list(dexpi_doc.warnings),
-        "report": report.as_dict(),
-    }
-    if relocations is not None:
-        a.metadata["dexpi"]["relocations"] = relocations
-    if not report.is_clean:
-        if strict:
-            raise ValueError(f"DEXPI import of {pathlib.Path(path).name}: {report.format()}")
-        logger.warning("dexpi: %s (see assembly.metadata['dexpi']['report'])", report.summary())
-    return a
+    return model.to_assembly(spec)
 
 
 @contextlib.contextmanager

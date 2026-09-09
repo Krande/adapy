@@ -85,12 +85,11 @@ from .write_dexpi20 import write_dexpi20
 from .write_proteus import write_proteus
 
 if TYPE_CHECKING:
-    from ada.api.spatial.assembly import Assembly
     from ada.api.spatial.equipment import Equipment
     from ada.api.systems.base import System
     from ada.api.systems.ports import Port
 
-__all__ = ["build_from_scratch", "merge_from_assembly", "write_from_assembly", "write_from_scratch"]
+__all__ = ["build_from_scratch", "merge_into_document", "write_model_from_scratch", "write_model_merged"]
 
 # The attribute set every synthesised ``GenericAttributes`` group goes into -- matches the
 # from-scratch writers' own ``DEXPI_ATTRIBUTE_SET``.
@@ -107,18 +106,20 @@ _WRITERS = {DexpiFlavour.PROTEUS: write_proteus, DexpiFlavour.DEXPI20: write_dex
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
-def write_from_assembly(assembly: Assembly, destination: str | pathlib.Path, flavour: str = "proteus") -> pathlib.Path:
-    """Merge ``assembly`` into its source DEXPI document and write ``flavour`` to ``destination``.
+def write_model_merged(model, destination: str | pathlib.Path, flavour: str = "proteus") -> pathlib.Path:
+    """Merge ``model`` into its source DEXPI document and write ``flavour`` to ``destination``.
 
-    Raises the same way :func:`merge_from_assembly` does when the assembly has no source document.
+    Takes a :class:`~ada.api.systems.model.SystemModel` rather than an assembly, because that is the
+    layer DEXPI actually describes: the export needs the equipment/port/system graph and DEXPI has
+    no way to express a coordinate, so a built assembly has nothing to add.
     """
-    doc = merge_from_assembly(assembly)
+    doc = merge_into_document(model.source_document, model.equipment, model.systems)
     return xml_utils.write_element(_render(doc, flavour), destination)
 
 
-def write_from_scratch(assembly: Assembly, destination: str | pathlib.Path, flavour: str = "proteus") -> pathlib.Path:
-    """Write ``assembly`` as a brand-new DEXPI document -- see :func:`build_from_scratch`."""
-    doc = build_from_scratch(assembly, flavour=flavour)
+def write_model_from_scratch(model, destination: str | pathlib.Path, flavour: str = "proteus") -> pathlib.Path:
+    """Write ``model`` as a brand-new DEXPI document -- see :func:`build_from_scratch`."""
+    doc = build_from_scratch(model, flavour=flavour)
     return xml_utils.write_element(_render(doc, flavour), destination)
 
 
@@ -130,28 +131,23 @@ def _render(doc: DexpiDocument, flavour: str | DexpiFlavour | None) -> ET.Elemen
 # ---------------------------------------------------------------------------
 # The merge
 # ---------------------------------------------------------------------------
-def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
-    """A deep copy of ``assembly.dexpi_store``, edited to match the live assembly.
+def merge_into_document(source: DexpiDocument | None, equipment, systems) -> DexpiDocument:
+    """A deep copy of ``source``, edited to match the live ``equipment`` and ``systems``.
 
-    Raises ``ValueError`` if the assembly carries no source document -- there is nothing to merge
-    into; the caller wants ``to_dexpi(from_scratch=True)`` instead.
+    Raises ``ValueError`` when there is no source document -- there is nothing to merge into; the
+    caller wants ``to_dexpi(from_scratch=True)`` instead.
     """
-    from ada.api.spatial.equipment import Equipment
-
-    source = getattr(assembly, "dexpi_store", None)
     if source is None:
         raise ValueError(
-            "to_dexpi(from_scratch=False) needs a source DEXPI document on this assembly "
-            "(assembly.dexpi_store), which only ada.from_dexpi(...) sets. Pass from_scratch=True "
-            "to write a new, adapy-only document instead."
+            "to_dexpi(from_scratch=False) needs a source DEXPI document on this model "
+            "(SystemModel.source_document), which only a reader such as ada.from_dexpi sets. Pass "
+            "from_scratch=True to write a new, adapy-only document instead."
         )
 
     doc = copy.deepcopy(source)
     minter = _IdMinter(doc)
 
-    live_equipment: list[Equipment] = [
-        part for part in assembly.get_all_parts_in_assembly() if isinstance(part, Equipment)
-    ]
+    live_equipment = list(equipment)
     source_equipment, source_junctions, source_instruments = _source_identity(doc)
     live_by_name = {eq.name: eq for eq in live_equipment}
 
@@ -179,7 +175,7 @@ def merge_from_assembly(assembly: Assembly) -> DexpiDocument:
 
     site_index = _site_index(doc)
     source_segments = _source_segment_by_name(doc)
-    live_systems: dict[str, System] = {system.name: system for system in assembly.systems}
+    live_systems: dict[str, System] = {system.name: system for system in systems}
 
     for name, system in live_systems.items():
         segment = source_segments.get(name)
@@ -649,28 +645,23 @@ class _IdMinter:
 # ---------------------------------------------------------------------------
 # From scratch
 # ---------------------------------------------------------------------------
-def build_from_scratch(assembly: Assembly, flavour: str = "proteus") -> DexpiDocument:
-    """A new :class:`DexpiDocument` from ``assembly`` alone -- no source document, no echo.
+def build_from_scratch(model, flavour: str = "proteus") -> DexpiDocument:
+    """A new :class:`DexpiDocument` from ``model`` alone -- no source document, no echo.
 
     **Lossy by construction.** Only what a live ``ada.Equipment``/``ada.api.systems.System`` carries
     survives: a name, a port list (position/direction/tag/diameter, no nozzle-level DEXPI class), a
     two-ended connection. There is no chamber, no instrumentation, no piping class or spec, no RDL
     URI and no schematic drawing to write, because none of it exists on the live objects -- a new
     equipment is written as the abstract ``ProcessEquipment`` and a new system as a bare
-    ``PipingNetworkSegment`` with no owning ``PipingNetworkSystem``. Use this for an assembly with no
-    DEXPI provenance at all (a plain ``ada.topo_model`` archetype); an assembly that *was* read from
-    DEXPI should go through :func:`merge_from_assembly` instead, which keeps everything this cannot.
+    ``PipingNetworkSegment`` with no owning ``PipingNetworkSystem``. Use this for a model with no
+    DEXPI provenance at all (one built by hand); a model that *was* read from DEXPI should go
+    through :func:`merge_into_document` instead, which keeps everything this cannot.
     """
-    from ada.api.spatial.equipment import Equipment
-
     flavour_enum = DexpiFlavour(flavour)
-    doc = DexpiDocument(flavour=flavour_enum, header=DexpiHeader(project=assembly.name))
+    doc = DexpiDocument(flavour=flavour_enum, header=DexpiHeader(project=model.name))
     minter = _IdMinter(doc)
 
-    equipment = sorted(
-        (part for part in assembly.get_all_parts_in_assembly() if isinstance(part, Equipment)),
-        key=lambda eq: eq.name,
-    )
+    equipment = sorted(model.equipment, key=lambda eq: eq.name)
     port_index: dict[tuple[str, str], tuple[str, str]] = {}
     for eq in equipment:
         item_id = minter.mint("Equipment")
@@ -693,7 +684,7 @@ def build_from_scratch(assembly: Assembly, flavour: str = "proteus") -> DexpiDoc
             port_index[(eq.name, port.name)] = (item_id, node.id)
 
     site_index: dict[str, DexpiItem] = {}
-    for system in sorted(assembly.systems, key=lambda s: s.name):
+    for system in sorted(model.systems, key=lambda s: s.name):
         segment_id = minter.mint("PipingNetworkSegment")
         segment = DexpiItem(id=segment_id, class_name=_NEW_SEGMENT_CLASS, kind=ItemKind.PIPING_SEGMENT)
         doc.add(segment)

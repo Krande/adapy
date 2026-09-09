@@ -463,14 +463,26 @@ class ResolvedEquipment:
 def resolve_equipment(dexpi_doc: DexpiDocument, overrides: Any = None) -> list[ResolvedEquipment]:
     """Resolve every equipment in ``dexpi_doc``, in the order :func:`equipment_items` gives them.
 
-    ``overrides`` is a definition list -- a path to a JSON/XLSX file, an already-loaded dict, or
-    None. Its keys are matched against the item's tag first and its DEXPI class second, so a
-    per-tag entry wins over a per-class one, and both win over the shipped class default.
+    ``overrides`` is a definition list, in any of four forms:
+
+    * **None** -- the shipped class defaults answer for everything.
+    * **a path** to a ``.json`` or ``.xlsx``/``.xlsm`` definition list.
+    * **a dict** ``{tag or class: document}``, already loaded.
+    * **a callable** ``(item) -> document | None`` -- the escape hatch, for a definition that has to
+      be *computed* rather than tabulated: looked up in a vendor database, derived from an attribute
+      the table has no column for, or generated. It is asked once per equipment item and returns
+      that item's document, or None to fall through to the shipped class default. Its return value
+      is validated exactly like a table entry, so a computed definition cannot fail later inside the
+      compiler where the cause would be much harder to see.
+
+    For the table forms, keys are matched against the item's tag first and its DEXPI class second,
+    so a per-tag entry wins over a per-class one, and both win over the class default. A callable
+    has no such precedence to resolve: it already sees the item and can decide for itself.
 
     Every document is validated on the way out, including the port-name uniqueness the catalog
     enforces, so nothing that leaves here can fail later inside the compiler.
     """
-    table = _as_definitions(overrides)
+    table, resolver = _as_definitions(overrides)
     flow = connection_flow(dexpi_doc)
     out: list[ResolvedEquipment] = []
     used: set[str] = set()
@@ -480,8 +492,12 @@ def resolve_equipment(dexpi_doc: DexpiDocument, overrides: Any = None) -> list[R
         tag = item.tag
         slug = _unique_slug(definition_slug(item), used)
 
-        per_class = _lookup(table, class_name, item.class_name)
-        per_tag = _lookup(table, tag, slug)
+        if resolver is not None:
+            per_tag = _as_definition_document(resolver(item), item)
+            per_class = {}
+        else:
+            per_class = _lookup(table, class_name, item.class_name)
+            per_tag = _lookup(table, tag, slug)
 
         specs = nozzle_specs_for(dexpi_doc, item, flow)
         # Geometry first: ports are generated against the FINAL envelope, so an override that
@@ -682,14 +698,42 @@ def _serializer() -> WorkbookSerializer:
 # ---------------------------------------------------------------------------
 # Override lookup
 # ---------------------------------------------------------------------------
-def _as_definitions(overrides: Any) -> dict[str, dict]:
+def _as_definitions(overrides: Any) -> tuple[dict[str, dict], Callable[[DexpiItem], Any] | None]:
+    """Normalise ``overrides`` to ``(table, resolver)`` -- exactly one of which is meaningful.
+
+    A table is looked up by key; a resolver is asked per item. They are returned as a pair rather
+    than collapsed into one callable so the table path keeps its tag-then-class precedence, which a
+    resolver neither needs nor could express.
+    """
     if overrides is None:
-        return {}
+        return {}, None
     if isinstance(overrides, (str, pathlib.Path)):
-        return load_equipment_definitions(overrides)
+        return load_equipment_definitions(overrides), None
     if isinstance(overrides, dict):
-        return {str(key): dict(value) for key, value in overrides.items()}
-    raise TypeError(f"overrides must be a path, a dict or None, got {type(overrides).__name__}")
+        return {str(key): dict(value) for key, value in overrides.items()}, None
+    if callable(overrides):
+        return {}, overrides
+    raise TypeError(f"overrides must be a path, a dict, a callable or None, got {type(overrides).__name__}")
+
+
+def _as_definition_document(value: Any, item: DexpiItem) -> dict:
+    """One definition returned by a resolver, as a plain dict.
+
+    Accepts a pydantic document (anything with ``model_dump``), a plain mapping, or None. Anything
+    else is a loud error naming the item, because the alternative is a resolver quietly contributing
+    nothing to a model that then comes out the wrong size.
+    """
+    if value is None:
+        return {}
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return dump(mode="json", exclude_none=True)
+    if isinstance(value, dict):
+        return dict(value)
+    raise TypeError(
+        f"the definitions callable returned {type(value).__name__} for {item.tag or item.id!r}; "
+        "it must return an equipment document (a dict or a pydantic model) or None"
+    )
 
 
 def _lookup(table: dict[str, dict], *keys: str | None) -> dict:

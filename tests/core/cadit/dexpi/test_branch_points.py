@@ -247,16 +247,23 @@ def unit_separator(example_files):
 
 
 @pytest.fixture
-def built(unit_separator):
-    return ada.from_dexpi(unit_separator)
+def model(unit_separator):
+    return ada.SystemModel.from_dexpi(unit_separator)
 
 
-def test_the_realistic_fixture_now_routes_every_run_that_has_two_ends(built):
+@pytest.fixture
+def built(model):
+    return model.to_assembly()
+
+
+def test_the_realistic_fixture_now_routes_every_run_that_has_two_ends(model, built):
     """It used to lose 7 of its 10 runs to its two tees. The one that is still reported is not a
     branch point at all: ``205/1`` is a relief valve discharging to something the P&ID does not
-    draw, so it has one end and nowhere to route to."""
-    report = DexpiImportReport.from_dict(built.metadata["dexpi"]["report"])
-    assert [(issue.name, issue.stage) for issue in report.issues] == [("205/1", "connectivity")]
+    draw, so it has one end and nowhere to route to.
+
+    The gap is on the *model*: a run the P&ID never gave two ends is a reading failure, and the
+    build never saw it. What the build could not carry would be on the assembly instead."""
+    assert [(issue.name, issue.stage) for issue in model.report.issues] == [("205/1", "connectivity")]
 
     routed = {pipe.name for pipe in built.get_all_physical_objects(by_type=ada.Pipe)}
     assert routed == {
@@ -295,8 +302,8 @@ def test_a_materialised_tee_writes_back_as_the_pipe_tee_it_came_from(unit_separa
     the ``PipeTee`` and every connection into it untouched, and mint no ``ProcessEquipment`` for it.
     """
     source = read_dexpi(unit_separator)
-    assembly = ada.from_dexpi(unit_separator, build_3d=False)
-    again = read_dexpi(assembly.to_dexpi(tmp_path / "roundtrip.xml"))
+    model = ada.SystemModel.from_dexpi(unit_separator)
+    again = read_dexpi(model.to_dexpi(tmp_path / "roundtrip.xml"))
 
     before = {item["id"]: item for item in canonicalize(source)["items"]}
     after = {item["id"]: item for item in canonicalize(again)["items"]}

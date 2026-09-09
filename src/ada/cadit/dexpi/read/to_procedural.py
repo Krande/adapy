@@ -254,16 +254,17 @@ class DexpiImportReport:
         return "\n".join(lines)
 
 
-def dexpi_import_report(assembly) -> str:
-    """The import report of an assembly built by :func:`ada.from_dexpi`, as a console table.
+def dexpi_import_report(model) -> str:
+    """The read report of a :class:`~ada.SystemModel`, as a console table.
 
-    Reads ``assembly.metadata["dexpi"]["report"]``; an assembly that did not come from a DEXPI
-    import reports nothing rather than raising.
+    Takes the model rather than a built assembly: what the *read* could not carry and what the
+    *build* could not carry are different failures, and the second lives on the assembly the build
+    produced (``assembly.metadata["build"]``). Anything without a report says so rather than raising.
     """
-    payload = (assembly.metadata.get("dexpi") or {}).get("report")
-    if payload is None:
-        return "No DEXPI import report on this assembly."
-    return DexpiImportReport.from_dict(payload).format()
+    report = getattr(model, "report", None)
+    if report is None:
+        return "No import report on this model."
+    return report.format()
 
 
 # --------------------------------------------------------------------------- #

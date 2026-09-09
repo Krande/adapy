@@ -29,7 +29,6 @@ from ada.cadit.dexpi.equipment_list import (
     signal_terminal,
 )
 from ada.cadit.dexpi.read import read_proteus
-from ada.cadit.dexpi.read.to_procedural import DexpiImportReport
 
 #: Module-scoped fixtures cannot take the function-scoped ``example_files`` fixture.
 _UNIT_SEPARATOR = pathlib.Path(__file__).resolve().parents[4] / "files" / "dexpi_files" / "unit_separator_proteus.xml"
@@ -77,8 +76,13 @@ def loop_doc():
 
 
 @pytest.fixture(scope="module")
-def built(loop_pid):
-    return ada.from_dexpi(loop_pid)
+def loop_model(loop_pid):
+    return ada.SystemModel.from_dexpi(loop_pid)
+
+
+@pytest.fixture(scope="module")
+def built(loop_model):
+    return loop_model.to_assembly()
 
 
 def _equipment(assembly):
@@ -142,9 +146,8 @@ def test_the_signal_line_becomes_a_routed_system(built):
     assert [system.name for system in cable] == ["SIG-1"]
 
 
-def test_nothing_about_the_instrumentation_was_dropped_quietly(built):
-    report = DexpiImportReport.from_dict(built.metadata["dexpi"]["report"])
-    assert [issue for issue in report.issues if "SIG-1" in issue.name] == []
+def test_nothing_about_the_instrumentation_was_dropped_quietly(loop_model):
+    assert [issue for issue in loop_model.report.issues if "SIG-1" in issue.name] == []
 
 
 # -- the actuator on the valve it drives ---------------------------------------------------------
@@ -182,4 +185,4 @@ def unit_separator_doc():
 def unit_separator_assembly():
     """The flagship fixture with its in-line valves materialised, so the actuator has a valve to be
     distinguished from."""
-    return ada.from_dexpi(_UNIT_SEPARATOR, inline_components="equipment")
+    return ada.SystemModel.from_dexpi(_UNIT_SEPARATOR, inline_components="equipment").to_assembly()

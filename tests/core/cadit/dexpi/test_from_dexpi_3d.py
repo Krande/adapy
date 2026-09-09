@@ -21,8 +21,8 @@ import logging
 import pytest
 
 import ada
-from ada.cadit.dexpi.read.to_procedural import DexpiImportReport, dexpi_import_report
-from ada.topo_model.layout import validate_equipment_in_cells
+from ada.topo_model.build_spec import ProceduralBuildSpec
+from ada.topo_model.layout import LayoutRules, validate_equipment_in_cells
 
 from .test_to_procedural import (
     UNIT_EQUIPMENT,
@@ -54,12 +54,25 @@ def captured_warnings():
         logger.setLevel(previous)
 
 
+UNIT_SPEC = ProceduralBuildSpec(layout=UNIT_LAYOUT)
+
+
 @pytest.fixture(scope="module")
-def built(tmp_path_factory):
-    """The unit P&ID all the way to a routed assembly, built once for the whole module."""
-    path = write_unit_pid(tmp_path_factory.mktemp("dexpi"))
+def unit_path(tmp_path_factory):
+    return write_unit_pid(tmp_path_factory.mktemp("dexpi"))
+
+
+@pytest.fixture(scope="module")
+def model(unit_path):
+    """The P&ID read into the native model -- no coordinates, nothing built."""
+    return ada.SystemModel.from_dexpi(unit_path)
+
+
+@pytest.fixture(scope="module")
+def built(model):
+    """That model built all the way to a routed assembly, once for the whole module."""
     with captured_warnings() as records:
-        assembly = ada.from_dexpi(path, layout=UNIT_LAYOUT)
+        assembly = model.to_assembly(UNIT_SPEC)
     return assembly, [record.getMessage() for record in records]
 
 
@@ -79,12 +92,12 @@ def _routed_runs(assembly: ada.Assembly) -> set[str]:
 # --------------------------------------------------------------------------- #
 # The model
 # --------------------------------------------------------------------------- #
-def test_every_equipment_is_placed_in_a_cell(built):
+def test_every_equipment_is_placed_in_a_cell(model, built):
     assembly, _ = built
     equipment = {eq.name for eq in assembly.get_all_parts_in_assembly() if isinstance(eq, ada.Equipment)}
     assert equipment == set(UNIT_EQUIPMENT)
 
-    doc, _catalog = ada.dexpi_to_procedural(assembly.metadata["dexpi"]["source"], layout=UNIT_LAYOUT)
+    doc, _catalog = ada.dexpi_to_procedural(model.metadata["source"], layout=UNIT_LAYOUT)
     assert validate_equipment_in_cells(doc) == []
     assert sorted({row["SPACE_NAME"] for row in doc["equipments"]}) == ["Deck1", "Deck2"]
 
@@ -94,18 +107,21 @@ def test_every_piping_network_segment_produced_a_routed_run(built):
     assert _routed_runs(assembly) == set(UNIT_SYSTEMS)
 
 
-def test_nothing_was_dropped_and_nothing_was_skipped(built):
-    """Risk 5, asserted three ways -- the report, the log, and the geometry -- because each on its
-    own can be satisfied by a model that lost a run."""
+def test_nothing_was_dropped_and_nothing_was_skipped(model, built):
+    """Asserted three ways -- the read report, the build report, and the geometry -- because each on
+    its own can be satisfied by a model that lost a run.
+
+    The two reports are separate on purpose: "the P&ID never said where this run goes" is a reading
+    failure and "the router could not find a path" is a building one, and they have different fixes.
+    """
     assembly, messages = built
 
-    report = DexpiImportReport.from_dict(assembly.metadata["dexpi"]["report"])
-    assert report.is_clean, report.format()
-    assert report.stats == {"equipment": 4, "systems": 7}
+    assert model.report.is_clean, model.report.format()
+    assert model.report.stats == {"equipment": 4, "systems": 7}
+    assert assembly.metadata["build"]["issues"] == []
 
     skipped = [m for m in messages if "skipping system" in m or "no route found" in m]
     assert skipped == []
-    assert dexpi_import_report(assembly).startswith("DEXPI import complete")
 
 
 def test_the_runs_cross_the_deck_and_get_their_penetrations(built):
@@ -136,18 +152,19 @@ def test_the_assembly_exports_to_ifc(built, tmp_path):
 # --------------------------------------------------------------------------- #
 # The other entry points
 # --------------------------------------------------------------------------- #
-def test_build_3d_false_returns_the_schematic_only_assembly(tmp_path):
+def test_reading_alone_gives_the_native_model_without_coordinates(tmp_path):
     """The write-back path's model: the same equipment with the same ports and the same wiring,
     with no structure, no grid and no routing."""
     path = write_unit_pid(tmp_path)
-    assembly = ada.from_dexpi(path, build_3d=False, layout=UNIT_LAYOUT)
+    model = ada.SystemModel.from_dexpi(path)
 
-    assert {eq.name for eq in assembly.get_all_parts_in_assembly() if isinstance(eq, ada.Equipment)} == set(
-        UNIT_EQUIPMENT
-    )
-    assert sorted(system.name for system in assembly.systems) == sorted(UNIT_SYSTEMS)
-    assert not list(assembly.get_all_physical_objects(by_type=ada.Beam))
-    assert all(system.routed_path is None for system in assembly.systems)
+    assert {eq.name for eq in model.equipment} == set(UNIT_EQUIPMENT)
+    assert sorted(system.name for system in model.systems) == sorted(UNIT_SYSTEMS)
+    assert all(system.routed_path is None for system in model.systems)
+    # The whole point of the layer: a P&ID states no coordinate, so neither does this. ``origin``
+    # is the box's base centre, so an unplaced equipment sits at its own half-extents with the
+    # corner the layout would have set still zero.
+    assert all(tuple(eq.origin) == (eq.lx / 2.0, eq.ly / 2.0, 0.0) for eq in model.equipment)
 
 
 def test_the_intermediate_document_is_the_useful_seam(tmp_path):
@@ -161,17 +178,24 @@ def test_the_intermediate_document_is_the_useful_seam(tmp_path):
     assert sorted(system.NAME for system in builder.systems) == sorted(UNIT_SYSTEMS)
 
 
-def test_strict_raises_on_anything_that_did_not_reach_the_model(tmp_path):
-    """The bounds are too small for the separator, so it cannot be placed. ``strict=False`` reports
-    it; ``strict=True`` refuses to hand back a half-built model at all."""
+def test_bounds_too_small_is_a_build_gap_not_a_read_one(tmp_path):
+    """Whether the separator fits depends entirely on the deck bounds, and the read has none.
+
+    This is the split doing its job: the *same* P&ID reads perfectly cleanly and then fails to
+    build, and the failure is reported against the rules that actually caused it.
+    """
     path = write_unit_pid(tmp_path)
-    cramped = {"max_length": 4.0, "max_width": 4.0, "deck_height": 5.0}
+    model = ada.SystemModel.from_dexpi(path)
+    assert model.report.is_clean, model.report.format()
 
-    with pytest.raises(ValueError, match="did not reach the 3D model"):
-        ada.from_dexpi(path, layout=cramped, strict=True)
+    cramped = ProceduralBuildSpec(layout=LayoutRules(max_length=4.0, max_width=4.0, deck_height=5.0))
+    assembly = model.to_assembly(cramped)
 
-    assembly = ada.from_dexpi(path, layout=cramped, build_3d=False)
-    assert not DexpiImportReport.from_dict(assembly.metadata["dexpi"]["report"]).is_clean
+    layout_issues = [i for i in assembly.metadata["build"]["issues"] if i["stage"] == "layout"]
+    assert layout_issues, assembly.metadata["build"]
+
+    # And the roomy build of the same model has none, so the assertion above is not vacuous.
+    assert [i for i in model.to_assembly(UNIT_SPEC).metadata["build"]["issues"] if i["stage"] == "layout"] == []
 
 
 # -- what the wider official corpus insisted on ---------------------------------------------------
@@ -252,66 +276,55 @@ def test_a_chamber_is_not_promoted_by_the_tag_that_identifies_its_owner(tmp_path
 
 
 def test_a_pid_with_nothing_to_lay_out_is_reported_not_raised(tmp_path):
-    """An instrumentation-only sheet has no equipment, so the layout has no decks.
+    """An instrumentation-only sheet has no equipment, so the generated layout has no decks.
 
     ``ProceduralBuilder`` rightly refuses to compile an empty document, but that ValueError reached
     the caller for 43 of the 220 official files -- for drawings adapy had read perfectly well. It is
-    a property of the P&ID, so it is reported like any other gap and the schematic model comes back.
+    a property of the model, so the build reports it and hands back an empty assembly.
     """
     path = tmp_path / "instrumentation_only.xml"
     path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
 
-    a = ada.from_dexpi(path)
+    model = ada.SystemModel.from_dexpi(path)
+    assert model.equipment == []
+    assert model.report.is_clean, "nothing failed to *read*; there is simply nothing to place"
 
-    report = DexpiImportReport.from_dict(a.metadata["dexpi"]["report"])
-    assert [issue.kind for issue in report.issues] == ["model"]
-    assert report.of_kind("model")[0].stage == "layout"
-    assert "no equipment resolved" in report.of_kind("model")[0].reason
+    assembly = model.to_assembly()
+
+    issues = assembly.metadata["build"]["issues"]
+    assert [issue["kind"] for issue in issues] == ["model"]
+    assert issues[0]["stage"] == "layout"
+    assert "no equipment resolved" in issues[0]["reason"]
 
 
-def test_the_document_level_reason_is_what_the_summary_says(tmp_path):
-    """With no items lost individually, every per-item tally is "0 of 0" -- which reads as a clean
-    import. The summary has to state the document-level reason instead."""
+def test_a_pid_with_nothing_to_lay_out_still_reads_cleanly(tmp_path):
+    """The half of the split that is easy to lose: a drawing adapy parsed perfectly must not be
+    reported as a failed *read* just because it cannot be built."""
     path = tmp_path / "instrumentation_only.xml"
     path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
 
-    a = ada.from_dexpi(path)
-
-    summary = DexpiImportReport.from_dict(a.metadata["dexpi"]["report"]).summary()
-    assert "no equipment resolved" in summary
-    assert "0 of 0" not in summary
-
-
-def test_strict_still_raises_for_a_pid_with_nothing_to_lay_out(tmp_path):
-    """Reporting instead of raising is the ``strict=False`` contract, not a decision to go quiet."""
-    path = tmp_path / "instrumentation_only.xml"
-    path.write_text(NO_EQUIPMENT_PID, encoding="utf-8")
-
-    with pytest.raises(ValueError, match="no equipment resolved"):
-        ada.from_dexpi(path, strict=True)
+    # strict is a read argument, and the read succeeded -- so this must not raise.
+    model = ada.SystemModel.from_dexpi(path, strict=True)
+    assert model.systems == []
 
 
 # -- feeding the router's failures back into the layout -------------------------------------------
 
 
-def test_relocate_is_off_by_default_and_records_nothing(tmp_path):
+def test_relocate_is_off_by_default_and_records_nothing(model):
     """A relocation moves where equipment stands, so it stays an explicit choice."""
-    path = write_unit_pid(tmp_path)
+    assembly = model.to_assembly(UNIT_SPEC)
 
-    a = ada.from_dexpi(path, layout=UNIT_LAYOUT)
-
-    assert "relocations" not in a.metadata["dexpi"]
+    assert "relocations" not in assembly.metadata["build"]
 
 
-def test_relocate_records_every_move_it_applied(tmp_path):
+def test_relocate_records_every_move_it_applied(model):
     """The generated layout packs on footprint alone and cannot know whether the runs will route;
     ``propose_relocations`` knows exactly which moves would clear a failed run, and nothing fed that
     back. With ``relocate=True`` the loop closes, and what it did is readable afterwards."""
-    path = write_unit_pid(tmp_path)
+    assembly = model.to_assembly(UNIT_SPEC.with_(relocate=True))
 
-    a = ada.from_dexpi(path, layout=UNIT_LAYOUT, relocate=True)
-
-    record = a.metadata["dexpi"]["relocations"]
+    record = assembly.metadata["build"]["relocations"]
     assert set(record) == {"applied", "unresolved", "baseline_problems", "passes"}
     assert record["passes"] >= 1
     for move in record["applied"]:
@@ -319,11 +332,13 @@ def test_relocate_records_every_move_it_applied(tmp_path):
         assert move["fixes"], "a recorded move must name the runs it was made for"
 
 
-def test_relocate_never_loses_a_system_that_already_routed(tmp_path):
-    """The loop must not trade one cleared run for another broken one."""
-    path = write_unit_pid(tmp_path)
+def test_relocate_never_loses_a_system_that_already_routed(model):
+    """The loop must not trade one cleared run for another broken one.
 
-    before = ada.from_dexpi(path, layout=UNIT_LAYOUT)
-    after = ada.from_dexpi(path, layout=UNIT_LAYOUT, relocate=True)
+    Both builds come from the same model, which is the point of the split: nothing is re-read, so
+    the only difference between them is the build rules.
+    """
+    before = model.to_assembly(UNIT_SPEC)
+    after = model.to_assembly(UNIT_SPEC.with_(relocate=True))
 
     assert _routed_runs(after) >= _routed_runs(before)

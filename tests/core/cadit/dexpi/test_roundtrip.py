@@ -33,7 +33,6 @@ from ada.cadit.dexpi.model import ItemKind
 from ada.cadit.dexpi.read.to_procedural import DexpiImportReport
 from ada.cadit.dexpi.write.from_ada import _segment_name as segment_name
 from ada.cadit.dexpi.write.from_ada import build_from_scratch
-from ada.topo_model.layout import LayoutRules
 
 # The generated fixtures plus the two vendored official files -- the same four T1 is held to in
 # test_write_proteus.py, now carried through a live Assembly rather than a bare DexpiDocument.
@@ -52,8 +51,8 @@ T2_FILES = (
 )
 
 # Generous enough that nothing in any of the four files above is too large to place -- T2 is a claim
-# about the merge writer, not about the layout defaults, so the deck bounds are made a non-issue.
-_ROOMY_LAYOUT = LayoutRules(max_length=60.0, max_width=60.0, deck_height=25.0)
+# about the merge writer, and the read no longer has deck bounds to get wrong: layout is a
+# property of a *build*, and nothing here builds.
 
 
 @pytest.fixture
@@ -61,24 +60,26 @@ def dexpi_files(example_files):
     return example_files / "dexpi_files"
 
 
-def _clean_import(path, **kwargs) -> tuple[ada.Assembly, DexpiImportReport]:
-    """``ada.from_dexpi(path, build_3d=False, ...)`` plus its report -- the schematic-only assembly
-    T2 needs (equipment, ports, systems; no structure, no routing, see ``Assembly.to_dexpi``'s own
-    docstring for why that is the shape the write-back path wants)."""
-    assembly = ada.from_dexpi(path, build_3d=False, layout=_ROOMY_LAYOUT, **kwargs)
-    report = DexpiImportReport.from_dict(assembly.metadata["dexpi"]["report"])
-    return assembly, report
+def _clean_import(path, **kwargs) -> tuple[ada.SystemModel, DexpiImportReport]:
+    """``ada.SystemModel.from_dexpi(path, ...)`` plus its report.
+
+    The model *is* the shape the write-back path wants -- equipment, ports and systems with no
+    coordinates -- which is why the export lives there and not on a built assembly: DEXPI has no way
+    to express a placement, so nothing a build produces could be written back anyway.
+    """
+    model = ada.SystemModel.from_dexpi(path, **kwargs)
+    return model, model.report
 
 
 # --------------------------------------------------------------------------- #
 # from_scratch=False with no source document
 # --------------------------------------------------------------------------- #
 def test_merge_without_a_source_document_raises_pointing_at_from_scratch():
-    a = ada.Assembly("no-provenance")
-    assert a.dexpi_store is None
+    model = ada.SystemModel(name="no-provenance")
+    assert model.source_document is None
 
     with pytest.raises(ValueError, match="from_scratch=True"):
-        a.to_dexpi("unused.xml")
+        model.to_dexpi("unused.xml")
 
 
 # --------------------------------------------------------------------------- #
@@ -87,13 +88,13 @@ def test_merge_without_a_source_document_raises_pointing_at_from_scratch():
 @pytest.mark.parametrize("name", T2_FILES)
 def test_t2_unedited_assembly_round_trips_to_the_source(name, dexpi_files, tmp_path):
     source = read_dexpi(dexpi_files / name)
-    assembly, report = _clean_import(dexpi_files / name)
+    model, report = _clean_import(dexpi_files / name)
     # Only connectivity matters here -- an "unplaced" equipment (a layout concern, moot for the
     # roomy bounds above) would still be a real assembly gap, but a dropped *system* would mean the
     # merge is being asked to reconstruct wiring the live assembly never actually held.
     assert not report.of_kind("system"), report.format()
 
-    written = assembly.to_dexpi(tmp_path / name)
+    written = model.to_dexpi(tmp_path / name)
     again = read_dexpi(written)
 
     assert again.warnings == []
@@ -115,12 +116,12 @@ def test_t2_unedited_unit_separator_keeps_everything_the_import_kept(dexpi_files
     and their own descendants and connections -- are gone."""
     path = dexpi_files / "unit_separator_proteus.xml"
     source = read_dexpi(path)
-    assembly, report = _clean_import(path)
+    model, report = _clean_import(path)
     assert not report.of_kind("equipment"), report.format()
     dropped_names = {issue.name for issue in report.of_kind("system")}
     assert dropped_names, "this fixture is only interesting while something in it is still dropped"
 
-    again = read_dexpi(assembly.to_dexpi(tmp_path / "unit_separator.xml"))
+    again = read_dexpi(model.to_dexpi(tmp_path / "unit_separator.xml"))
     assert again.warnings == []
 
     kept_segments = {
@@ -156,18 +157,16 @@ def test_t2_edited_add_and_remove_a_port(dexpi_files, tmp_path):
     """
     path = dexpi_files / "tiny_two_equipment_proteus.xml"
     source = read_dexpi(path)
-    assembly, report = _clean_import(path)
+    model, report = _clean_import(path)
     assert report.is_clean, report.format()
 
-    tank = next(
-        eq for eq in assembly.get_all_parts_in_assembly() if isinstance(eq, ada.Equipment) and eq.name == "T-100"
-    )
+    tank = next(eq for eq in model.equipment if eq.name == "T-100")
     assert {p.name for p in tank.ports} == {"n1", "n2"}
 
     tank.ports = [p for p in tank.ports if p.name != "n2"]
     tank.add_port(Port("n3", (1.0, 1.0, 2.0), (0.0, 0.0, 1.0), PortDirection.OUT, "process"))
 
-    again = read_dexpi(assembly.to_dexpi(tmp_path / "edited.xml"))
+    again = read_dexpi(model.to_dexpi(tmp_path / "edited.xml"))
 
     tank_id = next(item.id for item in source.items.values() if item.tag == "T-100")
     assert _nozzle_tags(source, tank_id) == {"N1", "N2"}
@@ -193,7 +192,7 @@ def test_t2_edited_add_and_remove_a_port(dexpi_files, tmp_path):
 # --------------------------------------------------------------------------- #
 # T3, from_scratch
 # --------------------------------------------------------------------------- #
-def _archetype_assembly() -> ada.Assembly:
+def _archetype_model() -> ada.Assembly:
     """A plain two-equipment, one-system model with no DEXPI provenance whatsoever -- the shape
     ``ada.topo_model`` archetypes produce, built directly here so this test does not depend on the
     layout/compile pipeline to make its point."""
@@ -217,18 +216,16 @@ def _archetype_assembly() -> ada.Assembly:
         lz=1.0,
         ports=[Port("suction", (-0.5, 0.0, 0.5), (-1.0, 0.0, 0.0), PortDirection.IN, "process")],
     )
-    a = ada.Assembly("archetype") / (ada.Part("Equipment") / [tank, pump])
     system = PipingSystem("100/1", medium="PW")
     system.connect(tank, "outlet").connect(pump, "suction")
-    a.systems.append(system)
-    return a
+    return ada.SystemModel(name="archetype", equipment=[tank, pump], systems=[system])
 
 
 def test_t3_from_scratch_parses_back_and_keeps_the_ada_owned_graph(tmp_path):
-    a = _archetype_assembly()
-    assert a.dexpi_store is None
+    model = _archetype_model()
+    assert model.source_document is None
 
-    written = a.to_dexpi(tmp_path / "from_scratch.xml", from_scratch=True)
+    written = model.to_dexpi(tmp_path / "from_scratch.xml", from_scratch=True)
     doc = read_dexpi(written)
     assert doc.warnings == []
 
@@ -247,7 +244,7 @@ def test_t3_from_scratch_parses_back_and_keeps_the_ada_owned_graph(tmp_path):
 
 def test_t3_never_claims_losslessness():
     """The one thing this path must never say -- checked in the docstrings that describe it."""
-    assert "lossy" in ada.Assembly.to_dexpi.__doc__.lower()
+    assert "lossy" in ada.SystemModel.to_dexpi.__doc__.lower()
     assert "lossy" in build_from_scratch.__doc__.lower()
     for word in ("lossless", "loss-free", "no data is lost"):
         assert word not in build_from_scratch.__doc__.lower()

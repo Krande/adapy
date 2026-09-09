@@ -69,11 +69,6 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-        # The source DEXPI document this assembly was read from (see ``ada.from_dexpi``), if any --
-        # the sidecar :meth:`to_dexpi` merges edits back into. Mirrors the ``_topology_store``
-        # precedent (see ``ada.factories.from_genie_xml``): a parsed-format-specific object the
-        # generic Assembly carries but does not otherwise know about.
-        self._dexpi_store = None
 
     @property
     def cad_config(self):
@@ -455,58 +450,6 @@ class Assembly(Part):
         logger.info(f'Genie XML file "{destination_xml}" created')
 
         return destination_xml
-
-    @property
-    def dexpi_store(self):
-        """The source :class:`~ada.cadit.dexpi.model.DexpiDocument` this assembly was built from
-        (see ``ada.from_dexpi``), or ``None`` for an assembly with no DEXPI provenance. Consumed by
-        ``to_dexpi(from_scratch=False)``, the merge write-back path."""
-        return self._dexpi_store
-
-    @dexpi_store.setter
-    def dexpi_store(self, value):
-        self._dexpi_store = value
-
-    def to_dexpi(
-        self,
-        destination: str | os.PathLike,
-        *,
-        flavour: str = "proteus",
-        from_scratch: bool = False,
-    ) -> pathlib.Path:
-        """Write this assembly back out as a DEXPI P&ID.
-
-        The default is a **merge**, not a regeneration: it starts from ``self.dexpi_store`` -- the
-        document ``ada.from_dexpi`` stashed on the assembly it built -- and re-serializes the
-        equipment/ports/systems adapy owns from the *live* objects, so an edit made in Python lands
-        in the output, while everything the source carried that adapy does not model (instrumentation,
-        the shape catalogue, presentation, and every attribute this branch does not touch) is echoed
-        back verbatim. See :mod:`ada.cadit.dexpi.write.from_ada` for exactly what "owns" covers.
-
-        ``from_scratch=True`` skips the merge and writes a brand-new document from the live
-        equipment/ports/systems alone -- the only option for an assembly with no DEXPI provenance at
-        all (a plain ``ada.topo_model`` archetype), and **lossy by construction** even for one that
-        does have it: there is no chamber, no instrumentation, no piping class and no schematic
-        drawing on the live objects to write back.
-
-        ``from_scratch=False`` (the default) on an assembly with no ``dexpi_store`` raises -- there
-        is nothing to merge into; pass ``from_scratch=True`` instead.
-        """
-        from ada.cadit.dexpi.write.from_ada import (
-            write_from_assembly,
-            write_from_scratch,
-        )
-
-        destination = pathlib.Path(destination)
-        if from_scratch:
-            return write_from_scratch(self, destination, flavour=flavour)
-        if self._dexpi_store is None:
-            raise ValueError(
-                "to_dexpi(from_scratch=False) needs a source DEXPI document on this assembly "
-                "(assembly.dexpi_store) -- only ada.from_dexpi(...) sets one. Pass from_scratch=True "
-                "to write a new, adapy-only document instead."
-            )
-        return write_from_assembly(self, destination, flavour=flavour)
 
     def get_ifc_source_by_name(self, ifc_file):
         from ada.cadit.ifc.read.reader_utils import open_ifc

@@ -51,6 +51,7 @@ from ada.api.systems import (
     SystemSegment,
     Voltage,
 )
+from ada.api.systems.model import SystemModel
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
@@ -107,6 +108,7 @@ from ada.factories import (  # noqa: E402 - imported after the API symbols the f
 __all__ = [
     "Assembly",
     "Part",
+    "SystemModel",
     "Connection",
     "FEM",
     "from_ifc",

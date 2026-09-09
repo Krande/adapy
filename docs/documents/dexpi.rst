@@ -54,25 +54,58 @@ are offline by policy (see *Never*, below).
 Reading a P&ID
 --------------
 
-``ada.from_dexpi`` is the one-call path from a file to a built, routed :class:`ada.Assembly`:
+Reading a P&ID and building a plant are two different jobs, and adapy keeps them apart. There are
+three layers, each with one responsibility:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Layer
+     - What it holds
+   * - ``DexpiDocument``
+     - A faithful parse of the file: every item, every attribute, and the raw ``ET.Element`` of
+       anything adapy does not model, so a re-write drops nothing.
+   * - :class:`ada.SystemModel`
+     - The adapy-native model: ``Equipment`` with real ``Port``\ s, and the ``System``\ s joining
+       them. **No coordinates** -- a P&ID says what exists and what connects to what, and nothing
+       about where any of it stands.
+   * - :class:`ada.Assembly`
+     - The 3D model: generated decks, placed equipment, routed runs, structure.
+
+``ada.from_dexpi`` is the one-call path through all three, and returns an :class:`ada.Assembly` like
+every other top-level ``ada.from_*``:
 
 .. code-block:: python
 
     import ada
+    from ada.topo_model.build_spec import ProceduralBuildSpec
     from ada.topo_model.layout import LayoutRules
 
-    a = ada.from_dexpi(
-        "files/dexpi_files/unit_separator_proteus.xml",
-        layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0),
-    )
+    spec = ProceduralBuildSpec(layout=LayoutRules(max_length=24.0, max_width=12.0, deck_height=5.0))
+    a = ada.from_dexpi("files/dexpi_files/unit_separator_proteus.xml", spec=spec)
+    a.to_ifc("separator_unit.ifc")
 
-    print(sorted(eq.name for eq in a.get_all_parts_in_assembly() if isinstance(eq, ada.Equipment)))
-    # ['E-201', 'P-201A', 'P-201B', 'TE-203', 'TE-204', 'V-201']
+Take the two steps separately whenever you want to look at what the P&ID resolved to before
+committing to a build, vary the build rules without re-reading, or write the model back out:
 
-    print(sorted(s.name for s in a.systems))
+.. code-block:: python
+
+    model = ada.SystemModel.from_dexpi("files/dexpi_files/unit_separator_proteus.xml")
+
+    print(sorted(eq.name for eq in model.equipment))
+    # ['E-201', 'P-201A', 'P-201B', 'PV-202.01', 'TE-203', 'TE-204', 'V-201']
+
+    print(sorted(s.name for s in model.systems))
     # ['201/1', '202/1', '203/1', '203/2', '203/3', '204/1', '204/2', '204/3', '206/1']
 
-    a.to_ifc("separator_unit.ifc")
+    a = model.to_assembly(spec)          # decks, placement, routing
+    model.to_dexpi("separator_unit.xml")  # write back
+
+Everything about *building* lives on the ``ProceduralBuildSpec`` -- deck bounds, design ruleset,
+structural blueprint, ``route``, ``relocate``, ``base_doc``, level of detail. Everything about
+*reading* stays on the reader: ``definitions`` and ``inline_components`` decide what the P&ID
+resolves to and what exists, which is why they are read arguments and deck bounds are not.
 
 Three steps happen inside (:mod:`ada.cadit.dexpi.read.to_procedural`):
 
@@ -121,12 +154,19 @@ The junction itself still never becomes one system -- ``route_system`` has no br
 that is why there is one system per DEXPI segment -- but each run *into* a junction is an ordinary
 two-ended run once the fitting it ends at is a real placed object with real ports.
 
-Pass ``strict=True`` to raise instead of returning a partially-built model with a warning. Other
-useful arguments: ``definitions`` (the equipment override list, see below), ``base_doc`` (merge onto
-placements you already corrected, for a non-destructive re-import), ``route=False`` (place equipment
-without routing), ``inline_components="equipment"`` (materialise in-line valves/strainers as their
-own small ``ada.Equipment`` instead of run metadata), and ``build_3d=False`` (the schematic-only
-assembly -- equipment and ports, no structure or routing).
+Pass ``strict=True`` to the *read* to raise instead of returning a model with a warning; it governs
+what the P&ID could not be read into, not what could not be built. ``inline_components="equipment"``
+materialises in-line valves and strainers as their own small ``ada.Equipment`` rather than run
+metadata. On the build side, ``ProceduralBuildSpec`` carries ``route=False`` (place without
+routing), ``base_doc`` (merge onto placements you already corrected, for a non-destructive
+re-import) and ``relocate``.
+
+**The two reports are separate, and deliberately so.** ``model.report`` names what the *read* could
+not carry -- a segment whose ends the P&ID never stated, an item that resolved to nothing placeable.
+``assembly.metadata["build"]`` names what the *build* could not carry -- equipment no cell would
+hold, a run the router could not path. They have different causes and different fixes, and one list
+mixing them serves neither reader. Whether a vessel fits, in particular, is entirely a function of
+the deck bounds a build was given, so it can only ever be a build gap.
 
 ``ada.dexpi_to_procedural(path, ...)`` exposes the intermediate seam -- the plain procedural
 document plus the equipment catalog, ready for ``ProceduralBuilder.from_dict`` or ``to_excel``
@@ -148,7 +188,13 @@ overridden. An equipment definition list (:mod:`ada.cadit.dexpi.equipment_list`)
 overrides keyed by **tag** (wins) or **DEXPI class** (falls back), as either JSON
 (``{tag_or_class: EquipmentTypeDoc}``) or a two-sheet XLSX workbook (``EquipmentTypes`` + a joined
 ``Nozzles`` sheet, for hand-editing many nozzles at once). Pass a path or an already-loaded dict as
-``ada.from_dexpi(..., definitions=...)``.
+``ada.SystemModel.from_dexpi(..., definitions=...)``.
+
+``definitions`` also accepts a **callable** ``(item) -> document | None`` -- the escape hatch for a
+definition that has to be computed rather than tabulated: looked up in a vendor database, derived
+from an attribute the workbook has no column for, or generated. It is asked once per equipment item
+and its return value is validated exactly like a table entry, so a computed definition cannot fail
+later inside the compiler where the cause would be far harder to see.
 
 Port ``category`` (``process``/``signal``/``electrical``) is not cosmetic: ``System.connect`` raises
 on a category mismatch and the compiler then drops the *whole* system with only a warning. One trap
@@ -287,16 +333,20 @@ not one branched system.
 Writing back to DEXPI
 ------------------------
 
-``Assembly.to_dexpi(destination, flavour="proteus", from_scratch=False)`` writes an adapy model back
-out. It is a **merge, not a regeneration**: starting from the source ``DexpiDocument`` an assembly
-carries after ``from_dexpi`` (or a sidecar attached by hand), it re-serializes everything adapy owns
-from the live objects so edits made in Python land in the file, re-emits everything it does not
-model verbatim from ``DexpiItem.raw``/``extras``, drops items deleted in adapy along with their
-connections (logged), and mints fresh IDs for anything adapy added. ``from_scratch=False`` with no
-source document raises, pointing at the flag -- writing a from-scratch model
-(``from_scratch=True``, e.g. from a hand-built ``ada.topo_model`` archetype assembly) is lossy by
-construction and only claims that the equipment/port/system graph survives a re-read, not a
-byte-for-byte anything.
+``SystemModel.to_dexpi(destination, flavour="proteus", from_scratch=False)`` writes an adapy model
+back out. It is a **merge, not a regeneration**: starting from the source ``DexpiDocument`` the
+model carries, it re-serializes everything adapy owns from the live objects so edits made in Python
+land in the file, re-emits everything it does not model verbatim from ``DexpiItem.raw``/``extras``,
+drops items deleted in adapy along with their connections (logged), and mints fresh IDs for anything
+adapy added. ``from_scratch=False`` with no source document raises, pointing at the flag -- writing
+a from-scratch model (``from_scratch=True``, e.g. from a hand-built model) is lossy by construction
+and only claims that the equipment/port/system graph survives a re-read, not a byte-for-byte
+anything.
+
+The export lives on the model and **not** on the built assembly, and the reason is worth stating
+plainly: DEXPI has no coordinates. Nothing a build produces -- deck elevations, equipment
+placements, routed geometry -- is expressible in the format at all, so a built assembly has nothing
+to contribute to a write-back. Edit the model, write the model.
 
 Running the wider corpus locally
 -----------------------------------
