@@ -194,14 +194,40 @@ flanged in -- and the branch centreline meets the header centreline at a point. 
 Plant 3D) place a tee as a catalog component sitting in the run. Modelling it as a standalone
 equipment box is an adapy-side convenience, not a statement about the plant.
 
-**The decision this stage rests on.** A tee could be added *without* touching :class:`ada.Pipe` at
-all -- a standalone fitting object placed where three separate pipes meet, with real tee geometry
-and centreline-accurate placement. That is roughly a fifth of the work and produces geometry that
-looks and exports correctly. It is rejected here for one reason: it does not let the model *assert*
-that the three legs are one run. Nothing downstream would know the tee connects them -- the take-off
-would count a loose fitting, the clash check would treat it independently, and ``pipe.segments``
-would not be a connected run. "A T-junction along a pipe" is a claim about the pipe, and only a
-branch-aware :class:`ada.Pipe` makes it.
+**The decision this stage rests on -- and it is closer than a first reading suggests.** A tee could
+be added *without* touching :class:`ada.Pipe` at all: a standalone fitting object placed where three
+separate pipes meet, with real tee geometry and centreline-accurate placement. That is roughly a
+fifth of the work and produces geometry that looks and exports correctly.
+
+The argument first made against it was that only a branch-aware :class:`ada.Pipe` lets the model
+*assert* the three legs are one run. **That argument was too strong, because a container for
+exactly that already exists.** :class:`~ada.api.systems.base.PipingSystem` holds all three legs in
+``route_geometry``, survives onto ``Assembly.systems``, and maps to an ``IfcDistributionSystem`` on
+export -- which is precisely IFC's own way of saying "these flow elements are one run". So the
+grouping claim is already representable, and after the fix recorded below it is actually made.
+
+What a branch-aware ``Pipe`` still buys, stated honestly and no wider:
+
+* ``pipe.segments`` is *itself* a connected run, so anything walking a single pipe -- the take-off's
+  per-pipe mass, the clash check, a future centreline query -- sees the branch without having to
+  know about ``System``. Today those consumers see three unrelated pipes and a loose fitting, and
+  only ``System`` knows better.
+* One pipe means one ``IfcDistributionSystem`` by construction rather than by a merge step.
+
+That is a real but *narrower* benefit than "only this can assert it". A reader deciding between the
+two options should weigh it against roughly five times the work, and should know that the cheaper
+option composes with the routing that already exists.
+
+.. note::
+   **A bug this analysis found, now fixed.** ``_resolve_distribution_system``
+   (``cadit/ifc/write/write_equipment.py``) took *the first* ``IfcDistributionSystem`` among a
+   system's route geometry and folded the system's name, predefined type and equipment membership
+   onto it. That was right while one ``System`` meant one ``Pipe``. Stage 2 made a branched system
+   hold one Pipe **per leg**, each of which writes its own group -- so the fixture exported **nine**
+   distribution systems where there are five logical ones, with two legs per branch left under their
+   pipe-derived names and a ``NOTDEFINED`` predefined type, i.e. asserting the legs are unrelated
+   runs. The groups are now merged so one logical system is one ``IfcDistributionSystem``; the
+   regression test is ``test_a_branched_system_exports_as_one_distribution_system``.
 
 What the survey found (and what it corrected)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

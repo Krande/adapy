@@ -295,6 +295,46 @@ def test_the_realistic_fixture_now_routes_every_run_that_has_two_ends(model, bui
     assert all(pipe.segments for pipe in built.get_all_physical_objects(by_type=ada.Pipe))
 
 
+def test_a_branched_system_exports_as_one_distribution_system(built, tmp_path):
+    """One logical system, one ``IfcDistributionSystem`` -- including a branched one.
+
+    A branch routes one ``ada.Pipe`` per leg and each Pipe writes its own
+    ``IfcDistributionSystem``, so without the merge in
+    ``ada.cadit.dexpi``'s sibling ``cadit.ifc.write.write_equipment._resolve_distribution_system``
+    a three-legged run exported as THREE systems: one named after the branch and two keeping their
+    pipe-derived names with a ``NOTDEFINED`` predefined type. That says the legs are unrelated runs,
+    which is exactly what folding the segments into one branched system exists to deny.
+    """
+    import ifcopenshell
+
+    out = tmp_path / "branch.ifc"
+    built.to_ifc(out, validate=False)
+    f = ifcopenshell.open(str(out))
+
+    systems = {s.Name: s for s in f.by_type("IfcDistributionSystem")}
+    assert sorted(systems) == ["201/1", "202/1", "206/1", "branch-TE-203", "branch-TE-204"]
+    # No leg left behind under its own pipe name.
+    assert not [n for n in systems if n.endswith("_route")]
+    assert all(s.PredefinedType == "WATERSUPPLY" for s in systems.values())
+
+    members = {}
+    for rel in f.by_type("IfcRelAssignsToGroup"):
+        if rel.RelatingGroup is not None and rel.RelatingGroup.is_a("IfcDistributionSystem"):
+            members.setdefault(rel.RelatingGroup.Name, []).extend(rel.RelatedObjects)
+
+    # A branch groups more pipe segments than any of its individual legs would have on its own --
+    # the check that the merge MOVED the members rather than merely deleting the extra groups.
+    for branch in ("branch-TE-203", "branch-TE-204"):
+        segs = [m for m in members[branch] if m.is_a() in ("IfcPipeSegment", "IfcPipeFitting")]
+        assert len(segs) > len(
+            [m for m in members["201/1"] if m.is_a() in ("IfcPipeSegment", "IfcPipeFitting")]
+        ), f"{branch} looks like it kept only one leg's segments"
+
+    # Deleting the redundant groups must not leave dangling relationships behind.
+    assert not [r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup is None]
+    assert not [r for r in f.by_type("IfcRelServicesBuildings") if r.RelatingSystem is None]
+
+
 def test_each_run_at_a_tee_closes_exactly_on_the_tee_port_it_names(built):
     """Report and wiring can both look right while the geometry misses. Every run that names a tee
     port must have an actual pipe end *at* that port, and each tee's three ports must be taken by

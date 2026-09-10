@@ -218,16 +218,56 @@ def _write_beam_run_distribution_system(
     return ifc_system
 
 
+def _merge_distribution_systems(
+    ifc_store: IfcStore, primary: ifcopenshell.entity_instance, extras: list[ifcopenshell.entity_instance]
+) -> None:
+    """Fold ``extras`` into ``primary``: move every grouped element onto ``primary``'s
+    membership relationship, then delete the redundant groups and their relationships.
+
+    A *branched* system routes one ``ada.Pipe`` per leg (see
+    ``ada.topology.routing.route_branched_system``), and each Pipe writes its own
+    ``IfcDistributionSystem``. Left alone that exports a three-legged run as three systems, only
+    one of which ``write_ifc_systems`` then names -- the other two keep their pipe-derived names
+    and a ``NOTDEFINED`` predefined type, which says the legs are unrelated runs. They are one run,
+    so they get one system.
+    """
+    f = ifc_store.f
+    primary_rel = next((r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup == primary), None)
+    for extra in extras:
+        for rel in [r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup == extra]:
+            if primary_rel is not None:
+                existing = set(primary_rel.RelatedObjects)
+                primary_rel.RelatedObjects = [
+                    *primary_rel.RelatedObjects,
+                    *[o for o in rel.RelatedObjects if o not in existing],
+                ]
+            f.remove(rel)
+        # The "this system services that spatial element" link is per-system; the primary already
+        # has its own, so the extra's would dangle at a removed group.
+        for rel in [r for r in f.by_type("IfcRelServicesBuildings") if r.RelatingSystem == extra]:
+            f.remove(rel)
+        f.remove(extra)
+
+
 def _resolve_distribution_system(ifc_store: IfcStore, system: System) -> ifcopenshell.entity_instance | None:
     """The IfcDistributionSystem for ``system``: the one a route pipe already
     wrote, or a fresh one built from the route's beam segments (ducts/cable
-    trays). ``None`` if the system has no written route geometry."""
+    trays). ``None`` if the system has no written route geometry.
+
+    A system whose route produced SEVERAL pipes (a branch -- one per leg) has several such systems
+    written; they are merged into the first so one logical system stays one
+    ``IfcDistributionSystem``. See :func:`_merge_distribution_systems`."""
     from ada import Beam
 
+    written = []
     for geom in system.route_geometry:
         ent = _get_by_guid_or_none(ifc_store, geom.guid)
         if ent is not None and ent.is_a("IfcDistributionSystem"):
-            return ent
+            written.append(ent)
+    if written:
+        if len(written) > 1:
+            _merge_distribution_systems(ifc_store, written[0], written[1:])
+        return written[0]
     beams = [g for g in system.route_geometry if isinstance(g, Beam)]
     if beams:
         return _write_beam_run_distribution_system(ifc_store, system, beams)
