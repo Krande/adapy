@@ -210,7 +210,12 @@ class SceneConverter:
         animations = tree.get("animations", [])
         for anim in animations:
             node_idx = anim["channels"][0]["target"]["node"]
-            mesh_idx = tree["nodes"][node_idx]["mesh"]
+            mesh_idx = tree["nodes"][node_idx].get("mesh")
+            if mesh_idx is None:
+                # Pure TRS (translation/rotation/scale) animation on a
+                # transform-only node (e.g. an Empty-derived joint) has no
+                # mesh/morph-target buffer views to fix up.
+                continue
             mesh = tree["meshes"][mesh_idx]
             for primitive in mesh["primitives"]:
                 # Set ARRAY_BUFFER target for common attributes if present
