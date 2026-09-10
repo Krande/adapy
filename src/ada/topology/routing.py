@@ -676,11 +676,18 @@ def route_branched_system(
     every other leg is a branch. Populates each leg's ``SystemSegment.routed_path``, sets
     ``system.routed_path`` to the trunk's two legs concatenated (so anything still expecting a
     single polyline sees a sane one) and ``system.metadata["branch"]`` with the trunk leg names and
-    the junction point, and returns ``{leg name: polyline}``."""
+    the junction point, and returns ``{leg name: polyline}``.
+
+    Each leg's body is marked occupied on ``grid`` as soon as it routes, so the next leg routes
+    around it -- legs of one branch get no cross-system avoidance pass (that is a separate,
+    optional step over DIFFERENT systems; see ``design_rules.run_design``'s ``avoid_other_systems``
+    and :func:`system_route_polylines`), so without this two legs of the SAME branch can freely
+    cross or run parallel through the same cells."""
     tree = _branch_topology(system)
     if tree is None:
         raise RoutingError(f"system {system.name!r} is not a branched system (need 2+ segments sharing a junction)")
 
+    half = run_half_extent(system)
     paths: dict[str, list[ada.Point]] = {}
     for leg in tree.legs:
         polyline = route_system(
@@ -688,6 +695,8 @@ def route_branched_system(
         )
         leg.segment.routed_path = polyline
         paths[leg.segment.name] = polyline
+        if half > 0.0:
+            occupy_run(grid, polyline, half, tag=f"branch-leg:{system.name}:{leg.segment.name}")
 
     trunk_a, trunk_b = _select_trunk(tree.legs)
     system.routed_path = trunk_a.segment.routed_path + trunk_b.segment.routed_path[1:]
