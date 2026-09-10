@@ -67,6 +67,7 @@ print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + o
 
 [feature.prod.tasks]
 topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
+thialf-crane-demo = { cmd = "python marine_ops/thialf_crane_control.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
 
 [feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
