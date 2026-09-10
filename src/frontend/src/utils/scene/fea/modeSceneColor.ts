@@ -170,10 +170,38 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   restore(view);
 }
 
+/** The source whose FEA field was last loaded, to tell a new model from a
+ * repaint of the one on screen. */
+let loadedSource: string | null = null;
+
+/**
+ * Report that the FEA loader has just put a field on screen for `source`.
+ *
+ * Entering an owning mode suspends what is showing at that moment, and nothing
+ * is showing when the page opens straight into one (a restored session, a
+ * `?mode=` link): the model loads afterwards, and the load switched its field's
+ * colours and legend on under the mode. The capacity overlay then sat on top of
+ * a displacement field, its legend floating beside it.
+ *
+ * So a NEW source loaded while an owning mode is active is treated as the
+ * user's result view: kept as the view to put back on leaving, and set aside
+ * now. A reload of the same source is not touched - that is how an owning mode
+ * paints its own field (Inspect's property colouring goes through the loader),
+ * and suspending it would undo the mode's own work.
+ */
+export function noteFieldSourceLoaded(source: string | null): void {
+  const fresh = source !== loadedSource;
+  loadedSource = source;
+  if (!fresh || owner === null) return;
+  saved = snapshot();
+  suspend();
+}
+
 /** Test hook: forget any suspended state without side effects. */
 export function _resetSceneColorOwnerForTests(): void {
   owner = null;
   saved = null;
+  loadedSource = null;
   // What each owning mode was showing goes too, or one test's Inspect view is
   // restored into the next one's.
   ownerViews.clear();
