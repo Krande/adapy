@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, OrderedDict
+from typing import TYPE_CHECKING, Callable, Optional, OrderedDict
 
 from ada.config import logger
 from ada.core.guid import create_guid
@@ -70,6 +70,14 @@ class SceneConverter:
     _model_stats: dict | None = field(default=None, init=False, repr=False)
     _model_stats_done: bool = field(default=False, init=False, repr=False)
 
+    # A postprocessor the CALLER set on ``params`` before ``build_scene``
+    # replaced it with this converter's own. Held so it can still be run --
+    # see :meth:`tree_postprocessor`.
+    _caller_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = field(
+        default=None, init=False, repr=False
+    )
+    _caller_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = field(default=None, init=False, repr=False)
+
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
             AdaDesignAndAnalysisExtension,
@@ -127,8 +135,27 @@ class SceneConverter:
         else:
             raise ValueError(f"Unsupported object type: {type(self.source)}")
 
-        self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor)
-        self.params.set_gltf_tree_postprocessor(self.tree_postprocessor)
+        # This converter publishes its own postprocessors into the params so
+        # the export paths that read them get the animation/extension work.
+        # But the same two slots are the ONLY public way for a caller to
+        # supply a postprocessor (RenderParams.set_gltf_*_postprocessor), and
+        # those setters refuse to overwrite -- so a caller who set one and
+        # then rendered got `ValueError: gltf_tree_postprocessor is already
+        # set.` raised from in here. Take over the slots, but keep whatever
+        # the caller put there and run it too (see tree_postprocessor).
+        #
+        # A bound method compares equal per (func, instance), so the identity
+        # guard also stops a second build_scene() from capturing our own
+        # method and making the chain call itself.
+        caller_buffer = self.params.gltf_buffer_postprocessor
+        if caller_buffer is not None and caller_buffer != self.buffer_postprocessor:
+            self._caller_buffer_postprocessor = caller_buffer
+        caller_tree = self.params.gltf_tree_postprocessor
+        if caller_tree is not None and caller_tree != self.tree_postprocessor:
+            self._caller_tree_postprocessor = caller_tree
+
+        self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor, overwrite=True)
+        self.params.set_gltf_tree_postprocessor(self.tree_postprocessor, overwrite=True)
 
         if not has_meta:
             self._scene.metadata.update(self.graph.to_json_hierarchy())
@@ -258,6 +285,10 @@ class SceneConverter:
         for idx, animation in enumerate(self.animations):
             animation.process(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
         self._consume_lineage_buffers(buffer_items)
+        # The caller's own postprocessor, displaced in build_scene. Last, so
+        # it sees the finished buffer.
+        if self._caller_buffer_postprocessor is not None:
+            self._caller_buffer_postprocessor(buffer_items, tree)
 
     def _consume_lineage_buffers(self, buffer_items) -> None:
         """Append queued lineage payloads to the GLB binary and rewrite
@@ -332,6 +363,13 @@ class SceneConverter:
             extras = asset.get("extras") or {}
             extras.update(extras_updates)
             asset["extras"] = extras
+
+        # The caller's own postprocessor, displaced in build_scene (see there).
+        # Runs last, after the extras above, so it can inspect or override what
+        # this converter produced -- consistent with gltf_asset_extras_dict
+        # already winning over the computed take-off.
+        if self._caller_tree_postprocessor is not None:
+            self._caller_tree_postprocessor(tree)
 
     def build_model_stats(self) -> dict | None:
         """Discipline-organised quantity take-off for a Part/Assembly source.
