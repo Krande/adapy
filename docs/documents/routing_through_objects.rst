@@ -4,9 +4,13 @@ Routing through things: in-line components and branches
 .. note::
    **Status.** Stage 0 (the local viewer's ``file://`` origin) and Stage 2 (branches) have landed;
    see the status note at the top of each section below for what shipped and what's still a known
-   gap. Stage 1 (waypoints -- routing through an in-line component) is still a plan, nothing here
-   implemented. Delete this document, or fold what survives into :doc:`dexpi` and the routing docs,
-   once Stage 1 lands too.
+   gap. Stage 1 (waypoints -- routing through an in-line component) and Stage 3 (a real in-line tee)
+   are still plans, nothing in them implemented -- though Stage 3's two load-bearing design
+   decisions have been taken and are recorded in its section. Delete this document, or fold what
+   survives into :doc:`dexpi` and the routing docs, once those two land too.
+
+   Stage 2 is what makes Stage 3 worth reading: it gave a branch the right topology and explicitly
+   not the right geometry, so "a branch" today is three pipes that never touch.
 
 Two gaps in :mod:`ada.topology.routing` look different from the outside and are the same thing
 underneath. A routed run today is a swept solid between exactly two ports, produced by A* over a
@@ -115,7 +119,7 @@ Stage 2 -- branches: one system spanning a junction
    segments into one such branched system (a 2-way junction stays two two-ended systems -- Stage 1
    territory, unaffected); the merge writer
    (:mod:`ada.cadit.dexpi.write.from_ada`, ``_branch_legs``/``_sync_segment_connections``) splits it
-   back into the source's original ``PipingNetworkSegment``\\ s by the per-leg name the importer
+   back into the source's original ``PipingNetworkSegment``\ s by the per-leg name the importer
    stashed, so an unedited round-trip is a no-op exactly as it was before branches existed. A
    :class:`~ada.api.systems.base.System` can also be built as a branch directly, via
    ``System.add_leg(name, start, end)`` (each end a :class:`Port` or an ``(equipment, port_name)``
@@ -146,7 +150,7 @@ network" means in every pipe router.
 
 1. ``System`` gains a branched form. Today ``system.ports`` is a flat list and the geometry is one
    swept solid; a branched run is several solids plus a fitting at each junction. Deciding whether
-   that is one ``System`` with a tree of segments, or a ``System`` composed of ``SystemSegment``\\ s
+   that is one ``System`` with a tree of segments, or a ``System`` composed of ``SystemSegment``\ s
    (which already exist), is the first design decision and it should be made before any routing
    code is written.
 2. A* needs a "route to any node in this set" goal, not "route to this node". The existing solver
@@ -169,7 +173,182 @@ reintroduce it by treating the nesting segment as the trunk by default.
 
 **Definition of done.** A three-way junction in the fixture produces **one** ``System`` whose
 geometry is a connected tree, with the branch meeting the trunk at a modelled fitting, and
-``to_dexpi`` round-trips it back to the same number of ``PipingNetworkSegment``\\ s the source had.
+``to_dexpi`` round-trips it back to the same number of ``PipingNetworkSegment``\ s the source had.
+
+Stage 3 -- a real tee: three runs meeting on one centreline
+-------------------------------------------------------------
+
+.. note::
+   A **plan**. Nothing in this stage is implemented. Two design decisions have been made and are
+   recorded below (the authoring API, and internal-volume correctness); everything else is open.
+
+Stage 2 gave a branch the right *topology* -- one ``System``, three legs, each resolving to its own
+port, round-tripping to the source's three ``PipingNetworkSegment``\ s. It did not give it the right
+*geometry*. What a Stage 2 branch actually produces is three separate :class:`ada.Pipe` objects
+ending at three scattered port positions on a small equipment box, plus a placeholder sphere
+spanning them. The pipes never touch.
+
+That is not how process piping works. A tee is an **in-line fitting** -- part of the run, welded or
+flanged in -- and the branch centreline meets the header centreline at a point. DEXPI agrees: a
+``PipeTee`` is a ``PipingComponent``, the same category as a valve. Plant tools (E3D/PDMS, SP3D,
+Plant 3D) place a tee as a catalog component sitting in the run. Modelling it as a standalone
+equipment box is an adapy-side convenience, not a statement about the plant.
+
+**The decision this stage rests on.** A tee could be added *without* touching :class:`ada.Pipe` at
+all -- a standalone fitting object placed where three separate pipes meet, with real tee geometry
+and centreline-accurate placement. That is roughly a fifth of the work and produces geometry that
+looks and exports correctly. It is rejected here for one reason: it does not let the model *assert*
+that the three legs are one run. Nothing downstream would know the tee connects them -- the take-off
+would count a loose fitting, the clash check would treat it independently, and ``pipe.segments``
+would not be a connected run. "A T-junction along a pipe" is a claim about the pipe, and only a
+branch-aware :class:`ada.Pipe` makes it.
+
+What the survey found (and what it corrected)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The chain assumption is far more contained than it looks, and an earlier reading of this that called
+it "load-bearing across IFC, the viewer and FEM" was simply wrong. Everything past
+``pipe.segments`` already treats the list as a flat bag of independently-geometried objects:
+
+* **IFC export** flat-loops the segments and groups them in an ``IfcDistributionSystem``
+  (``cadit/ifc/write/write_pipe.py``). No ``IfcDistributionPort``, no ordering, no connectivity
+  between consecutive segments anywhere in the pipe write path -- ports are an equipment-only
+  concept in this codebase (``write_equipment.py``).
+* **Tessellation and the viewer tree** add one graph node per segment and tessellate each from its
+  own ``solid_geom()`` (``visit/scene_from_object.py``). Nothing aggregates a pipe into one run.
+  Segment names are positional only in the name; nothing parses the ordinal back.
+* **FEM** flat-loops the segments (``fem/meshing/concepts.py``).
+
+The linearity lives in essentially one function: ``segments3d_from_points3d``
+(``core/curve_utils.py``), which walks the flat point list pairwise and fillets consecutive pairs.
+Its "no shared point found" check *logs* rather than raises, which is worth knowing before relying
+on it as a guard.
+
+**There is already a precedent for the shape this stage needs.** The IFC reader builds a
+:class:`ada.Pipe` whose segments are assigned directly and whose ``points`` are a degenerate
+two-point placeholder, precisely so a re-import does not rebuild (and flatten) the real
+straight/elbow decomposition -- see ``cadit/ifc/read/read_ifc.py``. A ``Pipe`` whose segments are
+not derived from its points is therefore an already-supported, already-exercised state, not a new
+concept this stage invents.
+
+**No tree structure is needed, and none should be introduced.** The segment list is already a bag;
+a tee is a bag element that happens to have three ends, and the topology lives in the segments'
+shared endpoints exactly as it implicitly does today. There is no tree-shaped ``BackendGeom``
+anywhere in adapy and this stage must not create the first one.
+
+Decision 1 -- the authoring API
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Pipe(name, points, sec)`` takes one polyline and has nowhere to say "a branch leaves at X toward
+Y". Two options were considered: let a caller supply segments directly (following the reader
+precedent), or accept a **branch spec alongside** ``points``, with ``points`` remaining the trunk
+centreline.
+
+**Decided: the branch spec.** ``points`` stays the trunk; a branch is declared against it. The
+direct-segments route stays available -- it already exists for the reader -- but it is the
+machine-facing path, not the one a person writing a model should have to use. Authoring ergonomics
+win because this API is the thing a user actually types:
+
+.. code-block:: python
+
+   pipe = ada.Pipe("L-301", [(0, 0, 0), (6, 0, 0)], "PIPE200",
+                   branches=[ada.PipeBranch(at=(3, 0, 0), to=(3, 4, 0))])
+
+The exact spelling is open (``at``/``to`` versus a point pair, whether a branch may itself carry a
+polyline rather than a single leg endpoint, whether ``branches`` takes its own section for a
+reducing tee). What is settled is that the trunk is expressed as it is today and a branch is
+additive, so **every existing** ``Pipe`` **call site is unchanged** -- that is the compatibility
+contract, and it should be asserted rather than assumed.
+
+*The hard part, honestly.* ``at`` must lie on the trunk centreline. A caller will eventually pass a
+point that is merely near it, and the failure has to be legible -- snap to the nearest point on the
+polyline within a tolerance and say so, or refuse and name the offending point and its distance.
+Silently teeing off a point that is not on the run is the one outcome to design against.
+
+Decision 2 -- the tee body, and internal-volume correctness
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A tee body is naturally the union of a run and a branch. The cheap version unions two *annular*
+profiles -- the profile ``section_to_arbitrary_profile_def_with_voids`` already produces for a
+``TUBULAR`` section, an outer circle with the bore as an inner void. That is wrong in a way a viewer
+cannot show you: the branch's inner wall goes on crossing the run's bore, so the internal partition
+between them is never removed. The solid looks perfect from outside and its internal volume is
+nonsense.
+
+**Decided: internal-volume correctness is required.** The tee is therefore
+
+.. math::
+
+   (\text{outer}_\text{run} \cup \text{outer}_\text{branch}) \setminus
+   (\text{bore}_\text{run} \cup \text{bore}_\text{branch})
+
+**This needs no new geometry-layer machinery.** ``apply_geom_booleans``
+(``occ/geom/boolean.py``) is a sequential left-fold over the operation list, so an ordered flat list
+expresses the nesting directly -- :math:`(A \setminus B) \setminus C = A \setminus (B \cup C)`,
+so the two bores can be cut one after the other:
+
+.. code-block:: text
+
+   base = outer_run                       (extruded SOLID disc, radius r)
+   ops  = [UNION      outer_branch,       (extruded SOLID disc, radius r)
+           DIFFERENCE bore_run,           (extruded SOLID disc, radius r - wt)
+           DIFFERENCE bore_branch]        (extruded SOLID disc, radius r - wt)
+
+The one thing this changes about how pipe geometry is built: the four operands are **solid discs**,
+not the annulus the existing helper returns. They are ``ArbitraryProfileDef``\ s over a single
+``Circle`` with no inner curve, built inline. Reusing the annular profile here is the specific
+mistake this decision exists to prevent.
+
+*Mirror the degenerate-bore guard.* ``section_to_arbitrary_profile_def_with_voids`` drops the inner
+circle when ``r - wt`` falls below 1 µm, because a near-zero circle is a degenerate edge that aborts
+the solid build downstream. A tee over a solid-bar section must skip both DIFFERENCE operations for
+the same reason, rather than cutting with a degenerate disc.
+
+What else has to change
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. ``PipeSegTee`` -- a new segment type beside ``PipeSegStraight``/``PipeSegElbow``, with
+   ``solid_geom``/``solid_occ``/``shell_occ`` like its siblings. Constructor mirrors the elbow's
+   shape: the run axis plus the branch endpoint, with the junction implied at the branch's foot on
+   the run axis.
+2. A branch-aware path in ``build_pipe_segments_alt``: split the trunk at each branch point, emit
+   the tee, and emit the branch leg's own straights and elbows.
+3. **IFC write** -- one arm in ``write_pipe_segment``, which is currently a two-way ``isinstance``
+   that raises on anything else. ``fitting_entity_class`` already yields ``IfcPipeFitting``; elbows
+   set ``PredefinedType="BEND"``, so a tee sets ``"JUNCTION"`` (a valid IFC4
+   ``IfcPipeFittingTypeEnum``).
+4. **IFC read** -- one arm in the reader's dispatch, which today is binary: *everything that is not
+   an* ``IfcPipeSegment`` *is an elbow*. A tee currently falls into ``read_pipe_elbow``, throws on
+   the unexpected axis polyline, and is swallowed by the reader's per-segment ``except Exception``.
+   **So the present behaviour for any three-ended fitting is to silently drop it on re-import** --
+   worth fixing regardless of the rest of this stage.
+5. Four ``isinstance``-tuple additions so the new type is not silently skipped: ``consolidate_materials``
+   (``part.py``), ``reader_utils`` (which raises ``NotImplementedError`` on an unknown segment),
+   ``takeoff`` (which ``continue``\ s, so a tee would contribute zero mass), and ``clash_check``
+   (which filters to ``PipeSegStraight``, so a tee would go unchecked).
+
+**Definition of done.** A ``Pipe`` authored with a branch produces one connected run whose geometry
+is checkable rather than merely reported: the tee solid's internal volume equals the union of the
+three bores (not the union minus an internal partition), the branch leg's centreline terminates
+exactly on the trunk centreline, the take-off counts the tee's mass once, and an IFC round-trip
+returns the same segment count and the same three ends -- with the tee still a tee, not dropped.
+
+What Stage 3 deliberately does not attempt
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **A catalog tee.** Real tees come from a spec with a face-to-face length, a crotch radius, a
+  reinforcing pad or a weldolet. This stage models a bored intersection of two cylinders, which is
+  the geometry, not the product.
+* **Reducing tees, laterals and wyes.** The branch shares the run's section and meets it
+  perpendicular. A different branch diameter is a plausible next increment (the ``branches``
+  argument is shaped to allow it); a non-perpendicular lateral is a different geometry problem.
+* **Re-routing to create branches.** This stage models a branch a caller declares. Deciding *where*
+  a branch should tee off an existing header is Stage 2's routing question, and it is not revisited
+  here.
+* **Migrating the DEXPI junction path onto it.** The importer's materialised junction equipment
+  keeps working exactly as Stage 2 left it. Moving DEXPI branches onto real tees is a follow-on that
+  should happen only once a hand-authored tee is proven, because it changes what a P&ID import
+  produces.
 
 Order, and what to do if only one gets done
 ---------------------------------------------
@@ -238,6 +417,8 @@ What this plan deliberately does not attempt
   tempting and no more solved.
 * **Fitting geometry for every in-line component.** A waypoint makes the run pass through a valve's
   ports; it does not model the valve body's bore, flanges or face-to-face length. The run is still a
-  swept solid.
+  swept solid. Stage 3 is the one exception and is deliberately narrow: it models a *tee*, because a
+  branch is not representable at all without one, and it models it as a bored cylinder intersection
+  rather than as a catalog product.
 * **Re-ordering or optimising the process.** The P&ID's component order and its branch topology are
   statements about the plant, and the router's job is to realise them, not to improve them.
