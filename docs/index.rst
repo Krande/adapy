@@ -69,6 +69,7 @@ IFC and various Finite Element formats.
 
     documents/ifc_database
     documents/dexpi_branch_status
+    documents/ws_rest_parity
 
 .. toctree::
     :hidden:
