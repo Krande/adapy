@@ -27,6 +27,7 @@ import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import {followerUrl} from "@/utils/simChannel";
+import {runtime} from "@/runtime/config";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
@@ -124,7 +125,12 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
     );
 
     return (
-        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={onOpenWindow}>
+        // A follower window shares state over same-origin BroadcastChannel + a
+        // window.open() URL built from this tab's own location (see
+        // utils/simChannel.ts's followerUrl) -- neither works from a file:// tab
+        // (every `file:` document is its own unique origin), so the button is
+        // omitted there rather than offered and failing.
+        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={runtime.isFileOrigin() ? undefined : onOpenWindow}>
             {body}
         </SimWindowFrame>
     );

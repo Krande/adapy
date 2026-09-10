@@ -23,6 +23,7 @@ const SystemAdminPanel = React.lazy(
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
+import { runtime } from "@/runtime/config";
 import {
   highlightSystems,
   revertSystemHighlight,
@@ -1643,6 +1644,7 @@ const CellBuilderPanel: React.FC = () => {
           </label>
           <button
             className={btnGray + " self-start"}
+            disabled={runtime.isFileOrigin()}
             onClick={() => {
               const scope = useScopeStore.getState().current;
               const scopePart = scope ? scopeUrlPart(scope) : "user:me";
@@ -1652,7 +1654,11 @@ const CellBuilderPanel: React.FC = () => {
                 "noopener",
               );
             }}
-            title="Open a second window that shows this model's compiled result and updates live as you edit here (⇧↵ recompiles a preview). Best across two screens."
+            title={
+              runtime.isFileOrigin()
+                ? "Not available in a locally opened file — a follower window needs a real server origin to share (BroadcastChannel and window.open() both require one)."
+                : "Open a second window that shows this model's compiled result and updates live as you edit here (⇧↵ recompiles a preview). Best across two screens."
+            }
           >
             Open result in new window
           </button>
