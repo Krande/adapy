@@ -210,7 +210,14 @@ class SceneConverter:
         animations = tree.get("animations", [])
         for anim in animations:
             node_idx = anim["channels"][0]["target"]["node"]
-            mesh_idx = tree["nodes"][node_idx]["mesh"]
+            mesh_idx = tree["nodes"][node_idx].get("mesh")
+            if mesh_idx is None:
+                # glTF allows an animation channel to target any node, and a
+                # node is not required to have a mesh. The buffer-view fixups
+                # below are all mesh/morph-target work, so a channel driving a
+                # meshless node (translation/rotation/scale only) has nothing
+                # to do here -- and indexing "mesh" would raise KeyError.
+                continue
             mesh = tree["meshes"][mesh_idx]
             for primitive in mesh["primitives"]:
                 # Set ARRAY_BUFFER target for common attributes if present
