@@ -288,9 +288,22 @@ function extractParams(
 }
 
 interface CellBuilderState {
-  /** The procedural model open in the builder; null hides the whole tool
-   * (top-row button included). */
+  /** The procedural model open in the builder as an EDITABLE SESSION -- a stored
+   * model with an id and a revision that edits can be committed back to. Null on
+   * the websocket/desktop path even when a document is loaded for viewing (see
+   * `embeddedDoc`), which is deliberate: `active` is what `CellBuilderController`
+   * gates every editing interaction on (gizmos, click-to-place, drag-to-move) and
+   * what `setupCameraControlsHandlers` reads before auto-compiling, so it must
+   * mean "there is somewhere to save this", not merely "there is something to
+   * look at". */
   active: { modelId: string; name: string; revision: number } | null;
+  /** A procedural document loaded for VIEWING with no editable session behind it
+   * -- the GLB-embedded document on the websocket path (`loadFromDoc`). Enough to
+   * show the equipment/systems browser read-only; never enough to edit or commit.
+   * Editability is a separate question answered by
+   * `capabilities.procedural.canEdit`, which is false on that transport only
+   * because no save verb is implemented over the websocket yet. */
+  embeddedDoc: boolean;
   cells: Record<string, BuilderCell>;
   /** Raw authored loft members — the editable source of truth for the `loft`
    * band cells (Phase 3a). Station/placement edits mutate this array and
@@ -1487,6 +1500,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
   return {
     active: null,
+    embeddedDoc: false,
     cells: {},
     loftMembers: [],
     systems: {},
@@ -1570,6 +1584,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // A freshly loaded model starts a new editing session — history resets.
       set({
         active: { modelId, name, revision },
+        // A real session supersedes any view-only document that was loaded
+        // before it, so the header stops calling itself read-only.
+        embeddedDoc: false,
         cells: cellsFromDoc(doc),
         loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
@@ -1649,6 +1666,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       get().hideDetail();
       set({
         active: null,
+        embeddedDoc: false,
         cells: {},
         loftMembers: [],
         systems: {},
@@ -2796,11 +2814,25 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         ...(groups.length ? { groups } : {}),
       };
     },
-    loadFromDoc: (doc) =>
+    loadFromDoc: (doc) => {
+      const cells = cellsFromDoc(doc);
+      const systems = systemsFromDoc(doc);
+      // Deliberately does NOT set `active` -- see that field's docstring. The
+      // store is populated for reading without claiming there is a session to
+      // commit to, so `CellBuilderController`'s editing surface stays off. What
+      // it does set is `embeddedDoc`, which is what lets the panel and the menu
+      // button appear read-only rather than staying hidden entirely.
+      //
+      // Only when the document actually carries something: this is called with
+      // an empty doc to CLEAR the panels when a model with no procedural
+      // provenance loads, and that must hide the panel again rather than leave
+      // an empty one behind.
+      const hasContent = Object.keys(cells).length > 0 || Object.keys(systems).length > 0;
       set({
-        cells: cellsFromDoc(doc),
+        embeddedDoc: hasContent,
+        cells,
         loftMembers: loftMembersFromDoc(doc),
-        systems: systemsFromDoc(doc),
+        systems,
         groups: groupsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
@@ -2812,7 +2844,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         dirty: false,
         selection: null,
-      }),
+      });
+    },
 
     undo: () =>
       set((s) => {

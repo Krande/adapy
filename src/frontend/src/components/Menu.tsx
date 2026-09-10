@@ -152,7 +152,15 @@ const Menu = () => {
   const componentSpecsAvailable = useComponentSpecsStore((s) => s.hasSpecs);
   // Procedural-context button only renders while a procedural model is
   // loaded in the cellbuilder; closing the model hides button + panel.
-  const proceduralActive = useCellBuilderStore((s) => s.active !== null);
+  //
+  // Either kind of "loaded" counts: an editable session (`active`, opened from
+  // the model store) or a document that arrived embedded in the GLB
+  // (`embeddedDoc`, the websocket/desktop path -- `assembly.show()`). The second
+  // is read-only for now and the panel says so, but it is exactly as worth
+  // browsing: it is the equipment and systems of the model on screen.
+  const proceduralActive = useCellBuilderStore(
+    (s) => s.active !== null || s.embeddedDoc,
+  );
   const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
   const toggleCellBuilderPanel = () =>
     useCellBuilderStore

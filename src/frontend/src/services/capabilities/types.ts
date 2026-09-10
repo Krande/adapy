@@ -116,9 +116,18 @@ export interface ProceduralModelCapability {
    * stored model, which can be edited and committed, and an embedded copy must not race it. */
   adoptEmbeddedModel(doc: ProceduralDoc | null): boolean;
 
-  /** Whether the model this transport serves can be edited and committed back. False on the
-   * websocket path -- the document came out of a GLB and there is no backend to commit to, so the
-   * panels are read-only there. */
+  /** Whether the model this transport serves can be edited and committed back.
+   *
+   * False on the websocket path -- but note carefully what that does and does not mean. It is NOT
+   * that nothing is listening: there is a live adapy process on the other end of the socket, and it
+   * is what pushed this model into the viewer in the first place. It is that **no save verb is
+   * implemented over the websocket transport yet**, so there is nowhere for an edit to go. That is a
+   * gap in the protocol, not a property of the transport, and it is expected to close -- see
+   * `docs/documents/ws_rest_parity.rst`.
+   *
+   * Consumers should therefore gate editing UI on this flag rather than on "is this the websocket
+   * path", so that when the verb lands, flipping this to true restores those controls with no other
+   * change. `CellBuilderPanel` does exactly that. */
   readonly canEdit: boolean;
 }
 

@@ -64,7 +64,9 @@ export class WSModelStatsCapability implements ModelStatsCapability {
 export class WSProceduralModelCapability implements ProceduralModelCapability {
   readonly transport: CapabilityTransport = "ws";
 
-  /** The document came out of a GLB and there is no backend to commit to. */
+  /** No save verb is implemented over the websocket transport yet, so an edit has nowhere to go.
+   * Not "there is no backend" -- adapy is right there on the other end of this socket. See the
+   * interface docstring and `docs/documents/ws_rest_parity.rst`. */
   readonly canEdit = false;
 
   // Document of the most recently loaded model, or null once a model without one is loaded, so
