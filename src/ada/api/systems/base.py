@@ -48,7 +48,15 @@ class System:
         self.ports: list[Port] = []
         #: Optional breakdown of the run into named segments with their in-line
         #: components (see :class:`~.segments.SystemSegment`). Empty unless a
-        #: producer fills it in; routing never reads it.
+        #: producer fills it in.
+        #:
+        #: Two or more segments whose ports share a common junction equipment
+        #: (three or more runs meeting at a fitting -- a T or a wye) turn this
+        #: system into a *branch*: ``route_system``/``system_route_to_geometry``
+        #: detect that shape and route/model each leg separately instead of
+        #: reading ``ports[0]``/``ports[-1]``. A single segment, or several that
+        #: don't share a junction, is plain round-trip detail and routing
+        #: ignores it, exactly as before.
         self.segments: list[SystemSegment] = []
         self.routed_path: list[Point] | None = None
         self.route_geometry: list = []
@@ -57,23 +65,78 @@ class System:
         #: were too cramped to round. Each names the spot and a respacing fix.
         self.route_warnings: list = []
 
-    def connect(self, equipment: Equipment, port_name: str) -> System:
-        """Connect this system to the named port on ``equipment``. Returns
-        ``self`` so connections chain fluently."""
-        port = equipment.get_port(port_name)
+    def connect(self, equipment_or_port: Equipment | Port, port_name: str | None = None) -> System:
+        """Connect this system to a port, in either of two shapes: ``connect(equipment, port_name)``
+        looks the port up by name (the original, string-lookup form); ``connect(port)`` -- one
+        argument, no ``port_name`` -- takes the :class:`Port` object directly, e.g. whatever
+        ``equipment.add_port(...)`` returned. The direct form is sturdier (a typo'd name fails where
+        the port was built, not three lines later here) and is what :meth:`add_leg` accepts too;
+        the name-lookup form stays for the common case of wiring against equipment you didn't just
+        construct yourself. Returns ``self`` so connections chain fluently."""
+        if port_name is None:
+            if not isinstance(equipment_or_port, Port):
+                raise TypeError(
+                    f"connect() with one argument needs a Port (got {type(equipment_or_port).__name__}); "
+                    "pass (equipment, port_name) for the name-lookup form"
+                )
+            port = equipment_or_port
+        else:
+            port = equipment_or_port.get_port(port_name)
+        return self.connect_port(port)
+
+    def connect_port(self, port: Port) -> System:
+        """Connect this system directly to an already-built :class:`Port` -- the piece
+        :meth:`connect` and :meth:`add_leg` share. Same validation as the name-lookup form of
+        :meth:`connect`: the port's category must match this system's, and it must not already
+        belong to another system."""
+        parent_name = port.parent.name if port.parent is not None else "?"
         if port.category != self.category:
             raise ValueError(
                 f"Cannot connect {type(self).__name__} {self.name!r} (category {self.category!r}) to port "
-                f"{port_name!r} on equipment {equipment.name!r} (category {port.category!r})"
+                f"{port.name!r} on equipment {parent_name!r} (category {port.category!r})"
             )
         if port.connected_system is not None:
             raise ValueError(
-                f"Port {port_name!r} on equipment {equipment.name!r} is already connected to system "
+                f"Port {port.name!r} on equipment {parent_name!r} is already connected to system "
                 f"{port.connected_system.name!r}; disconnect it before rewiring"
             )
         port.connected_system = self
         self.ports.append(port)
         return self
+
+    def add_leg(self, name: str, start: Port | tuple[Equipment, str], end: Port | tuple[Equipment, str]) -> System:
+        """Connect one branch leg -- a from/to port pair -- as a named
+        :class:`~.segments.SystemSegment`. Two or more legs sharing a junction equipment (three or
+        more runs meeting at a fitting) turn this system into a *branch*:
+        ``ada.topology.routing.route_system`` detects that shape and routes every leg instead of
+        just ``ports[0]``/``ports[-1]``.
+
+        ``start``/``end`` each take either shape :meth:`connect` does -- a :class:`Port` object, or
+        an ``(equipment, port_name)`` pair -- and may mix (one as a ``Port``, the other by name).
+        Returns ``self`` so legs chain fluently, e.g.::
+
+            system = (
+                PipingSystem("L-301")
+                .add_leg("L-301/1", vessel_out, tee_n1)
+                .add_leg("L-301/2", tee_n2, pump_a_in)
+                .add_leg("L-301/3", tee_n3, pump_b_in)
+            )
+        """
+        from .segments import SystemSegment
+
+        from_port = self._resolve_port_like(start)
+        to_port = self._resolve_port_like(end)
+        self.connect_port(from_port)
+        self.connect_port(to_port)
+        self.segments.append(SystemSegment(name, from_port=from_port, to_port=to_port))
+        return self
+
+    @staticmethod
+    def _resolve_port_like(value: Port | tuple[Equipment, str]) -> Port:
+        if isinstance(value, Port):
+            return value
+        equipment, port_name = value
+        return equipment.get_port(port_name)
 
     def connect_site(
         self,

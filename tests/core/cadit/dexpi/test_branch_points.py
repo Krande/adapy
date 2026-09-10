@@ -1,13 +1,21 @@
 """Branch points: the runs that meet at a shared ``PipeTee``.
 
-A DEXPI segment is a two-ended run and ``ada.topology.routing.route_system`` routes exactly
-``ports[0] -> ports[-1]``, so one system per segment is the only faithful mapping and a 3-way
-junction can never be one system. That much is by design. What is *not* by design is the case this
-module pins: a passive fitting that more than one ``PipingNetworkSegment`` names as an end. Each of
-the runs meeting there is an ordinary two-ended run -- it only failed to import because its end
-named a fitting, which is neither a nozzle nor an equipment nor an off-page connector -- so the
-importer materialises the fitting as a small equipment with one port per connection node and all of
-them resolve. Before that, the flagship fixture lost 7 of its 10 runs to this.
+A DEXPI segment is a two-ended run and a *plain* :class:`~ada.api.systems.base.System` routes
+exactly ``ports[0] -> ports[-1]``, so one system per segment is the only faithful mapping for an
+ordinary run. What this module pins in two parts:
+
+1. A passive fitting that more than one ``PipingNetworkSegment`` names as an end must not be
+   dropped. Each of the runs meeting there is an ordinary two-ended run -- it only failed to import
+   because its end named a fitting, which is neither a nozzle nor an equipment nor an off-page
+   connector -- so the importer materialises the fitting as a small equipment with one port per
+   connection node and all of them resolve. Before that, the flagship fixture lost 7 of its 10 runs
+   to this.
+2. Where 3+ segments meet at that fitting (a real branch -- a T or a wye, not a 2-way pass-through),
+   they fold into ONE **branched** system instead of staying three disconnected two-ended ones (see
+   docs/documents/routing_through_objects.rst, Stage 2, and
+   :func:`ada.cadit.dexpi.read.to_procedural._fold_branch_groups`):
+   ``ada.topology.routing.route_system`` detects two or more ``System.segments`` sharing a junction
+   equipment and routes every leg, adding a hub fitting where they meet.
 
 Two halves. The first works on a hand-authored P&ID small enough to reason about: a vessel feeding
 two spared pumps through one tee, one branch carrying an in-line valve so the "interior fitting" and
@@ -148,6 +156,14 @@ def _equipment(doc: dict, name: str) -> dict:
     return next(row for row in doc["equipments"] if row["NAME"] == name)
 
 
+def _leg_dexpi(doc: dict, branch_name: str, leg_name: str) -> dict:
+    """A branched system's per-leg DEXPI metadata -- ``METADATA["branch"]["leg_metadata"]`` is a
+    list parallel to ``METADATA["branch"]["legs"]``, one entry per folded segment (see
+    ``ada.cadit.dexpi.read.to_procedural._fold_branch_groups``)."""
+    branch = _system(doc, branch_name)["METADATA"]["branch"]
+    return next(entry["dexpi"] for entry in branch["leg_metadata"] if entry["name"] == leg_name)
+
+
 # --------------------------------------------------------------------------- #
 # The rule itself
 # --------------------------------------------------------------------------- #
@@ -167,11 +183,12 @@ def test_a_branch_point_becomes_equipment_with_a_port_for_each_of_its_nodes(conv
 
 
 def test_the_ordinary_inline_fitting_is_not_placed_as_equipment(converted):
-    """``HV-301`` is interior to run 2. It rides on that run's metadata and nothing else -- the
-    default ``inline_components="metadata"`` is unchanged by any of this."""
+    """``HV-301`` is interior to run 2. It rides on that leg's own metadata (folded into the
+    branch's ``leg_metadata``) and nothing else -- the default ``inline_components="metadata"`` is
+    unchanged by any of this."""
     doc, _ = converted
     assert [row["NAME"] for row in doc["equipments"]] == ["V-301", "P-301A", "P-301B", "TE-301"]
-    components = _system(doc, "L-301/2")["METADATA"]["dexpi"]["components"]
+    components = _leg_dexpi(doc, "branch-TE-301", "L-301/2")["components"]
     assert [c["tag"] for c in components] == ["HV-301"]
 
 
@@ -180,33 +197,37 @@ def test_the_segment_that_nests_the_tee_does_not_also_carry_it_as_an_interior_co
     listed among the fittings that run passes through, or the tee would be reported twice and
     materialised twice under ``inline_components="equipment"``."""
     doc, _ = converted
-    assert _system(doc, "L-301/1")["METADATA"]["dexpi"]["components"] == []
+    assert _leg_dexpi(doc, "branch-TE-301", "L-301/1")["components"] == []
 
 
 # --------------------------------------------------------------------------- #
 # What the runs connect to
 # --------------------------------------------------------------------------- #
-def test_every_segment_at_the_tee_becomes_its_own_two_ended_run(converted):
+def test_the_tee_s_three_segments_fold_into_one_branched_system(converted):
+    """A 3+-way junction is a branch (see docs/documents/routing_through_objects.rst, Stage 2):
+    its segments become ONE system instead of three disconnected two-ended ones.
+    ``METADATA["branch"]["legs"]`` names each ORIGINAL segment, in order, which is what the merge
+    writer reads to split this back into the three ``PipingNetworkSegment``\\ s the source had."""
     doc, _ = converted
-    assert [spec["NAME"] for spec in doc["systems"]] == ["L-301/1", "L-301/2", "L-301/3"]
+    assert [spec["NAME"] for spec in doc["systems"]] == ["branch-TE-301"]
 
-    wiring = {spec["NAME"]: [(c["EQUIPMENT"], c["PORT"]) for c in spec["CONNECTIONS"]] for spec in doc["systems"]}
-    assert wiring["L-301/1"][0] == ("V-301", "n1")
-    assert wiring["L-301/2"][1] == ("P-301A", "s")
-    assert wiring["L-301/3"][1] == ("P-301B", "s")
-    assert [end[0] for end in (wiring["L-301/1"][1], wiring["L-301/2"][0], wiring["L-301/3"][0])] == ["TE-301"] * 3
+    spec = _system(doc, "branch-TE-301")
+    assert spec["METADATA"]["branch"]["legs"] == ["L-301/1", "L-301/2", "L-301/3"]
+
+    wiring = [(c["EQUIPMENT"], c["PORT"]) for c in spec["CONNECTIONS"]]
+    assert wiring[0] == ("V-301", "n1")
+    assert wiring[3] == ("P-301A", "s")
+    assert wiring[5] == ("P-301B", "s")
+    assert [pair[0] for pair in (wiring[1], wiring[2], wiring[4])] == ["TE-301"] * 3
 
 
-def test_the_three_runs_take_three_different_ports_of_the_tee(converted):
-    """The load-bearing detail. Resolving the tee *as a whole* would give all three runs the same
+def test_the_three_legs_take_three_different_ports_of_the_tee(converted):
+    """The load-bearing detail. Resolving the tee *as a whole* would give all three legs the same
     port and route three pipes into one point; each end has to resolve to the specific connection
     node its own ``<Connection>`` named."""
     doc, catalog = converted
-    used = [
-        _system(doc, "L-301/1")["CONNECTIONS"][1]["PORT"],
-        _system(doc, "L-301/2")["CONNECTIONS"][0]["PORT"],
-        _system(doc, "L-301/3")["CONNECTIONS"][0]["PORT"],
-    ]
+    spec = _system(doc, "branch-TE-301")
+    used = [spec["CONNECTIONS"][1]["PORT"], spec["CONNECTIONS"][2]["PORT"], spec["CONNECTIONS"][4]["PORT"]]
     available = {port["name"] for port in catalog[_equipment(doc, "TE-301")["DESCRIPTION"]]["ports"]}
     assert len(set(used)) == 3
     assert set(used) == available
@@ -226,7 +247,9 @@ def test_nothing_is_reported_as_lost(converted):
     doc, _ = converted
     report = DexpiImportReport.from_dict(doc["dexpi"]["report"])
     assert report.is_clean, report.format()
-    assert report.stats == {"equipment": 4, "systems": 3}
+    # 1, not 3: the tee's three segments fold into one branched system (see
+    # test_the_tee_s_three_segments_fold_into_one_branched_system).
+    assert report.stats == {"equipment": 4, "systems": 1}
 
 
 def test_the_junction_is_materialised_once_even_with_inline_components_as_equipment(tee_doc):

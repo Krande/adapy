@@ -295,28 +295,31 @@ def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
     relocation optimiser can clear, instead of a silent clash."""
     import numpy as np
 
-    from ada.topology.routing import RunWarning, run_half_extent
+    from ada.topology.routing import RunWarning, run_half_extent, system_route_polylines
 
     for system in systems:
-        poly = getattr(system, "routed_path", None)
-        if not poly or len(poly) < 2:
+        # One or more polylines: a branch's several legs (see system_route_polylines), or the
+        # single routed_path of an ordinary two-port system.
+        polylines = [poly for poly in system_route_polylines(system) if poly and len(poly) >= 2]
+        if not polylines:
             continue
         own = {p.parent.name for p in system.ports if getattr(p, "parent", None) is not None}
         half = run_half_extent(system)
         # Inflate each box by the run's half-extent so the run's BODY (not just its
         # centreline) is what's tested against; honours equipment rotation.
         boxes = [(name, OrientedBox.around_equipment(eq, half)) for name, eq in equipment_map.items()]
-        pts = [np.array([float(p[0]), float(p[1]), float(p[2])]) for p in poly]
         clashes: dict[str, np.ndarray] = {}
-        for i in range(len(pts) - 1):
-            a, b = pts[i], pts[i + 1]
-            for t in np.linspace(0.0, 1.0, 24):
-                q = a + (b - a) * t
-                for name, box in boxes:
-                    if name in own or name in clashes:
-                        continue
-                    if box.contains(q):
-                        clashes[name] = q
+        for poly in polylines:
+            pts = [np.array([float(p[0]), float(p[1]), float(p[2])]) for p in poly]
+            for i in range(len(pts) - 1):
+                a, b = pts[i], pts[i + 1]
+                for t in np.linspace(0.0, 1.0, 24):
+                    q = a + (b - a) * t
+                    for name, box in boxes:
+                        if name in own or name in clashes:
+                            continue
+                        if box.contains(q):
+                            clashes[name] = q
         warnings = getattr(system, "route_warnings", None)
         if warnings is None:
             warnings = []
@@ -331,16 +334,48 @@ def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
             )
 
 
+def _connect_one(system, conn: dict, equipment_map: dict):
+    """Wire one ``CONNECTIONS`` entry (a site terminal or an equipment port) onto ``system`` and
+    return the ``Port`` it just connected -- the piece :func:`_wire_systems` shares between a plain
+    system's flat connection list and a branched system's per-leg pairs."""
+    from ada.api.systems import PortDirection
+    from ada.topology.routing import RoutingError
+
+    if conn.get("SITE"):
+        pos = tuple(float(v) for v in (conn.get("POSITION") or (0.0, 0.0, 0.0)))
+        direction = PortDirection[str(conn.get("DIRECTION") or "IN").upper()]
+        # Orientation of the terminal nozzle (the outward vector the run leaves the site boundary
+        # along). Defaults to +Z when the doc doesn't specify one, matching connect_site's own
+        # default.
+        dvec = tuple(float(v) for v in (conn.get("DIRECTION_VECTOR") or (0.0, 0.0, 1.0)))
+        system.connect_site(conn["SITE"], pos, direction, dvec)
+        return system.ports[-1]
+    eq = equipment_map.get(conn["EQUIPMENT"])
+    if eq is None:
+        raise RoutingError(f"unknown equipment {conn['EQUIPMENT']!r}")
+    system.connect(eq, conn["PORT"])
+    return system.ports[-1]
+
+
 def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
     """Wire each system spec's equipment ports (and site terminals) into a
     connected :class:`~ada.api.systems.base.System`. Connection errors (unknown
     equipment/port, category mismatch) drop that whole system with a warning
     before it reaches the engine, so one bad spec doesn't sink the rest.
 
+    A spec whose ``METADATA["branch"]["legs"]`` names N legs is a branch (see
+    ``ada.cadit.dexpi.read.to_procedural._fold_branch_groups``, which folds the
+    segments meeting at a 3+-way junction into one such spec): its
+    ``CONNECTIONS`` is read as N consecutive pairs, one per leg, and each pair
+    becomes a :class:`~ada.api.systems.segments.SystemSegment` on
+    ``system.segments`` instead of a flat run of ``system.connect`` calls --
+    ``ada.topology.routing.route_system`` detects that shape and routes every
+    leg. A spec without that key wires exactly as before.
+
     Factored out of :func:`_build_systems` so the relocation engine
     (:mod:`ada.topo_model.relocate`) wires systems the exact same way when it
     re-routes candidate layouts."""
-    from ada.api.systems import PortDirection
+    from ada.api.systems.segments import SystemSegment
     from ada.config import logger
     from ada.topology.routing import RoutingError
 
@@ -348,22 +383,20 @@ def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
     for spec in specs:
         try:
             system = _make_system(spec)
-            for conn in spec.get("CONNECTIONS") or []:
-                # A site terminal (model-boundary input/output) instead of an
-                # equipment port — closes a system that would otherwise dangle.
-                if conn.get("SITE"):
-                    pos = tuple(float(v) for v in (conn.get("POSITION") or (0.0, 0.0, 0.0)))
-                    direction = PortDirection[str(conn.get("DIRECTION") or "IN").upper()]
-                    # Orientation of the terminal nozzle (the outward vector the
-                    # run leaves the site boundary along). Defaults to +Z when the
-                    # doc doesn't specify one, matching connect_site's own default.
-                    dvec = tuple(float(v) for v in (conn.get("DIRECTION_VECTOR") or (0.0, 0.0, 1.0)))
-                    system.connect_site(conn["SITE"], pos, direction, dvec)
-                    continue
-                eq = equipment_map.get(conn["EQUIPMENT"])
-                if eq is None:
-                    raise RoutingError(f"unknown equipment {conn['EQUIPMENT']!r}")
-                system.connect(eq, conn["PORT"])
+            connections = spec.get("CONNECTIONS") or []
+            leg_names = ((spec.get("METADATA") or {}).get("branch") or {}).get("legs")
+            if leg_names:
+                if len(connections) != 2 * len(leg_names):
+                    raise RoutingError(
+                        f"branch METADATA names {len(leg_names)} leg(s) but has {len(connections)} connection(s)"
+                    )
+                for i, leg_name in enumerate(leg_names):
+                    from_port = _connect_one(system, connections[2 * i], equipment_map)
+                    to_port = _connect_one(system, connections[2 * i + 1], equipment_map)
+                    system.segments.append(SystemSegment(name=leg_name, from_port=from_port, to_port=to_port))
+            else:
+                for conn in connections:
+                    _connect_one(system, conn, equipment_map)
             built_systems.append(system)
         except (RoutingError, ValueError, KeyError) as exc:
             logger.warning("procedural: skipping system %r: %s", spec.get("NAME"), exc)

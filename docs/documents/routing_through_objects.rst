@@ -2,8 +2,11 @@ Routing through things: in-line components and branches
 ========================================================
 
 .. note::
-   A **plan**, not a description of what exists. Nothing here is implemented yet. Delete this
-   document, or fold what survives into :doc:`dexpi` and the routing docs, once the work lands.
+   **Status.** Stage 0 (the local viewer's ``file://`` origin) and Stage 2 (branches) have landed;
+   see the status note at the top of each section below for what shipped and what's still a known
+   gap. Stage 1 (waypoints -- routing through an in-line component) is still a plan, nothing here
+   implemented. Delete this document, or fold what survives into :doc:`dexpi` and the routing docs,
+   once Stage 1 lands too.
 
 Two gaps in :mod:`ada.topology.routing` look different from the outside and are the same thing
 underneath. A routed run today is a swept solid between exactly two ports, produced by A* over a
@@ -94,6 +97,39 @@ port and three pipes converge on a single point).
 Stage 2 -- branches: one system spanning a junction
 -----------------------------------------------------
 
+.. note::
+   **Landed.** ``System.segments`` (already existed, for round-trip detail) is the branched form
+   this doc asked to design: two or more segments whose ports share a common junction *equipment*
+   (not one shared port -- a tee's three legs each get their own dedicated port on it, from
+   :func:`~ada.cadit.dexpi.equipment_list.branch_points` /
+   :func:`~ada.cadit.dexpi.read.to_procedural._junction_equipment`, unchanged) turn a ``System``
+   into a branch. :func:`ada.topology.routing.route_system` detects that shape and dispatches to
+   :func:`~ada.topology.routing.route_branched_system`: every leg already has two fully-resolved
+   ports, so each routes as an ordinary two-port run (the multi-goal "route to nearest point on the
+   network" search this doc originally called for turned out to be unnecessary -- the junction
+   equipment already anchors where every leg ends). The two legs with the farthest-apart leaf ports
+   become the trunk; :func:`~ada.topology.routing.system_route_to_geometry` emits one swept run per
+   leg plus a small hub solid (a sphere sized to the run's cross-section) at the junction, in place
+   of the plain ``IfcPipeFitting`` box. The DEXPI importer
+   (:func:`~ada.cadit.dexpi.read.to_procedural._fold_branch_groups`) folds a 3+-way junction's
+   segments into one such branched system (a 2-way junction stays two two-ended systems -- Stage 1
+   territory, unaffected); the merge writer
+   (:mod:`ada.cadit.dexpi.write.from_ada`, ``_branch_legs``/``_sync_segment_connections``) splits it
+   back into the source's original ``PipingNetworkSegment``\\ s by the per-leg name the importer
+   stashed, so an unedited round-trip is a no-op exactly as it was before branches existed. A
+   :class:`~ada.api.systems.base.System` can also be built as a branch directly, via
+   ``System.add_leg(name, start, end)`` (each end a :class:`Port` or an ``(equipment, port_name)``
+   pair).
+
+   **What this did not do.** Branch routing supports exactly **one** junction per system -- two
+   adjacent 3+-way junctions joined by a bare segment (no equipment between two tees) are left
+   unfolded, same as before this landed (see :func:`_fold_branch_groups`'s docstring). The junction
+   fitting is a placeholder hub, not a sized reducing-tee shape (bevels, face-to-face length, a
+   differently-sized branch outlet) -- deliberately out of scope, same spirit as Stage 1's own
+   fitting-geometry non-goal below. Cross-system clash avoidance and wall-penetration planning cover
+   every branch leg (not just the trunk) for occupancy, but nothing here changes penetration
+   *detail* modelling for a leg that crosses a wall.
+
 **First, size it honestly.** Of the 89 branch points in the corpus, 37 have degree two. Those are
 not branches at all -- they are a run split into two segments at a component, and **stage 1 solves
 them**: the component becomes a waypoint and the two segments become one run through it. Only the
@@ -148,6 +184,22 @@ argument for the order.
 
 Stage 0 -- the local viewer's ``file://`` origin
 --------------------------------------------------
+
+.. note::
+   **Landed, with one item unconfirmed.** The ``/config.js``/``/favicon.svg`` 404 is fixed at the
+   source: ``RendererReact._extract_html`` now strips both tags from the file on disk right after
+   unzipping the bundle, so plain ``show()`` (which opens that file directly) never requests them --
+   previously the strip only ran in ``get_html_with_injected_data``, the REST-embedded path.
+   The absolute-path leak is fixed at the DEXPI-to-procedural-document boundary: ``ResolvedDexpi.source``
+   (:func:`~ada.cadit.dexpi.read.to_procedural.dexpi_to_resolved`) is now the source file's
+   **basename**, not ``DexpiDocument.source``'s full path -- which still has to stay a real path
+   internally (:class:`~ada.cadit.dexpi.store.DexpiStore` reads it back to reopen/save the file), so
+   the fix reduces it to a basename only at the point it crosses into the browser-facing document,
+   not upstream. The "frame load refused as a unique security origin" item was investigated and
+   could not be reproduced against the current tree -- no iframe touches the procedural-panel data
+   path (the one that used to exist, an HTTP fetch for the procedural document, was already replaced
+   by the GLB-embedded ``procedural_doc`` before this pass started); it may already be moot, but
+   nobody has confirmed that against a real browser console, so treat it as open until someone does.
 
 Smaller than either stage above and independent of both, but it is what a user meets first, and one
 part of it is a privacy problem rather than a cosmetic one.
