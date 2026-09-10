@@ -63,6 +63,27 @@ JOINTS = [
 ]
 
 
+def _build_id_hierarchy(scene: trimesh.Scene) -> dict[str, tuple[str, str]]:
+    """Build the `{node_id: (name, parent_id)}` contract the frontend's
+    selection/info panel reads from `asset.extras.id_hierarchy` (root parent
+    is "*"). Keyed by glTF node index (as a string) so it lines up with the
+    ids the frontend already resolves clicks to. Without this, a plain
+    trimesh.Scene (not an ada Part/Assembly) has no per-node names for the
+    panel to show -- see ada.visit.gltf.graph.GraphStore.to_json_hierarchy,
+    whose contract this mirrors.
+    """
+    node_idx_by_name = _node_index_map(scene)
+    parents = scene.graph.transforms.parents
+
+    id_hierarchy: dict[str, tuple[str, str]] = {}
+    for name, idx in node_idx_by_name.items():
+        parent_name = parents.get(name)
+        parent_idx = node_idx_by_name.get(parent_name) if parent_name is not None else None
+        parent_id = str(parent_idx) if parent_idx is not None else "*"
+        id_hierarchy[str(idx)] = (name, parent_id)
+    return id_hierarchy
+
+
 def load(glb_path: pathlib.Path | str = DEFAULT_GLB) -> tuple[RendererManager, trimesh.Scene]:
     glb_path = pathlib.Path(glb_path).resolve()
     if not glb_path.exists():
@@ -70,6 +91,7 @@ def load(glb_path: pathlib.Path | str = DEFAULT_GLB) -> tuple[RendererManager, t
             f"{glb_path} not found. Run `pixi run export-all` in the marine-ops repo first."
         )
     scene = trimesh.load(glb_path, file_type="glb")
+    scene.metadata["id_hierarchy"] = _build_id_hierarchy(scene)
     rm = RendererManager(renderer="react")
     return rm, scene
 
@@ -158,7 +180,21 @@ def push_animated(rm: RendererManager, scene: trimesh.Scene, converter: SceneCon
     """Send `scene` with `converter`'s baked animations embedded, bypassing
     RendererManager.render()'s own (animation-less) SceneConverter so the
     baked clips aren't dropped on the way to the viewer.
+
+    Going around SceneConverter.build_scene() this way also means its usual
+    `scene.metadata["id_hierarchy"] -> tree["asset"]["extras"]` copy never
+    runs, so that's redone here explicitly from whatever `load()` already
+    stashed in `scene.metadata` -- otherwise the viewer's selection/info
+    panel has no per-node names to show for a plain (non-ada) scene.
     """
+    id_hierarchy = scene.metadata.get("id_hierarchy")
+
+    def tree_postprocessor(tree):
+        converter.tree_postprocessor(tree)
+        if id_hierarchy is not None:
+            extras = tree.setdefault("asset", {}).setdefault("extras", {})
+            extras["id_hierarchy"] = id_hierarchy
+
     rm.start_server()
     with WebSocketClientSync(rm.host, rm.ws_port) as wc:
         rm.ensure_liveness(wc)
@@ -168,7 +204,7 @@ def push_animated(rm: RendererManager, scene: trimesh.Scene, converter: SceneCon
             purpose=FilePurposeDC.DESIGN,
             scene_op=SceneOperationsDC.REPLACE,
             gltf_buffer_postprocessor=converter.buffer_postprocessor,
-            gltf_tree_postprocessor=converter.tree_postprocessor,
+            gltf_tree_postprocessor=tree_postprocessor,
         )
 
 
