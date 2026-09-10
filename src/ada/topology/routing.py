@@ -702,7 +702,7 @@ def route_branched_system(
     system.routed_path = trunk_a.segment.routed_path + trunk_b.segment.routed_path[1:]
     system.metadata["branch"] = {
         "trunk": [trunk_a.segment.name, trunk_b.segment.name],
-        "junction_point": tuple(float(c) for c in tree.legs[0].junction_port.get_global_position()),
+        "junction_point": tuple(float(c) for c in _branch_junction_point(tree)),
     }
     return paths
 
@@ -1526,17 +1526,30 @@ def _branched_route_to_geometry(system: System, tree: _BranchTree, grid: CellGri
     return system.route_geometry
 
 
+def _branch_junction_point(tree: _BranchTree) -> ada.Point:
+    """The point every leg's own dedicated junction port -- each a DIFFERENT position on the
+    fitting's body, not one shared port -- treats as "where they meet": the centroid of all of
+    them, not any single leg's port. Using ``tree.legs[0]``'s port alone (an earlier bug) put the
+    hub at ONE leg's position on the fitting, leaving the other legs' pipes visibly short of it."""
+    positions = [tuple(float(c) for c in leg.junction_port.get_global_position()) for leg in tree.legs]
+    n = len(positions)
+    return ada.Point(*(sum(p[i] for p in positions) / n for i in range(3)))
+
+
 def _branch_junction_geometry(system: System, tree: _BranchTree):
-    """A small hub solid at the branch's junction point, sized to the run's own cross-section —
-    the "tee fitting sized to the diameters" the routing doc calls for. Deliberately not a real
-    reducing-tee shape (bevels, face-to-face length, a differently-sized branch outlet): the run
-    stays a swept solid either side of it, exactly as an in-line component's body is out of scope
-    for a waypoint (see the routing doc's non-goals) — this only keeps the meeting point from
-    reading as pipes floating apart or crossing through each other."""
-    junction_point = ada.Point(*tree.legs[0].junction_port.get_global_position())
-    radius = run_half_extent(system) * 1.25
-    if radius <= 0.0:
+    """A hub solid at the branch's junction point, sized to the run's own cross-section AND to
+    reach every leg's own port -- the "tee fitting sized to the diameters" the routing doc calls
+    for. Deliberately not a real reducing-tee shape (bevels, face-to-face length, a
+    differently-sized branch outlet): the run stays a swept solid either side of it, exactly as an
+    in-line component's body is out of scope for a waypoint (see the routing doc's non-goals) —
+    this only keeps the meeting point from reading as pipes floating apart or crossing through
+    each other."""
+    junction_point = _branch_junction_point(tree)
+    half = run_half_extent(system)
+    if half <= 0.0:
         return None
+    reach = max(_seg_len(junction_point, ada.Point(*leg.junction_port.get_global_position())) for leg in tree.legs)
+    radius = reach + half
     return ada.PrimSphere(
         f"{system.name}_junction", junction_point, radius, metadata={"segment_ifc_class": "IfcPipeFitting"}
     )
