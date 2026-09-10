@@ -3671,6 +3671,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None
         return {p.strip() for p in parsed if p and p.strip()}
 
+    def _locally_registered_specs() -> list[dict]:
+        """Every spec this process registered itself.
+
+        The listing's counterpart of ``_locally_registered_spec``: a viewer with
+        no queue preloads its plugins INTO THE API and runs their jobs here, so
+        no worker ever advertises them. Without this the listing is empty in
+        exactly the deployment whose jobs run in this process, and a plugin's
+        own advertised options (what its run form offers) never reach the page.
+        Defensive for the same reason: the slim API image may not carry ``ada``.
+        """
+        try:
+            from ada.plugins import plugin_backend_specs
+        except Exception:
+            return []
+        try:
+            return plugin_backend_specs()
+        except Exception:
+            return []
+
     def _locally_registered_spec(plugin_id: str) -> dict | None:
         """The spec this process registered itself, if any.
 
@@ -3951,6 +3970,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "origin": "code" if slug in builtin_slugs else "db",
                 "online": True,
             }
+        # With no queue, plugin jobs run in THIS process (see `local_jobs`), so
+        # what it registered is online by definition — and the only source there
+        # is. Only then: behind a queue a job goes to a worker, and a spec this
+        # API happens to have imported says nothing about whether one is up.
+        if not queue.enabled:
+            for spec in _locally_registered_specs():
+                slug = spec.get("slug") or spec.get("id")
+                if slug and slug not in by_slug:
+                    by_slug[slug] = {**spec, "slug": slug, "origin": "code", "online": True}
 
         # `requires_admin` is reported as the EFFECTIVE gate, not merely what a
         # worker declared: a deployment can gate a plugin that declared nothing
