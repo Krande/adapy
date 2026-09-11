@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import {clipWithModel} from "../section_clipping";
 import {FEA_UNDEFORMED_COLOR} from "./edgeColors";
 
 // The undeformed shape, drawn behind the deformed one.
@@ -68,6 +69,8 @@ export function installUndeformedGhost(
     // Layer 1: drawn, never picked. Clicking the shape a result USED to have is
     // not a selection anyone means to make.
     ghost.layers.set(1);
+    // Cut with the deformed model it stands behind, or the cut-away part's outline stays.
+    clipWithModel(ghost);
     mesh.add(ghost);
 }
 
