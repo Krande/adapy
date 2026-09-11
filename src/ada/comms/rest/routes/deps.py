@@ -38,6 +38,11 @@ class RestContext:
     storage: Storage
     queue: JobQueue
     worker_registry: dict
+    #: In-process cache of the storage-compression sweep state, keyed by
+    #: scope label — see routes/admin_storage.py. The durable copy lives in
+    #: NATS KV (queue.set/get_compress_sweep_state); this dict just saves a
+    #: BackgroundTask from re-reading KV between its own mutations.
+    compression_state: dict
 
     async def audit(
         self,

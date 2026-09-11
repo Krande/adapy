@@ -10,15 +10,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    FastAPI,
-    HTTPException,
-    Request,
-    Response,
-)
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from ada.config import logger
@@ -56,6 +48,7 @@ from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_settings import router as admin_settings_router
+from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
@@ -361,9 +354,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Empty until the first refresh tick (same observable state as a
     # queue-disabled deploy — the SPA falls back to its static set).
     _worker_registry: dict = {"workers": [], "image_tag": None, "ts": 0.0}
+    # Per-scope compression-sweep state — see routes/admin_storage.py.
+    compression_state: dict = {}
     # Explicit per-app services for extracted routers (routes/*.py) — what
     # they may reach instead of this closure. See routes/__init__.py.
-    rest_ctx = RestContext(settings=settings, storage=storage, queue=queue, worker_registry=_worker_registry)
+    rest_ctx = RestContext(
+        settings=settings,
+        storage=storage,
+        queue=queue,
+        worker_registry=_worker_registry,
+        compression_state=compression_state,
+    )
     app.state.rest = rest_ctx
 
     @app.get("/healthz")
@@ -2143,175 +2144,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (ValueError, AttributeError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
 
-    # Per-scope compression-sweep state lives in NATS KV (queue.set/
-    # get_compress_sweep_state) so a new session can observe an
-    # in-flight sweep started elsewhere. We keep a small in-process
-    # cache too so per-file state updates inside the BackgroundTask
-    # don't have to re-read from KV between mutations.
-    compression_state: dict[str, dict] = {}
-
-    async def _save_compression_state(scope_label: str) -> None:
-        state = compression_state.get(scope_label)
-        if state is None:
-            return
-        try:
-            await queue.set_compress_sweep_state(scope_label, state)
-        except Exception:
-            logger.exception("compression sweep: KV write failed (non-fatal)")
-
     admin.include_router(admin_settings_router)
-
-    async def _compression_sweep(scope_obj: Scope, scope_label: str) -> None:
-        import gzip as _gzip
-        import shutil as _shutil
-        import tempfile as _tempfile
-
-        from .converter import is_derived_key as _is_derived_key
-
-        state = compression_state[scope_label]
-        try:
-            entries = await storage.list(scope_obj)
-        except Exception as exc:
-            state["error"] = f"list failed: {exc}"
-            state["completed_at"] = time.time()
-            state["last_update"] = time.time()
-            await _save_compression_state(scope_label)
-            return
-        candidates = [e for e in entries if _content_encoding_for(e.key) == "gzip" and not _is_derived_key(e.key)]
-        state["total"] = len(candidates)
-        state["last_update"] = time.time()
-        await _save_compression_state(scope_label)
-        for entry in candidates:
-            if state.get("cancelled"):
-                break
-            state["current_key"] = entry.key
-            state["last_update"] = time.time()
-            await _save_compression_state(scope_label)
-            try:
-                # Stream the object to disk so the viewer pod never has
-                # to hold the whole payload in RAM — a 900 MB SIF with
-                # the default 1 GiB memory limit OOM-kills the process
-                # if we try the load-into-bytes path.
-                with _tempfile.TemporaryDirectory() as tmpdir:
-                    raw_path = pathlib.Path(tmpdir) / "raw"
-                    gz_path = pathlib.Path(tmpdir) / "gz"
-                    await storage.stream_to_path_raw(
-                        scope_obj,
-                        entry.key,
-                        raw_path,
-                    )
-                    with open(raw_path, "rb") as fh:
-                        magic = fh.read(2)
-                    if magic == b"\x1f\x8b":
-                        state["already_gzipped"] += 1
-                        continue
-                    with open(raw_path, "rb") as fin, _gzip.open(gz_path, "wb", compresslevel=6) as fout:
-                        _shutil.copyfileobj(fin, fout, length=1 << 20)
-                    # The gzipped result is typically ~5–10× smaller
-                    # than the raw payload — safely fits in memory for
-                    # the put_bytes call. If we ever hit a case where
-                    # even the compressed size exceeds the pod's RAM
-                    # limit, switch to a streaming put.
-                    gzipped = gz_path.read_bytes()
-                await storage.put_bytes(
-                    scope_obj,
-                    entry.key,
-                    gzipped,
-                    content_encoding="gzip",
-                    pre_compressed=True,
-                )
-                state["compressed"] += 1
-                state["bytes_before"] += entry.size or 0
-                state["bytes_after"] += len(gzipped)
-            except Exception as exc:
-                logger.exception("compress sweep failed on %s/%s", scope_label, entry.key)
-                state["errors"].append({"key": entry.key, "error": str(exc)})
-            finally:
-                state["processed"] += 1
-                state["last_update"] = time.time()
-                await _save_compression_state(scope_label)
-        state["completed_at"] = time.time()
-        state["current_key"] = None
-        state["last_update"] = time.time()
-        await _save_compression_state(scope_label)
-
-    @admin.post("/storage/{scope}/compress-uncompressed")
-    async def admin_compress_uncompressed(
-        scope: str,
-        background_tasks: BackgroundTasks,
-        scope_obj: Scope = Depends(_scope_from_path),
-    ) -> JSONResponse:
-        """Sweep the scope for objects whose extension is in the
-        gzip-compressible list but whose stored bytes aren't gzipped,
-        and rewrite each as ``Content-Encoding: gzip``.
-
-        Runs in a background task so the request returns immediately;
-        progress is reported via the companion
-        ``GET /storage/compression-status`` endpoint. Re-triggering
-        while a sweep is running for the same scope returns 409.
-        """
-        scope_label = scope
-        current = await queue.get_compress_sweep_state(scope_label)
-        if current and current.get("completed_at") is None:
-            # Treat as orphaned if last_update is older than 90 s — the
-            # most likely cause is a viewer pod restart that lost the
-            # BackgroundTask. Override the stale state with a fresh
-            # one rather than 409-blocking forever.
-            last_update = current.get("last_update") or current.get("started_at") or 0
-            if time.time() - last_update < 90:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"sweep already running for {scope_label}",
-                )
-
-        compression_state[scope_label] = {
-            "started_at": time.time(),
-            "completed_at": None,
-            "last_update": time.time(),
-            "total": 0,
-            "processed": 0,
-            "compressed": 0,
-            "already_gzipped": 0,
-            "bytes_before": 0,
-            "bytes_after": 0,
-            "errors": [],
-            "error": None,
-            "cancelled": False,
-            "current_key": None,
-        }
-        await _save_compression_state(scope_label)
-        background_tasks.add_task(_compression_sweep, scope_obj, scope_label)
-        return JSONResponse(
-            {"scope": scope_label, "status": "started"},
-            status_code=202,
-        )
-
-    @admin.get("/storage/compression-status")
-    async def admin_compression_status() -> JSONResponse:
-        """Snapshot of every recorded compression sweep keyed by scope.
-        State lives in NATS KV so a new session sees in-flight sweeps
-        that were started elsewhere; an entry with ``completed_at: null``
-        and ``last_update`` older than 90 s indicates the viewer pod
-        restarted mid-sweep (the work was lost — re-trigger to resume)."""
-        try:
-            scopes = await queue.list_compress_sweep_states()
-        except Exception:
-            logger.exception("compression status: KV read failed")
-            scopes = {}
-        # Layer in any in-process state that hasn't been flushed to KV
-        # yet (e.g. between mutations within the BackgroundTask).
-        for label, state in compression_state.items():
-            scopes[label] = state
-        # Tag each entry with an ``orphaned`` flag for the frontend's
-        # toast logic — saves the client recomputing the staleness.
-        now = time.time()
-        for state in scopes.values():
-            if state.get("completed_at") is None:
-                last = state.get("last_update") or state.get("started_at") or 0
-                state["orphaned"] = (now - last) > 90
-            else:
-                state["orphaned"] = False
-        return JSONResponse({"scopes": scopes})
+    admin.include_router(admin_storage_compression_router)
 
     admin.include_router(admin_workers_router)
 
