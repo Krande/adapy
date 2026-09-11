@@ -144,14 +144,16 @@ class SceneConverter:
         # set.` raised from in here. Take over the slots, but keep whatever
         # the caller put there and run it too (see tree_postprocessor).
         #
-        # A bound method compares equal per (func, instance), so the identity
-        # guard also stops a second build_scene() from capturing our own
-        # method and making the chain call itself.
+        # Anything bound to a SceneConverter is not the caller's: it is either
+        # this converter's own method left by an earlier build_scene() (the
+        # chain would call itself) or a previous converter's, left behind when
+        # one RenderParams is reused across renders (the first converter's
+        # animations and extension would be written into the second tree).
         caller_buffer = self.params.gltf_buffer_postprocessor
-        if caller_buffer is not None and caller_buffer != self.buffer_postprocessor:
+        if caller_buffer is not None and not _is_converter_method(caller_buffer):
             self._caller_buffer_postprocessor = caller_buffer
         caller_tree = self.params.gltf_tree_postprocessor
-        if caller_tree is not None and caller_tree != self.tree_postprocessor:
+        if caller_tree is not None and not _is_converter_method(caller_tree):
             self._caller_tree_postprocessor = caller_tree
 
         self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor, overwrite=True)
@@ -408,3 +410,8 @@ class SceneConverter:
     def scene(self) -> trimesh.Scene:
         """Cached scene object."""
         return self._scene
+
+
+def _is_converter_method(func: Callable) -> bool:
+    """Whether ``func`` is a method bound to some :class:`SceneConverter`."""
+    return isinstance(getattr(func, "__self__", None), SceneConverter)
