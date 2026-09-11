@@ -197,6 +197,19 @@ export function noteFieldSourceLoaded(source: string | null): void {
   suspend();
 }
 
+/**
+ * Report that the FEA loader has cleared its model (`clearActiveFeaStreaming`).
+ *
+ * Nothing is loaded now, so whatever comes next is a NEW source even when it is
+ * the same file: clear a model and reopen it inside an owning mode, and the
+ * load is the user's result arriving under the mode, not the mode repainting.
+ * Without this the old source name survived the clear and the reopen was
+ * classed as the mode's own repaint, showing the field under the overlay.
+ */
+export function noteFieldSourceCleared(): void {
+  loadedSource = null;
+}
+
 /** Test hook: forget any suspended state without side effects. */
 export function _resetSceneColorOwnerForTests(): void {
   owner = null;

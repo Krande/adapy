@@ -3,6 +3,7 @@ import { beforeEach, test } from "node:test";
 
 import {
   _resetSceneColorOwnerForTests,
+  noteFieldSourceCleared,
   noteFieldSourceLoaded,
   notifyActiveModeSceneColor,
   sceneColorOwner,
@@ -198,4 +199,24 @@ test("another model opened inside an owning mode replaces the view to put back",
     [useColorStore.getState().min, useColorStore.getState().max],
     [0, 12],
   );
+});
+
+test("the same source reopened after a clear is set aside", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+
+  // The user clears the model and opens the same file again while the mode is
+  // still active. Nothing was loaded in between, so this is a new source, not
+  // the mode repainting what it had.
+  noteFieldSourceCleared();
+  useFeaAnimationStore.setState({ fieldName: null });
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+  assert.equal(sceneColorOwner(), "capacity");
+
+  // Leaving shows the reopened model's field, not the one from before the clear.
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
 });

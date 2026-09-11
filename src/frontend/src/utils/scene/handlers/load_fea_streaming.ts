@@ -31,7 +31,7 @@ import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
-import {noteFieldSourceLoaded} from "../fea/modeSceneColor";
+import {noteFieldSourceCleared, noteFieldSourceLoaded} from "../fea/modeSceneColor";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
@@ -278,6 +278,8 @@ export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = fals
 
 export function clearActiveFeaStreaming(): void {
     active = null;
+    // The next load is a new source even if it is the same file again.
+    noteFieldSourceCleared();
     useFeaAnimationStore.getState().reset();
     useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
