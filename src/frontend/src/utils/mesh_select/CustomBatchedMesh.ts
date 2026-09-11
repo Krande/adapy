@@ -439,7 +439,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this._matInvisible?.dispose();
         this._matSelected = undefined;
         this._matInvisible = undefined;
-        // this.geometry IS originalGeometry (shared at construction, not cloned).
+        // this.geometry IS originalGeometry, and this mesh owns it:
+        // convert_to_custom_batch_mesh hands over the loader's geometry when this
+        // is its first user and a clone() of it when another CustomBatchedMesh
+        // already claimed it, so disposing here never pulls buffers from under a
+        // sibling mesh.
         this.geometry?.dispose();
     }
 

@@ -22,12 +22,14 @@ DEXPI at all.
 
 **What "adapy owns" is narrower than the neutral model.** The importer
 (:mod:`ada.cadit.dexpi.read.to_procedural`) turns an equipment's nozzles into ports and a segment
-into a two-ended system; nothing else round-trips through a live object today. So the merge only
-re-syncs: an equipment's *name* (matched against, not edited) and its *port list* (added/removed
-ports become nozzle items), and a system's *two connection endpoints*. A renamed system, an edited
-tag, a moved nozzle -- none of those have a live adapy field to read the edit back from, and this
-module does not invent one; see the docstring of :func:`_sync_equipment_ports` for the one exception
-(reconnecting a system to a different port, which *is* readable, and *is* synced).
+into a two-ended system -- or, at a 3+-way junction, several segments into one *branched* system
+(``System.segments``, see :func:`_branch_legs`) -- and nothing else round-trips through a live
+object today. So the merge only re-syncs: an equipment's *name* (matched against, not edited) and
+its *port list* (added/removed ports become nozzle items), and a system's *two connection
+endpoints* per leg. A renamed system, an edited tag, a moved nozzle -- none of those have a live
+adapy field to read the edit back from, and this module does not invent one; see the docstring of
+:func:`_sync_equipment_ports` for the one exception (reconnecting a system to a different port,
+which *is* readable, and *is* synced).
 
 **Identity.** Neither ``ada.Equipment`` nor ``ada.api.systems.System`` carries a DEXPI id today (see
 the gap report) -- the only handle back to the source item is the *name* the importer assigned, and
@@ -88,6 +90,7 @@ if TYPE_CHECKING:
     from ada.api.spatial.equipment import Equipment
     from ada.api.systems.base import System
     from ada.api.systems.ports import Port
+    from ada.api.systems.segments import SystemSegment
 
 __all__ = ["build_from_scratch", "merge_into_document", "write_model_from_scratch", "write_model_merged"]
 
@@ -177,17 +180,27 @@ def merge_into_document(source: DexpiDocument | None, equipment, systems) -> Dex
     source_segments = _source_segment_by_name(doc)
     live_systems: dict[str, System] = {system.name: system for system in systems}
 
-    for name, system in live_systems.items():
-        segment = source_segments.get(name)
-        if segment is None:
-            segment = _add_segment_item(doc, name, minter)
-            logger.info(
-                "dexpi merge: system %r is new in the assembly; writing it as a new %s", name, _NEW_SEGMENT_CLASS
-            )
-        _sync_segment_connections(doc, segment, system, port_index, site_index)
+    # A branched system's legs (see _branch_legs) are named after the ORIGINAL per-segment name
+    # _fold_branch_groups stashed on import, so reconciling by leg name -- not by the live system's
+    # own (new, combined) name -- is what lets each of the source's several PipingNetworkSegments
+    # still find and edit its own item, instead of being read as removed just because the live model
+    # merged them into one System.
+    seen_names: set[str] = set()
+    for system in live_systems.values():
+        legs = _branch_legs(system)
+        views = [(leg.name, (leg.from_port, leg.to_port)) for leg in legs] if legs else [(system.name, None)]
+        for name, endpoints in views:
+            seen_names.add(name)
+            segment = source_segments.get(name)
+            if segment is None:
+                segment = _add_segment_item(doc, name, minter)
+                logger.info(
+                    "dexpi merge: system %r is new in the assembly; writing it as a new %s", name, _NEW_SEGMENT_CLASS
+                )
+            _sync_segment_connections(doc, segment, system, port_index, site_index, endpoints=endpoints)
 
     for name, segment in source_segments.items():
-        if name not in live_systems:
+        if name not in seen_names:
             _drop_item_tree(doc, segment.id, f"system {name!r} was removed from the assembly")
 
     return doc
@@ -458,10 +471,21 @@ def _add_segment_item(doc: DexpiDocument, name: str, minter: _IdMinter) -> Dexpi
 
 def _system_endpoints(system: System) -> list[Port]:
     """The two ports a run's connection should be written between -- ``route_system``'s own
-    ``ports[0] -> ports[-1]`` contract, so this agrees with what actually got routed."""
+    ``ports[0] -> ports[-1]`` contract, so this agrees with what actually got routed.
+
+    Not meaningful for a branched system (see :func:`_branch_legs`) -- its several legs are synced
+    individually, each against its own two ports, and never through this."""
     if len(system.ports) >= 2:
         return [system.ports[0], system.ports[-1]]
     return list(system.ports)
+
+
+def _branch_legs(system: System) -> list["SystemSegment"] | None:
+    """``system.segments`` when ``system`` is a branch (two or more legs meeting at a shared
+    junction equipment -- see ``ada.topology.routing``), or ``None`` for an ordinary two-port
+    system. The writer does not need to re-validate the tree the way routing does: each leg already
+    carries its own two fully-resolved ports, which is all reconciliation below reads."""
+    return system.segments if len(system.segments) >= 2 else None
 
 
 def _resolve_live_endpoint(
@@ -536,6 +560,7 @@ def _sync_segment_connections(
     system: System,
     port_index: dict[tuple[str, str], tuple[str, str]],
     site_index: dict[str, DexpiItem],
+    endpoints: tuple[Port, Port] | None = None,
 ) -> None:
     """Regenerate ``segment``'s connection from ``system.ports`` -- the one place a *rewire* (the
     same two ports, or a different pair) actually lands. Compared against the segment's *external*
@@ -543,8 +568,15 @@ def _sync_segment_connections(
     an in-line component keeps every one of those hops -- and its ``.raw`` -- untouched as long as
     its two outer ends have not moved. Replacing them with the single direct connection
     ``system.ports`` can express is only correct once they actually have.
+
+    ``endpoints``, when given, overrides ``_system_endpoints(system)`` -- this is how a branched
+    system's individual legs (see :func:`_branch_legs`) each sync against their OWN source segment
+    instead of the meaningless ``system.ports[0]``/``[-1]`` a multi-leg system's flat port list would
+    give ``_system_endpoints``.
     """
-    resolved = [_resolve_live_endpoint(port, port_index, site_index) for port in _system_endpoints(system)]
+    resolved = [
+        _resolve_live_endpoint(port, port_index, site_index) for port in (endpoints or _system_endpoints(system))
+    ]
     boundary = _segment_boundary(doc, segment)
 
     if len(resolved) == 2 and all(end is not None for end in resolved):
@@ -685,26 +717,33 @@ def build_from_scratch(model, flavour: str = "proteus") -> DexpiDocument:
 
     site_index: dict[str, DexpiItem] = {}
     for system in sorted(model.systems, key=lambda s: s.name):
-        segment_id = minter.mint("PipingNetworkSegment")
-        segment = DexpiItem(id=segment_id, class_name=_NEW_SEGMENT_CLASS, kind=ItemKind.PIPING_SEGMENT)
-        doc.add(segment)
+        # A branch (see _branch_legs) has no single PipingNetworkSystem to fold into and no source
+        # tee item to synthesise -- lossy exactly the way a new equipment is, this writes one bare
+        # PipingNetworkSegment per leg rather than one two-ended segment that would silently connect
+        # two of its leaves straight through the junction and drop the rest.
+        legs = _branch_legs(system)
+        leg_ports = [(leg.from_port, leg.to_port) for leg in legs] if legs else [tuple(_system_endpoints(system))]
 
-        endpoints: list[tuple[str, str] | None] = []
-        for port in _system_endpoints(system):
-            endpoints.append(_from_scratch_endpoint(doc, port, port_index, site_index, minter))
+        for ports in leg_ports:
+            segment_id = minter.mint("PipingNetworkSegment")
+            segment = DexpiItem(id=segment_id, class_name=_NEW_SEGMENT_CLASS, kind=ItemKind.PIPING_SEGMENT)
+            doc.add(segment)
 
-        if len(endpoints) == 2 and all(end is not None for end in endpoints):
-            (from_item, from_node), (to_item, to_node) = endpoints
-            doc.connections.append(
-                DexpiConnection(
-                    from_item=from_item, from_node=from_node, to_item=to_item, to_node=to_node, owner_id=segment_id
+            endpoints = [_from_scratch_endpoint(doc, port, port_index, site_index, minter) for port in ports]
+
+            if len(endpoints) == 2 and all(end is not None for end in endpoints):
+                (from_item, from_node), (to_item, to_node) = endpoints
+                doc.connections.append(
+                    DexpiConnection(
+                        from_item=from_item, from_node=from_node, to_item=to_item, to_node=to_node, owner_id=segment_id
+                    )
                 )
-            )
-        else:
-            logger.warning(
-                "dexpi from_scratch: system %r does not have two resolvable endpoints; writing it with no connection",
-                system.name,
-            )
+            else:
+                logger.warning(
+                    "dexpi from_scratch: system %r does not have two resolvable endpoints; writing it with no "
+                    "connection",
+                    system.name,
+                )
 
     return doc
 

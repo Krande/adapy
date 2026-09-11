@@ -250,7 +250,12 @@ def run_design(
     it); the demo therefore feeds only the deck-level walls it wants runs to climb
     over, keeping the interior penetration wall out of the list."""
     from ada.config import logger
-    from ada.topology.routing import occupy_faces, occupy_run, run_half_extent
+    from ada.topology.routing import (
+        occupy_faces,
+        occupy_run,
+        run_half_extent,
+        system_route_polylines,
+    )
 
     rules = rules or DesignRules()
     if grid is None:
@@ -283,7 +288,12 @@ def run_design(
             skipped.append(system.name)
             continue
         if avoid_other_systems and plan.polyline:
-            occupy_run(grid, plan.polyline, run_half_extent(system) + other_clearance, tag=f"system:{system.name}")
+            # A branched system's several legs each need their own occupancy stamp -- the trunk-only
+            # plan.polyline would leave every branch leg free for a later system to route straight
+            # through.
+            half = run_half_extent(system) + other_clearance
+            for polyline in system_route_polylines(system):
+                occupy_run(grid, polyline, half, tag=f"system:{system.name}")
 
     planned = [s for s in systems if s.name in route_plans]
 

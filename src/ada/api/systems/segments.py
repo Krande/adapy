@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ada.geom.points import Point
+
     from .ports import Port
 
 __all__ = ["SystemSegment"]
@@ -28,3 +30,11 @@ class SystemSegment:
     #: carry whatever its source describes (class, tag, order, attributes).
     components: list[dict] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    #: This leg's own routed centreline, once routed. Only meaningful for a
+    #: *branched* system (two or more segments meeting at a shared junction
+    #: equipment) -- see ``ada.topology.routing.route_system``, which routes
+    #: each leg independently and stores its polyline here rather than on the
+    #: single system-wide ``routed_path``. ``None`` for a segment carried only
+    #: for round-trip detail (a normal two-port system's ``System.segments`` is
+    #: usually empty, and routing never touches this field in that case).
+    routed_path: list[Point] | None = None

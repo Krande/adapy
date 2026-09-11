@@ -288,8 +288,14 @@ function extractParams(
 }
 
 interface CellBuilderState {
-  /** The procedural model open in the builder; null hides the whole tool
-   * (top-row button included). */
+  /** The procedural model open in the builder as an EDITABLE SESSION -- a stored
+   * model with an id and a revision that edits can be committed back to. Null on
+   * the websocket/desktop path even when a document is loaded for viewing (see
+   * `hasEmbeddedDoc`), which is deliberate: `active` is what `CellBuilderController`
+   * gates every editing interaction on (gizmos, click-to-place, drag-to-move) and
+   * what `setupCameraControlsHandlers` reads before auto-compiling, so it must
+   * mean "there is somewhere to save this", not merely "there is something to
+   * look at". */
   active: { modelId: string; name: string; revision: number } | null;
   cells: Record<string, BuilderCell>;
   /** Raw authored loft members — the editable source of truth for the `loft`
@@ -1196,6 +1202,25 @@ function pruneSelection(
   return sel && cells[sel.cellId] ? sel : null;
 }
 
+/** Is a procedural document loaded for VIEWING with no editable session behind
+ * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
+ *
+ * Enough to show the equipment/systems browser read-only; never enough to edit
+ * or commit. Editability is a separate question answered by
+ * `capabilities.procedural.canEdit`, which is false on that transport only
+ * because no save verb is implemented over the websocket yet.
+ *
+ * Derived, not stored: it is exactly "something is loaded and there is no
+ * session", and a parallel flag would have to be kept in step with `active`,
+ * `cells` and `systems` by every action that touches them. Returns a boolean,
+ * so it is safe as a zustand selector. */
+export const hasEmbeddedDoc = (s: {
+  active: unknown | null;
+  cells: Record<string, unknown>;
+  systems: Record<string, unknown>;
+}): boolean =>
+  s.active === null && (Object.keys(s.cells).length > 0 || Object.keys(s.systems).length > 0);
+
 export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
   // Wrap a model-mutating updater so it pushes the pre-change snapshot onto
   // the undo stack (and clears the redo stack) — unless a transaction owns
@@ -1570,6 +1595,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     open: (modelId, name, revision, doc) => {
       // A freshly loaded model starts a new editing session — history resets.
       set({
+        // A real session supersedes any view-only document that was loaded
+        // before it (`hasEmbeddedDoc` is false the moment `active` is set), so
+        // the header stops calling itself read-only.
         active: { modelId, name, revision },
         cells: cellsFromDoc(doc),
         loftMembers: loftMembersFromDoc(doc),
@@ -2797,11 +2825,23 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         ...(groups.length ? { groups } : {}),
       };
     },
-    loadFromDoc: (doc) =>
+    loadFromDoc: (doc) => {
+      const cells = cellsFromDoc(doc);
+      const systems = systemsFromDoc(doc);
+      // Deliberately does NOT set `active` -- see that field's docstring. The
+      // store is populated for reading without claiming there is a session to
+      // commit to, so `CellBuilderController`'s editing surface stays off. The
+      // populated cells/systems are what let the panel and the menu button
+      // appear read-only rather than staying hidden entirely (`hasEmbeddedDoc`
+      // derives that; there is no separate flag to keep in step).
+      //
+      // This is also called with an EMPTY doc to clear the panels when a model
+      // with no procedural provenance loads; empty cells and systems make
+      // `hasEmbeddedDoc` false again, so no empty browser is left behind.
       set({
-        cells: cellsFromDoc(doc),
+        cells,
         loftMembers: loftMembersFromDoc(doc),
-        systems: systemsFromDoc(doc),
+        systems,
         groups: groupsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
@@ -2813,7 +2853,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         dirty: false,
         selection: null,
-      }),
+      });
+    },
 
     undo: () =>
       set((s) => {

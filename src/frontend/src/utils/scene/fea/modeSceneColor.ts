@@ -10,8 +10,11 @@
 // The same promise runs the other way. Every mode is left as it was found: an
 // owning mode that painted something of its own gets that back when you return
 // to it, rather than being suspended again as though you had never been there.
-// Only the FIRST entry suspends, because only then has the mode painted
-// nothing.
+// "Painted something of its own" is what core can see: the mode repainted
+// through the FEA loader, changed `fieldName`, or drove the shared legend via
+// `paintField` (which reports itself with `noteOwnerPainted`). A mode that
+// colours entirely outside core has painted nothing as far as the arbiter
+// knows, and is suspended on every entry, as on the first.
 //
 // Core does the suspending, on the mode's declared behalf. A shell only reports
 // the transition (`notifyActiveModeSceneColor`); it never touches scene state
@@ -144,9 +147,14 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   const owns = !!mode?.ownsSceneColor;
 
   // Whatever is on screen belongs to the mode being left, if that mode owns the
-  // colouring. Recorded before anything is changed, so coming back to it shows
-  // what was there.
-  if (owner !== null && owner !== mode?.id) ownerViews.set(owner, snapshot());
+  // colouring AND painted a field of its own. Recorded before anything is
+  // changed, so coming back to it shows what was there. A mode that painted
+  // nothing through core leaves the field it set aside in the buffers; that is
+  // the user's field, not the mode's view, and must not come back under it.
+  if (owner !== null && owner !== mode?.id) {
+    if (ownerPainted()) ownerViews.set(owner, snapshot());
+    else ownerViews.delete(owner);
+  }
 
   if (owns) {
     // The view to put back when the LAST owning mode is left. Taken only on the
@@ -159,6 +167,10 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
     const own = ownerViews.get(owner);
     if (own) restore(own);
     else suspend();
+    // A restored view is the mode's own painting; a suspended entry has painted
+    // nothing yet, measured against the field it set aside.
+    ownerReloaded = !!own;
+    ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
     return;
   }
 
@@ -170,10 +182,91 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   restore(view);
 }
 
+/** The source whose FEA field was last loaded, to tell a new model from a
+ * repaint of the one on screen. */
+let loadedSource: string | null = null;
+
+/**
+ * Whether the owning mode on screen has painted a field of its own, and so has
+ * a view to come back to.
+ *
+ * It has when the loader repainted the same source for it (Inspect's property
+ * colouring goes through the loader), or when another field than the one it set
+ * aside on entry is in the buffers. A mode that paints outside core, as a
+ * plugin's overlay does, has done neither: recording its "view" on leaving
+ * captured the set-aside field, and re-entering after the user picked another
+ * field in Results reloaded that one, putting its colours and legend back on
+ * under the mode.
+ */
+let ownerEnteredField: string | null = null;
+let ownerReloaded = false;
+
+function ownerPainted(): boolean {
+  return ownerReloaded || (useFeaAnimationStore.getState().fieldName ?? null) !== ownerEnteredField;
+}
+
+/**
+ * Report that the owning mode has painted through core without going through
+ * the loader or changing the field: the legend-only painter (`paintField` in
+ * the plugin context) drives the shared legend off its own range and leaves
+ * the buffers alone. Its legend is the mode's view, and must come back on
+ * re-entry like a loader repaint would. No-op outside an owning mode.
+ */
+export function noteOwnerPainted(): void {
+  if (owner === null) return;
+  ownerReloaded = true;
+}
+
+/**
+ * Report that the FEA loader has just put a field on screen for `source`.
+ *
+ * Entering an owning mode suspends what is showing at that moment, and nothing
+ * is showing when the page opens straight into one (a restored session, a
+ * `?mode=` link): the model loads afterwards, and the load switched its field's
+ * colours and legend on under the mode. The capacity overlay then sat on top of
+ * a displacement field, its legend floating beside it.
+ *
+ * So a NEW source loaded while an owning mode is active is treated as the
+ * user's result view: kept as the view to put back on leaving, and set aside
+ * now. A reload of the same source is not touched - that is how an owning mode
+ * paints its own field (Inspect's property colouring goes through the loader),
+ * and suspending it would undo the mode's own work.
+ */
+export function noteFieldSourceLoaded(source: string | null): void {
+  const fresh = source !== loadedSource;
+  loadedSource = source;
+  if (owner === null) return;
+  if (!fresh) {
+    ownerReloaded = true; // the mode's own painting
+    return;
+  }
+  saved = snapshot();
+  suspend();
+  // The new model's field is set aside; the mode has painted nothing over it yet.
+  ownerReloaded = false;
+  ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
+}
+
+/**
+ * Report that the FEA loader has cleared its model (`clearActiveFeaStreaming`).
+ *
+ * Nothing is loaded now, so whatever comes next is a NEW source even when it is
+ * the same file: clear a model and reopen it inside an owning mode, and the
+ * load is the user's result arriving under the mode, not the mode repainting.
+ * Without this the old source name survived the clear and the reopen was
+ * classed as the mode's own repaint, showing the field under the overlay.
+ */
+export function noteFieldSourceCleared(): void {
+  loadedSource = null;
+}
+
 /** Test hook: forget any suspended state without side effects. */
 export function _resetSceneColorOwnerForTests(): void {
   owner = null;
   saved = null;
+  loadedSource = null;
+  ownerEnteredField = null;
+  ownerReloaded = false;
   // What each owning mode was showing goes too, or one test's Inspect view is
   // restored into the next one's.
   ownerViews.clear();
