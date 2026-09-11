@@ -2,12 +2,12 @@ Websocket and REST as peers: local disk as a storage backend
 ==============================================================
 
 .. note::
-   A **plan**, not a description of what exists. Nothing in this document is implemented. It also
-   has a **prerequisite that is not on main yet**: the ``ProceduralModelCapability`` seam it builds
-   on (including ``canEdit``) lives on the ``fix/viewer-procedural-panels`` branch, not here --
-   ``src/frontend/src/services/capabilities/`` on main carries only ``stats``. Every citation below
-   marked *(branch)* refers to that branch; unmarked citations are against main. Delete this
-   document, or fold what survives into the comms docs, once the work lands.
+   A **plan**, not a description of what exists. Step 0 below is done and step 1 (request
+   correlation) is in progress on the branch this document landed on; everything from step 2 on is
+   still a plan. The ``ProceduralModelCapability`` seam it builds on (including ``canEdit``) was
+   written on the ``fix/viewer-procedural-panels`` branch and is now folded in alongside this
+   document, so citations below marked *(branch)* resolve here too. Delete this document, or fold
+   what survives into the comms docs, once the work lands.
 
 The viewer has two transports. Over REST it talks to a FastAPI app with Postgres, object storage,
 NATS and a worker pool behind it. Over websocket it talks to a Python process on the user's own
@@ -42,9 +42,11 @@ The capability seam already declares the flag this whole plan turns on. ``Proced
     readonly canEdit: boolean;
 
 ``WSProceduralModelCapability.canEdit = false``, ``RESTProceduralModelCapability.canEdit = true``,
-both covered by ``__tests__/services/proceduralCapability.test.ts`` -- and **no production code
-reads it**. Step 0 wires it into ``CellBuilderPanel`` and ``Menu`` so the local viewer's
-equipment/system browser appears, read-only, instead of not appearing at all.
+both covered by ``__tests__/services/proceduralCapability.test.ts``. Production code now reads it:
+``CellBuilderPanel``'s ``isReadOnly`` (shared with ``SystemsTab``) is
+``!s.active || !capabilities.procedural.canEdit``, which is what step 0 set out to wire in, so the
+local viewer's equipment/system browser appears, read-only, instead of not appearing at all.
+``Menu`` shows the panel button off ``active`` or the derived ``hasEmbeddedDoc`` (below).
 
 Two things about step 0 matter to this plan:
 
@@ -63,9 +65,12 @@ permanent-sounding concession to a temporary fact, and this plan exists to make 
 commit verb is not implemented over this transport yet" says the same thing about today without
 claiming anything about tomorrow.
 
-**What step 0 must not do.** It must not introduce a store-local ``embedded``/``readOnly`` boolean
-parallel to ``canEdit``. A second flag meaning almost the same thing is a second thing to unwind
-when the answer changes, and the seam already has the first one.
+**What step 0 must not do -- and now does not.** It must not introduce a store-local
+``embedded``/``readOnly`` boolean parallel to ``canEdit``. A second flag meaning almost the same
+thing is a second thing to unwind when the answer changes, and the seam already has the first one.
+This is satisfied: "is a document loaded for viewing" is answered by the derived
+``hasEmbeddedDoc`` selector in ``cellBuilderStore.ts`` (``active === null`` and cells or systems
+non-empty), not by a stored flag, so there is nothing parallel to ``canEdit`` to unwind.
 
 Three kinds of thing the panel needs
 --------------------------------------
@@ -200,10 +205,12 @@ seam with one implementation on both sides of it, which is just indirection.
 Migration: smallest useful first
 ----------------------------------
 
-1. **Wire ``canEdit`` into the panel** (step 0, above, already in progress). Ships value on its own:
+1. **Wire ``canEdit`` into the panel** (step 0, above, done). Ships value on its own:
    equipment/system browsing works in the local viewer. Nothing to unwind later.
 2. **Add ``request_id`` to ``Message`` and a pending-promise map to ``ws_comms.ts``.** Unblocks
-   every verb below. Do it once, before any of them.
+   every verb below. Do it once, before any of them. *In progress:* websocket request correlation
+   (``request_id`` on ``Message``) is being landed on the same branch as this document; the
+   change that adds it is the reference for its API, not this plan.
 3. **``SAVE_PROCEDURAL_MODEL``.** Handler writes the document to a path and replies with whatever
    concurrency token the design settles on (see the traps). Flip
    ``WSProceduralModelCapability.canEdit`` to ``true``; revert step 0's guard on the Commit button.
