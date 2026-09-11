@@ -268,10 +268,10 @@ class QueueJobTransport(_BaseTransport):
         return self._queue
 
     async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
-        # Always the two-phase form. `publish=False` + `publish()` is what
-        # `enqueue(publish=True)` does anyway, so taking the split path
-        # unconditionally costs nothing and leaves exactly one ordering for
-        # every caller instead of one for those that audit and one for the rest.
+        # The publish is held back ONLY when there is a hook to run in the
+        # gap. A caller with nothing to sequence takes the single-call form,
+        # so the common path stays one round trip and one code path in the
+        # queue rather than a split that exists for someone else's benefit.
         job = await self._queue.enqueue(
             req.source_key,
             # By keyword, not position: `enqueue` accepts it either way, and the
@@ -285,12 +285,12 @@ class QueueJobTransport(_BaseTransport):
             derived_key=req.derived_key,
             target_capability=req.target_capability,
             force_rebuild=req.force_rebuild,
-            publish=False,
+            publish=before_dispatch is None,
         )
         submitted = _submitted_from_job(job)
         if before_dispatch is not None:
             await before_dispatch(submitted)
-        await self._queue.publish(job)
+            await self._queue.publish(job)
         return submitted
 
     def inprocess(self, job_id: str) -> JobSnapshot | None:

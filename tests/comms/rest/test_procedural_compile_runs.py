@@ -50,7 +50,7 @@ from ada.comms.rest.procedural import (  # noqa: E402
     procedural_run_pointer_key,
     prune_run_log_keys,
 )
-from ada.comms.rest.queue import JobQueue  # noqa: E402
+from ada.comms.rest.queue import Job, JobQueue  # noqa: E402
 
 # The worker is a POSIX-only component (it forks conversions through fcntl), so
 # the handler-level tests below skip off-POSIX and run in CI like every other
@@ -456,7 +456,15 @@ def test_compile_opens_an_audit_row_for_the_run(monkeypatch, tmp_path: pathlib.P
     audits: list[dict] = []
 
     async def _fake_enqueue(self, source_key, target_format="glb", **kw):
-        return SimpleNamespace(job_id="job-xyz")
+        # A real Job, not a duck: the job transport reads the record back
+        # (derived_key, status, the whole asdict payload) on the way out.
+        return Job(
+            job_id="job-xyz",
+            source_key=source_key,
+            derived_key=kw.get("derived_key") or "",
+            status="queued",
+            target_format=target_format,
+        )
 
     async def _insert_audit(pool, **kw):
         audits.append(kw)
