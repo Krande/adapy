@@ -19,29 +19,13 @@
 //
 // Anything new should consume the context, not the singletons.
 
-import React, { createContext, useContext, useMemo, type ReactNode, type RefObject } from "react"
-import CameraControls from "camera-controls"
-import * as THREE from "three"
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
-
-import { AnimationController } from "../utils/scene/animations/AnimationController"
-import {
-    ADADesignAndAnalysisExtension,
-    SimulationDataExtensionMetadata,
-} from "../extensions/design_and_analysis_extension"
+import React, { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react"
 
 import {
-    adaExtensionRef as g_adaExtensionRef,
-    animationControllerRef as g_animationControllerRef,
-    cameraRef as g_cameraRef,
-    controlsRef as g_controlsRef,
-    modelKeyMapRef as g_modelKeyMapRef,
-    rendererRef as g_rendererRef,
-    sceneRef as g_sceneRef,
-    selectedPointRef as g_selectedPointRef,
-    simulationDataRef as g_simulationDataRef,
-    updatelightRef as g_updatelightRef,
-} from "./refs"
+    createViewerRuntime,
+    mountViewerRuntime,
+    type ViewerRuntime,
+} from "./viewerRuntime"
 
 import { useAnimationStore as g_useAnimationStore } from "./animationStore"
 import { useColorStore as g_useColorStore } from "./colorLegendStore"
@@ -67,24 +51,13 @@ import { useWebSocketStore as g_useWebSocketStore } from "./webSocketStore"
 
 
 /**
- * Per-instance React refs that today live as module-level singletons
- * in `state/refs.ts`. The shape mirrors the singleton names 1:1 so
- * the migration is mechanical: `import {sceneRef} from "@/state/refs"`
- * becomes `const {scene} = useViewerRefs()` (refs are still
- * `RefObject<T | null>`, semantics are unchanged).
+ * One viewer instance's scene-graph handles — the shape `useViewerRefs()`
+ * returns. Defined by `ViewerRuntime` in `./viewerRuntime`, which is also what
+ * the imperative (non-React) modules read through `getViewerRuntime()`; the
+ * alias is kept because `@/viewer-core/app` publishes this name to out-of-tree
+ * UI shells.
  */
-export interface AdaViewerRefs {
-    scene: RefObject<THREE.Scene | null>
-    camera: RefObject<THREE.PerspectiveCamera | null>
-    controls: RefObject<CameraControls | OrbitControls | null>
-    renderer: RefObject<THREE.WebGLRenderer | null>
-    updateLight: RefObject<(() => void) | null>
-    animationController: RefObject<AnimationController | null>
-    simulationData: RefObject<SimulationDataExtensionMetadata | null>
-    adaExtension: RefObject<ADADesignAndAnalysisExtension | null>
-    modelKeyMap: RefObject<Map<string, THREE.Object3D | THREE.Group> | null>
-    selectedPoint: RefObject<THREE.Points | null>
-}
+export type AdaViewerRefs = ViewerRuntime
 
 /**
  * Zustand store hooks, indexed by short name. In Phase 1 these are
@@ -207,23 +180,28 @@ export function useViewerStores(): AdaViewerStores {
  * get deleted.
  */
 export function AdaViewerProvider({ children }: { children: ReactNode }) {
+    // One runtime per mount, created on the first render and kept for the life
+    // of it. `useRef` rather than `useMemo` because this is identity, not a
+    // cached computation: a recomputed `useMemo` would hand the children a
+    // second scene while the canvas kept drawing into the first.
+    const runtimeRef = useRef<ViewerRuntime | null>(null)
+    if (runtimeRef.current === null) runtimeRef.current = createViewerRuntime()
+    const runtime = runtimeRef.current
+
+    // Registered DURING render, not in an effect. Child effects run before the
+    // parent's, so a canvas child that reaches an imperative helper from its
+    // own mount effect would otherwise resolve `getViewerRuntime()` to the
+    // detached fallback and quietly build its scene in a runtime nobody reads.
+    const registered = useRef(false)
+    if (!registered.current) {
+        registered.current = true
+        mountViewerRuntime(runtime)
+    }
+    useEffect(() => mountViewerRuntime(runtime), [runtime])
+
     const value = useMemo<AdaViewerCtx>(
-        () => ({
-            refs: {
-                scene: g_sceneRef,
-                camera: g_cameraRef,
-                controls: g_controlsRef,
-                renderer: g_rendererRef,
-                updateLight: g_updatelightRef,
-                animationController: g_animationControllerRef,
-                simulationData: g_simulationDataRef,
-                adaExtension: g_adaExtensionRef,
-                modelKeyMap: g_modelKeyMapRef,
-                selectedPoint: g_selectedPointRef,
-            },
-            stores: SINGLETON_VIEWER_STORES,
-        }),
-        [],
+        () => ({ refs: runtime, stores: SINGLETON_VIEWER_STORES }),
+        [runtime],
     )
 
     return <AdaViewerContext.Provider value={value}>{children}</AdaViewerContext.Provider>
