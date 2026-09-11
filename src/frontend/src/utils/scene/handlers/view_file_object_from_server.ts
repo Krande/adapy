@@ -90,14 +90,14 @@ export async function load_glb_by_url_rest(
         try {
             const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
             metrics?.setTransport("presigned");
-            group = await replace_model(presigned.url, undefined, sourceName, false, undefined, metrics, autoFitOverride);
+            group = await replace_model({url: presigned.url, sourceName, metrics, autoFitOverride});
         } catch (e) {
             console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
             const url = viewerApi.blobUrl(scope as any, glbKey);
             const token = getAccessToken();
             const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
             metrics?.setTransport("relayed");
-            group = await replace_model(url, undefined, sourceName, false, headers, metrics, autoFitOverride);
+            group = await replace_model({url, sourceName, requestHeaders: headers, metrics, autoFitOverride});
         }
     } catch (e) {
         // Record the failed load too, then re-throw to the caller's handler.
@@ -126,7 +126,7 @@ export async function load_glb_from_bytes(
     const url = URL.createObjectURL(new Blob([bytes], {type: "model/gltf-binary"}));
     let group: Awaited<ReturnType<typeof replace_model>> | undefined;
     try {
-        group = await replace_model(url, undefined, sourceName, false, undefined, undefined, autoFitOverride);
+        group = await replace_model({url, sourceName, autoFitOverride});
     } finally {
         URL.revokeObjectURL(url);
     }

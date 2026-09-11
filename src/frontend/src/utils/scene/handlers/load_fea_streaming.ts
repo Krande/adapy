@@ -843,12 +843,16 @@ export async function load_fea_streaming(args: {
         // valid after replace_model resolves.
         let feaRoot: THREE.Object3D | null = null;
         try {
-            const feaGroup = await replace_model(url, async (gltf_scene) => {
-                feaRoot = gltf_scene;
-                if (afemEntries.length > 0) {
-                    installAfemUserData(gltf_scene, afemEntries);
-                }
-            }, undefined, /* translate */ true);
+            const feaGroup = await replace_model({
+                url,
+                prepareHook: async (gltf_scene) => {
+                    feaRoot = gltf_scene;
+                    if (afemEntries.length > 0) {
+                        installAfemUserData(gltf_scene, afemEntries);
+                    }
+                },
+                translate: true,
+            });
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);

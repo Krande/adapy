@@ -102,16 +102,13 @@ function makeSceneHandle(): SceneHandle {
       );
       const sourceName =
         opts?.sourceName || url.split("?")[0].split("/").pop() || `${owner}-model`;
-      const group = await setupModelLoaderAsync(
-        url,
-        opts?.translate ?? true,
-        undefined,
+      const group = await setupModelLoaderAsync({
+        modelUrl: url,
+        translate: opts?.translate ?? true,
         sourceName,
-        opts?.headers,
-        undefined,
-        undefined,
-        opts?.sourceUpAxis ?? "z",
-      );
+        requestHeaders: opts?.headers,
+        sourceUpAxis: opts?.sourceUpAxis ?? "z",
+      });
       // Register the source -> group mapping so the model shows up in the
       // loaded-sources list and `unloadModel` can drop just this one, exactly as
       // core's own overlay path does.

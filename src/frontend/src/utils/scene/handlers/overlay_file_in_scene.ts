@@ -111,7 +111,7 @@ export async function overlay_file_in_scene(
             const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
             metrics?.setTransport("presigned");
             metrics?.setUrl(presigned.url);
-            group = await setupModelLoaderAsync(presigned.url, true, undefined, sourceName, undefined, metrics);
+            group = await setupModelLoaderAsync({modelUrl: presigned.url, sourceName, metrics});
         } catch (e) {
             console.warn("overlay: presigned GLB load failed, falling back to authed streaming GET", e);
             const {getAccessToken} = await import("@/services/auth/oidc");
@@ -120,7 +120,7 @@ export async function overlay_file_in_scene(
             const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
             metrics?.setTransport("relayed");
             metrics?.setUrl(url);
-            group = await setupModelLoaderAsync(url, true, undefined, sourceName, headers, metrics);
+            group = await setupModelLoaderAsync({modelUrl: url, sourceName, requestHeaders: headers, metrics});
         }
     } catch (e) {
         metrics?.fail(
