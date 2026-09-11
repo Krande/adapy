@@ -40,12 +40,6 @@ from .converter import (
     ConverterRegistry,
     UnsupportedFormat,
     derived_key_for,
-    fea_artefact_manifest_key_for,
-    fea_artefact_prefix_for,
-    fea_manifest_stale_reason,
-    fea_meta_key_for,
-    is_fea_artefact_source,
-    is_fea_result_key,
     is_supported_source,
     merge_option_into,
     supported_targets_for,
@@ -67,7 +61,9 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     resolve_project_scope,
     scope_from_header,
     scope_from_path,
+    worker_advertised_exts,
 )
+from .routes.fea import router as fea_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
@@ -393,16 +389,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     auth_module.install(app, settings.auth)
-    # Explicit per-app services for extracted routers (routes/*.py) — what
-    # they may reach instead of this closure. See routes/__init__.py.
-    rest_ctx = RestContext(settings=settings, storage=storage, queue=queue)
-    app.state.rest = rest_ctx
-
-    @app.get("/healthz")
-    async def healthz() -> Response:
-        # Public — load balancers + readiness probes hit this.
-        return Response(status_code=200)
-
     # Cached worker-registry snapshot, refreshed off the request path by
     # ``_worker_registry_refresh_loop``. ``queue.list_workers()`` is an
     # N+1 over NATS KV (list keys, then one round-trip per worker key);
@@ -417,6 +403,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Empty until the first refresh tick (same observable state as a
     # queue-disabled deploy — the SPA falls back to its static set).
     _worker_registry: dict = {"workers": [], "image_tag": None, "ts": 0.0}
+    # Explicit per-app services for extracted routers (routes/*.py) — what
+    # they may reach instead of this closure. See routes/__init__.py.
+    rest_ctx = RestContext(settings=settings, storage=storage, queue=queue, worker_registry=_worker_registry)
+    app.state.rest = rest_ctx
+
+    @app.get("/healthz")
+    async def healthz() -> Response:
+        # Public — load balancers + readiness probes hit this.
+        return Response(status_code=200)
 
     async def _refresh_worker_registry() -> None:
         """Snapshot the worker registry + worker image tag into
@@ -473,40 +468,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return ext in await _worker_advertised_exts()
 
     async def _worker_advertised_exts() -> list[str]:
-        """Union of source-file extensions advertised by every
-        currently-registered worker via its registry entry's
-        ``source_exts`` field.
-
-        adapy itself doesn't know what extensions any particular
-        worker brings — the worker introspects its own
-        stream-reader registry at startup (whatever plug-ins ran
-        before ``ada.comms.rest.worker`` connected) and publishes the
-        resulting suffix set. ``/api/config`` then merges every
-        online worker's list so the upload picker can include them
-        without anything outside the plug-in repeating the list.
-        Workers that fall off the heartbeat (online=false) still
-        contribute briefly; the goal is to keep the picker stable
-        across pod restarts, not to gate on liveness.
-
-        Returns a sorted, lowercased list with a leading dot on each
-        entry — ready to feed into the existing extension-check call
-        sites without further normalisation.
-        """
-        if not queue.enabled:
-            return []
-        workers = _worker_registry["workers"]
-        out: set[str] = set()
-        for w in workers:
-            for raw in w.get("source_exts") or []:
-                if not isinstance(raw, str):
-                    continue
-                ext = raw.strip().lower()
-                if not ext:
-                    continue
-                if not ext.startswith("."):
-                    ext = f".{ext}"
-                out.add(ext)
-        return sorted(out)
+        # routes/deps.py's worker_advertised_exts, bound to this app's queue
+        # + worker-registry snapshot. routes/fea.py calls the deps function
+        # directly via RestContext; kept here under the old name for the
+        # other call sites still inside this closure.
+        return await worker_advertised_exts(queue, _worker_registry)
 
     async def _worker_advertised_conversions() -> list[dict]:
         """Merged conversion matrix across every currently-registered
@@ -1601,174 +1567,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse({"ok": False, "reason": "insert-failed"})
         return JSONResponse({"ok": True}, status_code=201)
 
-    @api.post("/scopes/{scope}/fea/artefacts")
-    async def api_scope_fea_artefacts_upload(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Upload a browser-baked FEA artefact tree (section D).
-
-        The pyodide FEM stack runs ``bake_fea_artefacts_from_source`` in
-        the browser and zips the output dir; the body is that raw zip.
-        Each entry (``fea.manifest.json``, ``fea.mesh.glb``,
-        ``fea.<field>.bin``, ...) is written under the canonical
-        ``_derived/<source>.fea/`` prefix with the *same* gzip policy the
-        worker uses (``storage.put_bytes`` compresses ``.json``/``.bin``;
-        the mesh GLB is stored as-is), so the existing streaming-FEA
-        reader consumes it unchanged.
-
-        Query: ``source`` (existing source key in the scope).
-        """
-        import io
-        import posixpath
-        import zipfile
-
-        source = (request.query_params.get("source") or "").strip().lstrip("/")
-        if not source:
-            raise HTTPException(status_code=400, detail="source query param required")
-        # Gate on the FEA-artefact source set (.rmed/.sif/...), the same
-        # predicate the GET /fea/manifest worker route uses — not the
-        # general convert-source check, since these sources have no
-        # convert-registry target and the browser path runs worker-free.
-        if not is_fea_artefact_source(source):
-            raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
-        try:
-            source_exists = await storage.exists(scope_obj, source)
-        except Exception:
-            source_exists = False
-        if not source_exists:
-            raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
-
-        cl = request.headers.get("content-length")
-        if cl is not None:
-            try:
-                announced = int(cl)
-            except ValueError:
-                announced = -1
-            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"fea artefact upload exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
-                )
-
-        data = await request.body()
-        if not data:
-            raise HTTPException(status_code=400, detail="empty body")
-        try:
-            zf = zipfile.ZipFile(io.BytesIO(data))
-        except zipfile.BadZipFile as exc:
-            raise HTTPException(status_code=400, detail=f"body is not a valid zip: {exc}") from exc
-
-        # Each entry must be a bare ``fea.*`` filename — no subdirs, no
-        # path traversal — so a crafted zip can't escape the per-source
-        # prefix and write arbitrary keys.
-        entries = [n for n in zf.namelist() if not n.endswith("/")]
-        for n in entries:
-            base = posixpath.basename(n)
-            if base != n or not base or base.startswith(".") or not base.startswith("fea."):
-                raise HTTPException(status_code=400, detail=f"illegal artefact entry: {n!r}")
-        names = {posixpath.basename(n) for n in entries}
-        if "fea.manifest.json" not in names:
-            raise HTTPException(status_code=400, detail="zip missing fea.manifest.json")
-
-        prefix = fea_artefact_prefix_for(source)
-        written = 0
-        try:
-            for n in entries:
-                base = posixpath.basename(n)
-                payload = zf.read(n)
-                # Mirror the worker's compression policy exactly: gzip only
-                # the manifest JSON; store .bin blobs (and the mesh GLB)
-                # identity so the viewer can HTTP-Range a single field step.
-                content_encoding = "gzip" if base.lower().endswith(".json") else None
-                await storage.put_bytes(
-                    scope_obj,
-                    prefix + base,
-                    payload,
-                    content_encoding=content_encoding,
-                )
-                written += 1
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.exception("fea artefact upload failed for %s", source)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        return JSONResponse(
-            {"manifest_key": fea_artefact_manifest_key_for(source), "count": written},
-            status_code=201,
-        )
-
-    @api.post("/scopes/{scope}/fea/artefact")
-    async def api_scope_fea_artefact_upload_one(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Upload a *single* browser-baked FEA artefact file (section D).
-
-        The per-file counterpart of ``POST /fea/artefacts`` (zip): the
-        in-browser bake ships each ``fea.*`` file as it lands instead of
-        accumulating the whole tree and zipping it, so neither the browser
-        (output tree + zip) nor this endpoint (whole zip in memory, capped
-        by the direct-upload threshold) has to hold the entire artefact set
-        at once. Same prefix, same per-extension gzip policy as the zip
-        route, so the streaming-FEA reader consumes the result unchanged.
-
-        Query: ``source`` (existing source key) + ``name`` (the bare
-        ``fea.*`` filename). Body: the raw file bytes.
-        """
-        import posixpath
-
-        source = (request.query_params.get("source") or "").strip().lstrip("/")
-        if not source:
-            raise HTTPException(status_code=400, detail="source query param required")
-        if not is_fea_artefact_source(source):
-            raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
-
-        name = (request.query_params.get("name") or "").strip()
-        base = posixpath.basename(name)
-        # Same guard as the zip route: a bare ``fea.*`` filename only — no
-        # subdirs, no traversal, so a request can't escape the per-source
-        # prefix and write an arbitrary key.
-        if base != name or not base or base.startswith(".") or not base.startswith("fea."):
-            raise HTTPException(status_code=400, detail=f"illegal artefact name: {name!r}")
-
-        try:
-            source_exists = await storage.exists(scope_obj, source)
-        except Exception:
-            source_exists = False
-        if not source_exists:
-            raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
-
-        cl = request.headers.get("content-length")
-        if cl is not None:
-            try:
-                announced = int(cl)
-            except ValueError:
-                announced = -1
-            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"fea artefact file exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
-                )
-
-        data = await request.body()
-        if not data:
-            raise HTTPException(status_code=400, detail="empty body")
-
-        prefix = fea_artefact_prefix_for(source)
-        # gzip only the manifest JSON; .bin blobs stay identity so the
-        # viewer can HTTP-Range a single field step (see the blobs route).
-        content_encoding = "gzip" if base.lower().endswith(".json") else None
-        try:
-            await storage.put_bytes(scope_obj, prefix + base, data, content_encoding=content_encoding)
-        except Exception as exc:
-            logger.exception("fea artefact file upload failed for %s/%s", source, base)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        return JSONResponse({"key": prefix + base, "name": base}, status_code=201)
+    api.include_router(fea_router)
 
     @api.post("/scopes/{scope}/upload-url")
     async def api_scope_upload_url(
@@ -2223,261 +2022,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload = asdict(job)
         payload["utility_name"] = utility_name
         return JSONResponse(payload, status_code=202)
-
-    @api.get("/scopes/{scope}/result-meta")
-    async def api_scope_result_meta(
-        request: Request,
-        key: str,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Return the (steps, fields) inventory for a FEA result file.
-
-        Cache hit: 200 with the parsed JSON.
-        Cache miss: 202 with ``{"job_id": ..., "status": "queued"}``;
-        frontend polls ``/api/convert/{job_id}`` until done, then
-        re-fetches this endpoint to get the body.
-
-        SIF parsing on multi-hundred-MB decks takes 30 s+ and the
-        slim API container doesn't carry ada.fem at all — both
-        reasons push the work into the worker queue. Same shape as
-        the streaming-viewer manifest endpoint.
-
-        404 if the source is missing; 415 if the source isn't a FEA
-        result file.
-        """
-
-        source_key = (key or "").strip().lstrip("/")
-        if not source_key:
-            raise HTTPException(status_code=400, detail="key required")
-        if not is_fea_result_key(source_key):
-            raise HTTPException(
-                status_code=415,
-                detail=f"result-meta only applies to FEA result files; got {source_key!r}",
-            )
-        if not await storage.exists(scope_obj, source_key):
-            raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
-
-        meta_key = fea_meta_key_for(source_key)
-        try:
-            cached = await storage.get_bytes(scope_obj, meta_key)
-        except FileNotFoundError:
-            cached = None
-        except Exception:
-            # Treat any cache-read hiccup as a miss; rebuild is the
-            # safer path than handing the user a 500 because of a stale
-            # half-written meta blob.
-            logger.exception("result-meta: cache read failed for %s", meta_key)
-            cached = None
-        if cached:
-            try:
-                return JSONResponse(json.loads(cached.decode("utf-8")))
-            except Exception:
-                logger.exception("result-meta: cache parse failed for %s; rebuilding", meta_key)
-
-        # Cache miss — enqueue a worker job and return 202. Frontend
-        # polls /convert/{job_id} until done, then re-fetches this
-        # endpoint.
-        if not queue.enabled:
-            raise HTTPException(
-                status_code=503,
-                detail="result-meta disabled (no NATS configured)",
-            )
-        try:
-            job = await queue.enqueue(
-                source_key,
-                "fea_meta",
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
-                derived_key=meta_key,
-            )
-        except Exception as exc:
-            logger.exception("result-meta: enqueue failed for %s", source_key)
-            await _audit(
-                request,
-                user,
-                scope_obj,
-                "fea_meta",
-                key=source_key,
-                status="error",
-                error=str(exc),
-            )
-            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
-
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "fea_meta",
-            key=source_key,
-            status="queued",
-            job_id=job.job_id,
-        )
-        return JSONResponse(
-            {
-                "job_id": job.job_id,
-                "source_key": source_key,
-                "meta_key": meta_key,
-                "status": job.status,
-                "progress": job.progress,
-                "stage": job.stage,
-            },
-            status_code=202,
-        )
-
-    @api.get("/scopes/{scope}/fea/manifest")
-    async def api_scope_fea_manifest(
-        request: Request,
-        key: str,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Return the streaming-viewer manifest for a FEA source.
-
-        Cache hit: 200 with the parsed manifest JSON.
-        Cache miss: 202 with ``{"job_id": ..., "status": "queued"}``;
-        frontend polls ``/api/convert/{job_id}`` until done, then
-        re-fetches this endpoint.
-
-        The bake itself runs in the worker container (which has the
-        full ada.fem stack); the API container is intentionally slim
-        and can't import ada.fem at all.
-        """
-
-        source_key = (key or "").strip().lstrip("/")
-        if not source_key:
-            raise HTTPException(status_code=400, detail="key required")
-        pending = pending_uploads.get(scope_obj, source_key)
-        if pending is not None:
-            raise HTTPException(status_code=409, detail=_pending_upload_detail(source_key, pending))
-        if not is_fea_artefact_source(source_key):
-            # adapy ships built-in stream readers for .rmed and .sif;
-            # capability workers register additional ones at startup
-            # (e.g. abaqus → .odb / .sqlite) and publish the set into
-            # the worker registry. Honour those here so a worker plug-in
-            # doesn't have to also patch the API gate. The worker-side
-            # bake still re-validates via its own ``make_stream_reader``
-            # registry, so an extension the API accepted but no worker
-            # actually handles surfaces as a clear bake error rather
-            # than getting silently dropped.
-            ext = pathlib.PurePosixPath(source_key).suffix.lower()
-            if ext not in await _worker_advertised_exts():
-                raise HTTPException(
-                    status_code=415,
-                    detail=(
-                        f"streaming FEA viewer only supports .rmed / .sif / .sin "
-                        f"or worker-advertised stream readers; got {source_key!r}"
-                    ),
-                )
-        if not await storage.exists(scope_obj, source_key):
-            raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
-
-        manifest_key = fea_artefact_manifest_key_for(source_key)
-        try:
-            cached = await storage.get_bytes(scope_obj, manifest_key)
-        except FileNotFoundError:
-            cached = None
-        except Exception:
-            logger.exception("fea-manifest: cache read failed for %s", manifest_key)
-            cached = None
-        force_rebake = False
-        if cached:
-            manifest: dict | None = None
-            try:
-                manifest = json.loads(cached.decode("utf-8"))
-            except Exception:
-                logger.exception("fea-manifest: cache parse failed for %s; rebuilding", manifest_key)
-            stale: str | None = None
-            if manifest is not None:
-                # Freshness, not just existence: a bake made before the
-                # current bake output (bake_version) or before the source's
-                # last re-upload (a deck is routinely re-solved in place under
-                # the same name) must be rebuilt, not served forever.
-                try:
-                    src_head = await storage.head(scope_obj, source_key)
-                    man_head = await storage.head(scope_obj, manifest_key)
-                except Exception:
-                    logger.exception("fea-manifest: head failed for %s", source_key)
-                    src_head = man_head = None
-                stale = fea_manifest_stale_reason(manifest, src_head, man_head)
-                if stale is None:
-                    return JSONResponse(manifest)
-            # A cached entry exists but is stale or unusable. The worker's
-            # already-cached short-circuit keys on the manifest's existence,
-            # so a plain enqueue would no-op straight back here; force the
-            # rebake through it.
-            force_rebake = True
-            if not queue.enabled and manifest is not None:
-                # No worker to rebake with. A stale manifest still describes
-                # real (older) results; serving it beats a 503 — log so the
-                # operator sees why the deck lacks the newer bake output.
-                logger.warning(
-                    "fea-manifest: serving stale bake for %s (%s) — bake queue disabled",
-                    source_key,
-                    stale,
-                )
-                return JSONResponse(manifest)
-            logger.info(
-                "fea-manifest: cached bake for %s is stale (%s) — re-baking",
-                source_key,
-                stale or "unparsable manifest",
-            )
-
-        # Cache miss (or stale hit) — enqueue a worker bake and return 202.
-        # Frontend polls /convert/{job_id} via the existing route and
-        # re-fetches this endpoint when the job hits status=done.
-        if not queue.enabled:
-            raise HTTPException(
-                status_code=503,
-                detail="bake disabled (no NATS configured)",
-            )
-        try:
-            job = await queue.enqueue(
-                source_key,
-                "fea_artefacts",
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
-                # derived_key is the manifest path so the worker's
-                # "already cached?" short-circuit lines up with this
-                # endpoint's cache check.
-                derived_key=manifest_key,
-                # A stale/unusable cached manifest EXISTS, so that
-                # short-circuit must be bypassed for the rebake to happen.
-                force_rebuild=force_rebake,
-            )
-        except Exception as exc:
-            logger.exception("fea-manifest: enqueue failed for %s", source_key)
-            await _audit(
-                request,
-                user,
-                scope_obj,
-                "fea_bake",
-                key=source_key,
-                status="error",
-                error=str(exc),
-            )
-            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
-
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "fea_bake",
-            key=source_key,
-            status="queued",
-            job_id=job.job_id,
-        )
-        return JSONResponse(
-            {
-                "job_id": job.job_id,
-                "source_key": source_key,
-                "manifest_key": manifest_key,
-                "status": job.status,
-                "progress": job.progress,
-                "stage": job.stage,
-            },
-            status_code=202,
-        )
 
     @api.get("/convert/{job_id}")
     async def api_convert_status(

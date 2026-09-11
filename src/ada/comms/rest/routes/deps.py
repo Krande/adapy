@@ -34,6 +34,7 @@ class RestContext:
     settings: Settings
     storage: Storage
     queue: JobQueue
+    worker_registry: dict
 
     async def audit(
         self,
@@ -408,6 +409,48 @@ async def live_worker_specs(queue: JobQueue, field: str, fallback_field: str | N
                     if isinstance(slug, str) and slug and slug not in out:
                         out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
     return out
+
+
+async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list[str]:
+    """Union of source-file extensions advertised by every
+    currently-registered worker via its registry entry's
+    ``source_exts`` field.
+
+    adapy itself doesn't know what extensions any particular
+    worker brings — the worker introspects its own
+    stream-reader registry at startup (whatever plug-ins ran
+    before ``ada.comms.rest.worker`` connected) and publishes the
+    resulting suffix set. ``/api/config`` then merges every
+    online worker's list so the upload picker can include them
+    without anything outside the plug-in repeating the list.
+    Workers that fall off the heartbeat (online=false) still
+    contribute briefly; the goal is to keep the picker stable
+    across pod restarts, not to gate on liveness.
+
+    Returns a sorted, lowercased list with a leading dot on each
+    entry — ready to feed into the existing extension-check call
+    sites without further normalisation.
+
+    ``worker_registry`` is the app's cached snapshot (``create_app``'s
+    ``_worker_registry``, refreshed off the request path) — a plain
+    dict rather than a queue method, since reading it must not wait
+    on NATS.
+    """
+    if not queue.enabled:
+        return []
+    workers = worker_registry["workers"]
+    out: set[str] = set()
+    for w in workers:
+        for raw in w.get("source_exts") or []:
+            if not isinstance(raw, str):
+                continue
+            ext = raw.strip().lower()
+            if not ext:
+                continue
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            out.add(ext)
+    return sorted(out)
 
 
 async def advertised_engine_capability(queue: JobQueue, slug: str | None) -> str | None:
