@@ -46,6 +46,7 @@ from .converter import (
 from .handlers import dispatch
 from .plugin_registry import discover_local_plugins
 from .queue import JobQueue
+from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_settings import router as admin_settings_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
@@ -4111,104 +4112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         out = [{"source_key": k, "target_format": t, "done": (k, t) in done_set} for (k, t) in cells]
         return JSONResponse({"run_id": run_id, "scope": scope_str, "cells": out})
 
-    # ── Corpora (M3 admin audit panel) ────────────────────────────────
-    #
-    # GET    /admin/corpora               list live corpora
-    # POST   /admin/corpora               create a corpus
-    # DELETE /admin/corpora/{slug}        archive (soft-delete)
-    #
-    # Per-corpus file management reuses the existing
-    # ``/api/scopes/{scope}/files`` family — corpus is just another
-    # ScopeKind, so listing / uploading / downloading bytes flows
-    # through the same code paths as user / project scopes (now gated
-    # by ``is_admin`` via scope_can_access).
-
-    _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-    @admin.get("/corpora")
-    async def admin_corpora_list(request: Request) -> JSONResponse:
-        pool = _require_pool(request)
-        rows = await db_module.list_corpora(pool)
-        return JSONResponse({"corpora": rows})
-
-    @admin.post("/corpora")
-    async def admin_corpora_create(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Create a new corpus.
-
-        Body: ``{"slug": "cad-baseline", "name": "...",
-                 "description": "..." }``.
-
-        ``slug`` is lowercase ASCII with hyphen separators — used in
-        URLs (``corpus:cad-baseline``) and storage prefixes
-        (``corpus/cad-baseline/``). Duplicate-against-live returns 409
-        via the partial unique index on ``corpora.slug``.
-        """
-        pool = _require_pool(request)
-        body = await request.json() if await request.body() else {}
-        slug = (body.get("slug") or "").strip().lower()
-        name = (body.get("name") or "").strip()
-        description = (body.get("description") or "").strip() or None
-        if not slug or not _SLUG_RE.match(slug):
-            raise HTTPException(
-                status_code=400,
-                detail=("slug must be lowercase ASCII with hyphen separators " "(e.g. 'cad-baseline')"),
-            )
-        if not name:
-            raise HTTPException(status_code=400, detail="name required")
-        try:
-            row = await db_module.create_corpus(
-                pool,
-                slug=slug,
-                name=name,
-                description=description,
-                created_by=user.sub,
-            )
-        except Exception as exc:
-            # asyncpg surfaces unique-violation via ``UniqueViolationError``;
-            # treat that specifically as 409 instead of a generic 500.
-            if exc.__class__.__name__ == "UniqueViolationError":
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"corpus slug {slug!r} already in use",
-                ) from exc
-            raise
-        return JSONResponse(row, status_code=201)
-
-    @admin.patch("/corpora/{slug}")
-    async def admin_corpora_update(slug: str, request: Request) -> JSONResponse:
-        """Update a corpus's display name / description.
-
-        Body: ``{"name": "...", "description": "..."}`` — name required
-        non-empty, empty description clears it. The slug itself is
-        immutable: it's baked into the storage prefix
-        (``corpus/<slug>/``) and scope URLs, so renaming it would
-        orphan the bucket bytes.
-        """
-        pool = _require_pool(request)
-        body = await request.json() if await request.body() else {}
-        name = (body.get("name") or "").strip()
-        description = (body.get("description") or "").strip() or None
-        if not name:
-            raise HTTPException(status_code=400, detail="name required")
-        row = await db_module.update_corpus(pool, slug, name=name, description=description)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
-        return JSONResponse(row)
-
-    @admin.delete("/corpora/{slug}")
-    async def admin_corpora_archive(slug: str, request: Request) -> JSONResponse:
-        """Soft-delete a corpus by slug. Storage bytes are NOT wiped —
-        the operator handles that out-of-band if disk pressure
-        matters. The slug becomes available for reuse immediately
-        because the uniqueness index is partial-on-live."""
-        pool = _require_pool(request)
-        ok = await db_module.archive_corpus(pool, slug)
-        if not ok:
-            raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
-        return JSONResponse({"slug": slug, "archived": True})
+    admin.include_router(admin_corpora_router)
 
     # ── Audit schedules (M4 admin audit panel) ────────────────────────
     #
