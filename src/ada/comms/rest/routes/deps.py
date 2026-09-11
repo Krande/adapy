@@ -21,6 +21,7 @@ from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
 from ..converter import is_supported_source
+from ..job_transport import JobTransport
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
 from ..scope import Scope
@@ -37,6 +38,12 @@ class RestContext:
     settings: Settings
     storage: Storage
     queue: JobQueue
+    #: How this deployment runs jobs — over the queue, or in-process. Built
+    #: once from ``queue.enabled`` (:func:`..job_transport.build_transport`)
+    #: so no route has to ask which shape it is in; see
+    #: :mod:`ada.comms.rest.job_transport` for the contract and for which
+    #: features a queue-less deployment does not have.
+    jobs: JobTransport
     worker_registry: dict
     #: In-process cache of the storage-compression sweep state, keyed by
     #: scope label — see routes/admin_storage.py. The durable copy lives in

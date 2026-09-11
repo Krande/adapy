@@ -31,6 +31,7 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
+from .job_transport import build_transport
 from .plugin_registry import discover_local_plugins
 from .queue import JobQueue
 from .routes.admin_audit_perf import router as admin_audit_perf_router
@@ -358,10 +359,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     compression_state: dict = {}
     # Explicit per-app services for extracted routers (routes/*.py) — what
     # they may reach instead of this closure. See routes/__init__.py.
+    # How this deployment runs jobs. Decided ONCE, here, so no request has to
+    # ask `queue.enabled` and then write its own answer for "and if not?" —
+    # see ada.comms.rest.job_transport.
+    jobs = build_transport(queue, storage, _worker_registry)
     rest_ctx = RestContext(
         settings=settings,
         storage=storage,
         queue=queue,
+        jobs=jobs,
         worker_registry=_worker_registry,
         compression_state=compression_state,
     )
