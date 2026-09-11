@@ -144,9 +144,14 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   const owns = !!mode?.ownsSceneColor;
 
   // Whatever is on screen belongs to the mode being left, if that mode owns the
-  // colouring. Recorded before anything is changed, so coming back to it shows
-  // what was there.
-  if (owner !== null && owner !== mode?.id) ownerViews.set(owner, snapshot());
+  // colouring AND painted a field of its own. Recorded before anything is
+  // changed, so coming back to it shows what was there. A mode that painted
+  // nothing through core leaves the field it set aside in the buffers; that is
+  // the user's field, not the mode's view, and must not come back under it.
+  if (owner !== null && owner !== mode?.id) {
+    if (ownerPainted()) ownerViews.set(owner, snapshot());
+    else ownerViews.delete(owner);
+  }
 
   if (owns) {
     // The view to put back when the LAST owning mode is left. Taken only on the
@@ -159,6 +164,10 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
     const own = ownerViews.get(owner);
     if (own) restore(own);
     else suspend();
+    // A restored view is the mode's own painting; a suspended entry has painted
+    // nothing yet, measured against the field it set aside.
+    ownerReloaded = !!own;
+    ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
     return;
   }
 
@@ -173,6 +182,25 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
 /** The source whose FEA field was last loaded, to tell a new model from a
  * repaint of the one on screen. */
 let loadedSource: string | null = null;
+
+/**
+ * Whether the owning mode on screen has painted a field of its own, and so has
+ * a view to come back to.
+ *
+ * It has when the loader repainted the same source for it (Inspect's property
+ * colouring goes through the loader), or when another field than the one it set
+ * aside on entry is in the buffers. A mode that paints outside core, as a
+ * plugin's overlay does, has done neither: recording its "view" on leaving
+ * captured the set-aside field, and re-entering after the user picked another
+ * field in Results reloaded that one, putting its colours and legend back on
+ * under the mode.
+ */
+let ownerEnteredField: string | null = null;
+let ownerReloaded = false;
+
+function ownerPainted(): boolean {
+  return ownerReloaded || (useFeaAnimationStore.getState().fieldName ?? null) !== ownerEnteredField;
+}
 
 /**
  * Report that the FEA loader has just put a field on screen for `source`.
@@ -192,9 +220,16 @@ let loadedSource: string | null = null;
 export function noteFieldSourceLoaded(source: string | null): void {
   const fresh = source !== loadedSource;
   loadedSource = source;
-  if (!fresh || owner === null) return;
+  if (owner === null) return;
+  if (!fresh) {
+    ownerReloaded = true; // the mode's own painting
+    return;
+  }
   saved = snapshot();
   suspend();
+  // The new model's field is set aside; the mode has painted nothing over it yet.
+  ownerReloaded = false;
+  ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
 }
 
 /**
@@ -215,6 +250,8 @@ export function _resetSceneColorOwnerForTests(): void {
   owner = null;
   saved = null;
   loadedSource = null;
+  ownerEnteredField = null;
+  ownerReloaded = false;
   // What each owning mode was showing goes too, or one test's Inspect view is
   // restored into the next one's.
   ownerViews.clear();
