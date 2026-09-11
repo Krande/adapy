@@ -1,7 +1,6 @@
 import * as THREE from "three";
 
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
-import {runtime} from "@/runtime/config";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
@@ -13,7 +12,8 @@ import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
 import {clipWithModel} from "@/utils/scene/section_clipping";
-import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
+import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
 import {modelKeyMapRef, sceneRef} from "@/state/refs";
@@ -733,7 +733,10 @@ export async function load_fea_streaming(args: {
      *  the in-flight fetch (which doesn't itself accept a signal). */
     signal?: AbortSignal;
 }): Promise<void> {
-    if (!runtime.isRestMode()) {
+    // The mesh, field and sidecar blobs are read by key from the bake's
+    // _derived/ namespace, which only a transport that bakes and serves FEA
+    // manifests can do -- what "REST mode" used to stand in for.
+    if (!capabilities.fea.supports("fetchManifest")) {
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
@@ -1522,7 +1525,7 @@ export async function load_fea_streaming(args: {
  * stays unchecked-but-toggled which the user can interpret as
  * "nothing renderable in this file". */
 export async function load_fea_with_defaults(sourceName: string): Promise<void> {
-    if (!runtime.isRestMode()) {
+    if (!capabilities.fea.supports("fetchManifest")) {
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
@@ -1582,7 +1585,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
 
     let manifest: FeaManifest;
     try {
-        manifest = await viewerApi.feaManifest(scope, sourceName, {
+        manifest = await capabilities.fea.fetchManifest(scope, sourceName, {
             signal: controller.signal,
             onProgress: ({jobId, stage, progress, status}) => {
                 // Race guard: if the user cleared the row between
@@ -1616,7 +1619,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                 const {fetcher, rangeFetcher} = makeViewerApiFetcher(scope, sourceName);
                 const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
                 const sidecar: SidecarFetcher = {
-                    url: (rel) => viewerApi.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
+                    url: (rel) => capabilities.files.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
                     json: async (rel) =>
                         JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
                     bytes: async (rel, range) =>
