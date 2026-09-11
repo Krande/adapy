@@ -3,6 +3,7 @@ import { beforeEach, test } from "node:test";
 
 import {
   _resetSceneColorOwnerForTests,
+  noteFieldSourceLoaded,
   notifyActiveModeSceneColor,
   sceneColorOwner,
 } from "../../utils/scene/fea/modeSceneColor";
@@ -140,5 +141,61 @@ test("two owning modes remember their own views, not each other's", () => {
   assert.deepEqual(
     [useColorStore.getState().min, useColorStore.getState().max],
     [5, 50],
+  );
+});
+
+// A model that loads AFTER an owning mode was entered: the page opened straight
+// into the mode (a restored session, a `?mode=` link), so the suspend on entry
+// saw nothing, and the load then switched its own field's colours and legend on
+// underneath the mode.
+
+/** What the FEA loader leaves on screen once a model's default field is in. */
+function simulateLoad(fieldName: string, min: number, max: number): void {
+  useFeaAnimationStore.setState({ fieldName, stepIndex: 0, layer: undefined });
+  useColorStore.setState({ min, max, showLegend: true });
+}
+
+test("a model loaded under an owning mode is set aside, and is what leaving shows", () => {
+  useFeaAnimationStore.setState({ fieldName: null });
+  useColorStore.setState({ showLegend: false });
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+  assert.equal(sceneColorOwner(), "capacity");
+
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+test("a reload of the same source is the owning mode's own painting", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Inspect paints by property through the same loader.
+  simulateLoad("props.material", 1, 3);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, true);
+});
+
+test("without an owning mode a load changes nothing", () => {
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(sceneColorOwner(), null);
+  assert.equal(useColorStore.getState().showLegend, true);
+});
+
+test("another model opened inside an owning mode replaces the view to put back", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // saved: g_stress
+  simulateLoad("sesam.nodes.displacement", 0, 12);
+  noteFieldSourceLoaded("other.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+
+  notifyActiveModeSceneColor({ id: "results" });
+  // The field that was saved on entry belonged to a model no longer loaded.
+  assert.deepEqual(
+    [useColorStore.getState().min, useColorStore.getState().max],
+    [0, 12],
   );
 });

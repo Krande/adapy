@@ -31,6 +31,7 @@ import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
+import {noteFieldSourceLoaded} from "../fea/modeSceneColor";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
@@ -1424,6 +1425,12 @@ export async function load_fea_streaming(args: {
         animStore.setStepIndex(0);
         useColorStore.getState().setShowLegend(false);
     }
+
+    // The colours and legend above assume nobody else owns the scene colouring.
+    // A mode that does (capacity, inspect) was entered before this model loaded
+    // when the page opened straight into it; the arbiter sets a new model's field
+    // aside under it, and leaves a repaint of the same source to the mode.
+    noteFieldSourceLoaded(sourceName);
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the
