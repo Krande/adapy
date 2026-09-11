@@ -4,6 +4,7 @@ import { PositionedMenu } from "@/components/common/PositionedMenu";
 import DetailingPanel from "@/components/viewer/DetailingPanel";
 import { hasEmbeddedDoc, type SystemConnection, useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
+import { openLocalModel as openLocalModelDecision } from "@/utils/cellbuilder/localModelBrowser";
 import { typePickerItems } from "@/utils/cellbuilder/ports";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 
@@ -21,7 +22,7 @@ import { useTreeViewStore } from "@/state/treeViewStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
 import { runtime } from "@/runtime/config";
-import { capabilities } from "@/services/capabilities";
+import { capabilities, LOCAL_MODEL_SCOPE, type ProceduralModelEntry } from "@/services/capabilities";
 import {
   highlightSystems,
   revertSystemHighlight,
@@ -670,6 +671,57 @@ const CellBuilderPanel: React.FC = () => {
   const [openingMenuOpen, setOpeningMenuOpen] = React.useState(false);
   const [compileMenuOpen, setCompileMenuOpen] = React.useState(false);
   const [tab, setTab] = React.useState<PanelTab>("build");
+
+  // Local-disk model browser (ws/REST parity plan, step 6): only the websocket transport ever
+  // has anything to list (`supports("listModels")` is unconditionally false over REST -- see
+  // `RESTProceduralModelCapability`), so this whole section renders nothing there.
+  const localModelsBtnRef = React.useRef<HTMLButtonElement>(null);
+  const [localModelsMenuOpen, setLocalModelsMenuOpen] = React.useState(false);
+  const [localModels, setLocalModels] = React.useState<ProceduralModelEntry[]>([]);
+  const [localModelsBusy, setLocalModelsBusy] = React.useState(false);
+  const [localModelsError, setLocalModelsError] = React.useState<string | null>(null);
+  const listModelsSupported = capabilities.procedural.supports("listModels");
+
+  const refreshLocalModels = React.useCallback(() => {
+    if (!listModelsSupported) return;
+    setLocalModelsBusy(true);
+    setLocalModelsError(null);
+    capabilities.procedural
+      .listModels(LOCAL_MODEL_SCOPE)
+      .then((entries) => {
+        // Most recently saved first -- the model someone is most likely reopening.
+        setLocalModels([...entries].sort((a, b) => b.modifiedAt - a.modifiedAt));
+      })
+      .catch((e) => setLocalModelsError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLocalModelsBusy(false));
+  }, [listModelsSupported]);
+
+  // List once up front so the browser has something to show the first time it's opened, without
+  // requiring an explicit click first.
+  React.useEffect(() => {
+    refreshLocalModels();
+  }, [refreshLocalModels]);
+
+  // Open a local model through the store's existing public open()/loadFromDoc() path -- the
+  // fetch-then-decide logic itself lives in `openLocalModel` (utils/cellbuilder/localModelBrowser)
+  // so it is testable against a fake capability; this panel only wires it to the real one and to
+  // `useCellBuilderStore`'s public actions, never its internals.
+  const handleOpenLocalModel = React.useCallback((entry: ProceduralModelEntry) => {
+    void openLocalModelDecision(entry, {
+      fetchModel: (source) => capabilities.procedural.fetchModel(source),
+      canEdit: capabilities.procedural.canEdit,
+      open: useCellBuilderStore.getState().open,
+      loadFromDoc: useCellBuilderStore.getState().loadFromDoc,
+    }).then((result) => {
+      if (result.ok) {
+        setLocalModelsMenuOpen(false);
+        setLocalModelsError(null);
+      } else {
+        setLocalModelsError(result.error);
+      }
+    });
+  }, []);
+
   const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
   const cellCount = Object.keys(s.cells).length;
   const systemCount = Object.keys(s.systems).length;
@@ -872,8 +924,64 @@ const CellBuilderPanel: React.FC = () => {
         {s.dirty && (
           <span className="text-amber-400 whitespace-nowrap">● unsaved</span>
         )}
+        {listModelsSupported && (
+          <button
+            ref={localModelsBtnRef}
+            className="ml-auto px-1.5 py-0.5 rounded-sm hover:bg-gray-500/40 whitespace-nowrap"
+            title="Browse procedural models saved to local disk"
+            onClick={() => {
+              if (!localModelsMenuOpen) refreshLocalModels();
+              setLocalModelsMenuOpen((v) => !v);
+            }}
+          >
+            Local models ▾
+          </button>
+        )}
+        {localModelsMenuOpen && (
+          <PositionedMenu
+            anchor={{
+              kind: "rect",
+              getRect: () => localModelsBtnRef.current?.getBoundingClientRect(),
+            }}
+            ignoreOutsideRef={localModelsBtnRef}
+            onClose={() => setLocalModelsMenuOpen(false)}
+            header={
+              <span className="font-medium text-gray-200 flex items-center gap-2">
+                Local models
+                <button
+                  className="ml-auto text-gray-400 hover:text-white disabled:opacity-40"
+                  title="Refresh"
+                  disabled={localModelsBusy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshLocalModels();
+                  }}
+                >
+                  ⟳
+                </button>
+              </span>
+            }
+            items={
+              localModelsError
+                ? [{ key: "error", label: localModelsError, disabled: true, onClick: () => {} }]
+                : localModelsBusy && localModels.length === 0
+                  ? [{ key: "loading", label: "Loading…", disabled: true, onClick: () => {} }]
+                  : localModels.length
+                    ? localModels.map((entry) => ({
+                        key: entry.modelId,
+                        label: entry.modelId,
+                        title: `${new Date(entry.modifiedAt).toLocaleString()} — ${entry.sizeBytes} bytes`,
+                        onClick: () => handleOpenLocalModel(entry),
+                      }))
+                    : [{ key: "empty", label: "No models saved yet", disabled: true, onClick: () => {} }]
+            }
+          />
+        )}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          className={
+            (listModelsSupported ? "" : "ml-auto ") +
+            "px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+          }
           title="Undo (Ctrl+Z)"
           disabled={s.past.length === 0}
           onClick={s.undo}
@@ -2054,7 +2162,14 @@ const CellBuilderPanel: React.FC = () => {
         <button
           className={btnGray}
           disabled={readOnly || !s.dirty || s.committing}
-          onClick={() => void s.commit()}
+          onClick={() => {
+            // The local-disk browser's listing (mtime/hash/size) goes stale the moment a commit
+            // writes a new revision to the same model_id -- refresh it so a reopened browser
+            // shows what is actually on disk now, not the pre-commit snapshot.
+            void s.commit().then((ok) => {
+              if (ok) refreshLocalModels();
+            });
+          }}
           title={
             readOnly
               ? "This model was loaded from the scene, not opened from storage — there is nowhere to commit it back to."
