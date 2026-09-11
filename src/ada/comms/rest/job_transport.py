@@ -221,7 +221,7 @@ class JobTransport(Protocol):
     async def advertised_specs(self, spec_field: str, fallback_field: str | None = None) -> dict[str, dict]:
         """Catalog-shaped specs advertised by live workers, keyed by slug."""
 
-    def local_specs(self) -> dict[str, dict] | None:
+    def local_specs(self) -> list[dict] | None:
         """Specs registered in THIS process, or None when a pool is what
         decides what is online. See :func:`.plugin_registry.locally_registered_specs`."""
 
@@ -335,7 +335,7 @@ class QueueJobTransport(_BaseTransport):
 
         return await live_worker_specs(self._queue, spec_field, fallback_field)
 
-    def local_specs(self) -> dict[str, dict] | None:
+    def local_specs(self) -> list[dict] | None:
         # Behind a queue a job goes to a worker, so a spec this API process
         # happens to have imported says nothing about whether one is up.
         return None
@@ -419,7 +419,7 @@ class LocalJobTransport(_BaseTransport):
         # definition, being the thing that would run the job.
         return {}
 
-    def local_specs(self) -> dict[str, dict] | None:
+    def local_specs(self) -> list[dict] | None:
         from .plugin_registry import locally_registered_specs
 
         return locally_registered_specs()

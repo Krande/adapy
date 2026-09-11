@@ -243,7 +243,6 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     to the row, because a schedule that silently does nothing is the failure
     this whole feature exists to remove.
     """
-    queue = ctx.queue
     sched_id = schedule_row["id"]
     plugin_id = schedule_row["plugin_id"]
 
@@ -280,15 +279,16 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
         # would let a schedule fire exactly ONCE and then block itself for good,
         # which is a worse failure than the double-firing the guard prevents.
         #
-        # So each candidate is checked against the queue, which the worker DOES
-        # update. A missing entry is decisive too: it means the job is gone from
-        # the queue entirely, so nothing is going to run it whatever the row says.
+        # So each candidate is checked against the TRANSPORT, which whatever ran
+        # the job DOES update. A missing entry is decisive too: it means the job
+        # is gone from the queue entirely, so nothing is going to run it
+        # whatever the row says.
         in_flight = None
         for candidate in candidates:
-            entry = await queue.get(candidate) if queue.enabled else None
+            entry = await ctx.jobs.status(candidate)
             if entry is None:
                 continue
-            if str(getattr(entry, "status", "") or "").lower() in ("queued", "running"):
+            if entry.status.lower() in ("queued", "running"):
                 in_flight = candidate
                 break
     except Exception:
