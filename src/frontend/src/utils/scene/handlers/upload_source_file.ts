@@ -1,7 +1,8 @@
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {ensureBakedFeaManifest, ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
-import {viewerApi, ScopeUrl} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
+import type {ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useOptionsStore} from "@/state/optionsStore";
 
@@ -188,7 +189,7 @@ export async function uploadFile(
         // and the error bubbles to the caller — we don't transparently
         // fall back to the buffered path because that would silently
         // 413 on this same request anyway.
-        const presigned = await viewerApi.requestUploadUrl(scope, key, file.size);
+        const presigned = await capabilities.files.requestUploadUrl(scope, key, file.size);
         // The server cannot observe this PUT — that is the whole point of a
         // presigned URL — so the progress event firing right here, in THIS
         // tab, is the only place real numbers exist. Heartbeat a throttled
@@ -205,15 +206,15 @@ export async function uploadFile(
             const now = Date.now();
             if (loaded >= total || now - lastHeartbeatAt >= HEARTBEAT_MIN_INTERVAL_MS) {
                 lastHeartbeatAt = now;
-                void viewerApi.uploadProgress(scope, key, loaded, total);
+                void capabilities.files.reportUploadProgress(scope, key, loaded, total);
             }
         };
         await putToPresignedUrl(
             presigned.url, file, heartbeatingOnProgress, presigned.content_encoding,
         );
-        await viewerApi.completeUpload(scope, key);
+        await capabilities.files.completeUpload(scope, key);
     } else {
-        await viewerApi.putBlob(scope, key, file, {onProgress: opts?.onProgress});
+        await capabilities.files.putBlob(scope, key, file, {onProgress: opts?.onProgress});
     }
     await request_list_of_files_from_server();
 
