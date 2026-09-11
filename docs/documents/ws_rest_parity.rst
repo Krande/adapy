@@ -2,12 +2,67 @@ Websocket and REST as peers: local disk as a storage backend
 ==============================================================
 
 .. note::
-   A **plan**, not a description of what exists. Step 0 below is done and step 1 (request
-   correlation) is in progress on the branch this document landed on; everything from step 2 on is
-   still a plan. The ``ProceduralModelCapability`` seam it builds on (including ``canEdit``) was
-   written on the ``fix/viewer-procedural-panels`` branch and is now folded in alongside this
-   document, so citations below marked *(branch)* resolve here too. Delete this document, or fold
-   what survives into the comms docs, once the work lands.
+   A **plan**, not a description of what exists. Steps 0-2 (panel gating on ``canEdit``, request
+   correlation) and step 3 (``SAVE_PROCEDURAL_MODEL``) are done -- see "Status: save has landed"
+   below for what shipped and the decisions it made; everything from step 4 on is still a plan. The
+   ``ProceduralModelCapability`` seam it builds on (including ``canEdit``) was written on the
+   ``fix/viewer-procedural-panels`` branch and is now folded in alongside this document, so
+   citations below marked *(branch)* resolve here too. Delete this document, or fold what survives
+   into the comms docs, once the work lands.
+
+Status: save has landed
+--------------------------
+
+``SAVE_PROCEDURAL_MODEL`` (step 3 below) is implemented end to end: schema, handler, and the
+websocket capability. What follows is a record of the decisions the traps below forced, kept next
+to the plan that predicted them rather than folded silently into the code.
+
+* **Scope sentinel.** ``LOCAL_MODEL_SCOPE = "local:disk"`` (``services/capabilities/types.ts``),
+  not ``"user:me"``. ``cellBuilderStore.currentScopePart()`` returns it whenever no real scope is
+  selected *and* the active transport is ``"ws"``; REST still falls back to ``"user:me"`` in the
+  (should-not-happen) case of no scope, so nothing about REST's behaviour changed. The REST side has
+  no code path that produces or recognises the sentinel, so a scope string leaking into a REST call
+  by mistake fails the same way any other unrecognised scope segment would -- by absence of support,
+  not a special-cased guard.
+* **model_id.** Still an opaque token, never a path, on both ends. The client derives one from the
+  scene's source name (``utils/cellbuilder/localModelId.ts``'s ``localModelIdFromSourceName``),
+  sanitised to the handler's allow-list (letters/digits/``.``/``_``/``-``, 1-128 chars, starting
+  with a letter or digit) rather than passed through raw and left to fail on the first commit. The
+  handler (``ada.comms.msg_handling.save_procedural_model``) independently validates the same
+  allow-list before it ever builds a path, and re-checks path containment on the resolved path as a
+  second line of defence -- it does not trust the client's sanitisation to have happened at all.
+* **Revision / hash.** The wire protocol carries a real sha256 content hash
+  (``ProceduralModelSave.expected_content_hash`` / ``ProceduralModelSaveReply.content_hash``), not
+  mtime. The TypeScript seam, however, still exposes the REST-shaped numeric ``revision`` --
+  changing that interface to carry a hash everywhere would ripple through ``cellBuilderStore``'s
+  ``active.revision`` and the panel's ``r{revision}`` display, which is exactly the "larger than any
+  single verb" refactor this document warns against attempting in one step. The compromise:
+  ``WSProceduralModelCapability`` tracks each ``model_id``'s last hash itself (session-local,
+  ``knownHashes``) and threads it back as ``expected_content_hash`` on the next commit for that id,
+  so sequential saves within one running viewer *do* get real optimistic concurrency (a stale hash
+  still surfaces as ``ProceduralCommitConflictError``) -- it is only the numeric ``revision`` the
+  interface returns that is always ``0`` rather than a meaningless encoding of a hash.
+* **``canEdit``.** "Simply when the socket is connected"
+  (``useWebsocketStatusStore.getState().connected``), not a capability probe. A probe would still
+  need the socket connected to answer at all, and ``commitModel`` fails no worse on a mid-edit
+  disconnect than a stale probe answer would -- connectivity is the simpler signal for the same
+  result.
+* **Per-verb ``supports``.** Landing save flips ``canEdit`` for the whole capability, which would
+  have silently re-enabled every OTHER write control the panel gates on ``canEdit`` alone (resync,
+  propose relocations, compile/preview, xlsx/IFC/Genie export, the per-scope catalog admin
+  subpanels) even though none of those verbs exist over the websocket yet. Rather than let those
+  surface as repeated ``CapabilityUnavailableError`` toasts on click, ``ProceduralModelCapability``
+  grew ``supports(verb)`` (REST: always true; WS: true only for ``"commitModel"`` today), and
+  ``CellBuilderPanel`` gates each of those controls on it alongside ``readOnly``.
+* **Opening a real session.** A websocket load with an embedded procedural document and
+  ``canEdit`` true now calls ``cellBuilderStore.open()`` (real session, ``active`` set) instead of
+  the view-only ``loadFromDoc()`` (``setupModelLoaderAsync``) -- otherwise the Commit button would
+  stay disabled forever (it also requires ``s.active``). This is the intended consequence of a save
+  path existing, not a workaround: it also turns on the gizmo/context-menu editing surface that
+  gates on ``active``, which is what "the panel becomes honestly editable" means in practice.
+
+``LOAD_PROCEDURAL_MODEL`` (loading a model back off disk by id, and step 6's local-disk browser)
+did not fall out trivially alongside save and is left for a follow-up.
 
 The viewer has two transports. Over REST it talks to a FastAPI app with Postgres, object storage,
 NATS and a worker pool behind it. Over websocket it talks to a Python process on the user's own
@@ -211,9 +266,9 @@ Migration: smallest useful first
    every verb below. Do it once, before any of them. *In progress:* websocket request correlation
    (``request_id`` on ``Message``) is being landed on the same branch as this document; the
    change that adds it is the reference for its API, not this plan.
-3. **``SAVE_PROCEDURAL_MODEL``.** Handler writes the document to a path and replies with whatever
-   concurrency token the design settles on (see the traps). Flip
-   ``WSProceduralModelCapability.canEdit`` to ``true``; revert step 0's guard on the Commit button.
+3. **``SAVE_PROCEDURAL_MODEL``.** *Done -- see "Status: save has landed" above.* Handler writes the
+   document to a path and replies with a content-hash concurrency token; ``canEdit`` now tracks
+   socket connectivity instead of being hard-coded ``false``.
 4. **Type catalogs over the websocket.** One verb serving all five, or five thin ones. Pure function
    calls (category (i)); the panel's dropdowns stop being empty.
 5. **``COMPILE_PROCEDURAL``.** In-process ``ada.topo_model.compile``, replying with a GLB the
@@ -243,11 +298,14 @@ is threaded into every procedural call. Locally there are no scopes and no users
 passing ``"user:me"`` locally *works by accident* and then quietly means something the day a local
 model is synced to a server. Model local as an explicit sentinel the websocket transport recognises
 and the REST transport rejects -- not by reusing a real scope string that happens to be the default.
+**Resolved:** ``LOCAL_MODEL_SCOPE`` -- see "Status: save has landed" above.
 
 *Model id: opaque token vs file path.* REST treats ``modelId`` as an opaque URL-encoded token. A
 path can be stuffed into that slot and it will appear to work, which is exactly why it should not
 be: separators, drive letters and case-insensitive comparison on Windows all leak into a field every
 consumer assumes is opaque. Give a local model a stable id and carry the path as its own field.
+**Resolved:** an allow-list-validated opaque token on both the client (derived from the source name)
+and the handler (which does not trust the client's derivation) -- see "Status: save has landed".
 
 *Revisions and optimistic concurrency.* ``commit`` sends ``base_revision`` and handles HTTP 409
 (``cellBuilderStore.ts:3200``); the panel renders ``r{revision}`` in its header and footer. A file
@@ -256,7 +314,8 @@ resolution, and it moves backwards on restore-from-backup, so as a concurrency t
 detect a real conflict. Either use a content hash, or drop the concept for local models (revision
 ``0``, no conflict path) and say so. Do not pretend mtime is a revision number. Note that the
 panel's ``r{...}`` display is an unconditional dereference of ``active`` that step 0 has to make
-optional anyway.
+optional anyway. **Resolved, as a hybrid of both options:** a real content hash on the wire, but the
+numeric ``revision`` this interface exposes stays ``0`` -- see "Status: save has landed" above.
 
 *Derived-key round-trips.* REST compile returns a blob key the frontend then fetches back. Locally
 the bytes are already in the process that produced them; addressing them through a key-value store
@@ -278,9 +337,9 @@ edit" is satisfiable without anything reaching disk.
 * **Step 2 (correlation).** Two requests of the *same* verb issued back-to-back over the websocket
   both resolve, each with its own response, verified by a test that interleaves them deliberately
   rather than by two sequential calls that happen to pass.
-* **Step 3 (save).** Edit a procedural model in the local viewer opened via ``assembly.show()``,
-  save it, kill the process, reopen the file from disk, and see the edit -- with the Commit button
-  enabled because ``canEdit`` is true, not because a guard was removed.
+* **Step 3 (save).** *Done.* Edit a procedural model in the local viewer opened via
+  ``assembly.show()``, save it, kill the process, reopen the file from disk, and see the edit --
+  with the Commit button enabled because ``canEdit`` is true, not because a guard was removed.
 * **Step 4 (catalogs).** The Equipment/Systems dropdowns in the local viewer list the same types
   ``ada.api.systems.list_system_types()`` returns in a REPL in the same environment. Same source,
   so the comparison is exact, not approximate.
