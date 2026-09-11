@@ -23,6 +23,8 @@ const SystemAdminPanel = React.lazy(
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
+import { runtime } from "@/runtime/config";
+import { capabilities } from "@/services/capabilities";
 import {
   highlightSystems,
   revertSystemHighlight,
@@ -54,6 +56,20 @@ const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
 const FACE_LABELS = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
+
+/** Is the loaded procedural document view-only?
+ *
+ * True when there is no editable session (`active` is null -- the document came
+ * off a GLB via `loadFromDoc`, see that action), or when the transport serving
+ * it cannot commit an edit back. The second half reads
+ * `capabilities.procedural.canEdit`, which is false on the websocket path only
+ * because no save verb is implemented over the websocket YET -- adapy itself is
+ * right there on the other end of the socket. When that verb lands, flipping
+ * `canEdit` re-enables every control gated on this without the panel changing.
+ *
+ * Shared by the panel and `SystemsTab`, which read the store independently. */
+const isReadOnly = (s: { active: unknown | null }): boolean =>
+  !s.active || !capabilities.procedural.canEdit;
 
 // One-line description of what the keyboard tool is doing right now, for the
 // Build-tab status row: a live extrude/loft entry (toolHint) wins, else the
@@ -342,7 +358,10 @@ const SystemsTab: React.FC = () => {
         >
           +add
         </button>
-        {selectedAdd?.origin === "code" && (
+        {/* Writes into a per-scope DB catalog, which read-only mode has none of --
+            locally the built-in code kinds ARE the catalog, so there is nothing
+            to sync them into. Hidden rather than disabled for that reason. */}
+        {selectedAdd?.origin === "code" && !isReadOnly(s) && (
           <button
             className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
             title="Sync this built-in system kind into the scope's DB catalog"
@@ -760,7 +779,19 @@ const CellBuilderPanel: React.FC = () => {
     setSheetPx(snapped);
   };
 
-  if (!s.active || !s.panelVisible) return null;
+  // Either an editable session (`active`) or a view-only document loaded off a
+  // GLB (`embeddedDoc`) is enough to show the panel; what differs is what the
+  // panel LETS YOU DO, which is decided per-control by `readOnly` below rather
+  // than by hiding the whole tool.
+  if ((!s.active && !s.embeddedDoc) || !s.panelVisible) return null;
+
+  // No editable session behind this document. Today that is exactly the
+  // websocket/desktop path: `capabilities.procedural.canEdit` is false there
+  // because no save verb is implemented over the websocket yet -- not because
+  // there is nothing on the other end of the socket (adapy is right there; it
+  // is what pushed this model in). When that verb lands, `canEdit` flips and
+  // these controls come back without the panel needing to know.
+  const readOnly = isReadOnly(s);
 
   const compileState = s.compileJob;
   const compileBusy =
@@ -821,10 +852,20 @@ const CellBuilderPanel: React.FC = () => {
 
       {/* ── pinned header ── */}
       <div className="shrink-0 flex items-center gap-2 px-2.5 py-2 border-b border-gray-600/50">
-        <span className="font-semibold truncate" title={s.active.modelId}>
-          {s.active.name}
+        {/* An embedded document has no model id, name or revision -- it came out
+            of a GLB, not out of a stored model -- so the header names what it is
+            instead of dereferencing a session that isn't there. */}
+        <span
+          className="font-semibold truncate"
+          title={s.active?.modelId ?? "Loaded from the model in the scene"}
+        >
+          {s.active?.name ?? "Procedural model"}
         </span>
-        <span className="text-gray-400">r{s.active.revision}</span>
+        {s.active ? (
+          <span className="text-gray-400">r{s.active.revision}</span>
+        ) : (
+          <span className="text-gray-400 whitespace-nowrap">read-only</span>
+        )}
         {s.dirty && (
           <span className="text-amber-400 whitespace-nowrap">● unsaved</span>
         )}
@@ -1536,21 +1577,32 @@ const CellBuilderPanel: React.FC = () => {
         {/* EQUIPMENT — the per-scope equipment catalog, inline (browse / select
             / manage). Mounted only while active so its WebGL preview and fetch
             spin up on demand. */}
+        {/* The catalog admin panels edit a PER-SCOPE DB catalog, which read-only
+            mode has none of, so they are omitted there entirely -- rendering them
+            would show empty CRUD tables over a store that cannot be written. The
+            equipment/systems the loaded document actually uses are still listed
+            below; it is only the catalog editor that goes away. */}
         <div className={tab === "equipment" ? "block" : "hidden"}>
-          {tab === "equipment" && (
-            <React.Suspense
-              fallback={<p className="text-gray-500">Loading catalog…</p>}
-            >
-              <EquipmentAdminPanel embedded />
-            </React.Suspense>
-          )}
+          {tab === "equipment" &&
+            (readOnly ? (
+              <p className="italic text-gray-500">
+                The equipment catalog is served by the model store, which this
+                model was not loaded from.
+              </p>
+            ) : (
+              <React.Suspense
+                fallback={<p className="text-gray-500">Loading catalog…</p>}
+              >
+                <EquipmentAdminPanel embedded />
+              </React.Suspense>
+            ))}
         </div>
 
         {/* SYSTEMS — the system-template catalog (inline, on demand) above the
             service-runs inspector. SystemsTab stays mounted (hidden) so its
             auto-highlight effect keeps tracking a freshly-loaded result. */}
         <div className={tab === "systems" ? "block" : "hidden"}>
-          {tab === "systems" && (
+          {tab === "systems" && !readOnly && (
             <React.Suspense fallback={null}>
               <SystemAdminPanel embedded />
             </React.Suspense>
@@ -1641,8 +1693,13 @@ const CellBuilderPanel: React.FC = () => {
             />
             Side-by-side (result beside topology)
           </label>
+          {/* Needs `active.modelId` (the follower fetches that model's builds), so
+              it is gated on `readOnly` as well as on the file:// origin -- the
+              non-null assertion below is only safe because both keep it
+              unclickable when there is no session. */}
           <button
             className={btnGray + " self-start"}
+            disabled={readOnly || runtime.isFileOrigin()}
             onClick={() => {
               const scope = useScopeStore.getState().current;
               const scopePart = scope ? scopeUrlPart(scope) : "user:me";
@@ -1652,7 +1709,13 @@ const CellBuilderPanel: React.FC = () => {
                 "noopener",
               );
             }}
-            title="Open a second window that shows this model's compiled result and updates live as you edit here (⇧↵ recompiles a preview). Best across two screens."
+            title={
+              readOnly
+                ? "Needs an editable model — a follower window follows the builds of a model opened from storage."
+                : runtime.isFileOrigin()
+                  ? "Not available in a locally opened file — a follower window needs a real server origin to share (BroadcastChannel and window.open() both require one)."
+                  : "Open a second window that shows this model's compiled result and updates live as you edit here (⇧↵ recompiles a preview). Best across two screens."
+            }
           >
             Open result in new window
           </button>
@@ -1711,19 +1774,29 @@ const CellBuilderPanel: React.FC = () => {
         {/* TOOLS */}
         <div className={tab === "tools" ? "flex flex-col gap-2" : "hidden"}>
           <div className="flex items-center gap-1 flex-wrap">
+            {/* Resync writes to a per-scope DB catalog. Read-only mode has no such
+                catalog to write into -- locally the code archetypes ARE the
+                catalog -- so this is hidden rather than disabled: it is not a
+                feature awaiting a transport, it is meaningless without a server. */}
+            {!readOnly && (
+              <button
+                className={btnGray}
+                disabled={s.resyncBusy}
+                onClick={() => void s.resyncEquipmentTypes()}
+                title="Update this scope's equipment catalog from the built-in code archetypes (new ports, corrected nozzle heights). Recompile afterwards to pick up the changes."
+              >
+                {s.resyncBusy ? "Resyncing…" : "Resync equipments"}
+              </button>
+            )}
             <button
               className={btnGray}
-              disabled={s.resyncBusy}
-              onClick={() => void s.resyncEquipmentTypes()}
-              title="Update this scope's equipment catalog from the built-in code archetypes (new ports, corrected nozzle heights). Recompile afterwards to pick up the changes."
-            >
-              {s.resyncBusy ? "Resyncing…" : "Resync equipments"}
-            </button>
-            <button
-              className={btnGray}
-              disabled={s.relocationBusy}
+              disabled={readOnly || s.relocationBusy}
               onClick={() => void s.proposeRelocations()}
-              title="Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
+              title={
+                readOnly
+                  ? "Needs an editable model — relocations are proposed against a model you can then apply them to."
+                  : "Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
+              }
             >
               {s.relocationBusy ? "Analyzing…" : "Propose relocations"}
             </button>
@@ -1906,10 +1979,12 @@ const CellBuilderPanel: React.FC = () => {
             // itself OR the equipment/system CATALOGS this model draws from (edited
             // in the catalog window, so the doc stays "clean" and needsPreviewCompile
             // can't see it) — and returns the cached result cheaply when nothing has.
-            disabled={compileBusy || !s.active}
+            disabled={compileBusy || readOnly}
             onClick={() => void s.compilePreviewSelected()}
             title={
-              "Compile a preview of the current model (⇧↵) at the selected level(s) of detail. Rebuilds when the model — or the equipment/system catalog it uses — changed since the last compile; serves the cached result otherwise. Nothing is saved."
+              readOnly
+                ? "This model is already the compiled result in the scene — recompiling needs an editable model to compile from."
+                : "Compile a preview of the current model (⇧↵) at the selected level(s) of detail. Rebuilds when the model — or the equipment/system catalog it uses — changed since the last compile; serves the cached result otherwise. Nothing is saved."
             }
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
@@ -1920,7 +1995,7 @@ const CellBuilderPanel: React.FC = () => {
           <button
             ref={compileCaretRef}
             className={btn + " rounded-l-none border-l border-white/25 px-1.5"}
-            disabled={compileBusy}
+            disabled={compileBusy || readOnly}
             title="More compile options"
             onClick={() => setCompileMenuOpen((v) => !v)}
           >
@@ -1955,14 +2030,18 @@ const CellBuilderPanel: React.FC = () => {
         )}
         <button
           className={btnGray}
-          disabled={!s.dirty || s.committing}
+          disabled={readOnly || !s.dirty || s.committing}
           onClick={() => void s.commit()}
-          title="Commit the current state as a new revision. If you've previewed this exact model, the commit promotes that build — no recompile."
+          title={
+            readOnly
+              ? "This model was loaded from the scene, not opened from storage — there is nowhere to commit it back to."
+              : "Commit the current state as a new revision. If you've previewed this exact model, the commit promotes that build — no recompile."
+          }
         >
           {s.committing ? "Committing…" : "Commit"}
         </button>
         <span className="ml-auto text-gray-400 whitespace-nowrap">
-          r{s.active.revision}
+          {s.active ? `r${s.active.revision}` : "read-only"}
         </span>
       </div>
     </div>

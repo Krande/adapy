@@ -24,6 +24,7 @@ from ada.topology.grid import CellGrid, GridIndex
 if TYPE_CHECKING:
     from ada.api.systems.base import System
     from ada.api.systems.ports import Port
+    from ada.api.systems.segments import SystemSegment
 
 __all__ = [
     "RoutingError",
@@ -36,6 +37,8 @@ __all__ = [
     "swept_bend_params",
     "path_to_polyline",
     "route_system",
+    "route_branched_system",
+    "system_route_polylines",
     "system_route_to_geometry",
     "occupy_run",
     "occupy_faces",
@@ -583,6 +586,147 @@ def _route_swept(
     return polyline
 
 
+# --------------------------------------------------------------------------- #
+# Branch topology -- a System whose segments meet at a shared junction
+# --------------------------------------------------------------------------- #
+@dataclass
+class _BranchLeg:
+    segment: SystemSegment
+    leaf_port: Port
+    junction_port: Port
+
+
+@dataclass
+class _BranchTree:
+    legs: list[_BranchLeg]
+
+
+def _branch_topology(system: System) -> _BranchTree | None:
+    """``system.segments`` as a branch tree, or ``None`` when it isn't one.
+
+    A branch is "three (or more) runs meeting at a box": every segment has one
+    end on the SAME junction equipment -- a distinct port per segment, so a tee
+    gets exactly three -- and its other end elsewhere. Fewer than two segments
+    is never a branch (an ordinary two-port system, or a single segment kept
+    only for round-trip detail); two or more that do NOT share a junction
+    raises rather than silently guessing an interpretation -- a caller that
+    populated ``system.segments`` with more than one entry meant something
+    specific by it (see :func:`route_system`, which dispatches here on exactly
+    that count)."""
+    segments = system.segments
+    if len(segments) < 2:
+        return None
+
+    parent_counts: dict[int, int] = defaultdict(int)
+    ends_by_parent: dict[int, list[tuple[SystemSegment, str, Port]]] = defaultdict(list)
+    for seg in segments:
+        if seg.from_port is None or seg.to_port is None:
+            raise RoutingError(f"system {system.name!r}: segment {seg.name!r} has an unresolved end")
+        if seg.from_port.parent is seg.to_port.parent:
+            raise RoutingError(f"system {system.name!r}: segment {seg.name!r} has both ends on the same equipment")
+        for end, port in (("from", seg.from_port), ("to", seg.to_port)):
+            parent_counts[id(port.parent)] += 1
+            ends_by_parent[id(port.parent)].append((seg, end, port))
+
+    junction_parents = [pid for pid, count in parent_counts.items() if count >= 3]
+    if len(junction_parents) != 1:
+        raise RoutingError(
+            f"system {system.name!r} has {len(segments)} segment(s) but no single shared junction "
+            f"equipment (found {len(junction_parents)} candidate(s) with 3+ legs); branch routing "
+            "supports exactly one junction per system"
+        )
+    junction_entries = ends_by_parent[junction_parents[0]]
+    if len(junction_entries) != len(segments):
+        raise RoutingError(f"system {system.name!r}: every leg must terminate at the shared junction equipment")
+
+    legs = [
+        _BranchLeg(segment=seg, leaf_port=(seg.to_port if end == "from" else seg.from_port), junction_port=port)
+        for seg, end, port in junction_entries
+    ]
+    return _BranchTree(legs=legs)
+
+
+def _select_trunk(legs: list[_BranchLeg]) -> tuple[_BranchLeg, _BranchLeg]:
+    """The two legs whose leaf ports sit farthest apart -- the trunk, per the doc's own heuristic
+    ("the two ports furthest apart, or the two the P&ID marks as the main line"). Every other leg
+    is a branch off it."""
+    best: tuple[_BranchLeg, _BranchLeg] | None = None
+    best_dist = -1.0
+    for i in range(len(legs)):
+        for j in range(i + 1, len(legs)):
+            a = ada.Point(*legs[i].leaf_port.get_global_position())
+            b = ada.Point(*legs[j].leaf_port.get_global_position())
+            dist = _seg_len(a, b)
+            if dist > best_dist:
+                best_dist = dist
+                best = (legs[i], legs[j])
+    return best
+
+
+def route_branched_system(
+    system: System, grid: CellGrid, rules: RoutingRules | None = None, stub_len: float | None = None
+) -> dict[str, list[ada.Point]]:
+    """Route a branched system: every leg (``system.segments``) already has two fully-resolved
+    ports -- a leaf (equipment/site) port and this leg's own dedicated port on the shared junction
+    equipment -- so each leg routes as an ordinary two-port run (:func:`route_system` with explicit
+    ``start``/``end``); the junction fitting itself anchors where the legs meet, so this needs no
+    Steiner-tree search over the grid.
+
+    The two legs whose leaf ports are farthest apart become the trunk (:func:`_select_trunk`);
+    every other leg is a branch. Populates each leg's ``SystemSegment.routed_path``, sets
+    ``system.routed_path`` to the trunk's two legs concatenated (so anything still expecting a
+    single polyline sees a sane one) and ``system.metadata["branch"]`` with the trunk leg names and
+    the junction point, and returns ``{leg name: polyline}``.
+
+    Each leg's body is marked occupied on ``grid`` as soon as it routes, so the next leg routes
+    around it -- legs of one branch get no cross-system avoidance pass (that is a separate,
+    optional step over DIFFERENT systems; see ``design_rules.run_design``'s ``avoid_other_systems``
+    and :func:`system_route_polylines`), so without this two legs of the SAME branch can freely
+    cross or run parallel through the same cells."""
+    tree = _branch_topology(system)
+    if tree is None:
+        raise RoutingError(f"system {system.name!r} is not a branched system (need 2+ segments sharing a junction)")
+
+    half = run_half_extent(system)
+    paths: dict[str, list[ada.Point]] = {}
+    for leg in tree.legs:
+        polyline = route_system(
+            system, grid, rules=rules, start=leg.leaf_port, end=leg.junction_port, stub_len=stub_len
+        )
+        leg.segment.routed_path = polyline
+        paths[leg.segment.name] = polyline
+        if half > 0.0:
+            occupy_run(grid, polyline, half, tag=f"branch-leg:{system.name}:{leg.segment.name}")
+
+    trunk_a, trunk_b = _select_trunk(tree.legs)
+    system.routed_path = trunk_a.segment.routed_path + trunk_b.segment.routed_path[1:]
+    system.metadata["branch"] = {
+        "trunk": [trunk_a.segment.name, trunk_b.segment.name],
+        "junction_point": tuple(float(c) for c in _branch_junction_point(tree)),
+    }
+    return paths
+
+
+def system_route_polylines(system: System) -> list[list[ada.Point]]:
+    """Every centreline ``system`` occupies, for occupancy/clash-avoidance purposes: one polyline
+    per branch leg (:func:`_branch_topology`) for a branched system, so a later system routes
+    around every leg and not just the trunk ``system.routed_path`` covers; otherwise the single
+    ``[system.routed_path]`` (empty if not yet routed).
+
+    Callers use this for diagnostics/occupancy over ``systems`` lists that may include ones whose
+    routing already failed and was skipped upstream (``skip_failed=True``) -- a malformed
+    ``segments`` on such a system re-raising here, outside the try/except that already reported it,
+    would turn a single skipped run into a crash. So an invalid topology (:class:`RoutingError`)
+    is treated as "nothing routed", exactly like the un-routed case, rather than re-raised."""
+    try:
+        tree = _branch_topology(system)
+    except RoutingError:
+        return []
+    if tree is not None:
+        return [leg.segment.routed_path for leg in tree.legs if leg.segment.routed_path]
+    return [system.routed_path] if system.routed_path else []
+
+
 def route_system(
     system: System,
     grid: CellGrid,
@@ -595,7 +739,19 @@ def route_system(
     last). Each run leaves its port along the port's outward direction vector for
     ``stub_len`` (defaults to one grid pitch) before snapping onto the grid for
     A* pathfinding; the exact port positions cap the ends of the returned
-    polyline. Sets ``system.routed_path``."""
+    polyline. Sets ``system.routed_path``.
+
+    A system with two or more ``segments`` sharing a junction equipment (see
+    :func:`_branch_topology`) is a *branch*: called with no explicit
+    ``start``/``end`` it dispatches to :func:`route_branched_system` instead,
+    which routes every leg and returns the trunk's polyline. Passing an
+    explicit ``start``/``end`` always routes that single pair directly (this is
+    exactly how ``route_branched_system`` routes each leg), regardless of
+    ``segments``."""
+    if start is None and end is None and len(system.segments) >= 2:
+        route_branched_system(system, grid, rules=rules, stub_len=stub_len)
+        return system.routed_path
+
     if start is None or end is None:
         if len(system.ports) < 2:
             raise RoutingError(
@@ -1333,16 +1489,79 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
     Swept runs are routed feasible-by-construction by the turn-constrained planner
     (:func:`astar_route_constrained`), so their path is already taut with well-spaced
     bends — the ``grid`` taut-pull (:func:`_space_bends`) is skipped for them and the
-    orthogonal path goes straight to the arc-filleted directrix."""
-    from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
+    orthogonal path goes straight to the arc-filleted directrix.
 
+    A branched system (:func:`_branch_topology`) dispatches to
+    :func:`_branched_route_to_geometry` instead: every leg gets its own run by this
+    same code, plus a small hub solid at the junction so the meeting reads as one
+    fitting rather than pipes converging on empty space."""
     if system.routed_path is None:
         raise RoutingError(f"system {system.name!r} has no routed path; call route_system first")
 
     # Bend-artifact warnings for this run are recomputed from scratch each call.
     system.route_warnings = []
+    tree = _branch_topology(system)
+    if tree is not None:
+        return _branched_route_to_geometry(system, tree, grid=grid)
+
     name = name if name is not None else f"{system.name}_route"
-    path = system.routed_path
+    _emit_run_geometry(system, system.routed_path, name, grid)
+    return system.route_geometry
+
+
+def _branched_route_to_geometry(system: System, tree: _BranchTree, grid: CellGrid | None) -> list:
+    """One :func:`_emit_run_geometry` call per leg (each already routed onto its own
+    ``SystemSegment.routed_path`` by :func:`route_branched_system`), plus a hub solid at the
+    junction. Named ``<leg name>_route`` per leg -- the same ``<identity>_route`` convention every
+    other routed run uses -- rather than ``<system name>_route``, so the round-trip identity a leg's
+    geometry carries is the original segment's own name (e.g. a DEXPI-derived branch names each leg
+    after the ``PipingNetworkSegment`` it came from) and not the combined branch system's."""
+    for leg in tree.legs:
+        if leg.segment.routed_path is None:
+            raise RoutingError(f"system {system.name!r}: leg {leg.segment.name!r} has no routed path")
+        _emit_run_geometry(system, leg.segment.routed_path, f"{leg.segment.name}_route", grid)
+    junction = _branch_junction_geometry(system, tree)
+    if junction is not None:
+        system.route_geometry.append(junction)
+    return system.route_geometry
+
+
+def _branch_junction_point(tree: _BranchTree) -> ada.Point:
+    """The point every leg's own dedicated junction port -- each a DIFFERENT position on the
+    fitting's body, not one shared port -- treats as "where they meet": the centroid of all of
+    them, not any single leg's port. Using ``tree.legs[0]``'s port alone (an earlier bug) put the
+    hub at ONE leg's position on the fitting, leaving the other legs' pipes visibly short of it."""
+    positions = [tuple(float(c) for c in leg.junction_port.get_global_position()) for leg in tree.legs]
+    n = len(positions)
+    return ada.Point(*(sum(p[i] for p in positions) / n for i in range(3)))
+
+
+def _branch_junction_geometry(system: System, tree: _BranchTree):
+    """A hub solid at the branch's junction point, sized to the run's own cross-section AND to
+    reach every leg's own port -- the "tee fitting sized to the diameters" the routing doc calls
+    for. Deliberately not a real reducing-tee shape (bevels, face-to-face length, a
+    differently-sized branch outlet): the run stays a swept solid either side of it, exactly as an
+    in-line component's body is out of scope for a waypoint (see the routing doc's non-goals) —
+    this only keeps the meeting point from reading as pipes floating apart or crossing through
+    each other."""
+    junction_point = _branch_junction_point(tree)
+    half = run_half_extent(system)
+    if half <= 0.0:
+        return None
+    reach = max(_seg_len(junction_point, ada.Point(*leg.junction_port.get_global_position())) for leg in tree.legs)
+    radius = reach + half
+    return ada.PrimSphere(
+        f"{system.name}_junction", junction_point, radius, metadata={"segment_ifc_class": "IfcPipeFitting"}
+    )
+
+
+def _emit_run_geometry(system: System, path: list[ada.Point], name: str, grid: CellGrid | None) -> None:
+    """The single-run body of :func:`system_route_to_geometry`, factored out so a branched system's
+    several legs (:func:`_branched_route_to_geometry`) share it instead of duplicating it: build the
+    swept/pipe geometry for one ``path`` under ``name`` and append it to ``system.route_geometry``.
+    Does not touch ``system.routed_path``/``route_warnings`` -- the caller owns those."""
+    from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
+
     # A graceful swept run comes from the turn-constrained planner; a strict one is
     # still routed by free A* and taut-pulled, then its fixed-radius directrix raises
     # if the layout can't host the bend.
@@ -1420,7 +1639,6 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
         sec = ada.Section(f"{name}_sec", "PIPE", r=0.02, wt=2e-3)
         pipe_path = _taut_pipe_path(path, grid)
         system.route_geometry.append(ada.Pipe(name, pipe_path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
-    return system.route_geometry
 
 
 def _taut_pipe_path(path: list[ada.Point], grid: CellGrid | None) -> list[ada.Point]:

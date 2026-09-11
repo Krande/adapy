@@ -23,6 +23,7 @@
 // code is allowed to see. Migration is incremental and by design: only the
 // capabilities that actually have to work on both transports need to move.
 
+import type { ProceduralDoc } from "@/services/viewerApi";
 import type { ModelStats } from "@/utils/stats/modelStats";
 
 /** Which transport answered. Consumers should not branch on this — it exists
@@ -76,9 +77,64 @@ export interface ModelStatsCapability {
   exportStats(source: ModelStatsSource, fmt: StatsExportFormat, tab?: string): Promise<void>;
 }
 
+/** Identifies the procedural model wanted, addressed the same way the take-off is.
+ *
+ * REST fills these to reach the stored model; the websocket path has none of them, because the
+ * document rides inside the GLB that was pushed into the viewer. */
+export interface ProceduralModelSource {
+  scope?: string | null;
+  modelId?: string | null;
+}
+
+export interface ProceduralModelResult {
+  available: boolean;
+  doc?: ProceduralDoc | null;
+}
+
+/** The procedural model behind a compiled assembly.
+ *
+ * This is what the "Procedural equipment" and "Procedural system" panels read: which equipment a
+ * clicked body belongs to, what space it stands in, its size, masses and rotation, and which
+ * systems touch which of its ports. None of that is in the GLB's geometry, and all of it is in the
+ * document the compiler was given.
+ *
+ * Those panels already existed and already worked -- over REST, because the only way to reach the
+ * document was `viewerApi.getProceduralModel`. On the websocket path they rendered nothing at all,
+ * which is exactly the failure this seam exists to stop. */
+export interface ProceduralModelCapability {
+  readonly transport: CapabilityTransport;
+
+  /** Resolve the procedural document for `source`. Never throws for a model that simply has none
+   * (an IFC import, a hand-built assembly) -- it resolves to `{available:false}`. */
+  fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult>;
+
+  /** Offer a document found embedded in a freshly-loaded GLB
+   * (`asset.extras.procedural_doc`, written by `ada.visit.scene_converter`).
+   *
+   * Returns true if this transport sources the model that way, in which case the caller should
+   * load it into the cellbuilder store. REST returns false: the hosted viewer's authority is the
+   * stored model, which can be edited and committed, and an embedded copy must not race it. */
+  adoptEmbeddedModel(doc: ProceduralDoc | null): boolean;
+
+  /** Whether the model this transport serves can be edited and committed back.
+   *
+   * False on the websocket path -- but note carefully what that does and does not mean. It is NOT
+   * that nothing is listening: there is a live adapy process on the other end of the socket, and it
+   * is what pushed this model into the viewer in the first place. It is that **no save verb is
+   * implemented over the websocket transport yet**, so there is nowhere for an edit to go. That is a
+   * gap in the protocol, not a property of the transport, and it is expected to close -- see
+   * `docs/documents/ws_rest_parity.rst`.
+   *
+   * Consumers should therefore gate editing UI on this flag rather than on "is this the websocket
+   * path", so that when the verb lands, flipping this to true restores those controls with no other
+   * change. `CellBuilderPanel` does exactly that. */
+  readonly canEdit: boolean;
+}
+
 /** The runtime-selected capability set. One instance per transport; see
  * `index.ts`. */
 export interface ViewerCapabilities {
   readonly transport: CapabilityTransport;
   readonly stats: ModelStatsCapability;
+  readonly procedural: ProceduralModelCapability;
 }

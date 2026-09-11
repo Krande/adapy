@@ -16,16 +16,19 @@ two-ended systems, and then routes and models the lot. Four things happen here:
 2. **Layout.** The resolved envelopes go to :func:`~ada.topo_model.layout.plan_layout`, which
    generates the decks and places each item on one.
 3. **Systems.** One :class:`~ada.topology.entities.TopoSystem` per DEXPI ``PipingNetworkSegment``,
-   named ``<line number>/<segment number>``. This is the load-bearing structural decision:
-   :func:`ada.topology.routing.route_system` routes exactly ``ports[0] -> ports[-1]`` and raises on
-   fewer than two, with no branch or tee support anywhere. A DEXPI segment is by definition a
-   two-ended run, so segment-per-system is both faithful to the source and routable; the parent
-   ``PipingNetworkSystem`` survives as the run's ``MEDIUM`` and as provenance in its ``METADATA``.
-   Segment-per-system is *not* by itself enough where the segments meet at a shared fitting: the
-   three runs at a tee each name the tee as an end, which is neither a nozzle nor an equipment, so
-   all three used to be dropped as unconnectable. Materialising the branch point as equipment
-   (step 1) is what makes each of them a proper two-ended run again -- a 3+-way junction still never
-   becomes one system, which is the thing ``route_system`` genuinely cannot do.
+   named ``<line number>/<segment number>`` -- *except* at a 3+-way junction (a tee, a wye), where
+   :func:`_fold_branch_groups` merges the segments meeting there into a single **branched** system
+   instead (``ada.topology.routing.route_system`` detects two or more ``System.segments`` sharing a
+   junction equipment and routes every leg; see :doc:`/documents/routing_through_objects`, Stage 2).
+   A DEXPI segment is by definition a two-ended run, so segment-per-system is both faithful to the
+   source and routable for the common (degree-2-or-fewer) case; the parent ``PipingNetworkSystem``
+   survives as the run's ``MEDIUM`` and as provenance in its ``METADATA``. Segment-per-system is
+   *not* by itself enough where the segments meet at a shared fitting: the three runs at a tee each
+   name the tee as an end, which is neither a nozzle nor an equipment, so all three used to be
+   dropped as unconnectable. Materialising the branch point as equipment (step 1) is what gives each
+   of them a real port to terminate on -- a 2-way junction (a run split at an in-line component, not
+   a real branch) still becomes two separate two-ended systems, which is Stage 1 (waypoints)
+   territory, not this.
 4. **Nothing is lost quietly.** Every segment that could not be turned into a system, and every
    equipment the layout could not place, is collected into a :class:`DexpiImportReport`. The
    compiler drops an unwireable system with a ``logger.warning`` and skips an unroutable run the
@@ -47,6 +50,7 @@ from :func:`~ada.topo_model.layout.plan_layout`.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
@@ -369,6 +373,8 @@ class ResolvedDexpi:
     #: Read-stage gaps only. Whether a vessel *fits* depends on deck bounds, so it can only ever be
     #: a build gap and is reported there.
     report: DexpiImportReport
+    #: The source file's basename, not its full path -- this reaches the browser (see
+    #: ``resolved_to_procedural_doc``), and a viewer should not be naming the machine it runs on.
     source: str | None = None
     flavour: str = ""
     warnings: list[str] = dataclasses.field(default_factory=list)
@@ -427,6 +433,9 @@ def dexpi_to_resolved(
 
     segments = [_segment_spec(doc, item, index, report, junctions) for item in _routable_segments(doc)]
     segments = [spec for spec in segments if spec is not None]
+    # A 3+-way junction's segments become one branched System (see _fold_branch_groups); a 2-way
+    # one is a pass-through, not a branch, and is left as two separate two-ended systems.
+    segments = _fold_branch_groups(doc, segments, junctions)
 
     if inline_components == "equipment":
         items.extend(_inline_equipment(doc, segments, catalog, index, provenance, taken))
@@ -446,7 +455,7 @@ def dexpi_to_resolved(
         catalog=catalog,
         provenance=provenance,
         report=report,
-        source=doc.source,
+        source=pathlib.Path(doc.source).name if doc.source else None,
         flavour=doc.flavour.value,
         warnings=list(doc.warnings),
     )
@@ -1055,6 +1064,68 @@ def _segment_spec(
         },
     )
     return _SegmentSpec(item=segment, entity=entity, ends=ends, components=components)
+
+
+def _fold_branch_groups(
+    doc: DexpiDocument, segments: list["_SegmentSpec"], junctions: dict[str, list[str]]
+) -> list["_SegmentSpec"]:
+    """Merge the segments meeting at a 3+-way junction into one branched :class:`_SegmentSpec`.
+
+    Each of those segments already resolved its junction-facing end to its OWN dedicated port on
+    the junction equipment (:func:`_junction_equipment` gives a tee exactly three), so nothing about
+    connectivity changes here -- this only changes how many :class:`~ada.topology.entities.TopoSystem`
+    rows that connectivity becomes. The merged system's ``ends`` is every leg's two endpoints
+    concatenated leg by leg, so the ``CONNECTIONS`` list :func:`resolved_to_procedural_doc` later
+    builds from ``ends`` is N pairs in that same order; ``METADATA["branch"]["legs"]`` names each
+    leg (the ORIGINAL per-segment name, e.g. ``"L100/1"``) in that order too, which is what
+    :func:`~ada.topo_model.compile._wire_systems` reads to rebuild the tree and what
+    :mod:`ada.cadit.dexpi.write.from_ada` reads to split a branched System back into the segments
+    the source had.
+
+    A degree-2 junction (in ``junctions`` but with only two owning segments) is a pass-through, not
+    a branch -- left as two separate two-ended systems, unchanged. A leg that failed
+    :func:`_segment_spec` already reported its own reason and is missing from ``segments``; the
+    whole junction is then left unfolded rather than merging a partial, disconnected set. Likewise
+    when one of a junction's segments directly joins it to ANOTHER 3+-way junction (no equipment
+    between two tees) and that other junction folded first: taking the shared segment into this
+    merge too would duplicate its two endpoints across both branched systems, so this junction is
+    left unfolded rather than double-booking it -- a real but rare shape (adjacent branch points
+    with no run between them) that stays Stage-2-unsupported and two-ended-per-segment, same as
+    before this function existed.
+    """
+    by_id = {spec.item.id: spec for spec in segments}
+    folded: list[_SegmentSpec] = []
+    consumed: set[str] = set()
+    for junction_id, segment_ids in junctions.items():
+        if len(segment_ids) < 3 or any(sid in consumed for sid in segment_ids):
+            continue
+        legs = [by_id[sid] for sid in segment_ids if sid in by_id]
+        if len(legs) != len(segment_ids):
+            continue
+        consumed.update(segment_ids)
+        junction_item = doc.items[junction_id]
+        first = legs[0].entity
+        merged_ends: list[_Endpoint] = []
+        leg_names: list[str] = []
+        leg_metadata: list[dict] = []
+        components: list[DexpiItem] = []
+        for leg in legs:
+            merged_ends.extend(leg.ends)
+            leg_names.append(leg.entity.NAME)
+            leg_metadata.append({"name": leg.entity.NAME, "dexpi": leg.entity.METADATA.get("dexpi", {})})
+            components.extend(leg.components)
+        entity = TopoSystem(
+            NAME=f"branch-{(junction_item.tag or junction_item.id).strip()}",
+            TYPE=first.TYPE,
+            MEDIUM=first.MEDIUM,
+            CONNECTIONS=[],
+            METADATA={
+                "branch": {"junction_id": junction_id, "legs": leg_names, "leg_metadata": leg_metadata},
+            },
+        )
+        folded.append(_SegmentSpec(item=junction_item, entity=entity, ends=merged_ends, components=components))
+    folded.extend(spec for spec in segments if spec.item.id not in consumed)
+    return folded
 
 
 def _signal_endpoint(doc: DexpiDocument, index: _Index, end_id: str, role: str) -> _Endpoint:
