@@ -1,6 +1,8 @@
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import { runtime } from "@/runtime/config";
+import type { Message } from "@/flatbuffers/wsock/message";
 import type { Comms, CommsConnectHandler, CommsMessageHandler, Unsubscribe } from "./types";
+import { RequestCorrelator, parseMessage, type BuildRequest, type RequestOptions } from "./wsRequests";
 
 const INT32_MAX = 2147483647;
 const INT32_MIN = -2147483648;
@@ -29,6 +31,8 @@ export class WSComms implements Comms {
   private connectHandlers: CommsConnectHandler[] = [];
   // Serialize handler dispatch so message order is preserved across awaits.
   private dispatchChain: Promise<void> = Promise.resolve();
+  // Pending request() calls, keyed by request_id; see wsRequests.ts.
+  private readonly requests = new RequestCorrelator((payload) => this.sendCommand(payload));
 
   isConnected(): boolean {
     return this.socket?.readyState === WebSocket.OPEN;
@@ -74,6 +78,9 @@ export class WSComms implements Comms {
       this.socket.addEventListener("message", (evt) => this.onSocketMessage(evt));
       this.socket.addEventListener("close", () => {
         console.log("WebSocket connection closed.");
+        // A reply can no longer arrive on this socket; settle every awaiting
+        // caller now rather than letting each one run out its timeout.
+        this.requests.rejectAll(new Error("WebSocket connection closed"));
         statusStore.setConnected(false);
         statusStore.setProcessInfo(null);
         statusStore.setConnectedClients([]);
@@ -127,6 +134,10 @@ export class WSComms implements Comms {
     this.socket!.send(payload);
   }
 
+  request(build: BuildRequest, opts?: RequestOptions): Promise<Message> {
+    return this.requests.request(build, opts);
+  }
+
   async setInstanceId(newId: number, reconnect: boolean = true): Promise<void> {
     if (typeof newId !== "number" || !Number.isFinite(newId)) {
       throw new Error("Instance ID must be a finite number");
@@ -160,6 +171,10 @@ export class WSComms implements Comms {
     this.dispatchChain = this.dispatchChain.then(async () => {
       try {
         const buffer = await evt.data.arrayBuffer();
+        // A reply that echoes a pending request_id resolves that request and
+        // stops here; everything else (unsolicited pushes, replies to
+        // fire-and-forget verbs) goes to the registered dispatcher.
+        if (this.requests.settle(parseMessage(buffer))) return;
         for (const handler of this.handlers) {
           await handler(buffer);
         }
