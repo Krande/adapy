@@ -1,7 +1,8 @@
 import React from "react";
 import * as THREE from "three";
 
-import { sceneRef, cameraRef, rendererRef } from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
@@ -30,6 +31,10 @@ import {
 // nothing. Mirrors FemConceptsController; store-driven so it needs no GLB
 // parsing and works while editing or viewing a procedural model.
 const TypeIconController: React.FC = () => {
+  // This viewer instance's handles, for the parts of the file that are inside
+  // React. The module-level scene code below has no tree to read a context
+  // from and goes through `getViewerRuntime()` instead.
+  const {scene: sceneRef, camera: cameraRef, renderer: rendererRef} = useViewerRefs();
   React.useEffect(() => {
     let cleanup: (() => void) | null = null;
     let raf = 0;
@@ -114,7 +119,7 @@ function init(scene: THREE.Scene): () => void {
   };
 
   const rebuild = () => {
-    if (!sceneRef.current) return;
+    if (!getViewerRuntime().scene.current) return;
     clear();
     const t = useModelState.getState().translation;
     container.position.set(t?.x ?? 0, t?.y ?? 0, t?.z ?? 0);
@@ -228,8 +233,8 @@ function init(scene: THREE.Scene): () => void {
   raycaster.layers.set(1);
   const pointer = new THREE.Vector2();
   const onClick = (ev: MouseEvent) => {
-    const el = rendererRef.current?.domElement;
-    const cam = cameraRef.current;
+    const el = getViewerRuntime().renderer.current?.domElement;
+    const cam = getViewerRuntime().camera.current;
     if (!el || !cam) return;
     const rect = el.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -249,7 +254,7 @@ function init(scene: THREE.Scene): () => void {
     if (!ois.show_info_box) ois.toggle();
     ev.stopPropagation();
   };
-  const clickTarget = rendererRef.current?.domElement ?? null;
+  const clickTarget = getViewerRuntime().renderer.current?.domElement ?? null;
   clickTarget?.addEventListener("click", onClick);
 
   const unsubIcons = useTypeIconsStore.subscribe(rebuild);

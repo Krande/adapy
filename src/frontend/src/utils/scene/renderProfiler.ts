@@ -16,7 +16,7 @@
 // nothing by default.
 
 import {capabilities} from "@/services/capabilities";
-import {rendererRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler} from "@/utils/scene/callProfiler";
@@ -101,7 +101,7 @@ class RenderProfiler {
         if (this.extResolved) return;
         this.extResolved = true;
         try {
-            const ctx = rendererRef.current?.getContext();
+            const ctx = getViewerRuntime().renderer.current?.getContext();
             if (ctx && typeof (ctx as WebGL2RenderingContext).createQuery === "function") {
                 this.gl = ctx as WebGL2RenderingContext;
                 this.ext = this.gl.getExtension("EXT_disjoint_timer_query_webgl2");
@@ -159,7 +159,7 @@ class RenderProfiler {
         // renderer.info snapshot (max over the window — these are
         // per-frame constants barring LOD/culling swings).
         try {
-            const info = rendererRef.current?.info;
+            const info = getViewerRuntime().renderer.current?.info;
             if (info) {
                 this.drawCalls = Math.max(this.drawCalls, info.render?.calls || 0);
                 this.triangles = Math.max(this.triangles, info.render?.triangles || 0);
@@ -258,7 +258,7 @@ class RenderProfiler {
             const scope = scopeUrlPart(useScopeStore.getState().current);
             const gr = (() => {
                 try {
-                    const gl = rendererRef.current?.getContext() as WebGLRenderingContext | undefined;
+                    const gl = getViewerRuntime().renderer.current?.getContext() as WebGLRenderingContext | undefined;
                     const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
                     return dbg && gl ? String(gl.getParameter((dbg as any).UNMASKED_RENDERER_WEBGL) || "") : "";
                 } catch {

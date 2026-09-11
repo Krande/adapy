@@ -2,7 +2,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../scene/pointsImpostor";
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clearFaceHighlight} from "./faceHighlight";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 
@@ -16,7 +16,7 @@ export function handleClickEmptySpace(_event: MouseEvent) {
     useObjectInfoStore.getState().setClickedFace(null);
 
     // Also drop point-selection masks on any Points NOT tracked in the store.
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return;
     scene.traverse((child: Object3D) => {
         if (child instanceof THREE.Points) {

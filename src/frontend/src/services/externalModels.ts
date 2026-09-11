@@ -95,6 +95,9 @@ interface JobOptions {
   model_id?: string;
   content_type?: string;
   expires_in_seconds?: number;
+  /** Which stored revision of the model to mint a URL for. Omitted means the
+   *  latest — the caller passes one only to pin an older build. */
+  revision?: string;
   /** Opaque token folded into the options hash to deliberately MISS the job
    *  cache. Pass one when the user explicitly asked to re-read the source. */
   refresh?: string;

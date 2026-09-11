@@ -14,7 +14,7 @@ import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
@@ -25,6 +25,17 @@ import {renderProfiler} from "@/utils/scene/renderProfiler";
 
 
 const ThreeCanvas: React.FC = () => {
+    // The canvas is what FILLS this viewer's runtime: the scene, camera,
+    // controls and renderer built below are the ones every other consumer of
+    // the surrounding provider will read.
+    const {
+        scene: sceneRef,
+        camera: cameraRef,
+        controls: controlsRef,
+        renderer: rendererRef,
+        updateLight: updatelightRef,
+        animationController: animationControllerRef,
+    } = useViewerRefs();
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();

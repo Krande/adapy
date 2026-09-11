@@ -4,7 +4,7 @@ import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batc
 import {replaceBlackMaterials} from "@/utils/scene/assignDefaultMaterial";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
-import {adaExtensionRef, rendererRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useAnimationStore} from "@/state/animationStore";
 import {assignMorphToEdgeAlso} from "@/utils/scene/animations/assignMorphToEdgeAlso";
 import {assignMorphToPointsAlso} from "@/utils/scene/animations/assignMorphToPointsAlso";
@@ -32,7 +32,7 @@ interface PrepareLoadedModelParams {
 }
 
 async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<SimulationDataExtensionMetadata | null> {
-    const ada_ext = adaExtensionRef.current;
+    const ada_ext = getViewerRuntime().adaExtension.current;
     if (!ada_ext) {
         return null;
     }
@@ -53,7 +53,7 @@ async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<Simulation
 }
 
 async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExtension | null> {
-    const ada_ext = adaExtensionRef.current;
+    const ada_ext = getViewerRuntime().adaExtension.current;
     if (!ada_ext) {
         return null;
     }
@@ -227,8 +227,9 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         // morph-aware LineSegments overlay separately.
         const isFeaStreaming = !!original.userData?.feaStreaming;
         if (optionsStore.showEdges && drawRanges.size && is_design && !isFeaStreaming) {
-            if (rendererRef.current)
-                parent.add(customMesh.getEdgeOverlay(rendererRef.current));
+            const overlayRenderer = getViewerRuntime().renderer.current;
+            if (overlayRenderer)
+                parent.add(customMesh.getEdgeOverlay(overlayRenderer));
         }
 
         parent.add(customMesh);

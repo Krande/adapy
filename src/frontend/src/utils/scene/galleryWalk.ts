@@ -1,4 +1,4 @@
-import {sceneRef, cameraRef, controlsRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -33,7 +33,7 @@ export type WalkOrder = GeomWalkOrder;
 
 function allBatchedMeshes(): CustomBatchedMesh[] {
     const out: CustomBatchedMesh[] = [];
-    sceneRef.current?.traverse((o) => {
+    getViewerRuntime().scene.current?.traverse((o) => {
         if (o instanceof CustomBatchedMesh) out.push(o);
     });
     return out;
@@ -136,7 +136,7 @@ function hideAllExcept(keepMesh: CustomBatchedMesh, keepRangeId: string): void {
 // (disposed geometry -> crash). Guards every operation that touches a walked mesh.
 function meshIsLive(mesh: CustomBatchedMesh | undefined | null): boolean {
     if (!mesh) return false;
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return false;
     let node: any = mesh;
     while (node) {
@@ -188,8 +188,8 @@ export async function focusGeomEntry(
     // The name lookup above awaited; a scope switch may have disposed the mesh in that window.
     // Re-check before framing so centerViewOnSelection never reads freed geometry.
     if (!meshIsLive(mesh)) return;
-    const controls = controlsRef.current;
-    const camera = cameraRef.current;
+    const controls = getViewerRuntime().controls.current;
+    const camera = getViewerRuntime().camera.current;
     if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
     requestRender();
 }

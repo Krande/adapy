@@ -4,7 +4,7 @@
 // resets the scene to its original look.
 import * as THREE from "three";
 
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {loadGLTF} from "@/components/viewer/sceneHelpers/asyncModelLoader";
@@ -40,7 +40,7 @@ export interface ViewerOpsPayload {
 const _overlayGroups: THREE.Object3D[] = [];
 
 function _eachBatchedMesh(fn: (m: CustomBatchedMesh) => void): void {
-    sceneRef.current?.traverse((obj) => {
+    getViewerRuntime().scene.current?.traverse((obj) => {
         if (obj instanceof CustomBatchedMesh) fn(obj);
     });
 }
@@ -60,7 +60,7 @@ function _applyColorElements(elements: ColorElement[]): void {
 }
 
 async function _addOverlay(op: ViewerOp, scope: ScopeUrl): Promise<void> {
-    if (!sceneRef.current) return;
+    if (!getViewerRuntime().scene.current) return;
     // Inline bytes (wasm path) take precedence; otherwise fetch the stored overlay blob.
     const buf = op.blob ?? (op.blob_key ? await capabilities.files.fetchBlob(scope, op.blob_key) : null);
     if (!buf) return;
@@ -75,7 +75,7 @@ async function _addOverlay(op: ViewerOp, scope: ScopeUrl): Promise<void> {
         const translation = useModelState.getState().translation;
         if (translation) group.position.copy(translation);
         // The overlay GLB carries its own (red) material; keep it as-is.
-        sceneRef.current.add(group);
+        getViewerRuntime().scene.current!.add(group);
         _overlayGroups.push(group);
     } finally {
         URL.revokeObjectURL(url);

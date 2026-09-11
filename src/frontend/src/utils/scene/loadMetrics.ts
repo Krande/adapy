@@ -31,7 +31,7 @@
 
 import * as THREE from "three";
 import {capabilities} from "@/services/capabilities";
-import {rendererRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
@@ -49,7 +49,7 @@ interface LoadMeta {
 
 function gpuRenderer(): string | undefined {
     try {
-        const gl = rendererRef.current?.getContext() as WebGLRenderingContext | undefined;
+        const gl = getViewerRuntime().renderer.current?.getContext() as WebGLRenderingContext | undefined;
         if (!gl) return undefined;
         const dbg = gl.getExtension("WEBGL_debug_renderer_info");
         if (!dbg) return undefined;
@@ -312,7 +312,7 @@ export class LoadMetricsRecorder {
             }
         }
         try {
-            const info = rendererRef.current?.info;
+            const info = getViewerRuntime().renderer.current?.info;
             if (info) {
                 cm["draw_calls"] = info.render?.calls;
                 cm["geometries"] = info.memory?.geometries;

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import * as Comlink from "comlink";
-import {cameraRef, rendererRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {usePerfStore} from "@/state/perfStore";
 // Inline-bundled worker — Vite handles the import + URL plumbing.
@@ -969,9 +969,9 @@ class GpuMeshPicker {
     /** Run a GPU pick at the given client coordinates. Returns the
      *  picked mesh + rangeId, or null on miss / morph-active. */
     pickAt(clientX: number, clientY: number): GpuMeshPickResult {
-        const renderer = rendererRef.current;
-        const scene = sceneRef.current;
-        const camera = cameraRef.current as THREE.PerspectiveCamera | null;
+        const renderer = getViewerRuntime().renderer.current;
+        const scene = getViewerRuntime().scene.current;
+        const camera = getViewerRuntime().camera.current as THREE.PerspectiveCamera | null;
         if (!renderer || !scene || !camera) return null;
 
         // Reclaim GPU memory for any picker whose source mesh has

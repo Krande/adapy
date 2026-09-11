@@ -21,7 +21,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {animationControllerRef} from "@/state/refs";
+
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
@@ -41,7 +41,7 @@ import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
-import {useViewerStores} from "@/state/AdaViewerContext";
+import {useViewerRefs, useViewerStores} from "@/state/AdaViewerContext";
 import {
     PluginPanelRegion,
     makePluginContext,
@@ -827,6 +827,9 @@ const GearIcon: React.FC = () => (
 );
 
 const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
+    // This viewer instance's scene-graph handles. Aliased to the names the
+    // body already uses, which until now were module-level globals.
+    const {animationController: animationControllerRef} = useViewerRefs();
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
 
