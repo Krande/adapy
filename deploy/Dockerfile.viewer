@@ -168,6 +168,13 @@ COPY src/ada/cad/ /app/src/ada/cad/
 # rather than stubbed the way ada.sections has to be.
 COPY src/ada/core/__init__.py /app/src/ada/core/__init__.py
 COPY src/ada/core/file_system.py /app/src/ada/core/file_system.py
+# ada.core.{text_utils,catalog_docs,xlsx_meta} — the slug helper, the equipment/system doc
+# validators and the _ADA_META sheet reader that ada.comms.rest.{catalog,procedural} re-export.
+# Stdlib + pydantic only, like file_system.py above: they moved here so the CAD readers and the
+# procedural engines stop importing from ada.comms.
+COPY src/ada/core/text_utils.py /app/src/ada/core/text_utils.py
+COPY src/ada/core/catalog_docs.py /app/src/ada/core/catalog_docs.py
+COPY src/ada/core/xlsx_meta.py /app/src/ada/core/xlsx_meta.py
 # ada.plugins — the backend-plugin registry. Unlike the two above its absence does not crashloop
 # anything: the API imports it defensively and logs "ada.plugins discovery failed (non-fatal)". But
 # it logged that with a traceback on EVERY boot, for a module that was never shipped rather than one

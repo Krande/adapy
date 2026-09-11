@@ -56,8 +56,8 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 from ada.api.systems.ports import PortDirection
-from ada.comms.rest.catalog import slugify
 from ada.config import logger
+from ada.core.text_utils import slugify
 
 from .. import attributes as attribute_lookup
 from ..equipment_list import (
