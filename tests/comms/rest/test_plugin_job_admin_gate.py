@@ -273,3 +273,22 @@ def test_the_listing_reports_the_effective_gate_not_just_the_declaration(tmp_pat
 
     spec = next(p for p in body["plugins"] if p["slug"] == "adapy-test-open")
     assert spec["requires_admin"] is True
+
+
+def test_the_listing_carries_what_this_process_registered_when_there_is_no_queue(tmp_path):
+    """A queue-less viewer runs plugin jobs in-process, so no worker advertises
+    them. The listing must still say the plugin is there, with the extra keys it
+    registered — that is how its run form learns what it may offer."""
+    register_plugin_backend(
+        "adapy-test-local",
+        job_entrypoint=f"{__name__}:_entrypoint",
+        run_options={"standards": [{"id": "std-a"}]},
+    )
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        body = client.get("/api/plugins").json()
+
+    spec = next(p for p in body["plugins"] if p["slug"] == "adapy-test-local")
+    assert spec["online"] is True
+    assert spec["run_options"] == {"standards": [{"id": "std-a"}]}

@@ -69,6 +69,8 @@ IFC and various Finite Element formats.
 
     documents/ifc_database
     documents/dexpi_branch_status
+    documents/routing_through_objects
+    documents/ws_rest_parity
 
 .. toctree::
     :hidden:
@@ -77,6 +79,7 @@ IFC and various Finite Element formats.
     :caption: Code
 
     documents/code
+    documents/websocket_correlation
 
 .. toctree::
     :hidden:

@@ -62,6 +62,7 @@ import {
     type CompanionRep,
 } from "@/state/companionModelStore";
 import {cellsWidthX, nextModelOffsetX} from "@/utils/cellbuilder/modelPlacement";
+import {formatBytes} from "@/utils/format";
 
 // Custom drag MIME for in-panel file moves. OS-file drops arrive as
 // ``dataTransfer.files`` instead; checking for this type tells the two
@@ -79,13 +80,6 @@ const Spinner: React.FC<{className?: string}> = ({className = ""}) => (
         aria-hidden="true"
     />
 );
-
-function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 function dirnameOf(key: string): string {
     const i = key.lastIndexOf("/");

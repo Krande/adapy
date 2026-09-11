@@ -74,6 +74,29 @@ def test_sim_model_exports_to_genie_xml_with_equipment_concepts():
     assert txt.count("<prism_shape") == len(eqs)
 
 
+def test_sim_model_exports_to_genie_workspace():
+    # The gnx export: the same polygon concept XML as gxml, repacked as a workspace
+    # (modelData.xml + acisGeometry.sat) — what the worker does for format=gnx.
+    import zipfile
+
+    from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml
+
+    asm = build_procedural_assembly(
+        _steel_structure_demo_doc(), name="SteelDemo", lod="sim", detailing=None, equipment_resolver=(lambda _k: None)
+    )
+    with tempfile.TemporaryDirectory() as d:
+        xml = os.path.join(d, "m.gxml")
+        asm.to_genie_xml(xml, embed_sat=False)
+        gnx = gnx_from_genie_xml(xml, os.path.join(d, "m.gnx"))
+        with zipfile.ZipFile(gnx) as z:
+            names = set(z.namelist())
+            model = z.read("modelData.xml").decode("utf-8", errors="ignore")
+
+    assert {"modelData.xml", "acisGeometry.sat"} <= names
+    assert "<straight_beam" in model
+    assert "<flat_plate" in model
+
+
 def _catalog_cad_doc():
     """A doc placing one catalog equipment (slug 'mypump') in a cell."""
     spaces = [{"NAME": "C1", "INCLUDE": True, "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]
@@ -149,6 +172,7 @@ def test_export_key_format_and_cad_variant():
 
     assert procedural_model_export_key("abc", 3, "ifc") == "_procedural/abc/r3.ifc"
     assert procedural_model_export_key("abc", 3, "gxml") == "_procedural/abc/r3.gxml"
+    assert procedural_model_export_key("abc", 3, "gnx") == "_procedural/abc/r3.gnx"
     # CAD-on IFC (default) and CAD-off (placeholder boxes) never collide in cache.
     assert procedural_model_export_key("abc", 3, "ifc", cad_equipment=True) == "_procedural/abc/r3.ifc"
     assert procedural_model_export_key("abc", 3, "ifc", cad_equipment=False) == "_procedural/abc/r3_box.ifc"

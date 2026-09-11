@@ -22,6 +22,17 @@ ZIP_VIEWER = THIS_DIR / "resources" / "index.zip"
 HASH_FILE = ZIP_VIEWER.with_suffix(".hash")
 
 
+def _strip_absolute_asset_tags(html_content: str) -> str:
+    # The built index.html references "/config.js" and "/favicon.svg" with
+    # absolute paths. Those endpoints only exist when the REST app serves the
+    # SPA over HTTP; the local file:// path (plain show(), or the REST app's
+    # embedded/injected HTML) has no server to answer them, so both 404 noisily.
+    # Config is supplied through the STARTUP_CONFIG_PLACEHOLDER injection instead.
+    html_content = re.sub(r"<script\b[^>]*\bsrc=\"/config\.js\"[^>]*>\s*</script>", "", html_content)
+    html_content = re.sub(r"<link\b[^>]*\bhref=\"/favicon\.svg\"[^>]*>", "", html_content)
+    return html_content
+
+
 class RendererReact:
     def __init__(self, render_backend=SqLiteBackend(), local_html_path=THIS_DIR / "resources" / "index.html"):
         self.backend = render_backend
@@ -42,6 +53,11 @@ class RendererReact:
         logger.info("Extracting HTML viewer")
         archive = zipfile.ZipFile(ZIP_VIEWER)
         archive.extractall(THIS_DIR / "resources")
+
+        # Strip the absolute-path asset tags on disk so plain show() (which opens
+        # this file directly) doesn't 404 on them, same as the REST-embedded path.
+        html_content = self.local_html_path.read_text(encoding="utf-8")
+        self.local_html_path.write_text(_strip_absolute_asset_tags(html_content), encoding="utf-8")
 
         # Update HASH file
         with open(HASH_FILE, "w") as f:
@@ -72,14 +88,7 @@ class RendererReact:
         import base64
 
         html_content = self.local_html_path.read_text(encoding="utf-8")
-
-        # The built index.html references "/config.js" and "/favicon.svg" with
-        # absolute paths. Those endpoints only exist when the REST app serves the
-        # SPA over HTTP; the desktop/local path opens this single self-contained
-        # file via file:// (or serves it standalone), where both 404 noisily.
-        # Config is supplied through the placeholder below, so drop the tags.
-        html_content = re.sub(r"<script\b[^>]*\bsrc=\"/config\.js\"[^>]*>\s*</script>", "", html_content)
-        html_content = re.sub(r"<link\b[^>]*\bhref=\"/favicon\.svg\"[^>]*>", "", html_content)
+        html_content = _strip_absolute_asset_tags(html_content)
 
         html_inject_str = ""
         if target_id is not None:

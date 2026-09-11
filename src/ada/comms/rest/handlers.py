@@ -36,6 +36,7 @@ from ada.comms.fb_wrap_model_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 from .converter import derived_key_for, is_hidden_key, is_supported_source
@@ -106,7 +107,8 @@ def _infer_file_type(key: str, extra_source_exts: frozenset[str] | None = None) 
 
 
 def _error_reply(message: MessageDC, msg: str) -> bytes:
-    reply = MessageDC(
+    reply = reply_to(
+        message,
         instance_id=SERVER_INSTANCE_ID,
         command_type=CommandTypeDC.ERROR,
         target_id=message.instance_id,
@@ -143,7 +145,8 @@ async def _handle_list_file_objects(
             )
         )
 
-    reply = MessageDC(
+    reply = reply_to(
+        message,
         instance_id=SERVER_INSTANCE_ID,
         command_type=CommandTypeDC.SERVER_REPLY,
         target_id=message.instance_id,
@@ -191,7 +194,8 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage, scope: 
         filepath=glb_key,
         filedata=glb_bytes,
     )
-    reply = MessageDC(
+    reply = reply_to(
+        message,
         instance_id=SERVER_INSTANCE_ID,
         command_type=CommandTypeDC.SERVER_REPLY,
         target_id=message.instance_id,
@@ -215,7 +219,8 @@ async def _handle_get_server_info(message: MessageDC, _storage: Storage, _scope:
     # the wire schema declares thread_id as int32. Mask to fit.
     thread_id = threading.get_ident() & 0x7FFFFFFF
 
-    reply = MessageDC(
+    reply = reply_to(
+        message,
         instance_id=SERVER_INSTANCE_ID,
         command_type=CommandTypeDC.SERVER_REPLY,
         target_id=message.instance_id,

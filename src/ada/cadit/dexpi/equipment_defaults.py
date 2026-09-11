@@ -22,7 +22,7 @@ import json
 import pathlib
 from typing import Any, Iterable
 
-from ada.comms.rest.catalog import validate_equipment_doc
+from ada.core.catalog_docs import validate_equipment_doc
 
 from . import class_table
 from .nozzle_placers import NozzleSpec, place_nozzles

@@ -5,11 +5,11 @@ The adapy-default workbook itself is produced/parsed by :mod:`ada.topo_model.exc
 (via :class:`~ada.topo_model.builder.ProceduralBuilder`). This module wraps that
 in the ``bytes -> bytes`` contract the export/import worker jobs want, and stamps
 the standard ``_ADA_META`` metadata sheet so an import can auto-detect the engine
-that authored the file (see :mod:`ada.comms.rest.procedural`).
+that authored the file (see :mod:`ada.core.xlsx_meta`).
 
 Runs on the worker (openpyxl + numpy present), never in the slim API — the API's
 side of the round-trip is the dependency-free ``_ADA_META`` *reader* in
-``ada.comms.rest.procedural``.
+``ada.core.xlsx_meta``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import datetime as _dt
 import pathlib
 import tempfile
 
-from ada.comms.rest.procedural import (
+from ada.core.xlsx_meta import (
     ADA_META_KEY_ENGINE,
     ADA_META_KEY_EXPORTED_AT,
     ADA_META_KEY_META_VERSION,
@@ -48,7 +48,7 @@ def write_ada_meta_sheet(
     """Add (or replace) the standard ``_ADA_META`` sheet on an existing xlsx file.
 
     Vertical key/value layout (A=key, B=value), matching the dependency-free
-    reader ``ada.comms.rest.procedural.read_ada_meta_from_xlsx_bytes``. Called by
+    reader ``ada.core.xlsx_meta.read_ada_meta_from_xlsx_bytes``. Called by
     every engine's exporter so imports can auto-detect the owning engine."""
     from openpyxl import load_workbook
 

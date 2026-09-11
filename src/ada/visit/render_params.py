@@ -56,6 +56,13 @@ class RenderParams:
     # ~7 B amortised. Flip off only for raw-bytes consumers that don't
     # need the Properties panel and skip HTTP gzip.
     embed_object_metadata: bool = True
+    # When True, carry the procedural document an assembly was compiled from into
+    # ``asset.extras["procedural_doc"]``. It is what the viewer's "Procedural
+    # equipment"/"Procedural system" panels read, and without it they are empty on
+    # any path that has no REST backend to fetch the model from. Small next to the
+    # geometry -- spaces, equipment rows and system specs, no meshes -- and absent
+    # for an assembly that was not compiled from one.
+    embed_procedural_doc: bool = True
     # When True, compute the discipline-organised quantity take-off
     # (:func:`ada.topo_model.takeoff.model_takeoff`) for a Part/Assembly source
     # and write it into the GLB's ``asset.extras["model_stats"]``. This is what

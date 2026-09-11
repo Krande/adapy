@@ -9,18 +9,7 @@ import {createPortal} from "react-dom";
 import {viewerApi, type FileEntry, type ScopeUrl} from "@/services/viewerApi";
 import {buildFileTree} from "@/utils/storage/fileTree";
 import FileTreeView from "@/components/admin/FileTreeView";
-
-function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    const u = ["KB", "MB", "GB", "TB"];
-    let v = n / 1024;
-    let i = 0;
-    while (v >= 1024 && i < u.length - 1) {
-        v /= 1024;
-        i++;
-    }
-    return `${v.toFixed(v >= 10 ? 0 : 1)} ${u[i]}`;
-}
+import {formatBytes} from "@/utils/format";
 
 // Per-scope listing cache, module-level so it survives the modal unmounting between opens (the
 // modal is mounted per call site and returns null when closed, so component state cannot hold it).
@@ -168,7 +157,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                             scope={String(scope)}
                             selection={{selected, onSelect}}
                             renderFileTail={(f) => (
-                                <span className="text-gray-400 font-mono text-xs">{fmtBytes(f.size)}</span>
+                                <span className="text-gray-400 font-mono text-xs">{formatBytes(f.size, {compact: true})}</span>
                             )}
                         />
                     )}

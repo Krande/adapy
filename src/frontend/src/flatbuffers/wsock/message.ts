@@ -104,8 +104,15 @@ package_(obj?:AppendMesh):AppendMesh|null {
   return offset ? (obj || new AppendMesh()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+requestId():string|null
+requestId(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+requestId(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startMessage(builder:flatbuffers.Builder) {
-  builder.startObject(13);
+  builder.startObject(14);
 }
 
 static addInstanceId(builder:flatbuffers.Builder, instanceId:number) {
@@ -172,6 +179,10 @@ static addPackage(builder:flatbuffers.Builder, package_Offset:flatbuffers.Offset
   builder.addFieldOffset(12, package_Offset, 0);
 }
 
+static addRequestId(builder:flatbuffers.Builder, requestIdOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(13, requestIdOffset, 0);
+}
+
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -200,7 +211,8 @@ unpack(): MessageT {
     (this.procedureStore() !== null ? this.procedureStore()!.unpack() : null),
     (this.serverReply() !== null ? this.serverReply()!.unpack() : null),
     (this.screenshot() !== null ? this.screenshot()!.unpack() : null),
-    (this.package_() !== null ? this.package_()!.unpack() : null)
+    (this.package_() !== null ? this.package_()!.unpack() : null),
+    this.requestId()
   );
 }
 
@@ -219,6 +231,7 @@ unpackTo(_o: MessageT): void {
   _o.serverReply = (this.serverReply() !== null ? this.serverReply()!.unpack() : null);
   _o.screenshot = (this.screenshot() !== null ? this.screenshot()!.unpack() : null);
   _o.package_ = (this.package_() !== null ? this.package_()!.unpack() : null);
+  _o.requestId = this.requestId();
 }
 }
 
@@ -236,7 +249,8 @@ constructor(
   public procedureStore: ProcedureStoreT|null = null,
   public serverReply: ServerReplyT|null = null,
   public screenshot: ScreenshotT|null = null,
-  public package_: AppendMeshT|null = null
+  public package_: AppendMeshT|null = null,
+  public requestId: string|Uint8Array|null = null
 ){}
 
 
@@ -249,6 +263,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const serverReply = (this.serverReply !== null ? this.serverReply!.pack(builder) : 0);
   const screenshot = (this.screenshot !== null ? this.screenshot!.pack(builder) : 0);
   const package_ = (this.package_ !== null ? this.package_!.pack(builder) : 0);
+  const requestId = (this.requestId !== null ? builder.createString(this.requestId!) : 0);
 
   Message.startMessage(builder);
   Message.addInstanceId(builder, this.instanceId);
@@ -264,6 +279,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addServerReply(builder, serverReply);
   Message.addScreenshot(builder, screenshot);
   Message.addPackage(builder, package_);
+  Message.addRequestId(builder, requestId);
 
   return Message.endMessage(builder);
 }

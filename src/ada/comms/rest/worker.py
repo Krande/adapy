@@ -43,6 +43,7 @@ from . import db as db_module
 from . import failure_capture, source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
+from .plugin_registry import discover_local_plugins, locally_registered_specs
 from .qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
 from .queue import (
     JOB_STATUS_DONE,
@@ -2250,7 +2251,8 @@ async def _run_procedural_export_model(
 ) -> None:
     """Export a procedural model to a downloadable CAD/analysis file: ``ifc`` (the
     DETAIL model — the clash cuts ride along as IfcRelVoidsElement voids, equipment
-    as IfcPump/IfcTank/…) or ``gxml`` (the SIMULATION model as a Genie concept XML).
+    as IfcPump/IfcTank/…), ``gxml`` (the SIMULATION model as a Genie concept XML) or
+    ``gnx`` (that XML as a Genie workspace).
 
     Compiles the postgres-stored doc to an in-process adapy assembly (built-in
     engine only) at the format's LOD, serializes it, and stores the bytes at
@@ -2274,8 +2276,8 @@ async def _run_procedural_export_model(
     if not model_id or not isinstance(revision, int):
         await _fail("export", "conversion_options.model_id and revision are required for procedural_export_model")
         return
-    if export_format not in ("ifc", "gxml"):
-        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc or gxml)")
+    if export_format not in ("ifc", "gxml", "gnx"):
+        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc, gxml or gnx)")
         return
     if db_pool is None:
         await _fail("export", "procedural export requires DATABASE_URL on the worker")
@@ -2366,6 +2368,14 @@ async def _run_procedural_export_model(
                 # embed_sat=False keeps the export CAD-backend-independent (plates as
                 # polygons; Genie rebuilds the ACIS on import).
                 asm.to_genie_xml(p, embed_sat=False)
+                if export_format == "gnx":
+                    # Repack that XML as a workspace rather than calling to_gnx(), which
+                    # builds the ACIS body through the CAD backend: a polygon XML gets
+                    # the empty-body SAT and Genie builds the body from the polygons on
+                    # load, exactly as when the XML is imported by hand.
+                    from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml
+
+                    p = str(gnx_from_genie_xml(p, os.path.join(d, "model.gnx")))
             with open(p, "rb") as fh:
                 return fh.read()
 
@@ -4852,6 +4862,23 @@ async def _heartbeat_until_stopped(
             return  # stop set — exit cleanly
 
 
+def _advertised_specs(label: str, module: str, attr: str) -> list:
+    """One catalog this worker advertises on its heartbeat: ``module.attr()``
+    (a spec-list function such as ``ada.topo_model.procedural_blueprint_specs``),
+    imported lazily so a worker image without the modelling stack still boots.
+    Any failure is logged and advertises ``[]`` (non-fatal) — the base image's
+    built-ins are still offered by the API's static fallbacks. Each registry is
+    read AFTER ``ADA_WORKER_PRELOAD`` / ``ada.plugins`` discovery, so a
+    capability worker's own registrations ride along."""
+    import importlib
+
+    try:
+        return getattr(importlib.import_module(module), attr)()
+    except Exception:
+        logger.exception("worker: failed to list %s (non-fatal)", label)
+        return []
+
+
 async def _run() -> None:
     # Make the worker's own lifecycle logs visible. The "ada" logger otherwise
     # inherits root's WARNING level, which silently drops every worker: INFO
@@ -4908,12 +4935,7 @@ async def _run() -> None:
     # import-side-effect ``register_plugin_backend`` so the heartbeat below
     # advertises it. Isolated per-plugin (a broken plugin is logged + skipped),
     # unlike the deliberately-fatal preload above.
-    try:
-        from ada.plugins import discover_plugins
-
-        discover_plugins()
-    except Exception:
-        logger.exception("worker: ada.plugins discovery failed (non-fatal)")
+    discover_local_plugins("worker")
 
     # Self-identify so the viewer's /api/config + /api/admin/workers
     # can surface this worker. Two artefacts:
@@ -5031,113 +5053,42 @@ async def _run() -> None:
 
     utilities = UtilityRegistry.specs()
 
-    # Equipment archetypes + system kinds this worker can compile into
-    # procedural models — advertised (with full catalog-shaped specs) so the
-    # viewer's cellbuilder can offer typed dropdowns that union code-defined
-    # types with the per-scope DB catalog, show each type's origin, and "sync" a
-    # code type into the DB catalog.
-    try:
-        from ada.topo_model.equipment import (
-            equipment_archetype_specs,
-            list_equipment_types,
-        )
-
-        procedural_equipment_types = list_equipment_types()
-        procedural_equipment_specs = equipment_archetype_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural equipment types (non-fatal)")
-        procedural_equipment_types = []
-        procedural_equipment_specs = []
-    try:
-        from ada.api.systems import list_system_types, system_type_specs
-
-        procedural_system_types = list_system_types()
-        procedural_system_specs = system_type_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural system types (non-fatal)")
-        procedural_system_types = []
-        procedural_system_specs = []
-    try:
-        from ada.topo_model import design_ruleset_specs
-
-        procedural_design_rulesets = design_ruleset_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural design rulesets (non-fatal)")
-        procedural_design_rulesets = []
-    # Cell/opening types this worker can place — advertised so the cellbuilder's
-    # + Cell / + Opening pickers union the code-defined defaults with any a
-    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_cell_type
-    # / register_procedural_opening_type), exactly like the start-from templates.
-    try:
-        from ada.topo_model import (
-            procedural_cell_type_specs,
-            procedural_opening_type_specs,
-        )
-
-        procedural_cell_specs = procedural_cell_type_specs()
-        procedural_opening_specs = procedural_opening_type_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural cell/opening types (non-fatal)")
-        procedural_cell_specs = []
-        procedural_opening_specs = []
-    # Structural blueprints this worker can compile, advertised PER ENGINE (each
-    # spec carries its ``engine``) so the cellbuilder's Blueprint dropdown unions
-    # the code-defined defaults (adapy-default: steel_stru/none) with any a
-    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_blueprint).
-    try:
-        from ada.topo_model import procedural_blueprint_specs
-
-        procedural_blueprints = procedural_blueprint_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural blueprints (non-fatal)")
-        procedural_blueprints = []
-    # Start-from templates this worker can build, announced so the viewer's
-    # "New model from template" dropdown is the union of live workers' demos.
-    # The base image carries the adapy-default templates; a capability worker's
-    # ADA_WORKER_PRELOAD module registers its own into the same registry before
-    # this read (import side-effect), so they ride along here.
-    try:
-        from ada.topo_model import procedural_template_specs
-
-        procedural_templates = procedural_template_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural templates (non-fatal)")
-        procedural_templates = []
-    # Per-engine capability flags (e.g. ``supports_grouping``), advertised so the
-    # viewer's engine summary can gate capability-specific UI (the Groups section).
-    # The base image carries the built-in engines' flags (all non-grouping); a
-    # capability worker's ADA_WORKER_PRELOAD module registers its own via
-    # register_procedural_engine_capabilities before this read (import side-effect).
-    try:
-        from ada.topo_model import procedural_engine_specs
-
-        procedural_engines = procedural_engine_specs()
-    except Exception:
-        logger.exception("worker: failed to list procedural engine capabilities (non-fatal)")
-        procedural_engines = []
-    # Detailing engines this worker offers (a fabrication-detail stage that adds
-    # connection joints after the structural build), advertised so the viewer's
-    # Compile-settings "Detailing" dropdown unions the built-in adapy-default (+
-    # the none sentinel) with any external engine a capability worker's
-    # ADA_WORKER_PRELOAD module registered via register_detailing_engine.
-    try:
-        from ada.topo_model import detailing_engine_specs
-
-        procedural_detailing_engines = detailing_engine_specs()
-    except Exception:
-        logger.exception("worker: failed to list detailing engines (non-fatal)")
-        procedural_detailing_engines = []
-    # Backend plugin specs (the viewer plugin system). Advertised so the REST
-    # ``/api/plugins`` endpoint unions the static built-ins with any plugin a
-    # capability worker's ADA_WORKER_PRELOAD / ``ada.plugins`` entry point
-    # registered via register_plugin_backend. Empty until a plugin registers.
-    try:
-        from ada.plugins import plugin_backend_specs
-
-        plugin_specs = plugin_backend_specs()
-    except Exception:
-        logger.exception("worker: failed to list backend plugins (non-fatal)")
-        plugin_specs = []
+    # Catalogs this worker can compile / place / build, advertised (with full
+    # catalog-shaped specs) so the viewer's cellbuilder dropdowns union the
+    # code-defined defaults with the per-scope DB catalog and with anything a
+    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_*),
+    # show each entry's origin, and "sync" a code type into the DB catalog. The
+    # API merges them per catalog via ``ada.comms.rest.catalog.merge_catalog_specs``.
+    procedural_equipment_types = _advertised_specs(
+        "procedural equipment types", "ada.topo_model.equipment", "list_equipment_types"
+    )
+    procedural_equipment_specs = _advertised_specs(
+        "procedural equipment types", "ada.topo_model.equipment", "equipment_archetype_specs"
+    )
+    procedural_system_types = _advertised_specs("procedural system types", "ada.api.systems", "list_system_types")
+    procedural_system_specs = _advertised_specs("procedural system types", "ada.api.systems", "system_type_specs")
+    procedural_design_rulesets = _advertised_specs(
+        "procedural design rulesets", "ada.topo_model", "design_ruleset_specs"
+    )
+    # Cell/opening types for the + Cell / + Opening pickers.
+    procedural_cell_specs = _advertised_specs(
+        "procedural cell/opening types", "ada.topo_model", "procedural_cell_type_specs"
+    )
+    procedural_opening_specs = _advertised_specs(
+        "procedural cell/opening types", "ada.topo_model", "procedural_opening_type_specs"
+    )
+    # Structural blueprints, advertised PER ENGINE (each spec carries its ``engine``).
+    procedural_blueprints = _advertised_specs("procedural blueprints", "ada.topo_model", "procedural_blueprint_specs")
+    # Start-from templates for the viewer's "New model from template" dropdown.
+    procedural_templates = _advertised_specs("procedural templates", "ada.topo_model", "procedural_template_specs")
+    # Per-engine capability flags (e.g. ``supports_grouping``) gating engine-specific UI.
+    procedural_engines = _advertised_specs(
+        "procedural engine capabilities", "ada.topo_model", "procedural_engine_specs"
+    )
+    # Detailing engines (a fabrication-detail stage after the structural build).
+    procedural_detailing_engines = _advertised_specs("detailing engines", "ada.topo_model", "detailing_engine_specs")
+    # Backend plugin specs (the viewer plugin system) for ``/api/plugins``.
+    plugin_specs = locally_registered_specs()
 
     # --- capability qualification ------------------------------------------
     #

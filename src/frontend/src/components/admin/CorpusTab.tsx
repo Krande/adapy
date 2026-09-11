@@ -10,6 +10,7 @@ import {
 import FileTreeView, {FileTreeMutations} from "./FileTreeView";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {scopeUrlPart} from "@/state/scopeStore";
+import {formatBytes} from "@/utils/format";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in the admin audit-panel design notes).
@@ -31,13 +32,6 @@ import {scopeUrlPart} from "@/state/scopeStore";
 // are admin-only on every axis).
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 function dirnameOf(key: string): string {
     const i = key.lastIndexOf("/");
@@ -356,7 +350,7 @@ const CopyFromScopeModal: React.FC<{
                                             />
                                         </td>
                                         <td className="font-mono text-gray-200 px-3 py-1 border-b border-gray-800 truncate max-w-md">{f.key}</td>
-                                        <td className="text-right text-gray-400 px-3 py-1 border-b border-gray-800 font-mono">{fmtBytes(f.size)}</td>
+                                        <td className="text-right text-gray-400 px-3 py-1 border-b border-gray-800 font-mono">{formatBytes(f.size)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -375,7 +369,7 @@ const CopyFromScopeModal: React.FC<{
                                     existingKeys.has(f.key) ? (
                                         <span className="text-[10px] text-gray-500 uppercase tracking-wide">in corpus</span>
                                     ) : (
-                                        <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
+                                        <span className="text-gray-400 font-mono">{formatBytes(f.size)}</span>
                                     )
                                 )}
                             />
@@ -1082,7 +1076,7 @@ const CorpusFiles: React.FC<{
                                         {f.key}
                                     </td>
                                     <td className="text-right text-gray-400 px-3 py-1 border-b border-gray-800 font-mono">
-                                        {fmtBytes(f.size)}
+                                        {formatBytes(f.size)}
                                     </td>
                                     <td className="text-right px-3 py-1 border-b border-gray-800">
                                         <button
@@ -1116,7 +1110,7 @@ const CorpusFiles: React.FC<{
                             newFolderAt={newFolderAt}
                             onNewFolderAtChange={setNewFolderAt}
                             renderFileTail={(f) => (
-                                <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
+                                <span className="text-gray-400 font-mono">{formatBytes(f.size)}</span>
                             )}
                         />
                     </div>

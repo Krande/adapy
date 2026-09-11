@@ -9,6 +9,7 @@ from ada.comms.fb_wrap_model_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -20,7 +21,8 @@ def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, mes
 
     file_objects = server.scene.file_objects
 
-    reply_message = MessageDC(
+    reply_message = reply_to(
+        message,
         instance_id=server.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
         server=ServerDC(all_file_objects=file_objects),

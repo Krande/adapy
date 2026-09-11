@@ -5,6 +5,7 @@ import {runtime} from "@/runtime/config";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {ImagePool, describeImagePool, groupWorkersByImage} from "./auditPools";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
+import {formatBytes, formatMillis} from "@/utils/format";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
 const WASM_POOL = "wasm";
@@ -45,20 +46,6 @@ const STATUS_COLOR: Record<string, string> = {
     cancelled: "bg-gray-800 border-gray-600 text-gray-300",
     skipped: "bg-gray-800 border-gray-600 text-gray-400",
 };
-
-function fmtBytes(n: number | null | undefined): string {
-    if (n == null) return "—";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function fmtMs(n: number | null | undefined): string {
-    if (n == null) return "—";
-    if (n < 1000) return `${n} ms`;
-    return `${(n / 1000).toFixed(1)} s`;
-}
 
 type RuntimeMode = "cells" | "wall";
 
@@ -137,9 +124,9 @@ function cellLabel(metric: MetricKey, job: AuditRunJob | undefined): string {
     if (metric === "status" || metric === "validation") return job.status ?? "";
     const v = cellValue(metric, job);
     if (v == null) return "—";
-    if (metric === "peak_rss_kb") return fmtBytes(v * 1024);
-    if (metric === "duration_ms") return fmtMs(v);
-    if (metric === "write_bytes") return fmtBytes(v);
+    if (metric === "peak_rss_kb") return formatBytes(v * 1024);
+    if (metric === "duration_ms") return formatMillis(v);
+    if (metric === "write_bytes") return formatBytes(v);
     if (metric === "mem_per_mb") return `${v.toFixed(1)}×`;
     return "";
 }
@@ -148,10 +135,10 @@ function cellTooltip(job: AuditRunJob | undefined): string {
     if (!job) return "no job";
     const parts: string[] = [];
     if (job.status) parts.push(`status: ${job.status}`);
-    if (job.duration_ms != null) parts.push(`elapsed: ${fmtMs(job.duration_ms)}`);
-    if (job.peak_rss_kb != null) parts.push(`peak rss: ${fmtBytes(job.peak_rss_kb * 1024)}`);
-    if (job.read_bytes != null) parts.push(`read: ${fmtBytes(job.read_bytes)}`);
-    if (job.write_bytes != null) parts.push(`write: ${fmtBytes(job.write_bytes)}`);
+    if (job.duration_ms != null) parts.push(`elapsed: ${formatMillis(job.duration_ms)}`);
+    if (job.peak_rss_kb != null) parts.push(`peak rss: ${formatBytes(job.peak_rss_kb * 1024)}`);
+    if (job.read_bytes != null) parts.push(`read: ${formatBytes(job.read_bytes)}`);
+    if (job.write_bytes != null) parts.push(`write: ${formatBytes(job.write_bytes)}`);
     if (job.worker_image_tag) parts.push(`worker: ${job.worker_image_tag}`);
     if (job.error) parts.push(`error: ${job.error.slice(0, 200)}`);
     return parts.join("\n");
@@ -1044,12 +1031,12 @@ const CellDetailsModal: React.FC<{
     if (job) {
         if (job.status) rows.push(["Status", job.status]);
         if (job.ts) rows.push(["When", new Date(job.ts).toLocaleString()]);
-        if (job.duration_ms != null) rows.push(["Elapsed", fmtMs(job.duration_ms)]);
-        if (job.peak_rss_kb != null) rows.push(["Peak RSS", fmtBytes(job.peak_rss_kb * 1024)]);
-        if (job.cpu_user_ms != null) rows.push(["CPU user", fmtMs(job.cpu_user_ms)]);
-        if (job.cpu_sys_ms != null) rows.push(["CPU sys", fmtMs(job.cpu_sys_ms)]);
-        if (job.read_bytes != null) rows.push(["Read", fmtBytes(job.read_bytes)]);
-        if (job.write_bytes != null) rows.push(["Write", fmtBytes(job.write_bytes)]);
+        if (job.duration_ms != null) rows.push(["Elapsed", formatMillis(job.duration_ms)]);
+        if (job.peak_rss_kb != null) rows.push(["Peak RSS", formatBytes(job.peak_rss_kb * 1024)]);
+        if (job.cpu_user_ms != null) rows.push(["CPU user", formatMillis(job.cpu_user_ms)]);
+        if (job.cpu_sys_ms != null) rows.push(["CPU sys", formatMillis(job.cpu_sys_ms)]);
+        if (job.read_bytes != null) rows.push(["Read", formatBytes(job.read_bytes)]);
+        if (job.write_bytes != null) rows.push(["Write", formatBytes(job.write_bytes)]);
         if (job.worker_image_tag) rows.push(["Worker", job.worker_image_tag]);
         if (job.job_id) rows.push(["Job id", job.job_id]);
     }

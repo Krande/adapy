@@ -31,7 +31,7 @@ import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
 import CellBuilderPortMenu from "./viewer/CellBuilderPortMenu";
 import CellBuilderInsertMenu from "./viewer/CellBuilderInsertMenu";
 import CellBuilderGizmoHud from "./viewer/CellBuilderGizmoHud";
-import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { hasEmbeddedDoc, useCellBuilderStore } from "@/state/cellBuilderStore";
 import ErrorBoundary from "./common/ErrorBoundary";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 // Equipment catalog editor — opened contextually from an equipment's "Edit
@@ -152,7 +152,15 @@ const Menu = () => {
   const componentSpecsAvailable = useComponentSpecsStore((s) => s.hasSpecs);
   // Procedural-context button only renders while a procedural model is
   // loaded in the cellbuilder; closing the model hides button + panel.
-  const proceduralActive = useCellBuilderStore((s) => s.active !== null);
+  //
+  // Either kind of "loaded" counts: an editable session (`active`, opened from
+  // the model store) or a document that arrived embedded in the GLB
+  // (`hasEmbeddedDoc`, the websocket/desktop path -- `assembly.show()`). The
+  // second is read-only for now and the panel says so, but it is exactly as
+  // worth browsing: it is the equipment and systems of the model on screen.
+  const proceduralActive = useCellBuilderStore(
+    (s) => s.active !== null || hasEmbeddedDoc(s),
+  );
   const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
   const toggleCellBuilderPanel = () =>
     useCellBuilderStore
@@ -190,7 +198,7 @@ const Menu = () => {
               className={
                 "flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded-sm transition-colors"
               }
-              onClick={() => request_list_of_nodes()}
+              onClick={() => void request_list_of_nodes().catch((err) => console.error("Failed to reload nodes:", err))}
               title="Reload nodes"
             >
               <ReloadIcon />

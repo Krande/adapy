@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi, WorkerEntry} from "@/services/viewerApi";
 import InfoIcon from "@/components/icons/InfoIcon";
 import WorkerInfoModal from "./WorkerInfoModal";
+import {formatDuration, formatRelativeTime} from "@/utils/format";
 
 // Live view of every worker pod that recently published a heartbeat.
 // The endpoint just scans a NATS KV bucket — no DB hit — so the
@@ -14,22 +15,6 @@ import WorkerInfoModal from "./WorkerInfoModal";
 // * mobile — card-per-row, same fields stacked vertically.
 
 const REFRESH_INTERVAL_MS = 5000;
-
-function fmtRelative(epoch: number, nowEpoch: number): string {
-    const dt = nowEpoch - epoch;
-    if (dt < 0) return "in the future";
-    if (dt < 60) return `${Math.round(dt)}s ago`;
-    if (dt < 3600) return `${Math.round(dt / 60)}m ago`;
-    if (dt < 86400) return `${Math.round(dt / 3600)}h ago`;
-    return `${Math.round(dt / 86400)}d ago`;
-}
-
-function fmtDuration(seconds: number): string {
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-    if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
-    return `${Math.round(seconds / 86400)}d`;
-}
 
 const Dot: React.FC<{online: boolean}> = ({online}) => (
     <span
@@ -165,10 +150,10 @@ const WorkersTab: React.FC = () => {
                                     : w.capabilities.map((c) => <CapabilityChip key={c} name={c}/>)}
                             </td>
                             <td className="px-2 py-1.5 text-gray-300">
-                                {fmtDuration(now - w.started_at)}
+                                {formatDuration(now - w.started_at)}
                             </td>
                             <td className="px-2 py-1.5 text-gray-300">
-                                {fmtRelative(w.last_heartbeat, now)}
+                                {formatRelativeTime(w.last_heartbeat, now)}
                             </td>
                             <td className="px-2 py-1.5 text-right">
                                 <button
@@ -210,9 +195,9 @@ const WorkersTab: React.FC = () => {
                             <span>Image</span>
                             <span className="font-mono">{w.image_tag || "—"}</span>
                             <span>Uptime</span>
-                            <span>{fmtDuration(now - w.started_at)}</span>
+                            <span>{formatDuration(now - w.started_at)}</span>
                             <span>Last heartbeat</span>
-                            <span>{fmtRelative(w.last_heartbeat, now)}</span>
+                            <span>{formatRelativeTime(w.last_heartbeat, now)}</span>
                         </div>
                         {w.capabilities.length > 0 && (
                             <div className="mt-2">

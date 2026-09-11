@@ -8,14 +8,26 @@ bounding box, mass, IFC element class and a port/nozzle list; a linked CAD asset
 inferred by the ``equipment_bbox`` worker job. The system doc carries the
 service category/type/medium/voltage and the routed-segment rendering knobs.
 
-Validation is pure-pydantic (no ``ada`` import) so it runs in the slim API
-image; the port geometry semantics mirror ``ada.api.systems.ports.Port``.
+Validation is pure-pydantic (see ``ada.core.catalog_docs``, re-exported here)
+so it runs in the slim API image; the port geometry semantics mirror
+``ada.api.systems.ports.Port``.
 """
 
 from __future__ import annotations
 
-import re
 from functools import lru_cache
+from typing import Callable, Iterable, Literal, Mapping
+
+# Re-exported: the slug helper and the doc validators moved below the REST layer
+# (``ada.core``) so ``ada.cadit.dexpi`` / ``ada.topo_model`` no longer import
+# from ``ada.comms``. Out-of-tree plugins keep importing them from here.
+from ada.core.catalog_docs import (  # noqa: F401
+    _equipment_doc_model,
+    _system_doc_model,
+    validate_equipment_doc,
+    validate_system_doc,
+)
+from ada.core.text_utils import slugify  # noqa: F401
 
 # Uploaded/copied CAD assets and inferred preview GLBs for equipment types live
 # under this prefix, hidden from the scope file listing (see converter.py).
@@ -327,6 +339,92 @@ def builtin_opening_specs() -> list[dict]:
     return [dict(d) for d in _OPENING_TYPES]
 
 
+# ── Catalog listing merge ─────────────────────────────────────────────
+#
+# Every catalog the viewer lists (plugins, equipment/system types, design
+# rulesets, cell/opening types, blueprints, detailing engines) is the union of
+# up to three SOURCES, applied in this order so a later one shadows an earlier
+# one for the same slug:
+#
+#   1. code    — the static built-ins this module carries (so a dropdown is
+#                never empty for want of a worker);
+#   2. worker  — what live (non-stale) workers advertise on their heartbeat
+#                (``_live_worker_specs`` in app.py); wins over a code spec;
+#   3. db      — the per-scope DB catalog rows (equipment/system types only);
+#                the editable copy shadows both (origin ``catalog``).
+#
+# ``origin`` tags where the winning entry came from: ``code`` for a built-in
+# (also when a worker re-announces it), ``live_origin`` (``code`` or ``db``) for
+# a slug only a worker advertises, ``catalog`` for a DB row.
+
+CatalogOrigin = Literal["code", "db", "catalog"]
+SpecProjection = Callable[[str, dict, str], dict]
+
+
+def _default_projection(slug: str, spec: dict, origin: str) -> dict:
+    return {**spec, "slug": slug, "origin": origin}
+
+
+def merge_catalog_specs(
+    code_specs: Iterable[dict],
+    live_specs: Mapping[str, dict] | None = None,
+    *,
+    project: SpecProjection | None = None,
+    live_origin: Literal["code", "db"] = "code",
+    live_filter: Callable[[dict], bool] | None = None,
+    local_specs: Iterable[dict] | None = None,
+) -> dict[str, dict]:
+    """Union code-defined ``code_specs`` (each carrying its ``slug``) with the
+    ``live_specs`` live workers advertise (keyed by slug), keyed by slug and
+    projected to the response shape by ``project(slug, spec, origin)`` (default:
+    the spec itself plus ``slug``/``origin``). Insertion order is authored order:
+    built-ins first, worker-only extras after.
+
+    Precedence: a live spec REPLACES a code spec for the same slug (its origin
+    stays ``code``); a live-only slug is tagged ``live_origin``. ``live_filter``
+    drops live specs that do not belong (e.g. another engine's blueprints).
+    ``local_specs`` — what THIS process registered (a queue-less viewer running
+    plugin jobs itself) — only fill slugs no other source supplied, as ``code``;
+    their slug may be spelled ``slug`` or ``id``."""
+    project = project or _default_projection
+    by_slug: dict[str, dict] = {}
+    code_slugs: set[str] = set()
+    for spec in code_specs:
+        slug = spec["slug"]
+        code_slugs.add(slug)
+        by_slug[slug] = project(slug, spec, "code")
+    for slug, spec in (live_specs or {}).items():
+        if live_filter is not None and not live_filter(spec):
+            continue
+        by_slug[slug] = project(slug, spec, "code" if slug in code_slugs else live_origin)
+    for spec in local_specs or ():
+        slug = spec.get("slug") or spec.get("id")
+        if slug and slug not in by_slug:
+            by_slug[slug] = project(slug, spec, "code")
+    return by_slug
+
+
+def overlay_catalog_rows(
+    by_slug: dict[str, dict],
+    rows: Iterable[dict],
+    project: Callable[[str, dict], dict],
+) -> dict[str, dict]:
+    """Shadow ``by_slug`` (from :func:`merge_catalog_specs`) with per-scope DB
+    catalog ``rows`` — the editable copy wins over a code/worker spec of the
+    same slug. Rows without a usable ``slug`` are skipped. Mutates and returns
+    ``by_slug``."""
+    for row in rows:
+        slug = row.get("slug")
+        if isinstance(slug, str) and slug:
+            by_slug[slug] = project(slug, row)
+    return by_slug
+
+
+def sort_by_name(entries: Iterable[dict]) -> list[dict]:
+    """Listing order for the dropdowns: case-insensitive by ``name``."""
+    return sorted(entries, key=lambda x: x["name"].lower())
+
+
 def equipment_cad_key(type_id: str, ext: str) -> str:
     """Blob key for an equipment type's source CAD asset. ``ext`` includes the
     leading dot (e.g. ``.step``); a single source per type (overwritten on
@@ -338,123 +436,6 @@ def equipment_cad_key(type_id: str, ext: str) -> str:
 def equipment_preview_glb_key(type_id: str) -> str:
     """Blob key for the equipment type's inferred preview GLB (sidecar viewer)."""
     return f"{EQUIPMENT_PREFIX}{type_id}/preview.glb"
-
-
-def slugify(value: str) -> str:
-    """A URL/identifier-safe slug: lowercase, non-alphanumerics collapsed to a
-    single hyphen, trimmed. Empty input yields ``""`` (caller rejects)."""
-    s = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
-    return s
-
-
-@lru_cache(maxsize=1)
-def _equipment_doc_model():
-    import re
-    from typing import List, Literal, Optional
-
-    from pydantic import BaseModel, ConfigDict, Field, conlist, field_validator
-
-    Vec3 = conlist(float, min_length=3, max_length=3)
-    _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-
-    class CatalogPort(BaseModel):
-        model_config = ConfigDict(extra="allow")
-
-        name: str
-        position: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
-        direction_vector: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 1.0])
-        direction: Literal["IN", "OUT", "INOUT"] = "INOUT"
-        category: Literal["process", "electrical", "signal"] = "process"
-        # Optional per-port colour override as ``#rrggbb``; ``None`` means the
-        # frontend derives the colour from ``category``.
-        color: Optional[str] = None
-        # Process identity of the nozzle, mirroring ada.Port: its tag in the source
-        # definition, nominal diameter in **metres** (not DN millimetres) and piping
-        # class. Round-tripped under extra="allow" before they were declared here;
-        # declaring them validates them and exposes them to the port editor.
-        tag: Optional[str] = None
-        nominal_diameter: Optional[float] = None
-        spec: Optional[str] = None
-
-        @field_validator("color")
-        @classmethod
-        def _check_color(cls, v):
-            if v is None:
-                return v
-            v = v.strip().lower()
-            if not _HEX_RE.match(v):
-                raise ValueError(f"color must be a '#rrggbb' hex string, got {v!r}")
-            return v
-
-    class BBox(BaseModel):
-        lx: float = 1.0
-        ly: float = 1.0
-        lz: float = 1.0
-
-    class EquipmentTypeDoc(BaseModel):
-        # See the note on ProceduralDoc in .procedural: a normalizer that DROPS
-        # what it does not recognise turns a stale field name into a no-op with
-        # no error, and (for anything keyed on the normalized dict) into a hash
-        # collision. Round-trip unknown keys instead; declared fields below are
-        # still validated, so a malformed known field is still a loud 422.
-        model_config = ConfigDict(extra="allow")
-
-        bbox: BBox = Field(default_factory=BBox)
-        mass: float = 1000.0
-        # equipment-local centre of gravity; defaults to the bbox centroid at
-        # compile time when omitted
-        cog: Optional[Vec3] = None
-        ifc_element_class: str = "IfcBuildingElementProxy"
-        # Whether the linked CAD asset is authored in adapy's Z-up convention.
-        # True (default) = take the asset verbatim (Z is height). False = the CAD
-        # is glTF-spec Y-up and gets re-oriented Y-up→Z-up before measuring and
-        # splicing. Only meaningful for mesh assets (.glb/.gltf/.stl/.obj).
-        cad_z_up: bool = True
-        ports: List[CatalogPort] = Field(default_factory=list)
-
-    return EquipmentTypeDoc
-
-
-@lru_cache(maxsize=1)
-def _system_doc_model():
-    from typing import Literal, Optional
-
-    from pydantic import BaseModel, ConfigDict
-
-    class SystemTemplateDoc(BaseModel):
-        # Round-trip unknown keys rather than deleting them — see EquipmentTypeDoc.
-        model_config = ConfigDict(extra="allow")
-
-        type: Literal["piping", "duct", "cable", "electrical"] = "piping"
-        medium: Optional[str] = None
-        # electrical service voltage in volts (informational; only meaningful
-        # for electrical systems)
-        voltage: Optional[int] = None
-        pipe_radius: float = 0.05
-        pipe_wt: float = 0.005
-
-    return SystemTemplateDoc
-
-
-def validate_equipment_doc(doc: dict) -> dict:
-    """Validate + normalize an equipment-type document. Raises ValueError with
-    the pydantic error text on invalid input; enforces unique port names."""
-    import pydantic
-
-    if not isinstance(doc, dict):
-        raise ValueError(f"doc must be an object, got {type(doc).__name__}")
-    try:
-        model = _equipment_doc_model()(**doc)
-    except pydantic.ValidationError as e:
-        raise ValueError(str(e)) from None
-    names = [p.name for p in model.ports]
-    dupes = {n for n in names if names.count(n) > 1}
-    if dupes:
-        raise ValueError(f"duplicate port names: {sorted(dupes)}")
-    for p in model.ports:
-        if not p.name.strip():
-            raise ValueError("every port needs a non-empty name")
-    return model.model_dump(mode="json")
 
 
 def resync_target_doc(archetype_doc: dict, stored_doc: dict, has_cad: bool) -> dict:
@@ -514,22 +495,9 @@ def summarize_equipment_doc_changes(old_doc: dict, old_name: str, new_doc: dict,
     return changes
 
 
-def validate_system_doc(doc: dict) -> dict:
-    """Validate + normalize a system-template document."""
-    import pydantic
-
-    if not isinstance(doc, dict):
-        raise ValueError(f"doc must be an object, got {type(doc).__name__}")
-    try:
-        model = _system_doc_model()(**doc)
-    except pydantic.ValidationError as e:
-        raise ValueError(str(e)) from None
-    return model.model_dump(mode="json")
-
-
 @lru_cache(maxsize=1)
 def _engine_doc_model():
-    from typing import List, Literal, Optional
+    from typing import List, Optional
 
     from pydantic import BaseModel, ConfigDict, model_validator
 

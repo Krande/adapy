@@ -11,6 +11,7 @@ from ada.comms.fb_wrap_model_gen import (
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.msg_handling.object_metadata import populate_for_file_object
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -33,11 +34,11 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
     file_name = info.file_name or _infer_file_name(server)
     if not object_name:
         logger.debug("mesh_info_callback: empty object_name in request; nothing to look up")
-        _reply(server, client, info, None)
+        _reply(server, client, message, None)
         return
 
     meta = _lookup_meta(server, file_name, object_name)
-    _reply(server, client, info, meta)
+    _reply(server, client, message, meta)
 
 
 def _lookup_meta(server: WebSocketAsyncServer, file_name: str | None, object_name: str) -> dict | None:
@@ -74,9 +75,10 @@ def _infer_file_name(server: WebSocketAsyncServer) -> str | None:
 def _reply(
     server: WebSocketAsyncServer,
     client: ConnectedClient,
-    request_info,
+    message: MessageDC,
     payload: dict | None,
 ) -> None:
+    request_info = message.mesh_info
     json_data = json.dumps(payload) if payload is not None else ""
     mesh_info = MeshInfoDC(
         object_name=request_info.object_name,
@@ -84,7 +86,8 @@ def _reply(
         json_data=json_data,
         file_name=request_info.file_name,
     )
-    reply_message = MessageDC(
+    reply_message = reply_to(
+        message,
         instance_id=server.instance_id,
         command_type=CommandTypeDC.MESH_INFO_REPLY,
         mesh_info=mesh_info,

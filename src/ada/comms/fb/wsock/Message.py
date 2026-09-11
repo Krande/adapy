@@ -172,9 +172,16 @@ class Message(object):
             return obj
         return None
 
+    # Message
+    def RequestId(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 
 def MessageStart(builder):
-    builder.StartObject(13)
+    builder.StartObject(14)
 
 
 def Start(builder):
@@ -291,6 +298,14 @@ def MessageAddPackage(builder, package):
 
 def AddPackage(builder, package):
     MessageAddPackage(builder, package)
+
+
+def MessageAddRequestId(builder, requestId):
+    builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(requestId), 0)
+
+
+def AddRequestId(builder, requestId):
+    MessageAddRequestId(builder, requestId)
 
 
 def MessageEnd(builder):

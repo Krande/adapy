@@ -1,18 +1,24 @@
 import { create } from "zustand";
 
 import {
-  ApiError,
-  viewerApi,
-  type ProceduralBlueprintOption,
-  type ProceduralCellTypeOption,
-  type DetailingEngineSummary,
-  type ProceduralDoc,
-  type ProceduralDesignRulesetOption,
-  type ProceduralEngineSummary,
-  type ProceduralOpeningTypeOption,
-  type ProceduralRelocationResult,
-  type ProceduralSystemTypeOption,
-  type ProceduralTypeOption,
+  capabilities,
+  ProceduralCommitConflictError,
+} from "@/services/capabilities";
+// Type-only: the store never reaches the REST client at runtime -- every backend call goes
+// through `capabilities.procedural`, which is what makes the store transport-neutral. The DTOs
+// are shared with the REST client because they ARE the wire documents, whichever transport
+// carries them.
+import type {
+  ProceduralBlueprintOption,
+  ProceduralCellTypeOption,
+  DetailingEngineSummary,
+  ProceduralDoc,
+  ProceduralDesignRulesetOption,
+  ProceduralEngineSummary,
+  ProceduralOpeningTypeOption,
+  ProceduralRelocationResult,
+  ProceduralSystemTypeOption,
+  ProceduralTypeOption,
 } from "@/services/viewerApi";
 import { Vector3 } from "three";
 
@@ -288,8 +294,14 @@ function extractParams(
 }
 
 interface CellBuilderState {
-  /** The procedural model open in the builder; null hides the whole tool
-   * (top-row button included). */
+  /** The procedural model open in the builder as an EDITABLE SESSION -- a stored
+   * model with an id and a revision that edits can be committed back to. Null on
+   * the websocket/desktop path even when a document is loaded for viewing (see
+   * `hasEmbeddedDoc`), which is deliberate: `active` is what `CellBuilderController`
+   * gates every editing interaction on (gizmos, click-to-place, drag-to-move) and
+   * what `setupCameraControlsHandlers` reads before auto-compiling, so it must
+   * mean "there is somewhere to save this", not merely "there is something to
+   * look at". */
   active: { modelId: string; name: string; revision: number } | null;
   cells: Record<string, BuilderCell>;
   /** Raw authored loft members — the editable source of truth for the `loft`
@@ -865,10 +877,11 @@ interface CellBuilderState {
    * workbook matches what's on screen. */
   exportToExcel: () => Promise<void>;
   /** Export + download the committed model as a CAD/analysis file: "ifc" (the
-   * DETAIL model, clash cuts as IfcRelVoidsElement voids) or "gxml" (the
-   * SIMULATION model as a Genie concept XML). Commits first when dirty. IFC
-   * honours `exportIfcCad` (splice real catalog CAD equipment). */
-  exportModel: (format: "ifc" | "gxml") => Promise<void>;
+   * DETAIL model, clash cuts as IfcRelVoidsElement voids), "gxml" (the
+   * SIMULATION model as a Genie concept XML) or "gnx" (that XML as a Genie
+   * workspace). Commits first when dirty. IFC honours `exportIfcCad` (splice
+   * real catalog CAD equipment). */
+  exportModel: (format: "ifc" | "gxml" | "gnx") => Promise<void>;
   /** IFC export: splice real catalog CAD geometry for equipment (default on).
    * Off = placeholder boxes. gxml ignores this (Genie equipment concept type). */
   exportIfcCad: boolean;
@@ -1195,6 +1208,25 @@ function pruneSelection(
   return sel && cells[sel.cellId] ? sel : null;
 }
 
+/** Is a procedural document loaded for VIEWING with no editable session behind
+ * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
+ *
+ * Enough to show the equipment/systems browser read-only; never enough to edit
+ * or commit. Editability is a separate question answered by
+ * `capabilities.procedural.canEdit`, which is false on that transport only
+ * because no save verb is implemented over the websocket yet.
+ *
+ * Derived, not stored: it is exactly "something is loaded and there is no
+ * session", and a parallel flag would have to be kept in step with `active`,
+ * `cells` and `systems` by every action that touches them. Returns a boolean,
+ * so it is safe as a zustand selector. */
+export const hasEmbeddedDoc = (s: {
+  active: unknown | null;
+  cells: Record<string, unknown>;
+  systems: Record<string, unknown>;
+}): boolean =>
+  s.active === null && (Object.keys(s.cells).length > 0 || Object.keys(s.systems).length > 0);
+
 export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
   // Wrap a model-mutating updater so it pushes the pre-change snapshot onto
   // the undo stack (and clears the redo stack) — unless a transaction owns
@@ -1238,7 +1270,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const active = get().active;
       if (!active || (!derivedKey && !runId)) return;
       try {
-        const res = await viewerApi.proceduralCompileLog(
+        const res = await capabilities.procedural.fetchCompileLog(
           currentScopePart(),
           active.modelId,
           derivedKey,
@@ -1352,7 +1384,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const cur = get().compileJob;
         if (!cur || cur.jobId !== jobId) return; // superseded
         try {
-          const st = await viewerApi.convertStatus(jobId);
+          const st = await capabilities.procedural.jobStatus(jobId);
           if (st.status === "done") {
             set({ compileJob: { ...cur, status: "done" } });
             setProceduralToast(label, {
@@ -1419,8 +1451,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     });
     const openImported = async (derivedKey: string) => {
       try {
-        const result = await viewerApi.fetchProceduralImportResult(scope, derivedKey);
-        const detail = await viewerApi.getProceduralModel(scope, result.model_id);
+        const detail = await capabilities.procedural.fetchImportedModel(scope, derivedKey);
         get().open(detail.id, detail.name, detail.revision, detail.doc);
         setProceduralToast(IMPORT_LABEL, {
           status: "done",
@@ -1438,7 +1469,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     };
     try {
-      const res = await viewerApi.importProceduralModelXlsx(scope, {
+      const res = await capabilities.procedural.importXlsx(scope, {
         source_key: sourceKey,
         engine,
         name,
@@ -1446,7 +1477,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const jobId = res.job_id;
       const poll = async () => {
         try {
-          const st = await viewerApi.convertStatus(jobId);
+          const st = await capabilities.procedural.jobStatus(jobId);
           if (st.status === "done") {
             await openImported(st.derived_key || res.derived_key);
             return;
@@ -1569,6 +1600,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     open: (modelId, name, revision, doc) => {
       // A freshly loaded model starts a new editing session — history resets.
       set({
+        // A real session supersedes any view-only document that was loaded
+        // before it (`hasEmbeddedDoc` is false the moment `active` is set), so
+        // the header stops calling itself read-only.
         active: { modelId, name, revision },
         cells: cellsFromDoc(doc),
         loftMembers: loftMembersFromDoc(doc),
@@ -2796,11 +2830,23 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         ...(groups.length ? { groups } : {}),
       };
     },
-    loadFromDoc: (doc) =>
+    loadFromDoc: (doc) => {
+      const cells = cellsFromDoc(doc);
+      const systems = systemsFromDoc(doc);
+      // Deliberately does NOT set `active` -- see that field's docstring. The
+      // store is populated for reading without claiming there is a session to
+      // commit to, so `CellBuilderController`'s editing surface stays off. The
+      // populated cells/systems are what let the panel and the menu button
+      // appear read-only rather than staying hidden entirely (`hasEmbeddedDoc`
+      // derives that; there is no separate flag to keep in step).
+      //
+      // This is also called with an EMPTY doc to clear the panels when a model
+      // with no procedural provenance loads; empty cells and systems make
+      // `hasEmbeddedDoc` false again, so no empty browser is left behind.
       set({
-        cells: cellsFromDoc(doc),
+        cells,
         loftMembers: loftMembersFromDoc(doc),
-        systems: systemsFromDoc(doc),
+        systems,
         groups: groupsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
@@ -2812,7 +2858,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         dirty: false,
         selection: null,
-      }),
+      });
+    },
 
     undo: () =>
       set((s) => {
@@ -2857,8 +2904,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchEquipmentTypes: async () => {
       try {
-        const types =
-          await viewerApi.proceduralEquipmentTypes(currentScopePart());
+        const types = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "equipmentTypes",
+        );
         set((s) => ({
           equipmentTypes: types,
           selectedEquipmentType:
@@ -2875,7 +2924,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchCellTypes: async () => {
       try {
-        const types = await viewerApi.proceduralCellTypes(currentScopePart());
+        const types = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "cellTypes",
+        );
         set((s) => ({
           cellTypes: types,
           selectedCellType:
@@ -2892,7 +2944,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchOpeningTypes: async () => {
       try {
-        const types = await viewerApi.proceduralOpeningTypes(currentScopePart());
+        const types = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "openingTypes",
+        );
         set((s) => ({
           openingTypes: types,
           selectedOpeningType:
@@ -2909,7 +2964,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchSystemTypes: async () => {
       try {
-        const types = await viewerApi.proceduralSystemTypes(currentScopePart());
+        const types = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "systemTypes",
+        );
         set({ systemTypes: types });
       } catch (e) {
         console.warn("cellbuilder: system-types fetch failed", e);
@@ -2919,8 +2977,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchDesignRulesets: async () => {
       try {
-        const rulesets =
-          await viewerApi.proceduralDesignRulesets(currentScopePart());
+        const rulesets = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "designRulesets",
+        );
         set({ designRulesets: rulesets });
       } catch (e) {
         console.warn("cellbuilder: design-rulesets fetch failed", e);
@@ -2941,8 +3001,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchEngines: async () => {
       try {
-        const engines =
-          await viewerApi.listProceduralEngines(currentScopePart());
+        const engines = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "engines",
+        );
         set({ engines });
       } catch (e) {
         console.warn("cellbuilder: engines fetch failed", e);
@@ -2970,8 +3032,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchDetailingEngines: async () => {
       try {
-        const detailingEngines =
-          await viewerApi.listDetailingEngines(currentScopePart());
+        const detailingEngines = await capabilities.procedural.listCatalog(
+          currentScopePart(),
+          "detailingEngines",
+        );
         // Re-reconcile the current selection's options against the freshly
         // advertised specs (a worker may advertise more/other joint types than
         // the static fallback the first fetch saw).
@@ -3046,7 +3110,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     fetchBlueprints: async () => {
       try {
-        const blueprints = await viewerApi.proceduralBlueprints(
+        const blueprints = await capabilities.procedural.listBlueprints(
           currentScopePart(),
           get().selectedEngine,
         );
@@ -3132,7 +3196,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     syncEquipmentTypeToDb: async (slug) => {
       try {
-        await viewerApi.syncProceduralEquipmentType(currentScopePart(), slug);
+        await capabilities.procedural.syncCatalogEntry(
+          currentScopePart(),
+          "equipmentTypes",
+          slug,
+        );
         await get().fetchEquipmentTypes();
       } catch (e) {
         console.warn("cellbuilder: equipment-type sync failed", e);
@@ -3141,7 +3209,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     syncSystemTypeToDb: async (slug) => {
       try {
-        await viewerApi.syncProceduralSystemType(currentScopePart(), slug);
+        await capabilities.procedural.syncCatalogEntry(
+          currentScopePart(),
+          "systemTypes",
+          slug,
+        );
         await get().fetchSystemTypes();
       } catch (e) {
         console.warn("cellbuilder: system-type sync failed", e);
@@ -3163,8 +3235,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         });
       }
       try {
-        const res =
-          await viewerApi.resyncProceduralEquipmentTypes(currentScopePart());
+        const res = await capabilities.procedural.resyncEquipmentTypes(
+          currentScopePart(),
+        );
         await get().fetchEquipmentTypes();
         const changed = res.created.length + res.updated.length;
         // Announce on the global toast unless this was a silent auto-resync that
@@ -3202,7 +3275,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       if (!s.active || s.committing) return false;
       set({ committing: true, conflict: null });
       try {
-        const res = await viewerApi.commitProceduralModel(
+        const res = await capabilities.procedural.commitModel(
           currentScopePart(),
           s.active.modelId,
           s.toDoc(),
@@ -3218,7 +3291,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         }
         return true;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
+        if (e instanceof ProceduralCommitConflictError) {
           set({
             committing: false,
             conflict:
@@ -3254,15 +3327,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
       await startCompileJob(label, lod, () =>
-        viewerApi.compileProceduralModel(
-          currentScopePart(),
-          active.modelId,
+        capabilities.procedural.compileModel(currentScopePart(), active.modelId, {
           force,
           lod,
-          get().selectedEngine,
-          get().selectedDetailing,
-          get().detailingOptionsPayload(),
-        ),
+          engine: get().selectedEngine,
+          detailing: get().selectedDetailing,
+          detailingOptions: get().detailingOptionsPayload(),
+        }),
       );
     },
 
@@ -3277,7 +3348,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const doc = get().toDoc();
       const label = `${active.name} (preview)`;
       await startCompileJob(label, lod, () =>
-        viewerApi.previewProceduralModel(
+        capabilities.procedural.previewModel(
           currentScopePart(),
           active.modelId,
           doc,
@@ -3364,7 +3435,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         if (engineArg) {
           const eng = get().engines.find((e) => e.slug === engineSlug);
           if (eng && eng.origin !== "builtin") {
-            const resolved = await viewerApi.resolveProceduralEngine(
+            const resolved = await capabilities.procedural.resolveEngine(
               currentScopePart(),
               eng.id,
             );
@@ -3531,12 +3602,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         startedAt: Date.now(),
       });
       try {
-        const res = await viewerApi.proposeProceduralRelocations(
+        const res = await capabilities.procedural.proposeRelocations(
           currentScopePart(),
           active.modelId,
         );
         if (!res.job_id) {
-          const data = await viewerApi.fetchProceduralRelocations(
+          const data = await capabilities.procedural.fetchRelocations(
             currentScopePart(),
             res.derived_key,
           );
@@ -3551,9 +3622,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const jobId = res.job_id;
         const poll = async () => {
           try {
-            const st = await viewerApi.convertStatus(jobId);
+            const st = await capabilities.procedural.jobStatus(jobId);
             if (st.status === "done") {
-              const data = await viewerApi.fetchProceduralRelocations(
+              const data = await capabilities.procedural.fetchRelocations(
                 currentScopePart(),
                 st.derived_key || res.derived_key,
               );
@@ -3640,7 +3711,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
       const download = async (derivedKey: string) => {
         try {
-          await viewerApi.downloadBlob(
+          await capabilities.procedural.downloadArtifact(
             scope,
             derivedKey,
             `${active.name || "procedural-model"}.xlsx`,
@@ -3663,9 +3734,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Export the COMMITTED revision (the worker reads the DB doc); commit any
         // unsaved edits first so the workbook matches what's on screen.
         if (get().dirty) await get().commit();
-        const res = await viewerApi.exportProceduralModelXlsx(
+        const res = await capabilities.procedural.exportModel(
           scope,
           active.modelId,
+          "xlsx",
           { engine },
         );
         if (res.cached || !res.job_id) {
@@ -3675,7 +3747,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const jobId = res.job_id;
         const poll = async () => {
           try {
-            const st = await viewerApi.convertStatus(jobId);
+            const st = await capabilities.procedural.jobStatus(jobId);
             if (st.status === "done") {
               await download(st.derived_key || res.derived_key);
               return;
@@ -3721,7 +3793,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       if (!active || get().xlsxBusy) return;
       const scope = currentScopePart();
       const label =
-        format === "ifc" ? "Download IFC (detail)" : "Download Genie XML (sim)";
+        format === "ifc"
+          ? "Download IFC (detail)"
+          : format === "gnx"
+            ? "Download Genie workspace (sim)"
+            : "Download Genie XML (sim)";
       set({ xlsxBusy: true });
       setProceduralToast(label, {
         status: "running",
@@ -3731,7 +3807,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
       const download = async (derivedKey: string) => {
         try {
-          await viewerApi.downloadBlob(
+          await capabilities.procedural.downloadArtifact(
             scope,
             derivedKey,
             `${active.name || "procedural-model"}.${format}`,
@@ -3754,7 +3830,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Export the COMMITTED revision (the worker reads the DB doc); commit any
         // unsaved edits first so the file matches what's on screen.
         if (get().dirty) await get().commit();
-        const res = await viewerApi.exportProceduralModel(
+        const res = await capabilities.procedural.exportModel(
           scope,
           active.modelId,
           format,
@@ -3767,7 +3843,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const jobId = res.job_id;
         const poll = async () => {
           try {
-            const st = await viewerApi.convertStatus(jobId);
+            const st = await capabilities.procedural.jobStatus(jobId);
             if (st.status === "done") {
               await download(st.derived_key || res.derived_key);
               return;
@@ -3821,7 +3897,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
       try {
         const buf = await file.arrayBuffer();
-        const detect = await viewerApi.uploadProceduralImportXlsx(scope, buf);
+        const detect = await capabilities.procedural.stageXlsxImport(scope, buf);
         if (detect.engine) {
           // Engine known from the workbook's _ADA_META — import straight away.
           await runImport(detect.source_key, detect.engine, name);

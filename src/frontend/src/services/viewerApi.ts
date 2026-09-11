@@ -2593,13 +2593,14 @@ export const viewerApi = {
 
   /** Enqueue an export of the committed revision to a downloadable CAD/analysis
    * file: `format: "ifc"` (the DETAIL model — clash cuts as IfcRelVoidsElement
-   * voids, equipment as IfcPump/IfcTank/…) or `"gxml"` (the SIMULATION model as a
-   * Genie concept XML). Built-in engine only. Poll `convertStatus` then
-   * `downloadBlob`, exactly like `exportProceduralModelXlsx`. */
+   * voids, equipment as IfcPump/IfcTank/…), `"gxml"` (the SIMULATION model as a
+   * Genie concept XML) or `"gnx"` (that XML as a Genie workspace). Built-in engine
+   * only. Poll `convertStatus` then `downloadBlob`, exactly like
+   * `exportProceduralModelXlsx`. */
   async exportProceduralModel(
     scope: ScopeUrl,
     modelId: string,
-    format: "ifc" | "gxml",
+    format: "ifc" | "gxml" | "gnx",
     opts?: { force?: boolean; cad?: boolean },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams({ format });

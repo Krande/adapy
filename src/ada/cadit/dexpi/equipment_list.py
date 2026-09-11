@@ -32,7 +32,8 @@ from typing import Annotated, Any, Callable, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from ada.comms.rest.catalog import slugify, validate_equipment_doc
+from ada.core.catalog_docs import validate_equipment_doc
+from ada.core.text_utils import slugify
 from ada.serialize.xlsx import WorkbookSerializer
 
 from . import attributes, class_table
