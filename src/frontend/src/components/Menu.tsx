@@ -190,7 +190,7 @@ const Menu = () => {
               className={
                 "flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded-sm transition-colors"
               }
-              onClick={() => request_list_of_nodes()}
+              onClick={() => void request_list_of_nodes().catch((err) => console.error("Failed to reload nodes:", err))}
               title="Reload nodes"
             >
               <ReloadIcon />
