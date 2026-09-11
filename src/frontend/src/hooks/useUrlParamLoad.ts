@@ -1,6 +1,6 @@
 import {useEffect, useRef} from "react";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {sceneRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
 import {runtime} from "@/runtime/config";
 import {dispatchPluginUrlParams} from "@/plugins/urlParams";
 import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
@@ -28,6 +28,9 @@ const SCENE_WAIT_INTERVAL_MS = 100;
 const SCENE_WAIT_MAX_MS = 15000;
 
 export function useUrlParamLoad(): void {
+    // The scene of the provider this hook is mounted under — the one whose
+    // canvas the deep-linked file is about to be loaded into.
+    const {scene: sceneRef} = useViewerRefs();
     const consumed = useRef(false);
     const pluginParamsOffered = useRef(false);
     const available = useScopeStore((s) => s.available);

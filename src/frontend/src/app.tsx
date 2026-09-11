@@ -105,10 +105,9 @@ function App() {
         );
     }
 
-    // Everything that touches viewer state lives under the provider so
-    // Phase-2 migrations can flip consumers off the module-level
-    // singletons in state/refs.ts and state/*Store.ts without touching
-    // this file.
+    // Everything that touches viewer state lives under the provider: it is
+    // what owns this viewer's scene, camera, controls and renderer, and
+    // `useViewerRefs()` throws without it.
     return (
         <AdaViewerProvider>
             <AppBody/>

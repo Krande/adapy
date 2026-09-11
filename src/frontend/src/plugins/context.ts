@@ -1,12 +1,17 @@
 // Assembles the concrete runtime `AdaPluginContext` from the viewer's stores,
-// refs, and REST config. This is the ONE place that bridges the dependency-free
-// registry (`@/plugins/registry`) to the heavy singletons (three scene refs,
-// zustand stores, runtime config) — kept out of the registry so the registry
-// stays unit-testable under plain node.
+// runtime and REST config. This is the ONE place that bridges the
+// dependency-free registry (`@/plugins/registry`) to the heavy parts (the
+// mounted viewer's scene handles, the zustand stores, the REST config) — kept
+// out of the registry so the registry stays unit-testable under plain node.
+//
+// The `SceneHandle` a plugin gets resolves `getViewerRuntime()` on every call
+// rather than closing over one scene, so a handle built at plugin-load time
+// still points at the scene that is actually mounted. The plugin-facing shape
+// is unchanged.
 
 import { trackJob } from "@/services/jobTracking";
 import { runtime } from "@/runtime/config";
-import { sceneRef } from "@/state/refs";
+import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
@@ -47,7 +52,7 @@ type Object3DLike = {
 function makeSceneHandle(): SceneHandle {
   return {
     add(owner, obj) {
-      const scene = sceneRef.current as unknown as {
+      const scene = getViewerRuntime().scene.current as unknown as {
         add: (o: unknown) => void;
       } | null;
       const o = obj as Object3DLike;
@@ -56,7 +61,7 @@ function makeSceneHandle(): SceneHandle {
       requestRender();
     },
     remove(owner, obj) {
-      const scene = sceneRef.current as unknown as {
+      const scene = getViewerRuntime().scene.current as unknown as {
         remove: (o: unknown) => void;
         children?: Object3DLike[];
       } | null;

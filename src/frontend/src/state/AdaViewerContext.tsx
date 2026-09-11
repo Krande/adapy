@@ -157,7 +157,10 @@ export function useAdaViewerCtx(): AdaViewerCtx {
     return ctx
 }
 
-/** Per-instance refs (today a thin pass-through to `state/refs.ts`). */
+/**
+ * This viewer instance's scene-graph handles. The imperative counterpart, for
+ * modules with no React tree, is `getViewerRuntime()`.
+ */
 export function useViewerRefs(): AdaViewerRefs {
     return useAdaViewerCtx().refs
 }
