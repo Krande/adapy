@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {modelStore} from "../state/model_worker/modelStore";
 import {useSelectedObjectStore} from '../state/useSelectedObjectStore';
-import {modelKeyMapRef} from '../state/refs';
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from './mesh_select/CustomBatchedMesh';
 import {enablePointSelectionMask} from "./scene/pointsImpostor";
 import {queryPointRangeByRangeId} from "./mesh_select/queryMeshDrawRange";
@@ -38,7 +38,7 @@ export async function selectGroupMembers(
             return;
         }
 
-        const modelKeyMap = modelKeyMapRef.current;
+        const modelKeyMap = getViewerRuntime().modelKeyMap.current;
         if (!modelKeyMap) {
             console.error('No model key map available');
             return;

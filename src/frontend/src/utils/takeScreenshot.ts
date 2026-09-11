@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import {cameraRef, rendererRef, sceneRef, updatelightRef} from "../state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 
 export async function takeScreenshot() {
-    let renderer = rendererRef.current;
+    let renderer = getViewerRuntime().renderer.current;
     if (!renderer) {
         console.error("Renderer not found");
         return;
     }
-    let scene = sceneRef.current;
+    let scene = getViewerRuntime().scene.current;
     if (!scene) {
         console.error("Scene not found");
         return;
     }
-    let camera = cameraRef.current;
+    let camera = getViewerRuntime().camera.current;
     if (!camera) {
         console.error("Camera not found");
         return;
@@ -44,8 +44,8 @@ export async function takeHighResScreenshot(
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
     }
-    if (updatelightRef.current)
-        updatelightRef.current()
+    if (getViewerRuntime().updateLight.current)
+        getViewerRuntime().updateLight.current!()
     renderer.setSize(width, height);
     renderer.setRenderTarget(renderTarget);
     renderer.render(scene, camera);

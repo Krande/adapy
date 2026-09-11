@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {useAnimationStore} from "../state/animationStore";
-import {cameraRef, controlsRef, sceneRef} from "../state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 export function debug_print() {
@@ -13,17 +13,17 @@ export function debug_print() {
         console.log("Animation found");
     }
 
-    let scene = sceneRef.current;
+    let scene = getViewerRuntime().scene.current;
     // print camera position and target
     if (!scene) {
         console.log("Scene is null");
         return;
     }
 
-    if (!cameraRef.current) {
+    if (!getViewerRuntime().camera.current) {
         console.log("No cameras found in the scene");
     } else {
-        let camera = cameraRef.current;
+        let camera = getViewerRuntime().camera.current!;
         console.log("Camera position:", camera.position);
         console.log("Camera rotation:", camera.rotation);
         console.log("Camera up:", camera.up);
@@ -39,10 +39,10 @@ export function debug_print() {
         console.log("Camera frustum size:", camera.projectionMatrix.elements.length);
     }
 
-    if (!controlsRef.current) {
+    if (!getViewerRuntime().controls.current) {
         console.log("No controls found in the scene");
     } else {
-        let controls = controlsRef.current;
+        let controls = getViewerRuntime().controls.current!;
         if (controls instanceof OrbitControls) {
             console.log("Controls type: OrbitControls");
             console.log("Controls target:", controls.target);

@@ -16,7 +16,7 @@ import {clipWithModel} from "@/utils/scene/section_clipping";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
-import {modelKeyMapRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
@@ -537,15 +537,16 @@ async function tryLoadBeamSolids(
                 rangesPlain[rid] = [entry.triStart * 3, entry.triCount * 3];
             }
         }
-        // The Outliner resolves a clicked row through ``modelKeyMapRef``:
+        // The Outliner resolves a clicked row through the runtime ``modelKeyMap``:
         // ``model_key`` -> an object whose subtree holds the named mesh.
         // ``setupModelLoader`` registers the main FEA mesh when it loads the GLB;
         // nothing registered this one. So clicking a beam in the tree set the
         // Properties name and made NO 3d selection -- the status bar stayed on
         // "No selection", nothing highlighted, and every selection-driven
         // behaviour was silently skipped for beams.
-        if (!modelKeyMapRef.current) modelKeyMapRef.current = new Map();
-        modelKeyMapRef.current.set(uniqueKey, custom);
+        const keyMapRef = getViewerRuntime().modelKeyMap;
+        if (!keyMapRef.current) keyMapRef.current = new Map();
+        keyMapRef.current.set(uniqueKey, custom);
 
         // Best-effort cache install — if it fails, the mesh still
         // renders, the click just won't resolve.
@@ -852,7 +853,7 @@ export async function load_fea_streaming(args: {
             // row resolves a clicked FEA element back to its parent
             // beam without going through the server.
             if (manifest.lineage && manifest.lineage.assembly_guid) {
-                const sceneRoot = sceneRef.current;
+                const sceneRoot = getViewerRuntime().scene.current;
                 const meshRoot = feaRoot ? findFirstMesh(feaRoot) : null;
                 const root = (meshRoot ?? feaRoot ?? sceneRoot) as THREE.Object3D | null;
                 if (root) {
@@ -904,7 +905,7 @@ export async function load_fea_streaming(args: {
             // FEA input concepts (masses / BCs / load scenarios) carried
             // from adapy's deck-write sidecar through the manifest. A baked
             // FEA-result GLB is geometry-only (no ADA_EXT extension), so
-            // FemConceptsController's adaExtensionRef parse finds nothing
+            // FemConceptsController's adaExtension parse finds nothing
             // for it — we push the manifest's concepts straight into the
             // store instead, the same way lineage feeds useLineageStore
             // above. This runs after setLoadedSourceName, whose store
@@ -941,7 +942,7 @@ export async function load_fea_streaming(args: {
             throw err;
         }
 
-        const scene = sceneRef.current;
+        const scene = getViewerRuntime().scene.current;
         if (!scene) throw new Error("scene not ready");
         // Scope to the loaded GLB root, not the whole scene — a
         // fem_concepts glyph or other overlay mesh would otherwise be

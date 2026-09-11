@@ -1,7 +1,7 @@
 // AnimationController.ts
 import * as THREE from 'three';
 import {colorVerticesBasedOnDeformation} from "../analysis/colorize_vector_data";
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {AnimationState, useAnimationStore} from "@/state/animationStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
@@ -41,7 +41,7 @@ export class AnimationController {
     private _get_mesh_from_action(action: THREE.AnimationAction): THREE.Mesh | null {
         const clip = action.getClip();
         const node_names = this.meshMap.get(clip.name);
-        const scene = sceneRef.current;
+        const scene = getViewerRuntime().scene.current;
 
         if (node_names && scene) {
             for (const node_name of node_names) {

@@ -16,7 +16,7 @@
 import * as THREE from "three";
 
 import {requestRender} from "@/state/perfStore";
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {syncFeaOverlayVisibility} from "@/utils/scene/handlers/load_fea_streaming";
 
@@ -37,7 +37,7 @@ const EDGE_OVERLAY_NAMES = ["fea-element-edges", "fea-beam-element-edges"];
 const FULL_INDEX_KEY = "__adaFullEdgeIndex";
 
 function edgeOverlays(): THREE.LineSegments[] {
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return [];
     const found: THREE.LineSegments[] = [];
     scene.traverse((o: THREE.Object3D) => {
@@ -52,7 +52,7 @@ function edgeOverlays(): THREE.LineSegments[] {
  *  ``unhideAllRanges`` already does. A streaming result is one mesh today, but traversing
  *  costs nothing and keeps this correct if a result ever arrives split. */
 function batchedMeshes(): CustomBatchedMesh[] {
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return [];
     const found: CustomBatchedMesh[] = [];
     scene.traverse((o: THREE.Object3D) => {

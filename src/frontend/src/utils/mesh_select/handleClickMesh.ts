@@ -10,7 +10,7 @@ import {perform_selection} from "./perform_selection";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
-import {simulationDataRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 export async function handleClickMesh(
@@ -34,7 +34,7 @@ export async function handleClickMesh(
     useObjectInfoStore.getState().setClickCoordinate(clickPosition);
 
     if (!mesh.is_design && mesh.ada_ext_data != null) {
-        simulationDataRef.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);
+        getViewerRuntime().simulationData.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);
     }
 
     // GPU-pick path supplies the rangeId directly so we skip the

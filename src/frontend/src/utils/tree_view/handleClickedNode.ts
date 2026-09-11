@@ -1,7 +1,7 @@
 import {NodeApi} from "react-arborist";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
-import {modelKeyMapRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 
@@ -20,7 +20,7 @@ async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     for (let node of nodes) {
         let rangeId = node.data.rangeId;
         let node_name = node.data.node_name;
-        let scene = modelKeyMapRef.current?.get(node.data.model_key)
+        let scene = getViewerRuntime().modelKeyMap.current?.get(node.data.model_key)
         if (!scene) {
             console.warn("No scene found for node:", node);
             continue;

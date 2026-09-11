@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {cameraRef, rendererRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 
 // Simple singleton GPU point picker for THREE.Points
 // - Assigns each point (vertex) a unique RGB id (1..16,777,215)
@@ -156,9 +156,9 @@ class GpuPointPicker {
 
     // Perform a GPU pick at client coordinates
     pickAt(clientX: number, clientY: number): GpuPickResult {
-        const renderer = rendererRef.current;
-        const scene = sceneRef.current;
-        const camera = cameraRef.current as THREE.PerspectiveCamera | null;
+        const renderer = getViewerRuntime().renderer.current;
+        const scene = getViewerRuntime().scene.current;
+        const camera = getViewerRuntime().camera.current as THREE.PerspectiveCamera | null;
         if (!renderer || !scene || !camera) return null;
 
         this.ensureRT(renderer);

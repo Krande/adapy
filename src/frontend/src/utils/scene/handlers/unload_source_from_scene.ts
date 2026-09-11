@@ -6,7 +6,7 @@ import {Object3D} from "three";
 import {useModelState} from "@/state/modelState";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
-import {modelKeyMapRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {requestRender} from "@/state/perfStore";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
@@ -17,15 +17,15 @@ export function unload_source_from_scene(sourceName: string): void {
 
     // Drop this model's root from the tree view + the model-key map.
     // Each load registers one tree root under the synthetic container
-    // (cacheAndBuildTree) keyed by model_key = the modelKeyMapRef key
+    // (cacheAndBuildTree) keyed by model_key = the runtime modelKeyMap key
     // for this group; without this the hierarchy panel keeps showing
     // the unloaded model and selection-sync walks dead refs.
     let modelKey: string | null = null;
-    modelKeyMapRef.current?.forEach((g, key) => {
+    getViewerRuntime().modelKeyMap.current?.forEach((g, key) => {
         if (g === group) modelKey = key;
     });
     if (modelKey !== null) {
-        modelKeyMapRef.current?.delete(modelKey);
+        getViewerRuntime().modelKeyMap.current?.delete(modelKey);
         const ts = useTreeViewStore.getState();
         const td = ts.treeData;
         if (td) {
@@ -66,7 +66,7 @@ export function unload_source_from_scene(sourceName: string): void {
     // detach the children + remove from the parent scene.
     disposeObject3D(group);
     group.clear();
-    sceneRef.current?.remove(group);
+    getViewerRuntime().scene.current?.remove(group);
     // On-demand render loop won't tick until the next OrbitControls
     // 'change' event — without this kick the just-removed group
     // keeps rendering on the canvas until the user rotates.

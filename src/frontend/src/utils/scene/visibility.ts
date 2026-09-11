@@ -17,7 +17,7 @@
 
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
@@ -58,7 +58,7 @@ export function hideSelectedRanges(): void {
 /** Unhide every draw range across every loaded mesh. No-op when
  * nothing is hidden — safe to call unconditionally. */
 export function unhideAllRanges(): void {
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return;
     scene.traverse((obj) => {
         if (obj instanceof CustomBatchedMesh) {

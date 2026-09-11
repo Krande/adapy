@@ -4,7 +4,7 @@ import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
 import {useModelState} from '@/state/modelState';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
-import {selectedPointRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 
 export const centerViewOnSelection = (
@@ -107,8 +107,8 @@ export const centerViewOnSelection = (
 
         if (expanded && !boundingBox.isEmpty()) {
             center_on_bounding_box(boundingBox, camera, fillFactor, controls);
-        } else if (selectedPointRef.current) {
-            const selectedPoint = selectedPointRef.current;
+        } else if (getViewerRuntime().selectedPoint.current) {
+            const selectedPoint = getViewerRuntime().selectedPoint.current!;
             const position = selectedPoint.position;
             const distance = 1.5;
             const bounding_box = new THREE.Box3();

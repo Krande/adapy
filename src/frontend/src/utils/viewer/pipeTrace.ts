@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { sceneRef } from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
@@ -19,7 +19,7 @@ import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 // actually holds the pipe ranges).
 function allBatchedMeshes(): CustomBatchedMesh[] {
   const out: CustomBatchedMesh[] = [];
-  sceneRef.current?.traverse((o) => {
+  getViewerRuntime().scene.current?.traverse((o) => {
     if (o instanceof CustomBatchedMesh) out.push(o);
   });
   return out;
