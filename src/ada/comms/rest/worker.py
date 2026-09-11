@@ -43,6 +43,7 @@ from . import db as db_module
 from . import failure_capture, source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
+from .plugin_registry import discover_local_plugins, locally_registered_specs
 from .qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
 from .queue import (
     JOB_STATUS_DONE,
@@ -4917,12 +4918,7 @@ async def _run() -> None:
     # import-side-effect ``register_plugin_backend`` so the heartbeat below
     # advertises it. Isolated per-plugin (a broken plugin is logged + skipped),
     # unlike the deliberately-fatal preload above.
-    try:
-        from ada.plugins import discover_plugins
-
-        discover_plugins()
-    except Exception:
-        logger.exception("worker: ada.plugins discovery failed (non-fatal)")
+    discover_local_plugins("worker")
 
     # Self-identify so the viewer's /api/config + /api/admin/workers
     # can surface this worker. Two artefacts:
@@ -5140,13 +5136,7 @@ async def _run() -> None:
     # ``/api/plugins`` endpoint unions the static built-ins with any plugin a
     # capability worker's ADA_WORKER_PRELOAD / ``ada.plugins`` entry point
     # registered via register_plugin_backend. Empty until a plugin registers.
-    try:
-        from ada.plugins import plugin_backend_specs
-
-        plugin_specs = plugin_backend_specs()
-    except Exception:
-        logger.exception("worker: failed to list backend plugins (non-fatal)")
-        plugin_specs = []
+    plugin_specs = locally_registered_specs()
 
     # --- capability qualification ------------------------------------------
     #

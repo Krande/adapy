@@ -52,6 +52,11 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
+from .plugin_registry import (
+    discover_local_plugins,
+    locally_registered_spec,
+    locally_registered_specs,
+)
 from .qualification import CAPABILITY_REQUIREMENTS_KEY
 from .queue import JobQueue, capability_token
 from .scope import Scope
@@ -295,12 +300,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     _importlib.import_module(mod_name)
                 except Exception:
                     logger.exception("api: preloading %s failed (non-fatal); its plugin jobs will 501", mod_name)
-        try:
-            from ada.plugins import discover_plugins
-
-            discover_plugins()
-        except Exception:
-            logger.exception("api: ada.plugins discovery failed (non-fatal)")
+        discover_local_plugins("api")
 
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
@@ -3671,47 +3671,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None
         return {p.strip() for p in parsed if p and p.strip()}
 
-    def _locally_registered_specs() -> list[dict]:
-        """Every spec this process registered itself.
-
-        The listing's counterpart of ``_locally_registered_spec``: a viewer with
-        no queue preloads its plugins INTO THE API and runs their jobs here, so
-        no worker ever advertises them. Without this the listing is empty in
-        exactly the deployment whose jobs run in this process, and a plugin's
-        own advertised options (what its run form offers) never reach the page.
-        Defensive for the same reason: the slim API image may not carry ``ada``.
-        """
-        try:
-            from ada.plugins import plugin_backend_specs
-        except Exception:
-            return []
-        try:
-            return plugin_backend_specs()
-        except Exception:
-            return []
-
-    def _locally_registered_spec(plugin_id: str) -> dict | None:
-        """The spec this process registered itself, if any.
-
-        Needed because a single-node viewer preloads the plugin INTO THE API and
-        runs its job in-process, so nothing was ever advertised by a worker and
-        ``_live_worker_specs`` is empty. Without this the declaration would be
-        ignored in exactly the deployment where it is the only source there is.
-
-        ``ada.plugins`` is imported defensively, like the discovery path above:
-        the slim API image may not carry ``ada``, and an unavailable registry
-        means "no declaration seen" rather than a refusal — that gap is the
-        reason ``PLUGIN_JOB_ADMIN_SETTING`` exists and does not depend on it.
-        """
-        try:
-            from ada.plugins import plugin_backend_spec
-        except Exception:
-            return None
-        try:
-            return plugin_backend_spec(plugin_id)
-        except Exception:
-            return None
-
     async def _plugin_job_requires_admin(plugin_id: str, pool, advertised: dict | None) -> bool:
         """Whether enqueuing ``plugin_id``'s job requires an admin.
 
@@ -3720,7 +3679,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if bool((advertised or {}).get("requires_admin")):
             return True
-        if bool((_locally_registered_spec(plugin_id) or {}).get("requires_admin")):
+        if bool((locally_registered_spec(plugin_id) or {}).get("requires_admin")):
             return True
         gated = await _plugin_ids_gated_by_config(pool)
         if gated is None:  # unreadable setting -> gate everything
@@ -3975,7 +3934,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # is. Only then: behind a queue a job goes to a worker, and a spec this
         # API happens to have imported says nothing about whether one is up.
         if not queue.enabled:
-            for spec in _locally_registered_specs():
+            for spec in locally_registered_specs():
                 slug = spec.get("slug") or spec.get("id")
                 if slug and slug not in by_slug:
                     by_slug[slug] = {**spec, "slug": slug, "origin": "code", "online": True}
