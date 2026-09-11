@@ -23,12 +23,13 @@ export type {
   ProceduralRelocationResponse,
   ProceduralResyncResult,
   ProceduralSyncableCatalogKind,
+  ProceduralVerb,
   ProceduralXlsxImportRequest,
   ProceduralXlsxImportResponse,
   StatsExportFormat,
   ViewerCapabilities,
 } from "./types";
-export { CapabilityUnavailableError, ProceduralCommitConflictError } from "./types";
+export { CapabilityUnavailableError, LOCAL_MODEL_SCOPE, ProceduralCommitConflictError } from "./types";
 export {
   RESTCapabilities,
   RESTModelStatsCapability,

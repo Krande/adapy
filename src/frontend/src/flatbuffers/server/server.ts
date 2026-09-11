@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { FileObject, FileObjectT } from '../base/file-object.js';
+import { ProceduralModelSave, ProceduralModelSaveT } from '../server/procedural-model-save.js';
 
 
 export class Server implements flatbuffers.IUnpackableObject<ServerT> {
@@ -64,8 +65,13 @@ startFileInLocalApp(obj?:FileObject):FileObject|null {
   return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+saveProceduralModel(obj?:ProceduralModelSave):ProceduralModelSave|null {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? (obj || new ProceduralModelSave()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServer(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(7);
 }
 
 static addNewFileObject(builder:flatbuffers.Builder, newFileObjectOffset:flatbuffers.Offset) {
@@ -104,6 +110,10 @@ static addStartFileInLocalApp(builder:flatbuffers.Builder, startFileInLocalAppOf
   builder.addFieldOffset(5, startFileInLocalAppOffset, 0);
 }
 
+static addSaveProceduralModel(builder:flatbuffers.Builder, saveProceduralModelOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, saveProceduralModelOffset, 0);
+}
+
 static endServer(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -117,7 +127,8 @@ unpack(): ServerT {
     this.getFileObjectByName(),
     this.getFileObjectByPath(),
     (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null),
-    (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null)
+    (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null),
+    (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null)
   );
 }
 
@@ -129,6 +140,7 @@ unpackTo(_o: ServerT): void {
   _o.getFileObjectByPath = this.getFileObjectByPath();
   _o.deleteFileObject = (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null);
   _o.startFileInLocalApp = (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null);
+  _o.saveProceduralModel = (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null);
 }
 }
 
@@ -139,7 +151,8 @@ constructor(
   public getFileObjectByName: string|Uint8Array|null = null,
   public getFileObjectByPath: string|Uint8Array|null = null,
   public deleteFileObject: FileObjectT|null = null,
-  public startFileInLocalApp: FileObjectT|null = null
+  public startFileInLocalApp: FileObjectT|null = null,
+  public saveProceduralModel: ProceduralModelSaveT|null = null
 ){}
 
 
@@ -150,6 +163,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const getFileObjectByPath = (this.getFileObjectByPath !== null ? builder.createString(this.getFileObjectByPath!) : 0);
   const deleteFileObject = (this.deleteFileObject !== null ? this.deleteFileObject!.pack(builder) : 0);
   const startFileInLocalApp = (this.startFileInLocalApp !== null ? this.startFileInLocalApp!.pack(builder) : 0);
+  const saveProceduralModel = (this.saveProceduralModel !== null ? this.saveProceduralModel!.pack(builder) : 0);
 
   Server.startServer(builder);
   Server.addNewFileObject(builder, newFileObject);
@@ -158,6 +172,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Server.addGetFileObjectByPath(builder, getFileObjectByPath);
   Server.addDeleteFileObject(builder, deleteFileObject);
   Server.addStartFileInLocalApp(builder, startFileInLocalApp);
+  Server.addSaveProceduralModel(builder, saveProceduralModel);
 
   return Server.endServer(builder);
 }

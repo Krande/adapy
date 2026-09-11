@@ -23,6 +23,7 @@ class CommandTypeDC(Enum):
     START_FILE_IN_LOCAL_APP = 15
     GET_SERVER_INFO = 18
     SHUTDOWN_SERVER = 19
+    SAVE_PROCEDURAL_MODEL = 20
 
 
 class TargetTypeDC(Enum):

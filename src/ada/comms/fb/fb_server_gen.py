@@ -16,12 +16,26 @@ class ServerProcessInfoDC:
 
 
 @dataclass
+class ProceduralModelSaveDC:
+    model_id: str = ""
+    doc_json: str = ""
+    expected_content_hash: str = ""
+
+
+@dataclass
+class ProceduralModelSaveReplyDC:
+    model_id: str = ""
+    content_hash: str = ""
+
+
+@dataclass
 class ServerReplyDC:
     message: str = ""
     file_objects: Optional[List[FileObjectDC]] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
     process_info: Optional[ServerProcessInfoDC] = None
+    save_procedural_model: Optional[ProceduralModelSaveReplyDC] = None
 
 
 @dataclass
@@ -32,3 +46,4 @@ class ServerDC:
     get_file_object_by_path: pathlib.Path | str = ""
     delete_file_object: Optional[FileObjectDC] = None
     start_file_in_local_app: Optional[FileObjectDC] = None
+    save_procedural_model: Optional[ProceduralModelSaveDC] = None

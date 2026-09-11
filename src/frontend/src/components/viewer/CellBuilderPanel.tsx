@@ -57,12 +57,17 @@ const FACE_LABELS = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
 /** Is the loaded procedural document view-only?
  *
  * True when there is no editable session (`active` is null -- the document came
- * off a GLB via `loadFromDoc`, see that action), or when the transport serving
- * it cannot commit an edit back. The second half reads
- * `capabilities.procedural.canEdit`, which is false on the websocket path only
- * because no save verb is implemented over the websocket YET -- adapy itself is
- * right there on the other end of the socket. When that verb lands, flipping
- * `canEdit` re-enables every control gated on this without the panel changing.
+ * off a GLB via `loadFromDoc` rather than `open`, see those actions), or when
+ * the transport serving it cannot commit an edit back
+ * (`capabilities.procedural.canEdit`). SAVE_PROCEDURAL_MODEL landed on the
+ * websocket transport (ws/REST parity plan, step 3), so `canEdit` there now
+ * tracks socket connectivity rather than being permanently false -- a
+ * websocket session with a real save path opens with `open()`, not
+ * `loadFromDoc()`, precisely so this flips to editable (see
+ * `setupModelLoaderAsync`). Not every verb this flag ungates is implemented
+ * over every transport, though: a control calling a specific verb should
+ * additionally check `capabilities.procedural.supports(verb)` rather than
+ * assume `canEdit` alone means that verb works.
  *
  * Shared by the panel and `SystemsTab`, which read the store independently. */
 const isReadOnly = (s: { active: unknown | null }): boolean =>
@@ -357,8 +362,10 @@ const SystemsTab: React.FC = () => {
         </button>
         {/* Writes into a per-scope DB catalog, which read-only mode has none of --
             locally the built-in code kinds ARE the catalog, so there is nothing
-            to sync them into. Hidden rather than disabled for that reason. */}
-        {selectedAdd?.origin === "code" && !isReadOnly(s) && (
+            to sync them into. Hidden rather than disabled for that reason;
+            `supports` covers the same case once `isReadOnly` alone stops (an
+            editable ws session still has no DB catalog). */}
+        {selectedAdd?.origin === "code" && !isReadOnly(s) && capabilities.procedural.supports("syncCatalogEntry") && (
           <button
             className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
             title="Sync this built-in system kind into the scope's DB catalog"
@@ -782,12 +789,11 @@ const CellBuilderPanel: React.FC = () => {
   // than by hiding the whole tool.
   if ((!s.active && !hasEmbeddedDoc(s)) || !s.panelVisible) return null;
 
-  // No editable session behind this document. Today that is exactly the
-  // websocket/desktop path: `capabilities.procedural.canEdit` is false there
-  // because no save verb is implemented over the websocket yet -- not because
-  // there is nothing on the other end of the socket (adapy is right there; it
-  // is what pushed this model in). When that verb lands, `canEdit` flips and
-  // these controls come back without the panel needing to know.
+  // No editable session behind this document -- either the document is a
+  // view-only embedded one (`loadFromDoc`, no `active`), or the transport
+  // serving it cannot commit an edit back. On the websocket/desktop path that
+  // second half now tracks whether the socket is connected, since
+  // SAVE_PROCEDURAL_MODEL means there genuinely is somewhere to commit to.
   const readOnly = isReadOnly(s);
 
   const compileState = s.compileJob;
@@ -1581,7 +1587,7 @@ const CellBuilderPanel: React.FC = () => {
             below; it is only the catalog editor that goes away. */}
         <div className={tab === "equipment" ? "block" : "hidden"}>
           {tab === "equipment" &&
-            (readOnly ? (
+            (readOnly || !capabilities.procedural.supports("syncCatalogEntry") ? (
               <p className="italic text-gray-500">
                 The equipment catalog is served by the model store, which this
                 model was not loaded from.
@@ -1599,7 +1605,7 @@ const CellBuilderPanel: React.FC = () => {
             service-runs inspector. SystemsTab stays mounted (hidden) so its
             auto-highlight effect keeps tracking a freshly-loaded result. */}
         <div className={tab === "systems" ? "block" : "hidden"}>
-          {tab === "systems" && !readOnly && (
+          {tab === "systems" && !readOnly && capabilities.procedural.supports("syncCatalogEntry") && (
             <React.Suspense fallback={null}>
               <SystemAdminPanel embedded />
             </React.Suspense>
@@ -1774,8 +1780,10 @@ const CellBuilderPanel: React.FC = () => {
             {/* Resync writes to a per-scope DB catalog. Read-only mode has no such
                 catalog to write into -- locally the code archetypes ARE the
                 catalog -- so this is hidden rather than disabled: it is not a
-                feature awaiting a transport, it is meaningless without a server. */}
-            {!readOnly && (
+                feature awaiting a transport, it is meaningless without a server.
+                `supports` covers the same case once `readOnly` alone stops
+                doing it (an editable ws session still has no DB catalog). */}
+            {!readOnly && capabilities.procedural.supports("resyncEquipmentTypes") && (
               <button
                 className={btnGray}
                 disabled={s.resyncBusy}
@@ -1787,12 +1795,14 @@ const CellBuilderPanel: React.FC = () => {
             )}
             <button
               className={btnGray}
-              disabled={readOnly || s.relocationBusy}
+              disabled={readOnly || !capabilities.procedural.supports("proposeRelocations") || s.relocationBusy}
               onClick={() => void s.proposeRelocations()}
               title={
                 readOnly
                   ? "Needs an editable model — relocations are proposed against a model you can then apply them to."
-                  : "Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
+                  : !capabilities.procedural.supports("proposeRelocations")
+                    ? "Relocations are analysed by the cloud worker pool, which this transport does not have."
+                    : "Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
               }
             >
               {s.relocationBusy ? "Analyzing…" : "Propose relocations"}
@@ -1805,9 +1815,13 @@ const CellBuilderPanel: React.FC = () => {
           <div className="flex items-center gap-1 flex-wrap">
             <button
               className={btnGray}
-              disabled={s.xlsxBusy || !s.active}
+              disabled={s.xlsxBusy || !s.active || !capabilities.procedural.supports("exportModel")}
               onClick={() => void s.exportToExcel()}
-              title="Download the current model as the selected engine's Excel workbook (commits any unsaved edits first). Edit it offline and import it back via the storage panel's + menu."
+              title={
+                capabilities.procedural.supports("exportModel")
+                  ? "Download the current model as the selected engine's Excel workbook (commits any unsaved edits first). Edit it offline and import it back via the storage panel's + menu."
+                  : "Export is built by the cloud worker pool, which this transport does not have."
+              }
             >
               {s.xlsxBusy ? "Working…" : "Export to Excel"}
             </button>
@@ -1815,9 +1829,13 @@ const CellBuilderPanel: React.FC = () => {
               <>
                 <button
                   className={btnGray}
-                  disabled={s.xlsxBusy || !s.active}
+                  disabled={s.xlsxBusy || !s.active || !capabilities.procedural.supports("exportModel")}
                   onClick={() => void s.exportModel("ifc")}
-                  title="Download the DETAIL model as an IFC — beams, plates, joints and equipment, with the clash cuts as IfcRelVoidsElement voids (commits any unsaved edits first)."
+                  title={
+                    capabilities.procedural.supports("exportModel")
+                      ? "Download the DETAIL model as an IFC — beams, plates, joints and equipment, with the clash cuts as IfcRelVoidsElement voids (commits any unsaved edits first)."
+                      : "Export is built by the cloud worker pool, which this transport does not have."
+                  }
                 >
                   {s.xlsxBusy ? "Working…" : "Download IFC (detail)"}
                 </button>
@@ -1835,9 +1853,13 @@ const CellBuilderPanel: React.FC = () => {
                 </label>
                 <button
                   className={btnGray}
-                  disabled={s.xlsxBusy || !s.active}
+                  disabled={s.xlsxBusy || !s.active || !capabilities.procedural.supports("exportModel")}
                   onClick={() => void s.exportModel("gxml")}
-                  title="Download the SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE (commits any unsaved edits first)."
+                  title={
+                    capabilities.procedural.supports("exportModel")
+                      ? "Download the SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE (commits any unsaved edits first)."
+                      : "Export is built by the cloud worker pool, which this transport does not have."
+                  }
                 >
                   {s.xlsxBusy ? "Working…" : "Download Genie XML (sim)"}
                 </button>
@@ -1976,12 +1998,14 @@ const CellBuilderPanel: React.FC = () => {
             // itself OR the equipment/system CATALOGS this model draws from (edited
             // in the catalog window, so the doc stays "clean" and needsPreviewCompile
             // can't see it) — and returns the cached result cheaply when nothing has.
-            disabled={compileBusy || readOnly}
+            disabled={compileBusy || readOnly || !capabilities.procedural.supports("previewModel")}
             onClick={() => void s.compilePreviewSelected()}
             title={
               readOnly
                 ? "This model is already the compiled result in the scene — recompiling needs an editable model to compile from."
-                : "Compile a preview of the current model (⇧↵) at the selected level(s) of detail. Rebuilds when the model — or the equipment/system catalog it uses — changed since the last compile; serves the cached result otherwise. Nothing is saved."
+                : !capabilities.procedural.supports("previewModel")
+                  ? "Server-side compile is not available over this transport yet — use \"Compile in browser (WASM)\" from the ▾ menu instead."
+                  : "Compile a preview of the current model (⇧↵) at the selected level(s) of detail. Rebuilds when the model — or the equipment/system catalog it uses — changed since the last compile; serves the cached result otherwise. Nothing is saved."
             }
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
@@ -2011,8 +2035,10 @@ const CellBuilderPanel: React.FC = () => {
               {
                 key: "recompile",
                 label: "Recompile preview (force)",
-                title:
-                  "Rebuild the preview even if this doc is cached — use after a compiler/engine change when the document itself hasn't changed",
+                disabled: !capabilities.procedural.supports("previewModel"),
+                title: !capabilities.procedural.supports("previewModel")
+                  ? "Server-side compile is not available over this transport yet"
+                  : "Rebuild the preview even if this doc is cached — use after a compiler/engine change when the document itself hasn't changed",
                 onClick: () => void s.compilePreviewSelected(true),
               },
               {

@@ -25,7 +25,13 @@ from ada.comms.fb.fb_scene_gen import (
     SceneOperationsDC,
     ScreenshotDC,
 )
-from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
+from ada.comms.fb.fb_server_gen import (
+    ProceduralModelSaveDC,
+    ProceduralModelSaveReplyDC,
+    ServerDC,
+    ServerProcessInfoDC,
+    ServerReplyDC,
+)
 from ada.comms.fb.fb_wsock_gen import MessageDC
 
 __all__ = [
@@ -56,4 +62,7 @@ __all__ = [
     "ArrayTypeDC",
     "MeshDC",
     "AppendMeshDC",
+    "ServerProcessInfoDC",
+    "ProceduralModelSaveDC",
+    "ProceduralModelSaveReplyDC",
 ]

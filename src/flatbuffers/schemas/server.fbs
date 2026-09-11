@@ -9,12 +9,36 @@ table ServerProcessInfo {
   log_file_path: string;
 }
 
+// SAVE_PROCEDURAL_MODEL request payload (ws/REST parity plan, step 3). The
+// document rides as JSON text -- the schema wire type, not a re-encoding of
+// every procedural doc field -- so the wire contract doesn't have to track
+// the document's own evolution. ``model_id`` is an opaque token the client
+// invents; it is never a file path (see docs/documents/ws_rest_parity.rst,
+// "model id: opaque token vs file path"). ``expected_content_hash`` is the
+// sha256 hex digest of the bytes the client last read for this model_id;
+// absent/empty means "no concurrency check, just write" (first save, or a
+// model with no local conflict history yet).
+table ProceduralModelSave {
+  model_id: string;
+  doc_json: string;
+  expected_content_hash: string;
+}
+
+// SAVE_PROCEDURAL_MODEL reply payload: the content hash of what is now on
+// disk, so the caller can pass it back as ``expected_content_hash`` on the
+// next save.
+table ProceduralModelSaveReply {
+  model_id: string;
+  content_hash: string;
+}
+
 table ServerReply {
   message: string;
   file_objects: [base.FileObject];
   reply_to: commands.CommandType;
   error: base.Error;
   process_info: ServerProcessInfo;
+  save_procedural_model: ProceduralModelSaveReply;
 }
 
 table Server {
@@ -24,4 +48,5 @@ table Server {
     get_file_object_by_path: string;
     delete_file_object: base.FileObject;
     start_file_in_local_app: base.FileObject;
+    save_procedural_model: ProceduralModelSave;
 }

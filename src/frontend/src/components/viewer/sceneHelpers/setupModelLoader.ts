@@ -21,6 +21,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStatsStore} from "@/state/statsStore";
+import {localModelIdFromSourceName} from "@/utils/cellbuilder/localModelId";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -111,12 +112,22 @@ export async function setupModelLoaderAsync(
     // declines it, because the stored model is editable and must stay the authority there.
     const embedded_doc = (gltf as any).parser.json.asset?.extras?.procedural_doc ?? null;
     if (capabilities.procedural.adoptEmbeddedModel(embedded_doc)) {
-        // loadFromDoc is the cellbuilder's own importer, so the panels consume the document with no
-        // code of their own. It seeds cells/systems only -- no model id, scope or revision -- so the
-        // store is populated for reading without claiming there is a session to commit to.
-        // An empty document rather than skipping the call: loading a model with no procedural
-        // provenance must CLEAR the panels, not leave them describing the model before it.
-        useCellBuilderStore.getState().loadFromDoc(embedded_doc ?? {spaces: [], equipments: []});
+        if (embedded_doc && capabilities.procedural.canEdit) {
+            // A save verb exists over this transport now (ws/REST parity plan, step 3) -- open a
+            // genuine editing session instead of the view-only loadFromDoc path below, so there is
+            // something for the Commit button to commit TO. The websocket path has no per-scope
+            // store to open a model BY id, so model_id is derived from the source name (the only
+            // name this scene has); revision starts at 0 -- see WSProceduralModelCapability.
+            // commitModel's docstring for why a numeric revision isn't meaningful here.
+            useCellBuilderStore.getState().open(localModelIdFromSourceName(sourceName), sourceName || "model", 0, embedded_doc);
+        } else {
+            // loadFromDoc is the cellbuilder's own importer, so the panels consume the document with
+            // no code of their own. It seeds cells/systems only -- no model id, scope or revision --
+            // so the store is populated for reading without claiming there is a session to commit to.
+            // An empty document rather than skipping the call: loading a model with no procedural
+            // provenance must CLEAR the panels, not leave them describing the model before it.
+            useCellBuilderStore.getState().loadFromDoc(embedded_doc ?? {spaces: [], equipments: []});
+        }
     }
 
     // access the raw JSON

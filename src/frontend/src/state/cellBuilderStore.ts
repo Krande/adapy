@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import {
   capabilities,
+  LOCAL_MODEL_SCOPE,
   ProceduralCommitConflictError,
 } from "@/services/capabilities";
 // Type-only: the store never reaches the REST client at runtime -- every backend call goes
@@ -249,7 +250,14 @@ const nextId = () => `cb_${++_seq}`;
 
 function currentScopePart(): string {
   const scope = useScopeStore.getState().current;
-  return scope ? scopeUrlPart(scope) : "user:me";
+  if (scope) return scopeUrlPart(scope);
+  // No real scope selected -- true on the websocket path, which has no `/api/me` to populate
+  // `useScopeStore` in the first place. `LOCAL_MODEL_SCOPE` is the explicit sentinel the ws/REST
+  // parity plan calls for here, not the REST-oriented "user:me" default: that string would work
+  // by accident today and quietly mean something real the day a local model syncs to a server
+  // (docs/documents/ws_rest_parity.rst, "scope strings"). REST always resolves a real scope
+  // before falling through to this branch, so this only ever fires on the websocket transport.
+  return capabilities.transport === "ws" ? LOCAL_MODEL_SCOPE : "user:me";
 }
 
 // Geometry/system keys consumed by the builder itself; everything else an

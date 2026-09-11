@@ -42,6 +42,7 @@ import {
   type ProceduralRelocationResponse,
   type ProceduralResyncResult,
   type ProceduralSyncableCatalogKind,
+  type ProceduralVerb,
   type ProceduralXlsxImportRequest,
   type ProceduralXlsxImportResponse,
   type StatsExportFormat,
@@ -89,6 +90,12 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
 
   /** The stored model is editable and committable, so the panels stay interactive. */
   readonly canEdit = true;
+
+  /** Every verb on this interface is implemented over REST -- this capability predates
+   * `supports` and none of its behaviour is conditional on it. */
+  supports(_verb: ProceduralVerb): boolean {
+    return true;
+  }
 
   async fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult> {
     const { scope, modelId } = source;

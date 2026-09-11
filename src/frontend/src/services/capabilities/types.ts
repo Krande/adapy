@@ -80,6 +80,18 @@ export class ProceduralCommitConflictError extends Error {
  * selected. */
 export type CapabilityTransport = "rest" | "ws";
 
+/** Scope sentinel for a model that lives on local disk rather than in a per-scope store.
+ *
+ * `cellBuilderStore`'s `currentScopePart()` falls back to `"user:me"` when no real scope is
+ * selected, which is the REST-oriented default and happens to be exactly what a websocket session
+ * sees too (there is no `/api/me` to populate a scope there). Passing `"user:me"` in that case
+ * would *work by accident* and quietly mean something real the day a local model is synced to a
+ * server (see docs/documents/ws_rest_parity.rst, "scope strings"). This sentinel is what the
+ * websocket transport passes instead: recognisable as "no real scope" on sight, and never produced
+ * or interpreted by the REST path, so passing it there fails the same way any other unrecognised
+ * scope segment would -- rejected by absence of support, not by a special-cased guard. */
+export const LOCAL_MODEL_SCOPE = "local:disk";
+
 /** Identifies the model whose take-off is wanted.
  *
  * REST fills all three (they address the `.stats.json` sidecar of a compiled
@@ -140,6 +152,20 @@ export interface ProceduralModelResult {
   doc?: ProceduralDoc | null;
 }
 
+/** Verb names `supports` can be asked about -- one per write/build verb on
+ * `ProceduralModelCapability`, named for the method it gates. Deliberately a
+ * closed union rather than `string`: adding a verb here is the reminder to
+ * decide what each transport says about it. */
+export type ProceduralVerb =
+  | "commitModel"
+  | "compileModel"
+  | "previewModel"
+  | "resyncEquipmentTypes"
+  | "syncCatalogEntry"
+  | "proposeRelocations"
+  | "importXlsx"
+  | "exportModel";
+
 /** The procedural model behind a compiled assembly.
  *
  * This is what the "Procedural equipment" and "Procedural system" panels read: which equipment a
@@ -182,6 +208,19 @@ export interface ProceduralModelCapability {
    * path", so that when the verb lands, flipping this to true restores those controls with no other
    * change. `CellBuilderPanel` does exactly that. */
   readonly canEdit: boolean;
+
+  /** Whether `verb` has a working implementation on THIS transport, independent of `canEdit`.
+   *
+   * `canEdit` answers one question -- "is there anywhere at all to commit an edit" -- and it
+   * flips for the FIRST write verb that lands (save). Every verb after that lands on its own
+   * schedule (see docs/documents/ws_rest_parity.rst's migration list), so a control that calls a
+   * *different* verb cannot infer "this works" from `canEdit` alone without either lying about
+   * verbs that aren't there yet or reintroducing a second all-or-nothing flag next to it. `supports`
+   * is the per-verb answer instead: REST supports every verb unconditionally (nothing here changes
+   * REST behaviour); the websocket transport supports only the verbs it has actually implemented.
+   * A control that would otherwise call a verb that only throws `CapabilityUnavailableError` should
+   * gate on this rather than on `canEdit` or `transport`. */
+  supports(verb: ProceduralVerb): boolean;
 
   // ---- Catalogs -----------------------------------------------------------------------------
   //
