@@ -88,6 +88,12 @@ interface ActiveFeaStreaming {
 
 let active: ActiveFeaStreaming | null = null;
 
+/** Whether result colours are on screen right now, as last set through
+ *  `setFeaResultColorsVisible`. Usually the store toggle, but not always: a mode
+ *  that owns the scene colouring switches them off without recording that as the
+ *  user's preference. */
+let resultColorsShown = true;
+
 /** Drop the cached state on next call (e.g. when the user replaces
  * the scene with a different file). The blob cache lives separately
  * in feaFieldBlob.ts. Also resets the deformation-animation store
@@ -148,8 +154,13 @@ export function syncFeaOverlayVisibility(): void {
     // Built, wanted, and not superseded by the solids. All three: only an ELEMENT
     // field installs coloured lines, so a nodal field has none to stand in for the
     // grey edge and the beam would simply stop being drawn.
+    //
+    // "Wanted" is what is on screen, not only the user's toggle: a mode that owns
+    // the scene colouring switches the colours off without touching that toggle,
+    // and a coloured beam left behind under it is a result painted where none
+    // should be.
     const colouredLines =
-        hasResultLineSegments(active.mesh) && store.resultColorsVisible && !solids;
+        hasResultLineSegments(active.mesh) && store.resultColorsVisible && resultColorsShown && !solids;
 
     setResultLineSegmentsVisible(active.mesh, colouredLines);
     for (const overlay of elementEdgeOverlays("fea-element-edges")) {
@@ -194,6 +205,7 @@ export function setFeaElementEdgesVisible(_visible: boolean): void {
  * which is worse than not offering the switch.
  */
 export function setFeaResultColorsVisible(visible: boolean): void {
+    resultColorsShown = visible;
     const setVc = (mat: THREE.Material) => {
         if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== visible) {
             (mat as unknown as {vertexColors: boolean}).vertexColors = visible;
@@ -1233,6 +1245,16 @@ export async function load_fea_streaming(args: {
         // overwrites that with the lerped nodal warp so the solid
         // beams stay connected to the deformed structure under any
         // morph-scale factor.
+        //
+        // The SAME influence as the main mesh, passed explicitly. After the
+        // first apply the beam-solid mesh shares the main mesh's
+        // ``morphTargetInfluences`` array (installBeamSolidWarp links them), so
+        // the influence this call writes lands on the main mesh too. Left to
+        // its default of 1 it reset the whole model to an unscaled warp on
+        // every element-field repaint -- which is what the warp toggle, a
+        // component change or a colormap change all are. With an auto-derived
+        // scale of 50 on a deck deforming by millimetres, a warp at 1 cannot be
+        // told from no warp at all, and the toggle looked dead.
         if (active.beamSolidMesh && active.beamSolidBasePositions) {
             applyElemFieldToMesh({
                 mesh: active.beamSolidMesh,
@@ -1242,6 +1264,7 @@ export async function load_fea_streaming(args: {
                 layer,
                 ipReduction,
                 reduction: reductionStr,
+                displacementScale,
                 colormap,
                 contour,
                 nodalAverage: false,
@@ -1410,6 +1433,15 @@ export async function load_fea_streaming(args: {
             animStore.applyAutoScaleFactor(
                 autoWarpScale(findDisplacementField(manifest), size),
             );
+            // A fresh load (the caller moved the slider) was painted before the
+            // scale above existed, so its influence is the bare slider value. Put
+            // the mesh where the controls now say it is -- slider times scale --
+            // or the first view of a deck that needed scaling showed it unscaled
+            // until something happened to repaint it.
+            if (sliderFactor !== undefined && active.mesh.morphTargetInfluences) {
+                active.mesh.morphTargetInfluences[0] =
+                    sliderFactor * useFeaAnimationStore.getState().scaleFactor;
+            }
         }
         animStore.setFieldName(fieldName);
         if (reduction != null) animStore.setReduction(reduction);
@@ -1457,12 +1489,17 @@ export async function load_fea_streaming(args: {
     // to re-register the callback here.
     if (field) {
         animStore.setApplyStep(async (newStepIndex: number) => {
+            // The influence is read at call time like the colormap, and for the
+            // same reason: without it a step change repainted at the default of
+            // 1 and dropped the slider and the warp scale the user had set.
+            const {factor, scaleFactor} = useFeaAnimationStore.getState();
             await load_fea_streaming({
                 sourceName,
                 manifest,
                 fieldName,
                 stepIndex: newStepIndex,
                 reduction,
+                displacementScale: factor * scaleFactor,
             });
         });
     }
