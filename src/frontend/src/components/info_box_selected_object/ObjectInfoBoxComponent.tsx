@@ -1,13 +1,13 @@
 import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useState} from 'react';
-import {useViewerStores} from '@/state/AdaViewerContext';
+import {useViewerRefs, useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
 import {frameCells} from '@/utils/scene/frameCells';
 import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHandlers';
-import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
+
 import {requestRender} from '@/state/perfStore';
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
 import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
@@ -22,6 +22,9 @@ import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 const COPIED_FEEDBACK_MS = 1500;
 
 const ObjectInfoBox = () => {
+    // This viewer instance's scene-graph handles. Aliased to the names the
+    // body already uses, which until now were module-level globals.
+    const {scene: sceneRef, camera: cameraRef, controls: controlsRef} = useViewerRefs();
     const {
         useObjectInfoStore,
         useSelectedObjectStore,

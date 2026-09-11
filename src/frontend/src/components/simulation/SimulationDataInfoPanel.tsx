@@ -19,7 +19,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import {useVirtualizer} from "@tanstack/react-virtual";
 
-import {simulationDataRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -822,7 +822,8 @@ const PanelShell: React.FC<{children: React.ReactNode}> = ({children}) => (
 // ── Legacy GLB-extension path (unchanged) ─────────────────────────────
 
 const LegacyGltfSimDataPanel: React.FC = () => {
-    const simData = simulationDataRef.current as SimulationDataExtensionMetadata | null;
+    const {simulationData} = useViewerRefs();
+    const simData = simulationData.current as SimulationDataExtensionMetadata | null;
     const [selectedStep, setSelectedStep] = useState(0);
     const [selectedField, setSelectedField] = useState(0);
 

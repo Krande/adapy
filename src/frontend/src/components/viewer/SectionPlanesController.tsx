@@ -2,7 +2,8 @@ import React from "react";
 import * as THREE from "three";
 import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 
-import {sceneRef, rendererRef, cameraRef, controlsRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
 import {useSectionStore} from "@/state/sectionStore";
 import {useModelState} from "@/state/modelState";
@@ -14,6 +15,10 @@ import {applyClippingPlanes, setSectionClippingPlanes} from "@/utils/scene/secti
 // Headless: reconciles the section-plane store with three.js (per-material
 // clipping + stencil caps + a drag gizmo). Renders nothing.
 const SectionPlanesController: React.FC = () => {
+    // This viewer instance's handles, for the parts of the file that are inside
+    // React. The module-level scene code below has no tree to read a context
+    // from and goes through `getViewerRuntime()` instead.
+    const {scene: sceneRef, camera: cameraRef, renderer: rendererRef} = useViewerRefs();
     React.useEffect(() => {
         let cleanup: (() => void) | null = null;
         let raf = 0;
@@ -74,7 +79,8 @@ function init(
         scene.add(gizmoHelper);
 
         gizmo.addEventListener("dragging-changed", (e: any) => {
-            if (controlsRef.current) controlsRef.current.enabled = !e.value;
+            const runtimeCtl = getViewerRuntime().controls.current;
+            if (runtimeCtl) runtimeCtl.enabled = !e.value;
             if (!e.value) {
                 // Commit final position to the store (triggers a clean rebuild).
                 const id = useSectionStore.getState().activeId;
@@ -175,7 +181,7 @@ function init(
         };
 
         const rebuild = () => {
-            if (!sceneRef.current) return;
+            if (!getViewerRuntime().scene.current) return;
             disposeContainer();
 
             const st = useSectionStore.getState();

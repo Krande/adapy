@@ -1,7 +1,8 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import * as THREE from "three";
 import {useOptionsStore} from "@/state/optionsStore";
-import {sceneRef, cameraRef, controlsRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {queryAllFaceRanges} from "@/utils/mesh_select/queryMeshDrawRange";
@@ -17,7 +18,7 @@ import {frameBox} from "@/components/viewer/sceneHelpers/setupCameraControlsHand
 type FaceEntry = {faceId: number; seq: number; start: number; length: number; uniqueKey: string};
 
 function collectMeshes(): CustomBatchedMesh[] {
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     const out: CustomBatchedMesh[] = [];
     if (!scene) return out;
     scene.traverse((o) => {
@@ -72,6 +73,10 @@ function faceWorldBox(mesh: CustomBatchedMesh, start: number, length: number): T
 }
 
 const FaceSearchSection: React.FC = () => {
+    // This viewer instance's handles, for the parts of the file that are inside
+    // React. The module-level scene code below has no tree to read a context
+    // from and goes through `getViewerRuntime()` instead.
+    const {camera: cameraRef, controls: controlsRef} = useViewerRefs();
     const available = useOptionsStore((s) => s.faceRegionsAvailable);
     const setFaces = useOptionsStore((s) => s.setFaceLevelPicking);
     const [query, setQuery] = useState("");

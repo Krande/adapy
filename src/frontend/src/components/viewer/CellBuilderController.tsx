@@ -7,7 +7,8 @@ import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {ungzip} from "pako";
 
-import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {portSnapTargets, portsForEquipment} from "@/utils/cellbuilder/ports";
 import {requestRender} from "@/state/perfStore";
 import {capabilities} from "@/services/capabilities";
@@ -117,6 +118,10 @@ interface DragState {
 }
 
 const CellBuilderController: React.FC = () => {
+    // This viewer instance's handles, for the parts of the file that are inside
+    // React. The module-level scene code below has no tree to read a context
+    // from and goes through `getViewerRuntime()` instead.
+    const {scene: sceneRef, camera: cameraRef, renderer: rendererRef} = useViewerRefs();
     React.useEffect(() => {
         let cleanup: (() => void) | null = null;
         let raf = 0;
@@ -1075,7 +1080,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // steps in exact grid multiples. Null between drags (re-seeded on start).
     let loftDragLast: THREE.Vector3 | null = null;
 
-    const gizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
+    const gizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), renderer.domElement);
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
     gizmoHelper.userData.__excludeFromFit = true;
@@ -1216,7 +1221,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // within SNAP_PX, or null. This is the snap TARGET — the vertex under the
     // cursor — so the marker lands exactly where the user is pointing.
     const nearestCornerToPointer = (excludeCellId: string): Vec3 | null => {
-        const cam = cameraRef.current ?? (camera as THREE.PerspectiveCamera);
+        const cam = getViewerRuntime().camera.current ?? (camera as THREE.PerspectiveCamera);
         const off = offsetVec();
         const rect = renderer.domElement.getBoundingClientRect();
         const px = (pointer.x * 0.5 + 0.5) * rect.width;
@@ -1351,7 +1356,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     gizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
-        if (controlsRef.current) controlsRef.current.enabled = !e.value;
+        const runtimeCtl = getViewerRuntime().controls.current;
+        if (runtimeCtl) runtimeCtl.enabled = !e.value;
         // Coalesce the whole widget drag into one undo step.
         if (e.value) {
             st.beginTransaction();
@@ -1428,7 +1434,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const portProxy = new THREE.Object3D();
     portProxy.userData.__excludeFromFit = true;
     container.add(portProxy);
-    const portGizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
+    const portGizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), renderer.domElement);
     portGizmo.setSpace("world");
     const portGizmoHelper = portGizmo.getHelper();
     portGizmoHelper.userData.__excludeFromFit = true;
@@ -1491,7 +1497,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // named for the cell (see collectCadVerts / _cad_transform).
     const findCadMesh = (cell: BuilderCell): THREE.Mesh | null => {
         let mesh: THREE.Mesh | null = null;
-        (sceneRef.current ?? scene).traverse((o) => {
+        (getViewerRuntime().scene.current ?? scene).traverse((o) => {
             if (mesh) return;
             if ((o as THREE.Mesh).isMesh && o.name && o.name === cell.name) mesh = o as THREE.Mesh;
         });
@@ -1554,7 +1560,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // pointer on screen within SNAP_PX, or null — the port analogue of
     // nearestCornerToPointer.
     const nearestPortSnapToPointer = (cell: BuilderCell): Vec3 | null => {
-        const cam = cameraRef.current ?? (camera as THREE.PerspectiveCamera);
+        const cam = getViewerRuntime().camera.current ?? (camera as THREE.PerspectiveCamera);
         const off = offsetVec();
         const rect = renderer.domElement.getBoundingClientRect();
         const sx0 = (pointer.x * 0.5 + 0.5) * rect.width;
@@ -1584,7 +1590,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const pickPort = (): {cellId: string; portName: string} | null => {
         const st = useCellBuilderStore.getState();
         if (!st.active || !st.portsOverlayVisible) return null;
-        portRaycaster.setFromCamera(pointer, cameraRef.current ?? (camera as THREE.Camera));
+        portRaycaster.setFromCamera(pointer, getViewerRuntime().camera.current ?? (camera as THREE.Camera));
         const hits = portRaycaster.intersectObjects(portsGroup.children, true);
         for (const h of hits) {
             let o: THREE.Object3D | null = h.object;
@@ -1600,7 +1606,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const syncPortGizmo = () => {
         const st = useCellBuilderStore.getState();
-        if (cameraRef.current) portGizmo.camera = cameraRef.current;
+        const runtimeCam = getViewerRuntime().camera.current;
+        if (runtimeCam) portGizmo.camera = runtimeCam;
         const pg = st.portGizmo;
         const info = pg ? portGeom(pg.cellId, pg.portName) : null;
         const on = !!(st.active && pg && info && st.portsOverlayVisible && st.cellsVisible);
@@ -1629,7 +1636,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     portGizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
-        if (controlsRef.current) controlsRef.current.enabled = !e.value;
+        const runtimeCtl = getViewerRuntime().controls.current;
+        if (runtimeCtl) runtimeCtl.enabled = !e.value;
         if (e.value) {
             st.beginTransaction();
             const pg = st.portGizmo;
@@ -1735,7 +1743,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // of the translate proxy mid-drag so it never fights the pointer.
     const syncGizmo = () => {
         const st = useCellBuilderStore.getState();
-        if (cameraRef.current) gizmo.camera = cameraRef.current;
+        const runtimeCam = getViewerRuntime().camera.current;
+        if (runtimeCam) gizmo.camera = runtimeCam;
         const sel = st.selection;
         const cell = sel ? st.cells[sel.cellId] : null;
         // Translate works for every kind — including a loft band, whose gizmo
@@ -1843,7 +1852,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             drag.started = true;
             st.setMode("drag-face");
             st.beginTransaction();
-            if (controlsRef.current) controlsRef.current.enabled = false;
+            const runtimeCtl = getViewerRuntime().controls.current;
+            if (runtimeCtl) runtimeCtl.enabled = false;
             renderer.domElement.setPointerCapture(ev.pointerId);
         }
         return true;
@@ -1913,7 +1923,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera(pointer, cameraRef.current ?? (camera as any));
+        raycaster.setFromCamera(pointer, getViewerRuntime().camera.current ?? (camera as any));
     };
 
     const pickBuilderMesh = (): THREE.Intersection | null => {
@@ -2211,7 +2221,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 st.setMode("drag-face");
                 // Coalesce the whole drag into one undo step.
                 st.beginTransaction();
-                if (controlsRef.current) controlsRef.current.enabled = false;
+                const runtimeCtl = getViewerRuntime().controls.current;
+                if (runtimeCtl) runtimeCtl.enabled = false;
                 renderer.domElement.setPointerCapture(drag.pointerId);
             }
             const t = lineParamFromRay(raycaster.ray, drag.lineOrigin, drag.lineDir);
@@ -2265,7 +2276,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             const st = useCellBuilderStore.getState();
             st.setMode("idle");
             st.endTransaction(); // close the coalesced-drag undo step
-            if (controlsRef.current) controlsRef.current.enabled = true;
+            const runtimeCtl = getViewerRuntime().controls.current;
+            if (runtimeCtl) runtimeCtl.enabled = true;
             try {
                 renderer.domElement.releasePointerCapture(pending.pointerId);
             } catch {
@@ -3468,7 +3480,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     st.selection?.kind === "face" &&
                     st.selection.faceIndex != null
                 ) {
-                    const camObj = cameraRef.current;
+                    const camObj = getViewerRuntime().camera.current;
                     if (camObj) {
                         const camRight = new THREE.Vector3()
                             .setFromMatrixColumn(camObj.matrixWorld, 0)
@@ -3744,7 +3756,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         el.removeEventListener("pointercancel", onPointerCancel, true);
         el.removeEventListener("contextmenu", onContextMenu);
         window.removeEventListener("keydown", onKeyDown, true);
-        if (controlsRef.current) controlsRef.current.enabled = true;
+        const runtimeCtl = getViewerRuntime().controls.current;
+        if (runtimeCtl) runtimeCtl.enabled = true;
         clearLongPress();
         gizmo.detach();
         gizmo.dispose();
