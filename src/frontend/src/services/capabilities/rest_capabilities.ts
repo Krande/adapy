@@ -23,6 +23,7 @@ import type {
   ProceduralXlsxDetect,
 } from "@/services/viewerApi";
 import {
+  CapabilityUnavailableError,
   ProceduralCommitConflictError,
   type CapabilityTransport,
   type ModelStatsCapability,
@@ -37,6 +38,7 @@ import {
   type ProceduralExportFormat,
   type ProceduralExportOptions,
   type ProceduralModelCapability,
+  type ProceduralModelEntry,
   type ProceduralModelResult,
   type ProceduralModelSource,
   type ProceduralRelocationResponse,
@@ -92,9 +94,20 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
   readonly canEdit = true;
 
   /** Every verb on this interface is implemented over REST -- this capability predates
-   * `supports` and none of its behaviour is conditional on it. */
-  supports(_verb: ProceduralVerb): boolean {
-    return true;
+   * `supports` and none of its behaviour is conditional on it -- except `listModels`: that verb
+   * addresses a local-disk directory the hosted viewer has no equivalent of (a per-scope model
+   * listing is a different, already-existing REST endpoint the panels reach some other way), so it
+   * is the one verb REST reports as NOT supported rather than growing a REST implementation with
+   * nothing to list. */
+  supports(verb: ProceduralVerb): boolean {
+    return verb !== "listModels";
+  }
+
+  /** Unreachable behind `supports("listModels") === false` -- see that method's docstring. Throws
+   * rather than resolving to `[]` so a caller that skips the `supports` gate fails loudly instead
+   * of rendering a local-models browser that is permanently, silently empty. */
+  async listModels(_scope: string): Promise<ProceduralModelEntry[]> {
+    throw new CapabilityUnavailableError("listModels", this.transport);
   }
 
   async fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult> {
