@@ -31,6 +31,7 @@
 import * as flatbuffers from "flatbuffers";
 import { CommandType } from "@/flatbuffers/commands/command-type";
 import { TargetType } from "@/flatbuffers/commands/target-type";
+import { ProceduralModelLoad } from "@/flatbuffers/server/procedural-model-load";
 import { ProceduralModelSave } from "@/flatbuffers/server/procedural-model-save";
 import { Server } from "@/flatbuffers/server/server";
 import { Message } from "@/flatbuffers/wsock/message";
@@ -76,6 +77,7 @@ import {
   type ProceduralExportFormat,
   type ProceduralExportOptions,
   type ProceduralModelCapability,
+  type ProceduralModelEntry,
   type ProceduralModelResult,
   type ProceduralModelSource,
   type ProceduralRelocationResponse,
@@ -153,6 +155,48 @@ function buildSaveProceduralModelRequest(
   return builder.asUint8Array();
 }
 
+/** Serialize a LOAD_PROCEDURAL_MODEL command for `modelId`. */
+function buildLoadProceduralModelRequest(instanceId: number, requestId: string, modelId: string): Uint8Array {
+  const builder = new flatbuffers.Builder(512);
+  const modelIdOffset = builder.createString(modelId);
+
+  ProceduralModelLoad.startProceduralModelLoad(builder);
+  ProceduralModelLoad.addModelId(builder, modelIdOffset);
+  const loadOffset = ProceduralModelLoad.endProceduralModelLoad(builder);
+
+  Server.startServer(builder);
+  Server.addLoadProceduralModel(builder, loadOffset);
+  const serverOffset = Server.endServer(builder);
+
+  const requestIdOffset = builder.createString(requestId);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, instanceId);
+  Message.addCommandType(builder, CommandType.LOAD_PROCEDURAL_MODEL);
+  Message.addTargetGroup(builder, TargetType.SERVER);
+  Message.addClientType(builder, TargetType.WEB);
+  Message.addServer(builder, serverOffset);
+  Message.addRequestId(builder, requestIdOffset);
+  builder.finish(Message.endMessage(builder));
+  return builder.asUint8Array();
+}
+
+/** Serialize a LIST_PROCEDURAL_MODELS command. No request payload -- like LIST_PROCEDURES, the
+ * command_type alone selects the handler (see `commands.fbs`). */
+function buildListProceduralModelsRequest(instanceId: number, requestId: string): Uint8Array {
+  const builder = new flatbuffers.Builder(256);
+  const requestIdOffset = builder.createString(requestId);
+
+  Message.startMessage(builder);
+  Message.addInstanceId(builder, instanceId);
+  Message.addCommandType(builder, CommandType.LIST_PROCEDURAL_MODELS);
+  Message.addTargetGroup(builder, TargetType.SERVER);
+  Message.addClientType(builder, TargetType.WEB);
+  Message.addRequestId(builder, requestIdOffset);
+  builder.finish(Message.endMessage(builder));
+  return builder.asUint8Array();
+}
+
 export class WSModelStatsCapability implements ModelStatsCapability {
   readonly transport: CapabilityTransport = "ws";
 
@@ -188,7 +232,10 @@ export class WSProceduralModelCapability implements ProceduralModelCapability {
   // The verbs actually implemented over the websocket. `supports` reads this; a verb landing
   // just means adding its name here (and, for the FIRST one, flipping `canEdit` below -- every
   // verb after that is independent of it, see the `supports` doc in types.ts).
-  private static readonly SUPPORTED_VERBS: ReadonlySet<ProceduralVerb> = new Set<ProceduralVerb>(["commitModel"]);
+  private static readonly SUPPORTED_VERBS: ReadonlySet<ProceduralVerb> = new Set<ProceduralVerb>([
+    "commitModel",
+    "listModels",
+  ]);
 
   // Injectable for tests (a fake transport exposing just `request`/`getInstanceId`); production
   // code leaves this unset and resolves the real `comms` singleton lazily -- see `resolveWs`.
@@ -232,9 +279,72 @@ export class WSProceduralModelCapability implements ProceduralModelCapability {
   // `revision` the interface carries -- see `commitModel`'s docstring for why.
   private readonly knownHashes = new Map<string, string>();
 
-  async fetchModel(_source: ProceduralModelSource): Promise<ProceduralModelResult> {
+  /** Resolve `source.modelId` off local disk via LOAD_PROCEDURAL_MODEL when given one; otherwise
+   * (or on any failure -- disconnected socket, unknown id) fall back to whatever document the most
+   * recently loaded GLB carried, exactly like before this verb existed. This is deliberately never
+   * gated on `supports("fetchModel")` -- there is no such verb name, because `fetchModel` never
+   * throws `CapabilityUnavailableError`: a model that cannot be resolved by either path is reported
+   * absent, the same contract the REST implementation gives for a model with no procedural
+   * provenance.
+   *
+   * A successful load also seeds `knownHashes` for `modelId` with the hash the server reports, so
+   * a `commitModel` that follows sends real optimistic concurrency instead of saving blind (as it
+   * would for a `model_id` this session has never touched). */
+  async fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult> {
+    const modelId = source.modelId;
+    if (modelId) {
+      try {
+        const ws = await this.resolveWs();
+        const reply = await ws.request((requestId) =>
+          buildLoadProceduralModelRequest(ws.getInstanceId(), requestId, modelId),
+        );
+        const loaded = reply.serverReply()?.loadProceduralModel();
+        const docJson = loaded?.docJson();
+        if (docJson) {
+          const doc = JSON.parse(docJson) as ProceduralDoc;
+          const contentHash = loaded?.contentHash();
+          if (contentHash) this.knownHashes.set(modelId, contentHash);
+          return { available: true, doc };
+        }
+      } catch {
+        // Disconnected, unknown model_id, or a malformed doc -- fall through to the embedded
+        // document below rather than surface an error from what is documented as a
+        // never-throws lookup.
+      }
+    }
     if (!this.embedded) return { available: false };
     return { available: true, doc: this.embedded };
+  }
+
+  /** LIST_PROCEDURAL_MODELS: every document saved under the local model directory. `scope` is
+   * accepted for interface parity with the REST signature and otherwise ignored, the same way
+   * `commitModel` ignores it -- local disk has no scopes to address.
+   *
+   * Disconnected (`!canEdit`) throws `CapabilityUnavailableError` up front, the same typed refusal
+   * `commitModel` gives for the same reason, rather than letting `comms.request` reject with a
+   * generic transport error a browser UI would have to pattern-match. */
+  async listModels(_scope: string): Promise<ProceduralModelEntry[]> {
+    if (!this.canEdit) {
+      throw new CapabilityUnavailableError("listModels", this.transport);
+    }
+    const ws = await this.resolveWs();
+    const reply = await ws.request((requestId) => buildListProceduralModelsRequest(ws.getInstanceId(), requestId));
+    const listed = reply.serverReply()?.listProceduralModels();
+    const count = listed?.entriesLength() ?? 0;
+    const entries: ProceduralModelEntry[] = [];
+    for (let i = 0; i < count; i++) {
+      const entry = listed!.entries(i);
+      if (!entry) continue;
+      const modelId = entry.modelId();
+      if (!modelId) continue;
+      entries.push({
+        modelId,
+        contentHash: entry.contentHash() ?? "",
+        modifiedAt: Number(entry.modifiedAt()),
+        sizeBytes: Number(entry.sizeBytes()),
+      });
+    }
+    return entries;
   }
 
   adoptEmbeddedModel(doc: ProceduralDoc | null): boolean {

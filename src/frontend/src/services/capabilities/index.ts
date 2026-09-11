@@ -18,6 +18,7 @@ export type {
   ProceduralExportOptions,
   ProceduralLod,
   ProceduralModelCapability,
+  ProceduralModelEntry,
   ProceduralModelResult,
   ProceduralModelSource,
   ProceduralRelocationResponse,

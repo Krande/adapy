@@ -163,6 +163,18 @@ export interface ProceduralModelResult {
   doc?: ProceduralDoc | null;
 }
 
+/** One entry in a local-disk model browser listing (``LIST_PROCEDURAL_MODELS`` --
+ * docs/documents/ws_rest_parity.rst, step 6). ``contentHash`` is the same sha256 hex digest
+ * ``commitModel``/``fetchModel`` traffic in, so a browser row can be compared against a hash
+ * already held (e.g. the currently-open model's ``knownHashes`` entry) without a round trip.
+ * ``modifiedAt`` is Unix milliseconds -- display/sort only, never a concurrency token. */
+export interface ProceduralModelEntry {
+  modelId: string;
+  contentHash: string;
+  modifiedAt: number;
+  sizeBytes: number;
+}
+
 /** Verb names `supports` can be asked about -- one per write/build verb on
  * `ProceduralModelCapability`, named for the method it gates. Deliberately a
  * closed union rather than `string`: adding a verb here is the reminder to
@@ -175,7 +187,8 @@ export type ProceduralVerb =
   | "syncCatalogEntry"
   | "proposeRelocations"
   | "importXlsx"
-  | "exportModel";
+  | "exportModel"
+  | "listModels";
 
 /** The procedural model behind a compiled assembly.
  *
@@ -197,6 +210,14 @@ export interface ProceduralModelCapability {
    * in the docs); today it has NO consumer -- the embedded-document path goes through
    * `adoptEmbeddedModel` below, and the hosted viewer opens models through its own store. */
   fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult>;
+
+  /** List the models this transport can `fetchModel` by id (LIST_PROCEDURAL_MODELS -- ws/REST
+   * parity plan, step 6). Gated by `supports("listModels")`: the websocket transport lists the
+   * local-disk directory `save`/`load` read and write; REST has no equivalent concept (a per-scope
+   * model listing is a different, already-existing endpoint the panels reach some other way), so
+   * its implementation is unreachable behind `supports` returning false rather than silently
+   * returning an empty list. */
+  listModels(scope: string): Promise<ProceduralModelEntry[]>;
 
   /** Offer a document found embedded in a freshly-loaded GLB
    * (`asset.extras.procedural_doc`, written by `ada.visit.scene_converter`).

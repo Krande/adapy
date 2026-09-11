@@ -3,15 +3,16 @@ Websocket and REST as peers: local disk as a storage backend
 
 .. note::
    A **plan**, not a description of what exists. Steps 0-2 (panel gating on ``canEdit``, request
-   correlation) and step 3 (``SAVE_PROCEDURAL_MODEL``) are done -- see "Status: save has landed"
-   below for what shipped and the decisions it made; everything from step 4 on is still a plan. The
+   correlation), step 3 (``SAVE_PROCEDURAL_MODEL``) and step 6 (``LIST_PROCEDURAL_MODELS`` /
+   ``LOAD_PROCEDURAL_MODEL``) are done -- see "Status: save, list and load have landed" below for
+   what shipped and the decisions it made; steps 4 and 5 (catalogs, compile) are still a plan. The
    ``ProceduralModelCapability`` seam it builds on (including ``canEdit``) was written on the
    ``fix/viewer-procedural-panels`` branch and is now folded in alongside this document, so
    citations below marked *(branch)* resolve here too. Delete this document, or fold what survives
    into the comms docs, once the work lands.
 
-Status: save has landed
---------------------------
+Status: save, list and load have landed
+------------------------------------------
 
 ``SAVE_PROCEDURAL_MODEL`` (step 3 below) is implemented end to end: schema, handler, and the
 websocket capability. What follows is a record of the decisions the traps below forced, kept next
@@ -52,17 +53,30 @@ to the plan that predicted them rather than folded silently into the code.
   propose relocations, compile/preview, xlsx/IFC/Genie export, the per-scope catalog admin
   subpanels) even though none of those verbs exist over the websocket yet. Rather than let those
   surface as repeated ``CapabilityUnavailableError`` toasts on click, ``ProceduralModelCapability``
-  grew ``supports(verb)`` (REST: always true; WS: true only for ``"commitModel"`` today), and
-  ``CellBuilderPanel`` gates each of those controls on it alongside ``readOnly``.
+  grew ``supports(verb)`` (REST: true for every verb except ``"listModels"``, which addresses a
+  local-disk directory REST has no equivalent of; WS: true for ``"commitModel"`` and
+  ``"listModels"``), and ``CellBuilderPanel`` gates each of those controls on it alongside
+  ``readOnly``.
 * **Opening a real session.** A websocket load with an embedded procedural document and
   ``canEdit`` true now calls ``cellBuilderStore.open()`` (real session, ``active`` set) instead of
   the view-only ``loadFromDoc()`` (``setupModelLoaderAsync``) -- otherwise the Commit button would
   stay disabled forever (it also requires ``s.active``). This is the intended consequence of a save
   path existing, not a workaround: it also turns on the gizmo/context-menu editing surface that
   gates on ``active``, which is what "the panel becomes honestly editable" means in practice.
-
-``LOAD_PROCEDURAL_MODEL`` (loading a model back off disk by id, and step 6's local-disk browser)
-did not fall out trivially alongside save and is left for a follow-up.
+* **List and load (step 6).** ``LIST_PROCEDURAL_MODELS`` enumerates the same directory
+  ``save_procedural_model`` writes into (one entry per model: ``model_id``, content hash, mtime,
+  size); ``LOAD_PROCEDURAL_MODEL`` reads one of them back by id, replying with the document JSON
+  plus its current content hash, the same way the save reply does. Both run through the same
+  directory rules, ``model_id`` allow-list and path containment as save, and reply ERROR for a
+  missing/invalid id. On the client, ``WSProceduralModelCapability.fetchModel`` now tries
+  ``LOAD_PROCEDURAL_MODEL`` first (seeding ``knownHashes`` from the reply, so the next
+  ``commitModel`` gets real optimistic concurrency instead of saving blind) and falls back to
+  whatever document the loaded GLB embedded on any failure, so its "never throws" contract is
+  unchanged; the new ``listModels()`` is a thin wrapper over ``LIST_PROCEDURAL_MODELS``. The
+  cellbuilder panel exposes this as a small "Local models" browser (visible only behind
+  ``supports("listModels")``) that opens a picked entry through the store's existing public
+  ``open()``/``loadFromDoc()`` path -- ``open()`` when ``canEdit`` is true, ``loadFromDoc()``
+  otherwise, exactly the step-0 rule above -- and refreshes itself after a successful commit.
 
 The viewer has two transports. Over REST it talks to a FastAPI app with Postgres, object storage,
 NATS and a worker pool behind it. Over websocket it talks to a Python process on the user's own
@@ -266,15 +280,28 @@ Migration: smallest useful first
    every verb below. Do it once, before any of them. *In progress:* websocket request correlation
    (``request_id`` on ``Message``) is being landed on the same branch as this document; the
    change that adds it is the reference for its API, not this plan.
-3. **``SAVE_PROCEDURAL_MODEL``.** *Done -- see "Status: save has landed" above.* Handler writes the
-   document to a path and replies with a content-hash concurrency token; ``canEdit`` now tracks
-   socket connectivity instead of being hard-coded ``false``.
+3. **``SAVE_PROCEDURAL_MODEL``.** *Done -- see "Status: save, list and load have landed" above.*
+   Handler writes the document to a path and replies with a content-hash concurrency token;
+   ``canEdit`` now tracks socket connectivity instead of being hard-coded ``false``.
 4. **Type catalogs over the websocket.** One verb serving all five, or five thin ones. Pure function
-   calls (category (i)); the panel's dropdowns stop being empty.
+   calls (category (i)); the panel's dropdowns stop being empty. *Still REST-only* -- see below.
 5. **``COMPILE_PROCEDURAL``.** In-process ``ada.topo_model.compile``, replying with a GLB the
-   existing scene path already knows how to load.
-6. **``LIST_PROCEDURAL_MODELS`` / ``LOAD_PROCEDURAL_MODEL``.** A local-disk model browser, so the
-   storage panel works locally too.
+   existing scene path already knows how to load. *Still REST-only* -- see below.
+6. **``LIST_PROCEDURAL_MODELS`` / ``LOAD_PROCEDURAL_MODEL``.** *Done -- see "Status: save, list and
+   load have landed" above.* A local-disk model browser in the cellbuilder panel, gated behind
+   ``supports("listModels")``.
+
+**What is still REST-only.** Everything ``WSProceduralModelCapability.SUPPORTED_VERBS`` does not
+name, i.e. every verb except ``commitModel`` and ``listModels``: the five type catalogs and
+blueprints (``listCatalog``, ``listBlueprints``, step 4 above), compile/preview
+(``compileModel``, ``previewModel``, ``jobStatus``, ``fetchCompileLog``, ``resolveEngine``, step 5
+above), the per-scope catalog admin actions (``syncCatalogEntry``, ``resyncEquipmentTypes`` --
+category (iii), deliberately staying REST-only, not merely unimplemented yet), relocations
+(``proposeRelocations``, ``fetchRelocations``), xlsx import (``stageXlsxImport``, ``importXlsx``,
+``fetchImportedModel``), export in every format (``exportModel``, ``downloadArtifact``) and the CAD
+equipment preview GLB (``fetchEquipmentPreviewGlb``). Each of these still throws
+``CapabilityUnavailableError`` over the websocket transport; ``CellBuilderPanel`` gates the
+controls that call them on ``supports(verb)``.
 
 **Why save is the first verb and not compile.** Compile is already possible with no server at all --
 ``compileInBrowser`` does it in Pyodide today. Implementing compile over the websocket first would
@@ -345,6 +372,10 @@ edit" is satisfiable without anything reaching disk.
   so the comparison is exact, not approximate.
 * **Step 5 (compile).** A model compiled over the websocket and the same model compiled through
   REST produce the same geometry for the same input document.
+* **Step 6 (list and load).** *Done.* Save two models under different ids in the local viewer,
+  open the "Local models" browser, see both listed, pick one and have it reopen through
+  ``open()``/``loadFromDoc()`` with the document that was saved -- with no server, no scope, and
+  no id the client did not itself choose when it saved.
 
 What this plan deliberately does not attempt
 ----------------------------------------------

@@ -8,8 +8,10 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC
 from ada.comms.msg_handling.delete_file_object import delete_file_object
 from ada.comms.msg_handling.get_server_info import get_server_info_func
 from ada.comms.msg_handling.list_file_objects import list_file_objects
+from ada.comms.msg_handling.list_procedural_models import list_procedural_models
 from ada.comms.msg_handling.list_procedures import list_procedures
 from ada.comms.msg_handling.list_web_clients import list_web_clients_func
+from ada.comms.msg_handling.load_procedural_model import load_procedural_model
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
 from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
@@ -61,6 +63,10 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             shutdown_server_func(server, client, message)
         elif message.command_type == CommandTypeDC.SAVE_PROCEDURAL_MODEL:
             save_procedural_model(server, client, message)
+        elif message.command_type == CommandTypeDC.LIST_PROCEDURAL_MODELS:
+            list_procedural_models(server, client, message)
+        elif message.command_type == CommandTypeDC.LOAD_PROCEDURAL_MODEL:
+            load_procedural_model(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(

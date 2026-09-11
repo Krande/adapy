@@ -3,6 +3,10 @@ from typing import Optional
 import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
 from ada.comms.fb.fb_server_gen import (
+    ProceduralModelListEntryDC,
+    ProceduralModelListReplyDC,
+    ProceduralModelLoadDC,
+    ProceduralModelLoadReplyDC,
     ProceduralModelSaveDC,
     ProceduralModelSaveReplyDC,
     ServerDC,
@@ -10,6 +14,10 @@ from ada.comms.fb.fb_server_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb.server import (
+    ProceduralModelListEntry,
+    ProceduralModelListReply,
+    ProceduralModelLoad,
+    ProceduralModelLoadReply,
     ProceduralModelSave,
     ProceduralModelSaveReply,
     Server,
@@ -78,6 +86,87 @@ def serialize_proceduralmodelsavereply(
     return ProceduralModelSaveReply.End(builder)
 
 
+def serialize_proceduralmodellistentry(
+    builder: flatbuffers.Builder, obj: Optional[ProceduralModelListEntryDC]
+) -> Optional[int]:
+    if obj is None:
+        return None
+    model_id_str = None
+    if obj.model_id is not None:
+        model_id_str = builder.CreateString(str(obj.model_id))
+    content_hash_str = None
+    if obj.content_hash is not None:
+        content_hash_str = builder.CreateString(str(obj.content_hash))
+
+    ProceduralModelListEntry.Start(builder)
+    if model_id_str is not None:
+        ProceduralModelListEntry.AddModelId(builder, model_id_str)
+    if content_hash_str is not None:
+        ProceduralModelListEntry.AddContentHash(builder, content_hash_str)
+    if obj.modified_at is not None:
+        ProceduralModelListEntry.AddModifiedAt(builder, obj.modified_at)
+    if obj.size_bytes is not None:
+        ProceduralModelListEntry.AddSizeBytes(builder, obj.size_bytes)
+    return ProceduralModelListEntry.End(builder)
+
+
+def serialize_proceduralmodellistreply(
+    builder: flatbuffers.Builder, obj: Optional[ProceduralModelListReplyDC]
+) -> Optional[int]:
+    if obj is None:
+        return None
+    entries_vector = None
+    if obj.entries is not None and len(obj.entries) > 0:
+        entries_list = [serialize_proceduralmodellistentry(builder, item) for item in obj.entries]
+        ProceduralModelListReply.StartEntriesVector(builder, len(entries_list))
+        for item in reversed(entries_list):
+            builder.PrependUOffsetTRelative(item)
+        entries_vector = builder.EndVector()
+
+    ProceduralModelListReply.Start(builder)
+    if obj.entries is not None and len(obj.entries) > 0:
+        ProceduralModelListReply.AddEntries(builder, entries_vector)
+    return ProceduralModelListReply.End(builder)
+
+
+def serialize_proceduralmodelload(builder: flatbuffers.Builder, obj: Optional[ProceduralModelLoadDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    model_id_str = None
+    if obj.model_id is not None:
+        model_id_str = builder.CreateString(str(obj.model_id))
+
+    ProceduralModelLoad.Start(builder)
+    if model_id_str is not None:
+        ProceduralModelLoad.AddModelId(builder, model_id_str)
+    return ProceduralModelLoad.End(builder)
+
+
+def serialize_proceduralmodelloadreply(
+    builder: flatbuffers.Builder, obj: Optional[ProceduralModelLoadReplyDC]
+) -> Optional[int]:
+    if obj is None:
+        return None
+    model_id_str = None
+    if obj.model_id is not None:
+        model_id_str = builder.CreateString(str(obj.model_id))
+    doc_json_str = None
+    if obj.doc_json is not None:
+        doc_json_str = builder.CreateString(str(obj.doc_json))
+    content_hash_str = None
+    if obj.content_hash is not None:
+        content_hash_str = builder.CreateString(str(obj.content_hash))
+
+    ProceduralModelLoadReply.Start(builder)
+    if model_id_str is not None:
+        ProceduralModelLoadReply.AddModelId(builder, model_id_str)
+    if doc_json_str is not None:
+        ProceduralModelLoadReply.AddDocJson(builder, doc_json_str)
+    if content_hash_str is not None:
+        ProceduralModelLoadReply.AddContentHash(builder, content_hash_str)
+    return ProceduralModelLoadReply.End(builder)
+
+
 def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -100,6 +189,12 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     save_procedural_model_obj = None
     if obj.save_procedural_model is not None:
         save_procedural_model_obj = serialize_proceduralmodelsavereply(builder, obj.save_procedural_model)
+    list_procedural_models_obj = None
+    if obj.list_procedural_models is not None:
+        list_procedural_models_obj = serialize_proceduralmodellistreply(builder, obj.list_procedural_models)
+    load_procedural_model_obj = None
+    if obj.load_procedural_model is not None:
+        load_procedural_model_obj = serialize_proceduralmodelloadreply(builder, obj.load_procedural_model)
 
     ServerReply.Start(builder)
     if message_str is not None:
@@ -114,6 +209,10 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
         ServerReply.AddProcessInfo(builder, process_info_obj)
     if obj.save_procedural_model is not None:
         ServerReply.AddSaveProceduralModel(builder, save_procedural_model_obj)
+    if obj.list_procedural_models is not None:
+        ServerReply.AddListProceduralModels(builder, list_procedural_models_obj)
+    if obj.load_procedural_model is not None:
+        ServerReply.AddLoadProceduralModel(builder, load_procedural_model_obj)
     return ServerReply.End(builder)
 
 
@@ -145,6 +244,9 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
     save_procedural_model_obj = None
     if obj.save_procedural_model is not None:
         save_procedural_model_obj = serialize_proceduralmodelsave(builder, obj.save_procedural_model)
+    load_procedural_model_obj = None
+    if obj.load_procedural_model is not None:
+        load_procedural_model_obj = serialize_proceduralmodelload(builder, obj.load_procedural_model)
 
     Server.Start(builder)
     if obj.new_file_object is not None:
@@ -161,4 +263,6 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         Server.AddStartFileInLocalApp(builder, start_file_in_local_app_obj)
     if obj.save_procedural_model is not None:
         Server.AddSaveProceduralModel(builder, save_procedural_model_obj)
+    if obj.load_procedural_model is not None:
+        Server.AddLoadProceduralModel(builder, load_procedural_model_obj)
     return Server.End(builder)
