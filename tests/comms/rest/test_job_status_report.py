@@ -94,10 +94,13 @@ def test_the_reportable_statuses_are_the_ones_the_worker_actually_sends():
     refuses would log a warning per job and leave the row queued anyway, which is
     the failure this whole path exists to remove."""
     from ada.comms.rest import app as app_module
+    from ada.comms.rest.routes import plugin_jobs as plugin_jobs_module
 
-    source = pathlib.Path(app_module.__file__).read_text(encoding="utf-8")
-    # The literal tuple in the route, read rather than imported: it is a local
-    # inside create_app, and asserting on it here is what keeps it honest.
+    # The literal tuple, read rather than imported: it lives in
+    # routes/plugin_jobs.py (the route's home since the job-status/cancel
+    # group was extracted from create_app), and asserting on it here is what
+    # keeps it honest.
+    source = pathlib.Path(plugin_jobs_module.__file__).read_text(encoding="utf-8")
     assert '_REPORTABLE_JOB_STATUSES = ("running", "done", "error", "cancelled")' in source
 
     worker_source = pathlib.Path(pathlib.Path(app_module.__file__).parent / "worker.py").read_text(encoding="utf-8")

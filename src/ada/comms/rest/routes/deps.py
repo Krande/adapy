@@ -16,7 +16,7 @@ from ada.config import logger
 
 from .. import auth as auth_module
 from .. import db as db_module
-from .. import failure_capture
+from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
 from ..queue import JobQueue
@@ -151,6 +151,41 @@ def require_catalog_pool(request: Request):
     if pool is None:
         raise HTTPException(status_code=503, detail="catalogs disabled (no database configured)")
     return pool
+
+
+def require_pool(request: Request):
+    """The DB pool, or 503 — the generic gate most ``/api/*`` routes need."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(status_code=503, detail="this endpoint requires a Postgres-backed deployment")
+    return pool
+
+
+def human_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"  # pragma: no cover — no upload gets here
+
+
+def pending_upload_detail(key: str, pending: pending_uploads.PendingUpload) -> str:
+    """409 message for a job that would dispatch against a still-uploading key.
+
+    A plain string, matching every other ``HTTPException`` in this module —
+    most error-to-message paths on the frontend surface ``detail`` verbatim
+    (``ApiError`` / ``readDetail`` in viewerApi.ts read the response body as
+    text, not parsed JSON), so the useful part has to be IN the sentence
+    rather than a sibling field nothing downstream of a generic catch reads.
+    The structured form (``upload_progress`` alongside ``status``) is what
+    ``GET /files`` returns instead — real JSON, read by dedicated code.
+    """
+    if pending.loaded is not None and pending.total is not None and pending.total > 0:
+        pct = round(100 * pending.loaded / pending.total)
+        return f"{key} is still uploading ({pct}% — {human_bytes(pending.loaded)} / {human_bytes(pending.total)})"
+    if pending.size_hint:
+        return f"{key} is still uploading (0 / {human_bytes(pending.size_hint)})"
+    return f"{key} is still uploading"
 
 
 # ── Scope helpers ────────────────────────────────────────────────
