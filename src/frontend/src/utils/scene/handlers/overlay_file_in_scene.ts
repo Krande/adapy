@@ -2,8 +2,8 @@
 // already there. Bypasses the VIEW_FILE_OBJECT flatbuffer roundtrip
 // (which the server hard-codes to SceneOperations.REPLACE) by pulling
 // the blob directly through the REST API and feeding it to
-// setupModelLoaderAsync with translate=false, so the new model lands
-// at its real coordinates and overlays the previous one in place.
+// loadModel with placement "overlay", so the new model lands in the
+// shared recentered frame and overlays the previous one in place.
 //
 // Selection-mesh implications: each loaded model gets its own
 // CustomBatchedMesh + per-model selection overlay, so picking on one
@@ -13,13 +13,10 @@
 // debug/diff use case (overlay STEP gold + XML output to see
 // missing/displaced plates).
 
-import {viewerApi} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {useModelState} from "@/state/modelState";
-import {setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
-import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 
 export function derivedKeyForGlb(sourceKey: string): string {
     // Mirrors the server-side derived_key_for(target='glb') convention.
@@ -85,52 +82,27 @@ export async function overlay_file_in_scene(
         }
         glbKey = derivedKeyForGlb(sourceName);
     }
-    // Admin-only opt-in load metrics (null when off / non-admin). This is
-    // the StorageBrowser load path, so it's where most loads happen.
-    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "unknown"});
-
     // Stream the GLB straight from storage into GLTFLoader rather than
     // buffering the whole file in memory first. The old path was getBlob
     // (full ArrayBuffer) → new Blob([...]) (a second copy) → object URL →
     // GLTFLoader reads it back into a third ArrayBuffer: ~3x the file size
     // held transiently, plus a giant contiguous allocation that can
     // fragment/fail on big models. Streaming peaks at ~1x file + parsed
-    // buffers. Presigned-direct when available; fall back to the authed
-    // same-origin /blobs GET (server streams it with Content-Encoding:
-    // gzip). Either way the browser decodes — no main-thread pako, no
-    // duplicate buffers.
+    // buffers. `loadModel` does the presigned-direct-then-authed-/blobs
+    // dance, the admin load metrics and the source registration; this is the
+    // StorageBrowser load path, so it's where most loads happen.
     //
-    // translate=true: reuse the first-loaded model's cached
-    // modelStore.translation so the overlay lands in the same recentered
-    // frame (translate=false would re-derive from this model's bbox and
+    // placement "overlay" keeps what is already in the scene, and carries
+    // translate=true with it: the overlay reuses the first-loaded model's
+    // cached modelStore.translation so it lands in the same recentered frame
+    // (a replace's translate=false would re-derive from this model's bbox and
     // offset it). If nothing is cached yet (overlay is the first load) the
     // loader computes one as usual — same as a normal first load.
-    let group;
-    try {
-        try {
-            const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
-            metrics?.setTransport("presigned");
-            metrics?.setUrl(presigned.url);
-            group = await setupModelLoaderAsync(presigned.url, true, undefined, sourceName, undefined, metrics);
-        } catch (e) {
-            console.warn("overlay: presigned GLB load failed, falling back to authed streaming GET", e);
-            const {getAccessToken} = await import("@/services/auth/oidc");
-            const url = viewerApi.blobUrl(scope as any, glbKey);
-            const token = getAccessToken();
-            const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
-            metrics?.setTransport("relayed");
-            metrics?.setUrl(url);
-            group = await setupModelLoaderAsync(url, true, undefined, sourceName, headers, metrics);
-        }
-    } catch (e) {
-        metrics?.fail(
-            e instanceof Error ? e.message : String(e),
-            e instanceof Error ? e.stack : undefined,
-        );
-        throw e;
-    }
-
-    // Register the source → group mapping so we can later remove
-    // just this overlay without nuking the rest of the scene.
-    useModelState.getState().registerLoadedSource(sourceName, group);
+    await loadModel({
+        sourceName,
+        bytes: {from: "storage", scope, glbKey},
+        placement: "overlay",
+        presignFallbackWarning:
+            "overlay: presigned GLB load failed, falling back to authed streaming GET",
+    });
 }

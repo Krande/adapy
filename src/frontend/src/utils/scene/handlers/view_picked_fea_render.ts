@@ -36,7 +36,7 @@ export async function view_picked_fea_render(
     const blob = new Blob([buf], {type: "model/gltf-binary"});
     const url = URL.createObjectURL(blob);
     try {
-        const group = await replace_model(url);
+        const group = await replace_model({url});
         const ms = useModelState.getState();
         ms.setModelUrl(url, SceneOperations.REPLACE);
         ms.setLoadedSourceName(sourceName);
