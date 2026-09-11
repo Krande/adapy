@@ -48,23 +48,18 @@ from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
 from .routes.admin_projects import router as admin_projects_router
 from .routes.admin_settings import router as admin_settings_router
+from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
-    DIRECT_UPLOAD_THRESHOLD_BYTES,
-    GZIP_UPLOAD_EXTS,
     RestContext,
     SystemUser,
     _merge_spec,
-    content_encoding_for,
-    format_label,
     human_bytes,
     is_accepted_source,
     live_worker_specs,
     next_fire,
-    parse_move_body,
-    parse_rename_body,
     parse_scope,
     pending_upload_detail,
     publish_capability_requirements,
@@ -83,27 +78,10 @@ from .routes.plugins import router as plugins_router
 from .routes.procedural_models import router as procedural_models_router
 from .routes.projects import router as projects_router
 from .routes.source_nodes import router as source_nodes_router
-from .routes.storage import rename_with_status
 from .routes.storage import router as storage_router
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
-from .storage_ops import delete_blob_cascade, derived_source_of, move_keys_to_folder
-
-# Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
-# formats already pack their geometry tightly so we skip them. The
-# The gzip-upload extension set, the move/rename body parsers, the
-# content-encoding-for-key helper, the direct-upload cap and the
-# presigned-URL TTL all live in routes/deps.py now (routes/storage.py
-# shares them); the old module names stay bound below for the routes
-# still in this closure (the admin storage-compression sweep and the
-# admin key move/rename routes).
-_GZIP_UPLOAD_EXTS = GZIP_UPLOAD_EXTS
-_DIRECT_UPLOAD_THRESHOLD_BYTES: int = DIRECT_UPLOAD_THRESHOLD_BYTES
-_parse_move_body = parse_move_body
-_parse_rename_body = parse_rename_body
-_content_encoding_for = content_encoding_for
-
 
 # ``human_bytes`` / ``pending_upload_detail`` live in routes/deps.py (needed by
 # routes/plugin_jobs.py's ``POST /plugins/{id}/jobs``); the old module names
@@ -2642,223 +2620,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_projects_router)
 
-    # ── Admin storage view ──────────────────────────────────────────
-    #
-    # Enriched per-scope listing for the admin storage tab: every
-    # source file with its detected format, size, last_modified, and
-    # the derived blobs already cached for it. The DELETE endpoint
-    # removes a source plus all of its derived siblings — the admin
-    # panel surfaces it as a single "delete" action so the bucket
-    # doesn't drift into a state where derived blobs outlive their
-    # source.
-    #
-    # Scoped via the same _scope_from_path dep as the user-facing
-    # storage routes — admins still need scope access (member of the
-    # project, owner of the user scope, etc.). Shared scope is open to
-    # any authed user.
-
-    # routes/deps.py's format_label + SOURCE_FORMAT_NAMES, bound under the
-    # old name for the admin storage list below (the user-facing files
-    # route calls the deps function directly — see routes/storage.py).
-    _format_label = format_label
-
-    @admin.get("/scopes/{scope}/files")
-    async def admin_storage_list(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-    ) -> JSONResponse:
-        from .converter import is_derived_key, supported_targets_for
-
-        files = await storage.list(scope_obj)
-        sources: dict[str, dict] = {}
-        derived_index: dict[str, list[dict]] = {}
-
-        for f in files:
-            if f.key.lstrip("/").startswith("_overlays/"):
-                continue  # auto-disposed utility overlays (merge-preview/diff) — not user files
-            if is_derived_key(f.key):
-                parsed = derived_source_of(f.key)
-                if parsed is None:
-                    continue  # malformed derived key — ignore quietly
-                src_key, target = parsed
-                derived_index.setdefault(src_key, []).append(
-                    {
-                        "format": target,
-                        "key": f.key,
-                        "size": f.size,
-                        "last_modified": f.last_modified,
-                    }
-                )
-            else:
-                sources[f.key] = {
-                    "key": f.key,
-                    "size": f.size,
-                    "last_modified": f.last_modified,
-                    "format": _format_label(f.key),
-                    "available_targets": supported_targets_for(f.key),
-                    "derived": [],
-                }
-
-        for src_key, derived_list in derived_index.items():
-            entry = sources.get(src_key)
-            if entry is None:
-                # Orphan — derived blob without its source. Surface it
-                # as a synthetic entry so the admin can clean it up.
-                sources[src_key] = {
-                    "key": src_key,
-                    "size": 0,
-                    "last_modified": None,
-                    "format": _format_label(src_key),
-                    "available_targets": [],
-                    "orphan": True,
-                    "derived": derived_list,
-                }
-            else:
-                entry["derived"] = derived_list
-
-        out = sorted(
-            sources.values(),
-            key=lambda e: e.get("last_modified") or "",
-            reverse=True,
-        )
-        return JSONResponse({"files": out})
-
-    @admin.delete("/scopes/{scope}/blobs/{key:path}")
-    async def admin_storage_delete(
-        key: str,
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        result = await delete_blob_cascade(storage, scope_obj, key)
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "delete",
-            key=key.lstrip("/"),
-            status="ok",
-            error="; ".join(result["errors"]) or None,
-        )
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/move-to-folder")
-    async def admin_keys_move_to_folder(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Batch-move source keys to a destination folder prefix.
-
-        Body: ``{"keys": [...], "folder": "..."}``. Each source key
-        is renamed to ``<folder>/<basename(src_key)>`` within the
-        same scope, with derived siblings cascading (see
-        storage_ops.move_keys_to_folder). Per-key failures don't
-        abort the batch — the caller gets ``{moved, failed}``.
-        """
-
-        keys, folder = await _parse_move_body(request)
-        result = await move_keys_to_folder(storage, scope_obj, keys, folder)
-        for entry in result["moved"]:
-            await _audit(
-                request,
-                user,
-                scope_obj,
-                "move",
-                key=entry["old"],
-                status="ok",
-                error="; ".join(entry["siblings_failed"]) or None,
-            )
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/rename")
-    async def admin_keys_rename(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Rename a single source key (derived siblings cascade)."""
-        old_key, new_key = await _parse_rename_body(request)
-        # routes/storage.py's rename_with_status, shared with the (already
-        # extracted) user-facing rename route — see that module's docstring.
-        result = await rename_with_status(storage, scope_obj, old_key, new_key)
-        await _audit(request, user, scope_obj, "rename", key=old_key, status="ok")
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/copy-from")
-    async def admin_keys_copy_from(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),  # destination scope (e.g. a corpus)
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Server-side copy source keys from another scope into this one.
-
-        Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
-        (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
-        same key in the path scope. The caller must be able to read ``src_scope``.
-        Per-key reporting: ``{copied, skipped, failed}`` — a key that already
-        exists in the destination is reported under ``skipped`` (a no-op, not an
-        error, so recursive folder copies tolerate partial overlap); a missing
-        source, derived-key reject, or backend error lands in ``failed``. Nothing
-        aborts the batch.
-        """
-        from .converter import is_derived_key
-
-        pool = getattr(request.app.state, "db_pool", None)
-        body = await request.json()
-        src_raw = body.get("src_scope")
-        raw_keys = body.get("keys")
-        if not isinstance(src_raw, str) or not src_raw.strip():
-            raise HTTPException(status_code=400, detail="src_scope required")
-        if not isinstance(raw_keys, list) or not raw_keys:
-            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
-        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
-            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
-
-        src_scope = await _resolve_project_scope(pool, _parse_scope(src_raw.strip(), user))
-        if not await scope_can_access(user, src_scope, pool):
-            raise HTTPException(status_code=403, detail="forbidden: source scope")
-        if src_scope.prefix() == scope_obj.prefix():
-            raise HTTPException(status_code=400, detail="source and destination scope are the same")
-
-        # Dedup while preserving order.
-        seen: set[str] = set()
-        keys: list[str] = []
-        for raw in raw_keys:
-            cleaned = raw.strip().lstrip("/")
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
-                keys.append(cleaned)
-
-        # Snapshot destination keys so we can skip collisions without a HEAD per file.
-        dst_keys = {f.key for f in await storage.list(scope_obj)}
-
-        copied: list[dict] = []
-        skipped: list[dict] = []
-        failed: list[dict] = []
-        for key in keys:
-            if is_derived_key(key):
-                failed.append({"key": key, "reason": "cannot copy derived blobs"})
-                continue
-            if key in dst_keys:
-                skipped.append({"key": key, "reason": "already in corpus"})
-                continue
-            try:
-                # overwrite=True for the same S3 reason as rename above (the safe
-                # default raises ``copy-if-not-exists not supported``); the
-                # application-layer dst_keys pre-check is the real collision guard.
-                await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
-            except Exception:
-                # Full detail is logged; return a generic reason so backend/stack-trace
-                # text isn't exposed in the response (CodeQL py/stack-trace-exposure).
-                logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
-                failed.append({"key": key, "reason": "copy failed"})
-                continue
-            dst_keys.add(key)
-            copied.append({"key": key})
-            await _audit(request, user, scope_obj, "copy", key=key, status="ok")
-
-        return JSONResponse({"copied": copied, "skipped": skipped, "failed": failed})
+    admin.include_router(admin_storage_router)
 
     app.include_router(admin)
 
