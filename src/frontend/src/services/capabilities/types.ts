@@ -23,8 +23,57 @@
 // code is allowed to see. Migration is incremental and by design: only the
 // capabilities that actually have to work on both transports need to move.
 
-import type { ProceduralDoc } from "@/services/viewerApi";
+import type {
+  ConvertResponse,
+  DetailingEngineSummary,
+  DetailingOptionsPayload,
+  ProceduralBlueprintOption,
+  ProceduralCellTypeOption,
+  ProceduralCompileResponse,
+  ProceduralDesignRulesetOption,
+  ProceduralDoc,
+  ProceduralEngineResolved,
+  ProceduralEngineSummary,
+  ProceduralModelDetail,
+  ProceduralOpeningTypeOption,
+  ProceduralRelocationResult,
+  ProceduralSystemTypeOption,
+  ProceduralTypeOption,
+  ProceduralXlsxDetect,
+} from "@/services/viewerApi";
 import type { ModelStats } from "@/utils/stats/modelStats";
+
+/** Thrown by a transport for a verb it has no implementation of.
+ *
+ * This is the honest answer, not a stand-in: the websocket transport has request correlation
+ * (`Comms.request()`, `utils/comms/wsRequests.ts`) but no procedural verbs riding on it yet, so
+ * every store method that needs a backend must fail visibly there rather than pretend. Consumers
+ * that already tolerate a failed backend call (the cellbuilder store's catalog fetches fall back
+ * to an empty list and warn) need no special handling; the ones that gate UI should read `canEdit`
+ * instead of catching this. */
+export class CapabilityUnavailableError extends Error {
+  constructor(
+    public readonly verb: string,
+    public readonly transport: CapabilityTransport,
+  ) {
+    super(`${verb} is not available over the ${transport} transport`);
+    this.name = "CapabilityUnavailableError";
+  }
+}
+
+/** Thrown by `commitModel` when the stored model moved on since `baseRevision` was read.
+ *
+ * Optimistic concurrency is a property of the model store, not of HTTP, so the seam names it
+ * rather than leaking the REST client's 409 to the cellbuilder. */
+export class ProceduralCommitConflictError extends Error {
+  constructor(
+    public readonly modelId: string,
+    public readonly baseRevision: number,
+  ) {
+    super(`commit of ${modelId} conflicts with a newer revision than ${baseRevision}`);
+    this.name = "ProceduralCommitConflictError";
+  }
+}
 
 /** Which transport answered. Consumers should not branch on this — it exists
  * for diagnostics and for tests that assert the right implementation was
@@ -133,6 +182,168 @@ export interface ProceduralModelCapability {
    * path", so that when the verb lands, flipping this to true restores those controls with no other
    * change. `CellBuilderPanel` does exactly that. */
   readonly canEdit: boolean;
+
+  // ---- Catalogs -----------------------------------------------------------------------------
+  //
+  // The dropdown catalogs the cellbuilder panel is built from. Over REST these are the per-scope
+  // database catalog unioned with the code archetypes; the ws/REST parity plan notes a local
+  // process serves the same lists from the in-process registries, so the seam keys them by kind
+  // rather than by endpoint.
+
+  /** List one catalog for `scope`. The result type follows `kind`. */
+  listCatalog<K extends ProceduralCatalogKind>(scope: string, kind: K): Promise<ProceduralCatalogs[K]>;
+
+  /** Blueprints are engine-scoped, so they take the engine the compile will dispatch to. */
+  listBlueprints(scope: string, engine: string): Promise<ProceduralBlueprintOption[]>;
+
+  /** Upsert one code archetype (`slug`) into the scope's database catalog. */
+  syncCatalogEntry(scope: string, kind: ProceduralSyncableCatalogKind, slug: string): Promise<ProceduralCatalogSyncResult>;
+
+  /** Upsert every equipment archetype into the scope's database catalog and report what moved. */
+  resyncEquipmentTypes(scope: string): Promise<ProceduralResyncResult>;
+
+  // ---- Model revisions ----------------------------------------------------------------------
+
+  /** Commit `doc` as the next revision of `modelId`, given that the caller last read
+   * `baseRevision`. Rejects with `ProceduralCommitConflictError` if the model moved on. */
+  commitModel(scope: string, modelId: string, doc: ProceduralDoc, baseRevision: number): Promise<ProceduralCommitResult>;
+
+  // ---- Build jobs ---------------------------------------------------------------------------
+  //
+  // Compile, preview and export all answer with a `ProceduralCompileResponse`: either the
+  // artifact is already cached (`cached`, no `job_id`) or a job was queued whose progress the
+  // caller polls with `jobStatus` until it reports the `derived_key` of the finished artifact.
+
+  /** Build the COMMITTED revision of `modelId`. */
+  compileModel(scope: string, modelId: string, opts: ProceduralBuildOptions): Promise<ProceduralCompileResponse>;
+
+  /** Build the given (uncommitted) `doc` as an ephemeral preview -- no revision bump. */
+  previewModel(scope: string, modelId: string, doc: unknown, opts: ProceduralBuildOptions): Promise<ProceduralCompileResponse>;
+
+  /** Poll a queued job. */
+  jobStatus(jobId: string): Promise<ConvertResponse>;
+
+  /** The engine's compile log for a finished (or failed) build, addressed by artifact key or by
+   * the run that produced it. Resolves to an empty text for a build that has none. */
+  fetchCompileLog(scope: string, modelId: string, derivedKey: string, runId?: string | null): Promise<ProceduralCompileLog>;
+
+  /** Resolve a non-builtin engine to something the in-browser compiler can load. */
+  resolveEngine(scope: string, engineId: string): Promise<ProceduralEngineResolved>;
+
+  // ---- Export -------------------------------------------------------------------------------
+
+  /** Produce a downloadable artifact of the COMMITTED revision in `format`. Same job contract
+   * as `compileModel`; fetch the result with `downloadArtifact`. */
+  exportModel(scope: string, modelId: string, format: ProceduralExportFormat, opts?: ProceduralExportOptions): Promise<ProceduralCompileResponse>;
+
+  /** Hand the artifact stored under `key` to the user as a file download named `suggestedName`. */
+  downloadArtifact(scope: string, key: string, suggestedName: string): Promise<void>;
+
+  // ---- Import -------------------------------------------------------------------------------
+
+  /** Stage an uploaded workbook and read which engine (if any) it declares. */
+  stageXlsxImport(scope: string, data: Blob | ArrayBuffer): Promise<ProceduralXlsxDetect>;
+
+  /** Queue the import of a staged workbook as a new model. Poll with `jobStatus`. */
+  importXlsx(scope: string, body: ProceduralXlsxImportRequest): Promise<ProceduralXlsxImportResponse>;
+
+  /** Resolve the model an import job produced (its result artifact names the model). */
+  fetchImportedModel(scope: string, derivedKey: string): Promise<ProceduralModelDetail>;
+
+  // ---- Relocations --------------------------------------------------------------------------
+
+  /** Ask for equipment relocation proposals for `modelId`. A null `job_id` means the analysis
+   * was already cached under `derived_key`; otherwise poll with `jobStatus`. */
+  proposeRelocations(scope: string, modelId: string): Promise<ProceduralRelocationResponse>;
+
+  /** Read the proposals an analysis stored under `key`. */
+  fetchRelocations(scope: string, key: string): Promise<ProceduralRelocationResult>;
+
+  // ---- Equipment preview --------------------------------------------------------------------
+
+  /** The CAD preview GLB (possibly gzipped) of the equipment type `typeId`, or null if the type
+   * has none. Used by the cellbuilder controller to show real equipment shapes in the cells. */
+  fetchEquipmentPreviewGlb(scope: string, typeId: string): Promise<ArrayBuffer | null>;
+}
+
+/** The typed catalogs `listCatalog` serves, keyed by the kind a consumer asks for. */
+export interface ProceduralCatalogs {
+  equipmentTypes: ProceduralTypeOption[];
+  cellTypes: ProceduralCellTypeOption[];
+  openingTypes: ProceduralOpeningTypeOption[];
+  systemTypes: ProceduralSystemTypeOption[];
+  designRulesets: ProceduralDesignRulesetOption[];
+  engines: ProceduralEngineSummary[];
+  detailingEngines: DetailingEngineSummary[];
+}
+
+export type ProceduralCatalogKind = keyof ProceduralCatalogs;
+
+/** The catalogs whose entries can be upserted one at a time from a code archetype. */
+export type ProceduralSyncableCatalogKind = "equipmentTypes" | "systemTypes";
+
+export interface ProceduralCatalogSyncResult {
+  id: string;
+  slug: string;
+  revision: number;
+}
+
+export interface ProceduralResyncResult {
+  created: string[];
+  updated: string[];
+  unchanged: string[];
+  skipped: string[];
+  /** Per-slug human-readable "what changed" (created/updated slugs only). */
+  changes: Record<string, string[]>;
+}
+
+export interface ProceduralCommitResult {
+  id: string;
+  revision: number;
+}
+
+export type ProceduralLod = "sim" | "detail";
+
+export interface ProceduralBuildOptions {
+  /** Recompile even if the artifact for this document is cached. */
+  force?: boolean;
+  lod?: ProceduralLod;
+  /** Procedural engine slug; null/undefined lets the server pick its default. */
+  engine?: string | null;
+  /** Fabrication-detail engine slug applied after the structural build; "none" = structural only. */
+  detailing?: string | null;
+  detailingOptions?: DetailingOptionsPayload | null;
+}
+
+export interface ProceduralCompileLog {
+  text: string;
+  runId: string;
+}
+
+export type ProceduralExportFormat = "xlsx" | "ifc" | "gxml" | "gnx";
+
+export interface ProceduralExportOptions {
+  force?: boolean;
+  /** xlsx only: the engine whose workbook layout to write. */
+  engine?: string | null;
+  /** ifc only: include CAD geometry. */
+  cad?: boolean;
+}
+
+export interface ProceduralXlsxImportRequest {
+  source_key: string;
+  engine: string;
+  name: string;
+}
+
+export interface ProceduralXlsxImportResponse {
+  job_id: string;
+  derived_key: string;
+}
+
+export interface ProceduralRelocationResponse {
+  job_id: string | null;
+  derived_key: string;
 }
 
 /** The runtime-selected capability set. One instance per transport; see

@@ -10,7 +10,7 @@ import {ungzip} from "pako";
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {portSnapTargets, portsForEquipment} from "@/utils/cellbuilder/ports";
 import {requestRender} from "@/state/perfStore";
-import {viewerApi} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
@@ -810,8 +810,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // catalogue preview + the result loader). Displayed in its NATIVE orientation
     // (no re-orientation) and its placement is fit from its measured bounds — we
     // do NOT assume the (possibly old) preview GLB is Z-up.
-    const parseCadGlb = async (scope: string, key: string): Promise<THREE.Group | null> => {
-        const buf = await viewerApi.getBlob(scope, key);
+    const parseCadGlb = async (buf: ArrayBuffer): Promise<THREE.Group | null> => {
         let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(buf);
         if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = ungzip(bytes);
         const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -832,11 +831,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         void (async () => {
             try {
                 const scope = previewScope();
-                const detail = await viewerApi.getEquipmentType(scope, typeId);
-                if (!detail.preview_glb_key) {
+                const buf = await capabilities.procedural.fetchEquipmentPreviewGlb(scope, typeId);
+                if (!buf) {
                     cadPreviewCache.set(typeId, "error");
                 } else {
-                    const g = await parseCadGlb(scope, detail.preview_glb_key);
+                    const g = await parseCadGlb(buf);
                     cadPreviewCache.set(typeId, g ?? "error");
                 }
             } catch {
