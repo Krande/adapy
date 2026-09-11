@@ -12,8 +12,11 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
 
+from ada.config import logger
+
 from .. import auth as auth_module
 from .. import db as db_module
+from .. import failure_capture
 from ..auth import User
 from ..config import Settings
 from ..queue import JobQueue
@@ -32,10 +35,122 @@ class RestContext:
     storage: Storage
     queue: JobQueue
 
+    async def audit(
+        self,
+        request: Request | None,
+        user: User,
+        scope: Scope,
+        action: str,
+        *,
+        key: str | None = None,
+        target_format: str | None = None,
+        status: str | None = None,
+        error: str | None = None,
+        duration_ms: int | None = None,
+        job_id: str | None = None,
+        audit_run_id: str | None = None,
+        pool=None,
+    ) -> None:
+        """:func:`audit_event` against this app's storage (the closure's old ``_audit``)."""
+        await audit_event(
+            self.storage,
+            request,
+            user,
+            scope,
+            action,
+            key=key,
+            target_format=target_format,
+            status=status,
+            error=error,
+            duration_ms=duration_ms,
+            job_id=job_id,
+            audit_run_id=audit_run_id,
+            pool=pool,
+        )
+
 
 def rest_context(request: Request) -> RestContext:
     """FastAPI dependency: the app's :class:`RestContext`."""
     return request.app.state.rest
+
+
+# Hard cap on the regular API-buffered upload path. Above this we make
+# the client request a presigned URL and PUT directly at the object
+# store, so the API process never sees the bytes. 200 MB is high enough
+# for typical IFC/Genie XML/STEP work and low enough that buffering it
+# in Python doesn't blow the worker's RAM budget.
+DIRECT_UPLOAD_THRESHOLD_BYTES: int = 200 * 1024 * 1024
+
+
+async def audit_event(
+    storage: Storage,
+    request: Request | None,
+    user: User,
+    scope: Scope,
+    action: str,
+    *,
+    key: str | None = None,
+    target_format: str | None = None,
+    status: str | None = None,
+    error: str | None = None,
+    duration_ms: int | None = None,
+    job_id: str | None = None,
+    audit_run_id: str | None = None,
+    pool=None,
+) -> None:
+    """Best-effort audit row insert. No-ops without DB; never raises.
+
+    Audit failures must not break user requests — a missing log line
+    is preferable to a 500 on a successful upload.
+
+    ``audit_run_id`` links the row to an admin-triggered audit
+    sweep so the dispatcher can show per-cell pass/fail in the
+    admin panel. NULL on every user-driven action.
+
+    ``request`` is the FastAPI request when called from a route
+    handler; the dispatcher / scheduler tick / issue-bot pass
+    ``None`` instead and provide ``pool`` directly, since they
+    run outside a request lifecycle. Either path is acceptable —
+    we pick whichever pool source is available.
+    """
+    if pool is None and request is not None:
+        pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        return
+    # A failed row is only reproducible while its source still exists, and a
+    # user-scope source can be deleted at any time — so preserve it now, not
+    # when someone eventually opens the row. Content-addressed and
+    # deduplicated, so a systematic failure copies each distinct input once;
+    # returns None (and never raises) when disabled or ineligible.
+    failure_key = None
+    if failure_capture.is_failure(status):
+        failure_key = await failure_capture.capture(storage, pool, db_module, scope=scope, key=key, action=action)
+    try:
+        await db_module.insert_audit(
+            pool,
+            user_sub=user.sub,
+            scope_kind=scope.kind,
+            scope_id=scope.id,
+            action=action,
+            key=key,
+            target_format=target_format,
+            status=status,
+            error=error,
+            duration_ms=duration_ms,
+            job_id=job_id,
+            audit_run_id=audit_run_id,
+            failure_key=failure_key,
+        )
+    except Exception:
+        logger.exception("audit insert failed (action=%s)", action)
+
+
+def require_catalog_pool(request: Request):
+    """The DB pool, or 503 — the equipment/system/engine catalogs need Postgres."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise HTTPException(status_code=503, detail="catalogs disabled (no database configured)")
+    return pool
 
 
 # ── Scope helpers ────────────────────────────────────────────────
@@ -258,3 +373,24 @@ async def live_worker_specs(queue: JobQueue, field: str, fallback_field: str | N
                     if isinstance(slug, str) and slug and slug not in out:
                         out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
     return out
+
+
+async def advertised_engine_capability(queue: JobQueue, slug: str | None) -> str | None:
+    """The worker capability of an engine a live worker advertises itself.
+
+    Complements the database lookup at every routing site: a self-advertising
+    engine has no row, so without this its jobs would silently route to the
+    DEFAULT pool -- the engine would appear in the list, be selectable, and
+    then run somewhere that does not have it.
+
+    A row always wins where one exists; this is only consulted when the
+    lookup came back empty.
+    """
+    if not slug:
+        return None
+    from ada.comms.engine_specs import is_offerable
+
+    spec = (await live_worker_specs(queue, "procedural_engine_specs")).get(slug)
+    if spec is None or not is_offerable(spec):
+        return None
+    return spec.get("worker_capability")
