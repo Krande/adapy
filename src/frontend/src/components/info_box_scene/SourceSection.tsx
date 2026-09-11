@@ -6,6 +6,7 @@ import {SerializerSelection, boolOptionFor, boolOptionSupported} from "@/service
 import {viewerApi} from "@/services/viewerApi";
 import {useModelState} from "@/state/modelState";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {formatBytes} from "@/utils/format";
 
 // Human name + schema/version for a source file. Extension gives the format; the schema/version
 // (STEP AP214/AP242, IFC4/IFC2X3, Genie XML) is only in the file HEADER, so we sniff the first few
@@ -30,13 +31,6 @@ const FORMAT_NAMES: Record<string, string> = {
 function extOf(name: string): string {
     const i = name.lastIndexOf(".");
     return i === -1 ? "" : name.slice(i).toLowerCase();
-}
-
-function fmtSize(bytes: number | null): string {
-    if (bytes === null) return "—";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Parse a schema/version label out of the header text of a STEP/IFC/Genie source. Best-effort:
@@ -153,7 +147,7 @@ const SourceSection = () => {
                     {loadedSourceName}
                 </span>
                 <span className="text-gray-400">Size</span>
-                <span>{fmtSize(size)}</span>
+                <span>{formatBytes(size, {maxUnit: "MB"})}</span>
             </div>
 
             <div className="pt-1 border-t border-gray-700">

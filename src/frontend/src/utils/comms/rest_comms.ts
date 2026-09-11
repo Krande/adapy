@@ -2,12 +2,14 @@ import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import { runtime } from "@/runtime/config";
 import { getAccessToken } from "@/services/auth/oidc";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import type { Message } from "@/flatbuffers/wsock/message";
 import type {
   Comms,
   CommsConnectHandler,
   CommsMessageHandler,
   Unsubscribe,
 } from "./types";
+import { RequestCorrelator, parseMessage, type BuildRequest, type RequestOptions } from "./wsRequests";
 
 const INT32_MAX = 2147483647;
 const INT32_MIN = -2147483648;
@@ -37,6 +39,10 @@ export class RESTComms implements Comms {
 
   private handlers: CommsMessageHandler[] = [];
   private connectHandlers: CommsConnectHandler[] = [];
+  // Pending request() calls, keyed by request_id; see wsRequests.ts. The
+  // /rpc response is already tied to its POST, but it is fed through the
+  // same handler path as a WS message, so the same correlation applies.
+  private readonly requests = new RequestCorrelator((payload) => this.sendCommand(payload));
 
   isConnected(): boolean {
     return this.connected;
@@ -100,6 +106,7 @@ export class RESTComms implements Comms {
       }
     }
     this.inflight = [];
+    this.requests.rejectAll(new Error("REST comms disconnected"));
 
     const statusStore = useWebsocketStatusStore.getState();
     statusStore.setConnected(false);
@@ -160,6 +167,8 @@ export class RESTComms implements Comms {
         if (resp.status === 204) return;
         const buffer = await resp.arrayBuffer();
         if (buffer.byteLength === 0) return;
+        // Correlated reply: resolve the awaiting request() and stop.
+        if (this.requests.settle(parseMessage(buffer))) return;
         for (const handler of this.handlers) {
           await handler(buffer);
         }
@@ -173,6 +182,10 @@ export class RESTComms implements Comms {
         if (i >= 0) this.inflight.splice(i, 1);
       }
     })();
+  }
+
+  request(build: BuildRequest, opts?: RequestOptions): Promise<Message> {
+    return this.requests.request(build, opts);
   }
 
   async setInstanceId(newId: number, _reconnect: boolean = true): Promise<void> {

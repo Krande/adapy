@@ -41,6 +41,9 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
     package_obj = None
     if obj.package is not None:
         package_obj = serialize_appendmesh(builder, obj.package)
+    request_id_str = None
+    if obj.request_id is not None:
+        request_id_str = builder.CreateString(str(obj.request_id))
 
     Message.Start(builder)
     if obj.instance_id is not None:
@@ -69,6 +72,8 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
         Message.AddScreenshot(builder, screenshot_obj)
     if obj.package is not None:
         Message.AddPackage(builder, package_obj)
+    if request_id_str is not None:
+        Message.AddRequestId(builder, request_id_str)
     return Message.End(builder)
 
 
@@ -103,6 +108,9 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
     package_obj = None
     if message.package is not None:
         package_obj = serialize_appendmesh(builder, message.package)
+    request_id_str = None
+    if message.request_id is not None:
+        request_id_str = builder.CreateString(message.request_id)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -132,6 +140,8 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
         Message.AddScreenshot(builder, screenshot_obj)
     if message.package is not None:
         Message.AddPackage(builder, package_obj)
+    if message.request_id is not None:
+        Message.AddRequestId(builder, request_id_str)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)

@@ -3,6 +3,9 @@ import { beforeEach, test } from "node:test";
 
 import {
   _resetSceneColorOwnerForTests,
+  noteFieldSourceCleared,
+  noteFieldSourceLoaded,
+  noteOwnerPainted,
   notifyActiveModeSceneColor,
   sceneColorOwner,
 } from "../../utils/scene/fea/modeSceneColor";
@@ -141,4 +144,151 @@ test("two owning modes remember their own views, not each other's", () => {
     [useColorStore.getState().min, useColorStore.getState().max],
     [5, 50],
   );
+});
+
+// A model that loads AFTER an owning mode was entered: the page opened straight
+// into the mode (a restored session, a `?mode=` link), so the suspend on entry
+// saw nothing, and the load then switched its own field's colours and legend on
+// underneath the mode.
+
+/** What the FEA loader leaves on screen once a model's default field is in. */
+function simulateLoad(fieldName: string, min: number, max: number): void {
+  useFeaAnimationStore.setState({ fieldName, stepIndex: 0, layer: undefined });
+  useColorStore.setState({ min, max, showLegend: true });
+}
+
+test("a model loaded under an owning mode is set aside, and is what leaving shows", () => {
+  useFeaAnimationStore.setState({ fieldName: null });
+  useColorStore.setState({ showLegend: false });
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+  assert.equal(sceneColorOwner(), "capacity");
+
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+test("a reload of the same source is the owning mode's own painting", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Inspect paints by property through the same loader.
+  simulateLoad("props.material", 1, 3);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, true);
+});
+
+test("without an owning mode a load changes nothing", () => {
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(sceneColorOwner(), null);
+  assert.equal(useColorStore.getState().showLegend, true);
+});
+
+test("another model opened inside an owning mode replaces the view to put back", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // saved: g_stress
+  simulateLoad("sesam.nodes.displacement", 0, 12);
+  noteFieldSourceLoaded("other.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+
+  notifyActiveModeSceneColor({ id: "results" });
+  // The field that was saved on entry belonged to a model no longer loaded.
+  assert.deepEqual(
+    [useColorStore.getState().min, useColorStore.getState().max],
+    [0, 12],
+  );
+});
+
+// A mode that paints outside core (a plugin overlay drawing its own colours) has
+// no field view of its own. What sits in the buffers when it is left is the
+// field it set aside, and that is the user's, not the mode's.
+
+test("re-entering a mode that painted nothing sets the user's current field aside", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+  notifyActiveModeSceneColor({ id: "results" }); // g_stress back
+
+  // The user picks another field in Results.
+  useFeaAnimationStore.setState({ fieldName: "sesam.nodes.displacement", stepIndex: 1 });
+  useColorStore.setState({ min: 0, max: 39, showLegend: true });
+
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // No reload of the field capacity was left with: the displacement field stays
+  // in the buffers, set aside, its legend hidden.
+  const fea = useFeaAnimationStore.getState();
+  assert.equal(fea.fieldName, "sesam.nodes.displacement");
+  assert.equal(fea.stepIndex, 1);
+  assert.equal(useColorStore.getState().showLegend, false);
+
+  // Leaving puts the user's displacement view back, legend included.
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+test("a loader repaint of the same source counts as the mode's own painting", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // The painter repainted through the loader and kept the field's name.
+  useColorStore.setState({ min: 1, max: 3, showLegend: true });
+  noteFieldSourceLoaded("model.SIN");
+
+  notifyActiveModeSceneColor({ id: "results" });
+  assert.deepEqual(
+    [useColorStore.getState().min, useColorStore.getState().max],
+    [5, 50],
+  );
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Its own view comes back (its legend, shown) rather than a fresh suspend.
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [1, 3, true]);
+});
+
+test("the same source reopened after a clear is set aside", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+
+  // The user clears the model and opens the same file again while the mode is
+  // still active. Nothing was loaded in between, so this is a new source, not
+  // the mode repainting what it had.
+  noteFieldSourceCleared();
+  useFeaAnimationStore.setState({ fieldName: null });
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, false);
+  assert.equal(sceneColorOwner(), "capacity");
+
+  // Leaving shows the reopened model's field, not the one from before the clear.
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+// A legend-only painter (paintField in the plugin context) drives the shared
+// legend off its own range without touching the field buffers. It reports
+// itself to the arbiter, so it counts as having painted.
+
+test("a legend-only painter gets its legend back on re-entry", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+  // What paintField does: legend from the provider's range, then the report.
+  useColorStore.setState({ min: 0, max: 1.2, showLegend: true });
+  noteOwnerPainted();
+
+  notifyActiveModeSceneColor({ id: "results" });
+  let legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [5, 50, true]);
+
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // Its own legend comes back rather than a fresh suspend.
+  legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 1.2, true]);
+});
+
+test("noteOwnerPainted outside an owning mode changes nothing", () => {
+  noteOwnerPainted();
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // First entry: painted nothing yet, so it suspends.
+  assert.equal(useColorStore.getState().showLegend, false);
 });

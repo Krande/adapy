@@ -4,6 +4,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useConvertPageStore} from "@/state/convertPageStore";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 import {runtime} from "@/runtime/config";
+import {formatBytes} from "@/utils/format";
 
 // Pre-existing source-and-derived list for the /convert page. The
 // upload widget above only shows files the user just dropped in this
@@ -12,13 +13,6 @@ import {runtime} from "@/runtime/config";
 // re-running the converter (and without flipping over to the main
 // viewer's storage browser). Refresh button hits the same endpoint
 // rather than relying on a fragile push channel.
-
-function fmtSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 function isViewable(d: DerivedBlob): boolean {
     // Anything the main viewer can mount as a scene directly. The
@@ -57,7 +51,7 @@ const DerivedRow: React.FC<{
             <span className="font-mono text-gray-300 px-1.5 py-0.5 bg-gray-900 rounded-sm">
                 .{derived.format}
             </span>
-            <span className="text-gray-500">{fmtSize(derived.size)}</span>
+            <span className="text-gray-500">{formatBytes(derived.size)}</span>
             <div className="ml-auto flex items-center gap-1">
                 <button
                     type="button"
@@ -146,7 +140,7 @@ const ExistingSourceCard: React.FC<{
                 <div className="min-w-0 flex-1">
                     <div className="font-mono text-sm truncate">{entry.key}</div>
                     <div className="text-[11px] text-gray-400">
-                        {entry.format} · {fmtSize(entry.size)}
+                        {entry.format} · {formatBytes(entry.size)}
                         {entry.last_modified && (
                             <> · {new Date(entry.last_modified).toLocaleDateString()}</>
                         )}

@@ -31,6 +31,11 @@ import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
 import {autoWarpScale} from "../fea/warpScale";
+import {
+    noteFieldSourceCleared,
+    noteFieldSourceLoaded,
+    requestingSceneColorOwner,
+} from "../fea/modeSceneColor";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
 import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
@@ -277,6 +282,8 @@ export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = fals
 
 export function clearActiveFeaStreaming(): void {
     active = null;
+    // The next load is a new source even if it is the same file again.
+    noteFieldSourceCleared();
     useFeaAnimationStore.getState().reset();
     useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();
@@ -736,6 +743,11 @@ export async function load_fea_streaming(args: {
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
+    // Who this load paints for, taken NOW rather than when it lands: an owning
+    // mode entered while the fetch is in flight must not be credited with a
+    // field the user picked before it, and a mode's own repaint stays its own
+    // if the user leaves before it lands.
+    const colorOwner = requestingSceneColorOwner(sourceName);
     const displacementScale = args.displacementScale ?? 1;
     const {sliderFactor} = args;
     const colormap =
@@ -1424,6 +1436,13 @@ export async function load_fea_streaming(args: {
         animStore.setStepIndex(0);
         useColorStore.getState().setShowLegend(false);
     }
+
+    // The colours and legend above assume nobody else owns the scene colouring.
+    // A mode that does (capacity, inspect) may be on top of the owner stack: one
+    // entered before this model loaded when the page opened straight into it,
+    // or one that asked for this load itself. The tag taken at request time
+    // says which; a load the mode did not ask for is set aside under it.
+    noteFieldSourceLoaded(sourceName, colorOwner);
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the

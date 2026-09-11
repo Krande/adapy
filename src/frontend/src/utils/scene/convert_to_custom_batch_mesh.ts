@@ -4,6 +4,22 @@ import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions
 import {usePerfStore} from "@/state/perfStore";
 import {gpuMeshPicker} from "../mesh_select/GpuMeshPicker";
 
+// Geometries already handed to a CustomBatchedMesh.
+//
+// GLTFLoader caches primitives by their accessor key, so several glTF meshes
+// referencing the same accessors resolve to ONE shared BufferGeometry.
+// CustomBatchedMesh stores per-mesh selection state *on* that geometry (the
+// 'color' attribute written by setRangeColors/updateSelectionGroups, plus draw
+// groups), so sharing an instance across meshes makes selecting a single mesh
+// visibly highlight every other mesh backed by the same geometry.
+//
+// A GLB whose meshes are merged into per-model buffers uses each geometry
+// exactly once and never hits this; one that keeps meshes separate and reuses
+// geometry between them does.
+//
+// WeakSet so a disposed geometry isn't pinned in memory here.
+const claimedGeometries = new WeakSet<THREE.BufferGeometry>();
+
 export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string, is_design: boolean = true, ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null = null) {
     // CustomBatchedMesh holds a single base material; if the source was
     // a multi-material mesh, take the first one. Multi-material support
@@ -38,8 +54,19 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
         return sourceMaterial;
     })();
 
+    // Give this mesh sole ownership of its geometry (see claimedGeometries).
+    // clone() carries over attributes, index, groups, morphAttributes and any
+    // bounds already computed, so the copy is a drop-in. Only the 2nd+ user of
+    // a shared geometry pays for a clone; when every geometry is used once
+    // this allocates nothing extra.
+    let geometry = original.geometry;
+    if (claimedGeometries.has(geometry)) {
+        geometry = geometry.clone();
+    }
+    claimedGeometries.add(geometry);
+
     const customMesh = new CustomBatchedMesh(
-        original.geometry,
+        geometry,
         baseMaterial,
         drawRanges,
         unique_key,

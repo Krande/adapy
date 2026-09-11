@@ -92,6 +92,7 @@ def deserialize_fileobject(fb_obj) -> FileObjectDC | None:
         is_procedure_output=fb_obj.IsProcedureOutput(),
         procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
         compressed=fb_obj.Compressed(),
+        last_modified=fb_obj.LastModified().decode("utf-8") if fb_obj.LastModified() is not None else None,
     )
 
 

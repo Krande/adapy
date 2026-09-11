@@ -19,6 +19,7 @@ import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveCl
 import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {capabilities} from "@/services/capabilities";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStatsStore} from "@/state/statsStore";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
@@ -81,6 +82,21 @@ export async function setupModelLoaderAsync(
     const embedded_stats = (gltf as any).parser.json.asset?.extras?.model_stats ?? null;
     if (capabilities.stats.adoptEmbeddedStats(embedded_stats)) {
         void useStatsStore.getState().refreshStats();
+    }
+
+    // The procedural document, embedded the same way (asset.extras.procedural_doc). It is what the
+    // "Procedural equipment" and "Procedural system" panels read: which equipment a clicked body
+    // belongs to, its space, size, masses and rotation, and the systems touching its ports. None of
+    // that is in the geometry. Same contract as the take-off above -- the REST implementation
+    // declines it, because the stored model is editable and must stay the authority there.
+    const embedded_doc = (gltf as any).parser.json.asset?.extras?.procedural_doc ?? null;
+    if (capabilities.procedural.adoptEmbeddedModel(embedded_doc)) {
+        // loadFromDoc is the cellbuilder's own importer, so the panels consume the document with no
+        // code of their own. It seeds cells/systems only -- no model id, scope or revision -- so the
+        // store is populated for reading without claiming there is a session to commit to.
+        // An empty document rather than skipping the call: loading a model with no procedural
+        // provenance must CLEAR the panels, not leave them describing the model before it.
+        useCellBuilderStore.getState().loadFromDoc(embedded_doc ?? {spaces: [], equipments: []});
     }
 
     // access the raw JSON
