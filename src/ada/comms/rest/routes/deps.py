@@ -8,6 +8,7 @@ closure (the queue) is an explicit parameter instead.
 from __future__ import annotations
 
 import json
+import pathlib
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -19,6 +20,7 @@ from .. import db as db_module
 from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
+from ..converter import is_supported_source
 from ..queue import JobQueue
 from ..scope import Scope
 from ..scope import can_access as scope_can_access
@@ -81,6 +83,69 @@ def rest_context(request: Request) -> RestContext:
 # for typical IFC/Genie XML/STEP work and low enough that buffering it
 # in Python doesn't blow the worker's RAM budget.
 DIRECT_UPLOAD_THRESHOLD_BYTES: int = 200 * 1024 * 1024
+
+#: How long a presigned upload URL is valid, and — via pending_uploads — how
+#: long an unfinished upload blocks a job against its key before the entry is
+#: reaped. One literal rather than two so the two can't drift apart: a mint
+#: that outlives the block on it would let a job dispatch against a key the
+#: browser is still (validly) PUTting to.
+UPLOAD_URL_TTL_SECONDS = 3600
+
+# Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
+# formats already pack their geometry tightly so we skip them. The
+# storage layer transparently decompresses on read; the download
+# endpoint forwards Content-Encoding: gzip so browsers handle it on
+# the user's machine. ada.from_<format> in the worker sees the original
+# bytes via Storage.get_bytes.
+GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"}
+    # .sin is already binary (Norsam direct-access) so gzip rarely
+    # helps and the slim API container's allowlist gates uploads
+    # separately via FEA_ARTEFACT_SOURCE_EXTS — see converter.py.
+)
+
+
+def content_encoding_for(key: str) -> str | None:
+    return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in GZIP_UPLOAD_EXTS else None
+
+
+async def parse_move_body(request: Request) -> tuple[list[str], str]:
+    """Validate the ``{"keys": [...], "folder": "..."}`` move payload."""
+    body = await request.json()
+    raw_keys = body.get("keys")
+    folder_raw = body.get("folder")
+
+    if not isinstance(raw_keys, list) or not raw_keys:
+        raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+    if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+        raise HTTPException(status_code=400, detail="every key must be a non-empty string")
+    if not isinstance(folder_raw, str) or not folder_raw.strip():
+        raise HTTPException(status_code=400, detail="folder required")
+    folder = folder_raw.strip().strip("/")
+    if not folder:
+        raise HTTPException(status_code=400, detail="folder required")
+    return raw_keys, folder
+
+
+async def parse_rename_body(request: Request) -> tuple[str, str]:
+    """Validate the ``{"old_key": str, "new_key": str}`` rename payload."""
+    body = await request.json()
+    old_raw = body.get("old_key")
+    new_raw = body.get("new_key")
+
+    if not isinstance(old_raw, str) or not old_raw.strip():
+        raise HTTPException(status_code=400, detail="old_key required")
+    if not isinstance(new_raw, str) or not new_raw.strip():
+        raise HTTPException(status_code=400, detail="new_key required")
+    old_key = old_raw.strip().lstrip("/")
+    new_key = new_raw.strip().lstrip("/")
+    if not old_key or not new_key:
+        raise HTTPException(status_code=400, detail="old_key and new_key required")
+    if new_key.endswith("/"):
+        raise HTTPException(status_code=400, detail="new_key must not end with /")
+    if new_key == old_key:
+        raise HTTPException(status_code=400, detail="new_key matches old_key")
+    return old_key, new_key
 
 
 async def audit_event(
@@ -451,6 +516,49 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
                 ext = f".{ext}"
             out.add(ext)
     return sorted(out)
+
+
+async def is_accepted_source(queue: JobQueue, worker_registry: dict, key: str) -> bool:
+    """``is_supported_source`` plus a check against the workers'
+    advertised extra extensions. Use this on every upload / bake
+    endpoint that needs to gate "is this file something we can
+    actually process" — the static check alone misses extensions
+    contributed by capability workers."""
+    if is_supported_source(key):
+        return True
+    ext = pathlib.PurePosixPath(key).suffix.lower()
+    return ext in await worker_advertised_exts(queue, worker_registry)
+
+
+# Human-readable label for a source's detected format, keyed on extension —
+# shared by the user-facing files listing (routes/storage.py) and the admin
+# storage view (still in create_app's closure).
+SOURCE_FORMAT_NAMES: dict[str, str] = {
+    ".ifc": "IFC",
+    ".step": "STEP",
+    ".stp": "STEP",
+    ".stl": "STL",
+    ".obj": "OBJ",
+    ".ply": "PLY",
+    ".dae": "Collada",
+    ".off": "OFF",
+    ".gltf": "glTF",
+    ".glb": "glTF (binary)",
+    ".xml": "Genie XML",
+    ".gnx": "Genie workspace",
+    ".inp": "Abaqus input",
+    ".fem": "Sesam FEM",
+    ".sat": "ACIS",
+    ".acis": "ACIS",
+    ".zip": "Bundle (zip)",
+    ".sif": "Sesam Result (sif)",
+    ".sin": "Sesam Result (sin, Norsam binary)",
+}
+
+
+def format_label(key: str) -> str:
+    ext = pathlib.PurePosixPath(key).suffix.lower()
+    return SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
 
 
 async def advertised_engine_capability(queue: JobQueue, slug: str | None) -> str | None:
