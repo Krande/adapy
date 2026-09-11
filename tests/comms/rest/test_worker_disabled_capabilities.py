@@ -55,15 +55,15 @@ def test_a_disabled_capability_is_dropped(monkeypatch):
 
 
 def test_order_of_the_survivors_is_preserved(monkeypatch):
-    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base,capacity,pm-engine,abaqus")
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base,capacity,beta-engine,abaqus")
     monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "capacity")
-    assert worker._declared_capabilities() == ["base", "pm-engine", "abaqus"]
+    assert worker._declared_capabilities() == ["base", "beta-engine", "abaqus"]
 
 
 def test_several_can_be_disabled_at_once(monkeypatch):
-    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base,capacity,pm-engine,abaqus")
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base,capacity,beta-engine,abaqus")
     monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "capacity,abaqus")
-    assert worker._declared_capabilities() == ["base", "pm-engine"]
+    assert worker._declared_capabilities() == ["base", "beta-engine"]
 
 
 def test_matching_ignores_case_and_surrounding_space(monkeypatch):
@@ -129,29 +129,29 @@ def test_disabling_a_bare_token_leaves_its_shards_and_says_so(monkeypatch, warni
     """A sharded capability is only partly disabled, and silently.
 
     One plugin can address several pools by suffixing the capability with an
-    option value, so a worker holds `cad` and `cad-alpha`. Those are distinct
-    tokens: disabling `cad` leaves `cad-alpha` serving, and the "names nothing
-    this worker advertises" warning does not fire because `cad` did match. Under
+    option value, so a worker holds `alpha` and `alpha-x`. Those are distinct
+    tokens: disabling `alpha` leaves `alpha-x` serving, and the "names nothing
+    this worker advertises" warning does not fire because `alpha` did match. Under
     incident pressure the operator gets a confirmation line and believes the
     pool is out of service while half of it still pulls jobs.
 
-    Prefix-matching by default would be worse -- `web3d` must not vanish because
-    somebody disabled `web` -- so the shard is named and left to be disabled
+    Prefix-matching by default would be worse -- `betawidget` must not vanish because
+    somebody disabled `beta` -- so the shard is named and left to be disabled
     deliberately.
     """
-    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "cad,cad-alpha")
-    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "cad")
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "alpha,alpha-x")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "alpha")
 
-    assert worker._declared_capabilities() == ["cad-alpha"]
-    assert "cad-alpha is still advertised" in warnings_visible.text
+    assert worker._declared_capabilities() == ["alpha-x"]
+    assert "alpha-x is still advertised" in warnings_visible.text
 
 
 def test_an_unrelated_capability_sharing_a_prefix_is_not_reported_as_a_shard(monkeypatch, warnings_visible):
-    # `web3d` is not a shard of `web`; only a `<token>-` prefix counts.
-    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "web3d,base")
-    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "web")
+    # `betawidget` is not a shard of `beta`; only a `<token>-` prefix counts.
+    monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "betawidget,base")
+    monkeypatch.setenv("ADA_WORKER_DISABLED_CAPABILITIES", "beta")
 
-    assert worker._declared_capabilities() == ["web3d", "base"]
+    assert worker._declared_capabilities() == ["betawidget", "base"]
     assert "still advertised" not in warnings_visible.text
 
 
