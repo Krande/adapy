@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 
 
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:
+    # Replies echo the request_id of the command they answer (see reply_to). The
+    # parsed message is kept outside the try so the error path can still echo it
+    # when the handler fails after parsing.
+    message = None
     try:
         message = deserialize_root_message(message_data)
         if message.command_type == CommandTypeDC.UPDATE_SCENE and message.scene.current_file is not None:
@@ -41,7 +45,7 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
         elif message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
             list_file_objects(server, client, message)
         elif message.command_type == CommandTypeDC.VIEW_FILE_OBJECT:
-            view_file_object(server, client, message.server.get_file_object_by_name)
+            view_file_object(server, client, message.server.get_file_object_by_name, request_message=message)
         elif message.command_type == CommandTypeDC.DELETE_FILE_OBJECT:
             delete_file_object(server, client, message)
         elif message.command_type == CommandTypeDC.START_NEW_NODE_EDITOR:
@@ -56,11 +60,13 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             shutdown_server_func(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
-            on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")
+            on_error_reply(
+                server, client, error_message=f"Unknown command type: {message.command_type}", request_message=message
+            )
 
     except Exception as e:
         trace_str = traceback.format_exc()
         logger.error(f"Error handling message: {e}")
         if server.debug:
             logger.error(trace_str)
-        on_error_reply(server, client, error_message=str(e))
+        on_error_reply(server, client, error_message=str(e), request_message=message)

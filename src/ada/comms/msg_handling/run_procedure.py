@@ -17,6 +17,7 @@ from ada.comms.fb_wrap_model_gen import (
     ValueDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
 from ada.config import logger
@@ -121,7 +122,8 @@ def update_server_on_successful_procedure_run(
     else:
         target_client = client
 
-    reply_message = MessageDC(
+    reply_message = reply_to(
+        message,
         instance_id=server.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
         server=ServerDC(all_file_objects=server.scene.file_objects),

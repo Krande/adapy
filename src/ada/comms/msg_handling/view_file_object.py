@@ -15,13 +15,24 @@ from ada.comms.fb_wrap_model_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 if TYPE_CHECKING:
     from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
-def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file_object_name: str) -> None:
+def view_file_object(
+    server: WebSocketAsyncServer,
+    client: ConnectedClient,
+    file_object_name: str,
+    request_message: MessageDC | None = None,
+) -> None:
+    """Send the GLB for ``file_object_name`` to ``client``.
+
+    ``request_message`` is the VIEW_FILE_OBJECT command being answered, so the
+    reply can echo its ``request_id``. It is ``None`` when the view is pushed as
+    a side effect of something else (e.g. a finished procedure)."""
     logger.info(f"Received message from {client.instance_id} to get file object")
     result = server.scene.get_file_object(file_object_name)
     if result is None:
@@ -42,7 +53,8 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
             name=glb_file_obj.name, file_type=FileTypeDC.GLB, purpose=glb_file_obj.purpose, filedata=data.getvalue()
         )
 
-        msg = MessageDC(
+        msg = reply_to(
+            request_message,
             instance_id=server.instance_id,
             command_type=CommandTypeDC.SERVER_REPLY,
             server_reply=ServerReplyDC(reply_to=CommandTypeDC.VIEW_FILE_OBJECT, file_objects=[glb_file_object]),
