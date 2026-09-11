@@ -34,6 +34,7 @@ from . import auth as auth_module
 from . import db as db_module
 from . import failure_capture, local_jobs, pending_uploads
 from .auth import User
+from .catalog import merge_catalog_specs, overlay_catalog_rows, sort_by_name
 from .config import Settings, load_settings
 from .converter import (
     LEGACY_CONVERT_EXTS,
@@ -3918,26 +3919,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plugin still surfaces."""
         from .catalog import builtin_plugin_specs
 
-        by_slug: dict[str, dict] = {}
-        for spec in builtin_plugin_specs():
-            by_slug[spec["slug"]] = {**spec, "origin": "code", "online": True}
-        builtin_slugs = set(by_slug)
-        for slug, spec in (await _live_worker_specs("plugin_specs")).items():
-            by_slug[slug] = {
-                **spec,
-                "slug": slug,
-                "origin": "code" if slug in builtin_slugs else "db",
-                "online": True,
-            }
         # With no queue, plugin jobs run in THIS process (see `local_jobs`), so
         # what it registered is online by definition — and the only source there
         # is. Only then: behind a queue a job goes to a worker, and a spec this
         # API happens to have imported says nothing about whether one is up.
-        if not queue.enabled:
-            for spec in locally_registered_specs():
-                slug = spec.get("slug") or spec.get("id")
-                if slug and slug not in by_slug:
-                    by_slug[slug] = {**spec, "slug": slug, "origin": "code", "online": True}
+        by_slug = merge_catalog_specs(
+            builtin_plugin_specs(),
+            await _live_worker_specs("plugin_specs"),
+            project=lambda slug, spec, origin: {**spec, "slug": slug, "origin": origin, "online": True},
+            live_origin="db",
+            local_specs=None if queue.enabled else locally_registered_specs(),
+        )
 
         # `requires_admin` is reported as the EFFECTIVE gate, not merely what a
         # worker declared: a deployment can gate a plugin that declared nothing
@@ -3981,17 +3973,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
             return out
 
-        by_slug: dict[str, dict] = {}
-        for slug, spec in (
-            await _live_worker_specs("procedural_equipment_specs", "procedural_equipment_types")
-        ).items():
-            by_slug[slug] = {
+        by_slug = merge_catalog_specs(
+            [],
+            await _live_worker_specs("procedural_equipment_specs", "procedural_equipment_types"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
-                "origin": "code",
+                "origin": origin,
                 "ports": _ports_of(spec.get("doc")),
                 "has_cad": False,
-            }
+            },
+        )
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
             # ``list_equipment_types`` returns summary rows only (no ``doc``), so
@@ -3999,21 +3991,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             docs_by_slug = await db_module.get_equipment_docs_by_scope(
                 pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id
             )
-            for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
-                slug = t.get("slug")
-                if isinstance(slug, str) and slug:
-                    by_slug[slug] = {
-                        "slug": slug,
-                        "name": t.get("name") or slug,
-                        "origin": "catalog",
-                        "id": t["id"],
-                        "ports": _ports_of(docs_by_slug.get(slug)),
-                        # Whether a CAD asset is linked — drives the selected-object
-                        # "Show as CAD" toggle (which loads this type's preview GLB).
-                        "has_cad": bool(t.get("cad_key")),
-                    }
-        types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
-        return JSONResponse({"equipment_types": types})
+            overlay_catalog_rows(
+                by_slug,
+                await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id),
+                lambda slug, t: {
+                    "slug": slug,
+                    "name": t.get("name") or slug,
+                    "origin": "catalog",
+                    "id": t["id"],
+                    "ports": _ports_of(docs_by_slug.get(slug)),
+                    # Whether a CAD asset is linked — drives the selected-object
+                    # "Show as CAD" toggle (which loads this type's preview GLB).
+                    "has_cad": bool(t.get("cad_key")),
+                },
+            )
+        return JSONResponse({"equipment_types": sort_by_name(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/system-types")
     async def api_procedural_system_types(
@@ -4026,27 +4018,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         system-template catalog, each tagged with its ``origin`` and base kind."""
         from .catalog import builtin_system_specs
 
-        by_slug: dict[str, dict] = {}
-        code_specs = {s["slug"]: s for s in builtin_system_specs()}
-        code_specs.update(await _live_worker_specs("procedural_system_specs", "procedural_system_types"))
-        for slug, spec in code_specs.items():
+        def _project(slug: str, spec: dict, origin: str) -> dict:
             doc = spec.get("doc") or {}
-            by_slug[slug] = {
+            return {
                 "slug": slug,
                 "name": spec.get("name") or slug,
-                "origin": "code",
+                "origin": origin,
                 "type": doc.get("type", slug),
                 "medium": doc.get("medium"),
                 "voltage": doc.get("voltage"),
             }
+
+        by_slug = merge_catalog_specs(
+            builtin_system_specs(),
+            await _live_worker_specs("procedural_system_specs", "procedural_system_types"),
+            project=_project,
+        )
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
-            for t in await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
-                slug = t.get("slug")
-                if not (isinstance(slug, str) and slug):
-                    continue
+
+            def _project_row(slug: str, t: dict) -> dict:
                 doc = t.get("doc") or {}
-                by_slug[slug] = {
+                return {
                     "slug": slug,
                     "name": t.get("name") or slug,
                     "origin": "catalog",
@@ -4055,8 +4048,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "medium": doc.get("medium"),
                     "voltage": doc.get("voltage"),
                 }
-        types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
-        return JSONResponse({"system_types": types})
+
+            overlay_catalog_rows(
+                by_slug,
+                await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id),
+                _project_row,
+            )
+        return JSONResponse({"system_types": sort_by_name(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/design-rulesets")
     async def api_procedural_design_rulesets(
@@ -4070,23 +4068,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         penetration callables (``ada.topo_model.resolve_design_rules``)."""
         from .catalog import builtin_design_rulesets
 
-        by_slug: dict[str, dict] = {}
-        for spec in builtin_design_rulesets():
-            by_slug[spec["slug"]] = {
-                "slug": spec["slug"],
-                "name": spec["name"],
-                "description": spec.get("description", ""),
-                "origin": "code",
-            }
-        for slug, spec in (await _live_worker_specs("procedural_design_rulesets")).items():
-            by_slug[slug] = {
+        by_slug = merge_catalog_specs(
+            builtin_design_rulesets(),
+            await _live_worker_specs("procedural_design_rulesets"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "description": spec.get("description", ""),
-                "origin": "code",
-            }
-        rulesets = sorted(by_slug.values(), key=lambda x: x["name"].lower())
-        return JSONResponse({"design_rulesets": rulesets})
+                "origin": origin,
+            },
+        )
+        return JSONResponse({"design_rulesets": sort_by_name(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/cell-types")
     async def api_procedural_cell_types(
@@ -4103,20 +4095,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         want of a worker."""
         from .catalog import builtin_cell_specs
 
-        by_slug: dict[str, dict] = {s["slug"]: s for s in builtin_cell_specs()}
-        by_slug.update(await _live_worker_specs("procedural_cell_specs"))
-        types = [
-            {
+        by_slug = merge_catalog_specs(
+            builtin_cell_specs(),
+            await _live_worker_specs("procedural_cell_specs"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
-                "origin": "code",
+                "origin": origin,
                 "size": spec.get("size") or [5.0, 5.0, 3.0],
                 "metadata": spec.get("metadata") or {},
-            }
-            for slug, spec in by_slug.items()
-        ]
-        types.sort(key=lambda x: x["name"].lower())
-        return JSONResponse({"cell_types": types})
+            },
+        )
+        return JSONResponse({"cell_types": sort_by_name(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/opening-types")
     async def api_procedural_opening_types(
@@ -4132,20 +4122,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         default box extent ``size`` ``(DX, DY, DZ)``. No DB rows are involved."""
         from .catalog import builtin_opening_specs
 
-        by_slug: dict[str, dict] = {s["slug"]: s for s in builtin_opening_specs()}
-        by_slug.update(await _live_worker_specs("procedural_opening_specs"))
-        types = [
-            {
+        by_slug = merge_catalog_specs(
+            builtin_opening_specs(),
+            await _live_worker_specs("procedural_opening_specs"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
-                "origin": "code",
+                "origin": origin,
                 "subtype": spec.get("subtype") if spec.get("subtype") in ("door", "window", "opening") else "door",
                 "size": spec.get("size") or [1.0, 1.0, 2.0],
-            }
-            for slug, spec in by_slug.items()
-        ]
-        types.sort(key=lambda x: x["name"].lower())
-        return JSONResponse({"opening_types": types})
+            },
+        )
+        return JSONResponse({"opening_types": sort_by_name(by_slug.values())})
 
     @api.get("/scopes/{scope}/procedural-models/blueprints")
     async def api_procedural_blueprints(
@@ -4165,28 +4153,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .catalog import builtin_procedural_blueprint_specs
 
         # Preserve authored order (built-ins first, the FIRST being the default),
-        # deduped by slug; live-worker extras append after.
-        by_slug: dict[str, dict] = {}
-        for spec in builtin_procedural_blueprint_specs(engine):
-            by_slug[spec["slug"]] = {
-                "slug": spec["slug"],
-                "name": spec["name"],
-                "description": spec.get("description", ""),
-                "fields": spec.get("fields", []),
-                "origin": "code",
-            }
-        for slug, spec in (await _live_worker_specs("procedural_blueprint_specs")).items():
-            # Engine-scoped: a spec carries the engine it belongs to; keep only
-            # this engine's (a spec missing ``engine`` is treated as this one).
-            if spec.get("engine") not in (None, engine):
-                continue
-            by_slug[slug] = {
+        # deduped by slug; live-worker extras append after. Engine-scoped: a live
+        # spec carries the engine it belongs to; keep only this engine's (a spec
+        # missing ``engine`` is treated as this one).
+        by_slug = merge_catalog_specs(
+            builtin_procedural_blueprint_specs(engine),
+            await _live_worker_specs("procedural_blueprint_specs"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "description": spec.get("description", ""),
                 "fields": spec.get("fields", []),
-                "origin": "code",
-            }
+                "origin": origin,
+            },
+            live_filter=lambda spec: spec.get("engine") in (None, engine),
+        )
         blueprints = list(by_slug.values())
         if not blueprints:
             # An engine that advertised nothing (offline capability worker) still
@@ -4217,35 +4198,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dropdowns)."""
         from .catalog import builtin_detailing_engine_specs
 
-        by_slug: dict[str, dict] = {}
-        for spec in builtin_detailing_engine_specs():
-            by_slug[spec["slug"]] = {
-                "slug": spec["slug"],
-                "name": spec["name"],
-                "description": spec.get("description", ""),
-                "inprocess": bool(spec.get("inprocess", False)),
-                "worker_capability": spec.get("worker_capability"),
-                "joint_types": spec.get("joint_types", []),
-                "origin": "code",
-                "online": True,
-            }
         # External engines are discovered ONLY from live capability workers (their
         # ADA_WORKER_PRELOAD registers the engine, so the heartbeat advertises it).
-        live_detailing = await _live_worker_specs("procedural_detailing_engine_specs")
-        builtin_slugs = {s["slug"] for s in builtin_detailing_engine_specs()}
-        for slug, spec in live_detailing.items():
-            by_slug[slug] = {
+        # A live worker re-announcing a built-in keeps origin=code; a new
+        # (external) engine is worker/db-provided.
+        by_slug = merge_catalog_specs(
+            builtin_detailing_engine_specs(),
+            await _live_worker_specs("procedural_detailing_engine_specs"),
+            project=lambda slug, spec, origin: {
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "description": spec.get("description", ""),
                 "inprocess": bool(spec.get("inprocess", False)),
                 "worker_capability": spec.get("worker_capability"),
                 "joint_types": spec.get("joint_types", []),
-                # A live worker re-announcing a built-in keeps origin=code; a new
-                # (external) engine is worker/db-provided.
-                "origin": "code" if slug in builtin_slugs else "db",
+                "origin": origin,
                 "online": True,
-            }
+            },
+            live_origin="db",
+        )
         return JSONResponse({"detailing_engines": list(by_slug.values())})
 
     @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
