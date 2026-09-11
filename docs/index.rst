@@ -77,6 +77,7 @@ IFC and various Finite Element formats.
     :caption: Code
 
     documents/code
+    documents/websocket_correlation
 
 .. toctree::
     :hidden:
