@@ -12,6 +12,7 @@ import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolid
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
+import {clipWithModel} from "@/utils/scene/section_clipping";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
@@ -1083,8 +1084,9 @@ export async function load_fea_streaming(args: {
                     // selection highlight (renderOrder 8), so element edges stay
                     // legible through a field overlay without hiding selection.
                     segments.renderOrder = 3;
-                    // Clip the element-edge wireframe with the model under section planes.
-                    segments.userData.__clipWithModel = true;
+                    // Clip the element-edge wireframe with the model under section planes,
+                    // including planes enabled before this (awaited) edge fetch finished.
+                    clipWithModel(segments);
                     // Layer 1: rendered (camera enables layers 0+1) but
                     // not pickable (setupPointerHandler's raycaster
                     // explicitly disables layer 1). prepareLoadedModel
@@ -1118,7 +1120,7 @@ export async function load_fea_streaming(args: {
                     const beamSegments = new THREE.LineSegments(beamGeom, beamMat);
                     beamSegments.name = "fea-beam-element-edges";
                     beamSegments.renderOrder = 3;
-                    beamSegments.userData.__clipWithModel = true;
+                    clipWithModel(beamSegments);
                     beamSegments.layers.set(1);
                     mesh.add(beamSegments);
                 }

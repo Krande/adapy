@@ -9,6 +9,7 @@ import {useModelState} from "@/state/modelState";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {createPlaneStencilGroup, createCapMesh, orientCapToPlane} from "@/utils/scene/section_caps";
+import {applyClippingPlanes, setSectionClippingPlanes} from "@/utils/scene/section_clipping";
 
 // Headless: reconciles the section-plane store with three.js (per-material
 // clipping + stencil caps + a drag gizmo). Renders nothing.
@@ -130,15 +131,10 @@ function init(
             // on cut-exposed interior elements hit the visible element instead
             // of the (invisible) cut-away shell in front of it.
             gpuMeshPicker.setClippingPlanes(planes);
-            const setClip = (mat: unknown, shadows: boolean) => {
-                const mats = Array.isArray(mat) ? mat : [mat];
-                for (const m of mats) {
-                    if (!m) continue;
-                    (m as THREE.Material).clippingPlanes = cp;
-                    if (shadows) (m as THREE.Material).clipShadows = true;
-                    (m as THREE.Material).needsUpdate = true;
-                }
-            };
+            // And for overlays built after this walk (beam lines repainted by a
+            // field, number labels, glyphs): clipWithModel seeds them from here.
+            setSectionClippingPlanes(cp);
+            const setClip = (mat: unknown, shadows: boolean) => applyClippingPlanes(mat, cp, shadows);
             scene.traverse((o) => {
                 // Plugin-contributed result overlays (a coloured field mesh, feature
                 // lines, markers) opt into section clipping by tagging themselves.

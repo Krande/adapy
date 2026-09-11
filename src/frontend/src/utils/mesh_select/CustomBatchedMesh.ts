@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
 import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {clipWithModel} from "@/utils/scene/section_clipping";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -262,6 +263,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
             this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
             this.edgeMesh.layers.set(1);
+            // A live rebuild (refreshEdgeOverlays) lands after the section planes were
+            // applied; seed it so a toggle does not un-clip the edges until a plane moves.
+            clipWithModel(this.edgeMesh);
             // now *after* you’ve extracted the lines, bake the transform:
             this.edgeMesh.applyMatrix4(localMat);
         }

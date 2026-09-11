@@ -5,6 +5,7 @@ import {sceneRef, cameraRef, rendererRef, adaExtensionRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
+import {clipWithModel} from "@/utils/scene/section_clipping";
 import type {MassGlyph, BcGlyph, LoadScenario} from "@/extensions/design_and_analysis_extension";
 
 // Headless: reconciles the FEM-concepts store with three.js, drawing a glyph
@@ -246,6 +247,9 @@ function init(scene: THREE.Scene): () => void {
         if (st.showBcs) addBcs(st.bcs, glyph);
         const sc = st.selectedScenario;
         if (sc >= 0 && sc < st.scenarios.length) addLoads(st.scenarios[sc], glyph);
+        // Glyphs go with the part of the model a section plane cuts away. Rebuilt
+        // on their own store, so seeded here rather than left to the next plane edit.
+        clipWithModel(container);
         requestRender();
     };
 
