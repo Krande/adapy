@@ -26,10 +26,12 @@
 // mode's. This module only snapshots the screen for the store and applies what
 // the store hands back; it holds no state of its own.
 //
-// One thing is still read off the screen rather than tagged: a mode that sets
-// `fieldName` directly, touching neither the loader nor `paintField`, is taken
-// to have painted (see `leaveTop` in the store). Nothing else could have put
-// that field there while the mode held the colouring.
+// Nothing is read off the screen: an owner keeps its colouring on leaving only
+// when it reported a paint. That is safe because every production path that
+// changes the field runs through the FEA loader, which tags each landing with
+// the owner that asked for it (`requestingSceneColorOwner` at request time),
+// and the one painter that does not touch the field - the legend-only
+// `paintField` - reports itself through `noteOwnerPainted`.
 //
 // Core does the suspending, on the mode's declared behalf. A shell only reports
 // the transition (`notifyActiveModeSceneColor`); it never touches scene state

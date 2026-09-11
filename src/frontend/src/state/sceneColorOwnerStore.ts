@@ -130,22 +130,21 @@ function resultsOwner(): SceneColorOwner {
 /**
  * The top entry leaves. Its view is parked when it painted, dropped otherwise.
  *
- * An owner that leaves with a field other than the one set aside beneath it
- * counts as having painted even without a tag: the field can only have got
- * there through core, and nobody else was on top to ask for it. This is the
- * one thing still read off the screen rather than tagged — a mode that sets
- * `fieldName` on the FEA store directly, going through neither the loader nor
- * `paintField`, reports nothing, and its colouring would otherwise be thrown
- * away on every exit.
+ * Whether it painted is decided entirely by the tags it reported: a paint
+ * through `paintField`, or a loader landing it asked for. Nothing is inferred
+ * from what is on screen. This store used to also count an owner as having
+ * painted when it left with a field other than the one set aside beneath it -
+ * a guess covering a mode that set `fieldName` on the FEA store directly,
+ * reporting through neither the loader nor `paintField`. No production path
+ * does that: every field change goes through the FEA loader, which tags every
+ * landing with the owner that requested it.
  */
 function leaveTop(
   state: Pick<SceneColorOwnerState, "stack" | "parked">,
   onScreen: SceneColorView,
 ): { stack: SceneColorOwner[]; parked: Record<string, SceneColorView>; left: SceneColorOwner } {
   const top = state.stack[state.stack.length - 1];
-  const below = state.stack[state.stack.length - 2];
-  const painted =
-    top.painted || (below?.view?.fieldName ?? null) !== onScreen.fieldName;
+  const painted = top.painted;
   const left: SceneColorOwner = { ...top, painted, view: painted ? onScreen : null };
   const parked = { ...state.parked };
   if (painted) parked[top.id] = onScreen;

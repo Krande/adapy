@@ -1456,8 +1456,8 @@ export async function load_fea_streaming(args: {
     } else {
         // Field-less FEM mesh (model only): no results -> NO simulation session, so
         // SimulationControls + the results-only "show in data" action stay hidden. The
-        // beam-solids toggle acts on the module-level `active` mesh, not the session, so it
-        // still works from the Scene > FEM panel.
+        // beam-solids toggle acts on the session's FEA mesh, not on a result session, so
+        // it still works from the Scene > FEM panel.
         animStore.setSessionActive(false);
         animStore.setFieldName(null);
         animStore.setNSteps(1);
