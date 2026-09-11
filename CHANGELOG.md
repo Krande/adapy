@@ -2,6 +2,33 @@
 
 
 
+## v0.69.0 (2026-09-11)
+
+### Feature
+
+* feat: a model session, the REST app on routers, and the first websocket save verb (#348)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b167e16`](https://github.com/Krande/adapy/commit/b167e16559b6047381e472a7e6812f0339956ce8))
+
+* feat: websocket request correlation, REST route seams, and the folded viewer fixes (#347)
+
+Lands websocket request correlation, the REST route/catalog seams, the frontend test gate, the scene-colour owner stack and the cellbuilder capability seam, and folds PRs #337, #342, #339, #341 and #340 with their review fixes.
+
+Closes #337, closes #342, closes #339, closes #341, closes #340.
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-Authored-By: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`4f5c2ae`](https://github.com/Krande/adapy/commit/4f5c2ae26bf62a772fe086051c23d5db64d9ef8f))
+
+* feat: Genie workspace (gnx) export, and in-process plugin listing without a queue (#345)
+
+Folds #336 (list the plugins this process registered when there is no queue) and #343 (procedural model exports as a Genie workspace, gnx) into one release.
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-Authored-By: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Claude-Session: https://claude.ai/code/session_01StVzo66kiCk6MGeAJGaMDL ([`190fe89`](https://github.com/Krande/adapy/commit/190fe898df2de67f744aac5a46133f45d069698b))
+
+
 ## v0.68.0 (2026-09-09)
 
 ### Feature
