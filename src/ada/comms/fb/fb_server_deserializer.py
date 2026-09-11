@@ -1,6 +1,12 @@
 from ada.comms.fb.fb_base_deserializer import deserialize_error, deserialize_fileobject
 from ada.comms.fb.fb_commands_gen import CommandTypeDC
-from ada.comms.fb.fb_server_gen import ServerDC, ServerProcessInfoDC, ServerReplyDC
+from ada.comms.fb.fb_server_gen import (
+    ProceduralModelSaveDC,
+    ProceduralModelSaveReplyDC,
+    ServerDC,
+    ServerProcessInfoDC,
+    ServerReplyDC,
+)
 
 
 def deserialize_serverprocessinfo(fb_obj) -> ServerProcessInfoDC | None:
@@ -11,6 +17,29 @@ def deserialize_serverprocessinfo(fb_obj) -> ServerProcessInfoDC | None:
         pid=fb_obj.Pid(),
         thread_id=fb_obj.ThreadId(),
         log_file_path=fb_obj.LogFilePath().decode("utf-8") if fb_obj.LogFilePath() is not None else None,
+    )
+
+
+def deserialize_proceduralmodelsave(fb_obj) -> ProceduralModelSaveDC | None:
+    if fb_obj is None:
+        return None
+
+    return ProceduralModelSaveDC(
+        model_id=fb_obj.ModelId().decode("utf-8") if fb_obj.ModelId() is not None else None,
+        doc_json=fb_obj.DocJson().decode("utf-8") if fb_obj.DocJson() is not None else None,
+        expected_content_hash=(
+            fb_obj.ExpectedContentHash().decode("utf-8") if fb_obj.ExpectedContentHash() is not None else None
+        ),
+    )
+
+
+def deserialize_proceduralmodelsavereply(fb_obj) -> ProceduralModelSaveReplyDC | None:
+    if fb_obj is None:
+        return None
+
+    return ProceduralModelSaveReplyDC(
+        model_id=fb_obj.ModelId().decode("utf-8") if fb_obj.ModelId() is not None else None,
+        content_hash=fb_obj.ContentHash().decode("utf-8") if fb_obj.ContentHash() is not None else None,
     )
 
 
@@ -28,6 +57,7 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
         reply_to=CommandTypeDC(fb_obj.ReplyTo()),
         error=deserialize_error(fb_obj.Error()),
         process_info=deserialize_serverprocessinfo(fb_obj.ProcessInfo()),
+        save_procedural_model=deserialize_proceduralmodelsavereply(fb_obj.SaveProceduralModel()),
     )
 
 
@@ -50,4 +80,5 @@ def deserialize_server(fb_obj) -> ServerDC | None:
         ),
         delete_file_object=deserialize_fileobject(fb_obj.DeleteFileObject()),
         start_file_in_local_app=deserialize_fileobject(fb_obj.StartFileInLocalApp()),
+        save_procedural_model=deserialize_proceduralmodelsave(fb_obj.SaveProceduralModel()),
     )
