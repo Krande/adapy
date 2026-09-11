@@ -5,6 +5,7 @@ import {
   _resetSceneColorOwnerForTests,
   noteFieldSourceCleared,
   noteFieldSourceLoaded,
+  noteOwnerPainted,
   notifyActiveModeSceneColor,
   sceneColorOwner,
 } from "../../utils/scene/fea/modeSceneColor";
@@ -263,4 +264,31 @@ test("the same source reopened after a clear is set aside", () => {
   notifyActiveModeSceneColor({ id: "results" });
   const legend = useColorStore.getState();
   assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+// A legend-only painter (paintField in the plugin context) drives the shared
+// legend off its own range without touching the field buffers. It reports
+// itself to the arbiter, so it counts as having painted.
+
+test("a legend-only painter gets its legend back on re-entry", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+  // What paintField does: legend from the provider's range, then the report.
+  useColorStore.setState({ min: 0, max: 1.2, showLegend: true });
+  noteOwnerPainted();
+
+  notifyActiveModeSceneColor({ id: "results" });
+  let legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [5, 50, true]);
+
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // Its own legend comes back rather than a fresh suspend.
+  legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 1.2, true]);
+});
+
+test("noteOwnerPainted outside an owning mode changes nothing", () => {
+  noteOwnerPainted();
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // First entry: painted nothing yet, so it suspends.
+  assert.equal(useColorStore.getState().showLegend, false);
 });

@@ -10,8 +10,11 @@
 // The same promise runs the other way. Every mode is left as it was found: an
 // owning mode that painted something of its own gets that back when you return
 // to it, rather than being suspended again as though you had never been there.
-// Only the FIRST entry suspends, because only then has the mode painted
-// nothing.
+// "Painted something of its own" is what core can see: the mode repainted
+// through the FEA loader, changed `fieldName`, or drove the shared legend via
+// `paintField` (which reports itself with `noteOwnerPainted`). A mode that
+// colours entirely outside core has painted nothing as far as the arbiter
+// knows, and is suspended on every entry, as on the first.
 //
 // Core does the suspending, on the mode's declared behalf. A shell only reports
 // the transition (`notifyActiveModeSceneColor`); it never touches scene state
@@ -200,6 +203,18 @@ let ownerReloaded = false;
 
 function ownerPainted(): boolean {
   return ownerReloaded || (useFeaAnimationStore.getState().fieldName ?? null) !== ownerEnteredField;
+}
+
+/**
+ * Report that the owning mode has painted through core without going through
+ * the loader or changing the field: the legend-only painter (`paintField` in
+ * the plugin context) drives the shared legend off its own range and leaves
+ * the buffers alone. Its legend is the mode's view, and must come back on
+ * re-entry like a loader repaint would. No-op outside an owning mode.
+ */
+export function noteOwnerPainted(): void {
+  if (owner === null) return;
+  ownerReloaded = true;
 }
 
 /**
