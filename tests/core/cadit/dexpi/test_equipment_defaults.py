@@ -31,7 +31,7 @@ from ada.cadit.dexpi.model import (
     classify,
 )
 from ada.cadit.dexpi.nozzle_placers import NozzleSpec, place_nozzles
-from ada.comms.rest.catalog import validate_equipment_doc
+from ada.core.catalog_docs import validate_equipment_doc
 
 
 # ---------------------------------------------------------------------------

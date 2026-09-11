@@ -37,6 +37,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from .plugin_registry import locally_registered_spec
+
 logger = logging.getLogger(__name__)
 
 #: Terminal + running states, spelled the way the queue spells them so the
@@ -159,9 +161,7 @@ registry = LocalJobRegistry()
 
 def _resolve_entrypoint(plugin_id: str) -> Any:
     """Import the callable a plugin advertises as its ``job_entrypoint``."""
-    from ada.plugins import plugin_backend_spec
-
-    spec = plugin_backend_spec(plugin_id)
+    spec = locally_registered_spec(plugin_id)
     entry = (spec or {}).get("job_entrypoint")
     if not spec or not entry:
         raise LookupError(

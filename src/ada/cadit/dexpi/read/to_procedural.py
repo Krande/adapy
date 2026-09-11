@@ -50,7 +50,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
-from ada.comms.rest.catalog import slugify
+from ada.core.text_utils import slugify
 from ada.topo_model.layout import (
     LayoutItem,
     LayoutRules,
