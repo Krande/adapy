@@ -19,11 +19,12 @@ any engine slug.
 
 from __future__ import annotations
 
-# The predicate lives under ada.comms so the REST API can reach it without
-# ada.topo_model, which the slim viewer runtime does not ship. Re-exported here
-# (and in ada.topo_model) so the two sides cannot drift and existing importers
-# keep working.
-from ada.comms.engine_specs import is_offerable
+# The predicate lives under ada.core (below both ada.comms and ada.topo_model)
+# so the REST API can reach it without ada.topo_model, which the slim viewer
+# runtime does not ship, and ada.topo_model doesn't have to reach into
+# ada.comms to get it back. Re-exported here (and in ada.comms.engine_specs)
+# so the two sides cannot drift and existing importers keep working.
+from ada.core.engine_specs import is_offerable
 
 from .engines import BUILTIN_ENGINES
 

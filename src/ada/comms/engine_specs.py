@@ -1,32 +1,15 @@
-"""Predicates over the engine capability specs workers announce in their heartbeat.
+"""Re-export of the engine-capability-spec predicate for the REST layer.
 
-This lives under ``ada.comms`` rather than next to the registry that writes the
-specs (``ada.topo_model.engine_catalog``) for one reason: the REST API runs in a
-*slim* runtime that ships only a subset of the package -- ``ada.comms``,
-``ada.cad``, ``ada.config`` and part of ``ada.sections`` (see
-``deploy/Dockerfile.viewer``). ``ada.topo_model`` is not in that subset, and
-cannot be: importing any of its submodules executes its ``__init__``, which pulls
-in the whole modelling stack.
-
-So a spec predicate the API needs must be reachable without ``ada.topo_model``.
-``engine_catalog`` re-exports it, keeping one definition for both sides.
-
-Keep this module dependency-free (stdlib only) -- that is what makes it safe to
-ship into the slim runtime.
+The canonical definition lives in :mod:`ada.core.engine_specs` — a module
+below both ``ada.comms`` and ``ada.topo_model`` in the dependency graph, so
+neither side has to import the other to share it. This module exists so
+existing importers of ``ada.comms.engine_specs.is_offerable`` (the REST API,
+which runs in a slim runtime that cannot import ``ada.topo_model``) keep
+working unchanged.
 """
 
 from __future__ import annotations
 
+from ada.core.engine_specs import is_offerable
+
 __all__ = ["is_offerable"]
-
-
-def is_offerable(spec: dict) -> bool:
-    """Whether a heartbeat spec describes an engine the viewer can offer on its own.
-
-    A spec is offerable exactly when
-    :func:`ada.topo_model.engine_catalog.register_procedural_engine_capabilities`
-    was given both a name and an entrypoint. Older workers advertise capability
-    flags alone; offering one of those would present an engine the viewer has no
-    way to dispatch to.
-    """
-    return bool(spec.get("name")) and bool(spec.get("entrypoint"))
