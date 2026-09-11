@@ -10,11 +10,26 @@
 // The same promise runs the other way. Every mode is left as it was found: an
 // owning mode that painted something of its own gets that back when you return
 // to it, rather than being suspended again as though you had never been there.
-// "Painted something of its own" is what core can see: the mode repainted
-// through the FEA loader, changed `fieldName`, or drove the shared legend via
-// `paintField` (which reports itself with `noteOwnerPainted`). A mode that
-// colours entirely outside core has painted nothing as far as the arbiter
-// knows, and is suspended on every entry, as on the first.
+// A mode that colours entirely outside core has painted nothing as far as the
+// arbiter knows, and is suspended on every entry, as on the first.
+//
+// Ownership is explicit state, held in `useSceneColorOwnerStore` as a stack:
+// `results` (the user's own view) at the bottom, the active owning mode on top.
+// Entering an owning mode pushes it and records what the owner beneath was
+// showing; leaving pops it and puts that back. Every paint and every loader
+// landing is tagged with the owner that asked for it - `paintField` tags the
+// active mode, the loader tags a load when it is REQUESTED (see
+// `requestingSceneColorOwner`) - and the tag decides whose view it is: the
+// mode's own painting if the mode on top asked for it, otherwise the user's
+// result, set aside under the mode and restored when it leaves. A load already
+// in flight when a mode is entered therefore lands as the user's, never as the
+// mode's. This module only snapshots the screen for the store and applies what
+// the store hands back; it holds no state of its own.
+//
+// One thing is still read off the screen rather than tagged: a mode that sets
+// `fieldName` directly, touching neither the loader nor `paintField`, is taken
+// to have painted (see `leaveTop` in the store). Nothing else could have put
+// that field there while the mode held the colouring.
 //
 // Core does the suspending, on the mode's declared behalf. A shell only reports
 // the transition (`notifyActiveModeSceneColor`); it never touches scene state
@@ -23,6 +38,11 @@
 
 import { useColorStore } from "@/state/colorLegendStore";
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
+import {
+  RESULTS_OWNER,
+  useSceneColorOwnerStore,
+  type SceneColorView,
+} from "@/state/sceneColorOwnerStore";
 
 // Loaded on demand: the streaming loader pulls in three + the whole scene
 // stack, which neither the boot path nor a unit test should pay for.
@@ -45,36 +65,8 @@ export interface SceneColorMode {
   ownsSceneColor?: boolean;
 }
 
-interface SavedFieldView {
-  fieldName: string | null;
-  reduction: string;
-  stepIndex: number;
-  layer: string | null;
-  legendShown: boolean;
-  legendMin: number;
-  legendMax: number;
-}
-
-let owner: string | null = null;
-let saved: SavedFieldView | null = null;
-
-/**
- * What each owning mode was last showing, so re-entering it puts that back.
- *
- * Suspending is right the FIRST time you enter such a mode — it has painted
- * nothing of its own yet, and a field from another analysis must not sit
- * underneath it. It is wrong every time after. Colour by material in Inspect,
- * glance at Results, come back, and the material colouring was gone: the mode
- * remembered nothing, so every entry was a first entry.
- *
- * Keyed by mode id and kept for the life of the page. A mode the user never
- * painted anything in has no entry and still suspends, which is the old
- * behaviour and the right one.
- */
-const ownerViews = new Map<string, SavedFieldView>();
-
 /** Snapshot what is on screen now. */
-function snapshot(): SavedFieldView {
+function snapshot(): SceneColorView {
   const fea = useFeaAnimationStore.getState();
   const legend = useColorStore.getState();
   return {
@@ -89,13 +81,15 @@ function snapshot(): SavedFieldView {
 }
 
 /** Put a snapshot back on screen: its field, its legend, its colours. */
-function restore(view: SavedFieldView): void {
+function restore(view: SceneColorView): void {
   const fea = useFeaAnimationStore.getState();
   const legend = useColorStore.getState();
 
   if (view.fieldName && fea.fieldName !== view.fieldName) {
     // A different field is in the colour buffers. Reload the saved one; the load
     // rebuilds colours, range and legend, and honours the visibility toggle.
+    // The reload is requested by whoever is now on top of the stack, so it
+    // lands tagged as theirs.
     fea.setStepIndex(view.stepIndex);
     if (view.layer) fea.setLayer(view.layer);
     void import("@/utils/scene/fea/resultSelection")
@@ -128,146 +122,108 @@ function suspend(): void {
 /** Which mode currently owns the scene colouring, or null. Exposed for tests
  * and for shells that want to render an indicator. */
 export function sceneColorOwner(): string | null {
-  return owner;
+  const owner = useSceneColorOwnerStore.getState().activeOwner();
+  return owner === RESULTS_OWNER ? null : owner;
 }
 
 /**
  * Report the active mode. Idempotent; call on every mode transition.
  *
- * A mode with `ownsSceneColor` suspends the active FEA field colouring —
- * vertex colours off, legend hidden — without touching the user's own
- * selections or toggles. A mode without it (or `null`, no mode system at all)
- * restores what was suspended: if the owning mode loaded a different field into
- * the buffers, the previously selected field is reloaded; otherwise the
- * colours and legend simply come back. Switching directly between two owning
- * modes keeps the original saved view, so A -> B -> results still restores what
- * the user had before A.
+ * A mode with `ownsSceneColor` is pushed onto the owner stack. On its first
+ * entry it suspends the active FEA field colouring — vertex colours off, legend
+ * hidden — without touching the user's own selections or toggles; on a later
+ * entry after it painted something of its own, that painting comes back
+ * instead. A mode without it (or `null`, no mode system at all) pops the
+ * owning mode and restores what the owner beneath was showing: if a different
+ * field is in the buffers, the saved field is reloaded; otherwise the colours
+ * and legend simply come back. Switching directly between two owning modes
+ * swaps the top of the stack, so A -> B -> results still restores what the
+ * user had before A.
  */
 export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
-  const owns = !!mode?.ownsSceneColor;
+  const store = useSceneColorOwnerStore.getState();
+  const active = store.activeOwner();
 
-  // Whatever is on screen belongs to the mode being left, if that mode owns the
-  // colouring AND painted a field of its own. Recorded before anything is
-  // changed, so coming back to it shows what was there. A mode that painted
-  // nothing through core leaves the field it set aside in the buffers; that is
-  // the user's field, not the mode's view, and must not come back under it.
-  if (owner !== null && owner !== mode?.id) {
-    if (ownerPainted()) ownerViews.set(owner, snapshot());
-    else ownerViews.delete(owner);
-  }
-
-  if (owns) {
-    // The view to put back when the LAST owning mode is left. Taken only on the
-    // way in from a non-owning mode: owner-to-owner must not overwrite it with
-    // the first owner's own painting, or leaving the second would restore the
-    // first instead of the user's result.
-    if (owner === null) saved = snapshot();
-    owner = mode!.id;
-
-    const own = ownerViews.get(owner);
-    if (own) restore(own);
+  if (mode?.ownsSceneColor) {
+    if (active === mode.id) return;
+    const entry =
+      active === RESULTS_OWNER
+        ? store.push(mode.id, snapshot())
+        : store.switchTop(mode.id, snapshot());
+    if (entry.view) restore(entry.view);
     else suspend();
-    // A restored view is the mode's own painting; a suspended entry has painted
-    // nothing yet, measured against the field it set aside.
-    ownerReloaded = !!own;
-    ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
     return;
   }
 
-  if (owner === null) return;
-  owner = null;
-  const view = saved;
-  saved = null;
-  if (!view) return;
-  restore(view);
-}
-
-/** The source whose FEA field was last loaded, to tell a new model from a
- * repaint of the one on screen. */
-let loadedSource: string | null = null;
-
-/**
- * Whether the owning mode on screen has painted a field of its own, and so has
- * a view to come back to.
- *
- * It has when the loader repainted the same source for it (Inspect's property
- * colouring goes through the loader), or when another field than the one it set
- * aside on entry is in the buffers. A mode that paints outside core, as a
- * plugin's overlay does, has done neither: recording its "view" on leaving
- * captured the set-aside field, and re-entering after the user picked another
- * field in Results reloaded that one, putting its colours and legend back on
- * under the mode.
- */
-let ownerEnteredField: string | null = null;
-let ownerReloaded = false;
-
-function ownerPainted(): boolean {
-  return ownerReloaded || (useFeaAnimationStore.getState().fieldName ?? null) !== ownerEnteredField;
+  if (active === RESULTS_OWNER) return;
+  const popped = store.pop(snapshot());
+  if (popped?.below.view) restore(popped.below.view);
 }
 
 /**
- * Report that the owning mode has painted through core without going through
- * the loader or changing the field: the legend-only painter (`paintField` in
- * the plugin context) drives the shared legend off its own range and leaves
- * the buffers alone. Its legend is the mode's view, and must come back on
- * re-entry like a loader repaint would. No-op outside an owning mode.
+ * Report a paint through core that went neither through the loader nor changed
+ * the field: the legend-only painter (`paintField` in the plugin context)
+ * drives the shared legend off its own range and leaves the buffers alone.
+ * Tagged with the active owning mode unless the caller names one; the store
+ * counts it only for the owner on top, so outside an owning mode it is a
+ * no-op. Its legend is the mode's view, and comes back on re-entry like a
+ * loader repaint would.
  */
-export function noteOwnerPainted(): void {
-  if (owner === null) return;
-  ownerReloaded = true;
+export function noteOwnerPainted(owner?: string): void {
+  const store = useSceneColorOwnerStore.getState();
+  store.markPainted(owner ?? store.activeOwner());
 }
 
 /**
- * Report that the FEA loader has just put a field on screen for `source`.
+ * The owner a load of `source` requested right now belongs to. The loader
+ * takes this when a load is requested and hands it back to
+ * `noteFieldSourceLoaded` when the load lands, so the tag survives a mode
+ * change in between: a result picked before an owning mode was entered lands
+ * as the user's result, set aside under the mode, not as the mode's painting.
  *
- * Entering an owning mode suspends what is showing at that moment, and nothing
- * is showing when the page opens straight into one (a restored session, a
- * `?mode=` link): the model loads afterwards, and the load switched its field's
- * colours and legend on under the mode. The capacity overlay then sat on top of
- * a displacement field, its legend floating beside it.
- *
- * So a NEW source loaded while an owning mode is active is treated as the
- * user's result view: kept as the view to put back on leaving, and set aside
- * now. A reload of the same source is not touched - that is how an owning mode
- * paints its own field (Inspect's property colouring goes through the loader),
- * and suspending it would undo the mode's own work.
+ * The active owning mode owns a repaint of the source already on screen (that
+ * is how a property painter colours through the loader); everything else -
+ * no owning mode, a first load, another model - is the user's result.
  */
-export function noteFieldSourceLoaded(source: string | null): void {
-  const fresh = source !== loadedSource;
-  loadedSource = source;
-  if (owner === null) return;
-  if (!fresh) {
-    ownerReloaded = true; // the mode's own painting
-    return;
-  }
-  saved = snapshot();
-  suspend();
-  // The new model's field is set aside; the mode has painted nothing over it yet.
-  ownerReloaded = false;
-  ownerEnteredField = useFeaAnimationStore.getState().fieldName ?? null;
+export function requestingSceneColorOwner(source: string | null): string {
+  return useSceneColorOwnerStore.getState().requestingOwner(source);
+}
+
+/**
+ * Report that the FEA loader has just put a field on screen for `source` on
+ * behalf of `owner` (from `requestingSceneColorOwner` at request time; a caller
+ * without a tag gets the owner a request made now would have).
+ *
+ * Under an owning mode, a load the mode asked for is its own painting and is
+ * left alone. Any other load is the user's result arriving under the mode -
+ * the page opened straight into the mode (a restored session, a `?mode=`
+ * link) and the model loaded afterwards, or the user opened another model
+ * while the mode was active - so it is recorded as the view to put back on
+ * leaving, and set aside now. The capacity overlay used to sit on top of a
+ * displacement field, its legend floating beside it, because the load switched
+ * the field's colours and legend on under the mode.
+ */
+export function noteFieldSourceLoaded(source: string | null, owner?: string): void {
+  const store = useSceneColorOwnerStore.getState();
+  const tag = owner ?? store.requestingOwner(source);
+  if (store.noteLoad(source, tag, snapshot())) suspend();
 }
 
 /**
  * Report that the FEA loader has cleared its model (`clearActiveFeaStreaming`).
  *
- * Nothing is loaded now, so whatever comes next is a NEW source even when it is
- * the same file: clear a model and reopen it inside an owning mode, and the
- * load is the user's result arriving under the mode, not the mode repainting.
- * Without this the old source name survived the clear and the reopen was
- * classed as the mode's own repaint, showing the field under the overlay.
+ * Every saved view referred to the model that is gone, so they go with it, and
+ * whatever comes next is a NEW source even when it is the same file: clear a
+ * model and reopen it inside an owning mode, and the load is the user's result
+ * arriving under the mode, not the mode repainting. Without this the old source
+ * name survived the clear and the reopen was classed as the mode's own repaint,
+ * showing the field under the overlay.
  */
 export function noteFieldSourceCleared(): void {
-  loadedSource = null;
+  useSceneColorOwnerStore.getState().clearViews();
 }
 
 /** Test hook: forget any suspended state without side effects. */
 export function _resetSceneColorOwnerForTests(): void {
-  owner = null;
-  saved = null;
-  loadedSource = null;
-  ownerEnteredField = null;
-  ownerReloaded = false;
-  // What each owning mode was showing goes too, or one test's Inspect view is
-  // restored into the next one's.
-  ownerViews.clear();
+  useSceneColorOwnerStore.getState().reset();
 }
