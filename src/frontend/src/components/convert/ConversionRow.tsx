@@ -8,6 +8,7 @@ import {useConversionStore} from "@/state/conversionStore";
 import {useConvertPageStore, ConvertRow} from "@/state/convertPageStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
+import {formatBytes} from "@/utils/format";
 
 type OptionValue = boolean | string | number | null;
 
@@ -129,13 +130,6 @@ function suggestedTarget(ext: string): TargetFormat {
 function extOf(name: string): string {
     const i = name.lastIndexOf(".");
     return i === -1 ? "" : name.slice(i).toLowerCase();
-}
-
-function fmtSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
@@ -289,7 +283,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
             <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="font-mono text-sm truncate">{row.sourceKey}</div>
-                    <div className="text-[11px] text-gray-400">{fmtSize(row.sizeBytes)}</div>
+                    <div className="text-[11px] text-gray-400">{formatBytes(row.sizeBytes)}</div>
                 </div>
                 <button
                     type="button"

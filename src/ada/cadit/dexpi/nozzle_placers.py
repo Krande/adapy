@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Sequence
 
-from ada.comms.rest.catalog import slugify
+from ada.core.text_utils import slugify
 
 from . import attributes, class_table
 from .model import DexpiItem, DexpiNode

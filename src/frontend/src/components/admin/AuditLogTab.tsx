@@ -11,6 +11,7 @@ import {
     viewerApi,
 } from "@/services/viewerApi";
 import {isMissingManifest, MISSING_MANIFEST_NOTE} from "./workerPackages";
+import {formatBytes as formatBytesBase, formatMillis} from "@/utils/format";
 
 // Filterable audit log view. Two layouts:
 // * sm:↑ desktop — table with sticky header, fits everything in columns.
@@ -1588,23 +1589,10 @@ const MetricRow: React.FC<{label: string; value: string}> = ({label, value}) => 
     </>
 );
 
-function formatDuration(ms: number | null): string {
-    if (ms == null) return "–";
-    if (ms < 1000) return `${ms} ms`;
-    const s = ms / 1000;
-    if (s < 60) return `${s.toFixed(2)} s`;
-    const m = Math.floor(s / 60);
-    const rem = (s - m * 60).toFixed(1);
-    return `${m}m ${rem}s`;
-}
-
-function formatBytes(n: number | null): string {
-    if (n == null) return "–";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GiB`;
-}
+// The audit log keeps its own conventions: IEC unit labels, an en dash for a
+// missing value, and durations precise enough to compare two runs of one cell.
+const formatDuration = (ms: number | null) => formatMillis(ms, {empty: "–", precise: true});
+const formatBytes = (n: number | null) => formatBytesBase(n, {units: "iec", empty: "–"});
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
     <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>

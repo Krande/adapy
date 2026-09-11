@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, OrderedDict
+from typing import TYPE_CHECKING, Callable, Optional, OrderedDict
+
+import numpy as np
 
 from ada.config import logger
 from ada.core.guid import create_guid
@@ -70,6 +73,19 @@ class SceneConverter:
     _model_stats: dict | None = field(default=None, init=False, repr=False)
     _model_stats_done: bool = field(default=False, init=False, repr=False)
 
+    # A postprocessor the CALLER set on ``params`` before ``build_scene``
+    # replaced it with this converter's own. Held so it can still be run --
+    # see :meth:`tree_postprocessor`.
+    _caller_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = field(
+        default=None, init=False, repr=False
+    )
+    _caller_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = field(default=None, init=False, repr=False)
+
+    # Memoised procedural document (``asset.extras["procedural_doc"]``), same
+    # ``_done`` reasoning as the take-off above.
+    _procedural_doc: dict | None = field(default=None, init=False, repr=False)
+    _procedural_doc_done: bool = field(default=False, init=False, repr=False)
+
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
             AdaDesignAndAnalysisExtension,
@@ -127,8 +143,29 @@ class SceneConverter:
         else:
             raise ValueError(f"Unsupported object type: {type(self.source)}")
 
-        self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor)
-        self.params.set_gltf_tree_postprocessor(self.tree_postprocessor)
+        # This converter publishes its own postprocessors into the params so
+        # the export paths that read them get the animation/extension work.
+        # But the same two slots are the ONLY public way for a caller to
+        # supply a postprocessor (RenderParams.set_gltf_*_postprocessor), and
+        # those setters refuse to overwrite -- so a caller who set one and
+        # then rendered got `ValueError: gltf_tree_postprocessor is already
+        # set.` raised from in here. Take over the slots, but keep whatever
+        # the caller put there and run it too (see tree_postprocessor).
+        #
+        # Anything bound to a SceneConverter is not the caller's: it is either
+        # this converter's own method left by an earlier build_scene() (the
+        # chain would call itself) or a previous converter's, left behind when
+        # one RenderParams is reused across renders (the first converter's
+        # animations and extension would be written into the second tree).
+        caller_buffer = self.params.gltf_buffer_postprocessor
+        if caller_buffer is not None and not _is_converter_method(caller_buffer):
+            self._caller_buffer_postprocessor = caller_buffer
+        caller_tree = self.params.gltf_tree_postprocessor
+        if caller_tree is not None and not _is_converter_method(caller_tree):
+            self._caller_tree_postprocessor = caller_tree
+
+        self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor, overwrite=True)
+        self.params.set_gltf_tree_postprocessor(self.tree_postprocessor, overwrite=True)
 
         if not has_meta:
             self._scene.metadata.update(self.graph.to_json_hierarchy())
@@ -210,7 +247,14 @@ class SceneConverter:
         animations = tree.get("animations", [])
         for anim in animations:
             node_idx = anim["channels"][0]["target"]["node"]
-            mesh_idx = tree["nodes"][node_idx]["mesh"]
+            mesh_idx = tree["nodes"][node_idx].get("mesh")
+            if mesh_idx is None:
+                # glTF allows an animation channel to target any node, and a
+                # node is not required to have a mesh. The buffer-view fixups
+                # below are all mesh/morph-target work, so a channel driving a
+                # meshless node (translation/rotation/scale only) has nothing
+                # to do here -- and indexing "mesh" would raise KeyError.
+                continue
             mesh = tree["meshes"][mesh_idx]
             for primitive in mesh["primitives"]:
                 # Set ARRAY_BUFFER target for common attributes if present
@@ -251,6 +295,10 @@ class SceneConverter:
         for idx, animation in enumerate(self.animations):
             animation.process(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
         self._consume_lineage_buffers(buffer_items)
+        # The caller's own postprocessor, displaced in build_scene. Last, so
+        # it sees the finished buffer.
+        if self._caller_buffer_postprocessor is not None:
+            self._caller_buffer_postprocessor(buffer_items, tree)
 
     def _consume_lineage_buffers(self, buffer_items) -> None:
         """Append queued lineage payloads to the GLB binary and rewrite
@@ -315,6 +363,10 @@ class SceneConverter:
             model_stats = self.build_model_stats()
             if model_stats is not None:
                 extras_updates["model_stats"] = model_stats
+        if self.params.embed_procedural_doc:
+            procedural_doc = self.build_procedural_doc()
+            if procedural_doc is not None:
+                extras_updates["procedural_doc"] = procedural_doc
         explicit_extras = self.params.gltf_asset_extras_dict
         if explicit_extras is not None:
             # An explicit extras dict wins over the computed take-off, so a
@@ -325,6 +377,50 @@ class SceneConverter:
             extras = asset.get("extras") or {}
             extras.update(extras_updates)
             asset["extras"] = extras
+
+        # The caller's own postprocessor, displaced in build_scene (see there).
+        # Runs last, after the extras above, so it can inspect or override what
+        # this converter produced -- consistent with gltf_asset_extras_dict
+        # already winning over the computed take-off.
+        if self._caller_tree_postprocessor is not None:
+            self._caller_tree_postprocessor(tree)
+
+    def build_procedural_doc(self) -> dict | None:
+        """The procedural document this assembly was compiled from, JSON-safe.
+
+        The GLB carries triangles and object names. Which equipment a clicked body belongs to, what
+        space it stands in, its masses and rotation, and which systems touch which of its ports are
+        only in the document the compiler was given -- and those are exactly the rows the viewer's
+        procedural panels display. Carrying it in the GLB is what makes those panels work on a
+        transport with no backend to ask.
+
+        Returns ``None`` for an assembly that was not compiled from a procedural document (an IFC
+        import, a hand-built model), and for one whose document will not serialise -- panels are a
+        nicety and never a reason for a render to fail.
+        """
+        if self._procedural_doc_done:
+            return self._procedural_doc
+
+        self._procedural_doc_done = True
+
+        doc = getattr(self.source, "metadata", None)
+        doc = (doc or {}).get("procedural_doc") if isinstance(doc, dict) else None
+        if not isinstance(doc, dict):
+            return None
+
+        try:
+            safe = _json_safe(doc)
+            # Actually encode it. ``_json_safe`` handles the shapes this document is known to carry
+            # (pydantic entities, numpy scalars) and passes anything else through untouched, so a
+            # value it does not recognise would otherwise raise later -- while trimesh serialises
+            # the whole glTF tree, where the render dies and the cause is unrecognisable.
+            json.dumps(safe)
+        except Exception as exc:  # noqa: BLE001 - never break a render over a panel
+            logger.warning("could not carry the procedural document into the GLB: %s", exc)
+            self._procedural_doc = None
+        else:
+            self._procedural_doc = safe
+        return self._procedural_doc
 
     def build_model_stats(self) -> dict | None:
         """Discipline-organised quantity take-off for a Part/Assembly source.
@@ -363,3 +459,32 @@ class SceneConverter:
     def scene(self) -> trimesh.Scene:
         """Cached scene object."""
         return self._scene
+
+
+def _is_converter_method(func: Callable) -> bool:
+    """Whether ``func`` is a method bound to some :class:`SceneConverter`."""
+    return isinstance(getattr(func, "__self__", None), SceneConverter)
+
+
+def _json_safe(value):
+    """``value`` reduced to something ``json.dumps`` accepts.
+
+    The procedural document is mostly plain data but carries pydantic entities in places (a
+    ``TopoSystem`` per system, for instance), and numpy scalars wherever a coordinate has been
+    through the layout. Both serialise fine once asked; neither does implicitly.
+    """
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return _json_safe(dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        # Before the scalar branch: ``ada.Point`` subclasses ndarray, and ``item()`` raises for
+        # anything with more than one element -- which used to drop the whole document.
+        return _json_safe(value.tolist())
+    item = getattr(value, "item", None)
+    if callable(item) and hasattr(value, "dtype"):
+        return item()
+    return value

@@ -10,6 +10,7 @@ import { sceneRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
+import { noteOwnerPainted } from "@/utils/scene/fea/modeSceneColor";
 import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import type { PluginTheme } from "./registry";
 import {
@@ -82,6 +83,10 @@ function makeSceneHandle(): SceneHandle {
       legend.setMin(lo);
       legend.setMax(hi);
       legend.setShowLegend(true);
+      // A legend-only painter never touches the field buffers, so the mode
+      // arbiter would otherwise see a mode that painted nothing and suspend it
+      // again on re-entry instead of putting its legend back.
+      noteOwnerPainted();
       requestRender();
       void fieldId;
     },

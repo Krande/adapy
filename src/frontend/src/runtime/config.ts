@@ -212,6 +212,18 @@ export const runtime = {
     nodeEditorOnly: (): boolean => Boolean(w().NODE_EDITOR_ONLY),
     inJupyter: (): boolean => Boolean(w().Jupyter),
     jupyter: (): any => w().Jupyter,
+
+    // True when this tab was opened as a local file (assembly.show()'s plain
+    // file:// path). Every `file:` document is its own unique browser origin, so
+    // same-origin mechanisms that work over http(s) — window.open()-ing "this
+    // page's URL plus query params" to signal a follower tab, BroadcastChannel
+    // between tabs — cannot work here at all: window.open() is refused outright
+    // ("Unsafe attempt to load URL X from frame with URL X", since the query
+    // string isn't enough to make the target a different origin), and even a
+    // navigation that somehow succeeded would not share a BroadcastChannel with
+    // this tab. Gate any such cross-tab feature on this rather than let it fail
+    // silently or throw a console error the user can't act on.
+    isFileOrigin: (): boolean => typeof window !== "undefined" && window.location.protocol === "file:",
 };
 
 export type Runtime = typeof runtime;

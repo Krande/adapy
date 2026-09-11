@@ -8,11 +8,33 @@ export type {
   ModelStatsCapability,
   ModelStatsResult,
   ModelStatsSource,
+  ProceduralBuildOptions,
+  ProceduralCatalogKind,
+  ProceduralCatalogSyncResult,
+  ProceduralCatalogs,
+  ProceduralCommitResult,
+  ProceduralCompileLog,
+  ProceduralExportFormat,
+  ProceduralExportOptions,
+  ProceduralLod,
+  ProceduralModelCapability,
+  ProceduralModelResult,
+  ProceduralModelSource,
+  ProceduralRelocationResponse,
+  ProceduralResyncResult,
+  ProceduralSyncableCatalogKind,
+  ProceduralXlsxImportRequest,
+  ProceduralXlsxImportResponse,
   StatsExportFormat,
   ViewerCapabilities,
 } from "./types";
-export { RESTCapabilities, RESTModelStatsCapability } from "./rest_capabilities";
-export { WSCapabilities, WSModelStatsCapability } from "./ws_capabilities";
+export { CapabilityUnavailableError, ProceduralCommitConflictError } from "./types";
+export {
+  RESTCapabilities,
+  RESTModelStatsCapability,
+  RESTProceduralModelCapability,
+} from "./rest_capabilities";
+export { WSCapabilities, WSModelStatsCapability, WSProceduralModelCapability } from "./ws_capabilities";
 
 // Singleton capability set, selected the same way and by the same signal as the
 // `comms` transport singleton (`utils/comms/index.ts`): WS for desktop / dev
@@ -40,5 +62,8 @@ export const capabilities: ViewerCapabilities = {
   },
   get stats() {
     return getCapabilities().stats;
+  },
+  get procedural() {
+    return getCapabilities().procedural;
   },
 };

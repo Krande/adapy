@@ -69,7 +69,7 @@ const NodeEditorComponent: React.FC = () => {
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
                         className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
-                        onClick={() => request_list_of_nodes()}
+                        onClick={() => void request_list_of_nodes().catch((err) => console.error("Failed to reload nodes:", err))}
                     >
                         <ReloadIcon />
                     </button>

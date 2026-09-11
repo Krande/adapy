@@ -154,6 +154,9 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
     procedure_parent_obj = None
     if obj.procedure_parent is not None:
         procedure_parent_obj = serialize_procedurestart(builder, obj.procedure_parent)
+    last_modified_str = None
+    if obj.last_modified is not None:
+        last_modified_str = builder.CreateString(str(obj.last_modified))
 
     FileObject.Start(builder)
     if name_str is not None:
@@ -176,6 +179,8 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
         FileObject.AddProcedureParent(builder, procedure_parent_obj)
     if obj.compressed is not None:
         FileObject.AddCompressed(builder, obj.compressed)
+    if last_modified_str is not None:
+        FileObject.AddLastModified(builder, last_modified_str)
     return FileObject.End(builder)
 
 

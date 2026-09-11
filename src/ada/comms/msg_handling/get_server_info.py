@@ -8,6 +8,7 @@ from ada.comms.fb.fb_commands_gen import CommandTypeDC
 from ada.comms.fb.fb_server_gen import ServerProcessInfoDC, ServerReplyDC
 from ada.comms.fb.fb_wsock_gen import MessageDC
 from ada.comms.fb.fb_wsock_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -42,7 +43,8 @@ def get_server_info_func(server: WebSocketAsyncServer, client: ConnectedClient, 
         process_info=process_info,
     )
 
-    reply_message = MessageDC(
+    reply_message = reply_to(
+        message,
         instance_id=message.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
         server_reply=server_reply,
