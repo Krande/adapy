@@ -5,13 +5,14 @@ import {
   companionSourceName,
   topologyCompanions,
   useCompanionModelStore,
+  type CompanionModel,
 } from "@/state/companionModelStore";
 
 // A companion is a procedural model present in the scene but NOT the one being
 // edited. The cellbuilder edits one document — a real constraint — but nothing
 // required the scene to hold only one model.
 
-const model = (id: string, over: Partial<Parameters<typeof useCompanionModelStore.getState>[0]> = {}) => ({
+const model = (id: string, over: Partial<CompanionModel> = {}) => ({
   modelId: id,
   name: `decks/${id}`,
   cells: [],
