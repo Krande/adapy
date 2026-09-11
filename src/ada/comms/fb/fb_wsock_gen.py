@@ -25,3 +25,4 @@ class MessageDC:
     server_reply: Optional[ServerReplyDC] = None
     screenshot: Optional[ScreenshotDC] = None
     package: Optional[AppendMeshDC] = None
+    request_id: str = ""

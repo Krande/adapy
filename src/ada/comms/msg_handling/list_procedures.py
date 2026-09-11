@@ -9,6 +9,7 @@ from ada.comms.fb_wrap_model_gen import (
     ServerReplyDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
+from ada.comms.msg_handling.reply_to import reply_to
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -24,7 +25,8 @@ def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, messa
 
     procedure_store_dc = server.procedure_store.to_procedure_dc()
 
-    reply_message = MessageDC(
+    reply_message = reply_to(
+        message,
         instance_id=server.instance_id,
         command_type=CommandTypeDC.SERVER_REPLY,
         server=ServerDC(all_file_objects=server.scene.file_objects),
