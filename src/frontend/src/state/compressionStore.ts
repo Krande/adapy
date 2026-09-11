@@ -1,5 +1,5 @@
 import {create} from "zustand";
-import {CompressionSweepState} from "@/services/viewerApi";
+import type {CompressionSweepState} from "@/services/viewerApi";
 
 // Mirrors conversionStore in shape — per-key map of in-flight /
 // recently-completed compression sweeps, populated by a polling

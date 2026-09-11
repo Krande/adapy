@@ -1,5 +1,5 @@
 import {create} from "zustand";
-import {TargetFormat} from "@/services/viewerApi";
+import type {TargetFormat} from "@/services/viewerApi";
 
 // Per-row UI state for the dedicated /convert page. Job lifecycle
 // (queued / progress / done / error) lives in `useConversionStore` —
