@@ -41,6 +41,7 @@ job run" is answered.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
 
@@ -142,6 +143,11 @@ class SubmittedJob:
     payload: dict[str, Any]
 
 
+#: Called after a job is durable and BEFORE anything can start running it.
+#: See :meth:`JobTransport.submit`.
+BeforeDispatch = Callable[["SubmittedJob"], Awaitable[None]]
+
+
 @dataclass(frozen=True)
 class JobSnapshot:
     """A job's current state, from whichever transport is running it.
@@ -177,8 +183,23 @@ class JobTransport(Protocol):
     def require(self, feature: TransportFeature) -> None:
         """``supports`` or raise — the one-call gate."""
 
-    async def submit(self, req: JobRequest) -> SubmittedJob:
-        """Run (or enqueue) ``req``. Raises the feature's 503 if unsupported."""
+    async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
+        """Run (or enqueue) ``req``. Raises the feature's 503 if unsupported.
+
+        ``before_dispatch`` is awaited in the window between the job being
+        DURABLE and being VISIBLE to anything that would run it. That window
+        is where a caller writes its audit row: the worker's own audit writes
+        are bare ``UPDATE ... WHERE job_id``, so a job the worker finishes in
+        milliseconds can outrun the API's INSERT and strand the row at
+        ``queued`` for ever (see :meth:`~.queue.JobQueue.publish`).
+
+        A transport with NO dispatch step does not call it, and that is the
+        contract rather than an oversight: the in-process job is already
+        running by the time ``submit`` returns, so there is no window to
+        sequence against -- and nothing in that deployment would move such a
+        row off ``queued`` afterwards either, since the status-report route
+        needs the queue it does not have.
+        """
 
     def inprocess(self, job_id: str) -> JobSnapshot | None:
         """The IN-PROCESS job with this id, if this transport runs any.
@@ -246,10 +267,16 @@ class QueueJobTransport(_BaseTransport):
         job", which is the honest thing to say about those."""
         return self._queue
 
-    async def submit(self, req: JobRequest) -> SubmittedJob:
+    async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
+        # Always the two-phase form. `publish=False` + `publish()` is what
+        # `enqueue(publish=True)` does anyway, so taking the split path
+        # unconditionally costs nothing and leaves exactly one ordering for
+        # every caller instead of one for those that audit and one for the rest.
         job = await self._queue.enqueue(
             req.source_key,
-            req.target_format,
+            # By keyword, not position: `enqueue` accepts it either way, and the
+            # keyword form is what the call sites this replaced used.
+            target_format=req.target_format,
             scope_kind=req.scope.kind,
             scope_id=req.scope.id,
             step=req.step,
@@ -258,8 +285,13 @@ class QueueJobTransport(_BaseTransport):
             derived_key=req.derived_key,
             target_capability=req.target_capability,
             force_rebuild=req.force_rebuild,
+            publish=False,
         )
-        return _submitted_from_job(job)
+        submitted = _submitted_from_job(job)
+        if before_dispatch is not None:
+            await before_dispatch(submitted)
+        await self._queue.publish(job)
+        return submitted
 
     def inprocess(self, job_id: str) -> JobSnapshot | None:
         # Nothing runs in this process behind a queue: `local_jobs` is only
@@ -326,7 +358,8 @@ class LocalJobTransport(_BaseTransport):
     def __init__(self, storage: Storage) -> None:
         self._storage = storage
 
-    async def submit(self, req: JobRequest) -> SubmittedJob:
+    async def submit(self, req: JobRequest, *, before_dispatch: BeforeDispatch | None = None) -> SubmittedJob:
+        # `before_dispatch` is deliberately never called -- see the Protocol.
         if not self.supports(req.feature):
             self.unavailable(req.feature)
         if not req.plugin_id:
