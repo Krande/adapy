@@ -201,6 +201,69 @@ jobs:
           if: steps.scope.outputs.run == 'true'
           run: python3 tools/check_bundle_provenance.py -v
 
+    # The frontend has a unit-test suite (src/frontend/src/__tests__, `npm test`) and a typecheck,
+    # and until this job neither ran on a pull request: the only frontend gate was the bundle
+    # provenance check above, which looks at string literals in the compiled blob and never
+    # executes a line of TypeScript. A PR could break every store and helper test and merge green.
+    #
+    # Same scope gate as bundle-provenance so a docs-only PR skips it but the job always reports
+    # a status and can be marked required.
+    #
+    # node 24, not the 20 the provenance job and deploy/Dockerfile.viewer use: the npm test script
+    # discovers files with glob patterns, which `node --test` only expands from node 21 on. Nothing
+    # here builds the bundle, so the Dockerfile pin is not what has to match.
+    frontend-tests:
+        name: Viewer frontend tests
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            fetch-depth: 0
+
+        - name: Does this PR touch the frontend?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if echo "$CHANGED" | grep -qE '^(src/frontend/|\.github/workflows/pr-tests\.yml$)'; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "src/frontend did not change; nothing to test."
+            fi
+
+        - uses: actions/setup-node@v7
+          if: steps.scope.outputs.run == 'true'
+          with:
+            node-version: '24'
+            cache: npm
+            cache-dependency-path: src/frontend/package-lock.json
+
+        # Unlike the provenance job this does NOT pass --ignore-scripts: the tests load TypeScript
+        # through tsx, which runs on esbuild's native binary, and that is what install scripts put
+        # in place.
+        - name: Install frontend dependencies
+          if: steps.scope.outputs.run == 'true'
+          working-directory: src/frontend
+          run: npm ci --no-audit --no-fund
+
+        - name: Run frontend tests
+          if: steps.scope.outputs.run == 'true'
+          working-directory: src/frontend
+          run: npm test
+
+        # Non-blocking for now: main carries 7 pre-existing `tsc --noEmit` errors (6 in
+        # src/__tests__/state/companionModel.store.test.ts, 1 in src/services/externalModels.ts).
+        # Until those are fixed this step reports but cannot fail the job; drop the
+        # continue-on-error once the count is 0 so it becomes a real gate.
+        - name: Typecheck frontend (non-blocking, 7 pre-existing errors on main)
+          if: steps.scope.outputs.run == 'true'
+          continue-on-error: true
+          working-directory: src/frontend
+          run: npx tsc --noEmit -p tsconfig.json
+
     # Build the conda package the way conda-forge does, from THIS checkout.
     #
     # Everything else in this workflow runs from a checkout, so nothing else can see what the
