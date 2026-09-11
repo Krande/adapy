@@ -8,7 +8,8 @@ import {sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {loadGLTF} from "@/components/viewer/sceneHelpers/asyncModelLoader";
-import {viewerApi, type ScopeUrl} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
+import type {ScopeUrl} from "@/services/viewerApi";
 import {useModelState} from "@/state/modelState";
 
 export interface ColorElement {
@@ -61,7 +62,7 @@ function _applyColorElements(elements: ColorElement[]): void {
 async function _addOverlay(op: ViewerOp, scope: ScopeUrl): Promise<void> {
     if (!sceneRef.current) return;
     // Inline bytes (wasm path) take precedence; otherwise fetch the stored overlay blob.
-    const buf = op.blob ?? (op.blob_key ? await viewerApi.getBlob(scope, op.blob_key) : null);
+    const buf = op.blob ?? (op.blob_key ? await capabilities.files.fetchBlob(scope, op.blob_key) : null);
     if (!buf) return;
     const url = URL.createObjectURL(new Blob([buf], {type: "model/gltf-binary"}));
     try {

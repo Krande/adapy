@@ -6,6 +6,7 @@ import {CommandType} from "@/flatbuffers/commands";
 import {TargetType} from "@/flatbuffers/commands/target-type";
 import {Server} from "@/flatbuffers/server/server";
 import {runtime} from "@/runtime/config";
+import {capabilities} from "@/services/capabilities";
 // NOTE: the conversion service and the conversionStore are imported
 // lazily inside the REST branch below. In WS / desktop mode (the
 // embedded zip shipped with the Python package) they're never
@@ -105,8 +106,10 @@ export async function view_file_object_from_server(fileobject: FileObject) {
     // (presigned-direct when available), lets the browser decompress Content-Encoding: gzip
     // natively (no main-thread pako), and never buffers the whole model server-side.
     // Non-GLB sources are converted server-side first (the derived blob lands at
-    // derivedKeyForGlb(source)).
-    if (runtime.isRestMode()) {
+    // derivedKeyForGlb(source)). The branch is on the verb this path needs -- a
+    // transport that can hand out a streamable URL for a stored key -- rather
+    // than on the transport's name.
+    if (capabilities.files.supports("blobUrl")) {
         const {scopeUrlPart, useScopeStore} = await import("@/state/scopeStore");
         const {derivedKeyForGlb} = await import("./overlay_file_in_scene");
         const scope = scopeUrlPart(useScopeStore.getState().current);

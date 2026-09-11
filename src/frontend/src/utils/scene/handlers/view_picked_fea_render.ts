@@ -1,6 +1,6 @@
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
-import {viewerApi} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {replace_model} from "./update_scene_from_message";
@@ -21,7 +21,9 @@ export async function view_picked_fea_render(
     step: number,
     field: string,
 ): Promise<void> {
-    if (!runtime.isRestMode()) {
+    // The picked-derived GLB is read back by key, so the transport has to serve
+    // blobs that way -- what "REST mode" used to stand in for.
+    if (!capabilities.files.supports("fetchBlob")) {
         throw new Error("FEA result picks are only available in REST mode");
     }
     if (!runtime.convertEnabled()) {
@@ -32,7 +34,7 @@ export async function view_picked_fea_render(
     const scope = scopeUrlPart(useScopeStore.getState().current);
     const derivedKey = await ensureConverted(scope, sourceName, "glb", {step, field});
 
-    const buf = await viewerApi.getBlob(scope, derivedKey);
+    const buf = await capabilities.files.fetchBlob(scope, derivedKey);
     const blob = new Blob([buf], {type: "model/gltf-binary"});
     const url = URL.createObjectURL(blob);
     try {

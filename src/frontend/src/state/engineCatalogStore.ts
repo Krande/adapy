@@ -5,11 +5,11 @@
 import { create } from "zustand";
 
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import {
-  viewerApi,
-  type ProceduralEngineDetail,
-  type ProceduralEngineDoc,
-  type ProceduralEngineSummary,
+import { capabilities } from "@/services/capabilities";
+import type {
+  ProceduralEngineDetail,
+  ProceduralEngineDoc,
+  ProceduralEngineSummary,
 } from "@/services/viewerApi";
 
 function scopePart(): string {
@@ -59,7 +59,7 @@ export const useEngineCatalogStore = create<EngineCatalogState>((set, get) => ({
   refresh: async () => {
     set({ busy: true, error: null });
     try {
-      const engines = await viewerApi.listProceduralEngines(scopePart());
+      const engines = await capabilities.procedural.listCatalog(scopePart(), "engines");
       set({ engines, busy: false });
     } catch (e) {
       set({ error: errMsg(e), busy: false });
@@ -70,7 +70,7 @@ export const useEngineCatalogStore = create<EngineCatalogState>((set, get) => ({
     if (!name.trim()) return;
     set({ busy: true, error: null });
     try {
-      const created = await viewerApi.createProceduralEngine(
+      const created = await capabilities.catalog.createEngine(
         scopePart(),
         name.trim(),
       );
@@ -95,7 +95,7 @@ export const useEngineCatalogStore = create<EngineCatalogState>((set, get) => ({
     }
     set({ busy: true, error: null });
     try {
-      const detail = await viewerApi.getProceduralEngine(scopePart(), id);
+      const detail = await capabilities.catalog.getEngine(scopePart(), id);
       set({ selectedId: id, draft: detail, dirty: false, busy: false });
     } catch (e) {
       set({ error: errMsg(e), busy: false });
@@ -122,7 +122,7 @@ export const useEngineCatalogStore = create<EngineCatalogState>((set, get) => ({
     if (!draft) return;
     set({ busy: true, error: null });
     try {
-      const { revision } = await viewerApi.updateProceduralEngine(
+      const { revision } = await capabilities.catalog.updateEngine(
         scopePart(),
         draft.id,
         { name: draft.name, description: draft.description, doc: draft.doc },
@@ -138,7 +138,7 @@ export const useEngineCatalogStore = create<EngineCatalogState>((set, get) => ({
   remove: async (id) => {
     set({ busy: true, error: null });
     try {
-      await viewerApi.deleteProceduralEngine(scopePart(), id);
+      await capabilities.catalog.deleteEngine(scopePart(), id);
       if (get().selectedId === id)
         set({ selectedId: null, draft: null, dirty: false });
       await get().refresh();

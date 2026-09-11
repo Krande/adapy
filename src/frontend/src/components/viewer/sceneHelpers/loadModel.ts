@@ -15,6 +15,7 @@
 
 import * as THREE from "three";
 
+import {capabilities} from "@/services/capabilities";
 import {useModelState} from "@/state/modelState";
 import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -106,16 +107,16 @@ async function loadStoredBlob(
     metrics: ReturnType<typeof beginLoadMetrics>,
 ): Promise<THREE.Group | undefined> {
     const {scope, glbKey} = source.bytes;
-    const {viewerApi} = await import("@/services/viewerApi");
+    const {files} = capabilities;
     try {
-        const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
+        const presigned = await files.requestDownloadUrl(scope, glbKey);
         metrics?.setTransport("presigned");
         metrics?.setUrl(presigned.url);
         return await loadFrom(source, presigned.url, undefined, metrics);
     } catch (e) {
         if (source.presignFallbackWarning) console.warn(source.presignFallbackWarning, e);
         const {getAccessToken} = await import("@/services/auth/oidc");
-        const url = viewerApi.blobUrl(scope as any, glbKey);
+        const url = files.blobUrl(scope, glbKey);
         const token = getAccessToken();
         metrics?.setTransport("relayed");
         metrics?.setUrl(url);

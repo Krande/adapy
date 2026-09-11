@@ -17,6 +17,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
+import {capabilities} from "@/services/capabilities";
 
 export function derivedKeyForGlb(sourceKey: string): string {
     // Mirrors the server-side derived_key_for(target='glb') convention.
@@ -33,8 +34,9 @@ export async function overlay_file_in_scene(
     explicitDerivedKey?: string,
     opts?: {scope?: string; streamer?: boolean},
 ): Promise<void> {
-    if (!runtime.isRestMode()) {
-        // Overlay path is REST-only — desktop mode opens external apps,
+    if (!capabilities.files.supports("blobUrl")) {
+        // The overlay streams a stored GLB by key, which only a transport
+        // that serves blob URLs can do — desktop mode opens external apps,
         // not a shared 3D scene we can stack into.
         console.warn("overlay_file_in_scene: not in REST mode; ignoring");
         return;

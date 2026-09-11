@@ -18,6 +18,8 @@
     "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
     "build:embed": "vite build --config vite.config.embed.ts",
     "dev": "vite --force",
+    "check:seam": "node scripts/check-capability-seam.mjs",
+    "pretest": "npm run check:seam",
     "test": "node --import tsx --test \"src/__tests__/**/*.test.ts\" \"src/__tests__/**/*.test.tsx\""
   },
   "devDependencies": {

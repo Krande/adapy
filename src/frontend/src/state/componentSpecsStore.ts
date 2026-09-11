@@ -17,7 +17,8 @@
 
 import {create} from "zustand";
 
-import {viewerApi, type ComponentSpecsResponse} from "@/services/viewerApi";
+import {capabilities} from "@/services/capabilities";
+import type {ComponentSpecsResponse} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore, type ScopeOption} from "@/state/scopeStore";
 
 interface ComponentSpecsState {
@@ -51,7 +52,7 @@ export const useComponentSpecsStore = create<ComponentSpecsState>((set) => ({
         }
         set({loading: true, loadError: null});
         try {
-            const res = await viewerApi.componentsSpecs({scope});
+            const res = await capabilities.components.fetchSpecs(scope);
             set({
                 specs: res,
                 hasSpecs: Object.keys(res.specs).length > 0,

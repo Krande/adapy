@@ -39,14 +39,25 @@ import type { Comms } from "@/utils/comms";
 import { ServerReplyError } from "@/utils/comms/wsRequests";
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import type {
+  ComponentSpecsResponse,
   ConvertResponse,
+  EquipmentTypeDetail,
+  EquipmentTypeDoc,
+  EquipmentTypeSummary,
+  FeaManifest,
   ProceduralBlueprintOption,
   ProceduralCompileResponse,
   ProceduralDoc,
+  ProceduralEngineDetail,
+  ProceduralEngineDoc,
   ProceduralEngineResolved,
   ProceduralModelDetail,
   ProceduralRelocationResult,
   ProceduralXlsxDetect,
+  ScopeUrl,
+  SystemTemplateDetail,
+  SystemTemplateDoc,
+  SystemTemplateSummary,
 } from "@/services/viewerApi";
 import {
   CapabilityUnavailableError,
@@ -75,6 +86,28 @@ import {
   type ProceduralXlsxImportResponse,
   type StatsExportFormat,
   type ViewerCapabilities,
+  // ---- seams 3 ----
+  type CatalogCapability,
+  type CatalogEntryFields,
+  type CatalogJobHandle,
+  type CatalogRevision,
+  type CatalogVerb,
+  type ComponentsCapability,
+  type ComponentsVerb,
+  type ConversionCapability,
+  type ConversionVerb,
+  type FeaCapability,
+  type FeaManifestOptions,
+  type FeaVerb,
+  type FilesCapability,
+  type FilesVerb,
+  type MetricsCapability,
+  type MetricsVerb,
+  type PresignedDownload,
+  type PresignedUpload,
+  type RenderProfileRecord,
+  type UploadProgressHandler,
+  type ViewLoadRecord,
 } from "./types";
 
 // Mirrors `CONFLICT_ERROR_CODE` in `ada.comms.msg_handling.save_procedural_model` -- the wire
@@ -381,8 +414,230 @@ export class WSProceduralModelCapability implements ProceduralModelCapability {
   }
 }
 
+// =============================================================================
+// Store- and scene-layer capabilities (seams 3).
+//
+// None of these verbs has a websocket implementation yet. The wire protocol
+// (`CommandType`) can list the server's files and push one whole file into the
+// scene (LIST_FILE_OBJECTS / VIEW_FILE_OBJECT); it cannot serve a blob by key,
+// bake an FEA manifest, poll a job, edit a catalog or take a telemetry record.
+// So every `supports()` below is false and every verb refuses with
+// `CapabilityUnavailableError` -- the same typed refusal the procedural verbs
+// give, for the same reason. The scene handlers that used to branch on
+// `runtime.isRestMode()` now ask `supports()` and keep their websocket-side
+// behaviour (the VIEW_FILE_OBJECT flow) in the other branch. A verb landing
+// here means adding it to the class's `SUPPORTED_VERBS` and sending it through
+// `Comms.request()` exactly as `commitModel` does above.
+// =============================================================================
+
+function refuse(verb: string): never {
+  throw new CapabilityUnavailableError(verb, "ws");
+}
+
+export class WSFilesCapability implements FilesCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<FilesVerb> = new Set<FilesVerb>();
+
+  supports(verb: FilesVerb): boolean {
+    return WSFilesCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async fetchBlob(_scope: ScopeUrl, _key: string): Promise<ArrayBuffer> {
+    return refuse("fetchBlob");
+  }
+
+  blobUrl(_scope: ScopeUrl, _key: string): string {
+    return refuse("blobUrl");
+  }
+
+  async requestDownloadUrl(_scope: ScopeUrl, _key: string): Promise<PresignedDownload> {
+    return refuse("requestDownloadUrl");
+  }
+
+  async requestUploadUrl(_scope: ScopeUrl, _key: string, _size?: number): Promise<PresignedUpload> {
+    return refuse("requestUploadUrl");
+  }
+
+  async reportUploadProgress(_scope: ScopeUrl, _key: string, _loaded: number, _total: number): Promise<void> {
+    return refuse("reportUploadProgress");
+  }
+
+  async completeUpload(_scope: ScopeUrl, _key: string): Promise<{ key: string; size: number }> {
+    return refuse("completeUpload");
+  }
+
+  async putBlob(
+    _scope: ScopeUrl,
+    _key: string,
+    _body: BodyInit,
+    _opts?: { onProgress?: UploadProgressHandler },
+  ): Promise<void> {
+    return refuse("putBlob");
+  }
+}
+
+export class WSFeaCapability implements FeaCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<FeaVerb> = new Set<FeaVerb>();
+
+  supports(verb: FeaVerb): boolean {
+    return WSFeaCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async fetchManifest(_scope: ScopeUrl, _sourceKey: string, _opts?: FeaManifestOptions): Promise<FeaManifest> {
+    return refuse("fetchManifest");
+  }
+}
+
+export class WSConversionCapability implements ConversionCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<ConversionVerb> = new Set<ConversionVerb>();
+
+  supports(verb: ConversionVerb): boolean {
+    return WSConversionCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async jobStatus(_jobId: string): Promise<ConvertResponse> {
+    return refuse("jobStatus");
+  }
+}
+
+export class WSCatalogCapability implements CatalogCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<CatalogVerb> = new Set<CatalogVerb>();
+
+  supports(verb: CatalogVerb): boolean {
+    return WSCatalogCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async listEquipmentTypes(_scope: ScopeUrl): Promise<EquipmentTypeSummary[]> {
+    return refuse("listEquipmentTypes");
+  }
+
+  async createEquipmentType(_scope: ScopeUrl, _name: string): Promise<EquipmentTypeDetail> {
+    return refuse("createEquipmentType");
+  }
+
+  async getEquipmentType(_scope: ScopeUrl, _typeId: string): Promise<EquipmentTypeDetail> {
+    return refuse("getEquipmentType");
+  }
+
+  async updateEquipmentType(
+    _scope: ScopeUrl,
+    _typeId: string,
+    _fields: CatalogEntryFields<EquipmentTypeDoc>,
+    _baseRevision: number,
+  ): Promise<CatalogRevision> {
+    return refuse("updateEquipmentType");
+  }
+
+  async deleteEquipmentType(_scope: ScopeUrl, _typeId: string): Promise<void> {
+    return refuse("deleteEquipmentType");
+  }
+
+  async uploadEquipmentCad(
+    _scope: ScopeUrl,
+    _typeId: string,
+    _filename: string,
+    _data: Blob | ArrayBuffer,
+  ): Promise<{ cad_key: string }> {
+    return refuse("uploadEquipmentCad");
+  }
+
+  async copyEquipmentCadFromScope(_scope: ScopeUrl, _typeId: string, _sourceKey: string): Promise<{ cad_key: string }> {
+    return refuse("copyEquipmentCadFromScope");
+  }
+
+  async inferEquipmentBbox(_scope: ScopeUrl, _typeId: string): Promise<CatalogJobHandle> {
+    return refuse("inferEquipmentBbox");
+  }
+
+  async listSystemTemplates(_scope: ScopeUrl): Promise<SystemTemplateSummary[]> {
+    return refuse("listSystemTemplates");
+  }
+
+  async createSystemTemplate(_scope: ScopeUrl, _name: string): Promise<SystemTemplateDetail> {
+    return refuse("createSystemTemplate");
+  }
+
+  async getSystemTemplate(_scope: ScopeUrl, _templateId: string): Promise<SystemTemplateDetail> {
+    return refuse("getSystemTemplate");
+  }
+
+  async updateSystemTemplate(
+    _scope: ScopeUrl,
+    _templateId: string,
+    _fields: CatalogEntryFields<SystemTemplateDoc>,
+    _baseRevision: number,
+  ): Promise<CatalogRevision> {
+    return refuse("updateSystemTemplate");
+  }
+
+  async deleteSystemTemplate(_scope: ScopeUrl, _templateId: string): Promise<void> {
+    return refuse("deleteSystemTemplate");
+  }
+
+  async createEngine(_scope: ScopeUrl, _name: string): Promise<ProceduralEngineDetail> {
+    return refuse("createEngine");
+  }
+
+  async getEngine(_scope: ScopeUrl, _engineId: string): Promise<ProceduralEngineDetail> {
+    return refuse("getEngine");
+  }
+
+  async updateEngine(
+    _scope: ScopeUrl,
+    _engineId: string,
+    _fields: CatalogEntryFields<ProceduralEngineDoc>,
+    _baseRevision: number,
+  ): Promise<CatalogRevision> {
+    return refuse("updateEngine");
+  }
+
+  async deleteEngine(_scope: ScopeUrl, _engineId: string): Promise<void> {
+    return refuse("deleteEngine");
+  }
+}
+
+export class WSComponentsCapability implements ComponentsCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<ComponentsVerb> = new Set<ComponentsVerb>();
+
+  supports(verb: ComponentsVerb): boolean {
+    return WSComponentsCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async fetchSpecs(_scope: ScopeUrl): Promise<ComponentSpecsResponse> {
+    return refuse("fetchSpecs");
+  }
+}
+
+export class WSMetricsCapability implements MetricsCapability {
+  readonly transport: CapabilityTransport = "ws";
+  private static readonly SUPPORTED_VERBS: ReadonlySet<MetricsVerb> = new Set<MetricsVerb>();
+
+  supports(verb: MetricsVerb): boolean {
+    return WSMetricsCapability.SUPPORTED_VERBS.has(verb);
+  }
+
+  async recordViewLoad(_scope: ScopeUrl, _record: ViewLoadRecord): Promise<void> {
+    return refuse("recordViewLoad");
+  }
+
+  async recordRenderProfile(_scope: ScopeUrl, _record: RenderProfileRecord): Promise<void> {
+    return refuse("recordRenderProfile");
+  }
+}
+
 export class WSCapabilities implements ViewerCapabilities {
   readonly transport: CapabilityTransport = "ws";
   readonly stats: ModelStatsCapability = new WSModelStatsCapability();
   readonly procedural: ProceduralModelCapability = new WSProceduralModelCapability();
+  // ---- seams 3 ----
+  readonly files: FilesCapability = new WSFilesCapability();
+  readonly fea: FeaCapability = new WSFeaCapability();
+  readonly conversion: ConversionCapability = new WSConversionCapability();
+  readonly catalog: CatalogCapability = new WSCatalogCapability();
+  readonly components: ComponentsCapability = new WSComponentsCapability();
+  readonly metrics: MetricsCapability = new WSMetricsCapability();
 }
