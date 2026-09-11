@@ -7,6 +7,8 @@ import * as flatbuffers from 'flatbuffers';
 import { Error, ErrorT } from '../base/error.js';
 import { FileObject, FileObjectT } from '../base/file-object.js';
 import { CommandType } from '../commands/command-type.js';
+import { ProceduralModelListReply, ProceduralModelListReplyT } from '../server/procedural-model-list-reply.js';
+import { ProceduralModelLoadReply, ProceduralModelLoadReplyT } from '../server/procedural-model-load-reply.js';
 import { ProceduralModelSaveReply, ProceduralModelSaveReplyT } from '../server/procedural-model-save-reply.js';
 import { ServerProcessInfo, ServerProcessInfoT } from '../server/server-process-info.js';
 
@@ -66,8 +68,18 @@ saveProceduralModel(obj?:ProceduralModelSaveReply):ProceduralModelSaveReply|null
   return offset ? (obj || new ProceduralModelSaveReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+listProceduralModels(obj?:ProceduralModelListReply):ProceduralModelListReply|null {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? (obj || new ProceduralModelListReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+loadProceduralModel(obj?:ProceduralModelLoadReply):ProceduralModelLoadReply|null {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? (obj || new ProceduralModelLoadReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServerReply(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(8);
 }
 
 static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset) {
@@ -106,6 +118,14 @@ static addSaveProceduralModel(builder:flatbuffers.Builder, saveProceduralModelOf
   builder.addFieldOffset(5, saveProceduralModelOffset, 0);
 }
 
+static addListProceduralModels(builder:flatbuffers.Builder, listProceduralModelsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, listProceduralModelsOffset, 0);
+}
+
+static addLoadProceduralModel(builder:flatbuffers.Builder, loadProceduralModelOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(7, loadProceduralModelOffset, 0);
+}
+
 static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -119,7 +139,9 @@ unpack(): ServerReplyT {
     this.replyTo(),
     (this.error() !== null ? this.error()!.unpack() : null),
     (this.processInfo() !== null ? this.processInfo()!.unpack() : null),
-    (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null)
+    (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null),
+    (this.listProceduralModels() !== null ? this.listProceduralModels()!.unpack() : null),
+    (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null)
   );
 }
 
@@ -131,6 +153,8 @@ unpackTo(_o: ServerReplyT): void {
   _o.error = (this.error() !== null ? this.error()!.unpack() : null);
   _o.processInfo = (this.processInfo() !== null ? this.processInfo()!.unpack() : null);
   _o.saveProceduralModel = (this.saveProceduralModel() !== null ? this.saveProceduralModel()!.unpack() : null);
+  _o.listProceduralModels = (this.listProceduralModels() !== null ? this.listProceduralModels()!.unpack() : null);
+  _o.loadProceduralModel = (this.loadProceduralModel() !== null ? this.loadProceduralModel()!.unpack() : null);
 }
 }
 
@@ -141,7 +165,9 @@ constructor(
   public replyTo: CommandType = CommandType.PING,
   public error: ErrorT|null = null,
   public processInfo: ServerProcessInfoT|null = null,
-  public saveProceduralModel: ProceduralModelSaveReplyT|null = null
+  public saveProceduralModel: ProceduralModelSaveReplyT|null = null,
+  public listProceduralModels: ProceduralModelListReplyT|null = null,
+  public loadProceduralModel: ProceduralModelLoadReplyT|null = null
 ){}
 
 
@@ -151,6 +177,8 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const error = (this.error !== null ? this.error!.pack(builder) : 0);
   const processInfo = (this.processInfo !== null ? this.processInfo!.pack(builder) : 0);
   const saveProceduralModel = (this.saveProceduralModel !== null ? this.saveProceduralModel!.pack(builder) : 0);
+  const listProceduralModels = (this.listProceduralModels !== null ? this.listProceduralModels!.pack(builder) : 0);
+  const loadProceduralModel = (this.loadProceduralModel !== null ? this.loadProceduralModel!.pack(builder) : 0);
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
@@ -159,6 +187,8 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   ServerReply.addError(builder, error);
   ServerReply.addProcessInfo(builder, processInfo);
   ServerReply.addSaveProceduralModel(builder, saveProceduralModel);
+  ServerReply.addListProceduralModels(builder, listProceduralModels);
+  ServerReply.addLoadProceduralModel(builder, loadProceduralModel);
 
   return ServerReply.endServerReply(builder);
 }

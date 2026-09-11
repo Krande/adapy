@@ -29,6 +29,31 @@ class ProceduralModelSaveReplyDC:
 
 
 @dataclass
+class ProceduralModelListEntryDC:
+    model_id: str = ""
+    content_hash: str = ""
+    modified_at: int = None
+    size_bytes: int = None
+
+
+@dataclass
+class ProceduralModelListReplyDC:
+    entries: Optional[List[ProceduralModelListEntryDC]] = None
+
+
+@dataclass
+class ProceduralModelLoadDC:
+    model_id: str = ""
+
+
+@dataclass
+class ProceduralModelLoadReplyDC:
+    model_id: str = ""
+    doc_json: str = ""
+    content_hash: str = ""
+
+
+@dataclass
 class ServerReplyDC:
     message: str = ""
     file_objects: Optional[List[FileObjectDC]] = None
@@ -36,6 +61,8 @@ class ServerReplyDC:
     error: Optional[ErrorDC] = None
     process_info: Optional[ServerProcessInfoDC] = None
     save_procedural_model: Optional[ProceduralModelSaveReplyDC] = None
+    list_procedural_models: Optional[ProceduralModelListReplyDC] = None
+    load_procedural_model: Optional[ProceduralModelLoadReplyDC] = None
 
 
 @dataclass
@@ -47,3 +74,4 @@ class ServerDC:
     delete_file_object: Optional[FileObjectDC] = None
     start_file_in_local_app: Optional[FileObjectDC] = None
     save_procedural_model: Optional[ProceduralModelSaveDC] = None
+    load_procedural_model: Optional[ProceduralModelLoadDC] = None

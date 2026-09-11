@@ -115,9 +115,21 @@ class Server(object):
             return obj
         return None
 
+    # Server
+    def LoadProceduralModel(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ProceduralModelLoad import ProceduralModelLoad
+
+            obj = ProceduralModelLoad()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerStart(builder):
-    builder.StartObject(7)
+    builder.StartObject(8)
 
 
 def Start(builder):
@@ -186,6 +198,14 @@ def ServerAddSaveProceduralModel(builder, saveProceduralModel):
 
 def AddSaveProceduralModel(builder, saveProceduralModel):
     ServerAddSaveProceduralModel(builder, saveProceduralModel)
+
+
+def ServerAddLoadProceduralModel(builder, loadProceduralModel):
+    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(loadProceduralModel), 0)
+
+
+def AddLoadProceduralModel(builder, loadProceduralModel):
+    ServerAddLoadProceduralModel(builder, loadProceduralModel)
 
 
 def ServerEnd(builder):

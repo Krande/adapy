@@ -24,6 +24,8 @@ class CommandTypeDC(Enum):
     GET_SERVER_INFO = 18
     SHUTDOWN_SERVER = 19
     SAVE_PROCEDURAL_MODEL = 20
+    LIST_PROCEDURAL_MODELS = 21
+    LOAD_PROCEDURAL_MODEL = 22
 
 
 class TargetTypeDC(Enum):

@@ -25,6 +25,12 @@ enum CommandType : byte {
   // generic SERVER_REPLY (server_reply.reply_to == SAVE_PROCEDURAL_MODEL),
   // same convention as every other verb here.
   SAVE_PROCEDURAL_MODEL = 20,
+  // Step 6: the local-disk model browser. LIST_PROCEDURAL_MODELS enumerates
+  // what SAVE_PROCEDURAL_MODEL has written under the model directory;
+  // LOAD_PROCEDURAL_MODEL reads one of them back by model_id. Both reply
+  // over the generic SERVER_REPLY, same convention as SAVE_PROCEDURAL_MODEL.
+  LIST_PROCEDURAL_MODELS = 21,
+  LOAD_PROCEDURAL_MODEL = 22,
 }
 
 enum TargetType : byte {

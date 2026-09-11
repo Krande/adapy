@@ -26,6 +26,10 @@ from ada.comms.fb.fb_scene_gen import (
     ScreenshotDC,
 )
 from ada.comms.fb.fb_server_gen import (
+    ProceduralModelListEntryDC,
+    ProceduralModelListReplyDC,
+    ProceduralModelLoadDC,
+    ProceduralModelLoadReplyDC,
     ProceduralModelSaveDC,
     ProceduralModelSaveReplyDC,
     ServerDC,
@@ -65,4 +69,8 @@ __all__ = [
     "ServerProcessInfoDC",
     "ProceduralModelSaveDC",
     "ProceduralModelSaveReplyDC",
+    "ProceduralModelListEntryDC",
+    "ProceduralModelListReplyDC",
+    "ProceduralModelLoadDC",
+    "ProceduralModelLoadReplyDC",
 ]
