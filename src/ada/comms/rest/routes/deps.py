@@ -8,6 +8,7 @@ closure (the queue) is an explicit parameter instead.
 from __future__ import annotations
 
 import json
+import pathlib
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -19,6 +20,8 @@ from .. import db as db_module
 from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
+from ..converter import is_supported_source
+from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
 from ..scope import Scope
 from ..scope import can_access as scope_can_access
@@ -34,6 +37,12 @@ class RestContext:
     settings: Settings
     storage: Storage
     queue: JobQueue
+    worker_registry: dict
+    #: In-process cache of the storage-compression sweep state, keyed by
+    #: scope label — see routes/admin_storage.py. The durable copy lives in
+    #: NATS KV (queue.set/get_compress_sweep_state); this dict just saves a
+    #: BackgroundTask from re-reading KV between its own mutations.
+    compression_state: dict
 
     async def audit(
         self,
@@ -74,12 +83,81 @@ def rest_context(request: Request) -> RestContext:
     return request.app.state.rest
 
 
+#: The app_settings row that mirrors into the NATS KV key of the same
+#: name (``CAPABILITY_REQUIREMENTS_KEY``) via ``publish_capability_requirements``
+#: — Postgres is the admin-editable source, KV is what a worker without a
+#: database connection actually reads.
+CAPABILITY_REQUIREMENTS_SETTING = "capability_requirements"
+
 # Hard cap on the regular API-buffered upload path. Above this we make
 # the client request a presigned URL and PUT directly at the object
 # store, so the API process never sees the bytes. 200 MB is high enough
 # for typical IFC/Genie XML/STEP work and low enough that buffering it
 # in Python doesn't blow the worker's RAM budget.
 DIRECT_UPLOAD_THRESHOLD_BYTES: int = 200 * 1024 * 1024
+
+#: How long a presigned upload URL is valid, and — via pending_uploads — how
+#: long an unfinished upload blocks a job against its key before the entry is
+#: reaped. One literal rather than two so the two can't drift apart: a mint
+#: that outlives the block on it would let a job dispatch against a key the
+#: browser is still (validly) PUTting to.
+UPLOAD_URL_TTL_SECONDS = 3600
+
+# Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
+# formats already pack their geometry tightly so we skip them. The
+# storage layer transparently decompresses on read; the download
+# endpoint forwards Content-Encoding: gzip so browsers handle it on
+# the user's machine. ada.from_<format> in the worker sees the original
+# bytes via Storage.get_bytes.
+GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"}
+    # .sin is already binary (Norsam direct-access) so gzip rarely
+    # helps and the slim API container's allowlist gates uploads
+    # separately via FEA_ARTEFACT_SOURCE_EXTS — see converter.py.
+)
+
+
+def content_encoding_for(key: str) -> str | None:
+    return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in GZIP_UPLOAD_EXTS else None
+
+
+async def parse_move_body(request: Request) -> tuple[list[str], str]:
+    """Validate the ``{"keys": [...], "folder": "..."}`` move payload."""
+    body = await request.json()
+    raw_keys = body.get("keys")
+    folder_raw = body.get("folder")
+
+    if not isinstance(raw_keys, list) or not raw_keys:
+        raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+    if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+        raise HTTPException(status_code=400, detail="every key must be a non-empty string")
+    if not isinstance(folder_raw, str) or not folder_raw.strip():
+        raise HTTPException(status_code=400, detail="folder required")
+    folder = folder_raw.strip().strip("/")
+    if not folder:
+        raise HTTPException(status_code=400, detail="folder required")
+    return raw_keys, folder
+
+
+async def parse_rename_body(request: Request) -> tuple[str, str]:
+    """Validate the ``{"old_key": str, "new_key": str}`` rename payload."""
+    body = await request.json()
+    old_raw = body.get("old_key")
+    new_raw = body.get("new_key")
+
+    if not isinstance(old_raw, str) or not old_raw.strip():
+        raise HTTPException(status_code=400, detail="old_key required")
+    if not isinstance(new_raw, str) or not new_raw.strip():
+        raise HTTPException(status_code=400, detail="new_key required")
+    old_key = old_raw.strip().lstrip("/")
+    new_key = new_raw.strip().lstrip("/")
+    if not old_key or not new_key:
+        raise HTTPException(status_code=400, detail="old_key and new_key required")
+    if new_key.endswith("/"):
+        raise HTTPException(status_code=400, detail="new_key must not end with /")
+    if new_key == old_key:
+        raise HTTPException(status_code=400, detail="new_key matches old_key")
+    return old_key, new_key
 
 
 async def audit_event(
@@ -408,6 +486,158 @@ async def live_worker_specs(queue: JobQueue, field: str, fallback_field: str | N
                     if isinstance(slug, str) and slug and slug not in out:
                         out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
     return out
+
+
+async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list[str]:
+    """Union of source-file extensions advertised by every
+    currently-registered worker via its registry entry's
+    ``source_exts`` field.
+
+    adapy itself doesn't know what extensions any particular
+    worker brings — the worker introspects its own
+    stream-reader registry at startup (whatever plug-ins ran
+    before ``ada.comms.rest.worker`` connected) and publishes the
+    resulting suffix set. ``/api/config`` then merges every
+    online worker's list so the upload picker can include them
+    without anything outside the plug-in repeating the list.
+    Workers that fall off the heartbeat (online=false) still
+    contribute briefly; the goal is to keep the picker stable
+    across pod restarts, not to gate on liveness.
+
+    Returns a sorted, lowercased list with a leading dot on each
+    entry — ready to feed into the existing extension-check call
+    sites without further normalisation.
+
+    ``worker_registry`` is the app's cached snapshot (``create_app``'s
+    ``_worker_registry``, refreshed off the request path) — a plain
+    dict rather than a queue method, since reading it must not wait
+    on NATS.
+    """
+    if not queue.enabled:
+        return []
+    workers = worker_registry["workers"]
+    out: set[str] = set()
+    for w in workers:
+        for raw in w.get("source_exts") or []:
+            if not isinstance(raw, str):
+                continue
+            ext = raw.strip().lower()
+            if not ext:
+                continue
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            out.add(ext)
+    return sorted(out)
+
+
+async def publish_capability_requirements(queue: JobQueue, value: str | None) -> None:
+    """Mirror the requirement document into the NATS KV meta keyspace.
+
+    Workers read it from there, not from Postgres — deliberately. The worker
+    this gate exists for is the one least likely to have a database
+    connection: an off-cluster machine has no reason to be given one, and
+    making qualification depend on Postgres would leave exactly that worker
+    ungated. KV is already how it learns everything else about the
+    deployment.
+
+    Best-effort. Failing to publish must not fail the admin's write: the
+    setting is stored either way, and the next successful publish (or a
+    restart) reconciles. Workers that cannot read it fail OPEN, so the
+    blast radius of this not landing is "the gate is not yet enforced",
+    never "the fleet stopped".
+    """
+    if not queue.enabled:
+        return
+    try:
+        await queue.set_meta(CAPABILITY_REQUIREMENTS_KEY, value or "")
+    except Exception:
+        logger.exception("could not publish capability requirements to the job queue")
+
+
+async def is_accepted_source(queue: JobQueue, worker_registry: dict, key: str) -> bool:
+    """``is_supported_source`` plus a check against the workers'
+    advertised extra extensions. Use this on every upload / bake
+    endpoint that needs to gate "is this file something we can
+    actually process" — the static check alone misses extensions
+    contributed by capability workers."""
+    if is_supported_source(key):
+        return True
+    ext = pathlib.PurePosixPath(key).suffix.lower()
+    return ext in await worker_advertised_exts(queue, worker_registry)
+
+
+# Human-readable label for a source's detected format, keyed on extension —
+# shared by the user-facing files listing (routes/storage.py) and the admin
+# storage view (still in create_app's closure).
+SOURCE_FORMAT_NAMES: dict[str, str] = {
+    ".ifc": "IFC",
+    ".step": "STEP",
+    ".stp": "STEP",
+    ".stl": "STL",
+    ".obj": "OBJ",
+    ".ply": "PLY",
+    ".dae": "Collada",
+    ".off": "OFF",
+    ".gltf": "glTF",
+    ".glb": "glTF (binary)",
+    ".xml": "Genie XML",
+    ".gnx": "Genie workspace",
+    ".inp": "Abaqus input",
+    ".fem": "Sesam FEM",
+    ".sat": "ACIS",
+    ".acis": "ACIS",
+    ".zip": "Bundle (zip)",
+    ".sif": "Sesam Result (sif)",
+    ".sin": "Sesam Result (sin, Norsam binary)",
+}
+
+
+def format_label(key: str) -> str:
+    ext = pathlib.PurePosixPath(key).suffix.lower()
+    return SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
+
+
+class SystemUser:
+    """Synthetic ``User`` stand-in used by the scheduler ticks + cron-fired
+    runs. ``parse_scope`` only reads ``.sub`` (and only on ``user:me``, which
+    a scheduled run wouldn't sensibly use), but we still give it a
+    recognisable identifier so audit rows say ``created_by=system`` rather
+    than ``None``."""
+
+    sub = "system"
+    is_admin = True
+
+
+def validate_cron(cron_expr: str) -> str:
+    """Parse-and-normalise a 5-field cron expression. Returns the
+    cleaned form on success; raises HTTPException(400) on a
+    malformed input so the REST handler can surface a useful
+    message instead of a 500."""
+    from croniter import CroniterBadCronError, croniter  # type: ignore
+
+    cleaned = cron_expr.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="cron_expr is required")
+    try:
+        croniter(cleaned)
+    except (CroniterBadCronError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid cron expression: {exc}",
+        ) from exc
+    return cleaned
+
+
+def next_fire(cron_expr: str, *, after=None):
+    """Compute the next firing instant from ``after`` (defaults to
+    now). Returns a timezone-aware UTC datetime — Postgres
+    ``TIMESTAMPTZ`` round-trips it without conversion surprises."""
+    import datetime as _datetime
+
+    from croniter import croniter  # type: ignore
+
+    base = after or _datetime.datetime.now(_datetime.timezone.utc)
+    return croniter(cron_expr, base).get_next(_datetime.datetime)
 
 
 async def advertised_engine_capability(queue: JobQueue, slug: str | None) -> str | None:
