@@ -1,27 +1,11 @@
 import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi, WorkerEntry, WorkerPackage} from "@/services/viewerApi";
 import {isMissingManifest, MISSING_MANIFEST_NOTE} from "./workerPackages";
+import {formatDuration, formatRelativeTime} from "@/utils/format";
 
 // Per-worker detail modal opened from the info button in WorkersTab. Everything shown here is
 // already in hand (the registration entry the row was built from) except the conda package
 // manifest, which is lazy-fetched by image tag via the same endpoint the audit log uses.
-
-function fmtDuration(seconds: number): string {
-    if (seconds < 0) return "—";
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-    if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
-    return `${Math.round(seconds / 86400)}d`;
-}
-
-function fmtRelative(epoch: number, nowEpoch: number): string {
-    const dt = nowEpoch - epoch;
-    if (dt < 0) return "in the future";
-    if (dt < 60) return `${Math.round(dt)}s ago`;
-    if (dt < 3600) return `${Math.round(dt / 60)}m ago`;
-    if (dt < 86400) return `${Math.round(dt / 3600)}h ago`;
-    return `${Math.round(dt / 86400)}d ago`;
-}
 
 function fmtClock(epoch: number): string {
     try {
@@ -170,10 +154,10 @@ const WorkerInfoModal: React.FC<{worker: WorkerEntry; now: number; onClose: () =
                             </Row>
                             <Row label="Commit">{sha || <span className="text-gray-500 italic">—</span>}</Row>
                             <Row label="Started">
-                                {fmtClock(w.started_at)} · up {fmtDuration(now - w.started_at)}
+                                {fmtClock(w.started_at)} · up {formatDuration(now - w.started_at, {negative: "—"})}
                             </Row>
                             <Row label="Heartbeat">
-                                {fmtClock(w.last_heartbeat)} · {fmtRelative(w.last_heartbeat, now)}
+                                {fmtClock(w.last_heartbeat)} · {formatRelativeTime(w.last_heartbeat, now)}
                             </Row>
                         </dl>
                     </Section>

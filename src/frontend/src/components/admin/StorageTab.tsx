@@ -15,6 +15,7 @@ import {
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
+import {formatBytes as formatBytesBase} from "@/utils/format";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -1396,13 +1397,7 @@ function fmtIsoLocal(ts: string | null | undefined): string {
     return d.toLocaleString("sv-SE");
 }
 
-function formatBytes(n: number): string {
-    if (!n) return "—";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
+const formatBytes = (n: number) => formatBytesBase(n, {emptyOnZero: true});
 
 function suggestedName(sourceKey: string, target: string): string {
     const base = sourceKey.replace(/\.[^./]+$/, "");

@@ -8,6 +8,7 @@ import {
     PerfThresholdsResp,
     viewerApi,
 } from "@/services/viewerApi";
+import {formatBytes, formatMillis} from "@/utils/format";
 
 // The Performance tab's "Workers" sub-tab — cross-conversion performance
 // (M6 of the admin audit-panel design notes).
@@ -39,22 +40,8 @@ const TIME_WINDOWS: {label: string; days: number}[] = [
     {label: "Last 90 days", days: 90},
 ];
 
-function fmtBytes(n: number | null): string {
-    if (n == null) return "—";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
 function fmtKB(n: number | null): string {
-    return n == null ? "—" : fmtBytes(n * 1024);
-}
-
-function fmtMs(n: number | null): string {
-    if (n == null) return "—";
-    if (n < 1000) return `${n} ms`;
-    return `${(n / 1000).toFixed(1)} s`;
+    return n == null ? "—" : formatBytes(n * 1024);
 }
 
 function fmtPct(n: number | null | undefined): string {
@@ -571,8 +558,8 @@ const WorkerPerformanceTab: React.FC = () => {
                                             }>
                                                 {fmtPct(c.failure_rate)}
                                             </td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p50)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{formatMillis(c.duration_ms_p50)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{formatMillis(c.duration_ms_p95)}</td>
                                             <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_kb_p95)}</td>
                                             <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_max_kb)}</td>
                                             <td className="px-2 py-1 text-right text-gray-300">{fmtRatio(c.peak_rss_per_source_mb_p95)}</td>
@@ -588,8 +575,8 @@ const WorkerPerformanceTab: React.FC = () => {
                                             }>
                                                 {fmtPct(c.cpu_fraction)}
                                             </td>
-                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.read_bytes_avg)}</td>
-                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.write_bytes_p50)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-500">{formatBytes(c.read_bytes_avg)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-500">{formatBytes(c.write_bytes_p50)}</td>
                                             <td className="px-2 py-1">
                                                 <FlagsBadges cell={c} reasons={report.signal_reasons}/>
                                             </td>
