@@ -28,7 +28,6 @@ from ..auth import User
 from .deps import (
     RestContext,
     SystemUser,
-    live_worker_specs,
     next_fire,
     parse_scope,
     require_pool,
@@ -325,7 +324,7 @@ async def plugin_schedule_fire(ctx: RestContext, pool, schedule_row: dict, *, fi
     capability = (schedule_row.get("capability") or "").strip() or None
     plugin_spec = None
     if capability is None:
-        for _spec in (await live_worker_specs(queue, "plugin_specs")).values():
+        for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
             if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
                 plugin_spec = _spec
                 break

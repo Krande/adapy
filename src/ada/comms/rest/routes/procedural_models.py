@@ -26,6 +26,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..job_transport import JobTransport
 from ..procedural import (
     procedural_build_job_key,
     procedural_detail_job_key,
@@ -42,7 +43,6 @@ from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
     advertised_engine_capability,
-    live_worker_specs,
     require_catalog_pool,
     rest_context,
     scope_from_path,
@@ -135,7 +135,7 @@ async def api_procedural_templates(
     document the engine expands at compile time). No DB rows are involved."""
     # Union across live workers, keyed by slug (last writer wins). Scope is
     # only an access gate here — the templates themselves are worker-global.
-    specs = await live_worker_specs(ctx.queue, "procedural_template_specs")
+    specs = await ctx.jobs.advertised_specs("procedural_template_specs")
     templates = [
         {
             "id": slug,
@@ -227,7 +227,7 @@ async def api_procedural_equipment_sync(
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
         raise HTTPException(status_code=400, detail="slug (str) is required")
-    spec = (await live_worker_specs(ctx.queue, "procedural_equipment_specs")).get(slug)
+    spec = (await ctx.jobs.advertised_specs("procedural_equipment_specs")).get(slug)
     if spec is None or not isinstance(spec.get("doc"), dict):
         raise HTTPException(status_code=404, detail=f"no code equipment archetype {slug!r} advertised by a live worker")
     try:
@@ -283,7 +283,7 @@ async def api_procedural_equipment_resync(
     )
 
     pool = require_catalog_pool(request)
-    specs = await live_worker_specs(ctx.queue, "procedural_equipment_specs")
+    specs = await ctx.jobs.advertised_specs("procedural_equipment_specs")
     if not specs:
         raise HTTPException(status_code=503, detail="no live worker advertising equipment archetypes")
     existing = {
@@ -378,7 +378,7 @@ async def api_procedural_system_sync(
     if not isinstance(slug, str) or not slug:
         raise HTTPException(status_code=400, detail="slug (str) is required")
     specs = {s["slug"]: s for s in builtin_system_specs()}
-    specs.update(await live_worker_specs(ctx.queue, "procedural_system_specs"))
+    specs.update(await ctx.jobs.advertised_specs("procedural_system_specs"))
     spec = specs.get(slug)
     if spec is None or not isinstance(spec.get("doc"), dict):
         raise HTTPException(status_code=404, detail=f"no code system kind {slug!r}")
@@ -507,7 +507,7 @@ async def api_procedural_delete(
     return JSONResponse({"status": "archived"})
 
 
-async def resolve_detailing_engine(queue: JobQueue, detailing: str | None) -> dict | None:
+async def resolve_detailing_engine(jobs: JobTransport, detailing: str | None) -> dict | None:
     """Resolve a selected detailing slug to the spec a live capability worker
     advertises (or ``None`` for ``none``/absent). External engines are
     discovered only from live heartbeats, so an external engine is routable
@@ -516,7 +516,7 @@ async def resolve_detailing_engine(queue: JobQueue, detailing: str | None) -> di
     structural build (Phase 1)."""
     if not detailing or detailing == "none":
         return None
-    spec = (await live_worker_specs(queue, "procedural_detailing_engine_specs")).get(detailing)
+    spec = (await jobs.advertised_specs("procedural_detailing_engine_specs")).get(detailing)
     # Only EXTERNAL (out-of-process) engines are routed as a chained job; an
     # in-process one falls through to the unchanged Phase-1 in-process path.
     if spec is None or spec.get("inprocess", False):
@@ -637,7 +637,7 @@ async def api_procedural_compile(
     # (inprocess=False) runs as a chained ``procedural_detail``
     # job on its own capability pool consuming a neutral structural artifact;
     # an in-process one (none/adapy-default) is unchanged from Phase 1.
-    det_spec = await resolve_detailing_engine(ctx.queue, detailing)
+    det_spec = await resolve_detailing_engine(ctx.jobs, detailing)
     is_external_detailing = det_spec is not None
 
     if not force and await ctx.storage.exists(scope_obj, derived_key):
