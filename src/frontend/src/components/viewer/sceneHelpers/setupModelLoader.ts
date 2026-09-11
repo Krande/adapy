@@ -21,6 +21,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStatsStore} from "@/state/statsStore";
+import {localModelIdFromSourceName} from "@/utils/cellbuilder/localModelId";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -31,27 +32,47 @@ import {useStatsStore} from "@/state/statsStore";
  * miss the per-element pick + highlight pipeline. */
 export type SetupModelPrepareHook = (gltf_scene: THREE.Group) => Promise<void>;
 
+/** Everything a model load needs, as one named bag instead of eight
+ * positional arguments. Only ``modelUrl`` is required; the rest keep the
+ * defaults the positional signature had. */
+export interface SetupModelLoaderOptions {
+    /** The GLB/glTF to load. ``null`` (or empty) returns an empty group. */
+    modelUrl: string | null;
+    /** Reuse the cached scene translation instead of deriving one from this
+     * model's own bbox. Default true. */
+    translate?: boolean;
+    prepareHook?: SetupModelPrepareHook;
+    sourceName?: string;
+    /** Auth headers for loading directly from the authed REST streaming GET (REST-mode view). */
+    requestHeaders?: Record<string, string>;
+    /** Optional admin load-metrics recorder (REST view path). No-op when absent. */
+    metrics?: LoadMetricsRecorder | null;
+    /** Override the auto fit-to-view after load. Undefined = honour the scene
+     * config toggle (optionsStore.autoFit); false = never fit (e.g. a procedural
+     * recompile, which must not move the camera on every commit). */
+    autoFitOverride?: boolean;
+    /** Which axis points up in the source file's own coordinates. Defaults to
+     * "z" — the content already matches this viewer's Z-up world, which is what
+     * adapy's own exports do and what every caller before this option assumed.
+     * Pass "y" for a glTF that follows the spec's Y-up convention; the loader
+     * then rotates it upright BEFORE measuring the bounding box the recentering
+     * frame is derived from (see utils/scene/sourceUpAxis). */
+    sourceUpAxis?: SourceUpAxis;
+}
+
 export async function setupModelLoaderAsync(
-    modelUrl: string | null,
-    translate: boolean = true,
-    prepareHook?: SetupModelPrepareHook,
-    sourceName?: string,
-    // Auth headers for loading directly from the authed REST streaming GET (REST-mode view).
-    requestHeaders?: Record<string, string>,
-    // Optional admin load-metrics recorder (REST view path). No-op when absent.
-    metrics?: LoadMetricsRecorder | null,
-    // Override the auto fit-to-view after load. Undefined = honour the scene
-    // config toggle (optionsStore.autoFit); false = never fit (e.g. a procedural
-    // recompile, which must not move the camera on every ⇧↵).
-    autoFitOverride?: boolean,
-    // Which axis points up in the source file's own coordinates. Defaults to
-    // "z" — the content already matches this viewer's Z-up world, which is what
-    // adapy's own exports do and what every caller before this option assumed.
-    // Pass "y" for a glTF that follows the spec's Y-up convention; the loader
-    // then rotates it upright BEFORE measuring the bounding box the recentering
-    // frame is derived from (see utils/scene/sourceUpAxis).
-    sourceUpAxis: SourceUpAxis = DEFAULT_SOURCE_UP_AXIS,
+    options: SetupModelLoaderOptions,
 ): Promise<THREE.Group> {
+    const {
+        modelUrl,
+        translate = true,
+        prepareHook,
+        sourceName,
+        requestHeaders,
+        metrics,
+        autoFitOverride,
+        sourceUpAxis = DEFAULT_SOURCE_UP_AXIS,
+    } = options;
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
         return new THREE.Group();
@@ -91,12 +112,22 @@ export async function setupModelLoaderAsync(
     // declines it, because the stored model is editable and must stay the authority there.
     const embedded_doc = (gltf as any).parser.json.asset?.extras?.procedural_doc ?? null;
     if (capabilities.procedural.adoptEmbeddedModel(embedded_doc)) {
-        // loadFromDoc is the cellbuilder's own importer, so the panels consume the document with no
-        // code of their own. It seeds cells/systems only -- no model id, scope or revision -- so the
-        // store is populated for reading without claiming there is a session to commit to.
-        // An empty document rather than skipping the call: loading a model with no procedural
-        // provenance must CLEAR the panels, not leave them describing the model before it.
-        useCellBuilderStore.getState().loadFromDoc(embedded_doc ?? {spaces: [], equipments: []});
+        if (embedded_doc && capabilities.procedural.canEdit) {
+            // A save verb exists over this transport now (ws/REST parity plan, step 3) -- open a
+            // genuine editing session instead of the view-only loadFromDoc path below, so there is
+            // something for the Commit button to commit TO. The websocket path has no per-scope
+            // store to open a model BY id, so model_id is derived from the source name (the only
+            // name this scene has); revision starts at 0 -- see WSProceduralModelCapability.
+            // commitModel's docstring for why a numeric revision isn't meaningful here.
+            useCellBuilderStore.getState().open(localModelIdFromSourceName(sourceName), sourceName || "model", 0, embedded_doc);
+        } else {
+            // loadFromDoc is the cellbuilder's own importer, so the panels consume the document with
+            // no code of their own. It seeds cells/systems only -- no model id, scope or revision --
+            // so the store is populated for reading without claiming there is a session to commit to.
+            // An empty document rather than skipping the call: loading a model with no procedural
+            // provenance must CLEAR the panels, not leave them describing the model before it.
+            useCellBuilderStore.getState().loadFromDoc(embedded_doc ?? {spaces: [], equipments: []});
+        }
     }
 
     // access the raw JSON

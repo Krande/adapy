@@ -136,7 +136,7 @@ const ThreeCanvas: React.FC = () => {
 
         // === Model Cache Loader ===
         if (modelUrl) {
-            replace_model(modelUrl)
+            replace_model({url: modelUrl})
             // delete the B64GLTF from the window object (if it exists)
             if (runtime.b64Gltf()) {
                 runtime.clearB64Gltf();

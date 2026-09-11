@@ -103,9 +103,21 @@ class Server(object):
             return obj
         return None
 
+    # Server
+    def SaveProceduralModel(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ProceduralModelSave import ProceduralModelSave
+
+            obj = ProceduralModelSave()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerStart(builder):
-    builder.StartObject(6)
+    builder.StartObject(7)
 
 
 def Start(builder):
@@ -166,6 +178,14 @@ def ServerAddStartFileInLocalApp(builder, startFileInLocalApp):
 
 def AddStartFileInLocalApp(builder, startFileInLocalApp):
     ServerAddStartFileInLocalApp(builder, startFileInLocalApp)
+
+
+def ServerAddSaveProceduralModel(builder, saveProceduralModel):
+    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(saveProceduralModel), 0)
+
+
+def AddSaveProceduralModel(builder, saveProceduralModel):
+    ServerAddSaveProceduralModel(builder, saveProceduralModel)
 
 
 def ServerEnd(builder):

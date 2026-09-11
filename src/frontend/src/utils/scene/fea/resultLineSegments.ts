@@ -3,6 +3,7 @@ import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
 
+import {clipWithModel, isClippedAway} from "../section_clipping";
 import {selectedSegments} from "./lineSegmentIds";
 
 // Beam (line) elements, drawn with their result colour.
@@ -226,6 +227,10 @@ function installLines(mesh: THREE.Mesh, data: LineData): void {
         renderer.getSize((segments.material as LineMaterial).resolution);
         drive();
     };
+    // Built fresh on every repaint, and a repaint (a step, a component, "colour by
+    // section") comes long after the section planes were applied to the model. Only
+    // a tag, and these beams showed straight through the cut until a plane moved.
+    clipWithModel(segments);
     mesh.add(segments);
 
     // Which element each drawn segment belongs to, carried on the object the
@@ -278,6 +283,7 @@ export function highlightResultLineSegments(
         renderer.getSize((highlight.material as LineMaterial).resolution);
         drive();
     };
+    clipWithModel(highlight);
     mesh.add(highlight);
 }
 
@@ -308,9 +314,14 @@ export function pickResultLineSegment(
     // The line sits on layer 1 so it stays out of the scene-wide raycast; this
     // one asks it directly, so the layer mask must not be consulted.
     line.raycast(raycaster, hits);
-    if (hits.length === 0) return null;
-    hits.sort((a, b) => a.distance - b.distance);
-    const hit = hits[0];
+    // What a section plane cuts away is not drawn, so it must not be hit either: a
+    // click on empty space beyond the cut would select a beam nobody can see. The
+    // planes are the line's own, so the pick agrees with the render.
+    const planes = (line.material as LineMaterial).clippingPlanes;
+    const shown = hits.filter((hit) => !isClippedAway(hit.point, planes));
+    if (shown.length === 0) return null;
+    shown.sort((a, b) => a.distance - b.distance);
+    const hit = shown[0];
     const segment = hit.faceIndex ?? -1;
     if (segment < 0 || segment >= ids.length) return null;
     return {rangeId: ids[segment], point: hit.point.clone(), distance: hit.distance};

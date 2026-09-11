@@ -91,9 +91,23 @@ class ServerReply(object):
             return obj
         return None
 
+    # ServerReply
+    def SaveProceduralModel(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ProceduralModelSaveReply import (
+                ProceduralModelSaveReply,
+            )
+
+            obj = ProceduralModelSaveReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerReplyStart(builder):
-    builder.StartObject(5)
+    builder.StartObject(6)
 
 
 def Start(builder):
@@ -146,6 +160,14 @@ def ServerReplyAddProcessInfo(builder, processInfo):
 
 def AddProcessInfo(builder, processInfo):
     ServerReplyAddProcessInfo(builder, processInfo)
+
+
+def ServerReplyAddSaveProceduralModel(builder, saveProceduralModel):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(saveProceduralModel), 0)
+
+
+def AddSaveProceduralModel(builder, saveProceduralModel):
+    ServerReplyAddSaveProceduralModel(builder, saveProceduralModel)
 
 
 def ServerReplyEnd(builder):

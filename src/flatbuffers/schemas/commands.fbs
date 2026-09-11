@@ -19,6 +19,12 @@ enum CommandType : byte {
   START_FILE_IN_LOCAL_APP = 15,
   GET_SERVER_INFO = 18,
   SHUTDOWN_SERVER = 19,
+  // 16 and 17 are retired values; do not reuse them (see commands.fbs history).
+  // Websocket/REST parity plan (docs/documents/ws_rest_parity.rst), step 3:
+  // save a procedural model's document to local disk. The reply rides the
+  // generic SERVER_REPLY (server_reply.reply_to == SAVE_PROCEDURAL_MODEL),
+  // same convention as every other verb here.
+  SAVE_PROCEDURAL_MODEL = 20,
 }
 
 enum TargetType : byte {

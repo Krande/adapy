@@ -4,7 +4,8 @@ import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
-import {SetupModelPrepareHook, setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {SetupModelPrepareHook, setupModelLoaderAsync, type SetupModelLoaderOptions} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -23,21 +24,35 @@ export function load_base64_model(){
 
 }
 
-export async function replace_model(
-    url: string,
-    prepareHook?: SetupModelPrepareHook,
-    sourceName?: string,
-    // Recenter the model to the scene origin from its bbox (like the CAD loader). FEA/FEM
-    // meshes can sit far from origin (real instance coordinates), so the streaming load passes
-    // true; the legacy WS-message caller keeps the old no-recenter behaviour.
-    translate: boolean = false,
-    // Auth headers when ``url`` is an authed REST streaming GET (REST-mode view-by-URL).
-    requestHeaders?: Record<string, string>,
-    // Optional admin load-metrics recorder (REST view path). No-op when absent.
-    metrics?: import("@/utils/scene/loadMetrics").LoadMetricsRecorder | null,
-    // Override the post-load auto-fit (undefined = scene config; false = never).
-    autoFitOverride?: boolean,
-) {
+/** Options for {@link replace_model}. Mirrors {@link SetupModelLoaderOptions}
+ * minus ``sourceUpAxis`` (the scene-replacing paths all feed Z-up content) and
+ * with ``translate`` defaulting to false rather than true. */
+export interface ReplaceModelOptions {
+    url: string;
+    prepareHook?: SetupModelPrepareHook;
+    sourceName?: string;
+    /** Recenter the model to the scene origin from its bbox (like the CAD loader). FEA/FEM
+     * meshes can sit far from origin (real instance coordinates), so the streaming load passes
+     * true; the legacy WS-message caller keeps the old no-recenter behaviour. */
+    translate?: boolean;
+    /** Auth headers when ``url`` is an authed REST streaming GET (REST-mode view-by-URL). */
+    requestHeaders?: Record<string, string>;
+    /** Optional admin load-metrics recorder (REST view path). No-op when absent. */
+    metrics?: import("@/utils/scene/loadMetrics").LoadMetricsRecorder | null;
+    /** Override the post-load auto-fit (undefined = scene config; false = never). */
+    autoFitOverride?: boolean;
+}
+
+export async function replace_model(options: ReplaceModelOptions) {
+    const {
+        url,
+        prepareHook,
+        sourceName,
+        translate = false,
+        requestHeaders,
+        metrics,
+        autoFitOverride,
+    } = options;
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
     animationStore.setHasAnimation(false);
@@ -79,7 +94,15 @@ export async function replace_model(
 
         }
     }
-    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders, metrics, autoFitOverride);
+    return await setupModelLoaderAsync({
+        modelUrl: url,
+        translate,
+        prepareHook,
+        sourceName,
+        requestHeaders,
+        metrics,
+        autoFitOverride,
+    });
 }
 
 export async function update_scene_from_message(message: Message) {
@@ -120,10 +143,7 @@ export async function update_scene_from_message(message: Message) {
     if (operation == SceneOperations.REPLACE) {
         // sourceName labels the tree root (GLB filename) and keeps the
         // StorageBrowser checkbox in sync (unload finds the right group).
-        const group = await replace_model(url, undefined, sourceName ?? undefined);
-        if (group && sourceName) {
-            useModelState.getState().registerLoadedSource(sourceName, group);
-        }
+        await loadModel({sourceName: sourceName ?? "", bytes: {from: "url", url}});
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else if (operation == SceneOperations.ADD) {
@@ -131,10 +151,11 @@ export async function update_scene_from_message(message: Message) {
         if (mesh) {
             await add_mesh_to_scene(mesh)
         } else {
-            const group = await setupModelLoaderAsync(url, true, undefined, sourceName ?? undefined);
-            if (group && sourceName) {
-                useModelState.getState().registerLoadedSource(sourceName, group);
-            }
+            await loadModel({
+                sourceName: sourceName ?? "",
+                bytes: {from: "url", url},
+                placement: "overlay",
+            });
         }
     } else {
         console.error("Unknown operation type: ", operation);

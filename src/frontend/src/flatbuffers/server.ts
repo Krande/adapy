@@ -2,6 +2,8 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+export { ProceduralModelSave, ProceduralModelSaveT } from './server/procedural-model-save.js';
+export { ProceduralModelSaveReply, ProceduralModelSaveReplyT } from './server/procedural-model-save-reply.js';
 export { Server, ServerT } from './server/server.js';
 export { ServerProcessInfo, ServerProcessInfoT } from './server/server-process-info.js';
 export { ServerReply, ServerReplyT } from './server/server-reply.js';

@@ -55,13 +55,17 @@ test("leaving restores the legend exactly, over whatever the mode painted", () =
 });
 
 test("a mode that loaded another field gets the user's view put back", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
   notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
-  // The property painter selected its own single-step field.
+  // The property painter selected its own single-step field. It goes through
+  // the FEA loader like every other field change, so the landing is reported
+  // and tagged with the mode that asked for it.
   useFeaAnimationStore.setState({
     fieldName: "props.plate_thickness",
     stepIndex: 0,
     layer: "mid",
   });
+  noteFieldSourceLoaded("model.SIN");
 
   notifyActiveModeSceneColor({ id: "results" });
   const fea = useFeaAnimationStore.getState();
@@ -96,12 +100,16 @@ test("null (no mode system) restores like any non-owning mode", () => {
 // because every entry was treated as a first entry.
 
 test("re-entering an owning mode puts back what it was showing", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
   notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
   assert.equal(useColorStore.getState().showLegend, false); // first entry suspends
 
-  // The property painter loads its own field and shows its own legend.
+  // The property painter loads its own field and shows its own legend, through
+  // the same loader the user's own picks go through — which is what reports the
+  // landing as this mode's painting.
   useFeaAnimationStore.setState({ fieldName: "props.material", stepIndex: 0 });
   useColorStore.setState({ min: 1, max: 3, showLegend: true });
+  noteFieldSourceLoaded("model.SIN");
 
   notifyActiveModeSceneColor({ id: "results" });
   // Leaving reloads the user's field. As in the test above, the reselect needs a

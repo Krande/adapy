@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import {clipWithModel} from "../section_clipping";
+
 const RESULT_POINT_MARKERS = "__fea_result_point_markers__";
 
 /** Show or hide the installed markers without discarding them. Result markers
@@ -48,5 +50,7 @@ export function installResultPointMarkers(
         const influence = mesh.morphTargetInfluences?.[0] ?? 0;
         if (points.morphTargetInfluences) points.morphTargetInfluences[0] = influence;
     };
+    // Rebuilt on every repaint, so seeded with the section planes here, each time.
+    clipWithModel(points);
     mesh.add(points);
 }
