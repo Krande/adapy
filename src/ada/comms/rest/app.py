@@ -5197,15 +5197,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         / analysis file. ``?format=ifc`` serializes the DETAIL model (beams, plates,
         joints — the clash cuts ride along as IfcRelVoidsElement voids, equipment as
         IfcPump/IfcTank/…); ``?format=gxml`` serializes the SIMULATION model as a
-        Genie concept XML. Mirrors :func:`api_procedural_export_xlsx` (revision-keyed
+        Genie concept XML, and ``?format=gnx`` as a Genie workspace (the same XML,
+        zipped the way Genie saves one). Mirrors :func:`api_procedural_export_xlsx` (revision-keyed
         cache, ``?force=true`` to rebuild). Built-in engine only — a non-default
         engine emits GLB, not an in-process ada assembly the writers need. The
         worker writes ``derived_key``; the frontend polls then downloads the blob."""
         from .procedural import procedural_model_export_key
 
         fmt = (request.query_params.get("format") or "").strip().lower()
-        if fmt not in ("ifc", "gxml"):
-            raise HTTPException(status_code=400, detail="format must be 'ifc' or 'gxml'")
+        if fmt not in ("ifc", "gxml", "gnx"):
+            raise HTTPException(status_code=400, detail="format must be 'ifc', 'gxml' or 'gnx'")
         force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
         # IFC only: splice real catalog CAD geometry for equipment (default on). A
         # falsy value renders equipment as placeholder boxes; gxml ignores it (it
@@ -5222,7 +5223,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=f"IFC/Genie export is only available for the built-in engine, not {engine!r}",
             )
 
-        # IFC = the detail model (with its fabrication detailing); Genie = the sim model.
+        # IFC = the detail model (with its fabrication detailing); Genie (XML or
+        # workspace) = the sim model.
         lod = "detail" if fmt == "ifc" else "sim"
         detailing = (row.get("doc") or {}).get("detailing") if fmt == "ifc" else None
 

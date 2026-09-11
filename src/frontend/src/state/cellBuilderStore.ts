@@ -865,10 +865,11 @@ interface CellBuilderState {
    * workbook matches what's on screen. */
   exportToExcel: () => Promise<void>;
   /** Export + download the committed model as a CAD/analysis file: "ifc" (the
-   * DETAIL model, clash cuts as IfcRelVoidsElement voids) or "gxml" (the
-   * SIMULATION model as a Genie concept XML). Commits first when dirty. IFC
-   * honours `exportIfcCad` (splice real catalog CAD equipment). */
-  exportModel: (format: "ifc" | "gxml") => Promise<void>;
+   * DETAIL model, clash cuts as IfcRelVoidsElement voids), "gxml" (the
+   * SIMULATION model as a Genie concept XML) or "gnx" (that XML as a Genie
+   * workspace). Commits first when dirty. IFC honours `exportIfcCad` (splice
+   * real catalog CAD equipment). */
+  exportModel: (format: "ifc" | "gxml" | "gnx") => Promise<void>;
   /** IFC export: splice real catalog CAD geometry for equipment (default on).
    * Off = placeholder boxes. gxml ignores this (Genie equipment concept type). */
   exportIfcCad: boolean;
@@ -3721,7 +3722,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       if (!active || get().xlsxBusy) return;
       const scope = currentScopePart();
       const label =
-        format === "ifc" ? "Download IFC (detail)" : "Download Genie XML (sim)";
+        format === "ifc"
+          ? "Download IFC (detail)"
+          : format === "gnx"
+            ? "Download Genie workspace (sim)"
+            : "Download Genie XML (sim)";
       set({ xlsxBusy: true });
       setProceduralToast(label, {
         status: "running",

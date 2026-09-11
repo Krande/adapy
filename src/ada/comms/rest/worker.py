@@ -2250,7 +2250,8 @@ async def _run_procedural_export_model(
 ) -> None:
     """Export a procedural model to a downloadable CAD/analysis file: ``ifc`` (the
     DETAIL model — the clash cuts ride along as IfcRelVoidsElement voids, equipment
-    as IfcPump/IfcTank/…) or ``gxml`` (the SIMULATION model as a Genie concept XML).
+    as IfcPump/IfcTank/…), ``gxml`` (the SIMULATION model as a Genie concept XML) or
+    ``gnx`` (that XML as a Genie workspace).
 
     Compiles the postgres-stored doc to an in-process adapy assembly (built-in
     engine only) at the format's LOD, serializes it, and stores the bytes at
@@ -2274,8 +2275,8 @@ async def _run_procedural_export_model(
     if not model_id or not isinstance(revision, int):
         await _fail("export", "conversion_options.model_id and revision are required for procedural_export_model")
         return
-    if export_format not in ("ifc", "gxml"):
-        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc or gxml)")
+    if export_format not in ("ifc", "gxml", "gnx"):
+        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc, gxml or gnx)")
         return
     if db_pool is None:
         await _fail("export", "procedural export requires DATABASE_URL on the worker")
@@ -2366,6 +2367,14 @@ async def _run_procedural_export_model(
                 # embed_sat=False keeps the export CAD-backend-independent (plates as
                 # polygons; Genie rebuilds the ACIS on import).
                 asm.to_genie_xml(p, embed_sat=False)
+                if export_format == "gnx":
+                    # Repack that XML as a workspace rather than calling to_gnx(), which
+                    # builds the ACIS body through the CAD backend: a polygon XML gets
+                    # the empty-body SAT and Genie builds the body from the polygons on
+                    # load, exactly as when the XML is imported by hand.
+                    from ada.cadit.gxml.write.write_gnx import gnx_from_genie_xml
+
+                    p = str(gnx_from_genie_xml(p, os.path.join(d, "model.gnx")))
             with open(p, "rb") as fh:
                 return fh.read()
 
