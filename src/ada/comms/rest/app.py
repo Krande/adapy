@@ -5,7 +5,6 @@ import copy
 import json
 import os
 import pathlib
-import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -47,24 +46,20 @@ from .routes.admin_audit_schedules import router as admin_audit_schedules_router
 from .routes.admin_corpora import router as admin_corpora_router
 from .routes.admin_plugin_jobs import plugin_schedule_fire
 from .routes.admin_plugin_jobs import router as admin_plugin_jobs_router
+from .routes.admin_projects import router as admin_projects_router
 from .routes.admin_settings import router as admin_settings_router
+from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
-    DIRECT_UPLOAD_THRESHOLD_BYTES,
-    GZIP_UPLOAD_EXTS,
     RestContext,
     SystemUser,
     _merge_spec,
-    content_encoding_for,
-    format_label,
     human_bytes,
     is_accepted_source,
     live_worker_specs,
     next_fire,
-    parse_move_body,
-    parse_rename_body,
     parse_scope,
     pending_upload_detail,
     publish_capability_requirements,
@@ -81,28 +76,12 @@ from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
 from .routes.procedural_models import router as procedural_models_router
+from .routes.projects import router as projects_router
 from .routes.source_nodes import router as source_nodes_router
-from .routes.storage import rename_with_status
 from .routes.storage import router as storage_router
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
-from .storage_ops import delete_blob_cascade, derived_source_of, move_keys_to_folder
-
-# Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
-# formats already pack their geometry tightly so we skip them. The
-# The gzip-upload extension set, the move/rename body parsers, the
-# content-encoding-for-key helper, the direct-upload cap and the
-# presigned-URL TTL all live in routes/deps.py now (routes/storage.py
-# shares them); the old module names stay bound below for the routes
-# still in this closure (the admin storage-compression sweep and the
-# admin key move/rename routes).
-_GZIP_UPLOAD_EXTS = GZIP_UPLOAD_EXTS
-_DIRECT_UPLOAD_THRESHOLD_BYTES: int = DIRECT_UPLOAD_THRESHOLD_BYTES
-_parse_move_body = parse_move_body
-_parse_rename_body = parse_rename_body
-_content_encoding_for = content_encoding_for
-
 
 # ``human_bytes`` / ``pending_upload_detail`` live in routes/deps.py (needed by
 # routes/plugin_jobs.py's ``POST /plugins/{id}/jobs``); the old module names
@@ -618,63 +597,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return Response(status_code=204)
         return Response(content=reply, media_type="application/octet-stream")
 
-    # ── /api/me + /api/projects ──────────────────────────────────────
-
-    @api.get("/me")
-    async def api_me(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        # Lazy upsert on first authenticated hit so the `users` table
-        # tracks who has actually signed in. No-op when DB is off.
-        pool = getattr(request.app.state, "db_pool", None)
-        projects: list[dict] = []
-        if pool is not None:
-            await db_module.upsert_user(pool, user.sub, user.email, user.display_name)
-            for p in await db_module.list_user_projects(pool, user.sub):
-                projects.append({"id": p.id, "slug": p.slug, "name": p.name, "role": p.role})
-
-        # Scopes the caller can pick from in the SPA's project picker.
-        # Order matters — first entry is the default landing scope.
-        scopes: list[dict] = [
-            {"kind": "user", "id": "me", "name": "Personal"},
-            {"kind": "shared", "id": None, "name": "Shared"},
-        ]
-        for p in projects:
-            scopes.append({"kind": "project", "id": p["id"], "name": p["name"]})
-
-        # Corpus scopes are admin-only (scope_can_access gates them). Advertise
-        # them here so an admin can browse + visualise corpus files straight from
-        # the main storage panel — the same list/convert flow every other scope
-        # uses. Non-admins never see them; the backend rejects the scope anyway.
-        if user.is_admin and pool is not None:
-            try:
-                for c in await db_module.list_corpora(pool):
-                    scopes.append({"kind": "corpus", "id": c["slug"], "name": c["name"]})
-            except Exception:
-                logger.exception("api_me: listing corpora failed")
-
-        return JSONResponse(
-            {
-                "sub": user.sub,
-                "email": user.email,
-                "displayName": user.display_name,
-                "isAdmin": user.is_admin,
-                "scopes": scopes,
-                "projects": projects,
-            }
-        )
-
-    @api.get("/projects")
-    async def api_projects(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        pool = getattr(request.app.state, "db_pool", None)
-        if pool is None:
-            return JSONResponse({"projects": []})
-        rows = await db_module.list_user_projects(pool, user.sub)
-        return JSONResponse({"projects": [{"id": p.id, "slug": p.slug, "name": p.name, "role": p.role} for p in rows]})
+    api.include_router(projects_router)
 
     api.include_router(storage_router)
 
@@ -2136,14 +2059,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # shares it); the old module name stays bound for the routes still here.
     _require_pool = require_pool
 
-    def _validate_uuid(value: str, what: str = "id") -> str:
-        import uuid as _uuid
-
-        try:
-            return str(_uuid.UUID(value))
-        except (ValueError, AttributeError, TypeError) as exc:
-            raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
-
     admin.include_router(admin_settings_router)
     admin.include_router(admin_storage_compression_router)
 
@@ -2703,449 +2618,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     admin.include_router(admin_audit_perf_router)
 
-    @admin.get("/projects")
-    async def admin_projects_list(request: Request) -> JSONResponse:
-        pool = _require_pool(request)
-        return JSONResponse({"projects": await db_module.list_all_projects(pool)})
+    admin.include_router(admin_projects_router)
 
-    @admin.post("/projects")
-    async def admin_projects_create(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        pool = _require_pool(request)
-        body = await request.json()
-        slug = (body.get("slug") or "").strip()
-        name = (body.get("name") or "").strip()
-        if not slug or not name:
-            raise HTTPException(status_code=400, detail="slug and name required")
-        # Slug shape: lowercase, alnum + hyphens. Keeps URLs / on-disk
-        # prefixes predictable; doesn't otherwise constrain the name.
-        import re
-
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", slug):
-            raise HTTPException(
-                status_code=400,
-                detail="slug must be lowercase alnum/hyphens (max 63)",
-            )
-        try:
-            project = await db_module.create_project(pool, slug, name)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        # Auto-add the creator as owner so the new project shows up in
-        # their /api/me.scopes immediately. Without this the project is
-        # orphaned until an admin manually adds someone — easy to forget,
-        # and it leaves the creator unable to push artefacts to the
-        # project they just made.
-        await db_module.add_project_member(pool, project["id"], user.sub, role="owner")
-        project["member_count"] = 1
-        return JSONResponse(project, status_code=201)
-
-    @admin.delete("/projects/{project_id}")
-    async def admin_projects_archive(
-        project_id: str,
-        request: Request,
-    ) -> Response:
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-        ok = await db_module.archive_project(pool, pid)
-        if not ok:
-            raise HTTPException(status_code=404, detail="project not found")
-        return Response(status_code=204)
-
-    @admin.get("/projects/{project_id}/members")
-    async def admin_project_members_list(
-        project_id: str,
-        request: Request,
-    ) -> JSONResponse:
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-        if not await db_module.project_exists(pool, pid):
-            raise HTTPException(status_code=404, detail="project not found")
-        return JSONResponse({"members": await db_module.list_project_members(pool, pid)})
-
-    @admin.post("/projects/{project_id}/members")
-    async def admin_project_members_add(
-        project_id: str,
-        request: Request,
-    ) -> JSONResponse:
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-        body = await request.json()
-        sub = (body.get("user_sub") or "").strip()
-        role = (body.get("role") or "member").strip() or "member"
-        if not sub:
-            raise HTTPException(status_code=400, detail="user_sub required")
-        if not await db_module.project_exists(pool, pid):
-            raise HTTPException(status_code=404, detail="project not found")
-        added = await db_module.add_project_member(pool, pid, sub, role)
-        return JSONResponse(
-            {"user_sub": sub, "role": role, "added": added},
-            status_code=201 if added else 200,
-        )
-
-    @admin.delete("/projects/{project_id}/members/{user_sub}")
-    async def admin_project_members_remove(
-        project_id: str,
-        user_sub: str,
-        request: Request,
-    ) -> Response:
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-        ok = await db_module.remove_project_member(pool, pid, user_sub)
-        if not ok:
-            raise HTTPException(status_code=404, detail="not a member")
-        return Response(status_code=204)
-
-    # A bot name is one path-safe token. The colon is excluded because it is
-    # the SEPARATOR: a name containing one could spell another bot's subject
-    # (`ci:<slug>:a:b`) and quietly take over its tokens and its revocation.
-    _CI_BOT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-
-    def _ci_bot_identity(slug: str, name: str | None) -> tuple[str, str, str]:
-        """``(sub, email, display)`` for a project's CI bot.
-
-        Unnamed is ``ci:<slug>`` -- unchanged, so every token already issued
-        under that subject keeps working and keeps being rotated by the same
-        call as before. A name appends one more segment.
-        """
-        if not name:
-            return f"ci:{slug}", f"ci+{slug}@bot.local", f"CI Bot: {slug}"
-        return f"ci:{slug}:{name}", f"ci+{slug}.{name}@bot.local", f"CI Bot: {slug} / {name}"
-
-    async def _ci_bot_request(request: Request, project_id: str) -> tuple[object, str, str, str, str]:
-        """Shared prologue: validate, resolve the project, build the identity."""
-        pool = _require_pool(request)
-        pid = _validate_uuid(project_id, "project_id")
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        if not isinstance(body, dict):
-            body = {}
-        name = (str(body.get("name") or "")).strip().lower() or None
-        if name is not None and not _CI_BOT_NAME_RE.match(name):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "name must be 1-64 characters of a-z, 0-9, dot, dash or underscore, "
-                    "starting alphanumeric. A colon is not allowed: it separates the "
-                    "project from the bot, so a name containing one could spell another "
-                    "bot's identity."
-                ),
-            )
-        row = await pool.fetchrow(
-            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
-            pid,
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail="project not found")
-        sub, email, display = _ci_bot_identity(row["slug"], name)
-        return pool, pid, sub, email, display
-
-    @admin.post("/projects/{project_id}/ci-bot")
-    async def admin_provision_ci_bot(
-        project_id: str,
-        request: Request,
-    ) -> JSONResponse:
-        """Provision (or rotate the token of) a CI bot user for a project.
-
-        One-shot: creates the bot user row if missing, ensures it's a
-        project member, revokes any prior tokens, and mints a fresh
-        30-day CLI bearer. The token is returned exactly once, and
-        re-calling ROTATES -- prior tokens for that bot stop validating
-        immediately via the per-user revoke cutoff. Always admin-gated.
-
-        MORE THAN ONE BOT PER PROJECT. Body: ``{"name": "..."}``, optional.
-        Without it the subject is ``ci:<slug>``, exactly as before. With it,
-        ``ci:<slug>:<name>``.
-
-        The reason is that one identity per project forces every consumer to
-        share one credential, and the revoke cutoff is stored per SUBJECT --
-        so rotating for one consumer silently breaks the others, and every
-        audit row reads ``ci:<slug>`` no matter which of them acted. Give the
-        build uploader and a data-recording worker a name each and both
-        problems go away: separate rotation, separate revocation, and an audit
-        trail that says which one did the thing.
-
-        Nothing about the token or the revocation model changes to allow it. A
-        distinct subject simply HAS its own cutoff, which is why this is a new
-        segment on the subject rather than a token id and a revocation list.
-        """
-        pool, pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
-
-        await db_module.upsert_user(pool, bot_sub, bot_email, bot_display)
-        await db_module.add_project_member(pool, pid, bot_sub, role="ci")
-
-        bot_user = User(
-            sub=bot_sub,
-            email=bot_email,
-            display_name=bot_display,
-            groups=frozenset(),
-            is_admin=False,
-        )
-        # Rotate: invalidate any tokens minted before now for this bot,
-        # then mint a fresh one. The cutoff is iat-based so the token
-        # we're about to mint (with a fresh iat) survives.
-        await auth_module.revoke_cli_tokens(pool, bot_user)
-        config = request.app.state.auth_config
-        token, exp = auth_module.mint_cli_token(bot_user, config)
-        return JSONResponse(
-            {
-                "user_sub": bot_sub,
-                "token": token,
-                "expires_at": exp,
-            },
-            status_code=201,
-        )
-
-    @admin.post("/projects/{project_id}/ci-bot/revoke")
-    async def admin_revoke_ci_bot(
-        project_id: str,
-        request: Request,
-    ) -> JSONResponse:
-        """Kill a CI bot's tokens WITHOUT minting a replacement.
-
-        Until now the only way to invalidate a bot's token was to mint another
-        one, which is the wrong move for a leaked credential or a decommissioned
-        consumer: it hands you a fresh secret you did not want and leaves the
-        bot able to act. Revoking on its own is the thing an operator reaches
-        for when something has gone wrong, and it did not exist.
-
-        The bot stays a project member. Removing it is a separate, deliberate
-        act (``DELETE /projects/{id}/members/{sub}``) -- and keeping the
-        membership means its audit history still resolves to a named principal
-        rather than a bare subject nobody can identify later.
-        """
-        pool, _pid, bot_sub, bot_email, bot_display = await _ci_bot_request(request, project_id)
-        bot_user = User(
-            sub=bot_sub,
-            email=bot_email,
-            display_name=bot_display,
-            groups=frozenset(),
-            is_admin=False,
-        )
-        revoked_at = await auth_module.revoke_cli_tokens(pool, bot_user)
-        logger.info("admin: revoked CI bot tokens for %s", bot_sub)
-        return JSONResponse({"user_sub": bot_sub, "revoked_at": revoked_at})
-
-    # ── Admin storage view ──────────────────────────────────────────
-    #
-    # Enriched per-scope listing for the admin storage tab: every
-    # source file with its detected format, size, last_modified, and
-    # the derived blobs already cached for it. The DELETE endpoint
-    # removes a source plus all of its derived siblings — the admin
-    # panel surfaces it as a single "delete" action so the bucket
-    # doesn't drift into a state where derived blobs outlive their
-    # source.
-    #
-    # Scoped via the same _scope_from_path dep as the user-facing
-    # storage routes — admins still need scope access (member of the
-    # project, owner of the user scope, etc.). Shared scope is open to
-    # any authed user.
-
-    # routes/deps.py's format_label + SOURCE_FORMAT_NAMES, bound under the
-    # old name for the admin storage list below (the user-facing files
-    # route calls the deps function directly — see routes/storage.py).
-    _format_label = format_label
-
-    @admin.get("/scopes/{scope}/files")
-    async def admin_storage_list(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-    ) -> JSONResponse:
-        from .converter import is_derived_key, supported_targets_for
-
-        files = await storage.list(scope_obj)
-        sources: dict[str, dict] = {}
-        derived_index: dict[str, list[dict]] = {}
-
-        for f in files:
-            if f.key.lstrip("/").startswith("_overlays/"):
-                continue  # auto-disposed utility overlays (merge-preview/diff) — not user files
-            if is_derived_key(f.key):
-                parsed = derived_source_of(f.key)
-                if parsed is None:
-                    continue  # malformed derived key — ignore quietly
-                src_key, target = parsed
-                derived_index.setdefault(src_key, []).append(
-                    {
-                        "format": target,
-                        "key": f.key,
-                        "size": f.size,
-                        "last_modified": f.last_modified,
-                    }
-                )
-            else:
-                sources[f.key] = {
-                    "key": f.key,
-                    "size": f.size,
-                    "last_modified": f.last_modified,
-                    "format": _format_label(f.key),
-                    "available_targets": supported_targets_for(f.key),
-                    "derived": [],
-                }
-
-        for src_key, derived_list in derived_index.items():
-            entry = sources.get(src_key)
-            if entry is None:
-                # Orphan — derived blob without its source. Surface it
-                # as a synthetic entry so the admin can clean it up.
-                sources[src_key] = {
-                    "key": src_key,
-                    "size": 0,
-                    "last_modified": None,
-                    "format": _format_label(src_key),
-                    "available_targets": [],
-                    "orphan": True,
-                    "derived": derived_list,
-                }
-            else:
-                entry["derived"] = derived_list
-
-        out = sorted(
-            sources.values(),
-            key=lambda e: e.get("last_modified") or "",
-            reverse=True,
-        )
-        return JSONResponse({"files": out})
-
-    @admin.delete("/scopes/{scope}/blobs/{key:path}")
-    async def admin_storage_delete(
-        key: str,
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        result = await delete_blob_cascade(storage, scope_obj, key)
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "delete",
-            key=key.lstrip("/"),
-            status="ok",
-            error="; ".join(result["errors"]) or None,
-        )
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/move-to-folder")
-    async def admin_keys_move_to_folder(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Batch-move source keys to a destination folder prefix.
-
-        Body: ``{"keys": [...], "folder": "..."}``. Each source key
-        is renamed to ``<folder>/<basename(src_key)>`` within the
-        same scope, with derived siblings cascading (see
-        storage_ops.move_keys_to_folder). Per-key failures don't
-        abort the batch — the caller gets ``{moved, failed}``.
-        """
-
-        keys, folder = await _parse_move_body(request)
-        result = await move_keys_to_folder(storage, scope_obj, keys, folder)
-        for entry in result["moved"]:
-            await _audit(
-                request,
-                user,
-                scope_obj,
-                "move",
-                key=entry["old"],
-                status="ok",
-                error="; ".join(entry["siblings_failed"]) or None,
-            )
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/rename")
-    async def admin_keys_rename(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Rename a single source key (derived siblings cascade)."""
-        old_key, new_key = await _parse_rename_body(request)
-        # routes/storage.py's rename_with_status, shared with the (already
-        # extracted) user-facing rename route — see that module's docstring.
-        result = await rename_with_status(storage, scope_obj, old_key, new_key)
-        await _audit(request, user, scope_obj, "rename", key=old_key, status="ok")
-        return JSONResponse(result)
-
-    @admin.post("/scopes/{scope}/keys/copy-from")
-    async def admin_keys_copy_from(
-        request: Request,
-        scope_obj: Scope = Depends(_scope_from_path),  # destination scope (e.g. a corpus)
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Server-side copy source keys from another scope into this one.
-
-        Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
-        (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
-        same key in the path scope. The caller must be able to read ``src_scope``.
-        Per-key reporting: ``{copied, skipped, failed}`` — a key that already
-        exists in the destination is reported under ``skipped`` (a no-op, not an
-        error, so recursive folder copies tolerate partial overlap); a missing
-        source, derived-key reject, or backend error lands in ``failed``. Nothing
-        aborts the batch.
-        """
-        from .converter import is_derived_key
-
-        pool = getattr(request.app.state, "db_pool", None)
-        body = await request.json()
-        src_raw = body.get("src_scope")
-        raw_keys = body.get("keys")
-        if not isinstance(src_raw, str) or not src_raw.strip():
-            raise HTTPException(status_code=400, detail="src_scope required")
-        if not isinstance(raw_keys, list) or not raw_keys:
-            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
-        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
-            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
-
-        src_scope = await _resolve_project_scope(pool, _parse_scope(src_raw.strip(), user))
-        if not await scope_can_access(user, src_scope, pool):
-            raise HTTPException(status_code=403, detail="forbidden: source scope")
-        if src_scope.prefix() == scope_obj.prefix():
-            raise HTTPException(status_code=400, detail="source and destination scope are the same")
-
-        # Dedup while preserving order.
-        seen: set[str] = set()
-        keys: list[str] = []
-        for raw in raw_keys:
-            cleaned = raw.strip().lstrip("/")
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
-                keys.append(cleaned)
-
-        # Snapshot destination keys so we can skip collisions without a HEAD per file.
-        dst_keys = {f.key for f in await storage.list(scope_obj)}
-
-        copied: list[dict] = []
-        skipped: list[dict] = []
-        failed: list[dict] = []
-        for key in keys:
-            if is_derived_key(key):
-                failed.append({"key": key, "reason": "cannot copy derived blobs"})
-                continue
-            if key in dst_keys:
-                skipped.append({"key": key, "reason": "already in corpus"})
-                continue
-            try:
-                # overwrite=True for the same S3 reason as rename above (the safe
-                # default raises ``copy-if-not-exists not supported``); the
-                # application-layer dst_keys pre-check is the real collision guard.
-                await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
-            except Exception:
-                # Full detail is logged; return a generic reason so backend/stack-trace
-                # text isn't exposed in the response (CodeQL py/stack-trace-exposure).
-                logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
-                failed.append({"key": key, "reason": "copy failed"})
-                continue
-            dst_keys.add(key)
-            copied.append({"key": key})
-            await _audit(request, user, scope_obj, "copy", key=key, status="ok")
-
-        return JSONResponse({"copied": copied, "skipped": skipped, "failed": failed})
+    admin.include_router(admin_storage_router)
 
     app.include_router(admin)
 

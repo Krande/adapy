@@ -82,12 +82,12 @@ def test_plugin_backend_spec_lookup_resolves_job_entrypoint():
     register_plugin_backend(
         "capacity-manager",
         worker_capability="capacity",
-        job_entrypoint="codecheck.adapy_plugin:run_capacity_job",
+        job_entrypoint="example_plugin.adapy_plugin:run_job",
     )
     spec = plugin_backend_spec("capacity-manager")
     assert spec is not None
     assert spec["worker_capability"] == "capacity"
-    assert spec["job_entrypoint"] == "codecheck.adapy_plugin:run_capacity_job"
+    assert spec["job_entrypoint"] == "example_plugin.adapy_plugin:run_job"
     # Unknown id -> None (dispatch then errors the job with a helpful message).
     assert plugin_backend_spec("unknown") is None
     # Returned dict is a copy — mutating it must not corrupt the registry.
