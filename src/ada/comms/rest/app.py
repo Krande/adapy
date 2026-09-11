@@ -58,6 +58,15 @@ from .plugin_registry import (
     locally_registered_spec,
     locally_registered_specs,
 )
+from .procedural import (
+    procedural_build_job_key,
+    procedural_detail_job_key,
+    procedural_export_model_job_key,
+    procedural_export_xlsx_job_key,
+    procedural_import_job_key,
+    procedural_preview_job_key,
+    procedural_relocations_job_key,
+)
 from .qualification import CAPABILITY_REQUIREMENTS_KEY
 from .queue import JobQueue, capability_token
 from .scope import Scope
@@ -4675,7 +4684,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sections_key = procedural_structural_sections_key(row["id"], row["revision"], engine)
 
             structural_job = await queue.enqueue(
-                f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",
+                procedural_build_job_key(row["id"], row["revision"], lod),
                 target_format="procedural_build",
                 scope_kind=scope_obj.kind,
                 scope_id=scope_obj.id,
@@ -4697,7 +4706,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 target_capability=target_capability,
             )
             detail_job = await queue.enqueue(
-                f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}/detail-{detailing}",
+                procedural_detail_job_key(row["id"], row["revision"], lod, detailing),
                 target_format="procedural_detail",
                 scope_kind=scope_obj.kind,
                 scope_id=scope_obj.id,
@@ -4739,7 +4748,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",
+            procedural_build_job_key(row["id"], row["revision"], lod),
             target_format="procedural_build",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
@@ -4835,7 +4844,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 target_capability = await _advertised_engine_capability(engine)
 
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/preview/{doc_hash}/{lod}",
+            procedural_preview_job_key(row["id"], doc_hash, lod),
             target_format="procedural_build",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
@@ -5036,7 +5045,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="procedural relocations disabled (no NATS configured)")
 
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/r{row['revision']}/relocations",
+            procedural_relocations_job_key(row["id"], row["revision"]),
             target_format="procedural_relocations",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
@@ -5106,7 +5115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         target_capability = await _procedural_engine_capability(pool, scope_obj, engine)
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/r{row['revision']}/export-xlsx",
+            procedural_export_xlsx_job_key(row["id"], row["revision"]),
             target_format="procedural_export_xlsx",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
@@ -5170,7 +5179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
 
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/r{row['revision']}/export-{fmt}",
+            procedural_export_model_job_key(row["id"], row["revision"], fmt),
             target_format="procedural_export_model",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
@@ -5269,7 +5278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target_capability = await _procedural_engine_capability(pool, scope_obj, engine)
         derived_key = procedural_import_result_key(source_key)
         job = await queue.enqueue(
-            f"_synthetic/procedural/import-xlsx/{source_key}",
+            procedural_import_job_key(source_key),
             target_format="procedural_import_xlsx",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,

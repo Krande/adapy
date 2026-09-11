@@ -381,6 +381,61 @@ def procedural_relocations_key(model_id: str) -> str:
     return f"{PROCEDURAL_PREFIX}{model_id}/relocations.json"
 
 
+# ── Synthetic job source keys ─────────────────────────────────────────
+#
+# A procedural job (compile, preview, relocations, export, import) is enqueued
+# like a file conversion, but has no uploaded source blob: its "source key" is a
+# SYNTHETIC identifier under ``_synthetic/procedural/`` that names the model,
+# revision (or preview doc hash) and stage. The queue keys its per-source
+# bookkeeping (dedupe, audit rows, cancel) on it, so the spelling is a contract
+# between the API and the worker — built here, never inline.
+
+SYNTHETIC_PROCEDURAL_PREFIX = "_synthetic/procedural/"
+
+
+def _synthetic_job_key(*parts: object) -> str:
+    return SYNTHETIC_PROCEDURAL_PREFIX + "/".join(str(p) for p in parts)
+
+
+def procedural_build_job_key(model_id: str, revision: int, lod: str) -> str:
+    """Source key of the structural compile of one model revision at one LOD
+    (``sim``/``detail``) — ``_synthetic/procedural/{id}/r{rev}/{lod}``."""
+    return _synthetic_job_key(model_id, f"r{revision}", lod)
+
+
+def procedural_detail_job_key(model_id: str, revision: int, lod: str, detailing: str) -> str:
+    """Source key of the chained external-detailing stage that consumes the
+    structural compile of :func:`procedural_build_job_key`."""
+    return _synthetic_job_key(model_id, f"r{revision}", lod, f"detail-{detailing}")
+
+
+def procedural_preview_job_key(model_id: str, doc_hash: str, lod: str) -> str:
+    """Source key of an ephemeral preview compile, keyed by the uncommitted
+    document's content hash (see :func:`procedural_preview_glb_key`)."""
+    return _synthetic_job_key(model_id, "preview", doc_hash, lod)
+
+
+def procedural_relocations_job_key(model_id: str, revision: int) -> str:
+    """Source key of the relocation-proposal search for one model revision."""
+    return _synthetic_job_key(model_id, f"r{revision}", "relocations")
+
+
+def procedural_export_xlsx_job_key(model_id: str, revision: int) -> str:
+    """Source key of the engine-workbook export of one model revision."""
+    return _synthetic_job_key(model_id, f"r{revision}", "export-xlsx")
+
+
+def procedural_export_model_job_key(model_id: str, revision: int, fmt: str) -> str:
+    """Source key of the CAD/analysis export (``ifc``/``gxml``) of one revision."""
+    return _synthetic_job_key(model_id, f"r{revision}", f"export-{fmt}")
+
+
+def procedural_import_job_key(source_key: str) -> str:
+    """Source key of a workbook import, keyed by the staged upload
+    (:func:`procedural_import_source_key`) — there is no model yet."""
+    return _synthetic_job_key("import-xlsx", source_key)
+
+
 # ── Excel round-trip (export / import) ────────────────────────────────
 #
 # A procedural model can be exported to — and imported from — the OWNING
