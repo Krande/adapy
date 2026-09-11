@@ -235,12 +235,24 @@ def _merge_distribution_systems(
     primary_rel = next((r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup == primary), None)
     for extra in extras:
         for rel in [r for r in f.by_type("IfcRelAssignsToGroup") if r.RelatingGroup == extra]:
-            if primary_rel is not None:
-                existing = set(primary_rel.RelatedObjects)
-                primary_rel.RelatedObjects = [
-                    *primary_rel.RelatedObjects,
-                    *[o for o in rel.RelatedObjects if o not in existing],
-                ]
+            if primary_rel is None:
+                # A primary written without a membership relationship (nothing grouped under it
+                # yet) still has to take the extras' members; removing their relationships
+                # without a home to move them to would silently drop them from every system.
+                primary_rel = f.create_entity(
+                    "IfcRelAssignsToGroup",
+                    create_guid(),
+                    ifc_store.owner_history,
+                    primary.Name,
+                    None,
+                    RelatedObjects=[],
+                    RelatingGroup=primary,
+                )
+            existing = set(primary_rel.RelatedObjects)
+            primary_rel.RelatedObjects = [
+                *primary_rel.RelatedObjects,
+                *[o for o in rel.RelatedObjects if o not in existing],
+            ]
             f.remove(rel)
         # The "this system services that spatial element" link is per-system; the primary already
         # has its own, so the extra's would dangle at a removed group.

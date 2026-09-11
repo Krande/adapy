@@ -54,6 +54,12 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
+from ada.api.systems.branch_meta import (
+    BRANCH_JUNCTION_ID,
+    BRANCH_KEY,
+    BRANCH_LEG_METADATA,
+    BRANCH_LEGS,
+)
 from ada.comms.rest.catalog import slugify
 from ada.topo_model.layout import (
     LayoutItem,
@@ -1120,7 +1126,11 @@ def _fold_branch_groups(
             MEDIUM=first.MEDIUM,
             CONNECTIONS=[],
             METADATA={
-                "branch": {"junction_id": junction_id, "legs": leg_names, "leg_metadata": leg_metadata},
+                BRANCH_KEY: {
+                    BRANCH_JUNCTION_ID: junction_id,
+                    BRANCH_LEGS: leg_names,
+                    BRANCH_LEG_METADATA: leg_metadata,
+                },
             },
         )
         folded.append(_SegmentSpec(item=junction_item, entity=entity, ends=merged_ends, components=components))

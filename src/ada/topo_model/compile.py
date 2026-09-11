@@ -375,6 +375,7 @@ def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
     Factored out of :func:`_build_systems` so the relocation engine
     (:mod:`ada.topo_model.relocate`) wires systems the exact same way when it
     re-routes candidate layouts."""
+    from ada.api.systems.branch_meta import branch_leg_names
     from ada.api.systems.segments import SystemSegment
     from ada.config import logger
     from ada.topology.routing import RoutingError
@@ -384,7 +385,7 @@ def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
         try:
             system = _make_system(spec)
             connections = spec.get("CONNECTIONS") or []
-            leg_names = ((spec.get("METADATA") or {}).get("branch") or {}).get("legs")
+            leg_names = branch_leg_names(spec.get("METADATA"))
             if leg_names:
                 if len(connections) != 2 * len(leg_names):
                     raise RoutingError(

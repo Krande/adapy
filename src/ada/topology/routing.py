@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 import ada
+from ada.api.systems.branch_meta import (
+    BRANCH_ROUTE_JUNCTION_POINT,
+    BRANCH_ROUTE_KEY,
+    BRANCH_ROUTE_TRUNK,
+)
 from ada.topology.blueprint import BlueprintBase
 from ada.topology.grid import CellGrid, GridIndex
 
@@ -675,8 +680,9 @@ def route_branched_system(
     The two legs whose leaf ports are farthest apart become the trunk (:func:`_select_trunk`);
     every other leg is a branch. Populates each leg's ``SystemSegment.routed_path``, sets
     ``system.routed_path`` to the trunk's two legs concatenated (so anything still expecting a
-    single polyline sees a sane one) and ``system.metadata["branch"]`` with the trunk leg names and
-    the junction point, and returns ``{leg name: polyline}``.
+    single polyline sees a sane one) and ``system.metadata["branch_route"]`` (see
+    :mod:`ada.api.systems.branch_meta`) with the trunk leg names and the junction point, and
+    returns ``{leg name: polyline}``. The import-side ``metadata["branch"]`` is left untouched.
 
     Each leg's body is marked occupied on ``grid`` as soon as it routes, so the next leg routes
     around it -- legs of one branch get no cross-system avoidance pass (that is a separate,
@@ -699,10 +705,13 @@ def route_branched_system(
             occupy_run(grid, polyline, half, tag=f"branch-leg:{system.name}:{leg.segment.name}")
 
     trunk_a, trunk_b = _select_trunk(tree.legs)
-    system.routed_path = trunk_a.segment.routed_path + trunk_b.segment.routed_path[1:]
-    system.metadata["branch"] = {
-        "trunk": [trunk_a.segment.name, trunk_b.segment.name],
-        "junction_point": tuple(float(c) for c in _branch_junction_point(tree)),
+    # Every leg was routed leaf -> junction, so the trunk runs leaf A -> junction -> leaf B only if
+    # the second leg is walked backwards; appending it as routed would jump from the junction back
+    # out to leaf B and retrace it.
+    system.routed_path = trunk_a.segment.routed_path + list(reversed(trunk_b.segment.routed_path))[1:]
+    system.metadata[BRANCH_ROUTE_KEY] = {
+        BRANCH_ROUTE_TRUNK: [trunk_a.segment.name, trunk_b.segment.name],
+        BRANCH_ROUTE_JUNCTION_POINT: tuple(float(c) for c in _branch_junction_point(tree)),
     }
     return paths
 

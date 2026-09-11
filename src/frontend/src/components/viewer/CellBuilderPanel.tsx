@@ -2,10 +2,7 @@ import React from "react";
 
 import { PositionedMenu } from "@/components/common/PositionedMenu";
 import DetailingPanel from "@/components/viewer/DetailingPanel";
-import {
-  useCellBuilderStore,
-  type SystemConnection,
-} from "@/state/cellBuilderStore";
+import { hasEmbeddedDoc, type SystemConnection, useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { typePickerItems } from "@/utils/cellbuilder/ports";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
@@ -780,10 +777,10 @@ const CellBuilderPanel: React.FC = () => {
   };
 
   // Either an editable session (`active`) or a view-only document loaded off a
-  // GLB (`embeddedDoc`) is enough to show the panel; what differs is what the
+  // GLB (`hasEmbeddedDoc`) is enough to show the panel; what differs is what the
   // panel LETS YOU DO, which is decided per-control by `readOnly` below rather
   // than by hiding the whole tool.
-  if ((!s.active && !s.embeddedDoc) || !s.panelVisible) return null;
+  if ((!s.active && !hasEmbeddedDoc(s)) || !s.panelVisible) return null;
 
   // No editable session behind this document. Today that is exactly the
   // websocket/desktop path: `capabilities.procedural.canEdit` is false there

@@ -31,7 +31,7 @@ import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
 import CellBuilderPortMenu from "./viewer/CellBuilderPortMenu";
 import CellBuilderInsertMenu from "./viewer/CellBuilderInsertMenu";
 import CellBuilderGizmoHud from "./viewer/CellBuilderGizmoHud";
-import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { hasEmbeddedDoc, useCellBuilderStore } from "@/state/cellBuilderStore";
 import ErrorBoundary from "./common/ErrorBoundary";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 // Equipment catalog editor — opened contextually from an equipment's "Edit
@@ -155,11 +155,11 @@ const Menu = () => {
   //
   // Either kind of "loaded" counts: an editable session (`active`, opened from
   // the model store) or a document that arrived embedded in the GLB
-  // (`embeddedDoc`, the websocket/desktop path -- `assembly.show()`). The second
-  // is read-only for now and the panel says so, but it is exactly as worth
-  // browsing: it is the equipment and systems of the model on screen.
+  // (`hasEmbeddedDoc`, the websocket/desktop path -- `assembly.show()`). The
+  // second is read-only for now and the panel says so, but it is exactly as
+  // worth browsing: it is the equipment and systems of the model on screen.
   const proceduralActive = useCellBuilderStore(
-    (s) => s.active !== null || s.embeddedDoc,
+    (s) => s.active !== null || hasEmbeddedDoc(s),
   );
   const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
   const toggleCellBuilderPanel = () =>

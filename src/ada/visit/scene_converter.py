@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Optional, OrderedDict
 
+import numpy as np
+
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.visit.gltf.graph import GraphNode, GraphStore
@@ -478,6 +480,10 @@ def _json_safe(value):
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        # Before the scalar branch: ``ada.Point`` subclasses ndarray, and ``item()`` raises for
+        # anything with more than one element -- which used to drop the whole document.
+        return _json_safe(value.tolist())
     item = getattr(value, "item", None)
     if callable(item) and hasattr(value, "dtype"):
         return item()

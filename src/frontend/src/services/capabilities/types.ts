@@ -105,7 +105,11 @@ export interface ProceduralModelCapability {
   readonly transport: CapabilityTransport;
 
   /** Resolve the procedural document for `source`. Never throws for a model that simply has none
-   * (an IFC import, a hand-built assembly) -- it resolves to `{available:false}`. */
+   * (an IFC import, a hand-built assembly) -- it resolves to `{available:false}`.
+   *
+   * This is the hook the websocket save/load verbs will plug into (see the ws/REST parity plan
+   * in the docs); today it has NO consumer -- the embedded-document path goes through
+   * `adoptEmbeddedModel` below, and the hosted viewer opens models through its own store. */
   fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult>;
 
   /** Offer a document found embedded in a freshly-loaded GLB

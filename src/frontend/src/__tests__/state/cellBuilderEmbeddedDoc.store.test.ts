@@ -4,16 +4,19 @@ import { test } from "node:test";
 // A procedural document that arrived embedded in a GLB (`assembly.show()`, the
 // websocket/desktop path) must be BROWSABLE without being EDITABLE.
 //
-// The two halves are deliberately separate pieces of state, and this pins why:
+// The two halves are deliberately separate questions, and this pins why:
 //
-//   `active`      -- an editable session with somewhere to commit back to.
-//                    `CellBuilderController` gates every editing interaction on
-//                    it (gizmos, click-to-place, drag-to-move) and
-//                    `setupCameraControlsHandlers` auto-compiles when it is set,
-//                    so `loadFromDoc` must NOT set it. Editing stays off for
-//                    free, which is the whole reason for the split.
-//   `embeddedDoc` -- there is a document worth showing. Drives panel + menu-
-//                    button visibility only.
+//   `active`         -- an editable session with somewhere to commit back to.
+//                       `CellBuilderController` gates every editing interaction
+//                       on it (gizmos, click-to-place, drag-to-move) and
+//                       `setupCameraControlsHandlers` auto-compiles when it is
+//                       set, so `loadFromDoc` must NOT set it. Editing stays off
+//                       for free, which is the whole reason for the split.
+//   `hasEmbeddedDoc` -- there is a document worth showing and no session behind
+//                       it. Drives panel + menu-button visibility only. DERIVED
+//                       from `active` + `cells` + `systems`, never stored: a
+//                       parallel flag would have to be kept in step by every
+//                       action that touches those.
 //
 // Conflating them (a synthetic `active` for embedded docs) would silently switch
 // on the entire 3D editing surface in a viewer with nowhere to save.
@@ -62,13 +65,14 @@ const DOC = {
 };
 
 test("an embedded document is loaded for viewing without claiming a session", async () => {
-  const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
+  const { hasEmbeddedDoc, useCellBuilderStore } = await import("@/state/cellBuilderStore");
 
-  useCellBuilderStore.setState({ active: null, embeddedDoc: false });
+  useCellBuilderStore.setState({ active: null, cells: {}, systems: {} });
+  assert.equal(hasEmbeddedDoc(useCellBuilderStore.getState()), false, "nothing loaded yet");
   useCellBuilderStore.getState().loadFromDoc(DOC as never);
 
   const s = useCellBuilderStore.getState();
-  assert.equal(s.embeddedDoc, true, "the panel must have something to show");
+  assert.equal(hasEmbeddedDoc(s), true, "the panel must have something to show");
   assert.equal(s.active, null, "there is nowhere to commit to; editing must stay off");
   assert.ok(Object.keys(s.cells).length > 0, "the equipment must have loaded");
   assert.ok(Object.keys(s.systems).length > 0, "the systems must have loaded");
@@ -76,31 +80,35 @@ test("an embedded document is loaded for viewing without claiming a session", as
 
 test("an empty document hides the panel again rather than leaving an empty one", async () => {
   // setupModelLoader calls loadFromDoc with an empty doc to CLEAR the panels when
-  // a model with no procedural provenance loads. Leaving `embeddedDoc` true there
-  // would strand an empty browser over an unrelated model.
-  const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
+  // a model with no procedural provenance loads. Reporting an embedded document
+  // there would strand an empty browser over an unrelated model.
+  const { hasEmbeddedDoc, useCellBuilderStore } = await import("@/state/cellBuilderStore");
 
   useCellBuilderStore.getState().loadFromDoc(DOC as never);
   useCellBuilderStore.getState().loadFromDoc({ spaces: [], equipments: [] } as never);
 
-  assert.equal(useCellBuilderStore.getState().embeddedDoc, false);
+  assert.equal(hasEmbeddedDoc(useCellBuilderStore.getState()), false);
 });
 
-test("opening a real model supersedes the view-only flag", async () => {
+test("opening a real model supersedes the view-only document", async () => {
   // Otherwise the header would go on calling an editable session "read-only".
-  const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
+  // Goes through `open()` itself: the derived answer must flip on the session
+  // being set, with no flag for `open` to remember to clear.
+  const { hasEmbeddedDoc, useCellBuilderStore } = await import("@/state/cellBuilderStore");
 
   useCellBuilderStore.getState().loadFromDoc(DOC as never);
-  assert.equal(useCellBuilderStore.getState().embeddedDoc, true);
+  assert.equal(hasEmbeddedDoc(useCellBuilderStore.getState()), true);
 
-  useCellBuilderStore.setState({
-    active: { modelId: "m", name: "n", revision: 3 },
-    embeddedDoc: false,
-  });
+  useCellBuilderStore.getState().open("m", "n", 3, DOC as never);
 
   const s = useCellBuilderStore.getState();
-  assert.equal(s.embeddedDoc, false);
+  assert.equal(hasEmbeddedDoc(s), false);
   assert.notEqual(s.active, null);
+  assert.ok(Object.keys(s.cells).length > 0, "the session's own document is loaded");
+
+  // And closing the session leaves nothing to show either.
+  useCellBuilderStore.getState().close();
+  assert.equal(hasEmbeddedDoc(useCellBuilderStore.getState()), false);
 });
 
 test("the REST transport is unaffected by the read-only gate", async () => {
