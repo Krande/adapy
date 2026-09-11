@@ -199,3 +199,47 @@ test("another model opened inside an owning mode replaces the view to put back",
     [0, 12],
   );
 });
+
+// A mode that paints outside core (a plugin overlay drawing its own colours) has
+// no field view of its own. What sits in the buffers when it is left is the
+// field it set aside, and that is the user's, not the mode's.
+
+test("re-entering a mode that painted nothing sets the user's current field aside", () => {
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true }); // sets g_stress aside
+  notifyActiveModeSceneColor({ id: "results" }); // g_stress back
+
+  // The user picks another field in Results.
+  useFeaAnimationStore.setState({ fieldName: "sesam.nodes.displacement", stepIndex: 1 });
+  useColorStore.setState({ min: 0, max: 39, showLegend: true });
+
+  notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
+  // No reload of the field capacity was left with: the displacement field stays
+  // in the buffers, set aside, its legend hidden.
+  const fea = useFeaAnimationStore.getState();
+  assert.equal(fea.fieldName, "sesam.nodes.displacement");
+  assert.equal(fea.stepIndex, 1);
+  assert.equal(useColorStore.getState().showLegend, false);
+
+  // Leaving puts the user's displacement view back, legend included.
+  notifyActiveModeSceneColor({ id: "results" });
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [0, 39, true]);
+});
+
+test("a loader repaint of the same source counts as the mode's own painting", () => {
+  noteFieldSourceLoaded("model.SIN"); // the page opened on this model
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // The painter repainted through the loader and kept the field's name.
+  useColorStore.setState({ min: 1, max: 3, showLegend: true });
+  noteFieldSourceLoaded("model.SIN");
+
+  notifyActiveModeSceneColor({ id: "results" });
+  assert.deepEqual(
+    [useColorStore.getState().min, useColorStore.getState().max],
+    [5, 50],
+  );
+  notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
+  // Its own view comes back (its legend, shown) rather than a fresh suspend.
+  const legend = useColorStore.getState();
+  assert.deepEqual([legend.min, legend.max, legend.showLegend], [1, 3, true]);
+});
