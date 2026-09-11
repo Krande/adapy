@@ -13,6 +13,7 @@ from ada.comms.msg_handling.list_web_clients import list_web_clients_func
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
 from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
+from ada.comms.msg_handling.save_procedural_model import save_procedural_model
 from ada.comms.msg_handling.shutdown_server import shutdown_server_func
 from ada.comms.msg_handling.start_local_app import start_local_app
 from ada.comms.msg_handling.start_separate_node_editor import start_separate_node_editor
@@ -58,6 +59,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             get_server_info_func(server, client, message)
         elif message.command_type == CommandTypeDC.SHUTDOWN_SERVER:
             shutdown_server_func(server, client, message)
+        elif message.command_type == CommandTypeDC.SAVE_PROCEDURAL_MODEL:
+            save_procedural_model(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(

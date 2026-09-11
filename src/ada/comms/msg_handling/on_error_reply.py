@@ -15,17 +15,21 @@ def on_error_reply(
     client: ConnectedClient,
     error_message: str = None,
     request_message: MessageDC | None = None,
+    code: int | None = None,
 ) -> None:
     """Send an ERROR reply. ``request_message`` is the command that failed, if it
     parsed at all; its ``request_id`` is echoed so the client's pending request
-    settles instead of timing out."""
+    settles instead of timing out. ``code`` lets a handler distinguish error
+    kinds the client needs to branch on (e.g. a save conflict, mirrored on the
+    REST commit endpoint's HTTP 409) from a generic failure; unset for the
+    latter, matching every existing caller."""
     reply_message = reply_to(
         request_message,
         instance_id=server.instance_id,
         command_type=CommandTypeDC.ERROR,
         target_id=client.instance_id,
         target_group=client.group_type,
-        server_reply=ServerReplyDC(error=ErrorDC(message=str(error_message))),
+        server_reply=ServerReplyDC(error=ErrorDC(code=code, message=str(error_message))),
     )
     fb_message = serialize_root_message(reply_message)
     server.send_message_threadsafe(client, fb_message)
