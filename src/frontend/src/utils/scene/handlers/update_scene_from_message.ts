@@ -5,6 +5,7 @@ import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
 import {SetupModelPrepareHook, setupModelLoaderAsync, type SetupModelLoaderOptions} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -142,10 +143,7 @@ export async function update_scene_from_message(message: Message) {
     if (operation == SceneOperations.REPLACE) {
         // sourceName labels the tree root (GLB filename) and keeps the
         // StorageBrowser checkbox in sync (unload finds the right group).
-        const group = await replace_model({url, sourceName: sourceName ?? undefined});
-        if (group && sourceName) {
-            useModelState.getState().registerLoadedSource(sourceName, group);
-        }
+        await loadModel({sourceName: sourceName ?? "", bytes: {from: "url", url}});
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else if (operation == SceneOperations.ADD) {
@@ -153,10 +151,11 @@ export async function update_scene_from_message(message: Message) {
         if (mesh) {
             await add_mesh_to_scene(mesh)
         } else {
-            const group = await setupModelLoaderAsync({modelUrl: url, sourceName: sourceName ?? undefined});
-            if (group && sourceName) {
-                useModelState.getState().registerLoadedSource(sourceName, group);
-            }
+            await loadModel({
+                sourceName: sourceName ?? "",
+                bytes: {from: "url", url},
+                placement: "overlay",
+            });
         }
     } else {
         console.error("Unknown operation type: ", operation);

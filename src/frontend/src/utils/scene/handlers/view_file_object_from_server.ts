@@ -6,7 +6,6 @@ import {CommandType} from "@/flatbuffers/commands";
 import {TargetType} from "@/flatbuffers/commands/target-type";
 import {Server} from "@/flatbuffers/server/server";
 import {runtime} from "@/runtime/config";
-import {useModelState} from "@/state/modelState";
 // NOTE: the conversion service and the conversionStore are imported
 // lazily inside the REST branch below. In WS / desktop mode (the
 // embedded zip shipped with the Python package) they're never
@@ -76,64 +75,25 @@ export async function load_glb_by_url_rest(
     // compile/recompile never moves the camera; normal file views omit it.
     autoFitOverride?: boolean,
 ) {
-    const {viewerApi} = await import("@/services/viewerApi");
-    const {getAccessToken} = await import("@/services/auth/oidc");
-    const {replace_model} = await import("./update_scene_from_message");
-    const {beginLoadMetrics} = await import("@/utils/scene/loadMetrics");
-
-    // Admin-only opt-in: time this load phase-by-phase (no-op / null when
-    // collection is off or the user isn't an admin → zero extra cost).
-    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "unknown"});
-
-    let group: Awaited<ReturnType<typeof replace_model>> | undefined;
-    try {
-        try {
-            const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
-            metrics?.setTransport("presigned");
-            group = await replace_model({url: presigned.url, sourceName, metrics, autoFitOverride});
-        } catch (e) {
-            console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
-            const url = viewerApi.blobUrl(scope as any, glbKey);
-            const token = getAccessToken();
-            const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
-            metrics?.setTransport("relayed");
-            group = await replace_model({url, sourceName, requestHeaders: headers, metrics, autoFitOverride});
-        }
-    } catch (e) {
-        // Record the failed load too, then re-throw to the caller's handler.
-        metrics?.fail(e instanceof Error ? e.message : String(e));
-        throw e;
-    }
-    // Order matters: setLoadedSourceName wipes loadedSourceGroups (drops any prior overlay set),
-    // so it must run BEFORE we register this primary model's group — otherwise the group we just
-    // registered is cleared, leaving the model in loadedSourceNames with no group and thus a
-    // non-toggleable eye in the loaded-models list (couldn't hide the original under an overlay).
-    useModelState.getState().setLoadedSourceName(sourceName);
-    if (group && sourceName) {
-        useModelState.getState().registerLoadedSource(sourceName, group);
-    }
+    const {loadModel} = await import("@/components/viewer/sceneHelpers/loadModel");
+    await loadModel({
+        sourceName,
+        bytes: {from: "storage", scope, glbKey},
+        autoFitOverride,
+        presignFallbackWarning:
+            "view: presigned GLB load failed, falling back to authed streaming GET",
+    });
 }
 
 // Load a GLB straight from in-memory bytes (e.g. an in-browser procedural
-// compile) — no storage round-trip. Wraps the bytes in a Blob URL and reuses the
-// same replace_model → registerLoadedSource path as load_glb_by_url_rest.
+// compile) — no storage round-trip.
 export async function load_glb_from_bytes(
     bytes: Uint8Array,
     sourceName: string,
     autoFitOverride?: boolean,
 ) {
-    const {replace_model} = await import("./update_scene_from_message");
-    const url = URL.createObjectURL(new Blob([bytes], {type: "model/gltf-binary"}));
-    let group: Awaited<ReturnType<typeof replace_model>> | undefined;
-    try {
-        group = await replace_model({url, sourceName, autoFitOverride});
-    } finally {
-        URL.revokeObjectURL(url);
-    }
-    useModelState.getState().setLoadedSourceName(sourceName);
-    if (group && sourceName) {
-        useModelState.getState().registerLoadedSource(sourceName, group);
-    }
+    const {loadModel} = await import("@/components/viewer/sceneHelpers/loadModel");
+    await loadModel({sourceName, bytes: {from: "bytes", bytes}, autoFitOverride});
 }
 
 export async function view_file_object_from_server(fileobject: FileObject) {
