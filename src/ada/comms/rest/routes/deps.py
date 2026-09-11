@@ -592,6 +592,49 @@ def format_label(key: str) -> str:
     return SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
 
 
+class SystemUser:
+    """Synthetic ``User`` stand-in used by the scheduler ticks + cron-fired
+    runs. ``parse_scope`` only reads ``.sub`` (and only on ``user:me``, which
+    a scheduled run wouldn't sensibly use), but we still give it a
+    recognisable identifier so audit rows say ``created_by=system`` rather
+    than ``None``."""
+
+    sub = "system"
+    is_admin = True
+
+
+def validate_cron(cron_expr: str) -> str:
+    """Parse-and-normalise a 5-field cron expression. Returns the
+    cleaned form on success; raises HTTPException(400) on a
+    malformed input so the REST handler can surface a useful
+    message instead of a 500."""
+    from croniter import CroniterBadCronError, croniter  # type: ignore
+
+    cleaned = cron_expr.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="cron_expr is required")
+    try:
+        croniter(cleaned)
+    except (CroniterBadCronError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid cron expression: {exc}",
+        ) from exc
+    return cleaned
+
+
+def next_fire(cron_expr: str, *, after=None):
+    """Compute the next firing instant from ``after`` (defaults to
+    now). Returns a timezone-aware UTC datetime — Postgres
+    ``TIMESTAMPTZ`` round-trips it without conversion surprises."""
+    import datetime as _datetime
+
+    from croniter import croniter  # type: ignore
+
+    base = after or _datetime.datetime.now(_datetime.timezone.utc)
+    return croniter(cron_expr, base).get_next(_datetime.datetime)
+
+
 async def advertised_engine_capability(queue: JobQueue, slug: str | None) -> str | None:
     """The worker capability of an engine a live worker advertises itself.
 
