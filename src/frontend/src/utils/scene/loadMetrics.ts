@@ -30,6 +30,7 @@
 // method body is guarded.
 
 import * as THREE from "three";
+import {capabilities} from "@/services/capabilities";
 import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
@@ -325,8 +326,10 @@ export class LoadMetricsRecorder {
 
         const js_heap_used_mb = cm["js_heap_used_mb"] as number | undefined;
 
-        const {viewerApi} = await import("@/services/viewerApi");
-        await viewerApi.recordViewLoad(this.meta.scope, {
+        // Nowhere to send the record on a transport without the verb; the
+        // recorder is best-effort by contract, so drop it rather than throw.
+        if (!capabilities.metrics.supports("recordViewLoad")) return;
+        await capabilities.metrics.recordViewLoad(this.meta.scope, {
             key: this.meta.key,
             status: error ? "error" : "ok",
             error: error ?? null,

@@ -15,6 +15,7 @@
 // admin; a no-op (single store read) otherwise, so the render loop pays
 // nothing by default.
 
+import {capabilities} from "@/services/capabilities";
 import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
@@ -265,8 +266,8 @@ class RenderProfiler {
                 }
             })();
             if (gr) cm["gpu_renderer"] = gr.slice(0, 200);
-            const {viewerApi} = await import("@/services/viewerApi");
-            await viewerApi.recordRenderProfile(scope, {
+            if (!capabilities.metrics.supports("recordRenderProfile")) return;
+            await capabilities.metrics.recordRenderProfile(scope, {
                 key,
                 duration_ms: cm["window_ms"] as number,
                 client_metrics: cm,
