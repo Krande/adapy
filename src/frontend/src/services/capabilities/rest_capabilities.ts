@@ -11,16 +11,28 @@
 // evaluating the REST HTTP client just because the capability index names both
 // implementations. The module is cached after the first call.
 
+import { runtime } from "@/runtime/config";
 import type { ModelStats } from "@/utils/stats/modelStats";
 import type {
+  ComponentSpecsResponse,
   ConvertResponse,
+  EquipmentTypeDetail,
+  EquipmentTypeDoc,
+  EquipmentTypeSummary,
+  FeaManifest,
   ProceduralBlueprintOption,
   ProceduralCompileResponse,
   ProceduralDoc,
+  ProceduralEngineDetail,
+  ProceduralEngineDoc,
   ProceduralEngineResolved,
   ProceduralModelDetail,
   ProceduralRelocationResult,
   ProceduralXlsxDetect,
+  ScopeUrl,
+  SystemTemplateDetail,
+  SystemTemplateDoc,
+  SystemTemplateSummary,
 } from "@/services/viewerApi";
 import {
   ProceduralCommitConflictError,
@@ -47,6 +59,28 @@ import {
   type ProceduralXlsxImportResponse,
   type StatsExportFormat,
   type ViewerCapabilities,
+  // ---- seams 3 ----
+  type CatalogCapability,
+  type CatalogEntryFields,
+  type CatalogJobHandle,
+  type CatalogRevision,
+  type CatalogVerb,
+  type ComponentsCapability,
+  type ComponentsVerb,
+  type ConversionCapability,
+  type ConversionVerb,
+  type FeaCapability,
+  type FeaManifestOptions,
+  type FeaVerb,
+  type FilesCapability,
+  type FilesVerb,
+  type MetricsCapability,
+  type MetricsVerb,
+  type PresignedDownload,
+  type PresignedUpload,
+  type RenderProfileRecord,
+  type UploadProgressHandler,
+  type ViewLoadRecord,
 } from "./types";
 
 type ViewerApiModule = typeof import("@/services/viewerApi");
@@ -295,8 +329,248 @@ export class RESTProceduralModelCapability implements ProceduralModelCapability 
   }
 }
 
+// =============================================================================
+// Store- and scene-layer capabilities (seams 3). Every verb here is a one-line
+// delegation to the `viewerApi` method the consumer used to call directly, so
+// the hosted viewer's behaviour is unchanged; `supports()` is true throughout.
+// =============================================================================
+
+export class RESTFilesCapability implements FilesCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: FilesVerb): boolean {
+    return true;
+  }
+
+  async fetchBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
+    const { viewerApi } = await api();
+    return await viewerApi.getBlob(scope, key);
+  }
+
+  /** Synchronous by contract (a URL is a string, not a request), so it cannot
+   * await the dynamic import. `viewerApi.blobUrl` is pure string formatting
+   * over `runtime.apiBase()`, mirrored here verbatim rather than imported so
+   * the module keeps the isolation its header describes. */
+  blobUrl(scope: ScopeUrl, key: string): string {
+    return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/blobs/${encodeURIComponent(key)}`;
+  }
+
+  async requestDownloadUrl(scope: ScopeUrl, key: string): Promise<PresignedDownload> {
+    const { viewerApi } = await api();
+    return await viewerApi.requestDownloadUrl(scope, key);
+  }
+
+  async requestUploadUrl(scope: ScopeUrl, key: string, size?: number): Promise<PresignedUpload> {
+    const { viewerApi } = await api();
+    return await viewerApi.requestUploadUrl(scope, key, size);
+  }
+
+  async reportUploadProgress(scope: ScopeUrl, key: string, loaded: number, total: number): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.uploadProgress(scope, key, loaded, total);
+  }
+
+  async completeUpload(scope: ScopeUrl, key: string): Promise<{ key: string; size: number }> {
+    const { viewerApi } = await api();
+    return await viewerApi.completeUpload(scope, key);
+  }
+
+  async putBlob(
+    scope: ScopeUrl,
+    key: string,
+    body: BodyInit,
+    opts?: { onProgress?: UploadProgressHandler },
+  ): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.putBlob(scope, key, body, opts);
+  }
+}
+
+export class RESTFeaCapability implements FeaCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: FeaVerb): boolean {
+    return true;
+  }
+
+  async fetchManifest(scope: ScopeUrl, sourceKey: string, opts?: FeaManifestOptions): Promise<FeaManifest> {
+    const { viewerApi } = await api();
+    return await viewerApi.feaManifest(scope, sourceKey, opts);
+  }
+}
+
+export class RESTConversionCapability implements ConversionCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: ConversionVerb): boolean {
+    return true;
+  }
+
+  async jobStatus(jobId: string): Promise<ConvertResponse> {
+    const { viewerApi } = await api();
+    return await viewerApi.convertStatus(jobId);
+  }
+}
+
+export class RESTCatalogCapability implements CatalogCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: CatalogVerb): boolean {
+    return true;
+  }
+
+  // equipment types
+
+  async listEquipmentTypes(scope: ScopeUrl): Promise<EquipmentTypeSummary[]> {
+    const { viewerApi } = await api();
+    return await viewerApi.listEquipmentTypes(scope);
+  }
+
+  async createEquipmentType(scope: ScopeUrl, name: string): Promise<EquipmentTypeDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.createEquipmentType(scope, name);
+  }
+
+  async getEquipmentType(scope: ScopeUrl, typeId: string): Promise<EquipmentTypeDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.getEquipmentType(scope, typeId);
+  }
+
+  async updateEquipmentType(
+    scope: ScopeUrl,
+    typeId: string,
+    fields: CatalogEntryFields<EquipmentTypeDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision> {
+    const { viewerApi } = await api();
+    return await viewerApi.updateEquipmentType(scope, typeId, fields, baseRevision);
+  }
+
+  async deleteEquipmentType(scope: ScopeUrl, typeId: string): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.deleteEquipmentType(scope, typeId);
+  }
+
+  async uploadEquipmentCad(
+    scope: ScopeUrl,
+    typeId: string,
+    filename: string,
+    data: Blob | ArrayBuffer,
+  ): Promise<{ cad_key: string }> {
+    const { viewerApi } = await api();
+    return await viewerApi.uploadEquipmentCad(scope, typeId, filename, data);
+  }
+
+  async copyEquipmentCadFromScope(scope: ScopeUrl, typeId: string, sourceKey: string): Promise<{ cad_key: string }> {
+    const { viewerApi } = await api();
+    return await viewerApi.copyEquipmentCadFromScope(scope, typeId, sourceKey);
+  }
+
+  async inferEquipmentBbox(scope: ScopeUrl, typeId: string): Promise<CatalogJobHandle> {
+    const { viewerApi } = await api();
+    return await viewerApi.inferEquipmentBbox(scope, typeId);
+  }
+
+  // system templates
+
+  async listSystemTemplates(scope: ScopeUrl): Promise<SystemTemplateSummary[]> {
+    const { viewerApi } = await api();
+    return await viewerApi.listSystemTemplates(scope);
+  }
+
+  async createSystemTemplate(scope: ScopeUrl, name: string): Promise<SystemTemplateDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.createSystemTemplate(scope, name);
+  }
+
+  async getSystemTemplate(scope: ScopeUrl, templateId: string): Promise<SystemTemplateDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.getSystemTemplate(scope, templateId);
+  }
+
+  async updateSystemTemplate(
+    scope: ScopeUrl,
+    templateId: string,
+    fields: CatalogEntryFields<SystemTemplateDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision> {
+    const { viewerApi } = await api();
+    return await viewerApi.updateSystemTemplate(scope, templateId, fields, baseRevision);
+  }
+
+  async deleteSystemTemplate(scope: ScopeUrl, templateId: string): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.deleteSystemTemplate(scope, templateId);
+  }
+
+  // procedural engines
+
+  async createEngine(scope: ScopeUrl, name: string): Promise<ProceduralEngineDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.createProceduralEngine(scope, name);
+  }
+
+  async getEngine(scope: ScopeUrl, engineId: string): Promise<ProceduralEngineDetail> {
+    const { viewerApi } = await api();
+    return await viewerApi.getProceduralEngine(scope, engineId);
+  }
+
+  async updateEngine(
+    scope: ScopeUrl,
+    engineId: string,
+    fields: CatalogEntryFields<ProceduralEngineDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision> {
+    const { viewerApi } = await api();
+    return await viewerApi.updateProceduralEngine(scope, engineId, fields, baseRevision);
+  }
+
+  async deleteEngine(scope: ScopeUrl, engineId: string): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.deleteProceduralEngine(scope, engineId);
+  }
+}
+
+export class RESTComponentsCapability implements ComponentsCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: ComponentsVerb): boolean {
+    return true;
+  }
+
+  async fetchSpecs(scope: ScopeUrl): Promise<ComponentSpecsResponse> {
+    const { viewerApi } = await api();
+    return await viewerApi.componentsSpecs({ scope });
+  }
+}
+
+export class RESTMetricsCapability implements MetricsCapability {
+  readonly transport: CapabilityTransport = "rest";
+
+  supports(_verb: MetricsVerb): boolean {
+    return true;
+  }
+
+  async recordViewLoad(scope: ScopeUrl, record: ViewLoadRecord): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.recordViewLoad(scope, record);
+  }
+
+  async recordRenderProfile(scope: ScopeUrl, record: RenderProfileRecord): Promise<void> {
+    const { viewerApi } = await api();
+    await viewerApi.recordRenderProfile(scope, record);
+  }
+}
+
 export class RESTCapabilities implements ViewerCapabilities {
   readonly transport: CapabilityTransport = "rest";
   readonly stats: ModelStatsCapability = new RESTModelStatsCapability();
   readonly procedural: ProceduralModelCapability = new RESTProceduralModelCapability();
+  // ---- seams 3 ----
+  readonly files: FilesCapability = new RESTFilesCapability();
+  readonly fea: FeaCapability = new RESTFeaCapability();
+  readonly conversion: ConversionCapability = new RESTConversionCapability();
+  readonly catalog: CatalogCapability = new RESTCatalogCapability();
+  readonly components: ComponentsCapability = new RESTComponentsCapability();
+  readonly metrics: MetricsCapability = new RESTMetricsCapability();
 }
