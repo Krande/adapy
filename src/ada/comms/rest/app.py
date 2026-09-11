@@ -45,9 +45,10 @@ from .converter import (
 )
 from .handlers import dispatch
 from .plugin_registry import discover_local_plugins
-from .qualification import CAPABILITY_REQUIREMENTS_KEY
 from .queue import JobQueue
+from .routes.admin_settings import router as admin_settings_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
+    CAPABILITY_REQUIREMENTS_SETTING,
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     GZIP_UPLOAD_EXTS,
     RestContext,
@@ -61,6 +62,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     parse_rename_body,
     parse_scope,
     pending_upload_detail,
+    publish_capability_requirements,
     require_catalog_pool,
     require_pool,
     resolve_project_scope,
@@ -101,11 +103,6 @@ _content_encoding_for = content_encoding_for
 # stay bound here for the routes still in this module that call them.
 _human_bytes = human_bytes
 _pending_upload_detail = pending_upload_detail
-
-
-#: The `app_settings` key an admin edits. Mirrored into the KV meta keyspace
-#: under `CAPABILITY_REQUIREMENTS_KEY` so workers without a database can read it.
-CAPABILITY_REQUIREMENTS_SETTING = "capability_requirements"
 
 _ADAPY_VERSION: str | None = None
 
@@ -382,27 +379,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _worker_registry["ts"] = time.time()
 
     async def _publish_capability_requirements(value: str | None) -> None:
-        """Mirror the requirement document into the NATS KV meta keyspace.
-
-        Workers read it from there, not from Postgres — deliberately. The worker
-        this gate exists for is the one least likely to have a database
-        connection: an off-cluster machine has no reason to be given one, and
-        making qualification depend on Postgres would leave exactly that worker
-        ungated. KV is already how it learns everything else about the
-        deployment.
-
-        Best-effort. Failing to publish must not fail the admin's write: the
-        setting is stored either way, and the next successful publish (or a
-        restart) reconciles. Workers that cannot read it fail OPEN, so the
-        blast radius of this not landing is "the gate is not yet enforced",
-        never "the fleet stopped".
-        """
-        if not queue.enabled:
-            return
-        try:
-            await queue.set_meta(CAPABILITY_REQUIREMENTS_KEY, value or "")
-        except Exception:
-            logger.exception("could not publish capability requirements to the job queue")
+        # routes/deps.py's publish_capability_requirements, bound to this
+        # app's queue. routes/admin_settings.py calls the deps function
+        # directly via RestContext; kept here under the old name for the
+        # lifespan startup publish above.
+        await publish_capability_requirements(queue, value)
 
     async def _is_accepted_source(key: str) -> bool:
         # routes/deps.py's is_accepted_source, bound to this app's queue +
@@ -2165,61 +2146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("compression sweep: KV write failed (non-fatal)")
 
-    @admin.get("/settings/{key}")
-    async def admin_get_setting(
-        key: str,
-        request: Request,
-    ) -> JSONResponse:
-        """Generic key/value get from app_settings. Returns
-        ``{"key": k, "value": v}`` with v=null when unset. Admin-only; keys in
-        the ``public.`` namespace are additionally readable by any authenticated
-        user via ``GET /api/settings/{key}``."""
-        pool = _require_pool(request)
-        value = await db_module.get_setting(pool, key)
-        return JSONResponse({"key": key, "value": value})
-
-    @admin.post("/settings/{key}")
-    async def admin_set_setting(
-        key: str,
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Upsert a setting. Body: ``{"value": "..."}``. The audit trail
-        for who-flipped-what lives on the row's ``updated_by`` column."""
-        pool = _require_pool(request)
-        body = await request.json()
-        if "value" not in body:
-            raise HTTPException(status_code=400, detail="value required")
-        value = "" if body["value"] is None else str(body["value"])
-        await db_module.set_setting(pool, key, value, updated_by=user.sub)
-        if key == CAPABILITY_REQUIREMENTS_SETTING:
-            await _publish_capability_requirements(value)
-        return JSONResponse({"key": key, "value": value})
-
-    @admin.post("/auth/cli-token")
-    async def admin_mint_cli_token(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Mint a 30-day bearer token bound to the current OIDC
-        identity. Returned once, never stored server-side. Use it as
-        ``Authorization: Bearer <token>`` from CLI / pixi tasks."""
-        config = request.app.state.auth_config
-        token, exp = auth_module.mint_cli_token(user, config)
-        return JSONResponse({"token": token, "expires_at": exp})
-
-    @admin.post("/auth/cli-token/revoke")
-    async def admin_revoke_cli_tokens(
-        request: Request,
-        user: User = Depends(auth_module.current_user),
-    ) -> JSONResponse:
-        """Revoke every CLI token previously minted for the current
-        user by bumping the per-user cutoff. The OIDC bearer used for
-        this request stays valid — only self-issued CLI tokens are
-        affected."""
-        pool = _require_pool(request)
-        revoked_at = await auth_module.revoke_cli_tokens(pool, user)
-        return JSONResponse({"revoked_at": revoked_at})
+    admin.include_router(admin_settings_router)
 
     async def _compression_sweep(scope_obj: Scope, scope_label: str) -> None:
         import gzip as _gzip

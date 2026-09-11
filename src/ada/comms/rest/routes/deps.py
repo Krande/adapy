@@ -21,6 +21,7 @@ from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
 from ..converter import is_supported_source
+from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
 from ..scope import Scope
 from ..scope import can_access as scope_can_access
@@ -76,6 +77,12 @@ def rest_context(request: Request) -> RestContext:
     """FastAPI dependency: the app's :class:`RestContext`."""
     return request.app.state.rest
 
+
+#: The app_settings row that mirrors into the NATS KV key of the same
+#: name (``CAPABILITY_REQUIREMENTS_KEY``) via ``publish_capability_requirements``
+#: — Postgres is the admin-editable source, KV is what a worker without a
+#: database connection actually reads.
+CAPABILITY_REQUIREMENTS_SETTING = "capability_requirements"
 
 # Hard cap on the regular API-buffered upload path. Above this we make
 # the client request a presigned URL and PUT directly at the object
@@ -516,6 +523,30 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
                 ext = f".{ext}"
             out.add(ext)
     return sorted(out)
+
+
+async def publish_capability_requirements(queue: JobQueue, value: str | None) -> None:
+    """Mirror the requirement document into the NATS KV meta keyspace.
+
+    Workers read it from there, not from Postgres — deliberately. The worker
+    this gate exists for is the one least likely to have a database
+    connection: an off-cluster machine has no reason to be given one, and
+    making qualification depend on Postgres would leave exactly that worker
+    ungated. KV is already how it learns everything else about the
+    deployment.
+
+    Best-effort. Failing to publish must not fail the admin's write: the
+    setting is stored either way, and the next successful publish (or a
+    restart) reconciles. Workers that cannot read it fail OPEN, so the
+    blast radius of this not landing is "the gate is not yet enforced",
+    never "the fleet stopped".
+    """
+    if not queue.enabled:
+        return
+    try:
+        await queue.set_meta(CAPABILITY_REQUIREMENTS_KEY, value or "")
+    except Exception:
+        logger.exception("could not publish capability requirements to the job queue")
 
 
 async def is_accepted_source(queue: JobQueue, worker_registry: dict, key: str) -> bool:
