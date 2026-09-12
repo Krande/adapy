@@ -13,7 +13,7 @@ import ConversionSettingsTab from "./ConversionSettingsTab";
 import IssueTargetTab from "./IssueTargetTab";
 import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
-import StorageTab from "./StorageTab";
+import StorageTab from "./adminStorage/StorageTab";
 import WorkersTab from "./WorkersTab";
 
 // Path-mounted admin page (``/admin``) — full-screen on every

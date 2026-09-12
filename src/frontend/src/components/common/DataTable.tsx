@@ -64,6 +64,10 @@ export interface DataTableProps<Row> {
     rowProps?: (row: Row, index: number) => React.HTMLAttributes<HTMLTableRowElement>;
     /** Extra rows rendered after a row — an expansion panel. */
     renderAfterRow?: (row: Row, index: number) => React.ReactNode;
+    /** Replace the default `<tr>` for a row entirely (a folder row spanning
+     * every column, a row component with its own expansion). Must return
+     * `<tr>` element(s); `renderAfterRow` is skipped for such rows. */
+    renderRow?: (row: Row, index: number) => React.ReactNode;
     /** Controlled sort. Omit for internal state seeded by `defaultSort`. */
     sort?: DataTableSort | null;
     onSortChange?: (sort: DataTableSort) => void;
@@ -111,6 +115,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.ReactElement {
         rowClassName,
         rowProps,
         renderAfterRow,
+        renderRow,
         defaultSort,
         sortIndicatorClassName = "text-blue-400",
     } = props;
@@ -176,7 +181,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.ReactElement {
             </tr>
             </thead>
             <tbody className={tbodyClassName}>
-            {sortedRows.map((row, i) => (
+            {sortedRows.map((row, i) => renderRow ? (
+                <React.Fragment key={rowKey(row, i)}>{renderRow(row, i)}</React.Fragment>
+            ) : (
                 <React.Fragment key={rowKey(row, i)}>
                     <tr className={classOf(rowClassName, row, i)} {...rowProps?.(row, i)}>
                         {columns.map((c) => (
