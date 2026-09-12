@@ -184,7 +184,8 @@ def test_reading_runs_no_layout_at_all(monkeypatch):
     something that should not have run. Asserting the call count is the direct check, and it fails
     the moment anyone reintroduces a placement step on the read side.
     """
-    from ada.cadit.dexpi.read import to_procedural
+    # Patched where the call is made: ``read.to_procedural`` is a re-export facade over this package.
+    from ada.cadit.dexpi.read import procedural as to_procedural
 
     calls = []
     real = to_procedural.plan_layout
