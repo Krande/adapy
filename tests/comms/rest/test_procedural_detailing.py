@@ -381,7 +381,7 @@ def test_procedural_detail_waits_for_structural_artifact(monkeypatch):
     from ada.comms.rest import worker as worker_mod
 
     # Tiny poll interval so the test doesn't spend real seconds waiting.
-    monkeypatch.setattr(worker_mod, "STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S", 0.01)
+    monkeypatch.setattr("ada.comms.rest.worker.state.STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S", 0.01)
 
     ifc_key = "_procedural/m1/r2.structural.ifc"
     sections_key = "_procedural/m1/r2.structural.sections.json"
