@@ -1,18 +1,12 @@
 import * as THREE from "three";
 
-import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
-
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
-import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {capabilities} from "@/services/capabilities";
 import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
 import type {SidecarFetcher} from "@/plugins/registry";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {useModelState} from "@/state/modelState";
-import {useModelSessionStore} from "@/state/modelSession";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useColorStore} from "@/state/colorLegendStore";
@@ -28,9 +22,9 @@ import {
 } from "../fea/modeSceneColor";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
-import {replace_model} from "./update_scene_from_message";
+import type {FeaSessionHandle} from "@/state/modelSession";
 import {feaSession as session} from "../fea/streaming/session";
-import {findFirstMesh, installAfemUserData, snapshotBasePositions} from "../fea/streaming/sceneMesh";
+import {openFeaSession} from "../fea/streaming/sessionSetup";
 import {findDisplacementField, installBeamSolidWarp, linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {fetchBeamSolidWarpSidecar, tryLoadBeamSolids} from "../fea/streaming/beamSolids";
 import {installElementEdges} from "../fea/streaming/elementEdges";
@@ -153,192 +147,11 @@ export async function load_fea_streaming(args: {
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same
     // mesh; switching source forces a reload.
-    if (!session.active || session.active.sourceName !== sourceName) {
-        stage("loading mesh", 0.05);
-        throwIfAborted();
-        const buf = await fetcher(manifest.mesh.url);
-        throwIfAborted();
-        stage("loading mesh", 0.35);
-        const blob = new Blob([buf], {type: "model/gltf-binary"});
-        const url = URL.createObjectURL(blob);
+    let active: FeaSessionHandle | null = session.active;
+    if (!active || active.sourceName !== sourceName) {
+        active = await openFeaSession({fetcher, sourceName, manifest, stage, throwIfAborted});
+        const mesh = active.mesh;
 
-        // Fetch the AFEM sidecar (per-element draw ranges) up-front.
-        // The prepareHook installs userData entries before
-        // prepareLoadedModel runs, so the FEA mesh enters the scene
-        // as a per-element CustomBatchedMesh — same pick + highlight
-        // pipeline as CAD models, no parallel selection path.
-        let afemEntries: MeshElementEntry[] = [];
-        if (manifest.mesh.elements_url) {
-            try {
-                afemEntries = await fetchMeshElements(
-                    fetcher,
-                    manifest.mesh.elements_url,
-                );
-            } catch (err) {
-                // Selection wiring is best-effort: the picker still
-                // renders without it, just at whole-mesh granularity.
-                // eslint-disable-next-line no-console
-                console.warn("[fea-streaming] failed to load mesh elements:", err);
-            }
-        }
-
-        // Captured from the prepareHook so the mesh lookups below are
-        // scoped to the GLB we just loaded — NOT the whole scene. The
-        // fem_concepts overlay (and any other helper) registers its own
-        // meshes as direct scene children, so findFirstMesh(scene) could
-        // otherwise grab a glyph mesh as the "FEA mesh" and the field
-        // apply would crash on a vertex-count mismatch. gltf_scene is the
-        // same object setupModelLoader adds to the scene, so it stays
-        // valid after replace_model resolves.
-        let feaRoot: THREE.Object3D | null = null;
-        try {
-            const feaGroup = await replace_model({
-                url,
-                prepareHook: async (gltf_scene) => {
-                    feaRoot = gltf_scene;
-                    if (afemEntries.length > 0) {
-                        installAfemUserData(gltf_scene, afemEntries);
-                    }
-                },
-                translate: true,
-            });
-            const ms = useModelState.getState();
-            ms.setModelUrl(url, SceneOperations.REPLACE);
-            ms.setLoadedSourceName(sourceName);
-            // Register the loaded group AFTER setLoadedSourceName (which clears
-            // loadedSourceGroups) so the FEA result mesh gets a working visibility
-            // toggle in the loaded-models list (hide it to inspect a sibling CAD
-            // overlay). fem_concepts glyphs live as separate scene children, so
-            // this only gates the result mesh — exactly what we want.
-            if (feaGroup && sourceName) {
-                ms.registerLoadedSource(sourceName, feaGroup);
-            }
-            // Register CAD↔FEA lineage from the manifest. Mirrors the
-            // glTF-extension registration that setupModelLoader does
-            // for CAD GLBs — once a sibling CAD overlay carrying the
-            // same ``assembly_guid`` is also loaded, the panel's link
-            // row resolves a clicked FEA element back to its parent
-            // beam without going through the server.
-            if (manifest.lineage && manifest.lineage.assembly_guid) {
-                const sceneRoot = getViewerRuntime().scene.current;
-                const meshRoot = feaRoot ? findFirstMesh(feaRoot) : null;
-                const root = (meshRoot ?? feaRoot ?? sceneRoot) as THREE.Object3D | null;
-                if (root) {
-                    const materials = manifest.lineage.materials ?? {};
-                    const sections = manifest.lineage.sections ?? {};
-                    const {useLineageStore} = await import("@/state/lineageStore");
-                    useLineageStore.getState().register({
-                        kind: "fea",
-                        fileName: sourceName,
-                        assemblyGuid: manifest.lineage.assembly_guid,
-                        root,
-                        groups: manifest.lineage.groups.map((g) => {
-                            // Resolve material + section name refs into
-                            // a synthetic Beam/Plate metadata dict the
-                            // Properties panel can render the same way
-                            // it renders embedded CAD metadata. Cheap —
-                            // one lookup per group (not per element).
-                            const material =
-                                (g.material_name && materials[g.material_name]) ||
-                                (g.material_name ? {name: g.material_name} : null);
-                            let metadata: any = null;
-                            if (g.type === 'Beam') {
-                                const section =
-                                    (g.section_name && sections[g.section_name]) || null;
-                                metadata = {
-                                    type: 'Beam',
-                                    name: g.parent_object_name ?? undefined,
-                                    section,
-                                    material,
-                                };
-                            } else if (g.type === 'Plate') {
-                                metadata = {
-                                    type: 'Plate',
-                                    name: g.parent_object_name ?? undefined,
-                                    thickness: g.thickness ?? null,
-                                    material,
-                                };
-                            }
-                            return {
-                                parentObjectGuid: g.parent_object_guid,
-                                inlineMembers: g.members,
-                                metadata,
-                            };
-                        }),
-                    });
-                }
-            }
-
-            // FEA input concepts (masses / BCs / load scenarios) carried
-            // from adapy's deck-write sidecar through the manifest. A baked
-            // FEA-result GLB is geometry-only (no ADA_EXT extension), so
-            // FemConceptsController's adaExtension parse finds nothing
-            // for it — we push the manifest's concepts straight into the
-            // store instead, the same way lineage feeds useLineageStore
-            // above. This runs after setLoadedSourceName, whose store
-            // subscription (reparse → empty extension) would otherwise have
-            // just cleared the overlay.
-            if (manifest.fem_concepts) {
-                const {useFemConceptsStore} = await import("@/state/femConceptsStore");
-                const fc = manifest.fem_concepts;
-                useFemConceptsStore.getState().setData({
-                    masses: fc.masses ?? [],
-                    bcs: fc.bcs ?? [],
-                    scenarios: fc.scenarios ?? [],
-                });
-            }
-            // FEM node/element sets -> Scene > FEM groups picker. The streaming mesh.glb has no
-            // ADA_EXT (where GroupsSection normally reads groups), so feed the manifest groups
-            // straight into the scene-info store it renders from. Members (EL{id}/P{id}) resolve
-            // against the AFEM element ranges.
-            {
-                const {useSceneInfoStore} = await import("@/state/sceneInfoStore");
-                const mg = manifest.groups ?? [];
-                useSceneInfoStore.getState().setAvailableGroups(
-                    mg.map((g) => ({
-                        name: g.name,
-                        members: g.members,
-                        type: "simulation" as const,
-                        parent_name: sourceName,
-                        fe_object_type: g.fe_object_type,
-                    })),
-                );
-            }
-        } catch (err) {
-            URL.revokeObjectURL(url);
-            throw err;
-        }
-
-        const scene = getViewerRuntime().scene.current;
-        if (!scene) throw new Error("scene not ready");
-        // Scope to the loaded GLB root, not the whole scene — a
-        // fem_concepts glyph or other overlay mesh would otherwise be
-        // picked up as active.mesh and crash applyFieldToMesh.
-        const mesh = findFirstMesh(feaRoot ?? scene);
-        if (!mesh) throw new Error("loaded GLB has no mesh");
-        const basePositions = snapshotBasePositions(mesh.geometry);
-
-        session.active = {sourceName, manifest, mesh, basePositions};
-        // Name the session for what it is. The handle is how this module finds
-        // its mesh again; `kind` is how anything else can tell a streaming FEA
-        // result from a CAD load without sniffing the file extension.
-        {
-            const open = useModelSessionStore.getState().ensure();
-            open.identity.kind = "fea";
-            open.identity.sourceName ??= sourceName;
-            open.identity.url = url;
-        }
-        // Publish the model bounding box (the CAD path does this in
-        // setupModelLoader; the FEA path bypasses it). Without it, features that
-        // key off the model centre — section planes, camera-fit — fall back to the
-        // world origin, so a new clip plane sits at (0,0,0) instead of the model.
-        try {
-            mesh.updateWorldMatrix(true, false);
-            const worldBox = new THREE.Box3().setFromObject(mesh);
-            if (!worldBox.isEmpty()) useModelState.getState().setBoundingBox(worldBox);
-        } catch {
-            /* best-effort — never break the load over a bbox */
-        }
         // Material flags (vertexColors + morphTargets) are flipped on
         // inside applyFieldToMesh so they cover both the array-typed
         // material that prepareLoadedModel installs on
@@ -358,8 +171,8 @@ export async function load_fea_streaming(args: {
         );
         if (beamSolid) {
             mesh.add(beamSolid.mesh);
-            session.active.beamSolidMesh = beamSolid.mesh;
-            session.active.beamSolidBasePositions = beamSolid.basePositions;
+            active.beamSolidMesh = beamSolid.mesh;
+            active.beamSolidBasePositions = beamSolid.basePositions;
 
             // No element-edge wireframe over the beam solids.
             //
@@ -379,14 +192,14 @@ export async function load_fea_streaming(args: {
             // it is simply no longer consumed.
 
             const warp = await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
-            if (warp) session.active.beamSolidWarp = warp;
+            if (warp) active.beamSolidWarp = warp;
         }
 
         // Element-edge wireframe overlays, from the bake's edge sidecar. The
         // index is kept on the session so the undeformed reference wireframe can
         // be rebuilt without re-fetching.
         const edgeIndices = await installElementEdges(mesh, fetcher, manifest);
-        if (edgeIndices && session.active) session.active.edgeIndices = edgeIndices;
+        if (edgeIndices) active.edgeIndices = edgeIndices;
     }
 
     stage("loading field data", 0.55);
@@ -442,8 +255,8 @@ export async function load_fea_streaming(args: {
         );
         const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
         applyElemFieldToMesh({
-            mesh: session.active.mesh,
-            basePositions: session.active.basePositions,
+            mesh: active.mesh,
+            basePositions: active.basePositions,
             colorField: field,
             perTypeStepValues,
             layer,
@@ -489,10 +302,10 @@ export async function load_fea_streaming(args: {
         // component change or a colormap change all are. With an auto-derived
         // scale of 50 on a deck deforming by millimetres, a warp at 1 cannot be
         // told from no warp at all, and the toggle looked dead.
-        if (session.active.beamSolidMesh && session.active.beamSolidBasePositions) {
+        if (active.beamSolidMesh && active.beamSolidBasePositions) {
             applyElemFieldToMesh({
-                mesh: session.active.beamSolidMesh,
-                basePositions: session.active.beamSolidBasePositions,
+                mesh: active.beamSolidMesh,
+                basePositions: active.beamSolidBasePositions,
                 colorField: field,
                 perTypeStepValues,
                 layer,
@@ -503,12 +316,12 @@ export async function load_fea_streaming(args: {
                 contour,
                 nodalAverage: false,
             });
-            if (session.active.beamSolidWarp) {
+            if (active.beamSolidWarp) {
                 installBeamSolidWarp(
-                    session.active.mesh,
-                    session.active.beamSolidMesh,
-                    session.active.beamSolidBasePositions,
-                    session.active.beamSolidWarp,
+                    active.mesh,
+                    active.beamSolidMesh,
+                    active.beamSolidBasePositions,
+                    active.beamSolidWarp,
                     warpInfo?.field,
                     warpInfo?.stepValues,
                 );
@@ -518,8 +331,8 @@ export async function load_fea_streaming(args: {
         const colorStepValues = await fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey);
 
         applyFieldToMesh({
-            mesh: session.active.mesh,
-            basePositions: session.active.basePositions,
+            mesh: active.mesh,
+            basePositions: active.basePositions,
             colorField: field,
             colorStepValues,
             reduction: reductionStr,
@@ -546,7 +359,7 @@ export async function load_fea_streaming(args: {
         // displacement field flexes the solid beams in lockstep with the rest of the
         // structure. Without it, scaling the morph influence ×100 leaves rigid solid
         // beams at undeformed positions while the shells fly off.
-        if (session.active.beamSolidMesh) {
+        if (active.beamSolidMesh) {
             const setVc = (mat: THREE.Material, on: boolean) => {
                 if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== on) {
                     (mat as unknown as {vertexColors: boolean}).vertexColors = on;
@@ -554,23 +367,23 @@ export async function load_fea_streaming(args: {
                 }
             };
             let painted = false;
-            if (session.active.beamSolidWarp && session.active.beamSolidBasePositions) {
+            if (active.beamSolidWarp && active.beamSolidBasePositions) {
                 const sourceColors = beamSolidNodalColors(
                     field,
                     colorStepValues,
                     reductionStr,
-                    session.active.beamSolidWarp,
+                    active.beamSolidWarp,
                     colormap,
-                    session.active.basePositions.length / 3,
+                    active.basePositions.length / 3,
                     contour,
                 );
                 if (sourceColors) {
-                    const geom = session.active.beamSolidMesh.geometry;
+                    const geom = active.beamSolidMesh.geometry;
                     // Through the element-local expansion, if one is cached on this
                     // geometry from an earlier element field. Same reason the morph
                     // goes through it: a buffer sized for the original vertex count
                     // does not fit an expanded geometry.
-                    const nSource = session.active.beamSolidWarp.n_verts;
+                    const nSource = active.beamSolidWarp.n_verts;
                     const renderToSource = sourceVertexIndices(geom, nSource);
                     const renderColors = expandSourceTriples(sourceColors, renderToSource);
                     const existing = geom.getAttribute("color");
@@ -583,16 +396,16 @@ export async function load_fea_streaming(args: {
                     painted = true;
                 }
             }
-            const m = session.active.beamSolidMesh.material;
+            const m = active.beamSolidMesh.material;
             if (Array.isArray(m)) m.forEach((mat) => setVc(mat, painted));
             else if (m) setVc(m as THREE.Material, painted);
 
-            if (session.active.beamSolidWarp && session.active.beamSolidBasePositions) {
+            if (active.beamSolidWarp && active.beamSolidBasePositions) {
                 installBeamSolidWarp(
-                    session.active.mesh,
-                    session.active.beamSolidMesh,
-                    session.active.beamSolidBasePositions,
-                    session.active.beamSolidWarp,
+                    active.mesh,
+                    active.beamSolidMesh,
+                    active.beamSolidBasePositions,
+                    active.beamSolidWarp,
                     warpInfo?.field,
                     warpInfo?.stepValues,
                 );
@@ -608,12 +421,12 @@ export async function load_fea_streaming(args: {
     // wireframe tracks deformation. Idempotent: re-running just
     // re-links, which is fine — the references are stable across
     // step changes.
-    linkLineMorphToMesh(session.active.mesh);
+    linkLineMorphToMesh(active.mesh);
     // Same link for the beam-solid mesh's element-edge wireframe so
     // the seams between adjacent beam elements stay attached to the
     // deformed solid mesh under any morph scale.
-    if (session.active.beamSolidMesh) {
-        linkLineMorphToMesh(session.active.beamSolidMesh);
+    if (active.beamSolidMesh) {
+        linkLineMorphToMesh(active.beamSolidMesh);
     }
 
     // Re-apply the undeformed-wireframe preference. It survives loads and step
@@ -635,7 +448,7 @@ export async function load_fea_streaming(args: {
     // the field's analysis_kind: static = [0, 1] (one-directional),
     // eigen = [-1, +1] (mode shape has no inherent sign).
     const animStore = useFeaAnimationStore.getState();
-    animStore.setMesh(session.active.mesh);
+    animStore.setMesh(active.mesh);
     animStore.setSourceName(sourceName);
     animStore.setManifest(manifest);
     if (field) {
@@ -654,7 +467,7 @@ export async function load_fea_streaming(args: {
         // displacement field and the model size, and only ever applied while the
         // user has not set a scale of their own.
         {
-            const geom = session.active.mesh.geometry;
+            const geom = active.mesh.geometry;
             // Recompute rather than trust a cached box: a stale one from an
             // earlier state made the derived scale wobble between field
             // switches, and a number that changes on its own is worse than a
@@ -672,8 +485,8 @@ export async function load_fea_streaming(args: {
             // the mesh where the controls now say it is -- slider times scale --
             // or the first view of a deck that needed scaling showed it unscaled
             // until something happened to repaint it.
-            if (sliderFactor !== undefined && session.active.mesh.morphTargetInfluences) {
-                session.active.mesh.morphTargetInfluences[0] =
+            if (sliderFactor !== undefined && active.mesh.morphTargetInfluences) {
+                active.mesh.morphTargetInfluences[0] =
                     sliderFactor * useFeaAnimationStore.getState().scaleFactor;
             }
         }
