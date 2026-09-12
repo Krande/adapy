@@ -10,9 +10,6 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useConversionStore} from "@/state/conversionStore";
-import {resolveContourRange} from "../fea/contourScale";
-import {selectedResultRange} from "../fea/resultUnits";
-import {autoWarpScale} from "../fea/warpScale";
 import {
     noteFieldSourceLoaded,
     requestingSceneColorOwner,
@@ -20,7 +17,8 @@ import {
 import type {FeaSessionHandle} from "@/state/modelSession";
 import {feaSession as session} from "../fea/streaming/session";
 import {openFeaSession} from "../fea/streaming/sessionSetup";
-import {findDisplacementField, linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
+import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
+import {syncResultSession} from "../fea/streaming/legendSync";
 import {paintElemField} from "../fea/streaming/paintElemField";
 import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {fetchBeamSolidWarpSidecar, tryLoadBeamSolids} from "../fea/streaming/beamSolids";
@@ -273,79 +271,9 @@ export async function load_fea_streaming(args: {
         syncFeaOverlayVisibility();
     }
 
-    // Register the session with the animation store so
-    // SimulationControls renders the deformation-scale slider /
-    // play / stop instead of the GLTF-clip controls. Range follows
-    // the field's analysis_kind: static = [0, 1] (one-directional),
-    // eigen = [-1, +1] (mode shape has no inherent sign).
-    const animStore = useFeaAnimationStore.getState();
-    animStore.setMesh(active.mesh);
-    animStore.setSourceName(sourceName);
-    animStore.setManifest(manifest);
-    if (field) {
-        // Results present -> activate the FEA session (SimulationControls: step slider / field
-        // selector / warp). Range follows analysis_kind: static = [0, 1], eigen = [-1, +1].
-        animStore.setSessionActive(true);
-        const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
-        animStore.setRange(range);
-        // Only when the caller asked. See ``sliderFactor`` on the argument type:
-        // the influence and the slider are different numbers, and equating them
-        // moved the indicator on every component change.
-        if (sliderFactor !== undefined) animStore.setFactor(sliderFactor);
-        animStore.setStepIndex(stepIndex);
-        animStore.setNSteps(field.n_steps);
-        // A deformation scale the model can be seen at. Derived from the
-        // displacement field and the model size, and only ever applied while the
-        // user has not set a scale of their own.
-        {
-            const geom = active.mesh.geometry;
-            // Recompute rather than trust a cached box: a stale one from an
-            // earlier state made the derived scale wobble between field
-            // switches, and a number that changes on its own is worse than a
-            // number that is slightly off. Base positions do not change, so
-            // this is the same answer every time.
-            geom.computeBoundingBox();
-            const size = geom.boundingBox
-                ? geom.boundingBox.min.distanceTo(geom.boundingBox.max)
-                : 0;
-            animStore.applyAutoScaleFactor(
-                autoWarpScale(findDisplacementField(manifest), size),
-            );
-            // A fresh load (the caller moved the slider) was painted before the
-            // scale above existed, so its influence is the bare slider value. Put
-            // the mesh where the controls now say it is -- slider times scale --
-            // or the first view of a deck that needed scaling showed it unscaled
-            // until something happened to repaint it.
-            if (sliderFactor !== undefined && active.mesh.morphTargetInfluences) {
-                active.mesh.morphTargetInfluences[0] =
-                    sliderFactor * useFeaAnimationStore.getState().scaleFactor;
-            }
-        }
-        animStore.setFieldName(fieldName);
-        if (reduction != null) animStore.setReduction(reduction);
-        animStore.setColormap(colormap);
-        // Through the same resolver the kernels used: a pinned range the legend
-        // does not know about is a legend that disagrees with the picture beside
-        // it, which is worse than no legend at all.
-        const [legendMin, legendMax] = resolveContourRange(
-            selectedResultRange(field, reduction ?? "magnitude"),
-            useFeaAnimationStore.getState().contour,
-        );
-        const legendStore = useColorStore.getState();
-        legendStore.setMin(legendMin);
-        legendStore.setMax(legendMax);
-        legendStore.setShowLegend(true);
-    } else {
-        // Field-less FEM mesh (model only): no results -> NO simulation session, so
-        // SimulationControls + the results-only "show in data" action stay hidden. The
-        // beam-solids toggle acts on the session's FEA mesh, not on a result session, so
-        // it still works from the Scene > FEM panel.
-        animStore.setSessionActive(false);
-        animStore.setFieldName(null);
-        animStore.setNSteps(1);
-        animStore.setStepIndex(0);
-        useColorStore.getState().setShowLegend(false);
-    }
+    // The animation store and the legend, from what was just painted: the
+    // session it drives, the field's range, the derived warp scale.
+    syncResultSession({mesh: active.mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor});
 
     // The colours and legend above assume nobody else owns the scene colouring.
     // A mode that does (capacity, inspect) may be on top of the owner stack: one
@@ -366,7 +294,7 @@ export async function load_fea_streaming(args: {
     // step drag still picks up the latest selection without needing
     // to re-register the callback here.
     if (field) {
-        animStore.setApplyStep(async (newStepIndex: number) => {
+        useFeaAnimationStore.getState().setApplyStep(async (newStepIndex: number) => {
             // The influence is read at call time like the colormap, and for the
             // same reason: without it a step change repainted at the default of
             // 1 and dropped the slider and the warp scale the user had set.
