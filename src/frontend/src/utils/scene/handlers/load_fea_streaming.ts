@@ -1,6 +1,5 @@
 import * as THREE from "three";
 
-import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {capabilities} from "@/services/capabilities";
@@ -11,8 +10,6 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useConversionStore} from "@/state/conversionStore";
-import {applyFieldToMesh} from "../fea/applyField";
-import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {autoWarpScale} from "../fea/warpScale";
@@ -20,12 +17,12 @@ import {
     noteFieldSourceLoaded,
     requestingSceneColorOwner,
 } from "../fea/modeSceneColor";
-import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
-import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
 import type {FeaSessionHandle} from "@/state/modelSession";
 import {feaSession as session} from "../fea/streaming/session";
 import {openFeaSession} from "../fea/streaming/sessionSetup";
-import {findDisplacementField, installBeamSolidWarp, linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
+import {findDisplacementField, linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
+import {paintElemField} from "../fea/streaming/paintElemField";
+import {paintNodeField} from "../fea/streaming/paintNodeField";
 import {fetchBeamSolidWarpSidecar, tryLoadBeamSolids} from "../fea/streaming/beamSolids";
 import {installElementEdges} from "../fea/streaming/elementEdges";
 import {refreshUndeformedGhost, setFeaResultColorsVisible, syncFeaOverlayVisibility} from "../fea/streaming/visibility";
@@ -236,181 +233,15 @@ export async function load_fea_streaming(args: {
     );
 
     if (field.per_type && field.per_type.length > 0) {
-        // Element-field render path (AFEL). Range-fetch one step per
-        // element-type bucket in parallel; the bake guarantees parallel
-        // step counts across buckets within a logical field, so the same
-        // ``stepIndex`` indexes every bucket. The reduction kernel
-        // collapses (n_ips × n_components) → 1 scalar per element and
-        // writes vertex colours via AFEM draw ranges.
-        const buckets = field.per_type;
-        const perTypeStepValues = await Promise.all(
-            buckets.map((bk, i) =>
-                fetchElemFieldStep(rangeFetcher, fetcher, bk, stepIndex, cacheKey).catch((err) => {
-                    throw new Error(
-                        `element field ${field.name_canonical} bucket ${buckets[i].elem_type} ` +
-                        `step ${stepIndex}: ${err instanceof Error ? err.message : String(err)}`,
-                    );
-                }),
-            ),
-        );
-        const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
-        applyElemFieldToMesh({
-            mesh: active.mesh,
-            basePositions: active.basePositions,
-            colorField: field,
-            perTypeStepValues,
-            layer,
-            ipReduction,
-            reduction: reductionStr,
-            warpField: warpInfo?.field,
-            warpStepValues: warpInfo?.stepValues,
-            displacementScale,
-            colormap,
-            contour,
-            nodalAverage,
-            // Only where the deck cannot show beam solids. Where it can, the beam
-            // carries its result on its own surface, and a coloured line as well
-            // puts two renderings of one beam in the same place -- the black
-            // element-edge overlay against the coloured line, neither legible.
-            // Always build them. Which of the two renderings you SEE is a
-            // visibility question, not a build-time one -- gating on whether the
-            // bake carried solids meant a deck that had them showed black beams
-            // the moment you switched the solids off.
-            lineFallback: true,
+        await paintElemField({
+            active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
+            warpInfo, rangeFetcher, fetcher, cacheKey,
         });
-        // Beam-solid mesh — paint with the same AFEL data. Beam
-        // labels appear in both drawRanges maps, but the main-mesh
-        // entries have zero triangles (line elements) so the kernel
-        // is a no-op there for beams, and the beam-solid mesh has no
-        // entries for shells. Net effect: each label paints exactly
-        // the mesh that owns its triangles. Smooth shading skipped:
-        // each beam has at most one IP along its length so per-
-        // element colour and nodal-averaged colour coincide.
-        //
-        // Note: applyElemFieldToMesh installs a zero-magnitude morph
-        // delta (no warp arg here). ``installBeamSolidWarp`` below
-        // overwrites that with the lerped nodal warp so the solid
-        // beams stay connected to the deformed structure under any
-        // morph-scale factor.
-        //
-        // The SAME influence as the main mesh, passed explicitly. After the
-        // first apply the beam-solid mesh shares the main mesh's
-        // ``morphTargetInfluences`` array (installBeamSolidWarp links them), so
-        // the influence this call writes lands on the main mesh too. Left to
-        // its default of 1 it reset the whole model to an unscaled warp on
-        // every element-field repaint -- which is what the warp toggle, a
-        // component change or a colormap change all are. With an auto-derived
-        // scale of 50 on a deck deforming by millimetres, a warp at 1 cannot be
-        // told from no warp at all, and the toggle looked dead.
-        if (active.beamSolidMesh && active.beamSolidBasePositions) {
-            applyElemFieldToMesh({
-                mesh: active.beamSolidMesh,
-                basePositions: active.beamSolidBasePositions,
-                colorField: field,
-                perTypeStepValues,
-                layer,
-                ipReduction,
-                reduction: reductionStr,
-                displacementScale,
-                colormap,
-                contour,
-                nodalAverage: false,
-            });
-            if (active.beamSolidWarp) {
-                installBeamSolidWarp(
-                    active.mesh,
-                    active.beamSolidMesh,
-                    active.beamSolidBasePositions,
-                    active.beamSolidWarp,
-                    warpInfo?.field,
-                    warpInfo?.stepValues,
-                );
-            }
-        }
     } else {
-        const colorStepValues = await fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey);
-
-        applyFieldToMesh({
-            mesh: active.mesh,
-            basePositions: active.basePositions,
-            colorField: field,
-            colorStepValues,
-            reduction: reductionStr,
-            warpField: warpInfo?.field,
-            warpStepValues: warpInfo?.stepValues,
-            displacementScale,
-            colormap,
-            contour,
+        await paintNodeField({
+            active, field, stepIndex, reduction: reductionStr, displacementScale, colormap, contour,
+            warpInfo, rangeFetcher, fetcher, cacheKey,
         });
-
-        // Beam-solid mesh: paint it from the same nodal field.
-        //
-        // This used to switch vertex colours off, on the reasoning that a
-        // beam-solid vertex is not an FEA node. True of the vertex, false of the
-        // beam: the AFBV sidecar names each vertex's two end nodes and its axial
-        // parameter, which is the very interpolation installBeamSolidWarp uses to
-        // MOVE that vertex. Anything that can be interpolated to a position can be
-        // interpolated to a colour, so a displacement field now paints the beams as
-        // well as the shells — as the reference postprocessor does, and as an element field already did
-        // here. Base material on a beam that has a value does not read as "no data";
-        // it reads as zero.
-        //
-        // Warp is independent of colour: install the lerped nodal warp so a
-        // displacement field flexes the solid beams in lockstep with the rest of the
-        // structure. Without it, scaling the morph influence ×100 leaves rigid solid
-        // beams at undeformed positions while the shells fly off.
-        if (active.beamSolidMesh) {
-            const setVc = (mat: THREE.Material, on: boolean) => {
-                if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== on) {
-                    (mat as unknown as {vertexColors: boolean}).vertexColors = on;
-                    mat.needsUpdate = true;
-                }
-            };
-            let painted = false;
-            if (active.beamSolidWarp && active.beamSolidBasePositions) {
-                const sourceColors = beamSolidNodalColors(
-                    field,
-                    colorStepValues,
-                    reductionStr,
-                    active.beamSolidWarp,
-                    colormap,
-                    active.basePositions.length / 3,
-                    contour,
-                );
-                if (sourceColors) {
-                    const geom = active.beamSolidMesh.geometry;
-                    // Through the element-local expansion, if one is cached on this
-                    // geometry from an earlier element field. Same reason the morph
-                    // goes through it: a buffer sized for the original vertex count
-                    // does not fit an expanded geometry.
-                    const nSource = active.beamSolidWarp.n_verts;
-                    const renderToSource = sourceVertexIndices(geom, nSource);
-                    const renderColors = expandSourceTriples(sourceColors, renderToSource);
-                    const existing = geom.getAttribute("color");
-                    if (existing && existing.count === renderToSource.length && existing.itemSize === 3) {
-                        (existing.array as Float32Array).set(renderColors);
-                        existing.needsUpdate = true;
-                    } else {
-                        geom.setAttribute("color", new THREE.BufferAttribute(renderColors, 3));
-                    }
-                    painted = true;
-                }
-            }
-            const m = active.beamSolidMesh.material;
-            if (Array.isArray(m)) m.forEach((mat) => setVc(mat, painted));
-            else if (m) setVc(m as THREE.Material, painted);
-
-            if (active.beamSolidWarp && active.beamSolidBasePositions) {
-                installBeamSolidWarp(
-                    active.mesh,
-                    active.beamSolidMesh,
-                    active.beamSolidBasePositions,
-                    active.beamSolidWarp,
-                    warpInfo?.field,
-                    warpInfo?.stepValues,
-                );
-            }
-        }
     }
     } // end if (field)
 
