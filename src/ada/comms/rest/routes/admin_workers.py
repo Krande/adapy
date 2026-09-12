@@ -40,12 +40,10 @@ async def admin_list_workers(ctx: RestContext = Depends(rest_context)) -> JSONRe
     The list itself is just the KV scan — no DB hit, safe to poll
     at the panel's refresh cadence.
     """
+    # The registry IS the queue's KV bucket, so this is a queue-only feature;
+    # the transport owns both the question and the 503 text.
+    ctx.jobs.require("worker_registry")
     queue = ctx.queue
-    if not queue.enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="worker registry requires a NATS-backed queue",
-        )
     try:
         workers = await queue.list_workers()
     except Exception as exc:
@@ -80,12 +78,10 @@ async def admin_prune_workers(ctx: RestContext = Depends(rest_context)) -> JSONR
     registrations left by crashed / scaled-down pods — which otherwise linger and pollute the
     capability matrix. The hourly background task also prunes, but only at the conservative 2-day
     horizon; this button is the immediate manual cleanup."""
+    # The registry IS the queue's KV bucket, so this is a queue-only feature;
+    # the transport owns both the question and the 503 text.
+    ctx.jobs.require("worker_registry")
     queue = ctx.queue
-    if not queue.enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="worker registry requires a NATS-backed queue",
-        )
     try:
         pruned = await queue.prune_stale_workers(max_age_s=queue.WORKER_STALE_AFTER_S)
     except Exception as exc:

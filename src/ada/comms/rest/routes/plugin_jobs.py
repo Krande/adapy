@@ -23,15 +23,15 @@ from fastapi.responses import JSONResponse
 
 from .. import auth as auth_module
 from .. import db as db_module
-from .. import local_jobs, pending_uploads
+from .. import pending_uploads
 from ..auth import User
+from ..job_transport import JobRequest, SubmittedJob
 from ..plugin_registry import locally_registered_spec
 from ..queue import capability_token
 from ..scope import Scope
 from ..scope import can_access as scope_can_access
 from .deps import (
     RestContext,
-    live_worker_specs,
     parse_scope,
     pending_upload_detail,
     require_pool,
@@ -103,7 +103,7 @@ async def enqueue_plugin_job(
         derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
 
     if plugin_spec is None:
-        for _spec in (await live_worker_specs(ctx.queue, "plugin_specs")).values():
+        for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
             if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
                 plugin_spec = _spec
                 break
@@ -127,51 +127,49 @@ async def enqueue_plugin_job(
             if shard:
                 target_capability = f"{target_capability}-{shard}"
 
-    # No queue: run it here, in a thread. A single-node viewer otherwise has
-    # no way to run a plugin job at all.
-    if not ctx.queue.enabled:
-        try:
-            local = local_jobs.start_plugin_job(
-                plugin_id=plugin_id,
-                options=options,
-                derived_prefix=derived_prefix,
-                derived_key=derived_key,
-                storage=ctx.storage,
-                scope=scope_obj,
-            )
-        except LookupError as exc:
-            raise HTTPException(status_code=501, detail=str(exc)) from exc
-        return local.job_id
+    # ONE CALL, EITHER DEPLOYMENT. Behind a queue this enqueues onto the
+    # capability pool; without one the transport runs the plugin HERE, in a
+    # thread (see ``ada.comms.rest.local_jobs``), because a single-node viewer
+    # otherwise has no way to run a plugin job at all. The plugin cannot tell
+    # the difference -- same entrypoint, same storage facade, same cancel
+    # event -- and neither can this route.
+    async def _audit_queued(submitted: SubmittedJob) -> None:
+        # Runs in the window between the job being durable and any worker
+        # seeing it: publishing first is what strands a row at "queued" with
+        # no message left to recover it. The in-process transport has no such
+        # window and writes no row -- see JobTransport.submit.
+        await ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "plugin_job",
+            key=source_key,
+            target_format="plugin_job",
+            status="queued",
+            job_id=submitted.job_id,
+            pool=pool,
+        )
 
-    job = await ctx.queue.enqueue(
-        source_key,
-        target_format="plugin_job",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={
-            "plugin_id": plugin_id,
-            "options": options,
-            "derived_prefix": derived_prefix,
-        },
-        derived_key=derived_key,
-        target_capability=target_capability,
-        # Hold the publish until the audit row exists -- publishing first is
-        # what strands a row at "queued" with no message left to recover it.
-        publish=False,
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=source_key,
+            target_format="plugin_job",
+            scope=scope_obj,
+            feature="plugin_jobs",
+            plugin_id=plugin_id,
+            options=options,
+            derived_prefix=derived_prefix,
+            derived_key=derived_key,
+            conversion_options={
+                "plugin_id": plugin_id,
+                "options": options,
+                "derived_prefix": derived_prefix,
+            },
+            target_capability=target_capability,
+        ),
+        before_dispatch=_audit_queued,
     )
-    await ctx.audit(
-        request,
-        user,
-        scope_obj,
-        "plugin_job",
-        key=source_key,
-        target_format="plugin_job",
-        status="queued",
-        job_id=job.job_id,
-        pool=pool,
-    )
-    await ctx.queue.publish(job)
-    return job.job_id
+    return submitted.job_id
 
 
 @router.post("/jobs/{job_id}/status")
@@ -234,20 +232,14 @@ async def api_job_status_report(
         # which is exactly the case where nobody is reading audit rows either.
         return JSONResponse({"job_id": job_id, "recorded": False, "reason": "no database configured"})
 
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="no job queue configured")
-    job = await ctx.queue.get(job_id)
-    if job is None:
+    ctx.jobs.require("job_status_report")
+    snapshot = await ctx.jobs.status(job_id)
+    if snapshot is None:
         # The queue entry is swept ~15 minutes after a job goes terminal, so a
         # report that arrives after that cannot be authorised against a scope
         # any more. 404 rather than a guess.
         raise HTTPException(status_code=404, detail=f"job {job_id} not found")
-    job_scope = (
-        Scope.shared()
-        if job.scope_kind == "shared"
-        else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
-    )
-    if not await scope_can_access(user, job_scope, pool):
+    if not await scope_can_access(user, snapshot.scope, pool):
         raise HTTPException(status_code=403, detail="forbidden")
 
     def _int(name: str) -> int | None:
@@ -337,15 +329,14 @@ async def api_scope_cancel_my_job(
     toast UX this is enough — the user sees the row disappear and is
     unblocked.
     """
-    local = local_jobs.registry.get(job_id)
+    local = ctx.jobs.inprocess(job_id)
     if local is not None:
         # Same access check the read route makes on the same job:
         # stopping someone else's work must not be easier than looking
         # at it.
-        local_scope = Scope(kind=local.scope_kind, id=local.scope_id)
-        if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
+        if not await scope_can_access(user, local.scope, getattr(request.app.state, "db_pool", None)):
             raise HTTPException(status_code=403, detail="forbidden")
-        return JSONResponse({"job_id": job_id, "cancelled": local_jobs.registry.cancel(job_id)})
+        return JSONResponse({"job_id": job_id, "cancelled": await ctx.jobs.cancel(job_id)})
     pool = require_pool(request)
     cancelled = await db_module.cancel_audit_by_job(
         pool,
@@ -357,23 +348,12 @@ async def api_scope_cancel_my_job(
             {"job_id": job_id, "cancelled": False, "reason": "not owned, missing, or already terminal"},
             status_code=404,
         )
-    # Best-effort: nudge the KV bucket so /api/convert/{job_id}
-    # polls immediately reflect the new status. Worker writes will
-    # subsequently overwrite this back to 'running' on its next
-    # progress tick — that's expected; the audit_log row is the
-    # source of truth for the user-visible state.
-    queue = getattr(request.app.state, "queue", None)
-    if queue is not None:
-        try:
-            await queue.update(
-                job_id,
-                status="cancelled",
-                error="cancelled by user",
-            )
-        except Exception:
-            # Queue update is decorative; the audit row is what
-            # the toast restore reads.
-            pass
+    # Best-effort: nudge the transport so /api/convert/{job_id} polls
+    # immediately reflect the new status. Worker writes will subsequently
+    # overwrite this back to 'running' on its next progress tick — that's
+    # expected; the audit_log row is the source of truth for the user-visible
+    # state, and the transport's cancel swallows its own failures.
+    await ctx.jobs.cancel(job_id)
     return JSONResponse({"job_id": job_id, "cancelled": True})
 
 
@@ -468,7 +448,7 @@ async def api_plugin_job(
     # Read the advertised spec ONCE: it decides both whether this request
     # needs an admin and which pool it routes to.
     plugin_spec: dict | None = None
-    for _spec in (await live_worker_specs(ctx.queue, "plugin_specs")).values():
+    for _spec in (await ctx.jobs.advertised_specs("plugin_specs")).values():
         if _spec.get("slug") == plugin_id or _spec.get("id") == plugin_id:
             plugin_spec = _spec
             break

@@ -1,12 +1,19 @@
 """In-process plugin jobs, for a viewer running without a worker pool.
 
+THIS IS THE ENGINE, NOT THE CONTRACT. Nothing outside
+:mod:`ada.comms.rest.job_transport` calls into here: a route submits a
+``JobRequest`` to ``RestContext.jobs`` and ``LocalJobTransport`` is what turns
+that into the thread below. Start from ``job_transport`` (and
+``docs/documents/job_transport.rst``) for which job kinds exist without a
+queue and what a route gets when one does not.
+
 A plugin's on-demand backend job normally goes onto NATS and is picked up by a
 capability worker. That is the right shape for a deployment: the checks are long,
 CPU-heavy and want their own pods.
 
 It is the wrong shape for one person running the viewer on their laptop. There is
 no NATS, so ``/api/plugins/{id}/jobs`` answered 503 and the plugin's "run" button
-was dead — in the exact setup the examples put you in, where you have the SIN
+was dead — in the exact setup the examples put you in, where you have the model
 open, the plugin installed, and nothing between you and the answer but a message
 saying the queue is disabled.
 

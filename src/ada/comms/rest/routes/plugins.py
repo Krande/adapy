@@ -22,9 +22,8 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..catalog import merge_catalog_specs, overlay_catalog_rows, sort_by_name
-from ..plugin_registry import locally_registered_specs
 from ..scope import Scope
-from .deps import RestContext, live_worker_specs, rest_context, scope_from_path
+from .deps import RestContext, rest_context, scope_from_path
 
 router = APIRouter()
 
@@ -106,13 +105,15 @@ async def api_plugins(request: Request, ctx: RestContext = Depends(rest_context)
     # With no queue, plugin jobs run in THIS process (see `local_jobs`), so
     # what it registered is online by definition — and the only source there
     # is. Only then: behind a queue a job goes to a worker, and a spec this
-    # API happens to have imported says nothing about whether one is up.
+    # API happens to have imported says nothing about whether one is up. Both
+    # halves of that are the transport's to answer, so this route does not
+    # ask which one it is in.
     by_slug = merge_catalog_specs(
         builtin_plugin_specs(),
-        await live_worker_specs(ctx.queue, "plugin_specs"),
+        await ctx.jobs.advertised_specs("plugin_specs"),
         project=lambda slug, spec, origin: {**spec, "slug": slug, "origin": origin, "online": True},
         live_origin="db",
-        local_specs=None if ctx.queue.enabled else locally_registered_specs(),
+        local_specs=ctx.jobs.local_specs(),
     )
 
     # `requires_admin` is reported as the EFFECTIVE gate, not merely what a
@@ -161,7 +162,7 @@ async def api_procedural_equipment_types(
 
     by_slug = merge_catalog_specs(
         [],
-        await live_worker_specs(ctx.queue, "procedural_equipment_specs", "procedural_equipment_types"),
+        await ctx.jobs.advertised_specs("procedural_equipment_specs", "procedural_equipment_types"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,
@@ -219,7 +220,7 @@ async def api_procedural_system_types(
 
     by_slug = merge_catalog_specs(
         builtin_system_specs(),
-        await live_worker_specs(ctx.queue, "procedural_system_specs", "procedural_system_types"),
+        await ctx.jobs.advertised_specs("procedural_system_specs", "procedural_system_types"),
         project=_project,
     )
     pool = getattr(request.app.state, "db_pool", None)
@@ -260,7 +261,7 @@ async def api_procedural_design_rulesets(
 
     by_slug = merge_catalog_specs(
         builtin_design_rulesets(),
-        await live_worker_specs(ctx.queue, "procedural_design_rulesets"),
+        await ctx.jobs.advertised_specs("procedural_design_rulesets"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,
@@ -289,7 +290,7 @@ async def api_procedural_cell_types(
 
     by_slug = merge_catalog_specs(
         builtin_cell_specs(),
-        await live_worker_specs(ctx.queue, "procedural_cell_specs"),
+        await ctx.jobs.advertised_specs("procedural_cell_specs"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,
@@ -318,7 +319,7 @@ async def api_procedural_opening_types(
 
     by_slug = merge_catalog_specs(
         builtin_opening_specs(),
-        await live_worker_specs(ctx.queue, "procedural_opening_specs"),
+        await ctx.jobs.advertised_specs("procedural_opening_specs"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,
@@ -354,7 +355,7 @@ async def api_procedural_blueprints(
     # missing ``engine`` is treated as this one).
     by_slug = merge_catalog_specs(
         builtin_procedural_blueprint_specs(engine),
-        await live_worker_specs(ctx.queue, "procedural_blueprint_specs"),
+        await ctx.jobs.advertised_specs("procedural_blueprint_specs"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,
@@ -402,7 +403,7 @@ async def api_procedural_detailing_engines(
     # (external) engine is worker/db-provided.
     by_slug = merge_catalog_specs(
         builtin_detailing_engine_specs(),
-        await live_worker_specs(ctx.queue, "procedural_detailing_engine_specs"),
+        await ctx.jobs.advertised_specs("procedural_detailing_engine_specs"),
         project=lambda slug, spec, origin: {
             "slug": slug,
             "name": spec.get("name") or slug,

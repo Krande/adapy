@@ -40,6 +40,7 @@ from ..converter import (
     is_fea_artefact_source,
     is_fea_result_key,
 )
+from ..job_transport import JobRequest
 from ..scope import Scope
 from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
@@ -244,7 +245,6 @@ async def api_scope_result_meta(
     result file.
     """
     storage = ctx.storage
-    queue = ctx.queue
 
     source_key = (key or "").strip().lstrip("/")
     if not source_key:
@@ -277,18 +277,16 @@ async def api_scope_result_meta(
     # Cache miss — enqueue a worker job and return 202. Frontend
     # polls /convert/{job_id} until done, then re-fetches this
     # endpoint.
-    if not queue.enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="result-meta disabled (no NATS configured)",
-        )
+    ctx.jobs.require("result_meta")
     try:
-        job = await queue.enqueue(
-            source_key,
-            "fea_meta",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            derived_key=meta_key,
+        job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=source_key,
+                target_format="fea_meta",
+                scope=scope_obj,
+                feature="result_meta",
+                derived_key=meta_key,
+            )
         )
     except Exception as exc:
         logger.exception("result-meta: enqueue failed for %s", source_key)
@@ -345,6 +343,8 @@ async def api_scope_fea_manifest(
     and can't import ada.fem at all.
     """
     storage = ctx.storage
+    # Still the queue, not the transport: the advertised-extension check below
+    # reads the worker registry snapshot, which is not a job.
     queue = ctx.queue
 
     source_key = (key or "").strip().lstrip("/")
@@ -410,7 +410,7 @@ async def api_scope_fea_manifest(
         # so a plain enqueue would no-op straight back here; force the
         # rebake through it.
         force_rebake = True
-        if not queue.enabled and manifest is not None:
+        if not ctx.jobs.supports("bake") and manifest is not None:
             # No worker to rebake with. A stale manifest still describes
             # real (older) results; serving it beats a 503 — log so the
             # operator sees why the deck lacks the newer bake output.
@@ -429,24 +429,22 @@ async def api_scope_fea_manifest(
     # Cache miss (or stale hit) — enqueue a worker bake and return 202.
     # Frontend polls /convert/{job_id} via the existing route and
     # re-fetches this endpoint when the job hits status=done.
-    if not queue.enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="bake disabled (no NATS configured)",
-        )
+    ctx.jobs.require("bake")
     try:
-        job = await queue.enqueue(
-            source_key,
-            "fea_artefacts",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            # derived_key is the manifest path so the worker's
-            # "already cached?" short-circuit lines up with this
-            # endpoint's cache check.
-            derived_key=manifest_key,
-            # A stale/unusable cached manifest EXISTS, so that
-            # short-circuit must be bypassed for the rebake to happen.
-            force_rebuild=force_rebake,
+        job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=source_key,
+                target_format="fea_artefacts",
+                scope=scope_obj,
+                feature="bake",
+                # derived_key is the manifest path so the worker's
+                # "already cached?" short-circuit lines up with this
+                # endpoint's cache check.
+                derived_key=manifest_key,
+                # A stale/unusable cached manifest EXISTS, so that
+                # short-circuit must be bypassed for the rebake to happen.
+                force_rebuild=force_rebake,
+            )
         )
     except Exception as exc:
         logger.exception("fea-manifest: enqueue failed for %s", source_key)
