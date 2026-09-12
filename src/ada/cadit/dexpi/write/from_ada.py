@@ -82,6 +82,7 @@ from ..model import (
     ItemKind,
 )
 from ..nozzle_placers import port_names
+from ..read.connectivity import ConnectionIndex
 from ..read.conventions import flow_token
 from ..read.naming import unique_name
 from . import xml_utils
@@ -518,17 +519,11 @@ def _segment_boundary(doc: DexpiDocument, segment: DexpiItem) -> list[tuple[str,
         for item_id in _descendants(doc, segment.id)
         if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR and item_id not in junctions
     }
-    ends: list[tuple[str, str | None]] = []
-    for connection in doc.connections:
-        if connection.owner_id != segment.id:
-            continue
-        for item_id, node_id in (
-            (connection.from_item, connection.from_node),
-            (connection.to_item, connection.to_node),
-        ):
-            if item_id is not None and item_id not in inner:
-                ends.append((item_id, node_id))
-    return ends
+    # Rebuilt here rather than once per merge: the reconciliation above this call edits
+    # ``doc.connections`` as it goes, and a stale snapshot would report a boundary that no longer
+    # exists.
+    index = ConnectionIndex(doc.connections)
+    return [(item_id, node_id) for item_id, node_id, _role in index.ends_of(segment.id) if item_id not in inner]
 
 
 def _sorted_pairs(pairs: list[tuple[str, str | None]]) -> list[tuple[str, str]]:

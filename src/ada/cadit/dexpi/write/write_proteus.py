@@ -50,6 +50,7 @@ from ..model import (
     DexpiPlacement,
     ItemKind,
 )
+from ..read.connectivity import ConnectionIndex
 from . import xml_utils
 
 __all__ = ["write_proteus"]
@@ -202,14 +203,8 @@ def _connections_by_owner(doc: DexpiDocument, echo: bool) -> dict[str | None, li
     connectivity above all, and it is invisible to a fixture set that has no such construct in it.
     """
     echoed = _echoed_elements(doc, echo)
-
-    grouped: dict[str | None, list[DexpiConnection]] = {}
-    for connection in doc.connections:
-        if connection.raw is not None and id(connection.raw) in echoed:
-            continue
-        key = connection.owner_id if connection.owner_id in doc.items else None
-        grouped.setdefault(key, []).append(connection)
-    return grouped
+    emitted = (c for c in doc.connections if c.raw is None or id(c.raw) not in echoed)
+    return ConnectionIndex(emitted, doc.items).grouped_by_owner()
 
 
 def _header_element(doc: DexpiDocument, echo: bool) -> ET.Element:

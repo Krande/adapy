@@ -31,6 +31,7 @@ from .model import (
     ItemKind,
 )
 from .read import read_dexpi20, read_proteus
+from .read.connectivity import ConnectionIndex
 from .validate import validate_document
 
 __all__ = ["DexpiStore", "read_dexpi"]
@@ -197,7 +198,7 @@ class DexpiStore:
 
     def connections_of(self, item_id: str) -> list[DexpiConnection]:
         """Every edge with ``item_id`` at either end."""
-        return [c for c in self._document.connections if item_id in (c.from_item, c.to_item)]
+        return ConnectionIndex(self._document.connections).touching(item_id)
 
     def __repr__(self) -> str:
         return (

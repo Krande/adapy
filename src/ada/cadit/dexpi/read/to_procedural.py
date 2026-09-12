@@ -75,7 +75,6 @@ from ..equipment_defaults import build_default_doc
 from ..equipment_list import (
     ResolvedEquipment,
     branch_points,
-    connection_flow,
     instrument_items,
     nozzle_specs_for,
     operated_component,
@@ -85,6 +84,7 @@ from ..equipment_list import (
 )
 from ..model import DexpiDocument, DexpiItem, ItemKind
 from ..nozzle_placers import NozzleSpec, nozzle_from_node, port_names
+from .connectivity import ConnectionIndex
 from .conventions import (
     DIRECTION_IN,
     DIRECTION_OUT,
@@ -401,6 +401,9 @@ def dexpi_to_resolved(
     names = _equipment_names(resolved)
     catalog = {entry.slug: entry.doc for entry in resolved}
     index = _Index(resolved, names)
+    # One pass over the connectivity graph for the whole import: segment endpoints and the flow
+    # fallback for every synthesised port both come off it.
+    connections = ConnectionIndex.from_document(doc)
     for entry in resolved:
         for chamber in _chambers(doc, entry.item):
             index.add_owner(chamber.id, names[entry.slug])
@@ -412,20 +415,20 @@ def dexpi_to_resolved(
     # Before the segments, because every one of them that ends at a branch point needs the
     # junction's ports already in the index to resolve that end.
     junctions = branch_points(doc)
-    items.extend(_junction_equipment(doc, junctions, catalog, index, provenance, taken))
+    items.extend(_junction_equipment(doc, junctions, catalog, index, provenance, taken, connections))
 
-    segments = [_segment_spec(doc, item, index, report, junctions) for item in _routable_segments(doc)]
+    segments = [_segment_spec(doc, item, index, report, junctions, connections) for item in _routable_segments(doc)]
     segments = [spec for spec in segments if spec is not None]
     # A 3+-way junction's segments become one branched System (see _fold_branch_groups); a 2-way
     # one is a pass-through, not a branch, and is left as two separate two-ended systems.
     segments = _fold_branch_groups(doc, segments, junctions)
 
     if inline_components == "equipment":
-        items.extend(_inline_equipment(doc, segments, catalog, index, provenance, taken))
+        items.extend(_inline_equipment(doc, segments, catalog, index, provenance, taken, connections))
 
     # After the in-line components, so an actuator can be grouped with the valve it operates by the
     # name that valve was actually placed under.
-    items.extend(_instrument_equipment(doc, catalog, index, provenance, taken))
+    items.extend(_instrument_equipment(doc, catalog, index, provenance, taken, connections))
     segments.extend(_signal_specs(doc, index, report))
 
     # What the read produced, which is what its own summary line counts against. The build keeps a
@@ -630,6 +633,7 @@ def _junction_equipment(
     index: _Index,
     provenance: dict[str, dict],
     taken: set[str],
+    connections: ConnectionIndex,
 ) -> list[LayoutItem]:
     """Materialise each branch point as a small equipment with a port per connection node.
 
@@ -642,7 +646,7 @@ def _junction_equipment(
     its runs reach -- which is the one placement heuristic that matters here, since a tee stranded
     on a far deck makes every run through it a long one.
     """
-    flow = connection_flow(doc)
+    flow = connections.flows
     out: list[LayoutItem] = []
     for item_id, segment_ids in junctions.items():
         item = doc.items[item_id]
@@ -702,6 +706,7 @@ def _instrument_equipment(
     index: _Index,
     provenance: dict[str, dict],
     taken: set[str],
+    connections: ConnectionIndex,
 ) -> list[LayoutItem]:
     """Materialise each connected instrument as a small equipment with a signal port.
 
@@ -723,7 +728,7 @@ def _instrument_equipment(
     same cheap heuristic :func:`_group_by_connectivity` applies to process equipment, applied to the
     one relationship instrumentation states outright.
     """
-    flow = connection_flow(doc)
+    flow = connections.flows
     instruments = instrument_items(doc)
     # How many signal lines end on each instrument, so it can be given that many ports.
     terminals: dict[str, int] = {}
@@ -828,6 +833,7 @@ def _inline_equipment(
     index: _Index,
     provenance: dict[str, dict],
     taken: set[str],
+    connections: ConnectionIndex,
 ) -> list[LayoutItem]:
     """Materialise each segment's in-line components as their own small equipment.
 
@@ -836,7 +842,7 @@ def _inline_equipment(
         catalog entry with ports generated from its actual connection nodes -- so it is a real placed
         object with real nozzles, just not one the run passes through.
     """
-    flow = connection_flow(doc)
+    flow = connections.flows
     out: list[LayoutItem] = []
     for spec in segments:
         for component in spec.components:
@@ -953,6 +959,7 @@ def _segment_spec(
     index: _Index,
     report: DexpiImportReport,
     junctions: dict[str, list[str]],
+    connections: ConnectionIndex,
 ) -> _SegmentSpec | None:
     """One segment as a system entity, or None with a reported reason.
 
@@ -978,17 +985,11 @@ def _segment_spec(
         item for item in doc.children(segment.id) if item.kind is ItemKind.PIPING_COMPONENT and item.id not in junctions
     ]
 
-    ends: list[_Endpoint] = []
-    for connection in doc.connections:
-        if connection.owner_id != segment.id:
-            continue
-        for item_id, node_id, role in (
-            (connection.from_item, connection.from_node, "from"),
-            (connection.to_item, connection.to_node, "to"),
-        ):
-            if item_id is None or item_id in inner:
-                continue
-            ends.append(_Endpoint(item_id=item_id, node_id=node_id, role=role))  # type: ignore[arg-type]
+    ends = [
+        _Endpoint(item_id=item_id, node_id=node_id, role=role)
+        for item_id, node_id, role in connections.ends_of(segment.id)
+        if item_id not in inner
+    ]
 
     if len(ends) != 2:
         report.add(
