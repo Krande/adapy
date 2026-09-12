@@ -82,6 +82,9 @@ from ..model import (
     ItemKind,
 )
 from ..nozzle_placers import port_names
+from ..read.connectivity import ConnectionIndex
+from ..read.conventions import flow_token
+from ..read.naming import unique_name
 from . import xml_utils
 from .write_dexpi20 import write_dexpi20
 from .write_proteus import write_proteus
@@ -231,14 +234,14 @@ def _source_identity(
     used_names: set[str] = set()
     equipment: dict[str, DexpiItem] = {}
     for item in equipment_items(doc):
-        slug = _dedupe(definition_slug(item), used_slugs)
+        slug = unique_name(definition_slug(item), used_slugs, fallback="equipment")
         base = (item.tag or "").strip() or slug
-        equipment[_dedupe(base, used_names)] = item
+        equipment[unique_name(base, used_names)] = item
 
     junctions: dict[str, DexpiItem] = {}
     for item_id in branch_points(doc):
         item = doc.items[item_id]
-        junctions[_dedupe((item.tag or item.id).strip(), used_names)] = item
+        junctions[unique_name((item.tag or item.id).strip(), used_names)] = item
 
     instruments: dict[str, DexpiItem] = {}
     for item in instrument_items(doc):
@@ -249,7 +252,7 @@ def _source_identity(
             or (f"{operated.tag}-ACT" if operated is not None and operated.tag else None)
             or item.id
         ).strip()
-        instruments[_dedupe(base, used_names)] = item
+        instruments[unique_name(base, used_names)] = item
     return equipment, junctions, instruments
 
 
@@ -280,16 +283,6 @@ def _junction_port_index(
         for node_id, port_name in port_names(nozzle_specs_for(doc, item, flow)).items():
             out[(name, port_name)] = (item.id, node_id)
     return out
-
-
-def _dedupe(base: str, used: set[str]) -> str:
-    name = base
-    suffix = 1
-    while name in used:
-        suffix += 1
-        name = f"{base}-{suffix}"
-    used.add(name)
-    return name
 
 
 # -- equipment: ports -----------------------------------------------------------------------------------
@@ -357,7 +350,7 @@ def _add_nozzle(doc: DexpiDocument, item: DexpiItem, port: Port, minter: _IdMint
         owner_id=nozzle_id,
         node_type="process",
         is_anchor=False,
-        flow=_flow_token(port.direction),
+        flow=flow_token(port.direction),
         tag=port.tag or port.name,
         nominal_diameter=port.nominal_diameter,
     )
@@ -388,15 +381,6 @@ def _drop_port(doc: DexpiDocument, spec_id: str, port_name: str, equipment_name:
 
 def _tag_attribute(value: str | None) -> DexpiAttribute:
     return DexpiAttribute(name=attribute_lookup.SUB_TAG_NAME, value=value, format="string", set_name=_ATTRIBUTE_SET)
-
-
-def _flow_token(direction: PortDirection | str | None) -> str | None:
-    value = getattr(direction, "value", direction)
-    if value == PortDirection.IN.value:
-        return "in"
-    if value == PortDirection.OUT.value:
-        return "out"
-    return None
 
 
 # -- equipment: whole items -----------------------------------------------------------------------------
@@ -535,17 +519,11 @@ def _segment_boundary(doc: DexpiDocument, segment: DexpiItem) -> list[tuple[str,
         for item_id in _descendants(doc, segment.id)
         if doc.items[item_id].kind is not ItemKind.OFF_PAGE_CONNECTOR and item_id not in junctions
     }
-    ends: list[tuple[str, str | None]] = []
-    for connection in doc.connections:
-        if connection.owner_id != segment.id:
-            continue
-        for item_id, node_id in (
-            (connection.from_item, connection.from_node),
-            (connection.to_item, connection.to_node),
-        ):
-            if item_id is not None and item_id not in inner:
-                ends.append((item_id, node_id))
-    return ends
+    # Rebuilt here rather than once per merge: the reconciliation above this call edits
+    # ``doc.connections`` as it goes, and a stale snapshot would report a boundary that no longer
+    # exists.
+    index = ConnectionIndex(doc.connections)
+    return [(item_id, node_id) for item_id, node_id, _role in index.ends_of(segment.id) if item_id not in inner]
 
 
 def _sorted_pairs(pairs: list[tuple[str, str | None]]) -> list[tuple[str, str]]:
@@ -708,7 +686,7 @@ def build_from_scratch(model, flavour: str = "proteus") -> DexpiDocument:
                 owner_id=item_id,
                 node_type="process",
                 is_anchor=False,
-                flow=_flow_token(port.direction),
+                flow=flow_token(port.direction),
                 tag=port.tag or port.name,
                 nominal_diameter=port.nominal_diameter,
             )
