@@ -1,0 +1,740 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Code Documentation" href="code.html"><link rel="prev" title="Routing through things: in-line components and branches" href="routing_through_objects.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Websocket and REST as peers: local disk as a storage backend - ADA - Assembly for Design &amp; Analysis</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">ADA - Assembly for Design & Analysis</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">ADA - Assembly for Design & Analysis</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Features</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology_engine.html">Topology-based procedural modelling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dexpi.html">DEXPI: P&amp;ID in, routed 3D model out</a></li>
+<li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
+<li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command line interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Primitives</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/box.html">Box</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sphere.html">Sphere</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cylinder.html">Cylinder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cone.html">Cone</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/extrusion.html">Extrusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/revolve.html">Revolution</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sweeps.html">Sweeps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/beams.html">Beams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/plates.html">Plates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/pipe.html">Pipe</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Modelling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/boolean_operations.html">Boolean Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/parts_and_assemblies.html">Parts and Assemblies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/sections.html">Sections in ADA</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FEA</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_software.html">FEA Software</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_verification.html">FEA Verification Report</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="ifc_database.html">IFC Database</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dexpi_branch_status.html">DEXPI branch: status and continuation notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="routing_through_objects.html">Routing through things: in-line components and branches</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Websocket and REST as peers: local disk as a storage backend</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Code</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="code.html">Code Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="websocket_correlation.html">Websocket request correlation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="job_transport.html">Job transport</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Profiling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="profiling.html">Profiling Dashboard</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/blob/main/docs/documents/ws_rest_parity.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/edit/main/docs/documents/ws_rest_parity.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="websocket-and-rest-as-peers-local-disk-as-a-storage-backend">
+<h1>Websocket and REST as peers: local disk as a storage backend<a class="headerlink" href="#websocket-and-rest-as-peers-local-disk-as-a-storage-backend" title="Link to this heading">¶</a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A <strong>plan</strong>, not a description of what exists. Steps 0-2 (panel gating on <code class="docutils literal notranslate"><span class="pre">canEdit</span></code>, request
+correlation), step 3 (<code class="docutils literal notranslate"><span class="pre">SAVE_PROCEDURAL_MODEL</span></code>) and step 6 (<code class="docutils literal notranslate"><span class="pre">LIST_PROCEDURAL_MODELS</span></code> /
+<code class="docutils literal notranslate"><span class="pre">LOAD_PROCEDURAL_MODEL</span></code>) are done – see “Status: save, list and load have landed” below for
+what shipped and the decisions it made; steps 4 and 5 (catalogs, compile) are still a plan. The
+<code class="docutils literal notranslate"><span class="pre">ProceduralModelCapability</span></code> seam it builds on (including <code class="docutils literal notranslate"><span class="pre">canEdit</span></code>) was written on the
+<code class="docutils literal notranslate"><span class="pre">fix/viewer-procedural-panels</span></code> branch and is now folded in alongside this document, so
+citations below marked <em>(branch)</em> resolve here too. Delete this document, or fold what survives
+into the comms docs, once the work lands.</p>
+</div>
+<section id="status-save-list-and-load-have-landed">
+<h2>Status: save, list and load have landed<a class="headerlink" href="#status-save-list-and-load-have-landed" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">SAVE_PROCEDURAL_MODEL</span></code> (step 3 below) is implemented end to end: schema, handler, and the
+websocket capability. What follows is a record of the decisions the traps below forced, kept next
+to the plan that predicted them rather than folded silently into the code.</p>
+<ul class="simple">
+<li><p><strong>Scope sentinel.</strong> <code class="docutils literal notranslate"><span class="pre">LOCAL_MODEL_SCOPE</span> <span class="pre">=</span> <span class="pre">&quot;local:disk&quot;</span></code> (<code class="docutils literal notranslate"><span class="pre">services/capabilities/types.ts</span></code>),
+not <code class="docutils literal notranslate"><span class="pre">&quot;user:me&quot;</span></code>. <code class="docutils literal notranslate"><span class="pre">cellBuilderStore.currentScopePart()</span></code> returns it whenever no real scope is
+selected <em>and</em> the active transport is <code class="docutils literal notranslate"><span class="pre">&quot;ws&quot;</span></code>; REST still falls back to <code class="docutils literal notranslate"><span class="pre">&quot;user:me&quot;</span></code> in the
+(should-not-happen) case of no scope, so nothing about REST’s behaviour changed. The REST side has
+no code path that produces or recognises the sentinel, so a scope string leaking into a REST call
+by mistake fails the same way any other unrecognised scope segment would – by absence of support,
+not a special-cased guard.</p></li>
+<li><p><strong>model_id.</strong> Still an opaque token, never a path, on both ends. The client derives one from the
+scene’s source name (<code class="docutils literal notranslate"><span class="pre">utils/cellbuilder/localModelId.ts</span></code>’s <code class="docutils literal notranslate"><span class="pre">localModelIdFromSourceName</span></code>),
+sanitised to the handler’s allow-list (letters/digits/<code class="docutils literal notranslate"><span class="pre">.</span></code>/<code class="docutils literal notranslate"><span class="pre">_</span></code>/<code class="docutils literal notranslate"><span class="pre">-</span></code>, 1-128 chars, starting
+with a letter or digit) rather than passed through raw and left to fail on the first commit. The
+handler (<code class="docutils literal notranslate"><span class="pre">ada.comms.msg_handling.save_procedural_model</span></code>) independently validates the same
+allow-list before it ever builds a path, and re-checks path containment on the resolved path as a
+second line of defence – it does not trust the client’s sanitisation to have happened at all.</p></li>
+<li><p><strong>Revision / hash.</strong> The wire protocol carries a real sha256 content hash
+(<code class="docutils literal notranslate"><span class="pre">ProceduralModelSave.expected_content_hash</span></code> / <code class="docutils literal notranslate"><span class="pre">ProceduralModelSaveReply.content_hash</span></code>), not
+mtime. The TypeScript seam, however, still exposes the REST-shaped numeric <code class="docutils literal notranslate"><span class="pre">revision</span></code> –
+changing that interface to carry a hash everywhere would ripple through <code class="docutils literal notranslate"><span class="pre">cellBuilderStore</span></code>’s
+<code class="docutils literal notranslate"><span class="pre">active.revision</span></code> and the panel’s <code class="docutils literal notranslate"><span class="pre">r{revision}</span></code> display, which is exactly the “larger than any
+single verb” refactor this document warns against attempting in one step. The compromise:
+<code class="docutils literal notranslate"><span class="pre">WSProceduralModelCapability</span></code> tracks each <code class="docutils literal notranslate"><span class="pre">model_id</span></code>’s last hash itself (session-local,
+<code class="docutils literal notranslate"><span class="pre">knownHashes</span></code>) and threads it back as <code class="docutils literal notranslate"><span class="pre">expected_content_hash</span></code> on the next commit for that id,
+so sequential saves within one running viewer <em>do</em> get real optimistic concurrency (a stale hash
+still surfaces as <code class="docutils literal notranslate"><span class="pre">ProceduralCommitConflictError</span></code>) – it is only the numeric <code class="docutils literal notranslate"><span class="pre">revision</span></code> the
+interface returns that is always <code class="docutils literal notranslate"><span class="pre">0</span></code> rather than a meaningless encoding of a hash.</p></li>
+<li><p><strong>``canEdit``.</strong> “Simply when the socket is connected”
+(<code class="docutils literal notranslate"><span class="pre">useWebsocketStatusStore.getState().connected</span></code>), not a capability probe. A probe would still
+need the socket connected to answer at all, and <code class="docutils literal notranslate"><span class="pre">commitModel</span></code> fails no worse on a mid-edit
+disconnect than a stale probe answer would – connectivity is the simpler signal for the same
+result.</p></li>
+<li><p><strong>Per-verb ``supports``.</strong> Landing save flips <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> for the whole capability, which would
+have silently re-enabled every OTHER write control the panel gates on <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> alone (resync,
+propose relocations, compile/preview, xlsx/IFC/Genie export, the per-scope catalog admin
+subpanels) even though none of those verbs exist over the websocket yet. Rather than let those
+surface as repeated <code class="docutils literal notranslate"><span class="pre">CapabilityUnavailableError</span></code> toasts on click, <code class="docutils literal notranslate"><span class="pre">ProceduralModelCapability</span></code>
+grew <code class="docutils literal notranslate"><span class="pre">supports(verb)</span></code> (REST: true for every verb except <code class="docutils literal notranslate"><span class="pre">&quot;listModels&quot;</span></code>, which addresses a
+local-disk directory REST has no equivalent of; WS: true for <code class="docutils literal notranslate"><span class="pre">&quot;commitModel&quot;</span></code> and
+<code class="docutils literal notranslate"><span class="pre">&quot;listModels&quot;</span></code>), and <code class="docutils literal notranslate"><span class="pre">CellBuilderPanel</span></code> gates each of those controls on it alongside
+<code class="docutils literal notranslate"><span class="pre">readOnly</span></code>.</p></li>
+<li><p><strong>Opening a real session.</strong> A websocket load with an embedded procedural document and
+<code class="docutils literal notranslate"><span class="pre">canEdit</span></code> true now calls <code class="docutils literal notranslate"><span class="pre">cellBuilderStore.open()</span></code> (real session, <code class="docutils literal notranslate"><span class="pre">active</span></code> set) instead of
+the view-only <code class="docutils literal notranslate"><span class="pre">loadFromDoc()</span></code> (<code class="docutils literal notranslate"><span class="pre">setupModelLoaderAsync</span></code>) – otherwise the Commit button would
+stay disabled forever (it also requires <code class="docutils literal notranslate"><span class="pre">s.active</span></code>). This is the intended consequence of a save
+path existing, not a workaround: it also turns on the gizmo/context-menu editing surface that
+gates on <code class="docutils literal notranslate"><span class="pre">active</span></code>, which is what “the panel becomes honestly editable” means in practice.</p></li>
+<li><p><strong>List and load (step 6).</strong> <code class="docutils literal notranslate"><span class="pre">LIST_PROCEDURAL_MODELS</span></code> enumerates the same directory
+<code class="docutils literal notranslate"><span class="pre">save_procedural_model</span></code> writes into (one entry per model: <code class="docutils literal notranslate"><span class="pre">model_id</span></code>, content hash, mtime,
+size); <code class="docutils literal notranslate"><span class="pre">LOAD_PROCEDURAL_MODEL</span></code> reads one of them back by id, replying with the document JSON
+plus its current content hash, the same way the save reply does. Both run through the same
+directory rules, <code class="docutils literal notranslate"><span class="pre">model_id</span></code> allow-list and path containment as save, and reply ERROR for a
+missing/invalid id. On the client, <code class="docutils literal notranslate"><span class="pre">WSProceduralModelCapability.fetchModel</span></code> now tries
+<code class="docutils literal notranslate"><span class="pre">LOAD_PROCEDURAL_MODEL</span></code> first (seeding <code class="docutils literal notranslate"><span class="pre">knownHashes</span></code> from the reply, so the next
+<code class="docutils literal notranslate"><span class="pre">commitModel</span></code> gets real optimistic concurrency instead of saving blind) and falls back to
+whatever document the loaded GLB embedded on any failure, so its “never throws” contract is
+unchanged; the new <code class="docutils literal notranslate"><span class="pre">listModels()</span></code> is a thin wrapper over <code class="docutils literal notranslate"><span class="pre">LIST_PROCEDURAL_MODELS</span></code>. The
+cellbuilder panel exposes this as a small “Local models” browser (visible only behind
+<code class="docutils literal notranslate"><span class="pre">supports(&quot;listModels&quot;)</span></code>) that opens a picked entry through the store’s existing public
+<code class="docutils literal notranslate"><span class="pre">open()</span></code>/<code class="docutils literal notranslate"><span class="pre">loadFromDoc()</span></code> path – <code class="docutils literal notranslate"><span class="pre">open()</span></code> when <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> is true, <code class="docutils literal notranslate"><span class="pre">loadFromDoc()</span></code>
+otherwise, exactly the step-0 rule above – and refreshes itself after a successful commit.</p></li>
+</ul>
+<p>The viewer has two transports. Over REST it talks to a FastAPI app with Postgres, object storage,
+NATS and a worker pool behind it. Over websocket it talks to a Python process on the user’s own
+machine. Today the first is treated as the real one and the second as a degraded preview of it, and
+that asymmetry is written into the code as though it were a property of the transports rather than
+a description of what someone has got round to implementing.</p>
+<p><strong>It is the second thing.</strong> The websocket path has a live Python process on the other end – that
+process is what built the scene and pushed the GLB down the socket in the first place. It has
+<code class="docutils literal notranslate"><span class="pre">ada</span></code> imported. It can read and write the user’s disk. When the frontend says the local viewer’s
+procedural panels are read-only “because there is no backend to commit to”, the honest statement is
+<em>the commit verb has not been implemented over this transport yet</em>. The backend is right there.</p>
+<p>The goal this document plans toward: <strong>websocket and REST as peers behind one capability
+interface</strong>, with the local filesystem as a storage backend reached through the websocket layer for
+as long as the connection is up. Not REST-with-bits-missing. A second implementation of the same
+contract, whose storage happens to be a directory instead of a bucket.</p>
+</section>
+<section id="step-0-what-is-landing-separately-and-what-this-builds-on">
+<h2>Step 0 – what is landing separately, and what this builds on<a class="headerlink" href="#step-0-what-is-landing-separately-and-what-this-builds-on" title="Link to this heading">¶</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>In progress on</strong> <code class="docutils literal notranslate"><span class="pre">fix/viewer-procedural-panels</span></code>, <strong>not part of this plan.</strong> Described here
+because everything below assumes it, and because whoever picks this up should not redo it.</p>
+</div>
+<p>The capability seam already declares the flag this whole plan turns on. <code class="docutils literal notranslate"><span class="pre">ProceduralModelCapability</span></code>
+<em>(branch)</em> carries <code class="docutils literal notranslate"><span class="pre">fetchModel</span></code>, <code class="docutils literal notranslate"><span class="pre">adoptEmbeddedModel</span></code> and:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/**</span> <span class="n">Whether</span> <span class="n">the</span> <span class="n">model</span> <span class="n">this</span> <span class="n">transport</span> <span class="n">serves</span> <span class="n">can</span> <span class="n">be</span> <span class="n">edited</span> <span class="ow">and</span> <span class="n">committed</span> <span class="n">back</span><span class="o">.</span> <span class="kc">False</span> <span class="n">on</span> <span class="n">the</span>
+ <span class="o">*</span> <span class="n">websocket</span> <span class="n">path</span> <span class="o">--</span> <span class="n">the</span> <span class="n">document</span> <span class="n">came</span> <span class="n">out</span> <span class="n">of</span> <span class="n">a</span> <span class="n">GLB</span> <span class="ow">and</span> <span class="n">there</span> <span class="ow">is</span> <span class="n">no</span> <span class="n">backend</span> <span class="n">to</span> <span class="n">commit</span> <span class="n">to</span><span class="p">,</span> <span class="n">so</span> <span class="n">the</span>
+ <span class="o">*</span> <span class="n">panels</span> <span class="n">are</span> <span class="n">read</span><span class="o">-</span><span class="n">only</span> <span class="n">there</span><span class="o">.</span> <span class="o">*/</span>
+<span class="n">readonly</span> <span class="n">canEdit</span><span class="p">:</span> <span class="n">boolean</span><span class="p">;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">WSProceduralModelCapability.canEdit</span> <span class="pre">=</span> <span class="pre">false</span></code>, <code class="docutils literal notranslate"><span class="pre">RESTProceduralModelCapability.canEdit</span> <span class="pre">=</span> <span class="pre">true</span></code>,
+both covered by <code class="docutils literal notranslate"><span class="pre">__tests__/services/proceduralCapability.test.ts</span></code>. Production code now reads it:
+<code class="docutils literal notranslate"><span class="pre">CellBuilderPanel</span></code>’s <code class="docutils literal notranslate"><span class="pre">isReadOnly</span></code> (shared with <code class="docutils literal notranslate"><span class="pre">SystemsTab</span></code>) is
+<code class="docutils literal notranslate"><span class="pre">!s.active</span> <span class="pre">||</span> <span class="pre">!capabilities.procedural.canEdit</span></code>, which is what step 0 set out to wire in, so the
+local viewer’s equipment/system browser appears, read-only, instead of not appearing at all.
+<code class="docutils literal notranslate"><span class="pre">Menu</span></code> shows the panel button off <code class="docutils literal notranslate"><span class="pre">active</span></code> or the derived <code class="docutils literal notranslate"><span class="pre">hasEmbeddedDoc</span></code> (below).</p>
+<p>Two things about step 0 matter to this plan:</p>
+<p><em>It gates on a capability, not on a session.</em> The panel is currently hidden by
+<code class="docutils literal notranslate"><span class="pre">proceduralActive</span> <span class="pre">=</span> <span class="pre">useCellBuilderStore((s)</span> <span class="pre">=&gt;</span> <span class="pre">s.active</span> <span class="pre">!==</span> <span class="pre">null)</span></code> (<code class="docutils literal notranslate"><span class="pre">Menu.tsx:155</span></code>), where
+<code class="docutils literal notranslate"><span class="pre">active</span></code> is set only by <code class="docutils literal notranslate"><span class="pre">open()</span></code> (<code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts:1569</span></code>) and never by <code class="docutils literal notranslate"><span class="pre">loadFromDoc()</span></code>
+(<code class="docutils literal notranslate"><span class="pre">:2799</span></code>) – the embedded/GLB path. Faking an <code class="docutils literal notranslate"><span class="pre">active</span></code> to reveal the panel would also switch on
+the entire editing surface, because <code class="docutils literal notranslate"><span class="pre">active</span></code> additionally gates the context menu, port menu,
+insert menu and gizmo HUD (<code class="docutils literal notranslate"><span class="pre">Menu.tsx:373-378</span></code>) and roughly twenty pointer/gizmo handlers in
+<code class="docutils literal notranslate"><span class="pre">CellBuilderController.tsx</span></code>. Gating on <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> instead keeps “is there a session” and “can
+this transport write” as separate questions, which is the precondition for flipping the second one
+later without touching the first.</p>
+<p><em>The docstring above should be reworded as part of step 0.</em> “There is no backend to commit to” is a
+permanent-sounding concession to a temporary fact, and this plan exists to make it false. “The
+commit verb is not implemented over this transport yet” says the same thing about today without
+claiming anything about tomorrow.</p>
+<p><strong>What step 0 must not do – and now does not.</strong> It must not introduce a store-local
+<code class="docutils literal notranslate"><span class="pre">embedded</span></code>/<code class="docutils literal notranslate"><span class="pre">readOnly</span></code> boolean parallel to <code class="docutils literal notranslate"><span class="pre">canEdit</span></code>. A second flag meaning almost the same
+thing is a second thing to unwind when the answer changes, and the seam already has the first one.
+This is satisfied: “is a document loaded for viewing” is answered by the derived
+<code class="docutils literal notranslate"><span class="pre">hasEmbeddedDoc</span></code> selector in <code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts</span></code> (<code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">===</span> <span class="pre">null</span></code> and cells or systems
+non-empty), not by a stored flag, so there is nothing parallel to <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> to unwind.</p>
+</section>
+<section id="three-kinds-of-thing-the-panel-needs">
+<h2>Three kinds of thing the panel needs<a class="headerlink" href="#three-kinds-of-thing-the-panel-needs" title="Link to this heading">¶</a></h2>
+<p>The cellbuilder panel makes roughly a dozen distinct backend calls. They are not one problem; they
+are three, and conflating them is what makes “make WS a peer” sound larger than it is.</p>
+<p><strong>(i) Pure in-process Python that already exists.</strong> The five type catalogs the panel’s dropdowns
+are built from are plain importable functions. The REST worker does not compute them – it calls
+them and advertises the result (<code class="docutils literal notranslate"><span class="pre">src/ada/comms/rest/worker.py:5035-5075</span></code>):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_equipment_types()</span></code> / <code class="docutils literal notranslate"><span class="pre">equipment_archetype_specs()</span></code> (<code class="docutils literal notranslate"><span class="pre">ada.topo_model.equipment</span></code>) –
+backs <code class="docutils literal notranslate"><span class="pre">fetchEquipmentTypes</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_system_types()</span></code> / <code class="docutils literal notranslate"><span class="pre">system_type_specs()</span></code> (<code class="docutils literal notranslate"><span class="pre">ada.api.systems</span></code>, see
+<code class="docutils literal notranslate"><span class="pre">src/ada/api/systems/base.py</span></code>) – backs <code class="docutils literal notranslate"><span class="pre">fetchSystemTypes</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">design_ruleset_specs()</span></code> (<code class="docutils literal notranslate"><span class="pre">ada.topo_model</span></code>) – backs <code class="docutils literal notranslate"><span class="pre">fetchDesignRulesets</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">procedural_cell_type_specs()</span></code> / <code class="docutils literal notranslate"><span class="pre">procedural_opening_type_specs()</span></code> – back <code class="docutils literal notranslate"><span class="pre">fetchCellTypes</span></code>
+and <code class="docutils literal notranslate"><span class="pre">fetchOpeningTypes</span></code></p></li>
+</ul>
+<p>A local <code class="docutils literal notranslate"><span class="pre">ada</span></code> process serves all five by calling the same functions. There is no new computation
+to write, and no server semantics to reproduce: REST’s contribution is <em>unioning these with a
+per-scope database catalog</em>, and locally that union has one side. <code class="docutils literal notranslate"><span class="pre">fetchEngines</span></code>,
+<code class="docutils literal notranslate"><span class="pre">fetchBlueprints</span></code> and <code class="docutils literal notranslate"><span class="pre">fetchDetailingEngines</span></code> have the same shape – an in-process registry,
+plus a DB half (<code class="docutils literal notranslate"><span class="pre">rest/db.py</span></code> <code class="docutils literal notranslate"><span class="pre">list_procedural_engines</span></code>) that locally is empty.</p>
+<p>Compile belongs here too: it is <code class="docutils literal notranslate"><span class="pre">ada.topo_model.compile</span></code>, in process. Note that the browser
+<em>already</em> compiles without any server, through Pyodide (<code class="docutils literal notranslate"><span class="pre">compileInBrowser</span></code>,
+<code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts:3337</span></code>) – so the local viewer can produce a result today. Compiling over the
+websocket would be strictly better than that (real CPython, real CAD kernel), but it is an
+improvement to something that works, not a gap.</p>
+<p><strong>(ii) Genuinely new work: local-disk storage semantics.</strong> Save, load, list and rename a procedural
+model as a file. This is the only category that requires designing something that does not exist in
+any form today, and it is the category that makes the panel honestly editable.</p>
+<p><strong>(iii) Cloud-only, and should stay REST-only forever.</strong> Multi-user scoping, authentication and
+permission checks, the NATS job queue, worker pools. Two panel features belong here that might look
+like category (i) at a glance:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">resyncEquipmentTypes</span></code> – it upserts the <em>per-scope database</em> catalog from code archetypes.
+Locally there is no catalog to resync into; the code archetypes already are the catalog. The
+button should be hidden on the websocket transport, not reimplemented.</p></li>
+<li><p>The embedded <code class="docutils literal notranslate"><span class="pre">EquipmentAdminPanel</span></code> / <code class="docutils literal notranslate"><span class="pre">SystemAdminPanel</span></code> subpanels – per-scope DB catalog
+CRUD, same reasoning.</p></li>
+</ul>
+<p>Getting this three-way split right is most of the value of this document. Category (i) is nearly
+free, (iii) is a decision not to build, and only (ii) is engineering.</p>
+</section>
+<section id="the-precedent-this-repo-has-already-ratified-the-idea">
+<h2>The precedent: this repo has already ratified the idea<a class="headerlink" href="#the-precedent-this-repo-has-already-ratified-the-idea" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">src/ada/comms/rest/local_jobs.py:1-24</span></code> faced exactly this tension for plugin jobs and resolved it
+the way this plan proposes to resolve it for the cellbuilder:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>A plugin&#39;s on-demand backend job normally goes onto NATS and is picked up by a
+capability worker. That is the right shape for a deployment: the checks are long,
+CPU-heavy and want their own pods.
+
+It is the wrong shape for one person running the viewer on their laptop. There is
+no NATS, so ``/api/plugins/{id}/jobs`` answered 503 and the plugin&#39;s &quot;run&quot; button
+was dead -- in the exact setup the examples put you in [...]
+
+So: when no queue is configured, run the job HERE, in a thread, and report it
+through a job id the existing ``GET /api/convert/{job_id}`` endpoint can serve.
+The plugin sees the same contract either way -- the same ``job_entrypoint``, the
+same sync storage facade, the same ``on_progress`` and ``cancel_event`` -- so
+nothing about a plugin has to know which mode it is in.
+</pre></div>
+</div>
+<p>That last sentence is the whole design, stated for a different subsystem. It also names its own
+limits honestly (“Deliberately NOT a queue. One dict, one executor, no persistence, no retries”),
+which is the standard this plan should be held to as well. What follows is that idea applied one
+layer out: not a local implementation of a job queue, but a local implementation of <em>storage</em>.</p>
+</section>
+<section id="the-protocol-cheap-per-verb-with-one-structural-blocker">
+<h2>The protocol: cheap per verb, with one structural blocker<a class="headerlink" href="#the-protocol-cheap-per-verb-with-one-structural-blocker" title="Link to this heading">¶</a></h2>
+<p><strong>Adding a verb is cheap.</strong> Three touchpoints: an enum value in
+<code class="docutils literal notranslate"><span class="pre">src/flatbuffers/schemas/commands.fbs</span></code>, a handler module under <code class="docutils literal notranslate"><span class="pre">src/ada/comms/msg_handling/</span></code>
+(one file per verb, by convention), and one <code class="docutils literal notranslate"><span class="pre">elif</span></code> in <code class="docutils literal notranslate"><span class="pre">default_on_message.py:31-56</span></code>, which is a
+flat if/elif chain over <code class="docutils literal notranslate"><span class="pre">message.command_type</span></code>. The current vocabulary:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PING</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">PONG</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">UPDATE_SCENE</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">UPDATE_SERVER</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">MESH_INFO_CALLBACK</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="n">MESH_INFO_REPLY</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">LIST_WEB_CLIENTS</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">LIST_FILE_OBJECTS</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">LIST_PROCEDURES</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<span class="n">RUN_PROCEDURE</span><span class="o">=</span><span class="mi">9</span><span class="p">,</span> <span class="n">ERROR</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">SERVER_REPLY</span><span class="o">=</span><span class="mi">11</span><span class="p">,</span> <span class="n">VIEW_FILE_OBJECT</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+<span class="n">DELETE_FILE_OBJECT</span><span class="o">=</span><span class="mi">13</span><span class="p">,</span> <span class="n">START_NEW_NODE_EDITOR</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">START_FILE_IN_LOCAL_APP</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>
+<span class="n">GET_SERVER_INFO</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">SHUTDOWN_SERVER</span><span class="o">=</span><span class="mi">19</span>
+</pre></div>
+</div>
+<p><em>(Values 16 and 17 are unused. Presumably retired verbs; nobody has checked, and it does not matter
+except as a reminder not to reuse them casually.)</em></p>
+<p><strong>It is genuinely request/response, not one-way push.</strong> <code class="docutils literal notranslate"><span class="pre">ServerReply</span></code> carries
+<code class="docutils literal notranslate"><span class="pre">reply_to:</span> <span class="pre">commands.CommandType</span></code> (<code class="docutils literal notranslate"><span class="pre">server.fbs:12-18</span></code>); handlers answer with
+<code class="docutils literal notranslate"><span class="pre">CommandTypeDC.SERVER_REPLY</span></code> and <code class="docutils literal notranslate"><span class="pre">ServerReplyDC(reply_to=message.command_type)</span></code> (see
+<code class="docutils literal notranslate"><span class="pre">msg_handling/list_file_objects.py</span></code> for the canonical shape); the frontend switches on it in
+<code class="docutils literal notranslate"><span class="pre">utils/fb_handling/handle_incoming_buffers.ts</span></code> (the <code class="docutils literal notranslate"><span class="pre">SERVER_REPLY</span></code> case).</p>
+<p><strong>The blocker: there is no correlation ID.</strong> <code class="docutils literal notranslate"><span class="pre">table</span> <span class="pre">Message</span></code> (<code class="docutils literal notranslate"><span class="pre">message.fbs:10-24</span></code>) carries
+<code class="docutils literal notranslate"><span class="pre">instance_id</span></code>, <code class="docutils literal notranslate"><span class="pre">target_id</span></code>, <code class="docutils literal notranslate"><span class="pre">target_group</span></code>, <code class="docutils literal notranslate"><span class="pre">client_type</span></code> – all of which route messages
+<em>between clients</em> – and no <code class="docutils literal notranslate"><span class="pre">request_id</span></code>. Replies are dispatched by <code class="docutils literal notranslate"><span class="pre">reply_to</span></code> command-type into
+a handler that writes to a global store. Two consequences, and they are the reason this is a
+structural blocker rather than an inconvenience:</p>
+<ol class="arabic simple">
+<li><p><strong>You cannot await a specific response.</strong> Every method the cellbuilder store calls on
+<code class="docutils literal notranslate"><span class="pre">viewerApi</span></code> is <code class="docutils literal notranslate"><span class="pre">async</span></code> and returns a value to its caller. There is no way to express that
+over a protocol where the answer arrives as a side effect on a store.</p></li>
+<li><p><strong>You cannot have two of the same verb in flight.</strong> Both replies route to the same handler by
+command type, and neither carries anything saying which request it answers.</p></li>
+</ol>
+<p>Until a request ID exists, the two transports <strong>cannot share the capability interface</strong>, because the
+interface is defined in terms of promises that resolve with values. Everything else in this plan is
+per-verb work that can land incrementally; this one thing has to be done first, and once.</p>
+<p>The fix is small in shape – one field on <code class="docutils literal notranslate"><span class="pre">Message</span></code>, a pending-promise map keyed by it on the
+client, handlers echoing it back – but it touches the schema, so it requires regenerating both
+sides. <strong>Unverified:</strong> <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">flat</span></code> (<code class="docutils literal notranslate"><span class="pre">pixi.toml</span></code>) wraps <code class="docutils literal notranslate"><span class="pre">src/flatbuffers/update_flatbuffers.py</span></code>
+and appears to regenerate the Python and TypeScript bindings together; nobody has run it as part of
+scoping this, so treat the codegen cost as unmeasured rather than known-cheap.</p>
+</section>
+<section id="the-second-structural-cost-the-store-bypasses-the-seam">
+<h2>The second structural cost: the store bypasses the seam<a class="headerlink" href="#the-second-structural-cost-the-store-bypasses-the-seam" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts</span></code> calls <code class="docutils literal notranslate"><span class="pre">viewerApi</span></code> <strong>directly</strong> throughout – <code class="docutils literal notranslate"><span class="pre">fetchEquipmentTypes</span></code>,
+<code class="docutils literal notranslate"><span class="pre">commit</span></code> (<code class="docutils literal notranslate"><span class="pre">:3200</span></code>), <code class="docutils literal notranslate"><span class="pre">compilePreview</span></code>, all of it. It does not go through
+<code class="docutils literal notranslate"><span class="pre">capabilities.procedural</span></code>. So “make the transports peers” implies a refactor the verb work does
+not by itself deliver: routing the store’s procedural calls through the capability seam.</p>
+<p>This is larger than any single verb and should not be attempted as one change. Do it incrementally
+– one store method moved onto the seam per websocket verb that lands, so each move is justified by
+a second implementation actually existing. A wholesale refactor ahead of the verbs would produce a
+seam with one implementation on both sides of it, which is just indirection.</p>
+</section>
+<section id="migration-smallest-useful-first">
+<h2>Migration: smallest useful first<a class="headerlink" href="#migration-smallest-useful-first" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Wire ``canEdit`` into the panel</strong> (step 0, above, done). Ships value on its own:
+equipment/system browsing works in the local viewer. Nothing to unwind later.</p></li>
+<li><p><strong>Add ``request_id`` to ``Message`` and a pending-promise map to ``ws_comms.ts``.</strong> Unblocks
+every verb below. Do it once, before any of them. <em>In progress:</em> websocket request correlation
+(<code class="docutils literal notranslate"><span class="pre">request_id</span></code> on <code class="docutils literal notranslate"><span class="pre">Message</span></code>) is being landed on the same branch as this document; the
+change that adds it is the reference for its API, not this plan.</p></li>
+<li><p><strong>``SAVE_PROCEDURAL_MODEL``.</strong> <em>Done – see “Status: save, list and load have landed” above.</em>
+Handler writes the document to a path and replies with a content-hash concurrency token;
+<code class="docutils literal notranslate"><span class="pre">canEdit</span></code> now tracks socket connectivity instead of being hard-coded <code class="docutils literal notranslate"><span class="pre">false</span></code>.</p></li>
+<li><p><strong>Type catalogs over the websocket.</strong> One verb serving all five, or five thin ones. Pure function
+calls (category (i)); the panel’s dropdowns stop being empty. <em>Still REST-only</em> – see below.</p></li>
+<li><p><strong>``COMPILE_PROCEDURAL``.</strong> In-process <code class="docutils literal notranslate"><span class="pre">ada.topo_model.compile</span></code>, replying with a GLB the
+existing scene path already knows how to load. <em>Still REST-only</em> – see below.</p></li>
+<li><p><strong>``LIST_PROCEDURAL_MODELS`` / ``LOAD_PROCEDURAL_MODEL``.</strong> <em>Done – see “Status: save, list and
+load have landed” above.</em> A local-disk model browser in the cellbuilder panel, gated behind
+<code class="docutils literal notranslate"><span class="pre">supports(&quot;listModels&quot;)</span></code>.</p></li>
+</ol>
+<p><strong>What is still REST-only.</strong> Everything <code class="docutils literal notranslate"><span class="pre">WSProceduralModelCapability.SUPPORTED_VERBS</span></code> does not
+name, i.e. every verb except <code class="docutils literal notranslate"><span class="pre">commitModel</span></code> and <code class="docutils literal notranslate"><span class="pre">listModels</span></code>: the five type catalogs and
+blueprints (<code class="docutils literal notranslate"><span class="pre">listCatalog</span></code>, <code class="docutils literal notranslate"><span class="pre">listBlueprints</span></code>, step 4 above), compile/preview
+(<code class="docutils literal notranslate"><span class="pre">compileModel</span></code>, <code class="docutils literal notranslate"><span class="pre">previewModel</span></code>, <code class="docutils literal notranslate"><span class="pre">jobStatus</span></code>, <code class="docutils literal notranslate"><span class="pre">fetchCompileLog</span></code>, <code class="docutils literal notranslate"><span class="pre">resolveEngine</span></code>, step 5
+above), the per-scope catalog admin actions (<code class="docutils literal notranslate"><span class="pre">syncCatalogEntry</span></code>, <code class="docutils literal notranslate"><span class="pre">resyncEquipmentTypes</span></code> –
+category (iii), deliberately staying REST-only, not merely unimplemented yet), relocations
+(<code class="docutils literal notranslate"><span class="pre">proposeRelocations</span></code>, <code class="docutils literal notranslate"><span class="pre">fetchRelocations</span></code>), xlsx import (<code class="docutils literal notranslate"><span class="pre">stageXlsxImport</span></code>, <code class="docutils literal notranslate"><span class="pre">importXlsx</span></code>,
+<code class="docutils literal notranslate"><span class="pre">fetchImportedModel</span></code>), export in every format (<code class="docutils literal notranslate"><span class="pre">exportModel</span></code>, <code class="docutils literal notranslate"><span class="pre">downloadArtifact</span></code>) and the CAD
+equipment preview GLB (<code class="docutils literal notranslate"><span class="pre">fetchEquipmentPreviewGlb</span></code>). Each of these still throws
+<code class="docutils literal notranslate"><span class="pre">CapabilityUnavailableError</span></code> over the websocket transport; <code class="docutils literal notranslate"><span class="pre">CellBuilderPanel</span></code> gates the
+controls that call them on <code class="docutils literal notranslate"><span class="pre">supports(verb)</span></code>.</p>
+<p><strong>Why save is the first verb and not compile.</strong> Compile is already possible with no server at all –
+<code class="docutils literal notranslate"><span class="pre">compileInBrowser</span></code> does it in Pyodide today. Implementing compile over the websocket first would
+prove the plumbing while changing nothing a user cannot already do. Save is the one verb whose
+absence is <em>why</em> the panel is read-only: land it and the panel becomes honestly editable, which is
+the point of the exercise. It is also the verb that forces every hard question in the traps section
+below to be answered, rather than deferred behind an easier one.</p>
+<p><strong>Does the capability need new methods?</strong> <code class="docutils literal notranslate"><span class="pre">saveModel(doc):</span> <span class="pre">Promise&lt;{...}&gt;</span></code> fits the existing grain
+of <code class="docutils literal notranslate"><span class="pre">ProceduralModelCapability</span></code> <em>(branch)</em> and is the obvious shape. Note the seam is currently
+read-oriented (<code class="docutils literal notranslate"><span class="pre">fetchModel</span></code>, <code class="docutils literal notranslate"><span class="pre">adoptEmbeddedModel</span></code>, plus the <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> flag), so save is the
+first <em>write</em> it carries; if a second write verb follows quickly, it may be worth a separate
+write-capability interface rather than growing the read one. That call should be made when the
+second write verb exists, not now, on one data point.</p>
+</section>
+<section id="traps-where-rest-assumptions-leak">
+<h2>Traps: where REST assumptions leak<a class="headerlink" href="#traps-where-rest-assumptions-leak" title="Link to this heading">¶</a></h2>
+<p><em>Scope strings.</em> <code class="docutils literal notranslate"><span class="pre">currentScopePart()</span></code> (<code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts:244</span></code>) defaults to <code class="docutils literal notranslate"><span class="pre">&quot;user:me&quot;</span></code> and
+is threaded into every procedural call. Locally there are no scopes and no users. The trap is that
+passing <code class="docutils literal notranslate"><span class="pre">&quot;user:me&quot;</span></code> locally <em>works by accident</em> and then quietly means something the day a local
+model is synced to a server. Model local as an explicit sentinel the websocket transport recognises
+and the REST transport rejects – not by reusing a real scope string that happens to be the default.
+<strong>Resolved:</strong> <code class="docutils literal notranslate"><span class="pre">LOCAL_MODEL_SCOPE</span></code> – see “Status: save has landed” above.</p>
+<p><em>Model id: opaque token vs file path.</em> REST treats <code class="docutils literal notranslate"><span class="pre">modelId</span></code> as an opaque URL-encoded token. A
+path can be stuffed into that slot and it will appear to work, which is exactly why it should not
+be: separators, drive letters and case-insensitive comparison on Windows all leak into a field every
+consumer assumes is opaque. Give a local model a stable id and carry the path as its own field.
+<strong>Resolved:</strong> an allow-list-validated opaque token on both the client (derived from the source name)
+and the handler (which does not trust the client’s derivation) – see “Status: save has landed”.</p>
+<p><em>Revisions and optimistic concurrency.</em> <code class="docutils literal notranslate"><span class="pre">commit</span></code> sends <code class="docutils literal notranslate"><span class="pre">base_revision</span></code> and handles HTTP 409
+(<code class="docutils literal notranslate"><span class="pre">cellBuilderStore.ts:3200</span></code>); the panel renders <code class="docutils literal notranslate"><span class="pre">r{revision}</span></code> in its header and footer. A file
+has no revision counter. mtime is the obvious substitute and is <strong>weaker than it looks</strong>: coarse
+resolution, and it moves backwards on restore-from-backup, so as a concurrency token it can fail to
+detect a real conflict. Either use a content hash, or drop the concept for local models (revision
+<code class="docutils literal notranslate"><span class="pre">0</span></code>, no conflict path) and say so. Do not pretend mtime is a revision number. Note that the
+panel’s <code class="docutils literal notranslate"><span class="pre">r{...}</span></code> display is an unconditional dereference of <code class="docutils literal notranslate"><span class="pre">active</span></code> that step 0 has to make
+optional anyway. <strong>Resolved, as a hybrid of both options:</strong> a real content hash on the wire, but the
+numeric <code class="docutils literal notranslate"><span class="pre">revision</span></code> this interface exposes stays <code class="docutils literal notranslate"><span class="pre">0</span></code> – see “Status: save has landed” above.</p>
+<p><em>Derived-key round-trips.</em> REST compile returns a blob key the frontend then fetches back. Locally
+the bytes are already in the process that produced them; addressing them through a key-value store
+to hand them to a viewer on the same machine is pure overhead. The websocket path should reply with
+bytes – it already does exactly that for scenes. The trap is implementing the derived-key contract
+locally <em>for symmetry</em>, thereby inheriting a storage abstraction that exists to solve a problem the
+local case does not have.</p>
+<p><em>Auth.</em> <code class="docutils literal notranslate"><span class="pre">authedFetch</span></code> wraps every REST call and <code class="docutils literal notranslate"><span class="pre">runtime.authEnabled()</span></code> is false on the desktop
+path. Low risk today, but any code path shared between the transports must not assume a token
+exists.</p>
+</section>
+<section id="definitions-of-done">
+<h2>Definitions of done<a class="headerlink" href="#definitions-of-done" title="Link to this heading">¶</a></h2>
+<p>Written against observable behaviour rather than wiring, because “the capability reports it can
+edit” is satisfiable without anything reaching disk.</p>
+<ul class="simple">
+<li><p><strong>Step 2 (correlation).</strong> Two requests of the <em>same</em> verb issued back-to-back over the websocket
+both resolve, each with its own response, verified by a test that interleaves them deliberately
+rather than by two sequential calls that happen to pass.</p></li>
+<li><p><strong>Step 3 (save).</strong> <em>Done.</em> Edit a procedural model in the local viewer opened via
+<code class="docutils literal notranslate"><span class="pre">assembly.show()</span></code>, save it, kill the process, reopen the file from disk, and see the edit –
+with the Commit button enabled because <code class="docutils literal notranslate"><span class="pre">canEdit</span></code> is true, not because a guard was removed.</p></li>
+<li><p><strong>Step 4 (catalogs).</strong> The Equipment/Systems dropdowns in the local viewer list the same types
+<code class="docutils literal notranslate"><span class="pre">ada.api.systems.list_system_types()</span></code> returns in a REPL in the same environment. Same source,
+so the comparison is exact, not approximate.</p></li>
+<li><p><strong>Step 5 (compile).</strong> A model compiled over the websocket and the same model compiled through
+REST produce the same geometry for the same input document.</p></li>
+<li><p><strong>Step 6 (list and load).</strong> <em>Done.</em> Save two models under different ids in the local viewer,
+open the “Local models” browser, see both listed, pick one and have it reopen through
+<code class="docutils literal notranslate"><span class="pre">open()</span></code>/<code class="docutils literal notranslate"><span class="pre">loadFromDoc()</span></code> with the document that was saved – with no server, no scope, and
+no id the client did not itself choose when it saved.</p></li>
+</ul>
+</section>
+<section id="what-this-plan-deliberately-does-not-attempt">
+<h2>What this plan deliberately does not attempt<a class="headerlink" href="#what-this-plan-deliberately-does-not-attempt" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Multi-user anything, locally.</strong> No scopes, no permissions, no sharing. One person, one machine,
+one filesystem. A local backend that grows a user model has become a server, badly.</p></li>
+<li><p><strong>A local job queue.</strong> Compile over the websocket runs in a thread and reports through the reply
+it already has. <code class="docutils literal notranslate"><span class="pre">local_jobs.py</span></code> is the precedent and it says the same thing about itself:
+anything wanting retries, persistence or cross-process coordination wants NATS.</p></li>
+<li><p><strong>Offline REST.</strong> This is not about making the FastAPI app runnable without its dependencies. It
+is about the websocket transport growing the verbs it needs to stand on its own.</p></li>
+<li><p><strong>Migrating existing REST behaviour.</strong> Nothing about the hosted viewer changes. Every step here is
+additive to the websocket path; if it changes what a REST user sees, it has gone wrong.</p></li>
+<li><p><strong>A file format.</strong> Saving writes the procedural document that already round-trips through the
+compiler and the database. Inventing a local-only format would create a second thing to keep in
+sync with it.</p></li>
+</ul>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="code.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Code Documentation</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="routing_through_objects.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Routing through things: in-line components and branches</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Kristoffer H. Andersen
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Websocket and REST as peers: local disk as a storage backend</a><ul>
+<li><a class="reference internal" href="#status-save-list-and-load-have-landed">Status: save, list and load have landed</a></li>
+<li><a class="reference internal" href="#step-0-what-is-landing-separately-and-what-this-builds-on">Step 0 – what is landing separately, and what this builds on</a></li>
+<li><a class="reference internal" href="#three-kinds-of-thing-the-panel-needs">Three kinds of thing the panel needs</a></li>
+<li><a class="reference internal" href="#the-precedent-this-repo-has-already-ratified-the-idea">The precedent: this repo has already ratified the idea</a></li>
+<li><a class="reference internal" href="#the-protocol-cheap-per-verb-with-one-structural-blocker">The protocol: cheap per verb, with one structural blocker</a></li>
+<li><a class="reference internal" href="#the-second-structural-cost-the-store-bypasses-the-seam">The second structural cost: the store bypasses the seam</a></li>
+<li><a class="reference internal" href="#migration-smallest-useful-first">Migration: smallest useful first</a></li>
+<li><a class="reference internal" href="#traps-where-rest-assumptions-leak">Traps: where REST assumptions leak</a></li>
+<li><a class="reference internal" href="#definitions-of-done">Definitions of done</a></li>
+<li><a class="reference internal" href="#what-this-plan-deliberately-does-not-attempt">What this plan deliberately does not attempt</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=e3a0a0b0"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    </body>
+</html>

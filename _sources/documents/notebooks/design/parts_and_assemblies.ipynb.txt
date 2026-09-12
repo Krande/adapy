@@ -1,0 +1,148 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "244947cec3bdd42e",
+   "metadata": {},
+   "source": [
+    "# Parts and Assemblies\n",
+    "\n",
+    "In ada-py the `Part` and `Assembly` objects are used to define the hierarchy of elements. Assembly is the top-level object referenced only once per project, while the Part object is used to represent all hierarchical levels underneath the Assembly.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "d601ffd92f97f98d",
+   "metadata": {},
+   "source": [
+    "import ada"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "990f22aad5db5b1c",
+   "metadata": {},
+   "source": [
+    "In ada-py there are two ways to add objects to a Part. You can use the `add_object` method or you can use the `/` operator."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "initial_id",
+   "metadata": {},
+   "source": [
+    "bm = ada.Beam(\"bm1\", (0,0,0), (1,0,0), 'IPE300')\n",
+    "pl = ada.Plate('pl1', [(0,0), (1,0), (1,1), (0,1)], 0.01)\n",
+    "p = ada.Part('myPart')\n",
+    "p.add_object(bm)\n",
+    "p.add_object(pl)\n",
+    "p.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "87ea04051deb6d38",
+   "metadata": {},
+   "source": [
+    "Or you can use \"/\" (inspired by how pathlib concatenates paths)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "63eaf5d90401c022",
+   "metadata": {},
+   "source": [
+    "bm = ada.Beam(\"bm1\", (0,0,0), (1,0,0), 'IPE300')\n",
+    "pl = ada.Plate('pl1', [(0,0), (1,0), (1,1), (0,1)], 0.01)\n",
+    "p = ada.Part('MyPart') / (bm, pl)\n",
+    "p.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "315c1fccfadb0b75",
+   "metadata": {},
+   "source": [
+    "You are free to nest parts to you like to create a hierarchy of elements.\n",
+    "\n",
+    "\n",
+    "You'll notice that there are several methods available on the Part object to export it to different formats"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "ef6ea2566bc8101",
+   "metadata": {},
+   "source": [
+    "[x for x in dir(p) if x.startswith(\"to_\")]"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "40b9cdca25e467c3",
+   "metadata": {},
+   "source": [
+    "However, if you want to export to formats such as `IFC`, you'll have to add a top-level `Assembly` object to your project.\n",
+    "The `Assembly` object is the top-level object in the hierarchy and is used to define the project. It is as subclass of `Part`, but it is referenced only once per project."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "7f6d81f5ae3cf0d4",
+   "metadata": {},
+   "source": [
+    "a = ada.Assembly('myAssembly') / p\n",
+    "a.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b808a8d7d15ed675",
+   "metadata": {},
+   "source": [
+    "You'll see that the Assembly object has 2 additional methods to export to `IFC` and `genie_xml` formats (Genie XML is the format used by a Finite element pre/post-processor `Genie` which is part of the  `Sesam` suite  by DNV."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "25049950b34cdce2",
+   "metadata": {},
+   "source": [
+    "[x for x in dir(a) if x.startswith(\"to_\")]"
+   ],
+   "outputs": [],
+   "execution_count": null
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

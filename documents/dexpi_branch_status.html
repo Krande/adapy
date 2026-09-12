@@ -1,0 +1,700 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Routing through things: in-line components and branches" href="routing_through_objects.html"><link rel="prev" title="IFC Database" href="ifc_database.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>DEXPI branch: status and continuation notes - ADA - Assembly for Design &amp; Analysis</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">ADA - Assembly for Design & Analysis</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">ADA - Assembly for Design & Analysis</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Features</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="steel_detailing.html">Steel detailing as a method</a></li>
+<li class="toctree-l1"><a class="reference internal" href="topology_engine.html">Topology-based procedural modelling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dexpi.html">DEXPI: P&amp;ID in, routed 3D model out</a></li>
+<li class="toctree-l1"><a class="reference internal" href="path_to_software_agnosticism.html">Path to Software Agnosticism</a></li>
+<li class="toctree-l1"><a class="reference internal" href="meshing.html">Build mesh recipes, not meshes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command line interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Primitives</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/box.html">Box</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sphere.html">Sphere</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cylinder.html">Cylinder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/cone.html">Cone</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/extrusion.html">Extrusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/revolve.html">Revolution</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/sweeps.html">Sweeps</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/beams.html">Beams</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/plates.html">Plates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/primitives/pipe.html">Pipe</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Modelling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/boolean_operations.html">Boolean Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/parts_and_assemblies.html">Parts and Assemblies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/sections.html">Sections in ADA</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FEA</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_software.html">FEA Software</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fea/fea_verification.html">FEA Verification Report</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="ifc_database.html">IFC Database</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">DEXPI branch: status and continuation notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="routing_through_objects.html">Routing through things: in-line components and branches</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ws_rest_parity.html">Websocket and REST as peers: local disk as a storage backend</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Code</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="code.html">Code Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="websocket_correlation.html">Websocket request correlation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="job_transport.html">Job transport</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Profiling</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="profiling.html">Profiling Dashboard</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/blob/main/docs/documents/dexpi_branch_status.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/edit/main/docs/documents/dexpi_branch_status.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="dexpi-branch-status-and-continuation-notes">
+<h1>DEXPI branch: status and continuation notes<a class="headerlink" href="#dexpi-branch-status-and-continuation-notes" title="Link to this heading">¶</a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a <strong>working document for the ``feat/dexpi`` branch</strong>, not user-facing feature
+documentation – that is <a class="reference internal" href="dexpi.html"><span class="doc">DEXPI: P&amp;ID in, routed 3D model out</span></a>. It exists so the branch can be picked up cold, by another
+agent or another person, without re-deriving what has already been decided and verified. Delete
+it (or fold anything still true into <a class="reference internal" href="dexpi.html"><span class="doc">DEXPI: P&amp;ID in, routed 3D model out</span></a>) once the branch merges.</p>
+</div>
+<section id="where-things-stand">
+<h2>Where things stand<a class="headerlink" href="#where-things-stand" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">feat/dexpi</span></code> (pushed to <code class="docutils literal notranslate"><span class="pre">origin/feat/dexpi</span></code>, cut from <code class="docutils literal notranslate"><span class="pre">main</span></code> at <code class="docutils literal notranslate"><span class="pre">73b3498e</span></code>) implements
+<strong>DEXPI P&amp;ID import, generated 3D layout and routing, and DEXPI export</strong> for adapy. The commit log
+on the branch is the authoritative history; this document summarises it and records <em>why</em> things
+ended up the way they did, which the log alone does not carry.</p>
+<p>As of this writing the branch carries:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>fix(dexpi): route the runs that meet at a shared PipeTee
+feat(dexpi): merge writer, Assembly.to_dexpi, pickle case (PR 10)
+fix(dexpi): import report summary compared dropped count against the wrong denominator
+feat(dexpi): corpus fetch script, guarded corpus test, gap-report docs (PR 11)
+feat(dexpi): Proteus and DEXPI 2.0 writers, example fixtures, vendored corpus (PR 5)
+fix(topo_model): register wired systems on Assembly.systems
+feat(dexpi): DEXPI P&amp;ID to routed 3D model (PR 9)
+feat(dexpi): DEXPI 2.0 reader and the flavour-dispatching store (PR 4)
+feat(dexpi): equipment class defaults, nozzle placers and the definition list (PR 8)
+feat(dexpi): Proteus reader with two-pass positional node normalization (PR 3)
+feat(systems): carry process identity on ports, equipment and system segments (PR 7)
+feat(dexpi): neutral in-memory model, flavour sniffing and the test oracles (PR 2)
+feat(dexpi): vendor the DEXPI 2.0.0 class table (PR 1)
+feat(topo_model): rule-based topology generation (ada.topo_model.layout) (PR 6)
+</pre></div>
+</div>
+<p>Every one of these has been run independently (not just trusted from the agent that wrote it):
+<code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">-e</span> <span class="pre">tests</span> <span class="pre">pytest</span> <span class="pre">tests/core/cadit/dexpi</span> <span class="pre">tests/core/topo_model</span> <span class="pre">tests/core/topology</span>
+<span class="pre">tests/core/systems</span></code> passes in full, <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">lint-check</span></code> is clean, and the branch diff against
+<code class="docutils literal notranslate"><span class="pre">main</span></code> has been grepped for local paths, usernames, host names and organisation identifiers with
+zero hits at every checkpoint.</p>
+<p>The branch-point bug that was open when the first version of this document was written has since
+been fixed – see “A shared branch point is not the same problem as no branch support” below, which
+now records what the fix turned out to involve rather than what still had to be done.</p>
+<p>The one pre-existing, unrelated test failure on a Windows checkout with a non-UTF-8 default
+codepage is <code class="docutils literal notranslate"><span class="pre">tests/core/cadit/step/test_ada_ext_codegen.py::test_ada_ext_header_matches_schema</span></code>
+(a <code class="docutils literal notranslate"><span class="pre">read_text()</span></code> call with no explicit encoding, decoding a committed em-dash as mojibake). It
+predates this branch, is not caused by anything here, and should not be “fixed” as part of it.</p>
+</section>
+<section id="how-to-resume">
+<h2>How to resume<a class="headerlink" href="#how-to-resume" title="Link to this heading">¶</a></h2>
+<div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">fetch</span> <span class="n">origin</span>
+<span class="n">git</span> <span class="n">checkout</span> <span class="n">feat</span><span class="p">/</span><span class="n">dexpi</span>   <span class="c"># or: git worktree add ../adapy-dexpi feat/dexpi</span>
+<span class="n">pixi</span> <span class="n">run</span> <span class="n">-e</span> <span class="n">tests</span> <span class="n">pytest</span> <span class="n">tests</span><span class="p">/</span><span class="n">core</span><span class="p">/</span><span class="n">cadit</span><span class="p">/</span><span class="n">dexpi</span> <span class="n">tests</span><span class="p">/</span><span class="n">core</span><span class="p">/</span><span class="n">topo_model</span> <span class="n">tests</span><span class="p">/</span><span class="n">core</span><span class="p">/</span><span class="n">topology</span> <span class="n">tests</span><span class="p">/</span><span class="n">core</span><span class="p">/</span><span class="n">systems</span> <span class="n">-q</span>
+<span class="n">pixi</span> <span class="n">run</span> <span class="n">lint-check</span>
+</pre></div>
+</div>
+<p>The user-facing entry points are <code class="docutils literal notranslate"><span class="pre">ada.from_dexpi(path,</span> <span class="pre">...)</span></code> and <code class="docutils literal notranslate"><span class="pre">Assembly.to_dexpi(path,</span> <span class="pre">...)</span></code>
+– see <a class="reference internal" href="dexpi.html"><span class="doc">DEXPI: P&amp;ID in, routed 3D model out</span></a> for the full picture, including the gap table (what DEXPI content adapy models,
+defers to metadata, or does not attempt at all).</p>
+</section>
+<section id="architecture-in-one-pass">
+<h2>Architecture, in one pass<a class="headerlink" href="#architecture-in-one-pass" title="Link to this heading">¶</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>src/ada/cadit/dexpi/
+    model.py, canonical.py, flavour.py, validate.py, class_table.py, units.py, attributes.py
+    resources/dexpi_classes.json              # generated from the DEXPI 2.0.0 spec repo, CC BY 4.0
+    resources/dexpi_equipment_defaults.json   # hand-curated adapy data, NOT DEXPI-authored
+    equipment_defaults.py, nozzle_placers.py, equipment_list.py
+    read/read_proteus.py, read/read_dexpi20.py, read/to_procedural.py
+    write/write_proteus.py, write/write_dexpi20.py, write/from_ada.py
+    store.py
+src/ada/topo_model/layout.py                  # general, DEXPI-independent: shelf-packs
+                                                # equipment into decks; DEXPI is its first caller
+src/ada/factories.py                           # ada.from_dexpi, ada.dexpi_to_procedural
+src/ada/api/spatial/assembly.py                # Assembly._dexpi_store, Assembly.to_dexpi
+src/ada/api/systems/{ports,segments,base}.py   # Port.tag/nominal_diameter/spec/metadata,
+                                                # SystemSegment, System.segments
+files/dexpi_files/                             # fixtures: tiny + realistic, both wire formats,
+                                                # plus two vendored official CC BY 4.0 test files
+tests/core/cadit/dexpi/
+tests/core/topo_model/test_layout.py
+docs/documents/dexpi.rst                       # the user-facing feature doc
+scripts/gen_dexpi_class_table.py, gen_dexpi_examples.py, fetch_dexpi_testcases.py
+</pre></div>
+</div>
+<p>The pipeline: a DEXPI file (either wire format) parses to one neutral
+<code class="xref py py-class docutils literal notranslate"><span class="pre">DexpiDocument</span></code>. Each equipment item resolves through the definition
+list to a physical envelope with real 3D nozzles (class defaults, overridable per tag or class).
+<code class="xref py py-func docutils literal notranslate"><span class="pre">plan_layout()</span></code> packs the resolved equipment into generated decks. Each
+DEXPI <code class="docutils literal notranslate"><span class="pre">PipingNetworkSegment</span></code> becomes one two-ended <code class="docutils literal notranslate"><span class="pre">TopoSystem</span></code> – the load-bearing design
+decision, because <code class="xref py py-func docutils literal notranslate"><span class="pre">ada.topology.routing.route_system()</span></code> routes exactly two ports and has no
+branch/tee concept. The result compiles through the existing (pre-branch) procedural pipeline into
+a routed <a class="reference internal" href="code.html#ada.Assembly" title="ada.Assembly"><code class="xref py py-class docutils literal notranslate"><span class="pre">ada.Assembly</span></code></a>. Nothing is dropped silently: every system the compiler could not
+wire or route, and every equipment the layout could not place, is collected into
+<code class="docutils literal notranslate"><span class="pre">assembly.metadata[&quot;dexpi&quot;][&quot;report&quot;]</span></code> and summarised in a warning.</p>
+</section>
+<section id="findings-worth-knowing-before-you-touch-this-code">
+<h2>Findings worth knowing before you touch this code<a class="headerlink" href="#findings-worth-knowing-before-you-touch-this-code" title="Link to this heading">¶</a></h2>
+<p>These were not obvious from the DEXPI specification and were each found by actually running the
+code against the official test corpus or the realistic generated fixture – not by reading the
+spec. Get them wrong and the importer parses cleanly while silently producing a wrong model.</p>
+<dl>
+<dt>Proteus connection indices are 0-based, not 1-based</dt><dd><p><code class="docutils literal notranslate"><span class="pre">&lt;Connection</span> <span class="pre">FromNode=&quot;1&quot;&gt;</span></code> addresses the <em>second</em> entry (index 1) of the owner’s
+<code class="docutils literal notranslate"><span class="pre">ConnectionPoints</span></code> list, counting the symbol anchor as index 0 – proven against the official
+corpus (55 unambiguous cases in DEXPI 1.3, 0 counter-examples). Getting this backwards makes the
+reader resolve every connection to the anchor, silently and without error, because index 1 is
+always in range. The writer must emit 0-based indices too, pinned by an explicit test that
+checks the literal integer in the output XML.</p>
+</dd>
+<dt>A plain <code class="docutils literal notranslate"><span class="pre">Nozzle</span></code> is a DEXPI subtype of <code class="docutils literal notranslate"><span class="pre">ActuatingElectricalLocation</span></code></dt><dd><p>Testing “is this an electrical location?” by supertype alone types every process nozzle in the
+model as electrical, which <code class="docutils literal notranslate"><span class="pre">System.connect</span></code> then refuses – silently dropping the system with
+only a log warning. Resolve the <code class="docutils literal notranslate"><span class="pre">Nozzle</span></code> family before any instrumentation supertype test.</p>
+</dd>
+<dt>There is no DEXPI class literally named <code class="docutils literal notranslate"><span class="pre">Equipment</span></code></dt><dd><p>The abstract base is <code class="docutils literal notranslate"><span class="pre">ProcessEquipment</span></code>. <code class="docutils literal notranslate"><span class="pre">Chamber</span></code> and <code class="docutils literal notranslate"><span class="pre">Nozzle</span></code> do <strong>not</strong> derive from it
+(both come straight off <code class="docutils literal notranslate"><span class="pre">Core/ConceptualObject</span></code>) – classify them by explicit class name, not
+by supertype.</p>
+</dd>
+<dt>RDL class URIs (<code class="docutils literal notranslate"><span class="pre">ComponentClassURI</span></code>) cannot be synthesised</dt><dd><p>They are not in the DEXPI 2.0.0 specification repository (which uses symbolic RDL references);
+only the source document’s own URI can be echoed on a merge write, and it must be omitted, not
+guessed, on a from-scratch write.</p>
+</dd>
+<dt>Deck placement requires <code class="docutils literal notranslate"><span class="pre">LX</span></code>/<code class="docutils literal notranslate"><span class="pre">LY</span></code>/<code class="docutils literal notranslate"><span class="pre">LZ</span></code> to be stamped explicitly</dt><dd><p>The procedural compiler requires them before the catalog-bbox fallback is ever reached
+(<code class="docutils literal notranslate"><span class="pre">ada.topo_model.compile._require_coords</span></code>), so the layout module stamps them from the
+resolved equipment bbox rather than relying on the catalog resolver at compile time.</p>
+</dd>
+<dt>Deck pitch is uniform across a layout plan, not chosen per deck</dt><dd><p>“Tallest item on this deck plus headroom” is circular once pre-placed (<code class="docutils literal notranslate"><span class="pre">fixed</span></code>) items exist –
+you need deck elevations to assign an item, and the item to compute the elevations. Pass an
+explicit <code class="docutils literal notranslate"><span class="pre">deck_height</span></code>, or one tall <code class="docutils literal notranslate"><span class="pre">ProcessColumn</span></code> makes every deck as tall as it is.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">assembly.systems</span></code> was never populated by the procedural compiler</dt><dd><p><code class="docutils literal notranslate"><span class="pre">_build_systems</span></code> built and routed each <code class="docutils literal notranslate"><span class="pre">System</span></code> object but never handed it back to its
+caller, so <code class="docutils literal notranslate"><span class="pre">write_ifc_systems</span></code> had nothing to read: every procedural (not just DEXPI) IFC
+export was silently missing <code class="docutils literal notranslate"><span class="pre">IfcRelConnectsPorts</span></code> and correct <code class="docutils literal notranslate"><span class="pre">IfcDistributionSystem</span></code> naming
+and <code class="docutils literal notranslate"><span class="pre">PredefinedType</span></code>. Fixed by an optional <code class="docutils literal notranslate"><span class="pre">built_systems_out</span></code> out-parameter threaded through
+<code class="docutils literal notranslate"><span class="pre">ProceduralBuilder.build_systems</span></code>. Verified directly against exported IFC entity counts, not
+just by tests passing.</p>
+</dd>
+<dt>A shared branch point (e.g. a <code class="docutils literal notranslate"><span class="pre">PipeTee</span></code>) is not the same problem as “no branch support”</dt><dd><p><code class="docutils literal notranslate"><span class="pre">route_system</span></code> genuinely cannot route a 3+-way junction as one system, and the plan’s
+segment-per-system design is the right answer to that. But a passive fitting referenced as an
+endpoint by <em>more than one</em> <code class="docutils literal notranslate"><span class="pre">PipingNetworkSegment</span></code> is a different case: each run <em>into</em> the
+junction is an ordinary two-ended run, and only failed because its end named a fitting rather
+than a nozzle. <strong>Fixed</strong> (see the commit at the top of the log above): the importer materialises
+such a fitting as a small <code class="docutils literal notranslate"><span class="pre">IfcPipeFitting</span></code> equipment with one port per connection node, and the
+flagship fixture went from 3 of 10 runs routed to 9 of 10. The tenth, <code class="docutils literal notranslate"><span class="pre">205/1</span></code>, is not a branch
+point at all – it is a relief valve discharging to something the P&amp;ID never draws, so it has one
+end and is correctly reported instead of routed.</p>
+<p>This was found by running the checked-in realistic fixture
+(<code class="docutils literal notranslate"><span class="pre">files/dexpi_files/unit_separator_proteus.xml</span></code>) end to end with the default layout – it has
+two such tees – something none of the automated tests happened to exercise, because the
+importer’s own test fixture and the example-file generator’s fixture were built by different
+people at different times and never run together until this was checked by hand.</p>
+</dd>
+<dt>Three things about the branch-point fix that are not obvious from the diff</dt><dd><p>First, the segment that <em>nests</em> the tee in the XML has no more claim to route through it than
+the two that reference it from outside, so the junction has to be pulled out of that segment’s
+interior set as well. Miss that half and the two outside runs resolve while the nesting one is
+still reported as having a single endpoint – which is exactly how the original symptom split
+into two different-looking report lines for the same cause.</p>
+<p>Second, <strong>the merge writer has to know the same rule</strong>. A materialised tee is an <code class="docutils literal notranslate"><span class="pre">ada.Equipment</span></code>
+whose name is a tag the source’s <code class="docutils literal notranslate"><span class="pre">equipment_items</span></code> never yields, so the writer took it for
+equipment adapy had authored and minted a fresh <code class="docutils literal notranslate"><span class="pre">ProcessEquipment</span></code> for it, rewriting the tee
+and every connection into it on an unedited round-trip. The rule therefore lives in
+<code class="docutils literal notranslate"><span class="pre">equipment_list.branch_points</span></code> – one definition, imported by both sides – and
+<code class="docutils literal notranslate"><span class="pre">from_ada._segment_boundary</span></code> excludes junctions exactly the way
+<code class="docutils literal notranslate"><span class="pre">to_procedural._segment_spec</span></code> does. The naming pool has to be shared too (one
+<code class="docutils literal notranslate"><span class="pre">_source_identity</span></code> pass, equipment then junctions), or a tee tagged like a vessel comes back
+under a different name than the live object carries.</p>
+<p>Third, “reported as connected” and “geometrically connected” are different claims, and only the
+second is worth having. <code class="docutils literal notranslate"><span class="pre">test_branch_points.py</span></code> therefore checks the routed pipe ends land
+<em>on</em> the tee’s port positions (they do, to 1e-9 m) and that the three ports are taken by three
+different runs – a wiring-only assertion passes happily when all three runs resolve to the same
+port and three pipes converge on one point.</p>
+</dd>
+<dt>The official corpus finds what fixtures cannot, and it found two more</dt><dd><p>The first full run of <code class="docutils literal notranslate"><span class="pre">scripts/fetch_dexpi_testcases.py</span></code> + <code class="docutils literal notranslate"><span class="pre">test_external_corpus.py</span></code> after
+the writers landed failed 15 of 220 files. Neither cause was reachable from any checked-in
+fixture, and both were in the <em>unedited</em> round-trip – nothing to do with the 3D path.</p>
+<p><strong>A connection nested in an unmodelled element was written twice</strong> (14 files). A
+<code class="docutils literal notranslate"><span class="pre">&lt;Connection&gt;</span></code> inside an <code class="docutils literal notranslate"><span class="pre">&lt;InformationFlow&gt;</span></code> is echoed verbatim with its owner, because the
+model does not carry information flows – and it is <em>also</em> in <code class="docutils literal notranslate"><span class="pre">doc.connections</span></code>, so
+<code class="docutils literal notranslate"><span class="pre">_connections_by_owner</span></code> emitted it again at document level. The re-read then saw two edges
+where the source had one, the second owner-less. It is worth being clear about why the obvious
+alternative is wrong: stripping <code class="docutils literal notranslate"><span class="pre">&lt;Connection&gt;</span></code> out of the echo instead and always emitting
+from the model does not work, because the writer cannot place an edge inside an element that is
+not an item, so the connection would come back at document level with its owner lost and T1
+would still fail. The echo keeps it; the model side stands down. The test is element identity
+against the source parse – <code class="docutils literal notranslate"><span class="pre">id(connection.raw)</span> <span class="pre">in</span> <span class="pre">echoed</span></code> – which is exact rather than a
+guess from <code class="docutils literal notranslate"><span class="pre">owner_id</span></code>, and covers the <code class="docutils literal notranslate"><span class="pre">doc.extras</span></code> case as well as the per-item one.</p>
+<p><strong>A full RDL URI in</strong> <code class="docutils literal notranslate"><span class="pre">ComponentClass</span></code> <strong>changed class on the way through</strong> (1 file).
+<code class="docutils literal notranslate"><span class="pre">class_table.resolve</span></code> split on the last dot before the last slash, so
+<code class="docutils literal notranslate"><span class="pre">http://sandbox.dexpi.org/rdl/ProcessInstrumentationFunction</span></code> resolved to
+<code class="docutils literal notranslate"><span class="pre">org/rdl/ProcessInstrumentationFunction</span></code> – the dot it found was in the <em>host name</em>. The
+writer emitted that string and the reader resolved it again differently on the way back in. The
+real defect is that <code class="docutils literal notranslate"><span class="pre">resolve</span></code> was not idempotent; taking the path segment off before the dot
+makes it so, and a round-trip through a writer that emits resolved names depends on exactly
+that property. Worth remembering that emitters put things in <code class="docutils literal notranslate"><span class="pre">ComponentClass</span></code> the spec does
+not allow.</p>
+<p>Both are pinned by inline fixtures in <code class="docutils literal notranslate"><span class="pre">test_write_proteus.py</span></code> (all four fail without the
+fixes, checked by reverting), so CI holds them without the git-ignored corpus. One process
+wrinkle the fetch introduces: <code class="docutils literal notranslate"><span class="pre">_external/</span></code> is third-party code in the working tree, and isort
+does not read <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> the way black and ruff do, so <code class="docutils literal notranslate"><span class="pre">pixi</span> <span class="pre">run</span> <span class="pre">lint-check</span></code> fails on it
+until the directory is named in <code class="docutils literal notranslate"><span class="pre">[tool.isort]</span> <span class="pre">skip_glob</span></code> – which it now is.</p>
+</dd>
+<dt>Running the 3D import over the corpus is a second, different gate</dt><dd><p><code class="docutils literal notranslate"><span class="pre">test_external_corpus.py</span></code> asserts the read/write round-trip and nothing else. Running
+<code class="docutils literal notranslate"><span class="pre">ada.from_dexpi</span></code> – layout, systems, routing – over the same 220 files is a separate check
+and it found three more defects. Before them <code class="docutils literal notranslate"><span class="pre">from_dexpi</span></code> raised on 72 of 220; after them, on
+none. Equipment resolved went 266 -&gt; 348, systems built 84 -&gt; 135.</p>
+<p><strong>The class table is DEXPI 2.0.0; the files are not.</strong> A 1.2 export names equipment out of the
+emitter’s symbol library (<code class="docutils literal notranslate"><span class="pre">ComponentClass=&quot;Pumps&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;VerticalDrums&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;Shell&amp;TubeExchangers&quot;</span></code>), so <code class="docutils literal notranslate"><span class="pre">is_a(cls,</span> <span class="pre">&quot;ProcessEquipment&quot;)</span></code> – the rule
+<code class="docutils literal notranslate"><span class="pre">equipment_items</span></code> documented as “and nothing else” – answered False for all of it. A P&amp;ID
+full of equipment resolved to no equipment, and the failure surfaced two steps later as a
+builder error about an empty document, which is why it read as a layout bug rather than a
+recognition one. The Proteus <code class="docutils literal notranslate"><span class="pre">&lt;Equipment&gt;</span></code> tag is now honoured when the class is
+unrecognisable. Watch the exclusion: Proteus spells a chamber
+<code class="docutils literal notranslate"><span class="pre">&lt;Equipment</span> <span class="pre">ComponentClass=&quot;Chamber&quot;&gt;</span></code>, so the tag rule would promote a separator boot to a
+plant asset of its own if <code class="docutils literal notranslate"><span class="pre">Chamber</span></code>/<code class="docutils literal notranslate"><span class="pre">Nozzle</span></code> were not excluded by kind. The predicate is
+<code class="docutils literal notranslate"><span class="pre">equipment_list.is_equipment</span></code> and the merge writer inherits it for free, which is the whole
+reason the rule lives in that module – same lesson as <code class="docutils literal notranslate"><span class="pre">branch_points</span></code>.</p>
+<p><strong>A P&amp;ID with no equipment is not an error.</strong> Instrumentation-only sheets have nothing to lay
+out, so the layout has no decks and <code class="docutils literal notranslate"><span class="pre">ProceduralBuilder</span></code> refuses to compile. Reporting it as an
+<code class="docutils literal notranslate"><span class="pre">ImportIssue</span></code> of kind <code class="docutils literal notranslate"><span class="pre">model</span></code> and returning the schematic assembly is the <code class="docutils literal notranslate"><span class="pre">strict=False</span></code>
+contract; <code class="docutils literal notranslate"><span class="pre">strict=True</span></code> still raises. The summary needed widening too, or a document that
+produced nothing at all reports <code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">of</span> <span class="pre">0</span> <span class="pre">system(s)</span> <span class="pre">and</span> <span class="pre">0</span> <span class="pre">of</span> <span class="pre">0</span> <span class="pre">equipment</span> <span class="pre">did</span> <span class="pre">not</span> <span class="pre">reach</span> <span class="pre">the</span> <span class="pre">3D</span>
+<span class="pre">model</span></code>, which is indistinguishable from a clean import.</p>
+<p><strong>The tag is in two places and adapy read one.</strong> <code class="docutils literal notranslate"><span class="pre">TagName</span></code> appears both as a
+<code class="docutils literal notranslate"><span class="pre">TagNameAssignmentClass</span></code> generic attribute and as a plain XML attribute; 122 of 220 files
+write only the XML attribute. The visible symptom is cosmetic (<code class="docutils literal notranslate"><span class="pre">verticaldrums-equipment-1</span></code>
+instead of <code class="docutils literal notranslate"><span class="pre">T4750</span></code>); the invisible one is not – an equipment definition list keyed <strong>by tag</strong>
+silently stops matching, because the tag is not there. Fixed on <code class="docutils literal notranslate"><span class="pre">DexpiItem.tag</span></code> so both
+flavours and both sides get it, with the generic attribute still winning where both exist.</p>
+<p>234 of the 310 system issues the corpus reports are <code class="docutils literal notranslate"><span class="pre">N</span> <span class="pre">endpoint(s)</span> <span class="pre">outside</span> <span class="pre">the</span> <span class="pre">segment;</span> <span class="pre">a</span>
+<span class="pre">routed</span> <span class="pre">run</span> <span class="pre">needs</span> <span class="pre">exactly</span> <span class="pre">two</span></code> (169 with one endpoint, 65 with none). <strong>That is not the
+branch/tee limitation at scale</strong>, which is the natural but wrong reading – an earlier version
+of this document said exactly that before the cases were taken apart. 50 of them own a bare
+<code class="docutils literal notranslate"><span class="pre">&lt;Connection</span> <span class="pre">/&gt;</span></code> with no ends at all; 93 own one with a single end named and the other simply
+absent; 30 end at an in-line component nothing else references (a real dead end); 16 end at a
+component referenced only by an <em>instrumentation</em> owner, i.e. a signal line to a valve, not a
+piping junction. These drawings do not state their connectivity in the data model; the
+<code class="docutils literal notranslate"><span class="pre">&lt;CenterLine&gt;</span></code> carries it as geometry.</p>
+<p>Recovering it from that geometry was measured and rejected, and the measurement is worth
+repeating rather than trusting: a first pass found 135 centre-line free ends landing <em>exactly</em>
+on a connection node, which looks conclusive until you notice that for a connection with one
+end named, one end of the centre line is the named item’s own node and matches trivially.
+Measuring only the genuinely unknown end gives 19 exact matches against 73 that match nothing.
+Not a foundation to infer connectivity on.</p>
+<p>The real branch case is smaller and worth sizing honestly before anyone builds for it: 89
+branch points across 21 of the 220 files, 37 of degree two (a pass-through, not a branch) and 52
+of degree three. All of them already route, as separate two-ended runs into a materialised
+fitting; what does not exist is one <code class="docutils literal notranslate"><span class="pre">System</span></code> spanning the junction.</p>
+</dd>
+<dt>The relocate feedback loop was proposing nothing, and silently</dt><dd><p><code class="docutils literal notranslate"><span class="pre">propose_relocations</span></code> has always known which equipment moves would clear a run that failed to
+route; nothing fed that back into the layout. Wiring it up (<code class="docutils literal notranslate"><span class="pre">from_dexpi(relocate=True)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">relocate.apply_relocations</span></code> / <code class="docutils literal notranslate"><span class="pre">relocate_doc</span></code>) turned out to be the easy half.</p>
+<p>The hard half: it proposed <strong>nothing</strong>, on a model the compiler had just failed to route. The
+engine’s own routing probe (<code class="docutils literal notranslate"><span class="pre">_route_and_collect</span></code>) is supposed to mirror
+<code class="docutils literal notranslate"><span class="pre">compile._build_systems</span></code>, and it diverged in a way that only ever errs one direction – it
+skipped <code class="docutils literal notranslate"><span class="pre">_augment_grid_with_ports</span></code> and used a clearance with no margin, so its occupancy did
+not cover the lines the router would actually use. A port that did not land on the 0.5 m lattice
+left an un-blocked corridor through an equipment box. The probe therefore reported zero problems
+where the compiler reported two, and a search that sees no problems proposes no moves.</p>
+<p>Measured, not guessed: on <code class="docutils literal notranslate"><span class="pre">C01V01-HEX.EX02</span></code> the compiler fails two runs; the probe found none;
+adding the port augmentation alone reproduced one of them (the other fails to <em>wire</em>, which no
+routing probe can see and no relocation can fix). With the fix the flagship path goes from two
+routing failures to one, cleared by a single 0.5 m shift.</p>
+<p>Two traps if you touch this again. First, <code class="docutils literal notranslate"><span class="pre">_cramped_doc</span></code> in <code class="docutils literal notranslate"><span class="pre">test_relocate.py</span></code> <strong>cannot</strong>
+tell the two probes apart – it fails in both – so an outcome-based assertion there is vacuous
+and passes with the fix reverted. I wrote that test first and it did exactly that. The grid
+comparison now used needs equipment placed <em>off</em> the lattice, or the two grids come out
+identical and the test is vacuous again for a second reason. Second, a relocation proposal names
+equipment <em>origins</em> while the document places equipment by its <em>corner</em>; apply the delta rather
+than reconstructing the corner, and the two conventions cannot drift apart.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">from_dexpi</span></code> returned an Assembly, and that was the wrong container</dt><dd><p>The signature had reached thirteen arguments and roughly half of them – <code class="docutils literal notranslate"><span class="pre">layout</span></code>,
+<code class="docutils literal notranslate"><span class="pre">base_doc</span></code>, <code class="docutils literal notranslate"><span class="pre">build_3d</span></code>, <code class="docutils literal notranslate"><span class="pre">route</span></code>, <code class="docutils literal notranslate"><span class="pre">relocate</span></code>, <code class="docutils literal notranslate"><span class="pre">design_rules</span></code> – said nothing about
+DEXPI. They described how to <em>build</em>. That is the symptom; the cause is that an <code class="docutils literal notranslate"><span class="pre">Assembly</span></code> is a
+<strong>spatial</strong> container and a P&amp;ID has no coordinates, so forcing the schematic into one was a
+category error. It showed: <code class="docutils literal notranslate"><span class="pre">build_3d=False</span></code> returned an assembly built from a procedural
+document and catalog that were then discarded, so you could not build from it afterwards. A dead
+end nobody had a reason to visit.</p>
+<p>There are three layers now. <code class="docutils literal notranslate"><span class="pre">DexpiDocument</span></code> is the faithful parse. <a class="reference internal" href="code.html#ada.SystemModel" title="ada.SystemModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">ada.SystemModel</span></code></a> is
+the adapy-native model – equipment with real ports and the systems joining them, <strong>no
+coordinates</strong>. <code class="docutils literal notranslate"><span class="pre">Assembly</span></code> is the 3D build. <code class="docutils literal notranslate"><span class="pre">ada.SystemModel.from_dexpi</span></code> reads,
+<code class="docutils literal notranslate"><span class="pre">model.to_assembly(spec)</span></code> builds, <code class="docutils literal notranslate"><span class="pre">model.to_dexpi()</span></code> writes back, and <code class="docutils literal notranslate"><span class="pre">ada.from_dexpi</span></code>
+composes the first two so every top-level <code class="docutils literal notranslate"><span class="pre">ada.from_*</span></code> still hands back an Assembly.</p>
+<p>Named <code class="docutils literal notranslate"><span class="pre">SystemModel</span></code> rather than <code class="docutils literal notranslate"><span class="pre">ProcessModel</span></code> after checking the code rather than the
+intuition: adapy already has <code class="docutils literal notranslate"><span class="pre">DuctSystem</span></code>, <code class="docutils literal notranslate"><span class="pre">CableSystem</span></code> and <code class="docutils literal notranslate"><span class="pre">ElectricalSystem</span></code> as peers of
+<code class="docutils literal notranslate"><span class="pre">PipingSystem</span></code>, and the take-off treats HVAC and electrical as disciplines in their own right.
+A pure cabling model is first-class here, so “process” would have over-claimed.</p>
+<p>Four things about the split that are not obvious from the diff:</p>
+<p>First, <strong>the export belongs on the model, not the assembly</strong>, and not merely for tidiness: DEXPI
+cannot express a coordinate, so nothing a build produces is writable back and the built assembly
+has literally nothing to contribute. <code class="docutils literal notranslate"><span class="pre">Assembly.to_dexpi</span></code> and <code class="docutils literal notranslate"><span class="pre">Assembly._dexpi_store</span></code> are
+gone; <code class="docutils literal notranslate"><span class="pre">Assembly</span></code> no longer mentions DEXPI at all.</p>
+<p>Second, <strong>the layout still runs inside the read</strong>, and the model hides it. <code class="docutils literal notranslate"><span class="pre">SystemModel</span></code> holds
+a <code class="docutils literal notranslate"><span class="pre">procedural_factory</span></code> callable rather than a finished procedural document, because the decks
+and coordinates in that document are products of the build’s <code class="docutils literal notranslate"><span class="pre">LayoutRules</span></code> – storing one
+would bake a single layout into the model and make a second build with different bounds
+impossible. The factory is re-run per build. Cost: resolution runs twice for a single build
+(once for the native view). It is pure CPU and worth the correctness; memoise it if it ever
+shows up in a profile.</p>
+<p>Third, the conversion itself has since been split, which is what made the API honest rather than
+merely well-arranged. <code class="docutils literal notranslate"><span class="pre">dexpi_to_resolved</span></code> reads (equipment resolved to envelopes and ports,
+segments to systems, no coordinates) and <code class="docutils literal notranslate"><span class="pre">resolved_to_procedural_doc</span></code> places. Before the split
+the read had to run the whole monolithic conversion once with a placeholder
+<code class="docutils literal notranslate"><span class="pre">ProceduralBuildSpec()</span></code> purely to shape its output, then discard the coordinates <em>and filter
+the resulting layout-stage issues out of its report</em> – special-case code whose only job was to
+hide the effects of running something that should not have run. That filter is gone, and
+<code class="docutils literal notranslate"><span class="pre">test_reading_runs_no_layout_at_all</span></code> asserts the layout engine is called zero times by a read
+and exactly once, with the build’s own bounds, by a build.
+<code class="docutils literal notranslate"><span class="pre">test_bounds_too_small_is_a_build_gap_not_a_read_one</span></code> pins the report split.</p>
+<p>Fourth, <code class="docutils literal notranslate"><span class="pre">Equipment.origin</span></code> is the box’s <strong>base centre</strong> (<code class="docutils literal notranslate"><span class="pre">X</span> <span class="pre">+</span> <span class="pre">LX/2,</span> <span class="pre">Y</span> <span class="pre">+</span> <span class="pre">LY/2,</span> <span class="pre">Z</span></code>), so an
+unplaced equipment is <em>not</em> at <code class="docutils literal notranslate"><span class="pre">(0,0,0)</span></code> – it sits at its own half-extents. Asserting
+<code class="docutils literal notranslate"><span class="pre">origin</span> <span class="pre">==</span> <span class="pre">(0,0,0)</span></code> never holds, and asserting on <code class="docutils literal notranslate"><span class="pre">placement.origin</span></code> holds for placed
+equipment too, so it proves nothing. Both mistakes were made and caught here; the helper
+<code class="docutils literal notranslate"><span class="pre">_is_unplaced</span></code> in <code class="docutils literal notranslate"><span class="pre">test_system_model.py</span></code> is the correct test.</p>
+<p>The equipment definition list now also accepts a <strong>callable</strong> <code class="docutils literal notranslate"><span class="pre">(item)</span> <span class="pre">-&gt;</span> <span class="pre">document</span> <span class="pre">|</span> <span class="pre">None</span></code>, for
+a definition that must be computed rather than tabulated. Its return value is validated exactly
+like a table entry, because a resolver quietly contributing nothing comes back as a model the
+wrong size three steps downstream.</p>
+</dd>
+</dl>
+</section>
+<section id="process-notes-for-whoever-continues-this">
+<h2>Process notes for whoever continues this<a class="headerlink" href="#process-notes-for-whoever-continues-this" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Never use bare</strong> <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">stash</span></code> <strong>/</strong> <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">stash</span> <span class="pre">pop</span></code> <strong>on this machine</strong> – the stash stack is
+shared across worktrees and sessions. Use a WIP commit if you need to set work aside; that is what
+saved an in-progress PR here when a session hit a rate limit mid-task.</p></li>
+<li><p><strong>Never</strong> <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">commit</span> <span class="pre">--amend</span></code> <strong>once other work may have landed on the branch</strong> – it happened
+once during this work (an agent amended after <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> had moved), was caught immediately via the
+reflog, and was recovered with <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">reset</span> <span class="pre">--soft</span></code> rather than losing anything. Prefer a new
+commit.</p></li>
+<li><p><strong>No local machine, username, or organisation identifiers may appear in anything committed</strong> –
+absolute paths, host names, private IPs, employer name. Grep the diff before every commit. This
+repo is public.</p></li>
+<li><p>Independently re-run whatever an agent reports rather than trusting the summary – several of the
+findings above (the <code class="docutils literal notranslate"><span class="pre">assembly.systems</span></code> gap, the branch-point gap, an import-report phrasing bug)
+were caught only by actually running the code by hand against a real fixture, not from a test
+suite passing.</p></li>
+</ul>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="routing_through_objects.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Routing through things: in-line components and branches</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="ifc_database.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">IFC Database</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Kristoffer H. Andersen
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">DEXPI branch: status and continuation notes</a><ul>
+<li><a class="reference internal" href="#where-things-stand">Where things stand</a></li>
+<li><a class="reference internal" href="#how-to-resume">How to resume</a></li>
+<li><a class="reference internal" href="#architecture-in-one-pass">Architecture, in one pass</a></li>
+<li><a class="reference internal" href="#findings-worth-knowing-before-you-touch-this-code">Findings worth knowing before you touch this code</a></li>
+<li><a class="reference internal" href="#process-notes-for-whoever-continues-this">Process notes for whoever continues this</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=e3a0a0b0"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    </body>
+</html>
