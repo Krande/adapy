@@ -1,7 +1,8 @@
-import React, {useCallback, useEffect, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import {viewerApi, Corpus} from "@/services/viewerApi";
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
 import {ImagePool, describeImagePool, groupWorkersByImage} from "../auditPools";
+import {AD_HOC_DEFAULT_SCOPE, defaultAuditScope} from "./defaultScope";
 
 // "Run audit" form — pick a scope (a corpus for release-gate sweeps, or an
 // ad-hoc scope) and an optional worker pool, fire one POST to
@@ -11,7 +12,10 @@ import {ImagePool, describeImagePool, groupWorkersByImage} from "../auditPools";
 const WASM_POOL = "wasm";
 
 const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
-    const [scope, setScope] = useState("shared");
+    const [scope, setScope] = useState(AD_HOC_DEFAULT_SCOPE);
+    // Set once the operator picks a scope by hand; the corpus default below
+    // must not overwrite a choice made before the corpora finished loading.
+    const scopeTouched = useRef(false);
     const [workerPool, setWorkerPool] = useState("");
     const [note, setNote] = useState("");
     const [forceRebuild, setForceRebuild] = useState(false);
@@ -53,6 +57,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 const r = await viewerApi.adminCorporaList();
                 if (cancelled) return;
                 setCorpora(r.corpora);
+                if (!scopeTouched.current) setScope(defaultAuditScope(r.corpora));
             } catch {
                 // Non-fatal: scope picker still has shared / user:me.
             }
@@ -103,7 +108,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 <span>Scope</span>
                 <select
                     value={scope}
-                    onChange={(e) => setScope(e.target.value)}
+                    onChange={(e) => { scopeTouched.current = true; setScope(e.target.value); }}
                     className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-64"
                     title="Pick a corpus for release-gate sweeps, or a non-corpus scope for ad-hoc debugging."
                 >

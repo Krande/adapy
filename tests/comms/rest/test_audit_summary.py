@@ -543,3 +543,26 @@ def test_route_normalises_target_like_the_log_does(db, tmp_path):
 
     with TestClient(create_app(_settings(tmp_path))) as client:
         assert client.get("/api/admin/audit/summary", params={"target": ".GLB"}).json()["total"] == 2
+
+
+@needs_postgres
+def test_a_job_that_started_inside_the_window_is_in_the_window(db):
+    """Submitted before the window, started inside it: the log and the summary both keep it."""
+    p, run = db
+    long_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)
+    run(_seed(p, n=1, status="queued", key_prefix="models/late"))
+    run(
+        p.execute(
+            "UPDATE audit_log SET ts = $1, status = 'running', started_at = NOW() WHERE key LIKE 'models/late%'",
+            long_ago,
+        )
+    )
+    run(_seed(p, n=1, status="done", key_prefix="models/old"))
+    run(p.execute("UPDATE audit_log SET ts = $1 WHERE key LIKE 'models/old%'", long_ago))
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=24)
+    rows = run(db_module.list_audit(p, since=since, limit=100))
+    keys = {r["key"] for r in rows}
+    assert any(k.startswith("models/late") for k in keys), "the running job started inside the window"
+    assert not any(k.startswith("models/old") for k in keys), "a finished job from before the window stays out"
+    summary = run(db_module.summarize_audit(p, since=since))
+    assert summary["by_status"].get("running", 0) >= 1

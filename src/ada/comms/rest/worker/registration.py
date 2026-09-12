@@ -142,7 +142,7 @@ async def build_registration(queue: JobQueue) -> Registration:
         import ada.comms.rest.utilities  # noqa: F401  (registration side-effect)
     except Exception:
         logger.exception("worker: failed to import bundled utilities (non-fatal)")
-    from .utility import UtilityRegistry
+    from ..utility import UtilityRegistry
 
     utilities = UtilityRegistry.specs()
 
