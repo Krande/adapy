@@ -2,6 +2,15 @@
 
 
 
+## v0.70.1 (2026-09-12)
+
+### Fix
+
+* fix: derive the worker&#39;s misroute exemptions from the format registry (#350)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`899da06`](https://github.com/Krande/adapy/commit/899da0656f1f3431e560880907d34fd9f5061a3c))
+
+
 ## v0.70.0 (2026-09-12)
 
 ### Feature
