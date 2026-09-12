@@ -2,6 +2,15 @@
 
 
 
+## v0.70.0 (2026-09-12)
+
+### Feature
+
+* feat: job transport, a viewer runtime, websocket load, and the large files split into modules (#349)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`607d4d6`](https://github.com/Krande/adapy/commit/607d4d60a2702d9afe106affc171727bf1a0d263))
+
+
 ## v0.69.0 (2026-09-11)
 
 ### Feature
@@ -769,7 +778,7 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
 weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; a weld-generation capability runner) that never write it, so the probe failed every cycle
+base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
