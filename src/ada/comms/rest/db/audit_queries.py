@@ -108,11 +108,16 @@ def _audit_predicates(
     if key_like:
         args.append(f"%{key_like}%")
         where.append(f"key ILIKE ${len(args)}")
-    # Bounded on ``ts``, which carries a DESC btree index, so narrowing the
-    # window makes both the log and the summary cheaper rather than dearer.
+    # The lower bound is "activity since", not "submitted since": a job that
+    # waited in the queue longer than the window and is running now belongs to
+    # the window (it started inside it), and anything still queued or running
+    # is part of the present regardless of when it was submitted. Keyed on
+    # ``ts`` first, which carries a DESC btree index, so the common case stays
+    # cheap; the other two arms only admit rows the first one rejected.
     if since is not None:
         args.append(since)
-        where.append(f"ts >= ${len(args)}")
+        n = len(args)
+        where.append(f"(ts >= ${n} OR started_at >= ${n} OR status IN ('queued', 'running'))")
     if until is not None:
         args.append(until)
         where.append(f"ts <= ${len(args)}")
