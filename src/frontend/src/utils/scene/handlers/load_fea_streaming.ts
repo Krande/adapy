@@ -19,7 +19,7 @@ import type {SidecarFetcher} from "@/plugins/registry";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
-import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
+import {useModelSessionStore} from "@/state/modelSession";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useColorStore} from "@/state/colorLegendStore";
@@ -27,8 +27,6 @@ import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
-import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
-import {clearGoToNode} from "../fea/goToNode";
 import {resolveContourRange} from "../fea/contourScale";
 import {selectedResultRange} from "../fea/resultUnits";
 import {translationOffsets, warpValue} from "../fea/warpComponents";
@@ -38,263 +36,30 @@ import {
     requestingSceneColorOwner,
 } from "../fea/modeSceneColor";
 import {beamSolidNodalColors} from "../fea/beamSolidNodalColors";
-import {clearUndeformedGhost, installUndeformedGhost} from "../fea/undeformedGhost";
-import {hasResultLineSegments, setResultLineSegmentsVisible} from "../fea/resultLineSegments";
-import {setResultPointMarkersVisible} from "../fea/resultPointMarkers";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../fea/edgeColors";
 import {withoutEdges} from "../fea/edgeSplit";
 import {expandSourceTriples, sourceVertexIndices} from "../fea/elementLocalGeometry";
-import {useTableNavStore} from "@/state/tableNavStore";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
+import {feaSession as session} from "../fea/streaming/session";
+import {refreshUndeformedGhost, setFeaResultColorsVisible, syncFeaOverlayVisibility} from "../fea/streaming/visibility";
 
-/**
- * The streaming-FEA handle for the open model session, as a live view.
- *
- * It used to be a module-level `let active` here, which outlived the model it
- * described: only `clearActiveFeaStreaming` could drop it, so every teardown
- * path had to remember to call it, and a missed one left this module pointing
- * at a mesh that had already left the scene. The handle lives on the session
- * now (`state/modelSession`), and closing the session drops it along with the
- * group refs and the identity. Reading and writing `session.active` goes
- * straight through — there is no copy here to go stale.
- */
-const session = {
-    get active(): FeaSessionHandle | null {
-        return useModelSessionStore.getState().current()?.fea ?? null;
-    },
-    set active(handle: FeaSessionHandle | null) {
-        useModelSessionStore.getState().ensure().fea = handle;
-    },
-};
-
-/** Whether result colours are on screen right now, as last set through
- *  `setFeaResultColorsVisible`. Usually the store toggle, but not always: a mode
- *  that owns the scene colouring switches them off without recording that as the
- *  user's preference. */
-let resultColorsShown = true;
-
-/** Drop the cached state on next call (e.g. when the user replaces
- * the scene with a different file). The blob cache lives separately
- * in feaFieldBlob.ts. Also resets the deformation-animation store
- * so the SimulationControls UI doesn't keep showing FEA-mode
- * controls for a mesh that's no longer in the scene, and hides the
- * controls panel entirely when no GLTF clips are around to show in
- * the fallback path. */
-/** Flip beam-solid mesh visibility on the active session, if any.
- *  Cheap — just toggles ``mesh.visible``; no re-fetch, no re-paint.
- *  No-op when no session is active or the manifest didn't ship a
- *  beam-solid mesh. */
-export function setBeamSolidsVisible(visible: boolean): void {
-    if (session.active?.beamSolidMesh) {
-        session.active.beamSolidMesh.visible = visible;
-    }
-    syncFeaOverlayVisibility();
-}
-
-/** Every element-edge wireframe in the active session, main mesh and beam solids. */
-function elementEdgeOverlays(name?: string): THREE.LineSegments[] {
-    const names = name ? [name] : ["fea-element-edges", "fea-beam-element-edges"];
-    const out: THREE.LineSegments[] = [];
-    for (const parent of [session.active?.mesh, session.active?.beamSolidMesh]) {
-        if (!parent) continue;
-        for (const each of names) {
-            const child = parent.getObjectByName(each);
-            if (child instanceof THREE.LineSegments) out.push(child);
-        }
-    }
-    return out;
-}
-
-/**
- * Decide which of the three renderings of a beam is on screen, in one place.
- *
- * A line element can be drawn three ways and the viewer builds all three: the
- * extruded section solid, the result-coloured fat line, and the grey element edge
- * from the mesh's edge sidecar. Each was switched by its own toggle, which is how
- * a beam came to be drawn twice — with the sections off, the coloured line and the
- * grey edge sat on the same two nodes, one following the morph and one following
- * the CPU driver, and the model appeared to have twice as many members as it has.
- *
- * The rule, stated once:
- *
- *   * solids show when the user asks for them;
- *   * the coloured line stands in for the solid, so it shows when the solids do
- *     not and result colouring is on;
- *   * the grey beam edge yields to the coloured line and to nothing else. It is
- *     what makes a beam visible with colouring off, and it is still the member's
- *     mesh line through the middle of a section solid.
- *
- * Shell edges are untouched: nothing else draws a shell's element boundaries.
- */
-export function syncFeaOverlayVisibility(): void {
-    if (!session.active?.mesh) return;
-    const store = useFeaAnimationStore.getState();
-    const solids = session.active.beamSolidMesh?.visible ?? false;
-    // Built, wanted, and not superseded by the solids. All three: only an ELEMENT
-    // field installs coloured lines, so a nodal field has none to stand in for the
-    // grey edge and the beam would simply stop being drawn.
-    //
-    // "Wanted" is what is on screen, not only the user's toggle: a mode that owns
-    // the scene colouring switches the colours off without touching that toggle,
-    // and a coloured beam left behind under it is a result painted where none
-    // should be.
-    const colouredLines =
-        hasResultLineSegments(session.active.mesh) && store.resultColorsVisible && resultColorsShown && !solids;
-
-    setResultLineSegmentsVisible(session.active.mesh, colouredLines);
-    for (const overlay of elementEdgeOverlays("fea-element-edges")) {
-        overlay.visible = store.elementEdgesVisible;
-    }
-    for (const overlay of elementEdgeOverlays("fea-beam-element-edges")) {
-        overlay.visible = store.elementEdgesVisible && !colouredLines;
-    }
-    requestRender();
-}
-
-/**
- * Show or hide the element-edge wireframe on the loaded result.
- *
- * A RUNTIME toggle, unlike the ``hideElementEdges`` perf flag: that one is read
- * when the mesh is built and decides whether the overlay is created at all, so
- * flipping it does nothing to a model already on screen. This flips `visible` on
- * what exists, which is what a toolbar button has to do.
- *
- * The beam-solid wireframe stays subordinate to the solids themselves — hiding
- * edges must not reveal a wireframe for solids that are switched off.
- */
-export function setFeaElementEdgesVisible(_visible: boolean): void {
-    // Through the shared rule rather than a blanket flip. A beam's grey edge is
-    // suppressed while another rendering already draws that element, and this
-    // toggle must not be what puts it back. Every caller writes the store first,
-    // so the argument is redundant; it is kept for the viewer-core contract.
-    syncFeaOverlayVisibility();
-}
-
-/**
- * Paint the model with the result field, or show it in its base material.
- *
- * Off is not "no result" — the step, the field and the legend's range are all
- * still what they were. It is the geometry question separated from the value
- * question: turning colour off is how you look at the MESH, at a section cut, at
- * where a beam actually sits, without a contour on top of it.
- *
- * Every surface that carries the field is covered, not just the shells: the
- * beam-solid mesh, and the coloured beam lines that stand in for it when solids
- * are off. Leaving either behind would say the colouring was still partly on,
- * which is worse than not offering the switch.
- */
-export function setFeaResultColorsVisible(visible: boolean): void {
-    resultColorsShown = visible;
-    const setVc = (mat: THREE.Material) => {
-        if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== visible) {
-            (mat as unknown as {vertexColors: boolean}).vertexColors = visible;
-            mat.needsUpdate = true;
-        }
-    };
-    for (const target of [session.active?.mesh, session.active?.beamSolidMesh]) {
-        if (!target) continue;
-        // The beam-solid mesh only carries vertex colours when a field actually
-        // painted it; forcing them on would tint it by whatever is in the buffer.
-        if (visible && target === session.active?.beamSolidMesh && !target.geometry.getAttribute("color")) continue;
-        const m = target.material;
-        if (Array.isArray(m)) m.forEach(setVc);
-        else if (m) setVc(m as THREE.Material);
-    }
-    if (session.active?.mesh) {
-        // Result-point markers are result colouring too.
-        setResultPointMarkersVisible(session.active.mesh, visible);
-    }
-    // Which of a beam's three renderings is on screen changes with this, so the
-    // shared rule decides rather than this function reaching for one of them.
-    syncFeaOverlayVisibility();
-}
-
-/** Are element edges currently drawn? False when the bake carried none. */
-export function feaElementEdgesVisible(): boolean {
-    const overlays = elementEdgeOverlays();
-    return overlays.length > 0 && overlays.some((o) => o.visible);
-}
-
-/** Does the loaded result carry an element-edge wireframe to toggle? */
-export function hasFeaElementEdges(): boolean {
-    return elementEdgeOverlays().length > 0;
-}
-
-/**
- * Does the loaded FEA model carry beam section geometry at all?
- *
- * `setBeamSolidsVisible` is a no-op without it — the bake only emits
- * ``beam_solids_url`` for a reader with section + axis info per beam, and only
- * when it was asked to. A UI that offers "beams as solid" needs to tell the two
- * cases apart: a toggle that flips and changes nothing reads as broken, where a
- * greyed one with a reason reads as a property of the model.
- */
-export function hasBeamSolids(): boolean {
-    return session.active?.beamSolidMesh != null;
-}
-
-/** The active FEA mesh (a custom-batch THREE.Mesh carrying per-element
- *  ``drawRanges``), or null when no FEA model is loaded. Exposed so a plugin can
- *  drive element-level scene ops (isolate / highlight / attach overlays) off the
- *  same mesh core deforms — reached via the plugin SceneHandle, never imported. */
-export function getActiveFeaMesh(): THREE.Mesh | null {
-    return session.active?.mesh ?? null;
-}
-
-/** Draw-range ids (e.g. ``E123``) currently selected on the active FEA mesh,
- *  or ``[]`` when nothing is selected / no FEA model is loaded. This is the same
- *  per-element selection the CustomBatchedMesh highlights (it reads the shared
- *  ``useSelectedObjectStore`` entry keyed on the active mesh). Exposed so a
- *  plugin drawing its own overlay on top of the FEA mesh can mirror core's
- *  selection highlight — reached via the plugin SceneHandle, never imported.
- *  Generic: names no plugin and returns the raw selection identity only. */
-export function getActiveFeaSelectedRangeIds(): string[] {
-    const mesh = session.active?.mesh;
-    if (!mesh) return [];
-    const selected = useSelectedObjectStore.getState().selectedObjects.get(mesh);
-    return selected ? Array.from(selected) : [];
-}
-
-/** Drive core's per-element selection on the active FEA mesh from a set of
- *  draw-range ids. This writes the SAME ``useSelectedObjectStore`` entry that a
- *  scene click writes, so the highlight uses the exact selection colour +
- *  CustomBatchedMesh path as click-select — a plugin listing results should call
- *  this instead of painting its own overlay. ``additive`` false (default)
- *  replaces the selection; true unions with the current one. No-op when no FEA
- *  model is loaded. Generic: names no plugin, takes raw range ids only. */
-export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = false): void {
-    const mesh = session.active?.mesh;
-    if (!mesh) return;
-    const store = useSelectedObjectStore.getState();
-    if (!additive) store.clearSelectedObjects();
-    for (const id of rangeIds) store.addSelectedObject(mesh, id);
-    requestRender();
-}
-
-export function clearActiveFeaStreaming(): void {
-    // Ends the model session. The FEA handle, the per-source group refs and
-    // the identity all go together, and so do the colour-owner stack's saved
-    // views — the next load is a new source even if it is the same file again
-    // (what `noteFieldSourceCleared` used to say here, now `close()`'s job).
-    useModelSessionStore.getState().close();
-    useFeaAnimationStore.getState().reset();
-    useColorStore.getState().setShowLegend(false);
-    resetFeaAnimationPhase();
-    // Drop any "go to node" marker + active-row state. The marker
-    // mesh would otherwise survive into the next loaded model and
-    // point at a vertex that no longer exists.
-    clearGoToNode();
-    useTableNavStore.getState().setActiveNodeId(null);
-    useTableNavStore.getState().setGoToTarget(null);
-    // Hide the panel — without this, the toggle button stays
-    // pressed-state on a panel that has nothing useful to show.
-    // Re-applying an FEA session sets it back to true.
-    const generalAnimStore = useAnimationStore.getState();
-    if (!generalAnimStore.hasAnimation) {
-        generalAnimStore.setIsControlsVisible(false);
-    }
-}
+export {
+    getActiveFeaMesh,
+    getActiveFeaSelectedRangeIds,
+    hasBeamSolids,
+    setActiveFeaSelectedRangeIds,
+} from "../fea/streaming/session";
+export {clearActiveFeaStreaming} from "../fea/streaming/teardown";
+export {
+    feaElementEdgesVisible,
+    hasFeaElementEdges,
+    refreshUndeformedGhost,
+    setBeamSolidsVisible,
+    setFeaElementEdgesVisible,
+    setFeaResultColorsVisible,
+    setFeaUndeformedGhost,
+    syncFeaOverlayVisibility,
+} from "../fea/streaming/visibility";
 
 function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
     let found: THREE.Mesh | null = null;
@@ -1785,31 +1550,4 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
         // on the first call (no renderer state yet).
         lineGeom.dispatchEvent({type: "dispose"});
     }
-}
-
-/**
- * Show or hide the undeformed reference wireframe on the active FEA session.
- *
- * Reads the flag from the store rather than taking it, so a caller that has just
- * set the preference and a caller re-applying it after a load are the same call.
- * A no-op when nothing is loaded, or when the bake carried no edge sidecar —
- * there is no honest reference to draw from a triangulation alone.
- */
-export function refreshUndeformedGhost(): void {
-    if (!session.active?.mesh) return;
-    const show = useFeaAnimationStore.getState().showUndeformed;
-    if (!show || !session.active.edgeIndices || session.active.edgeIndices.length === 0) {
-        clearUndeformedGhost(session.active.mesh);
-        if (session.active.beamSolidMesh) clearUndeformedGhost(session.active.beamSolidMesh);
-        requestRender();
-        return;
-    }
-    installUndeformedGhost(session.active.mesh, session.active.basePositions, session.active.edgeIndices);
-    requestRender();
-}
-
-/** Set the preference and apply it in one call — what a toolbar toggle wants. */
-export function setFeaUndeformedGhost(show: boolean): void {
-    useFeaAnimationStore.getState().setShowUndeformed(show);
-    refreshUndeformedGhost();
 }
