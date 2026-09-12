@@ -7,7 +7,7 @@ import AuditFilterBar from "./AuditFilterBar";
 import AuditLogTab from "./auditLog/AuditLogTab";
 import AuditOverviewTab from "./AuditOverviewTab";
 import AuditRunsTab from "./auditRuns/AuditRunsTab";
-import CorpusTab from "./CorpusTab";
+import CorpusTab from "./corpus/CorpusTab";
 import SchedulesTab from "./SchedulesTab";
 
 // The Audit tab.
