@@ -82,6 +82,7 @@ from ..model import (
     ItemKind,
 )
 from ..nozzle_placers import port_names
+from ..read.conventions import flow_token
 from . import xml_utils
 from .write_dexpi20 import write_dexpi20
 from .write_proteus import write_proteus
@@ -357,7 +358,7 @@ def _add_nozzle(doc: DexpiDocument, item: DexpiItem, port: Port, minter: _IdMint
         owner_id=nozzle_id,
         node_type="process",
         is_anchor=False,
-        flow=_flow_token(port.direction),
+        flow=flow_token(port.direction),
         tag=port.tag or port.name,
         nominal_diameter=port.nominal_diameter,
     )
@@ -388,15 +389,6 @@ def _drop_port(doc: DexpiDocument, spec_id: str, port_name: str, equipment_name:
 
 def _tag_attribute(value: str | None) -> DexpiAttribute:
     return DexpiAttribute(name=attribute_lookup.SUB_TAG_NAME, value=value, format="string", set_name=_ATTRIBUTE_SET)
-
-
-def _flow_token(direction: PortDirection | str | None) -> str | None:
-    value = getattr(direction, "value", direction)
-    if value == PortDirection.IN.value:
-        return "in"
-    if value == PortDirection.OUT.value:
-        return "out"
-    return None
 
 
 # -- equipment: whole items -----------------------------------------------------------------------------
@@ -708,7 +700,7 @@ def build_from_scratch(model, flavour: str = "proteus") -> DexpiDocument:
                 owner_id=item_id,
                 node_type="process",
                 is_anchor=False,
-                flow=_flow_token(port.direction),
+                flow=flow_token(port.direction),
                 tag=port.tag or port.name,
                 nominal_diameter=port.nominal_diameter,
             )

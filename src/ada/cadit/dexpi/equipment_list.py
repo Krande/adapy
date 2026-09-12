@@ -40,6 +40,7 @@ from . import attributes, class_table
 from .equipment_defaults import build_default_doc
 from .model import DexpiDocument, DexpiItem, ItemKind
 from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node, port_names
+from .read.conventions import FLOW_IN, FLOW_OUT
 
 __all__ = [
     "EquipmentTypeRow",
@@ -381,8 +382,8 @@ def connection_flow(doc: DexpiDocument) -> dict[str, str]:
     out: dict[str, str] = {}
     for connection in doc.connections:
         for item_id, node_id, flow in (
-            (connection.from_item, connection.from_node, "out"),
-            (connection.to_item, connection.to_node, "in"),
+            (connection.from_item, connection.from_node, FLOW_OUT),
+            (connection.to_item, connection.to_node, FLOW_IN),
         ):
             for key in (item_id, node_id):
                 if key is not None:

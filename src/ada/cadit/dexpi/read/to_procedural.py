@@ -85,6 +85,22 @@ from ..equipment_list import (
 )
 from ..model import DexpiDocument, DexpiItem, ItemKind
 from ..nozzle_placers import NozzleSpec, nozzle_from_node, port_names
+from .conventions import (
+    DIRECTION_IN,
+    DIRECTION_OUT,
+    INLINE_BBOX,
+    INLINE_IFC,
+    INSTRUMENT_BBOX,
+    INSTRUMENT_IFC,
+    INSTRUMENT_IFC_DEFAULT,
+    JUNCTION_IFC,
+    SIGNAL_PORT_KEY,
+    SITE_ELEVATION,
+    SITE_ELEVATION_FRACTION,
+    SITE_INLET_FACE,
+    SITE_OUTLET_FACE,
+    PortDirectionToken,
+)
 
 __all__ = [
     "DexpiImportReport",
@@ -100,48 +116,8 @@ __all__ = [
 
 InlineComponents = Literal["metadata", "equipment"]
 
-#: Envelope and IFC class for an in-line component materialised as its own equipment under
-#: ``inline_components="equipment"``. Small and square on purpose: a valve body is a detail, and
-#: giving it a considered size would be inventing data the P&ID does not hold.
-_INLINE_BBOX = [0.4, 0.4, 0.4]
-_INLINE_IFC = "IfcValve"
-
-#: IFC class for a branch point materialised as its own equipment. Same envelope as an in-line
-#: component -- a tee body is a detail too -- but a fitting rather than a valve.
-_JUNCTION_IFC = "IfcPipeFitting"
-
-#: Envelope for an instrument materialised as its own equipment. Smaller than an in-line component
-#: on purpose: a transmitter or a controller is a box on a stand, not a body the process runs
-#: through, and the P&ID says nothing about its size either way.
-_INSTRUMENT_BBOX = [0.3, 0.3, 0.3]
-
-#: DEXPI instrumentation class -> IFC4 distribution *control* element. These are deliberately not
-#: ``IfcBuildingElementProxy``: an actuator and a controller are different things to anyone reading
-#: the exported IFC, and IFC4 has the classes to say so.
-_INSTRUMENT_IFC: dict[str, str] = {
-    "ActuatingSystem": "IfcActuator",
-    "ActuatingElectricalSystem": "IfcActuator",
-    "ControlledActuator": "IfcActuator",
-    # The function an actuating system performs. It is the acting half of a loop and belongs with
-    # the actuators, not in the IfcFlowInstrument catch-all it would otherwise fall to -- the
-    # supertype DAG does not connect it to ControlledActuator.
-    "ActuatingFunction": "IfcActuator",
-    "Positioner": "IfcActuator",
-    "ProcessSignalGeneratingSystem": "IfcSensor",
-    "ProcessSignalGeneratingFunction": "IfcSensor",
-    "ProcessInstrumentationFunction": "IfcController",
-}
-_INSTRUMENT_IFC_DEFAULT = "IfcFlowInstrument"
-
-#: Suffix for the synthetic signal port given to an instrument that declares no connection node of
-#: its own -- which is most of them: a DEXPI instrument states its connectivity with associations,
-#: not with ``<ConnectionPoints>``, so there is no node to derive a port from.
-_SIGNAL_PORT_KEY = "#signal"
-
-#: Height of a site terminal above the floor of the deck it is placed on, and the fraction of the
-#: deck height to fall back to on a deck shallower than that.
-_SITE_ELEVATION = 1.5
-_SITE_ELEVATION_FRACTION = 0.4
+# Envelopes, IFC classes, the synthetic signal-port key and the site-terminal placement are
+# conventions, held in :mod:`.conventions` alongside every other one the import runs on.
 
 
 def default_layout_rules() -> LayoutRules:
@@ -294,7 +270,7 @@ class _Endpoint:
     equipment: str | None = None
     port: str | None = None
     site: str | None = None
-    direction: str | None = None
+    direction: PortDirectionToken | None = None
     position: tuple[float, float, float] | None = None
     direction_vector: tuple[float, float, float] | None = None
     problem: str | None = None
@@ -697,9 +673,9 @@ def _junction_equipment(
         document = build_default_doc(
             item.class_name,
             specs,
-            bbox=_INLINE_BBOX,
+            bbox=INLINE_BBOX,
             strategy="generic",
-            ifc_element_class=_JUNCTION_IFC,
+            ifc_element_class=JUNCTION_IFC,
             tag=item.tag,
             dexpi_id=item.id,
         )
@@ -720,9 +696,9 @@ def _junction_equipment(
             LayoutItem(
                 name=name,
                 type_slug=slug,
-                lx=_INLINE_BBOX[0],
-                ly=_INLINE_BBOX[1],
-                lz=_INLINE_BBOX[2],
+                lx=INLINE_BBOX[0],
+                ly=INLINE_BBOX[1],
+                lz=INLINE_BBOX[2],
                 mass=float(document.get("mass") or 0.0),
             )
         )
@@ -732,12 +708,12 @@ def _junction_equipment(
 def _instrument_ifc(class_name: str) -> str:
     """The IFC class for an instrument, resolved up the DEXPI supertype DAG."""
     name = class_table.resolve(class_name)
-    if name in _INSTRUMENT_IFC:
-        return _INSTRUMENT_IFC[name]
-    for dexpi_class, ifc_class in _INSTRUMENT_IFC.items():
+    if name in INSTRUMENT_IFC:
+        return INSTRUMENT_IFC[name]
+    for dexpi_class, ifc_class in INSTRUMENT_IFC.items():
         if class_table.is_a(name, dexpi_class):
             return ifc_class
-    return _INSTRUMENT_IFC_DEFAULT
+    return INSTRUMENT_IFC_DEFAULT
 
 
 def _instrument_equipment(
@@ -811,7 +787,7 @@ def _instrument_equipment(
             ordinal = len(specs) + 1
             specs.append(
                 NozzleSpec(
-                    id=f"{item.id}{_SIGNAL_PORT_KEY}{ordinal}",
+                    id=f"{item.id}{SIGNAL_PORT_KEY}{ordinal}",
                     name=f"S{ordinal}",
                     category="signal",
                 )
@@ -820,7 +796,7 @@ def _instrument_equipment(
         document = build_default_doc(
             item.class_name,
             specs,
-            bbox=_INSTRUMENT_BBOX,
+            bbox=INSTRUMENT_BBOX,
             strategy="generic",
             ifc_element_class=_instrument_ifc(item.class_name),
             tag=item.tag,
@@ -855,9 +831,9 @@ def _instrument_equipment(
             LayoutItem(
                 name=name,
                 type_slug=slug,
-                lx=_INSTRUMENT_BBOX[0],
-                ly=_INSTRUMENT_BBOX[1],
-                lz=_INSTRUMENT_BBOX[2],
+                lx=INSTRUMENT_BBOX[0],
+                ly=INSTRUMENT_BBOX[1],
+                lz=INSTRUMENT_BBOX[2],
                 mass=float(document.get("mass") or 0.0),
                 group=(operated.tag or operated.id) if operated is not None else None,
             )
@@ -893,9 +869,9 @@ def _inline_equipment(
             document = build_default_doc(
                 component.class_name,
                 specs,
-                bbox=_INLINE_BBOX,
+                bbox=INLINE_BBOX,
                 strategy="generic",
-                ifc_element_class=_INLINE_IFC,
+                ifc_element_class=INLINE_IFC,
                 tag=component.tag,
                 dexpi_id=component.id,
             )
@@ -916,9 +892,9 @@ def _inline_equipment(
                 LayoutItem(
                     name=name,
                     type_slug=slug,
-                    lx=_INLINE_BBOX[0],
-                    ly=_INLINE_BBOX[1],
-                    lz=_INLINE_BBOX[2],
+                    lx=INLINE_BBOX[0],
+                    ly=INLINE_BBOX[1],
+                    lz=INLINE_BBOX[2],
                     mass=float(document.get("mass") or 0.0),
                     group=spec.entity.NAME,
                 )
@@ -1292,24 +1268,25 @@ def _resolve_endpoint(doc: DexpiDocument, end: _Endpoint, index: _Index) -> None
     end.problem = f"{class_name} {end.item_id!r} is not a nozzle, an equipment or an off-page connector"
 
 
-def _off_page_direction(class_name: str, role: str) -> str:
+def _off_page_direction(class_name: str, role: str) -> PortDirectionToken:
     if class_table.is_a(class_name, "PipingSourceItem") or class_table.is_a(
         class_name, "SignalConveyingFunctionSource"
     ):
-        return "IN"
+        return DIRECTION_IN
     if class_table.is_a(class_name, "PipingTargetItem") or class_table.is_a(
         class_name, "SignalConveyingFunctionTarget"
     ):
-        return "OUT"
-    return "IN" if role == "from" else "OUT"
+        return DIRECTION_OUT
+    return DIRECTION_IN if role == "from" else DIRECTION_OUT
 
 
 def _place_site_terminals(segments: list[_SegmentSpec], spaces: list[TopoSpace], placements: dict) -> None:
     """Give every site terminal a world position on the boundary of a deck.
 
     A P&ID's off-page connector has no coordinate at all, so one is generated: inputs enter through
-    the ``-X`` face of the deck their equipment stands on and outputs leave through the ``+X`` face,
-    spread evenly along that face so two terminals never land on the same point. The direction
+    :data:`~.conventions.SITE_INLET_FACE` of the deck their equipment stands on and outputs leave
+    through :data:`~.conventions.SITE_OUTLET_FACE`, spread evenly along that face so two terminals
+    never land on the same point. The direction
     vector points **into** the model, which is the direction the run leaves the boundary along --
     the routing engine follows it for one grid pitch before it starts pathfinding.
     """
@@ -1324,16 +1301,17 @@ def _place_site_terminals(segments: list[_SegmentSpec], spaces: list[TopoSpace],
         )
         for end in spec.ends:
             if end.site is not None:
-                groups.setdefault((host.NAME, "-X" if end.direction == "IN" else "+X"), []).append(end)
+                face = SITE_INLET_FACE if end.direction == DIRECTION_IN else SITE_OUTLET_FACE
+                groups.setdefault((host.NAME, face), []).append(end)
 
     for (space_name, face), members in sorted(groups.items()):
         space = by_name[space_name]
-        elevation = min(_SITE_ELEVATION, float(space.DZ) * _SITE_ELEVATION_FRACTION)
+        elevation = min(SITE_ELEVATION, float(space.DZ) * SITE_ELEVATION_FRACTION)
         for i, end in enumerate(members):
-            x = float(space.X) if face == "-X" else float(space.X) + float(space.DX)
+            x = float(space.X) if face == SITE_INLET_FACE else float(space.X) + float(space.DX)
             y = float(space.Y) + float(space.DY) * (i + 1) / (len(members) + 1)
             end.position = (round(x, 6), round(y, 6), round(float(space.Z) + elevation, 6))
-            end.direction_vector = (1.0, 0.0, 0.0) if face == "-X" else (-1.0, 0.0, 0.0)
+            end.direction_vector = (1.0, 0.0, 0.0) if face == SITE_INLET_FACE else (-1.0, 0.0, 0.0)
 
 
 def _space_of(placements: dict, equipment_name: str | None) -> str | None:
