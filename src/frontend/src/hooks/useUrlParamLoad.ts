@@ -4,6 +4,7 @@ import {useViewerRefs} from "@/state/AdaViewerContext";
 import {runtime} from "@/runtime/config";
 import {dispatchPluginUrlParams} from "@/plugins/urlParams";
 import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {pollUntilTerminal} from "@/hooks/useJobPoll";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -83,15 +84,20 @@ export function useUrlParamLoad(): void {
         // straight from a /convert deep-link) that takes a few render
         // ticks. Polling stops at ~15 s so a misconfigured deployment
         // doesn't hang here forever.
-        const deadline = Date.now() + SCENE_WAIT_MAX_MS;
         const pump = async () => {
-            while (sceneRef.current == null) {
-                if (Date.now() > deadline) {
-                    // eslint-disable-next-line no-console
-                    console.warn("[useUrlParamLoad] scene never mounted; giving up on", fileParam);
-                    return;
-                }
-                await new Promise((r) => setTimeout(r, SCENE_WAIT_INTERVAL_MS));
+            // Read the ref first (a warm mount costs no wait), sleep between
+            // reads, give up quietly at the deadline.
+            const waited = await pollUntilTerminal({
+                fetch: async () => sceneRef.current,
+                terminal: (scene) => scene != null,
+                fetchFirst: true,
+                intervalMs: SCENE_WAIT_INTERVAL_MS,
+                deadlineMs: SCENE_WAIT_MAX_MS,
+            });
+            if (waited.outcome !== "terminal") {
+                // eslint-disable-next-line no-console
+                console.warn("[useUrlParamLoad] scene never mounted; giving up on", fileParam);
+                return;
             }
             try {
                 // Streaming-FEA sources (.sin/.sif/.rmed/...) have no legacy GLB
