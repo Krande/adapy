@@ -4,7 +4,7 @@ import AdminSubTabs from "./AdminSubTabs";
 import {AUDIT_SUB_TABS} from "./adminTabs";
 import type {AuditSubTab} from "./adminTabs";
 import AuditFilterBar from "./AuditFilterBar";
-import AuditLogTab from "./AuditLogTab";
+import AuditLogTab from "./auditLog/AuditLogTab";
 import AuditOverviewTab from "./AuditOverviewTab";
 import AuditRunsTab from "./AuditRunsTab";
 import CorpusTab from "./CorpusTab";
