@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import pathlib
 import signal
 import time
 from typing import Awaitable, Callable
@@ -17,7 +16,6 @@ from ada.config import logger
 
 from .. import db as db_module
 from ..config import load_settings
-from ..converter import LEGACY_CONVERT_EXTS
 from ..plugin_registry import discover_local_plugins
 from ..queue import JOB_STATUS_ERROR, JobQueue
 from ..storage import Storage
@@ -40,6 +38,7 @@ from .pools import (
 )
 from .process import _process_one, _should_skip_cancelled
 from .registration import build_registration
+from .routing import misroute_reason
 from .source_nodes import _rest_source_nodes_config
 from .state import _touch_liveness
 
@@ -430,35 +429,14 @@ async def _run() -> None:
                 # explicit failure points at the real problem.
                 peeked = await queue.get(job_id)
                 if peeked is not None:
-                    # component_build jobs are synthetic — no source
-                    # file, so the extension-based routing guard
-                    # doesn't apply. Routing was already pinned by
-                    # the build endpoint via target_capability, and
-                    # the per-spec handler resolves from the registry
-                    # the worker preloaded at startup (ADA_WORKER_PRELOAD).
-                    if peeked.target_format in (
-                        "component_build",
-                        "procedural_build",
-                        "procedural_detail",
-                        "procedural_relocations",
-                        "procedural_export_xlsx",
-                        "procedural_export_model",
-                        "procedural_import_xlsx",
-                        "equipment_bbox",
-                        "plugin_job",
-                    ):
-                        can_handle = True
-                        ext = ""
-                    else:
-                        ext = pathlib.PurePosixPath(peeked.source_key).suffix.lower()
-                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (ext_allow_set is None or ext in ext_allow_set)
-                        can_handle = ext in source_ext_set or legacy_ok
-                    if not can_handle:
-                        misroute_msg = (
-                            f"misrouted: pool capability {cap!r} "
-                            f"can't handle .{ext.lstrip('.')} "
-                            f"(supported here: {sorted(source_ext_set) or ['legacy convert']})"
-                        )
+                    misroute_msg = misroute_reason(
+                        peeked.target_format,
+                        peeked.source_key,
+                        cap=cap,
+                        source_ext_set=source_ext_set,
+                        ext_allow_set=ext_allow_set,
+                    )
+                    if misroute_msg is not None:
                         logger.warning(
                             "worker: %s — job %s",
                             misroute_msg,

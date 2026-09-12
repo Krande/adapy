@@ -29,6 +29,7 @@ from .registry import (
     register,
     registered_kinds,
     resolve,
+    synthetic_kinds,
 )
 
 # Synthetic (sourceless) kinds — dispatched before any source download.
@@ -60,4 +61,5 @@ __all__ = [
     "register",
     "registered_kinds",
     "resolve",
+    "synthetic_kinds",
 ]

@@ -134,3 +134,13 @@ def handlers() -> list[FormatHandler]:
 
 def registered_kinds() -> list[str]:
     return [h.kind for h in handlers()]
+
+
+def synthetic_kinds() -> frozenset[str]:
+    """The ``target_format`` values of every registered sourceless handler.
+
+    A synthetic job carries no source file, so anything that reasons about a job's source
+    extension (the worker's misroute guard) must exempt exactly these kinds — derived here so a
+    newly registered synthetic handler cannot be forgotten in a hand-kept list.
+    """
+    return frozenset(h.kind for h in _HANDLERS if not h.needs_source)
