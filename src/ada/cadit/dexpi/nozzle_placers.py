@@ -50,6 +50,7 @@ from .read.conventions import (
     PortDirectionToken,
     direction_for,
 )
+from .read.naming import unique_name
 
 __all__ = [
     "NozzleSpec",
@@ -274,17 +275,7 @@ def _unique_names(specs: Sequence[NozzleSpec]) -> list[str]:
     is stable across imports.
     """
     seen: set[str] = set()
-    out: list[str] = []
-    for spec in specs:
-        base = spec.name or "port"
-        name = base
-        suffix = 1
-        while name in seen:
-            suffix += 1
-            name = f"{base}-{suffix}"
-        seen.add(name)
-        out.append(name)
-    return out
+    return [unique_name(spec.name, seen, fallback="port", style="on-name") for spec in specs]
 
 
 # ---------------------------------------------------------------------------

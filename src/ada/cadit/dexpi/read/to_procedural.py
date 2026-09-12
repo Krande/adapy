@@ -101,6 +101,7 @@ from .conventions import (
     SITE_OUTLET_FACE,
     PortDirectionToken,
 )
+from .naming import unique_name
 
 __all__ = [
     "DexpiImportReport",
@@ -548,14 +549,7 @@ def _equipment_names(resolved: list[ResolvedEquipment]) -> dict[str, str]:
     out: dict[str, str] = {}
     used: set[str] = set()
     for entry in resolved:
-        base = (entry.item.tag or "").strip() or entry.slug
-        name = base
-        suffix = 1
-        while name in used:
-            suffix += 1
-            name = f"{base}-{suffix}"
-        used.add(name)
-        out[entry.slug] = name
+        out[entry.slug] = unique_name((entry.item.tag or "").strip() or entry.slug, used)
     return out
 
 
@@ -629,22 +623,6 @@ def _restore_base_placements(out: dict, base_doc: dict | None) -> None:
     ]
 
 
-def _unique_name(base: str, taken: set[str]) -> str:
-    """``base``, suffixed until it is free, and claimed in ``taken``.
-
-    One pool across resolved equipment, branch points and materialised in-line components: they all
-    land in the same equipment map, keyed by name, so a tag a P&ID happens to reuse must not let one
-    of them shadow another.
-    """
-    name = base or "equipment"
-    suffix = 1
-    while name in taken:
-        suffix += 1
-        name = f"{base}-{suffix}"
-    taken.add(name)
-    return name
-
-
 def _junction_equipment(
     doc: DexpiDocument,
     junctions: dict[str, list[str]],
@@ -668,7 +646,9 @@ def _junction_equipment(
     out: list[LayoutItem] = []
     for item_id, segment_ids in junctions.items():
         item = doc.items[item_id]
-        name = _unique_name((item.tag or item.id).strip(), taken)
+        # One pool across resolved equipment, branch points and materialised in-line components:
+        # they all land in the same equipment map, keyed by name.
+        name = unique_name((item.tag or item.id).strip(), taken, fallback="equipment")
         specs = nozzle_specs_for(doc, item, flow)
         document = build_default_doc(
             item.class_name,
@@ -766,7 +746,7 @@ def _instrument_equipment(
             or (f"{operated.tag}-ACT" if operated is not None and operated.tag else None)
             or item.id
         ).strip()
-        name = _unique_name(base, taken)
+        name = unique_name(base, taken, fallback="equipment")
 
         # An instrument's own nodes are signal connections whatever the node type says: the
         # category_for default is "process", which is right for a nozzle and wrong for a
@@ -860,7 +840,9 @@ def _inline_equipment(
     out: list[LayoutItem] = []
     for spec in segments:
         for component in spec.components:
-            name = _unique_name((component.tag or slugify(component.class_name) or component.id).strip(), taken)
+            name = unique_name(
+                (component.tag or slugify(component.class_name) or component.id).strip(), taken, fallback="equipment"
+            )
 
             specs = [
                 nozzle_from_node(node, owner_class=component.class_name, flow=flow.get(node.id))

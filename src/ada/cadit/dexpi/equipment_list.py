@@ -41,6 +41,7 @@ from .equipment_defaults import build_default_doc
 from .model import DexpiDocument, DexpiItem, ItemKind
 from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node, port_names
 from .read.conventions import FLOW_IN, FLOW_OUT
+from .read.naming import unique_name
 
 __all__ = [
     "EquipmentTypeRow",
@@ -492,7 +493,9 @@ def resolve_equipment(dexpi_doc: DexpiDocument, overrides: Any = None) -> list[R
     for item in equipment_items(dexpi_doc):
         class_name = class_table.resolve(item.class_name)
         tag = item.tag
-        slug = _unique_slug(definition_slug(item), used)
+        # Two items sharing a tag is a real (if sloppy) thing in P&ID files, and the catalog is
+        # keyed by slug, so the second must not overwrite the first.
+        slug = unique_name(definition_slug(item), used, fallback="equipment")
 
         if resolver is not None:
             per_tag = _as_definition_document(resolver(item), item)
@@ -755,15 +758,3 @@ def _first(per_tag: dict, per_class: dict, key: str) -> Any:
         if override.get(key) is not None:
             return override[key]
     return None
-
-
-def _unique_slug(slug: str, used: set[str]) -> str:
-    """A slug not yet taken. Two items sharing a tag is a real (if sloppy) thing in P&ID files, and
-    the catalog is keyed by slug, so the second must not overwrite the first."""
-    candidate = slug or "equipment"
-    suffix = 1
-    while candidate in used:
-        suffix += 1
-        candidate = f"{slug}-{suffix}"
-    used.add(candidate)
-    return candidate

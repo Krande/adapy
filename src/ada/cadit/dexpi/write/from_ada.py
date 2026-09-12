@@ -83,6 +83,7 @@ from ..model import (
 )
 from ..nozzle_placers import port_names
 from ..read.conventions import flow_token
+from ..read.naming import unique_name
 from . import xml_utils
 from .write_dexpi20 import write_dexpi20
 from .write_proteus import write_proteus
@@ -232,14 +233,14 @@ def _source_identity(
     used_names: set[str] = set()
     equipment: dict[str, DexpiItem] = {}
     for item in equipment_items(doc):
-        slug = _dedupe(definition_slug(item), used_slugs)
+        slug = unique_name(definition_slug(item), used_slugs, fallback="equipment")
         base = (item.tag or "").strip() or slug
-        equipment[_dedupe(base, used_names)] = item
+        equipment[unique_name(base, used_names)] = item
 
     junctions: dict[str, DexpiItem] = {}
     for item_id in branch_points(doc):
         item = doc.items[item_id]
-        junctions[_dedupe((item.tag or item.id).strip(), used_names)] = item
+        junctions[unique_name((item.tag or item.id).strip(), used_names)] = item
 
     instruments: dict[str, DexpiItem] = {}
     for item in instrument_items(doc):
@@ -250,7 +251,7 @@ def _source_identity(
             or (f"{operated.tag}-ACT" if operated is not None and operated.tag else None)
             or item.id
         ).strip()
-        instruments[_dedupe(base, used_names)] = item
+        instruments[unique_name(base, used_names)] = item
     return equipment, junctions, instruments
 
 
@@ -281,16 +282,6 @@ def _junction_port_index(
         for node_id, port_name in port_names(nozzle_specs_for(doc, item, flow)).items():
             out[(name, port_name)] = (item.id, node_id)
     return out
-
-
-def _dedupe(base: str, used: set[str]) -> str:
-    name = base
-    suffix = 1
-    while name in used:
-        suffix += 1
-        name = f"{base}-{suffix}"
-    used.add(name)
-    return name
 
 
 # -- equipment: ports -----------------------------------------------------------------------------------
