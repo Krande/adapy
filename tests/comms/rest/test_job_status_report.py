@@ -103,7 +103,11 @@ def test_the_reportable_statuses_are_the_ones_the_worker_actually_sends():
     source = pathlib.Path(plugin_jobs_module.__file__).read_text(encoding="utf-8")
     assert '_REPORTABLE_JOB_STATUSES = ("running", "done", "error", "cancelled")' in source
 
-    worker_source = pathlib.Path(pathlib.Path(app_module.__file__).parent / "worker.py").read_text(encoding="utf-8")
-    # Every status the worker passes to _audit_done must be in that set.
+    # The worker is a package (``worker/`` + the per-format handlers in ``formats/``); every
+    # status any of its modules passes to _audit_done must be in that set.
+    rest_dir = pathlib.Path(app_module.__file__).parent
+    worker_source = "\n".join(
+        f.read_text(encoding="utf-8") for sub in ("worker", "formats") for f in sorted((rest_dir / sub).glob("*.py"))
+    )
     for literal in ('"done"', '"error"', '"cancelled"'):
         assert f"_audit_done(db_pool, job_id, {literal}" in worker_source or literal in worker_source

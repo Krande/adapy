@@ -12,13 +12,14 @@ import pytest
 import ada
 from ada.api.spatial.part import Part
 from ada.comms.rest import converter as conv
+from ada.comms.rest.converters import mesh_step
 
 
 def _captured_writer(monkeypatch, source_ext: str) -> str:
     model = ada.Assembly("a") / (ada.Part("p") / ada.Plate("pl", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01))
 
-    monkeypatch.setattr(conv, "_load_with_ada", lambda src, ext: model)
-    monkeypatch.setattr(conv, "_apply_fem_to_objects", lambda *a, **k: None)
+    monkeypatch.setattr(mesh_step, "_load_with_ada", lambda src, ext: model)
+    monkeypatch.setattr(mesh_step, "_apply_fem_to_objects", lambda *a, **k: None)
 
     recorded = {}
 

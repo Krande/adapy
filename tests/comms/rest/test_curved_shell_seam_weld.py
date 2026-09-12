@@ -18,6 +18,7 @@ import ada.geom.curves as cu
 import ada.geom.surfaces as su
 from ada.api.plates.base_pl import PlateCurved
 from ada.comms.rest import converter as C
+from ada.comms.rest.converters import ada_export
 from ada.geom import Geometry
 from ada.geom.curves import KnotType
 from ada.geom.direction import Direction
@@ -90,7 +91,7 @@ def test_converter_scopes_seam_weld_flag(monkeypatch, tmp_path, builder, expect_
         out_path.write_bytes(b"glTF-stub")
         return out_path  # short-circuits _export_with_ada before to_gltf/adacpp
 
-    monkeypatch.setattr(C, "_native_ngeom_mesh_route", _fake_native)
+    monkeypatch.setattr(ada_export, "_native_ngeom_mesh_route", _fake_native)
 
     result = C._export_with_ada(
         builder(), "glb", out, lambda *_: None, merge_meshes=True, source_ext=".xml", glb_tess_engine="libtess2"
