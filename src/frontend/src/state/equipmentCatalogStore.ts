@@ -12,19 +12,19 @@ import { create } from "zustand";
 
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import {
-  viewerApi,
-  type CatalogPort,
-  type EquipmentTypeDetail,
-  type EquipmentTypeDoc,
-  type EquipmentTypeSummary,
-  type PortCategory,
-  type PortDirection,
-  type ProceduralSystemTypeOption,
-  type ProceduralTypeOption,
-  type SystemTemplateDetail,
-  type SystemTemplateDoc,
-  type SystemTemplateSummary,
+import { capabilities } from "@/services/capabilities";
+import type {
+  CatalogPort,
+  EquipmentTypeDetail,
+  EquipmentTypeDoc,
+  EquipmentTypeSummary,
+  PortCategory,
+  PortDirection,
+  ProceduralSystemTypeOption,
+  ProceduralTypeOption,
+  SystemTemplateDetail,
+  SystemTemplateDoc,
+  SystemTemplateSummary,
 } from "@/services/viewerApi";
 
 function scopePart(): string {
@@ -150,14 +150,14 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
 
     refreshEquipment: async () => {
       try {
-        const types = await viewerApi.listEquipmentTypes(scopePart());
+        const types = await capabilities.catalog.listEquipmentTypes(scopePart());
         set({ equipmentTypes: types, equipmentError: null });
       } catch (e) {
         set({ equipmentError: errMsg(e) });
       }
       // built-in archetypes not yet in the DB (union endpoint tags origin)
       try {
-        const union = await viewerApi.proceduralEquipmentTypes(scopePart());
+        const union = await capabilities.procedural.listCatalog(scopePart(), "equipmentTypes");
         set({ availableEquipment: union.filter((t) => t.origin === "code") });
       } catch {
         set({ availableEquipment: [] });
@@ -167,8 +167,9 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
     syncEquipmentFromCode: async (slug: string) => {
       set({ equipmentBusy: true, equipmentError: null });
       try {
-        const created = await viewerApi.syncProceduralEquipmentType(
+        const created = await capabilities.procedural.syncCatalogEntry(
           scopePart(),
+          "equipmentTypes",
           slug,
         );
         await get().refreshEquipment();
@@ -197,7 +198,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!trimmed) return;
       set({ equipmentBusy: true, equipmentError: null });
       try {
-        const created = await viewerApi.createEquipmentType(
+        const created = await capabilities.catalog.createEquipmentType(
           scopePart(),
           trimmed,
         );
@@ -222,7 +223,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       }
       set({ selectedEquipmentId: id, equipmentError: null, bboxJob: null });
       try {
-        const detail = await viewerApi.getEquipmentType(scopePart(), id);
+        const detail = await capabilities.catalog.getEquipmentType(scopePart(), id);
         set({ equipmentDraft: detail, equipmentDirty: false });
       } catch (e) {
         set({ equipmentError: errMsg(e) });
@@ -285,7 +286,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!d) return;
       set({ equipmentBusy: true, equipmentError: null });
       try {
-        const res = await viewerApi.updateEquipmentType(
+        const res = await capabilities.catalog.updateEquipmentType(
           scopePart(),
           d.id,
           {
@@ -319,7 +320,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
     deleteEquipment: async (id: string) => {
       set({ equipmentBusy: true, equipmentError: null });
       try {
-        await viewerApi.deleteEquipmentType(scopePart(), id);
+        await capabilities.catalog.deleteEquipmentType(scopePart(), id);
         if (get().selectedEquipmentId === id) {
           set({
             selectedEquipmentId: null,
@@ -341,7 +342,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       set({ equipmentBusy: true, equipmentError: null });
       try {
         const buf = await file.arrayBuffer();
-        const { cad_key } = await viewerApi.uploadEquipmentCad(
+        const { cad_key } = await capabilities.catalog.uploadEquipmentCad(
           scopePart(),
           d.id,
           file.name,
@@ -361,7 +362,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!d || !sourceKey.trim()) return;
       set({ equipmentBusy: true, equipmentError: null });
       try {
-        const { cad_key } = await viewerApi.copyEquipmentCadFromScope(
+        const { cad_key } = await capabilities.catalog.copyEquipmentCadFromScope(
           scopePart(),
           d.id,
           sourceKey.trim(),
@@ -380,7 +381,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!d) return;
       set({ equipmentError: null });
       try {
-        const { job_id } = await viewerApi.inferEquipmentBbox(
+        const { job_id } = await capabilities.catalog.inferEquipmentBbox(
           scopePart(),
           d.id,
         );
@@ -389,13 +390,13 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
           const cur = get().bboxJob;
           if (!cur || cur.jobId !== job_id) return; // superseded
           try {
-            const st = await viewerApi.convertStatus(job_id);
+            const st = await capabilities.conversion.jobStatus(job_id);
             if (st.status === "done") {
               set({ bboxJob: { ...cur, status: "done" } });
               // refetch the draft so the inferred bbox + preview show
               const sel = get().selectedEquipmentId;
               if (sel === d.id && !get().equipmentDirty) {
-                const detail = await viewerApi.getEquipmentType(
+                const detail = await capabilities.catalog.getEquipmentType(
                   scopePart(),
                   d.id,
                 );
@@ -429,14 +430,14 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
 
     refreshSystems: async () => {
       try {
-        const templates = await viewerApi.listSystemTemplates(scopePart());
+        const templates = await capabilities.catalog.listSystemTemplates(scopePart());
         set({ systemTemplates: templates, systemError: null });
       } catch (e) {
         set({ systemError: errMsg(e) });
       }
       // built-in system kinds not yet in the DB (union endpoint tags origin)
       try {
-        const union = await viewerApi.proceduralSystemTypes(scopePart());
+        const union = await capabilities.procedural.listCatalog(scopePart(), "systemTypes");
         set({ availableSystems: union.filter((t) => t.origin === "code") });
       } catch {
         set({ availableSystems: [] });
@@ -446,8 +447,9 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
     syncSystemFromCode: async (slug: string) => {
       set({ systemBusy: true, systemError: null });
       try {
-        const created = await viewerApi.syncProceduralSystemType(
+        const created = await capabilities.procedural.syncCatalogEntry(
           scopePart(),
+          "systemTypes",
           slug,
         );
         await get().refreshSystems();
@@ -464,7 +466,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!trimmed) return;
       set({ systemBusy: true, systemError: null });
       try {
-        const created = await viewerApi.createSystemTemplate(
+        const created = await capabilities.catalog.createSystemTemplate(
           scopePart(),
           trimmed,
         );
@@ -484,7 +486,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       }
       set({ selectedSystemId: id, systemError: null });
       try {
-        const detail = await viewerApi.getSystemTemplate(scopePart(), id);
+        const detail = await capabilities.catalog.getSystemTemplate(scopePart(), id);
         set({ systemDraft: detail, systemDirty: false });
       } catch (e) {
         set({ systemError: errMsg(e) });
@@ -511,7 +513,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       if (!d) return;
       set({ systemBusy: true, systemError: null });
       try {
-        const res = await viewerApi.updateSystemTemplate(
+        const res = await capabilities.catalog.updateSystemTemplate(
           scopePart(),
           d.id,
           {
@@ -537,7 +539,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
     deleteSystem: async (id: string) => {
       set({ systemBusy: true, systemError: null });
       try {
-        await viewerApi.deleteSystemTemplate(scopePart(), id);
+        await capabilities.catalog.deleteSystemTemplate(scopePart(), id);
         if (get().selectedSystemId === id)
           set({
             selectedSystemId: null,

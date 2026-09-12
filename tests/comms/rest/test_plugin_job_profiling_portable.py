@@ -25,7 +25,9 @@ import pytest
 
 import ada.plugins as plugins_mod
 from ada.comms.rest import worker as worker_mod
+from ada.comms.rest.formats import plugin as plugin_mod
 from ada.comms.rest.queue import Job
+from ada.comms.rest.worker import memory as memory_mod
 
 # --- the reader ------------------------------------------------------------
 
@@ -61,10 +63,10 @@ def test_resource_is_imported_in_exactly_one_guarded_place():
     invariant is stated directly: worker.py reaches for `resource` once, inside
     the helper that handles its absence.
     """
-    src = pathlib.Path(worker_mod.__file__).read_text(encoding="utf-8")
+    src = pathlib.Path(memory_mod.__file__).read_text(encoding="utf-8")
     assert len(re.findall(r"^\s*import resource\b", src, re.MULTILINE)) == 1
     guarded = re.search(
-        r"def _read_self_rusage\(.*?\n(.*?)\n\ndef ",
+        r"def _read_self_rusage\(.*?\n(.*?)(?:\n\ndef |\Z)",
         src,
         re.DOTALL,
     )
@@ -113,7 +115,7 @@ async def test_a_profiled_plugin_job_completes_without_rusage(monkeypatch, tmp_p
     """The whole point: profiling on, `resource` absent, job still succeeds."""
     # Force the no-resource world regardless of the host platform, so this test
     # asserts the same thing on Linux CI as on a Windows worker.
-    monkeypatch.setattr(worker_mod, "_read_self_rusage", lambda: None)
+    monkeypatch.setattr(plugin_mod, "_read_self_rusage", lambda: None)
 
     audited: dict = {}
 
@@ -128,7 +130,7 @@ async def test_a_profiled_plugin_job_completes_without_rusage(monkeypatch, tmp_p
     async def _never_cancelled(pool, job_id):
         return False
 
-    monkeypatch.setattr(worker_mod, "_audit_done", _fake_audit_done)
+    monkeypatch.setattr(plugin_mod, "_audit_done", _fake_audit_done)
     monkeypatch.setattr(worker_mod.db_module, "get_setting", _fake_get_setting)
     monkeypatch.setattr(worker_mod.db_module, "audit_is_cancelled", _never_cancelled)
     _install_plugin(monkeypatch, {"ok": True, "produced": "nothing"})
@@ -171,7 +173,7 @@ async def test_cpu_counters_are_omitted_rather_than_zeroed(monkeypatch):
     "mostly waiting on IO"; a fabricated zero would make every Windows-worker
     run vote for that conclusion. An absent column does not vote.
     """
-    monkeypatch.setattr(worker_mod, "_read_self_rusage", lambda: None)
+    monkeypatch.setattr(plugin_mod, "_read_self_rusage", lambda: None)
 
     captured: dict = {}
 
@@ -184,7 +186,7 @@ async def test_cpu_counters_are_omitted_rather_than_zeroed(monkeypatch):
     async def _never_cancelled(pool, job_id):
         return False
 
-    monkeypatch.setattr(worker_mod, "_audit_done", _fake_audit_done)
+    monkeypatch.setattr(plugin_mod, "_audit_done", _fake_audit_done)
     monkeypatch.setattr(worker_mod.db_module, "get_setting", _fake_get_setting)
     monkeypatch.setattr(worker_mod.db_module, "audit_is_cancelled", _never_cancelled)
     _install_plugin(monkeypatch, {"ok": True})

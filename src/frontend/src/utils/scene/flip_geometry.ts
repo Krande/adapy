@@ -9,7 +9,7 @@
 // The originals are hidden (not removed) so flipping back is instant and cheap.
 import * as THREE from "three";
 
-import {sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
@@ -40,7 +40,7 @@ export function flippedKey(): string | null {
  *  key) as the displayed model. No-op if already flipped. */
 export async function flipToCompared(compareKey: string): Promise<void> {
     if (_flip) return;
-    if (!compareKey || !sceneRef.current) return;
+    if (!compareKey || !getViewerRuntime().scene.current) return;
 
     const ms = useModelState.getState();
     const prevSourceName = ms.loadedSourceName;

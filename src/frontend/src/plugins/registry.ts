@@ -38,10 +38,10 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          has them.
 //
 //          This entry was 1.3.0 on this branch. main published 1.3.0 as
-//          `trackJob` first, and asa-weld-gen 3.13.0 already depends on that
-//          meaning under `plugin_api >= 1.3.0`, so the number could not be
-//          reused for a different capability. Moving up costs nothing here,
-//          and keeps the viewer-core parity above intact.
+//          `trackJob` first, and an out-of-tree plugin already depends on
+//          1.3.0 meaning `trackJob` under `plugin_api >= 1.3.0`, so the
+//          number could not be reused for a different capability. Moving up
+//          costs nothing here, and keeps the viewer-core parity above intact.
 export const PLUGIN_API_VERSION = "1.4.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small

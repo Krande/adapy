@@ -26,6 +26,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..job_transport import JobRequest, JobTransport
 from ..procedural import (
     procedural_build_job_key,
     procedural_detail_job_key,
@@ -42,7 +43,6 @@ from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
     advertised_engine_capability,
-    live_worker_specs,
     require_catalog_pool,
     rest_context,
     scope_from_path,
@@ -135,7 +135,7 @@ async def api_procedural_templates(
     document the engine expands at compile time). No DB rows are involved."""
     # Union across live workers, keyed by slug (last writer wins). Scope is
     # only an access gate here — the templates themselves are worker-global.
-    specs = await live_worker_specs(ctx.queue, "procedural_template_specs")
+    specs = await ctx.jobs.advertised_specs("procedural_template_specs")
     templates = [
         {
             "id": slug,
@@ -227,7 +227,7 @@ async def api_procedural_equipment_sync(
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
         raise HTTPException(status_code=400, detail="slug (str) is required")
-    spec = (await live_worker_specs(ctx.queue, "procedural_equipment_specs")).get(slug)
+    spec = (await ctx.jobs.advertised_specs("procedural_equipment_specs")).get(slug)
     if spec is None or not isinstance(spec.get("doc"), dict):
         raise HTTPException(status_code=404, detail=f"no code equipment archetype {slug!r} advertised by a live worker")
     try:
@@ -283,7 +283,7 @@ async def api_procedural_equipment_resync(
     )
 
     pool = require_catalog_pool(request)
-    specs = await live_worker_specs(ctx.queue, "procedural_equipment_specs")
+    specs = await ctx.jobs.advertised_specs("procedural_equipment_specs")
     if not specs:
         raise HTTPException(status_code=503, detail="no live worker advertising equipment archetypes")
     existing = {
@@ -378,7 +378,7 @@ async def api_procedural_system_sync(
     if not isinstance(slug, str) or not slug:
         raise HTTPException(status_code=400, detail="slug (str) is required")
     specs = {s["slug"]: s for s in builtin_system_specs()}
-    specs.update(await live_worker_specs(ctx.queue, "procedural_system_specs"))
+    specs.update(await ctx.jobs.advertised_specs("procedural_system_specs"))
     spec = specs.get(slug)
     if spec is None or not isinstance(spec.get("doc"), dict):
         raise HTTPException(status_code=404, detail=f"no code system kind {slug!r}")
@@ -507,7 +507,7 @@ async def api_procedural_delete(
     return JSONResponse({"status": "archived"})
 
 
-async def resolve_detailing_engine(queue: JobQueue, detailing: str | None) -> dict | None:
+async def resolve_detailing_engine(jobs: JobTransport, detailing: str | None) -> dict | None:
     """Resolve a selected detailing slug to the spec a live capability worker
     advertises (or ``None`` for ``none``/absent). External engines are
     discovered only from live heartbeats, so an external engine is routable
@@ -516,7 +516,7 @@ async def resolve_detailing_engine(queue: JobQueue, detailing: str | None) -> di
     structural build (Phase 1)."""
     if not detailing or detailing == "none":
         return None
-    spec = (await live_worker_specs(queue, "procedural_detailing_engine_specs")).get(detailing)
+    spec = (await jobs.advertised_specs("procedural_detailing_engine_specs")).get(detailing)
     # Only EXTERNAL (out-of-process) engines are routed as a chained job; an
     # in-process one falls through to the unchanged Phase-1 in-process path.
     if spec is None or spec.get("inprocess", False):
@@ -637,7 +637,7 @@ async def api_procedural_compile(
     # (inprocess=False) runs as a chained ``procedural_detail``
     # job on its own capability pool consuming a neutral structural artifact;
     # an in-process one (none/adapy-default) is unchanged from Phase 1.
-    det_spec = await resolve_detailing_engine(ctx.queue, detailing)
+    det_spec = await resolve_detailing_engine(ctx.jobs, detailing)
     is_external_detailing = det_spec is not None
 
     if not force and await ctx.storage.exists(scope_obj, derived_key):
@@ -647,8 +647,7 @@ async def api_procedural_compile(
         # (force past the worker's own redelivery short-circuit).
         force = True
 
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
+    ctx.jobs.require("procedural_build")
 
     # A registered (DB) engine may name a worker_capability — the tag of the
     # worker pool that has that engine + its deps pre-installed. Route the
@@ -675,48 +674,52 @@ async def api_procedural_compile(
         structural_ifc_key = procedural_structural_ifc_key(row["id"], row["revision"], engine)
         sections_key = procedural_structural_sections_key(row["id"], row["revision"], engine)
 
-        structural_job = await ctx.queue.enqueue(
-            procedural_build_job_key(row["id"], row["revision"], lod),
-            target_format="procedural_build",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={
-                "model_id": row["id"],
-                "revision": row["revision"],
-                "lod": lod,
-                "engine": engine,
-                # The structural stage runs NO in-process detailing (the external
-                # pool does it); this flag just makes it emit the neutral artifact.
-                "detailing": None,
-                "detailing_external": True,
-                "structural_ifc_key": structural_ifc_key,
-                "structural_sections_key": sections_key,
-                "catalog_fingerprint": catalog_fp,
-            },
-            derived_key=structural_key,
-            force_rebuild=force,
-            target_capability=target_capability,
+        structural_job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=procedural_build_job_key(row["id"], row["revision"], lod),
+                target_format="procedural_build",
+                scope=scope_obj,
+                feature="procedural_build",
+                conversion_options={
+                    "model_id": row["id"],
+                    "revision": row["revision"],
+                    "lod": lod,
+                    "engine": engine,
+                    # The structural stage runs NO in-process detailing (the external
+                    # pool does it); this flag just makes it emit the neutral artifact.
+                    "detailing": None,
+                    "detailing_external": True,
+                    "structural_ifc_key": structural_ifc_key,
+                    "structural_sections_key": sections_key,
+                    "catalog_fingerprint": catalog_fp,
+                },
+                derived_key=structural_key,
+                force_rebuild=force,
+                target_capability=target_capability,
+            )
         )
-        detail_job = await ctx.queue.enqueue(
-            procedural_detail_job_key(row["id"], row["revision"], lod, detailing),
-            target_format="procedural_detail",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={
-                "model_id": row["id"],
-                "revision": row["revision"],
-                "lod": lod,
-                "engine": engine,
-                "detailing": detailing,
-                "detailing_entrypoint": det_spec.get("entrypoint"),
-                "detailing_options": detailing_options,
-                "structural_ifc_key": structural_ifc_key,
-                "structural_sections_key": sections_key,
-                "catalog_fingerprint": catalog_fp,
-            },
-            derived_key=derived_key,
-            force_rebuild=force,
-            target_capability=det_spec.get("worker_capability"),
+        detail_job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=procedural_detail_job_key(row["id"], row["revision"], lod, detailing),
+                target_format="procedural_detail",
+                scope=scope_obj,
+                feature="procedural_build",
+                conversion_options={
+                    "model_id": row["id"],
+                    "revision": row["revision"],
+                    "lod": lod,
+                    "engine": engine,
+                    "detailing": detailing,
+                    "detailing_entrypoint": det_spec.get("entrypoint"),
+                    "detailing_options": detailing_options,
+                    "structural_ifc_key": structural_ifc_key,
+                    "structural_sections_key": sections_key,
+                    "catalog_fingerprint": catalog_fp,
+                },
+                derived_key=derived_key,
+                force_rebuild=force,
+                target_capability=det_spec.get("worker_capability"),
+            )
         )
         # Both stages are compile runs of their own (each writes its own log
         # under its own job id), so both get an audit row.
@@ -740,23 +743,25 @@ async def api_procedural_compile(
             }
         )
 
-    job = await ctx.queue.enqueue(
-        procedural_build_job_key(row["id"], row["revision"], lod),
-        target_format="procedural_build",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={
-            "model_id": row["id"],
-            "revision": row["revision"],
-            "lod": lod,
-            "engine": engine,
-            "detailing": detailing,
-            "detailing_options": detailing_options,
-            "catalog_fingerprint": catalog_fp,
-        },
-        derived_key=derived_key,
-        force_rebuild=force,
-        target_capability=target_capability,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_build_job_key(row["id"], row["revision"], lod),
+            target_format="procedural_build",
+            scope=scope_obj,
+            feature="procedural_build",
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "lod": lod,
+                "engine": engine,
+                "detailing": detailing,
+                "detailing_options": detailing_options,
+                "catalog_fingerprint": catalog_fp,
+            },
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=target_capability,
+        )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
@@ -821,8 +826,7 @@ async def api_procedural_compile_preview(
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True, "doc_hash": doc_hash})
         force = True
 
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
+    ctx.jobs.require("procedural_build")
 
     target_capability = None
     if engine and engine != "adapy-default":
@@ -834,24 +838,26 @@ async def api_procedural_compile_preview(
         else:
             target_capability = await advertised_engine_capability(ctx.queue, engine)
 
-    job = await ctx.queue.enqueue(
-        procedural_preview_job_key(row["id"], doc_hash, lod),
-        target_format="procedural_build",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={
-            "model_id": row["id"],
-            "revision": row["revision"],
-            "lod": lod,
-            "engine": engine,
-            "detailing": detailing,
-            "detailing_options": detailing_options,
-            "preview_doc": normalized,
-            "catalog_fingerprint": catalog_fp,
-        },
-        derived_key=derived_key,
-        force_rebuild=force,
-        target_capability=target_capability,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_preview_job_key(row["id"], doc_hash, lod),
+            target_format="procedural_build",
+            scope=scope_obj,
+            feature="procedural_build",
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "lod": lod,
+                "engine": engine,
+                "detailing": detailing,
+                "detailing_options": detailing_options,
+                "preview_doc": normalized,
+                "catalog_fingerprint": catalog_fp,
+            },
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=target_capability,
+        )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash})
@@ -1040,17 +1046,18 @@ async def api_procedural_propose_relocations(
     row = await get_procedural_in_scope(pool, model_id, scope_obj)
     derived_key = procedural_relocations_key(row["id"])
 
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural relocations disabled (no NATS configured)")
+    ctx.jobs.require("procedural_relocations")
 
-    job = await ctx.queue.enqueue(
-        procedural_relocations_job_key(row["id"], row["revision"]),
-        target_format="procedural_relocations",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={"model_id": row["id"], "revision": row["revision"]},
-        derived_key=derived_key,
-        force_rebuild=True,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_relocations_job_key(row["id"], row["revision"]),
+            target_format="procedural_relocations",
+            scope=scope_obj,
+            feature="procedural_relocations",
+            conversion_options={"model_id": row["id"], "revision": row["revision"]},
+            derived_key=derived_key,
+            force_rebuild=True,
+        )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
@@ -1113,19 +1120,20 @@ async def api_procedural_export_xlsx(
     derived_key = procedural_xlsx_export_key(row["id"], row["revision"], engine)
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
+    ctx.jobs.require("procedural_export")
 
     target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
-    job = await ctx.queue.enqueue(
-        procedural_export_xlsx_job_key(row["id"], row["revision"]),
-        target_format="procedural_export_xlsx",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={"model_id": row["id"], "revision": row["revision"], "engine": engine},
-        derived_key=derived_key,
-        force_rebuild=force,
-        target_capability=target_capability,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_export_xlsx_job_key(row["id"], row["revision"]),
+            target_format="procedural_export_xlsx",
+            scope=scope_obj,
+            feature="procedural_export",
+            conversion_options={"model_id": row["id"], "revision": row["revision"], "engine": engine},
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=target_capability,
+        )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
@@ -1180,26 +1188,27 @@ async def api_procedural_export_model(
         if not await catalog_cache_stale(ctx.storage, scope_obj, derived_key, catalog_fp):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
         force = True
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
+    ctx.jobs.require("procedural_export")
 
-    job = await ctx.queue.enqueue(
-        procedural_export_model_job_key(row["id"], row["revision"], fmt),
-        target_format="procedural_export_model",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={
-            "model_id": row["id"],
-            "revision": row["revision"],
-            "export_format": fmt,
-            "lod": lod,
-            "detailing": detailing,
-            "cad_equipment": cad_equipment,
-            "catalog_fingerprint": catalog_fp,
-        },
-        derived_key=derived_key,
-        force_rebuild=force,
-        target_capability=None,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_export_model_job_key(row["id"], row["revision"], fmt),
+            target_format="procedural_export_model",
+            scope=scope_obj,
+            feature="procedural_export",
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "export_format": fmt,
+                "lod": lod,
+                "detailing": detailing,
+                "cad_equipment": cad_equipment,
+                "catalog_fingerprint": catalog_fp,
+            },
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=None,
+        )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
@@ -1281,24 +1290,25 @@ async def api_procedural_import_xlsx(
         raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
     if engine == "adapy-default":
         engine = None
-    if not ctx.queue.enabled:
-        raise HTTPException(status_code=503, detail="procedural import disabled (no NATS configured)")
+    ctx.jobs.require("procedural_import")
 
     target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
     derived_key = procedural_import_result_key(source_key)
-    job = await ctx.queue.enqueue(
-        procedural_import_job_key(source_key),
-        target_format="procedural_import_xlsx",
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        conversion_options={
-            "source_key": source_key,
-            "engine": engine,
-            "name": name,
-            "created_by": user.sub,
-        },
-        derived_key=derived_key,
-        force_rebuild=True,
-        target_capability=target_capability,
+    job = await ctx.jobs.submit(
+        JobRequest(
+            source_key=procedural_import_job_key(source_key),
+            target_format="procedural_import_xlsx",
+            scope=scope_obj,
+            feature="procedural_import",
+            conversion_options={
+                "source_key": source_key,
+                "engine": engine,
+                "name": name,
+                "created_by": user.sub,
+            },
+            derived_key=derived_key,
+            force_rebuild=True,
+            target_capability=target_capability,
+        )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key}, status_code=201)

@@ -769,7 +769,7 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
 weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
+base; a weld-generation capability runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 

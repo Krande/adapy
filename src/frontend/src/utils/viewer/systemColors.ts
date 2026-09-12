@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import { requestRender } from "@/state/perfStore";
-import { sceneRef } from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { systemRouteRanges } from "@/utils/viewer/pipeTrace";
 
@@ -32,7 +32,7 @@ export function systemColorHex(name: string): string {
 
 function allBatchedMeshes(): CustomBatchedMesh[] {
   const out: CustomBatchedMesh[] = [];
-  sceneRef.current?.traverse((o) => {
+  getViewerRuntime().scene.current?.traverse((o) => {
     if (o instanceof CustomBatchedMesh) out.push(o);
   });
   return out;

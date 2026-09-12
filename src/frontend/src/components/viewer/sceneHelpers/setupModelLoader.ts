@@ -3,7 +3,7 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
-import {animationControllerRef, cameraRef, controlsRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {zoomToAll} from "./setupCameraControlsHandlers";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
@@ -73,12 +73,11 @@ export async function setupModelLoaderAsync(
         autoFitOverride,
         sourceUpAxis = DEFAULT_SOURCE_UP_AXIS,
     } = options;
-    if (sceneRef.current == null) {
+    const main_scene = getViewerRuntime().scene.current;
+    if (main_scene == null) {
         console.error("Scene reference is null");
         return new THREE.Group();
     }
-
-    const main_scene = sceneRef.current;
 
     // 3) prepare & add the model to the scene
     const modelGroup = new THREE.Group();
@@ -133,9 +132,9 @@ export async function setupModelLoaderAsync(
     // access the raw JSON
     const ada_ext_data = (gltf as any).parser.json.extensions?.ADA_EXT_data;
     if (ada_ext_data){
-        adaExtensionRef.current = ada_ext_data;
+        getViewerRuntime().adaExtension.current = ada_ext_data;
         if (ada_ext_data.simulation_objects.length > 0){
-            simulationDataRef.current = ada_ext_data.simulation_objects[0];
+            getViewerRuntime().simulationData.current = ada_ext_data.simulation_objects[0];
         }
         // Stash the extension + gltf parser on the group so the caller
         // (update_scene_from_message etc.) can call
@@ -147,21 +146,21 @@ export async function setupModelLoaderAsync(
         gltf_scene.userData.__adaExt = ada_ext_data;
         gltf_scene.userData.__adaGltf = gltf;
     }
-    animationControllerRef.current = new AnimationController(main_scene);
+    getViewerRuntime().animationController.current = new AnimationController(main_scene);
     // Handle animations - clear previous state first
     if (animations.length > 0) {
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
 
         // Clear previous animations completely
-        animationControllerRef.current?.clear();
+        getViewerRuntime().animationController.current?.clear();
 
         // Set the mesh map for the new animations
-        animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
+        getViewerRuntime().animationController.current?.setMeshMap(mapAnimationTargets(gltf));
 
         // Add animations to the controller
         animations.forEach((animation) => {
-            animationControllerRef.current?.addAnimation(animation);
+            getViewerRuntime().animationController.current?.addAnimation(animation);
         });
 
         // Reset to no animation state - don't call setCurrentAnimation yet
@@ -169,7 +168,7 @@ export async function setupModelLoaderAsync(
     } else {
         animationStore.setHasAnimation(false);
         // Clear controller even if no animations to ensure clean state
-        animationControllerRef.current?.clear();
+        getViewerRuntime().animationController.current?.clear();
     }
 
     // create a unique hash string
@@ -255,6 +254,7 @@ export async function setupModelLoaderAsync(
         updateAllPointsSize(ps, abs);
     } catch {}
 
+    const modelKeyMapRef = getViewerRuntime().modelKeyMap;
     if (!modelKeyMapRef.current) {
         modelKeyMapRef.current = new Map<string, THREE.Object3D>();
     }
@@ -269,8 +269,8 @@ export async function setupModelLoaderAsync(
     // near-plane clipping — independent of autoFit (zoomToAll re-applies it, but this covers the
     // autoFit-off case too). Uses the model bounding box captured above / in the store.
     {
-        const cam = cameraRef.current;
-        const ctl = controlsRef.current;
+        const cam = getViewerRuntime().camera.current;
+        const ctl = getViewerRuntime().controls.current;
         const box = useModelState.getState().boundingBox; // fresh — setBoundingBox ran above
         if (cam && box && !box.isEmpty()) {
             const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
@@ -282,9 +282,9 @@ export async function setupModelLoaderAsync(
     // frames a freshly loaded model, and each geom cycled through in gallery mode, without a
     // manual Shift+A. Deferred a frame so the just-added meshes' world bounds are current.
     if (autoFitOverride ?? optionsStore.autoFit) {
-        const cam = cameraRef.current;
-        const ctl = controlsRef.current;
-        const scn = sceneRef.current;
+        const cam = getViewerRuntime().camera.current;
+        const ctl = getViewerRuntime().controls.current;
+        const scn = getViewerRuntime().scene.current;
         if (cam && ctl && scn) {
             requestAnimationFrame(() => zoomToAll(scn, cam as THREE.PerspectiveCamera, ctl));
         }

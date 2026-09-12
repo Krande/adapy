@@ -40,6 +40,8 @@ from . import attributes, class_table
 from .equipment_defaults import build_default_doc
 from .model import DexpiDocument, DexpiItem, ItemKind
 from .nozzle_placers import NozzleSpec, nozzle_from_item, nozzle_from_node, port_names
+from .read.connectivity import ConnectionIndex
+from .read.naming import unique_name
 
 __all__ = [
     "EquipmentTypeRow",
@@ -209,13 +211,11 @@ def branch_points(doc: DexpiDocument) -> dict[str, list[str]]:
     sides: the importer places these as equipment and the merge writer has to recognise the same
     ones on the way back out, or a round-trip rewrites a ``PipeTee`` as a new ``ProcessEquipment``.
     """
+    index = ConnectionIndex.from_document(doc)
     owners: dict[str, set[str]] = {}
-    for connection in doc.connections:
-        owner = doc.items.get(connection.owner_id) if connection.owner_id else None
-        if owner is None or owner.kind is not ItemKind.PIPING_SEGMENT:
-            continue
-        for item_id in (connection.from_item, connection.to_item):
-            item = doc.items.get(item_id) if item_id else None
+    for owner in doc.by_kind(ItemKind.PIPING_SEGMENT):
+        for item_id, _node_id, _role in index.ends_of(owner.id):
+            item = doc.items.get(item_id)
             if item is not None and item.kind is ItemKind.PIPING_COMPONENT:
                 owners.setdefault(item.id, set()).add(owner.id)
     return {item_id: sorted(segments) for item_id, segments in sorted(owners.items()) if len(segments) > 1}
@@ -376,18 +376,11 @@ def connection_flow(doc: DexpiDocument) -> dict[str, str]:
     So the graph is asked instead: an item at the SOURCE end of a connection has fluid leaving it
     (an outlet), one at the TARGET end has fluid arriving (an inlet). Used only as the fallback for
     a node that does not declare its own flow, so a Proteus document is unaffected and a 2.0 one
-    stops producing nothing but ``INOUT`` ports.
+    stops producing nothing but ``INOUT`` ports. The one-pass answer of
+    :attr:`~ada.cadit.dexpi.read.connectivity.ConnectionIndex.flows`, for callers that hold only
+    the document.
     """
-    out: dict[str, str] = {}
-    for connection in doc.connections:
-        for item_id, node_id, flow in (
-            (connection.from_item, connection.from_node, "out"),
-            (connection.to_item, connection.to_node, "in"),
-        ):
-            for key in (item_id, node_id):
-                if key is not None:
-                    out.setdefault(key, flow)
-    return out
+    return ConnectionIndex.from_document(doc).flows
 
 
 def nozzle_specs_for(doc: DexpiDocument, item: DexpiItem, flow: dict[str, str] | None = None) -> list[NozzleSpec]:
@@ -491,7 +484,9 @@ def resolve_equipment(dexpi_doc: DexpiDocument, overrides: Any = None) -> list[R
     for item in equipment_items(dexpi_doc):
         class_name = class_table.resolve(item.class_name)
         tag = item.tag
-        slug = _unique_slug(definition_slug(item), used)
+        # Two items sharing a tag is a real (if sloppy) thing in P&ID files, and the catalog is
+        # keyed by slug, so the second must not overwrite the first.
+        slug = unique_name(definition_slug(item), used, fallback="equipment")
 
         if resolver is not None:
             per_tag = _as_definition_document(resolver(item), item)
@@ -754,15 +749,3 @@ def _first(per_tag: dict, per_class: dict, key: str) -> Any:
         if override.get(key) is not None:
             return override[key]
     return None
-
-
-def _unique_slug(slug: str, used: set[str]) -> str:
-    """A slug not yet taken. Two items sharing a tag is a real (if sloppy) thing in P&ID files, and
-    the catalog is keyed by slug, so the second must not overwrite the first."""
-    candidate = slug or "equipment"
-    suffix = 1
-    while candidate in used:
-        suffix += 1
-        candidate = f"{slug}-{suffix}"
-    used.add(candidate)
-    return candidate

@@ -32,6 +32,43 @@ table ProceduralModelSaveReply {
   content_hash: string;
 }
 
+// LIST_PROCEDURAL_MODELS takes no request payload -- like LIST_PROCEDURES and
+// LIST_FILE_OBJECTS, the command_type alone selects the handler in
+// default_on_message. It lists every document under the same directory
+// SAVE_PROCEDURAL_MODEL writes into (docs/documents/ws_rest_parity.rst, step 6).
+
+// One entry in a LIST_PROCEDURAL_MODELS reply. ``modified_at`` is the file's
+// mtime as Unix milliseconds (integer, like ``WebClient.last_heartbeat``
+// above, and precise at this magnitude in a way a 32-bit ``float`` would not
+// be) -- a browser sorts/displays by it, it is never used as a concurrency
+// token (that is ``content_hash``, same as save/load).
+table ProceduralModelListEntry {
+  model_id: string;
+  content_hash: string;
+  modified_at: long;
+  size_bytes: long;
+}
+
+table ProceduralModelListReply {
+  entries: [ProceduralModelListEntry];
+}
+
+// LOAD_PROCEDURAL_MODEL request payload: the same opaque ``model_id`` token
+// SAVE_PROCEDURAL_MODEL takes, validated and path-contained the same way.
+table ProceduralModelLoad {
+  model_id: string;
+}
+
+// LOAD_PROCEDURAL_MODEL reply payload: the document as it is on disk, plus
+// its content hash so the caller can thread it back as
+// ``expected_content_hash`` on its next save (same contract SAVE_PROCEDURAL_MODEL's
+// reply already gives a saver).
+table ProceduralModelLoadReply {
+  model_id: string;
+  doc_json: string;
+  content_hash: string;
+}
+
 table ServerReply {
   message: string;
   file_objects: [base.FileObject];
@@ -39,6 +76,8 @@ table ServerReply {
   error: base.Error;
   process_info: ServerProcessInfo;
   save_procedural_model: ProceduralModelSaveReply;
+  list_procedural_models: ProceduralModelListReply;
+  load_procedural_model: ProceduralModelLoadReply;
 }
 
 table Server {
@@ -49,4 +88,5 @@ table Server {
     delete_file_object: base.FileObject;
     start_file_in_local_app: base.FileObject;
     save_procedural_model: ProceduralModelSave;
+    load_procedural_model: ProceduralModelLoad;
 }

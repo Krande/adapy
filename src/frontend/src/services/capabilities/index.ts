@@ -18,6 +18,7 @@ export type {
   ProceduralExportOptions,
   ProceduralLod,
   ProceduralModelCapability,
+  ProceduralModelEntry,
   ProceduralModelResult,
   ProceduralModelSource,
   ProceduralRelocationResponse,
@@ -28,6 +29,29 @@ export type {
   ProceduralXlsxImportResponse,
   StatsExportFormat,
   ViewerCapabilities,
+  // ---- seams 3 ----
+  CatalogCapability,
+  CatalogEntryFields,
+  CatalogJobHandle,
+  CatalogRevision,
+  CatalogVerb,
+  ComponentsCapability,
+  ComponentsVerb,
+  ConversionCapability,
+  ConversionVerb,
+  FeaCapability,
+  FeaManifestOptions,
+  FeaManifestProgress,
+  FeaVerb,
+  FilesCapability,
+  FilesVerb,
+  MetricsCapability,
+  MetricsVerb,
+  PresignedDownload,
+  PresignedUpload,
+  RenderProfileRecord,
+  UploadProgressHandler,
+  ViewLoadRecord,
 } from "./types";
 export { CapabilityUnavailableError, LOCAL_MODEL_SCOPE, ProceduralCommitConflictError } from "./types";
 export {
@@ -36,6 +60,23 @@ export {
   RESTProceduralModelCapability,
 } from "./rest_capabilities";
 export { WSCapabilities, WSModelStatsCapability, WSProceduralModelCapability } from "./ws_capabilities";
+// ---- seams 3 ----
+export {
+  RESTCatalogCapability,
+  RESTComponentsCapability,
+  RESTConversionCapability,
+  RESTFeaCapability,
+  RESTFilesCapability,
+  RESTMetricsCapability,
+} from "./rest_capabilities";
+export {
+  WSCatalogCapability,
+  WSComponentsCapability,
+  WSConversionCapability,
+  WSFeaCapability,
+  WSFilesCapability,
+  WSMetricsCapability,
+} from "./ws_capabilities";
 
 // Singleton capability set, selected the same way and by the same signal as the
 // `comms` transport singleton (`utils/comms/index.ts`): WS for desktop / dev
@@ -66,5 +107,24 @@ export const capabilities: ViewerCapabilities = {
   },
   get procedural() {
     return getCapabilities().procedural;
+  },
+  // ---- seams 3 ----
+  get files() {
+    return getCapabilities().files;
+  },
+  get fea() {
+    return getCapabilities().fea;
+  },
+  get conversion() {
+    return getCapabilities().conversion;
+  },
+  get catalog() {
+    return getCapabilities().catalog;
+  },
+  get components() {
+    return getCapabilities().components;
+  },
+  get metrics() {
+    return getCapabilities().metrics;
   },
 };

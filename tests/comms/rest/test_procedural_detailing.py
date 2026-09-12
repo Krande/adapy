@@ -283,14 +283,13 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
     # routed to the engine's worker_capability. The engine is discovered from a
     # LIVE worker's heartbeat (adapy hardcodes no external engines). Stub the DB +
     # queue at the enqueue boundary (no pg / NATS / external image needed).
-    from types import SimpleNamespace
 
     from ada.comms.rest import db as db_module
     from ada.comms.rest.procedural import (
         procedural_structural_ifc_key,
         procedural_structural_sections_key,
     )
-    from ada.comms.rest.queue import JobQueue
+    from ada.comms.rest.queue import Job, JobQueue
 
     settings = _settings(tmp_path)
     # Enable the queue so the compile endpoint reaches the enqueue; we stub
@@ -302,7 +301,16 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
 
     async def _fake_enqueue(self, source_key, target_format="glb", **kw):
         calls.append({"source_key": source_key, "target_format": target_format, **kw})
-        return SimpleNamespace(job_id=f"job-{target_format}")
+        # A real Job, not a duck: the job transport reads the record back
+        # (derived_key, status, the whole asdict payload) on the way out.
+        return Job(
+            job_id=f"job-{target_format}",
+            source_key=source_key,
+            derived_key=kw.get("derived_key") or "",
+            status="queued",
+            target_format=target_format,
+            target_capability=kw.get("target_capability"),
+        )
 
     async def _fake_list_workers(self):
         # A live capability worker advertising the external detailing engine, so the
@@ -381,7 +389,7 @@ def test_procedural_detail_waits_for_structural_artifact(monkeypatch):
     from ada.comms.rest import worker as worker_mod
 
     # Tiny poll interval so the test doesn't spend real seconds waiting.
-    monkeypatch.setattr(worker_mod, "STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S", 0.01)
+    monkeypatch.setattr("ada.comms.rest.worker.state.STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S", 0.01)
 
     ifc_key = "_procedural/m1/r2.structural.ifc"
     sections_key = "_procedural/m1/r2.structural.sections.json"

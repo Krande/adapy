@@ -35,6 +35,22 @@ from ada.core.text_utils import slugify
 
 from . import attributes, class_table
 from .model import DexpiItem, DexpiNode
+from .read.conventions import (
+    DIRECTION_IN,
+    DIRECTION_INOUT,
+    DIRECTION_OUT,
+    ELECTRICAL_FACE,
+    ELECTRICAL_SUPERTYPES,
+    SIGNAL_FACE,
+    SIGNAL_SUPERTYPES,
+    Z_DRAIN,
+    Z_ELECTRICAL,
+    Z_SHELL,
+    Z_SIGNAL,
+    PortDirectionToken,
+    direction_for,
+)
+from .read.naming import unique_name
 
 __all__ = [
     "NozzleSpec",
@@ -47,32 +63,8 @@ __all__ = [
     "port_names",
 ]
 
-# Height fractions of the envelope reserved per service, so a signal connection can never land on
-# top of a process nozzle sharing the same face.
-_Z_ELECTRICAL = 0.30
-_Z_SIGNAL = 0.70
-_Z_SHELL = 0.50
-_Z_DRAIN = 0.15
-
-# Where a strategy puts a service connection. Mirrors the archetypes in
-# ada.topo_model.equipment (power on +X, control signal on +Y), so a DEXPI-imported pump and a
-# hand-built one wire up the same way.
-_SIGNAL_FACE = "+Y"
-_ELECTRICAL_FACE = "+X"
-
-# Supertypes that make a connection a signal or an electrical supply. Checked only AFTER the
-# Nozzle branch -- see the module docstring.
-_SIGNAL_SUPERTYPES = (
-    "InstrumentNozzle",
-    "ProcessInstrumentationFunction",
-    "SignalConveyingFunction",
-    "SignalOffPageConnector",
-)
-_ELECTRICAL_SUPERTYPES = (
-    "ActuatingElectricalFunction",
-    "ActuatingElectricalLocation",
-    "ActuatingElectricalSystem",
-)
+# Faces, reserved heights and the category supertypes are conventions, held in
+# :mod:`ada.cadit.dexpi.read.conventions` alongside every other one the import runs on.
 
 _DIGITS = re.compile(r"(\d+)")
 
@@ -91,7 +83,7 @@ class NozzleSpec:
     name: str
     tag: str | None = None
     category: str = "process"
-    direction: str = "INOUT"
+    direction: PortDirectionToken = DIRECTION_INOUT
     nominal_diameter: float | None = None
     spec: str | None = None
     hint: tuple[float, float] | None = None
@@ -117,9 +109,9 @@ def category_for(class_name: str | None = None, node_type: str | None = None) ->
     name = class_table.resolve(class_name)
     if class_table.is_a(name, "Nozzle"):
         return "signal" if class_table.is_a(name, "InstrumentNozzle") else "process"
-    if any(class_table.is_a(name, supertype) for supertype in _SIGNAL_SUPERTYPES):
+    if any(class_table.is_a(name, supertype) for supertype in SIGNAL_SUPERTYPES):
         return "signal"
-    if any(class_table.is_a(name, supertype) for supertype in _ELECTRICAL_SUPERTYPES):
+    if any(class_table.is_a(name, supertype) for supertype in ELECTRICAL_SUPERTYPES):
         return "electrical"
     return "process"
 
@@ -135,23 +127,6 @@ def _category_from_node_type(node_type: str | None) -> str | None:
     if "process" in token or "piping" in token:
         return "process"
     return None
-
-
-def direction_for(flow: str | None) -> str:
-    """``IN``/``OUT`` from a node's flow, ``INOUT`` when the document does not say.
-
-    The Proteus reader stamps ``"in"``/``"out"``; DEXPI 2.0 and the off-page-connector classes
-    spell it out. An unset flow is genuinely unknown, not a default of ``IN`` -- guessing here
-    would put an outlet on the wrong face of every vessel in the file.
-    """
-    if not flow:
-        return "INOUT"
-    token = flow.strip().lower()
-    if token in ("in", "flowin", "inlet", "source"):
-        return "IN"
-    if token in ("out", "flowout", "outlet", "target"):
-        return "OUT"
-    return "INOUT"
 
 
 def nozzle_from_node(
@@ -300,17 +275,7 @@ def _unique_names(specs: Sequence[NozzleSpec]) -> list[str]:
     is stable across imports.
     """
     seen: set[str] = set()
-    out: list[str] = []
-    for spec in specs:
-        base = spec.name or "port"
-        name = base
-        suffix = 1
-        while name in seen:
-            suffix += 1
-            name = f"{base}-{suffix}"
-        seen.add(name)
-        out.append(name)
-    return out
+    return [unique_name(spec.name, seen, fallback="port", style="on-name") for spec in specs]
 
 
 # ---------------------------------------------------------------------------
@@ -441,9 +406,9 @@ def _services(
     ``+Y`` face high up, electrical supply on the ``+X`` face low down, each at its own reserved
     height so it can never coincide with a process nozzle on the same face."""
     for i, (index, _) in enumerate(signal):
-        out[index] = _on_face(_SIGNAL_FACE, lx, ly, lz, i, len(signal), _Z_SIGNAL * lz)
+        out[index] = _on_face(SIGNAL_FACE, lx, ly, lz, i, len(signal), Z_SIGNAL * lz)
     for i, (index, _) in enumerate(electrical):
-        out[index] = _on_face(_ELECTRICAL_FACE, lx, ly, lz, i, len(electrical), _Z_ELECTRICAL * lz)
+        out[index] = _on_face(ELECTRICAL_FACE, lx, ly, lz, i, len(electrical), Z_ELECTRICAL * lz)
 
 
 def _finish(out: list[_Placement | None], lx: float, ly: float, lz: float) -> list[_Placement]:
@@ -467,17 +432,17 @@ def _vessel(lx: float, ly: float, lz: float, nozzles: Sequence[NozzleSpec]) -> l
     process, signal, electrical = _split(nozzles)
     _services(out, lx, ly, lz, signal, electrical)
 
-    top = [pair for pair in process if pair[1].direction == "IN"]
-    bottom = [pair for pair in process if pair[1].direction == "OUT"]
-    shell = [pair for pair in process if pair[1].direction not in ("IN", "OUT")]
+    top = [pair for pair in process if pair[1].direction == DIRECTION_IN]
+    bottom = [pair for pair in process if pair[1].direction == DIRECTION_OUT]
+    shell = [pair for pair in process if pair[1].direction not in (DIRECTION_IN, DIRECTION_OUT)]
 
     for i, (index, _) in enumerate(top):
         out[index] = _on_top(lx, ly, lz, i, len(top))
     for i, (index, _) in enumerate(bottom):
-        out[index] = _on_face("-X", lx, ly, lz, i, len(bottom), _Z_DRAIN * lz)
+        out[index] = _on_face("-X", lx, ly, lz, i, len(bottom), Z_DRAIN * lz)
     for i, (index, _) in enumerate(shell):
         x, y, normal = _perimeter(lx, ly, (i + 0.5) / len(shell))
-        out[index] = ((x, y, _Z_SHELL * lz), normal)
+        out[index] = ((x, y, Z_SHELL * lz), normal)
     return _finish(out, lx, ly, lz)
 
 
@@ -493,16 +458,16 @@ def _pump(lx: float, ly: float, lz: float, nozzles: Sequence[NozzleSpec]) -> lis
     process, signal, electrical = _split(nozzles)
     _services(out, lx, ly, lz, signal, electrical)
 
-    suction = [pair for pair in process if pair[1].direction == "IN"]
-    discharge = [pair for pair in process if pair[1].direction == "OUT"]
-    auxiliary = [pair for pair in process if pair[1].direction not in ("IN", "OUT")]
+    suction = [pair for pair in process if pair[1].direction == DIRECTION_IN]
+    discharge = [pair for pair in process if pair[1].direction == DIRECTION_OUT]
+    auxiliary = [pair for pair in process if pair[1].direction not in (DIRECTION_IN, DIRECTION_OUT)]
 
     for i, (index, _) in enumerate(suction):
-        out[index] = _on_face("-X", lx, ly, lz, i, len(suction), _Z_SHELL * lz)
+        out[index] = _on_face("-X", lx, ly, lz, i, len(suction), Z_SHELL * lz)
     for i, (index, _) in enumerate(discharge):
         out[index] = _on_top(lx, ly, lz, i, len(discharge))
     for i, (index, _) in enumerate(auxiliary):
-        out[index] = _on_face("-Y", lx, ly, lz, i, len(auxiliary), _Z_SHELL * lz)
+        out[index] = _on_face("-Y", lx, ly, lz, i, len(auxiliary), Z_SHELL * lz)
     return _finish(out, lx, ly, lz)
 
 
@@ -538,7 +503,7 @@ def _generic(lx: float, ly: float, lz: float, nozzles: Sequence[NozzleSpec]) -> 
 
     for i, (index, _) in enumerate(process):
         x, y, normal = _perimeter(lx, ly, (i + 0.5) / len(process))
-        out[index] = ((x, y, _Z_SHELL * lz), normal)
+        out[index] = ((x, y, Z_SHELL * lz), normal)
     return _finish(out, lx, ly, lz)
 
 

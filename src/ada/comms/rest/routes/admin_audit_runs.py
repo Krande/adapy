@@ -28,6 +28,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..job_transport import JobRequest
 from ..scope import Scope
 from ..scope import can_access as scope_can_access
 from .deps import (
@@ -136,7 +137,6 @@ async def audit_dispatch(
     from ..converter import derived_key_for
 
     storage = ctx.storage
-    queue = ctx.queue
 
     synthetic_user = type("AdminAuditUser", (), {"sub": user_sub})()
     # Collect viable cells before enqueueing so the total is
@@ -183,18 +183,20 @@ async def audit_dispatch(
         # against — always enqueue, and audit under action="validate".
         if target_format == "parity":
             try:
-                job = await queue.enqueue(
-                    source_key,
-                    "parity",
-                    scope_kind=scope_obj.kind,
-                    scope_id=scope_obj.id,
-                    target_capability=worker_pool,
-                    force_rebuild=force_rebuild,
-                    # Parity produces no derived blob — pass an explicit derived_key so
-                    # enqueue doesn't route through derived_key_for(), which rejects the
-                    # "parity" pseudo-format (not in TARGET_FORMATS). Same pattern the
-                    # fea_artefacts flow uses for its manifest key.
-                    derived_key=f"_derived/{source_key}.parity",
+                job = await ctx.jobs.submit(
+                    JobRequest(
+                        source_key=source_key,
+                        target_format="parity",
+                        scope=scope_obj,
+                        feature="conversion",
+                        target_capability=worker_pool,
+                        force_rebuild=force_rebuild,
+                        # Parity produces no derived blob — pass an explicit derived_key so
+                        # enqueue doesn't route through derived_key_for(), which rejects the
+                        # "parity" pseudo-format (not in TARGET_FORMATS). Same pattern the
+                        # fea_artefacts flow uses for its manifest key.
+                        derived_key=f"_derived/{source_key}.parity",
+                    )
                 )
             except Exception as exc:
                 logger.exception("audit run %s: parity enqueue failed for %s", run_id, source_key)
@@ -277,13 +279,15 @@ async def audit_dispatch(
             continue
 
         try:
-            job = await queue.enqueue(
-                source_key,
-                target_format,
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
-                target_capability=worker_pool,
-                force_rebuild=force_rebuild,
+            job = await ctx.jobs.submit(
+                JobRequest(
+                    source_key=source_key,
+                    target_format=target_format,
+                    scope=scope_obj,
+                    feature="conversion",
+                    target_capability=worker_pool,
+                    force_rebuild=force_rebuild,
+                )
             )
         except Exception as exc:
             logger.exception(
@@ -370,17 +374,13 @@ async def admin_audit_run_create(
     ``GET /admin/audit/runs/{id}`` for progress.
     """
     pool = require_pool(request)
-    queue = ctx.queue
     body = await request.json() if await request.body() else {}
     scope_str = (body.get("scope") or "shared").strip()
     worker_pool = body.get("worker_pool") or None
     is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL
     # The browser engine needs no NATS; only worker-pool runs do.
-    if not is_wasm and not queue.enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="conversion disabled (no NATS configured)",
-        )
+    if not is_wasm:
+        ctx.jobs.require("conversion")
     note = body.get("note") or None
     force_rebuild = bool(body.get("force_rebuild") or False)
     # validate_only: a validation-phase run — enqueue only the per-source
@@ -537,7 +537,6 @@ async def admin_audit_run_re_dispatch(
     cell set is re-enumerated from the scope at dispatch time, so a
     re-dispatch reflects the scope's current files — not a frozen copy."""
     pool = require_pool(request)
-    queue = ctx.queue
     prior = await db_module.get_audit_run(pool, run_id)
     if prior is None:
         raise HTTPException(status_code=404, detail="audit run not found")
@@ -545,8 +544,8 @@ async def admin_audit_run_re_dispatch(
     scope_str = prior["scope"]
     worker_pool = prior["worker_pool"]
     is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL
-    if not is_wasm and not queue.enabled:
-        raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+    if not is_wasm:
+        ctx.jobs.require("conversion")
 
     s = parse_scope(scope_str, user)
     s = await resolve_project_scope(pool, s)
@@ -611,15 +610,13 @@ async def admin_audit_run_rerun_cell(
         )
 
     pool = require_pool(request)
-    queue = ctx.queue
     prior = await db_module.get_audit_run(pool, run_id)
     if prior is None:
         raise HTTPException(status_code=404, detail="audit run not found")
     worker_pool = prior["worker_pool"]
     if isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL:
         raise HTTPException(status_code=400, detail="cannot re-run a single cell of a wasm run from the server")
-    if not queue.enabled:
-        raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+    ctx.jobs.require("conversion")
 
     s = parse_scope(prior["scope"], user)
     s = await resolve_project_scope(pool, s)
@@ -632,13 +629,15 @@ async def admin_audit_run_rerun_cell(
         raise HTTPException(status_code=400, detail=f"not a convertible cell: {exc}") from exc
 
     try:
-        job = await queue.enqueue(
-            key,
-            target,
-            scope_kind=s.kind,
-            scope_id=s.id,
-            target_capability=worker_pool,
-            force_rebuild=True,
+        job = await ctx.jobs.submit(
+            JobRequest(
+                source_key=key,
+                target_format=target,
+                scope=s,
+                feature="conversion",
+                target_capability=worker_pool,
+                force_rebuild=True,
+            )
         )
     except Exception as exc:
         logger.exception("rerun-cell enqueue failed for %s -> %s", key, target)
@@ -665,7 +664,6 @@ async def admin_audit_run_validate(
     id. 409 if the run isn't finished or has already been validated (the
     pass runs at most once per run; re-run the audit for a fresh one)."""
     pool = require_pool(request)
-    queue = ctx.queue
     run = await db_module.get_audit_run(pool, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="audit run not found")
@@ -674,8 +672,8 @@ async def admin_audit_run_validate(
     s = await resolve_project_scope(pool, s)
     if not await scope_can_access(user, s, pool):
         raise HTTPException(status_code=403, detail="forbidden")
-    if not queue.enabled and run["worker_pool"] != WASM_POOL:
-        raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+    if run["worker_pool"] != WASM_POOL:
+        ctx.jobs.require("conversion")
 
     claimed = await db_module.claim_run_for_validation(pool, run_id)
     if claimed is None:

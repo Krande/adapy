@@ -9,7 +9,7 @@
 // repeated "up" calls climb one level at a time with no extra state to track.
 
 import {TreeNodeData} from "@/components/tree_view/CustomNode";
-import {modelKeyMapRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -81,7 +81,7 @@ async function meshesAndRanges(nodes: TreeNodeData[]): Promise<[CustomBatchedMes
     const res: [CustomBatchedMesh, string][] = [];
     for (const n of nodes) {
         if (n.rangeId == null || !n.node_name || !n.model_key) continue;
-        const scene = modelKeyMapRef.current?.get(n.model_key);
+        const scene = getViewerRuntime().modelKeyMap.current?.get(n.model_key);
         if (!scene) continue;
         const mesh = scene.getObjectByName(n.node_name) as CustomBatchedMesh | undefined;
         if (!mesh) continue;

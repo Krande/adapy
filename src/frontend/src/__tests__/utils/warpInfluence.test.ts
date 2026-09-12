@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -101,14 +102,24 @@ test("left to its default, that paint drops the shared influence to 1", () => {
   assert.equal(main.morphTargetInfluences![0], 1);
 });
 
-const loaderSource = readFileSync(
+// The loader and its fea/streaming package: the paints live in the package's
+// modules, the step callback in the loader that orchestrates them.
+const streamingDir = fileURLToPath(
+  new URL("../../utils/scene/fea/streaming/", import.meta.url),
+);
+const loaderSource = [
   fileURLToPath(
     new URL("../../utils/scene/handlers/load_fea_streaming.ts", import.meta.url),
   ),
-  "utf8",
-);
+  ...readdirSync(streamingDir)
+    .filter((name) => name.endsWith(".ts"))
+    .sort()
+    .map((name) => join(streamingDir, name)),
+]
+  .map((path) => readFileSync(path, "utf8"))
+  .join("\n");
 
-/** The text of every `fn({ ... })` call in the loader, braces balanced. */
+/** The text of every `fn({ ... })` call in the loader package, braces balanced. */
 function callsOf(fn: string): string[] {
   const out: string[] = [];
   const needle = `${fn}({`;

@@ -24,14 +24,21 @@
 // capabilities that actually have to work on both transports need to move.
 
 import type {
+  ComponentSpecsResponse,
   ConvertResponse,
   DetailingEngineSummary,
+  EquipmentTypeDetail,
+  EquipmentTypeDoc,
+  EquipmentTypeSummary,
+  FeaManifest,
   DetailingOptionsPayload,
   ProceduralBlueprintOption,
   ProceduralCellTypeOption,
   ProceduralCompileResponse,
   ProceduralDesignRulesetOption,
   ProceduralDoc,
+  ProceduralEngineDetail,
+  ProceduralEngineDoc,
   ProceduralEngineResolved,
   ProceduralEngineSummary,
   ProceduralModelDetail,
@@ -40,6 +47,10 @@ import type {
   ProceduralSystemTypeOption,
   ProceduralTypeOption,
   ProceduralXlsxDetect,
+  ScopeUrl,
+  SystemTemplateDetail,
+  SystemTemplateDoc,
+  SystemTemplateSummary,
 } from "@/services/viewerApi";
 import type { ModelStats } from "@/utils/stats/modelStats";
 
@@ -152,6 +163,18 @@ export interface ProceduralModelResult {
   doc?: ProceduralDoc | null;
 }
 
+/** One entry in a local-disk model browser listing (``LIST_PROCEDURAL_MODELS`` --
+ * docs/documents/ws_rest_parity.rst, step 6). ``contentHash`` is the same sha256 hex digest
+ * ``commitModel``/``fetchModel`` traffic in, so a browser row can be compared against a hash
+ * already held (e.g. the currently-open model's ``knownHashes`` entry) without a round trip.
+ * ``modifiedAt`` is Unix milliseconds -- display/sort only, never a concurrency token. */
+export interface ProceduralModelEntry {
+  modelId: string;
+  contentHash: string;
+  modifiedAt: number;
+  sizeBytes: number;
+}
+
 /** Verb names `supports` can be asked about -- one per write/build verb on
  * `ProceduralModelCapability`, named for the method it gates. Deliberately a
  * closed union rather than `string`: adding a verb here is the reminder to
@@ -164,7 +187,8 @@ export type ProceduralVerb =
   | "syncCatalogEntry"
   | "proposeRelocations"
   | "importXlsx"
-  | "exportModel";
+  | "exportModel"
+  | "listModels";
 
 /** The procedural model behind a compiled assembly.
  *
@@ -186,6 +210,14 @@ export interface ProceduralModelCapability {
    * in the docs); today it has NO consumer -- the embedded-document path goes through
    * `adoptEmbeddedModel` below, and the hosted viewer opens models through its own store. */
   fetchModel(source: ProceduralModelSource): Promise<ProceduralModelResult>;
+
+  /** List the models this transport can `fetchModel` by id (LIST_PROCEDURAL_MODELS -- ws/REST
+   * parity plan, step 6). Gated by `supports("listModels")`: the websocket transport lists the
+   * local-disk directory `save`/`load` read and write; REST has no equivalent concept (a per-scope
+   * model listing is a different, already-existing endpoint the panels reach some other way), so
+   * its implementation is unreachable behind `supports` returning false rather than silently
+   * returning an empty list. */
+  listModels(scope: string): Promise<ProceduralModelEntry[]>;
 
   /** Offer a document found embedded in a freshly-loaded GLB
    * (`asset.extras.procedural_doc`, written by `ada.visit.scene_converter`).
@@ -385,10 +417,287 @@ export interface ProceduralRelocationResponse {
   derived_key: string;
 }
 
+// =============================================================================
+// Store- and scene-layer capabilities (seams 3)
+//
+// The domains below are what the stores (`state/**`) and the scene/loader layer
+// (`utils/scene/**`, `components/viewer/sceneHelpers/**`) used to reach straight
+// through `viewerApi` for. Each is one cohesive interface with a per-verb
+// `supports()`, exactly like `ProceduralModelCapability`: REST answers every
+// verb by delegating to `viewerApi`; the websocket transport answers the ones
+// it has a wire verb for and refuses the rest with `CapabilityUnavailableError`.
+// Today it has none of these -- LIST_FILE_OBJECTS / VIEW_FILE_OBJECT push a
+// whole file into the scene, they do not serve a blob by key -- so every
+// `supports()` here is false over the websocket, and the scene handlers that
+// used to branch on `runtime.isRestMode()` now ask the verb they need instead.
+//
+// Kept in one block after the procedural seam so the two can be merged
+// independently. `scripts/check-capability-seam.mjs` is what keeps the stores
+// and the scene layer from growing a runtime `viewerApi` import again.
+// =============================================================================
+
+// ---- Files --------------------------------------------------------------------------------
+//
+// Stored blobs, addressed by scope + key: read them (whole, or as a URL the
+// browser can stream), and the two upload paths (buffered through the API, or
+// presigned straight to the object store with progress heartbeats).
+
+export type FilesVerb =
+  | "fetchBlob"
+  | "blobUrl"
+  | "requestDownloadUrl"
+  | "requestUploadUrl"
+  | "reportUploadProgress"
+  | "completeUpload"
+  | "putBlob";
+
+/** A presigned GET the browser can stream a stored object from directly. */
+export interface PresignedDownload {
+  url: string;
+  key: string;
+  method: string;
+  expires_in_seconds: number;
+  size: number;
+}
+
+/** A presigned PUT for a direct-to-store upload. `content_encoding` is the
+ * server's hint to compress the body (see `upload_source_file.ts`). */
+export interface PresignedUpload {
+  url: string;
+  key: string;
+  method: string;
+  expires_in_seconds: number;
+  content_encoding?: string | null;
+}
+
+export type UploadProgressHandler = (loaded: number, total: number) => void;
+
+export interface FilesCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: FilesVerb): boolean;
+
+  /** The whole object under `key`, decoded (the server forwards Content-Encoding). */
+  fetchBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer>;
+
+  /** An authed, streamable URL for the object under `key`. Only meaningful when
+   * `supports("blobUrl")`: over the websocket there is no URL to hand out. */
+  blobUrl(scope: ScopeUrl, key: string): string;
+
+  /** Ask the backend to presign a direct download. Rejects when the store
+   * cannot presign (a local backend 503s); callers fall back to `blobUrl`. */
+  requestDownloadUrl(scope: ScopeUrl, key: string): Promise<PresignedDownload>;
+
+  /** Ask the backend to presign a direct upload of `size` bytes to `key`. */
+  requestUploadUrl(scope: ScopeUrl, key: string, size?: number): Promise<PresignedUpload>;
+
+  /** Heartbeat the progress of a presigned upload so other viewers can see it. */
+  reportUploadProgress(scope: ScopeUrl, key: string, loaded: number, total: number): Promise<void>;
+
+  /** Finalise a presigned upload once the PUT succeeded. */
+  completeUpload(scope: ScopeUrl, key: string): Promise<{ key: string; size: number }>;
+
+  /** Buffered upload through the API, with upload progress. */
+  putBlob(scope: ScopeUrl, key: string, body: BodyInit, opts?: { onProgress?: UploadProgressHandler }): Promise<void>;
+}
+
+// ---- FEA results --------------------------------------------------------------------------
+//
+// The streaming FEA viewer's entry point: the baked manifest of a result file.
+// Mesh, field and sidecar blobs under `_derived/<src>.fea/` are then read
+// through `FilesCapability` (`blobUrl`) and the fetcher in
+// `services/feaFieldBlob`.
+
+export type FeaVerb = "fetchManifest";
+
+export interface FeaManifestProgress {
+  jobId: string;
+  stage: string;
+  progress: number;
+  status: "queued" | "running" | "done";
+}
+
+export interface FeaManifestOptions {
+  onProgress?: (info: FeaManifestProgress) => void;
+  signal?: AbortSignal;
+}
+
+export interface FeaCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: FeaVerb): boolean;
+
+  /** The manifest of `sourceKey`'s FEA bake, baking it first if needed --
+   * `onProgress` reports the queue/bake and `signal` aborts the poll. */
+  fetchManifest(scope: ScopeUrl, sourceKey: string, opts?: FeaManifestOptions): Promise<FeaManifest>;
+}
+
+// ---- Conversion jobs ----------------------------------------------------------------------
+//
+// The worker job queue behind conversions and catalog inference. Only the poll
+// lives here today; the ensure-converted orchestration stays in
+// `services/conversion` (it owns the conversion store's toast rows).
+
+export type ConversionVerb = "jobStatus";
+
+export interface ConversionCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: ConversionVerb): boolean;
+
+  /** Poll a queued worker job. */
+  jobStatus(jobId: string): Promise<ConvertResponse>;
+}
+
+// ---- Per-scope catalogs -------------------------------------------------------------------
+//
+// The editable equipment-type, system-template and procedural-engine catalogs
+// (`equipmentCatalogStore`, `engineCatalogStore`). The read-only unions with the
+// code archetypes, and the sync of one archetype into the catalog, are already
+// `ProceduralModelCapability.listCatalog` / `syncCatalogEntry`; this is the
+// draft-based CRUD next to them.
+
+export type CatalogVerb =
+  | "listEquipmentTypes"
+  | "createEquipmentType"
+  | "getEquipmentType"
+  | "updateEquipmentType"
+  | "deleteEquipmentType"
+  | "uploadEquipmentCad"
+  | "copyEquipmentCadFromScope"
+  | "inferEquipmentBbox"
+  | "listSystemTemplates"
+  | "createSystemTemplate"
+  | "getSystemTemplate"
+  | "updateSystemTemplate"
+  | "deleteSystemTemplate"
+  | "createEngine"
+  | "getEngine"
+  | "updateEngine"
+  | "deleteEngine";
+
+/** The editable fields of a catalog entry, committed under optimistic concurrency. */
+export interface CatalogEntryFields<Doc> {
+  name: string;
+  slug?: string;
+  description?: string | null;
+  doc: Doc;
+}
+
+export interface CatalogRevision {
+  id: string;
+  revision: number;
+}
+
+/** A worker job handle: poll `job_id` with `ConversionCapability.jobStatus`. */
+export interface CatalogJobHandle {
+  job_id: string;
+  derived_key: string;
+}
+
+export interface CatalogCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: CatalogVerb): boolean;
+
+  // equipment types
+  listEquipmentTypes(scope: ScopeUrl): Promise<EquipmentTypeSummary[]>;
+  createEquipmentType(scope: ScopeUrl, name: string): Promise<EquipmentTypeDetail>;
+  getEquipmentType(scope: ScopeUrl, typeId: string): Promise<EquipmentTypeDetail>;
+  updateEquipmentType(
+    scope: ScopeUrl,
+    typeId: string,
+    fields: CatalogEntryFields<EquipmentTypeDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision>;
+  deleteEquipmentType(scope: ScopeUrl, typeId: string): Promise<void>;
+  /** Attach a CAD asset to the type; the bbox and preview are inferred from it. */
+  uploadEquipmentCad(scope: ScopeUrl, typeId: string, filename: string, data: Blob | ArrayBuffer): Promise<{ cad_key: string }>;
+  /** Attach an already-stored file of the scope as the type's CAD asset. */
+  copyEquipmentCadFromScope(scope: ScopeUrl, typeId: string, sourceKey: string): Promise<{ cad_key: string }>;
+  /** Queue the bbox + preview inference from the linked CAD asset. */
+  inferEquipmentBbox(scope: ScopeUrl, typeId: string): Promise<CatalogJobHandle>;
+
+  // system templates
+  listSystemTemplates(scope: ScopeUrl): Promise<SystemTemplateSummary[]>;
+  createSystemTemplate(scope: ScopeUrl, name: string): Promise<SystemTemplateDetail>;
+  getSystemTemplate(scope: ScopeUrl, templateId: string): Promise<SystemTemplateDetail>;
+  updateSystemTemplate(
+    scope: ScopeUrl,
+    templateId: string,
+    fields: CatalogEntryFields<SystemTemplateDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision>;
+  deleteSystemTemplate(scope: ScopeUrl, templateId: string): Promise<void>;
+
+  // procedural engines (the list is `ProceduralModelCapability.listCatalog(scope, "engines")`)
+  createEngine(scope: ScopeUrl, name: string): Promise<ProceduralEngineDetail>;
+  getEngine(scope: ScopeUrl, engineId: string): Promise<ProceduralEngineDetail>;
+  updateEngine(
+    scope: ScopeUrl,
+    engineId: string,
+    fields: CatalogEntryFields<ProceduralEngineDoc>,
+    baseRevision: number,
+  ): Promise<CatalogRevision>;
+  deleteEngine(scope: ScopeUrl, engineId: string): Promise<void>;
+}
+
+// ---- Components ---------------------------------------------------------------------------
+//
+// The published component specs of a scope (`componentSpecsStore`), which gate
+// the Component-view toggle and feed the component controls panel.
+
+export type ComponentsVerb = "fetchSpecs";
+
+export interface ComponentsCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: ComponentsVerb): boolean;
+
+  fetchSpecs(scope: ScopeUrl): Promise<ComponentSpecsResponse>;
+}
+
+// ---- Metrics ------------------------------------------------------------------------------
+//
+// Admin-only load and render telemetry (`loadMetrics`, `renderProfiler`).
+// Best-effort by contract: the REST client already swallows its own errors,
+// and the recorders gate on `supports()` so a transport with nowhere to send
+// a record pays nothing.
+
+export type MetricsVerb = "recordViewLoad" | "recordRenderProfile";
+
+export interface ViewLoadRecord {
+  key: string;
+  status?: "ok" | "error";
+  duration_ms?: number | null;
+  read_bytes?: number | null;
+  write_bytes?: number | null;
+  peak_rss_kb?: number | null;
+  error?: string | null;
+  traceback?: string | null;
+  client_metrics?: Record<string, unknown> | null;
+}
+
+export interface RenderProfileRecord {
+  key: string;
+  duration_ms?: number | null;
+  client_metrics?: Record<string, unknown> | null;
+}
+
+export interface MetricsCapability {
+  readonly transport: CapabilityTransport;
+  supports(verb: MetricsVerb): boolean;
+
+  recordViewLoad(scope: ScopeUrl, record: ViewLoadRecord): Promise<void>;
+  recordRenderProfile(scope: ScopeUrl, record: RenderProfileRecord): Promise<void>;
+}
+
 /** The runtime-selected capability set. One instance per transport; see
  * `index.ts`. */
 export interface ViewerCapabilities {
   readonly transport: CapabilityTransport;
   readonly stats: ModelStatsCapability;
   readonly procedural: ProceduralModelCapability;
+  // ---- seams 3: store- and scene-layer domains (see the block above) ----
+  readonly files: FilesCapability;
+  readonly fea: FeaCapability;
+  readonly conversion: ConversionCapability;
+  readonly catalog: CatalogCapability;
+  readonly components: ComponentsCapability;
+  readonly metrics: MetricsCapability;
 }

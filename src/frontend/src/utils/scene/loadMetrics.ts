@@ -30,7 +30,8 @@
 // method body is guarded.
 
 import * as THREE from "three";
-import {rendererRef} from "@/state/refs";
+import {capabilities} from "@/services/capabilities";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
@@ -48,7 +49,7 @@ interface LoadMeta {
 
 function gpuRenderer(): string | undefined {
     try {
-        const gl = rendererRef.current?.getContext() as WebGLRenderingContext | undefined;
+        const gl = getViewerRuntime().renderer.current?.getContext() as WebGLRenderingContext | undefined;
         if (!gl) return undefined;
         const dbg = gl.getExtension("WEBGL_debug_renderer_info");
         if (!dbg) return undefined;
@@ -311,7 +312,7 @@ export class LoadMetricsRecorder {
             }
         }
         try {
-            const info = rendererRef.current?.info;
+            const info = getViewerRuntime().renderer.current?.info;
             if (info) {
                 cm["draw_calls"] = info.render?.calls;
                 cm["geometries"] = info.memory?.geometries;
@@ -325,8 +326,10 @@ export class LoadMetricsRecorder {
 
         const js_heap_used_mb = cm["js_heap_used_mb"] as number | undefined;
 
-        const {viewerApi} = await import("@/services/viewerApi");
-        await viewerApi.recordViewLoad(this.meta.scope, {
+        // Nowhere to send the record on a transport without the verb; the
+        // recorder is best-effort by contract, so drop it rather than throw.
+        if (!capabilities.metrics.supports("recordViewLoad")) return;
+        await capabilities.metrics.recordViewLoad(this.meta.scope, {
             key: this.meta.key,
             status: error ? "error" : "ok",
             error: error ?? null,

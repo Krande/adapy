@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import {sceneRef, rendererRef, cameraRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 
 export function updateAllPointsSize(size: number, absolute?: boolean) {
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!scene) return;
 
-    const renderer = rendererRef.current;
-    const cam = cameraRef.current;
+    const renderer = getViewerRuntime().renderer.current;
+    const cam = getViewerRuntime().camera.current;
     const viewportHeight = renderer ? renderer.getSize(new THREE.Vector2()).y : window.innerHeight;
     const fov = (cam && (cam as any).isPerspectiveCamera) ? (cam as THREE.PerspectiveCamera).fov : 50.0;
 

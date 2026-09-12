@@ -46,6 +46,7 @@ from ..model import (
     DexpiNode,
     ItemKind,
 )
+from ..read.connectivity import ConnectionIndex
 from . import xml_utils
 
 __all__ = ["write_dexpi20"]
@@ -148,11 +149,7 @@ def write_dexpi20(doc: DexpiDocument) -> ET.Element:
 
 def _connections_by_owner(doc: DexpiDocument) -> dict[str | None, list[DexpiConnection]]:
     """Group the connectivity graph by the item each edge is written inside."""
-    grouped: dict[str | None, list[DexpiConnection]] = {}
-    for connection in doc.connections:
-        key = connection.owner_id if connection.owner_id in doc.items else None
-        grouped.setdefault(key, []).append(connection)
-    return grouped
+    return ConnectionIndex.from_document(doc).grouped_by_owner()
 
 
 def _role(item: DexpiItem, echo: bool) -> str:

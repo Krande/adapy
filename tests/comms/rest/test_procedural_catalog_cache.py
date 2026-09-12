@@ -18,7 +18,6 @@ import asyncio
 import os
 import pathlib
 import tempfile
-from types import SimpleNamespace
 
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
 os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
@@ -37,7 +36,7 @@ from ada.comms.rest.procedural import (  # noqa: E402
     procedural_catalog_fp_key,
     procedural_detailing_glb_key,
 )
-from ada.comms.rest.queue import JobQueue  # noqa: E402
+from ada.comms.rest.queue import Job, JobQueue  # noqa: E402
 from ada.comms.rest.scope import Scope  # noqa: E402
 from ada.comms.rest.storage import Storage  # noqa: E402
 
@@ -86,7 +85,16 @@ def _wire(monkeypatch, *, doc: dict, live_fp: str):
 
     async def _fake_enqueue(self, source_key, target_format="glb", **kw):
         calls.append({"source_key": source_key, "target_format": target_format, **kw})
-        return SimpleNamespace(job_id=f"job-{target_format}")
+        # A real Job, not a duck: the job transport reads the record back
+        # (derived_key, status, the whole asdict payload) on the way out.
+        return Job(
+            job_id=f"job-{target_format}",
+            source_key=source_key,
+            derived_key=kw.get("derived_key") or "",
+            status="queued",
+            target_format=target_format,
+            target_capability=kw.get("target_capability"),
+        )
 
     async def _fake_list_workers(self):
         return []

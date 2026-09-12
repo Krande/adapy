@@ -5,11 +5,9 @@ pyodide-driven derived-blob PUT, and the presigned upload/download flow
 
 Needs storage + the job queue (through :class:`~.deps.RestContext`).
 :func:`rename_with_status` is also called from the admin key-rename route
-(``admin.post("/scopes/{scope}/keys/rename")``, still inside ``create_app``
-— the admin routes have not been extracted yet), which is why it is a plain
-function taking ``storage`` explicitly rather than a route-local closure:
-``create_app`` keeps calling it as ``_rename_with_status``, bound to its own
-storage, until that route moves too.
+in :mod:`~.admin_storage` (``POST /api/admin/scopes/{scope}/keys/rename``),
+which is why it is a plain function taking ``storage`` explicitly rather
+than a route-local closure.
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 """

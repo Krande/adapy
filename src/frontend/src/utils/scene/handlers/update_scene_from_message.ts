@@ -7,7 +7,7 @@ import {ungzip} from 'pako';
 import {SetupModelPrepareHook, setupModelLoaderAsync, type SetupModelLoaderOptions} from "@/components/viewer/sceneHelpers/setupModelLoader";
 import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
-import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
@@ -60,7 +60,7 @@ export async function replace_model(options: ReplaceModelOptions) {
     animationStore.setSelectedAnimation("No Animation");
 
     // Clear animation controller
-    animationControllerRef.current?.clear();
+    getViewerRuntime().animationController.current?.clear();
 
     useModelState.getState().translation = null;
     useTreeViewStore.getState().clearTreeData(); // Clear the tree view
@@ -75,16 +75,17 @@ export async function replace_model(options: ReplaceModelOptions) {
     // clip path.
     clearActiveFeaStreaming();
 
-    const three_scene = sceneRef.current;
+    const three_scene = getViewerRuntime().scene.current;
     if (!three_scene) {
         console.warn("No scene found");
         return;
     }
     // clear the current scene
     three_scene.removeFromParent();
-    if (modelKeyMapRef.current) {
-        for (let key of modelKeyMapRef.current.keys()) {
-            let existing_group = modelKeyMapRef.current.get(key);
+    const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+    if (modelKeyMap) {
+        for (let key of modelKeyMap.keys()) {
+            let existing_group = modelKeyMap.get(key);
             if (existing_group) {
                 // Free GPU buffers of the outgoing model before detaching — clear() alone
                 // leaves geometry/material in the renderer caches (VRAM doesn't fall).

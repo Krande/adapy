@@ -26,6 +26,7 @@ from ada.core.catalog_docs import validate_equipment_doc
 
 from . import class_table
 from .nozzle_placers import NozzleSpec, place_nozzles
+from .read.conventions import FALLBACK_EQUIPMENT_ENTRY, ROOT_EQUIPMENT_CLASS
 
 __all__ = [
     "build_default_doc",
@@ -36,21 +37,6 @@ __all__ = [
 ]
 
 _TABLE_PATH = pathlib.Path(__file__).parent / "resources" / "dexpi_equipment_defaults.json"
-
-#: The catch-all entry name in the table. Every ``Plant/ProcessEquipment`` class reaches it if
-#: nothing more specific matches, because it is their common abstract base -- note that this is
-#: ``ProcessEquipment`` and not ``Equipment``: DEXPI has no class by the latter name (it is only a
-#: Proteus element tag), and ``Chamber``/``Nozzle`` deliberately do not derive from it.
-_ROOT_CLASS = "ProcessEquipment"
-
-#: Used only if the JSON is somehow missing its root entry, so a lookup can never return None and
-#: leave a caller to invent a size of its own.
-_FALLBACK: dict = {
-    "bbox": [2.0, 2.0, 2.0],
-    "ifc": "IfcBuildingElementProxy",
-    "nozzles": "generic",
-    "density": 200.0,
-}
 
 
 @functools.lru_cache(maxsize=1)
@@ -103,7 +89,7 @@ def resolve_defaults(class_name: str) -> dict:
 
     # Nothing in the ancestry is curated -- a vendor class the spec never declared, or an item from
     # outside the equipment hierarchy. It still gets the catch-all's numbers, but says so.
-    return _entry(None, "fallback", table.get(_ROOT_CLASS) or _FALLBACK)
+    return _entry(None, "fallback", table.get(ROOT_EQUIPMENT_CLASS) or FALLBACK_EQUIPMENT_ENTRY)
 
 
 def _nearest(name: str, table: dict) -> str | None:
@@ -125,13 +111,13 @@ def _nearest(name: str, table: dict) -> str | None:
 
 
 def _entry(matched: str | None, source: str, entry: dict) -> dict:
-    bbox = [float(v) for v in entry.get("bbox", _FALLBACK["bbox"])]
+    bbox = [float(v) for v in entry.get("bbox", FALLBACK_EQUIPMENT_ENTRY["bbox"])]
     return {
         "class": matched,
         "source": source,
         "bbox": bbox,
-        "ifc_element_class": entry.get("ifc") or _FALLBACK["ifc"],
-        "nozzles": entry.get("nozzles") or _FALLBACK["nozzles"],
+        "ifc_element_class": entry.get("ifc") or FALLBACK_EQUIPMENT_ENTRY["ifc"],
+        "nozzles": entry.get("nozzles") or FALLBACK_EQUIPMENT_ENTRY["nozzles"],
         "density": entry.get("density"),
         "mass": _mass(entry, bbox),
         "note": entry.get("note"),
@@ -145,7 +131,7 @@ def _mass(entry: dict, bbox: list[float]) -> float:
     explicit = entry.get("mass")
     if explicit is not None:
         return float(explicit)
-    density = float(entry.get("density") or _FALLBACK["density"])
+    density = float(entry.get("density") or FALLBACK_EQUIPMENT_ENTRY["density"])
     return round(density * bbox[0] * bbox[1] * bbox[2], 3)
 
 

@@ -9,13 +9,24 @@ a plain Python caller so a script or notebook can list them, turn one into an
 equipment — get the ``slug -> catalog doc`` resolver
 :class:`~ada.topo_model.builder.ProceduralBuilder` needs.
 
-The underlying DB layer (``ada.comms.rest.db``) is entirely asyncpg/async and a
-pool is bound to the event loop that created it. :class:`ProceduralCatalog`
-therefore owns a dedicated loop for its lifetime and drives the async helpers on
-it, presenting a synchronous API. Use it as a context manager (or call
-:meth:`close`) to release the pool + loop::
+The actual DB layer is asyncpg/async and its pool is bound to the event loop
+that created it. :class:`ProceduralCatalog` therefore owns a dedicated loop
+for its lifetime and drives the async helpers on it, presenting a
+synchronous API. Use it as a context manager (or call :meth:`close`) to
+release the pool + loop.
 
-    with ProceduralCatalog.connect(scope_kind="user", scope_id="me") as cat:
+:class:`ProceduralCatalog` never imports the DB layer itself — that would
+make ``ada.topo_model`` depend on ``ada.comms.rest``, backwards from every
+other dependency in the package (``ada.comms.rest`` depends on
+``ada.topo_model``, not the other way round). Instead :meth:`connect` takes
+a ``db`` argument satisfying :class:`CatalogDbAdapter`, a small
+:class:`~typing.Protocol` naming just the handful of async operations the
+catalog needs. ``ada.comms.rest.db`` already exposes matching module-level
+functions, so the module itself is a valid adapter — no wrapper needed::
+
+    from ada.comms.rest import db as db_module
+
+    with ProceduralCatalog.connect(scope_kind="user", scope_id="me", db=db_module) as cat:
         for et in cat.list_equipment_types():
             print(et.slug, et.name)
         pump = cat.get_equipment_type("pump").to_equipment("P1", origin=(2, 2, 3))
@@ -23,20 +34,43 @@ it, presenting a synchronous API. Use it as a context manager (or call
                                     equipment_resolver=cat.equipment_resolver())
         builder.compile()
 
-``asyncpg`` and the DB layer are imported lazily inside :meth:`connect`, so
-importing this module never requires the viewer/DB dependencies.
+``asyncpg`` is imported lazily inside :meth:`connect`, so importing this
+module never requires the viewer/DB dependencies.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Protocol
 
 if TYPE_CHECKING:
     import ada
     from ada.topology.entities import TopoSystem
 
-__all__ = ["EquipmentType", "SystemTemplate", "ProceduralCatalog"]
+__all__ = ["EquipmentType", "SystemTemplate", "ProceduralCatalog", "CatalogDbAdapter"]
+
+
+class CatalogDbAdapter(Protocol):
+    """The async DB operations :class:`ProceduralCatalog` needs.
+
+    Structurally matches ``ada.comms.rest.db``'s module-level functions
+    (same names, same keyword-only ``scope_kind``/``scope_id``), so that
+    module satisfies this Protocol as-is and can be passed directly as
+    ``db=`` — the whole point being that ``ada.topo_model`` names the shape
+    of what it needs, never the module that provides it.
+    """
+
+    async def init_pool(self, database_url: str): ...
+
+    async def close_pool(self, pool) -> None: ...
+
+    async def list_equipment_types(self, pool, *, scope_kind: str, scope_id: str | None) -> list[dict]: ...
+
+    async def get_equipment_docs_by_scope(self, pool, *, scope_kind: str, scope_id: str | None) -> dict[str, dict]: ...
+
+    async def list_system_templates(self, pool, *, scope_kind: str, scope_id: str | None) -> list[dict]: ...
+
+    async def get_system_template(self, pool, template_id: str) -> dict | None: ...
 
 
 @dataclass
@@ -95,31 +129,36 @@ class ProceduralCatalog:
 
     scope_kind: str
     scope_id: str | None
+    _db: CatalogDbAdapter = field(repr=False)
     _pool: object = field(repr=False)
     _loop: object = field(repr=False)
 
     @classmethod
     def connect(
-        cls, database_url: str | None = None, *, scope_kind: str = "shared", scope_id: str | None = None
+        cls,
+        database_url: str | None = None,
+        *,
+        scope_kind: str = "shared",
+        scope_id: str | None = None,
+        db: CatalogDbAdapter,
     ) -> "ProceduralCatalog":
         """Open a catalog against ``database_url`` (defaults to the ``DATABASE_URL``
-        environment variable), bound to the given scope. Raises if no URL is set
-        or the DB is in shared-only mode (no pool)."""
+        environment variable), bound to the given scope, using ``db`` for the actual
+        queries (see :class:`CatalogDbAdapter` — ``ada.comms.rest.db`` is a ready-made
+        one). Raises if no URL is set or the DB is in shared-only mode (no pool)."""
         import asyncio
         import os
-
-        from ada.comms.rest import db as db_module
 
         url = database_url or os.environ.get("DATABASE_URL", "").strip()
         if not url:
             raise RuntimeError("DATABASE_URL is not set — pass database_url= or export DATABASE_URL")
 
         loop = asyncio.new_event_loop()
-        pool = loop.run_until_complete(db_module.init_pool(url))
+        pool = loop.run_until_complete(db.init_pool(url))
         if pool is None:
             loop.close()
             raise RuntimeError(f"could not open a DB pool for {url!r} (shared-only mode / unreachable)")
-        return cls(scope_kind=scope_kind, scope_id=scope_id, _pool=pool, _loop=loop)
+        return cls(scope_kind=scope_kind, scope_id=scope_id, _db=db, _pool=pool, _loop=loop)
 
     def _run(self, coro):
         return self._loop.run_until_complete(coro)
@@ -127,11 +166,10 @@ class ProceduralCatalog:
     # --- equipment ----------------------------------------------------------
     def list_equipment_types(self) -> list[EquipmentType]:
         """All live equipment types in this scope, each carrying its catalog doc."""
-        from ada.comms.rest import db as db_module
 
         async def _load():
-            rows = await db_module.list_equipment_types(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
-            docs = await db_module.get_equipment_docs_by_scope(
+            rows = await self._db.list_equipment_types(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
+            docs = await self._db.get_equipment_docs_by_scope(
                 self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id
             )
             return rows, docs
@@ -162,23 +200,20 @@ class ProceduralCatalog:
         """A ``slug -> catalog doc`` callable to pass as
         ``ProceduralBuilder(equipment_resolver=...)`` — the same mapping the
         compile worker uses."""
-        from ada.comms.rest import db as db_module
-
         docs = self._run(
-            db_module.get_equipment_docs_by_scope(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
+            self._db.get_equipment_docs_by_scope(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
         )
         return docs.get
 
     # --- systems ------------------------------------------------------------
     def list_system_templates(self) -> list[SystemTemplate]:
         """All live system templates in this scope, each carrying its catalog doc."""
-        from ada.comms.rest import db as db_module
 
         async def _load():
-            rows = await db_module.list_system_templates(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
+            rows = await self._db.list_system_templates(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
             out = []
             for r in rows:
-                full = await db_module.get_system_template(self._pool, r["id"])
+                full = await self._db.get_system_template(self._pool, r["id"])
                 out.append((r, full.get("doc", {}) if full else {}))
             return out
 
@@ -204,10 +239,8 @@ class ProceduralCatalog:
     # --- lifecycle ----------------------------------------------------------
     def close(self) -> None:
         """Release the DB pool and the owned event loop."""
-        from ada.comms.rest import db as db_module
-
         if self._pool is not None:
-            self._run(db_module.close_pool(self._pool))
+            self._run(self._db.close_pool(self._pool))
             self._pool = None
         if self._loop is not None:
             self._loop.close()

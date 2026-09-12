@@ -21,6 +21,7 @@ from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
 from ..converter import is_supported_source
+from ..job_transport import JobTransport
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
 from ..scope import Scope
@@ -37,6 +38,12 @@ class RestContext:
     settings: Settings
     storage: Storage
     queue: JobQueue
+    #: How this deployment runs jobs — over the queue, or in-process. Built
+    #: once from ``queue.enabled`` (:func:`..job_transport.build_transport`)
+    #: so no route has to ask which shape it is in; see
+    #: :mod:`ada.comms.rest.job_transport` for the contract and for which
+    #: features a queue-less deployment does not have.
+    jobs: JobTransport
     worker_registry: dict
     #: In-process cache of the storage-compression sweep state, keyed by
     #: scope label — see routes/admin_storage.py. The durable copy lives in
@@ -433,6 +440,9 @@ async def live_worker_specs(queue: JobQueue, field: str, fallback_field: str | N
     import time as _time
 
     out: dict[str, dict] = {}
+    # NOT a JobTransport gate: this is what QueueJobTransport.advertised_specs
+    # delegates to, so the check has to live below the transport rather than
+    # in front of it. A route asks ctx.jobs, never this.
     if not queue.enabled:
         return out
     now = _time.time()
@@ -513,6 +523,8 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
     dict rather than a queue method, since reading it must not wait
     on NATS.
     """
+    # Below the transport, like live_worker_specs: an extension allowlist is a
+    # property of the registry snapshot, not a job anyone can submit.
     if not queue.enabled:
         return []
     workers = worker_registry["workers"]
@@ -546,6 +558,9 @@ async def publish_capability_requirements(queue: JobQueue, value: str | None) ->
     blast radius of this not landing is "the gate is not yet enforced",
     never "the fleet stopped".
     """
+    # Not a transport concern at all: this uses the queue as a KEY-VALUE
+    # STORE that workers read, not as a way to run work. See the closing note
+    # in docs/documents/job_transport.rst.
     if not queue.enabled:
         return
     try:

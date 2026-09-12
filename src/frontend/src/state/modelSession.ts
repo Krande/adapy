@@ -82,6 +82,11 @@ export interface FeaSessionHandle {
      *  the solid beams stay connected to the rest of the structure
      *  under any morph-scale factor. */
     beamSolidWarp?: ParsedBeamSolidsWarp;
+    /** Whether result colours are on screen right now, as last set through
+     *  `setFeaResultColorsVisible`. Usually the store toggle, but not always: a
+     *  mode that owns the scene colouring switches them off without recording
+     *  that as the user's preference. Unset reads as shown. */
+    resultColorsShown?: boolean;
 }
 
 /** One loaded model and everything the viewer holds on its behalf. */

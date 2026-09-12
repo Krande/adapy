@@ -1,7 +1,8 @@
 import React from "react";
 import * as THREE from "three";
 
-import {sceneRef, cameraRef, rendererRef, adaExtensionRef} from "@/state/refs";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
@@ -13,6 +14,10 @@ import type {MassGlyph, BcGlyph, LoadScenario} from "@/extensions/design_and_ana
 // scenario's arrows) into a layer-1 group. Renders nothing itself. Mirrors
 // SectionPlanesController.
 const FemConceptsController: React.FC = () => {
+    // This viewer instance's handles, for the parts of the file that are inside
+    // React. The module-level scene code below has no tree to read a context
+    // from and goes through `getViewerRuntime()` instead.
+    const {scene: sceneRef, camera: cameraRef, renderer: rendererRef} = useViewerRefs();
     React.useEffect(() => {
         let cleanup: (() => void) | null = null;
         let raf = 0;
@@ -41,7 +46,7 @@ const FemConceptsController: React.FC = () => {
 // Merge the fem_concepts blocks across every design + simulation object of
 // every LOADED model into flat masses/bcs/scenarios arrays. Each loaded
 // scene group keeps its own ADA extension (userData.__adaExt); the single
-// adaExtensionRef is only consulted while something is loaded (the
+// The runtime adaExtension is only consulted while something is loaded (the
 // streaming/replace path) — it still holds the LAST model's data after an
 // unload, which used to leave dead masses/BCs/loads in the overlay.
 function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: LoadScenario[]} {
@@ -74,7 +79,7 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
         }
     }
     if (!foundPerSource && loadedNames.size > 0) {
-        ingest(adaExtensionRef.current as any);
+        ingest(getViewerRuntime().adaExtension.current as any);
     }
     return {masses, bcs, scenarios};
 }
@@ -229,7 +234,7 @@ function init(scene: THREE.Scene): () => void {
     };
 
     const rebuild = () => {
-        if (!sceneRef.current) return;
+        if (!getViewerRuntime().scene.current) return;
         disposeContainer();
         // Glyph positions are raw model coordinates (m.cog / node.p from
         // the producer). setupModelLoader recenters the loaded model by

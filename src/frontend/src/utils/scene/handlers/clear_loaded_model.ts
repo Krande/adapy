@@ -3,7 +3,7 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {requestRender} from "@/state/perfStore";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
@@ -23,22 +23,23 @@ export async function clear_loaded_model(): Promise<void> {
     animationStore.setHasAnimation(false);
     animationStore.setIsPlaying(false);
     animationStore.setSelectedAnimation("No Animation");
-    animationControllerRef.current?.clear();
+    getViewerRuntime().animationController.current?.clear();
 
     useTreeViewStore.getState().clearTreeData();
     useSceneInfoStore.getState().setAvailableGroups([]); // drop streamed FEM/FEA groups
     useModelState.getState().translation = null;
 
-    const three_scene = sceneRef.current;
-    if (modelKeyMapRef.current) {
-        for (const [, group] of modelKeyMapRef.current) {
+    const three_scene = getViewerRuntime().scene.current;
+    const modelKeyMap = getViewerRuntime().modelKeyMap.current;
+    if (modelKeyMap) {
+        for (const [, group] of modelKeyMap) {
             // Free GPU buffers before detaching — group.clear()/remove() alone leaves the
             // geometry/material in the renderer's caches, so VRAM never falls.
             disposeObject3D(group);
             group.clear();
             three_scene?.remove(group);
         }
-        modelKeyMapRef.current.clear();
+        modelKeyMap.clear();
     }
 
     const ms = useModelState.getState();
@@ -67,7 +68,7 @@ export async function clear_loaded_model(): Promise<void> {
     // The GLTF SimulationDataExtension panel reads from this ref;
     // leaving it dangling crashes SimulationDataInfoPanel when the
     // panel happens to be open across a model swap.
-    simulationDataRef.current = null;
+    getViewerRuntime().simulationData.current = null;
 
     // Force a paint — on-demand render loop won't fire until the
     // user touches the camera otherwise, leaving the just-cleared

@@ -2,6 +2,10 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+export { ProceduralModelListEntry, ProceduralModelListEntryT } from './server/procedural-model-list-entry.js';
+export { ProceduralModelListReply, ProceduralModelListReplyT } from './server/procedural-model-list-reply.js';
+export { ProceduralModelLoad, ProceduralModelLoadT } from './server/procedural-model-load.js';
+export { ProceduralModelLoadReply, ProceduralModelLoadReplyT } from './server/procedural-model-load-reply.js';
 export { ProceduralModelSave, ProceduralModelSaveT } from './server/procedural-model-save.js';
 export { ProceduralModelSaveReply, ProceduralModelSaveReplyT } from './server/procedural-model-save-reply.js';
 export { Server, ServerT } from './server/server.js';

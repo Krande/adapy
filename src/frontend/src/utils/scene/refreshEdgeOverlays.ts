@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {sceneRef, rendererRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {useOptionsStore} from "@/state/optionsStore";
 import {requestRender} from "@/state/perfStore";
@@ -15,8 +15,8 @@ import {requestRender} from "@/state/perfStore";
 // unchanged. NB: a live rebuild resets the edge material's per-range highlight/hide state — re-click to
 // restore it if needed.
 export function refreshEdgeOverlays(): void {
-    const scene = sceneRef.current;
-    const renderer = rendererRef.current;
+    const scene = getViewerRuntime().scene.current;
+    const renderer = getViewerRuntime().renderer.current;
     if (!scene || !renderer) return;
     const showEdges = useOptionsStore.getState().showEdges;
     const meshes: CustomBatchedMesh[] = [];

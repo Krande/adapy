@@ -16,7 +16,7 @@
 import * as THREE from "three";
 import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {cameraRef, controlsRef, sceneRef} from "@/state/refs";
+import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
 
@@ -27,7 +27,7 @@ let currentMarker: THREE.Mesh | null = null;
 
 function disposeMarker(): void {
     if (!currentMarker) return;
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (scene) scene.remove(currentMarker);
     currentMarker.geometry.dispose();
     const mat = currentMarker.material as THREE.Material | THREE.Material[];
@@ -114,8 +114,8 @@ function makeMarker(worldPos: THREE.Vector3, radius: number): THREE.Mesh {
 }
 
 function frameCamera(worldPos: THREE.Vector3, radius: number): void {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
+    const camera = getViewerRuntime().camera.current;
+    const controls = getViewerRuntime().controls.current;
     if (!camera || !controls) return;
 
     if (controls instanceof CameraControls) {
@@ -180,7 +180,7 @@ export function isFeaElementLabel(label: string): boolean {
  *  mesh doesn't carry the vertex. */
 export function goToNode(nodeId: number): void {
     const mesh = useFeaAnimationStore.getState().mesh;
-    const scene = sceneRef.current;
+    const scene = getViewerRuntime().scene.current;
     if (!mesh || !scene) return;
 
     const worldPos = vertexWorldPosition(mesh, nodeId - 1);

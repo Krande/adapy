@@ -105,9 +105,37 @@ class ServerReply(object):
             return obj
         return None
 
+    # ServerReply
+    def ListProceduralModels(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ProceduralModelListReply import (
+                ProceduralModelListReply,
+            )
+
+            obj = ProceduralModelListReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def LoadProceduralModel(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ProceduralModelLoadReply import (
+                ProceduralModelLoadReply,
+            )
+
+            obj = ProceduralModelLoadReply()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerReplyStart(builder):
-    builder.StartObject(6)
+    builder.StartObject(8)
 
 
 def Start(builder):
@@ -168,6 +196,22 @@ def ServerReplyAddSaveProceduralModel(builder, saveProceduralModel):
 
 def AddSaveProceduralModel(builder, saveProceduralModel):
     ServerReplyAddSaveProceduralModel(builder, saveProceduralModel)
+
+
+def ServerReplyAddListProceduralModels(builder, listProceduralModels):
+    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(listProceduralModels), 0)
+
+
+def AddListProceduralModels(builder, listProceduralModels):
+    ServerReplyAddListProceduralModels(builder, listProceduralModels)
+
+
+def ServerReplyAddLoadProceduralModel(builder, loadProceduralModel):
+    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(loadProceduralModel), 0)
+
+
+def AddLoadProceduralModel(builder, loadProceduralModel):
+    ServerReplyAddLoadProceduralModel(builder, loadProceduralModel)
 
 
 def ServerReplyEnd(builder):

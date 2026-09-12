@@ -80,6 +80,7 @@ IFC and various Finite Element formats.
 
     documents/code
     documents/websocket_correlation
+    documents/job_transport
 
 .. toctree::
     :hidden:
