@@ -3,6 +3,7 @@ import {ApiError, viewerApi, WorkerEntry} from "@/services/viewerApi";
 import InfoIcon from "@/components/icons/InfoIcon";
 import WorkerInfoModal from "./WorkerInfoModal";
 import {formatDuration, formatRelativeTime} from "@/utils/format";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Live view of every worker pod that recently published a heartbeat.
 // The endpoint just scans a NATS KV bucket — no DB hit — so the
@@ -119,57 +120,19 @@ const WorkersTab: React.FC = () => {
             )}
 
             {/* Desktop table */}
-            <table className="hidden sm:table w-full text-sm border-collapse">
-                <thead className="bg-gray-800 sticky top-0">
-                    <tr className="text-left text-xs uppercase text-gray-400">
-                        <th className="px-2 py-2 w-8"></th>
-                        <th className="px-2 py-2">Worker id</th>
-                        <th className="px-2 py-2">Image tag</th>
-                        <th className="px-2 py-2">Capabilities</th>
-                        <th className="px-2 py-2">Uptime</th>
-                        <th className="px-2 py-2">Last heartbeat</th>
-                        <th className="px-2 py-2 w-8"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {workers.map((w) => (
-                        <tr
-                            key={w.worker_id}
-                            className={`border-b border-gray-800 ${w.online ? "" : "opacity-60"}`}
-                        >
-                            <td className="px-2 py-1.5"><Dot online={w.online}/></td>
-                            <td className="px-2 py-1.5 font-mono text-xs break-all">
-                                {w.worker_id}
-                            </td>
-                            <td className="px-2 py-1.5 font-mono text-xs">
-                                {w.image_tag || <span className="text-gray-500 italic">—</span>}
-                            </td>
-                            <td className="px-2 py-1.5">
-                                {w.capabilities.length === 0
-                                    ? <span className="text-gray-500 italic">—</span>
-                                    : w.capabilities.map((c) => <CapabilityChip key={c} name={c}/>)}
-                            </td>
-                            <td className="px-2 py-1.5 text-gray-300">
-                                {formatDuration(now - w.started_at)}
-                            </td>
-                            <td className="px-2 py-1.5 text-gray-300">
-                                {formatRelativeTime(w.last_heartbeat, now)}
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                                <button
-                                    type="button"
-                                    onClick={() => setInfoWorker(w)}
-                                    className="text-gray-400 hover:text-white p-1 rounded-sm hover:bg-gray-800"
-                                    title="Worker details (versions, conversions, packages)"
-                                    aria-label="Worker details"
-                                >
-                                    <InfoIcon className="w-4 h-4"/>
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <DataTable
+                wrap={false}
+                columns={workerColumns(now, setInfoWorker)}
+                rows={workers}
+                rowKey={(w) => w.worker_id}
+                className="hidden sm:table w-full text-sm border-collapse"
+                stickyHeader
+                theadClassName="bg-gray-800"
+                headerRowClassName="text-left text-xs uppercase text-gray-400"
+                headerCellClassName="px-2 py-2"
+                cellClassName="px-2 py-1.5"
+                rowClassName={(w) => `border-b border-gray-800 ${w.online ? "" : "opacity-60"}`}
+            />
 
             {/* Mobile cards */}
             <div className="sm:hidden space-y-2">
@@ -214,5 +177,61 @@ const WorkersTab: React.FC = () => {
         </div>
     );
 };
+
+
+// Desktop table columns. ``now`` is the tick the uptime / heartbeat ages are
+// computed against; ``onInfo`` opens the worker details modal.
+function workerColumns(now: number, onInfo: (w: WorkerEntry) => void): DataTableColumn<WorkerEntry>[] {
+    return [
+        {key: "dot", headerClassName: "px-2 py-2 w-8", cell: (w) => <Dot online={w.online}/>},
+        {
+            key: "worker_id",
+            header: "Worker id",
+            cellClassName: "px-2 py-1.5 font-mono text-xs break-all",
+            cell: (w) => w.worker_id,
+        },
+        {
+            key: "image_tag",
+            header: "Image tag",
+            cellClassName: "px-2 py-1.5 font-mono text-xs",
+            cell: (w) => w.image_tag || <span className="text-gray-500 italic">—</span>,
+        },
+        {
+            key: "capabilities",
+            header: "Capabilities",
+            cell: (w) => w.capabilities.length === 0
+                ? <span className="text-gray-500 italic">—</span>
+                : w.capabilities.map((c) => <CapabilityChip key={c} name={c}/>),
+        },
+        {
+            key: "uptime",
+            header: "Uptime",
+            cellClassName: "px-2 py-1.5 text-gray-300",
+            cell: (w) => formatDuration(now - w.started_at),
+        },
+        {
+            key: "heartbeat",
+            header: "Last heartbeat",
+            cellClassName: "px-2 py-1.5 text-gray-300",
+            cell: (w) => formatRelativeTime(w.last_heartbeat, now),
+        },
+        {
+            key: "info",
+            headerClassName: "px-2 py-2 w-8",
+            cellClassName: "px-2 py-1.5 text-right",
+            cell: (w) => (
+                <button
+                    type="button"
+                    onClick={() => onInfo(w)}
+                    className="text-gray-400 hover:text-white p-1 rounded-sm hover:bg-gray-800"
+                    title="Worker details (versions, conversions, packages)"
+                    aria-label="Worker details"
+                >
+                    <InfoIcon className="w-4 h-4"/>
+                </button>
+            ),
+        },
+    ];
+}
 
 export default WorkersTab;

@@ -9,6 +9,7 @@ import {
     viewerApi,
 } from "@/services/viewerApi";
 import {formatBytes, formatMillis} from "@/utils/format";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // The Performance tab's "Workers" sub-tab — cross-conversion performance
 // (M6 of the admin audit-panel design notes).
@@ -233,41 +234,15 @@ const HotspotsPanel: React.FC<{
                 Ranked by cumulative time (sum across all matching profiles).
             </div>
             <div className="overflow-x-auto">
-                <table className="text-[11px] border-collapse w-full">
-                    <thead className="text-gray-400">
-                        <tr>
-                            <Th align="right">cumtime (s)</Th>
-                            <Th align="right">ncalls</Th>
-                            <Th align="right">in N runs</Th>
-                            <Th>function</Th>
-                            <Th>file:line</Th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {data.functions.map((row) => (
-                            <tr
-                                key={`${row.file}:${row.line}:${row.func}`}
-                                className="border-t border-gray-800 hover:bg-gray-900"
-                            >
-                                <td className="px-2 py-1 text-right text-amber-200 font-mono">
-                                    {row.agg_cumtime.toFixed(2)}
-                                </td>
-                                <td className="px-2 py-1 text-right text-gray-400 font-mono">
-                                    {row.agg_ncalls.toLocaleString()}
-                                </td>
-                                <td className="px-2 py-1 text-right text-gray-500">
-                                    {row.profiles_seen}
-                                </td>
-                                <td className="px-2 py-1 font-mono text-gray-200">
-                                    {row.func}
-                                </td>
-                                <td className="px-2 py-1 font-mono text-gray-500 truncate max-w-xs" title={`${row.file}:${row.line}`}>
-                                    {row.file ? `${row.file}:${row.line}` : "—"}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <DataTable
+                    wrap={false}
+                    columns={HOTSPOT_COLUMNS}
+                    rows={data.functions}
+                    rowKey={(row) => `${row.file}:${row.line}:${row.func}`}
+                    className="text-[11px] border-collapse w-full"
+                    theadClassName="text-gray-400"
+                    rowClassName="border-t border-gray-800 hover:bg-gray-900"
+                />
             </div>
         </div>
     );
@@ -619,5 +594,47 @@ const Th: React.FC<{
         {children}
     </th>
 );
+
+
+const HOTSPOT_TH = "px-2 py-1 border-b border-gray-700 font-medium whitespace-nowrap ";
+
+const HOTSPOT_COLUMNS: DataTableColumn<PerfHotspotsResp["functions"][number]>[] = [
+    {
+        key: "cumtime",
+        header: "cumtime (s)",
+        headerClassName: HOTSPOT_TH + "text-right ",
+        cellClassName: "px-2 py-1 text-right text-amber-200 font-mono",
+        cell: (row) => row.agg_cumtime.toFixed(2),
+    },
+    {
+        key: "ncalls",
+        header: "ncalls",
+        headerClassName: HOTSPOT_TH + "text-right ",
+        cellClassName: "px-2 py-1 text-right text-gray-400 font-mono",
+        cell: (row) => row.agg_ncalls.toLocaleString(),
+    },
+    {
+        key: "runs",
+        header: "in N runs",
+        headerClassName: HOTSPOT_TH + "text-right ",
+        cellClassName: "px-2 py-1 text-right text-gray-500",
+        cell: (row) => row.profiles_seen,
+    },
+    {
+        key: "func",
+        header: "function",
+        headerClassName: HOTSPOT_TH,
+        cellClassName: "px-2 py-1 font-mono text-gray-200",
+        cell: (row) => row.func,
+    },
+    {
+        key: "file",
+        header: "file:line",
+        headerClassName: HOTSPOT_TH,
+        cellClassName: "px-2 py-1 font-mono text-gray-500 truncate max-w-xs",
+        title: (row) => `${row.file}:${row.line}`,
+        cell: (row) => row.file ? `${row.file}:${row.line}` : "—",
+    },
+];
 
 export default WorkerPerformanceTab;
