@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {ApiError, viewerApi} from "@/services/viewerApi";
 import {runtime} from "@/runtime/config";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Per-deployment conversion knobs. Each row maps to a key in the
 // app_settings table; a falsy value (or absence) means "use adapy's
@@ -318,6 +319,43 @@ const ConversionSettingsTab: React.FC = () => {
 
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
+
+    const settingColumns: DataTableColumn<SettingRow>[] = [
+        {
+            key: "setting",
+            header: "Setting",
+            headerClassName: "px-3 sm:px-4 py-2 w-[18rem]",
+            cell: (row) => (
+                <>
+                    <div className="font-medium">{row.label}</div>
+                    <div className="text-[11px] text-gray-400 font-mono">{row.key}</div>
+                    <div className="text-[11px] text-gray-500 mt-1">
+                        Code default: <span className="font-mono">{row.codeDefault ? "true" : "false"}</span>
+                    </div>
+                </>
+            ),
+        },
+        {
+            key: "value",
+            header: "Value",
+            headerClassName: "px-3 sm:px-4 py-2 w-[20rem]",
+            cell: (row) => (
+                <TriSelect
+                    value={values[row.key]}
+                    onChange={(next) => onChange(row.key, next)}
+                    disabled={Boolean(saving[row.key])}
+                />
+            ),
+        },
+        {
+            key: "description",
+            header: "Description",
+            headerClassName: "px-3 sm:px-4 py-2",
+            cellClassName: "px-3 sm:px-4 py-3 text-xs text-gray-300",
+            cell: (row) => row.description,
+        },
+    ];
+
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 sm:px-4 py-3 border-b border-gray-700 text-xs text-gray-300">
@@ -596,38 +634,18 @@ const ConversionSettingsTab: React.FC = () => {
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (
-                    <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-gray-800">
-                        <tr className="text-left">
-                            <th className="px-3 sm:px-4 py-2 w-[18rem]">Setting</th>
-                            <th className="px-3 sm:px-4 py-2 w-[20rem]">Value</th>
-                            <th className="px-3 sm:px-4 py-2">Description</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        {ROWS.map((row) => (
-                            <tr key={row.key} className="border-t border-gray-800 align-top">
-                                <td className="px-3 sm:px-4 py-3">
-                                    <div className="font-medium">{row.label}</div>
-                                    <div className="text-[11px] text-gray-400 font-mono">{row.key}</div>
-                                    <div className="text-[11px] text-gray-500 mt-1">
-                                        Code default: <span className="font-mono">{row.codeDefault ? "true" : "false"}</span>
-                                    </div>
-                                </td>
-                                <td className="px-3 sm:px-4 py-3">
-                                    <TriSelect
-                                        value={values[row.key]}
-                                        onChange={(next) => onChange(row.key, next)}
-                                        disabled={Boolean(saving[row.key])}
-                                    />
-                                </td>
-                                <td className="px-3 sm:px-4 py-3 text-xs text-gray-300">
-                                    {row.description}
-                                </td>
-                            </tr>
-                        ))}
-                        </tbody>
-                    </table>
+                    <DataTable
+                        wrap={false}
+                        columns={settingColumns}
+                        rows={ROWS}
+                        rowKey={(row) => row.key}
+                        className="w-full text-sm"
+                        stickyHeader
+                        theadClassName="bg-gray-800"
+                        headerRowClassName="text-left"
+                        cellClassName="px-3 sm:px-4 py-3"
+                        rowClassName="border-t border-gray-800 align-top"
+                    />
                 )}
             </div>
         </div>

@@ -4,6 +4,7 @@ import {isMissingManifest, MISSING_MANIFEST_NOTE} from "../workerPackages";
 import MetricsHistoryChart from "./MetricsHistoryChart";
 import ProfileStatsTable from "./ProfileStatsTable";
 import {formatBytes, formatDuration, hasMetrics} from "./format";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Conversion engine + effective toggles (the convert_meta JSONB). Highlights the
 // tessellator that actually ran — an "occ-builtin (fallback …)" value means adacpp
@@ -171,33 +172,15 @@ const CppProfilePanel: React.FC<{profiles: import("@/services/viewerApi").CppPro
                         )}
                     </dl>
                     {p.phases.length > 0 && (
-                        <table className="w-full text-[11px] font-mono">
-                            <thead>
-                                <tr className="text-gray-500 text-left">
-                                    <th className="font-normal pr-2">phase</th>
-                                    <th className="font-normal pr-2 text-right">ms</th>
-                                    <th className="font-normal pr-2 text-right">RSS</th>
-                                    <th className="font-normal w-1/3">share</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {p.phases.map((ph) => (
-                                    <tr key={ph.name} className="text-gray-300">
-                                        <td className="pr-2 break-all">{ph.name}</td>
-                                        <td className="pr-2 text-right">{Math.round(ph.ms)}</td>
-                                        <td className="pr-2 text-right">{Math.round(ph.rss_mb)} MB</td>
-                                        <td>
-                                            <div className="bg-gray-800 rounded-sm h-2 w-full">
-                                                <div
-                                                    className="bg-sky-600 rounded-sm h-2"
-                                                    style={{width: `${Math.min(100, (ph.ms / wall) * 100).toFixed(1)}%`}}
-                                                />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <DataTable
+                            wrap={false}
+                            columns={phaseColumns(wall)}
+                            rows={p.phases}
+                            rowKey={(ph) => ph.name}
+                            className="w-full text-[11px] font-mono"
+                            headerRowClassName="text-gray-500 text-left"
+                            rowClassName="text-gray-300"
+                        />
                     )}
                     {p.notes && Object.keys(p.notes).length > 0 && (
                         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
@@ -299,5 +282,30 @@ const MetricRow: React.FC<{label: string; value: string}> = ({label, value}) => 
         <dd>{value}</dd>
     </>
 );
+
+
+type CppPhase = import("@/services/viewerApi").CppProfile["phases"][number];
+
+// Phase rows of one C++ pipeline profile; ``wall`` scales the share bar.
+function phaseColumns(wall: number): DataTableColumn<CppPhase>[] {
+    return [
+        {key: "phase", header: "phase", headerClassName: "font-normal pr-2", cellClassName: "pr-2 break-all", cell: (ph) => ph.name},
+        {key: "ms", header: "ms", headerClassName: "font-normal pr-2 text-right", cellClassName: "pr-2 text-right", cell: (ph) => Math.round(ph.ms)},
+        {key: "rss", header: "RSS", headerClassName: "font-normal pr-2 text-right", cellClassName: "pr-2 text-right", cell: (ph) => <>{Math.round(ph.rss_mb)} MB</>},
+        {
+            key: "share",
+            header: "share",
+            headerClassName: "font-normal w-1/3",
+            cell: (ph) => (
+                <div className="bg-gray-800 rounded-sm h-2 w-full">
+                    <div
+                        className="bg-sky-600 rounded-sm h-2"
+                        style={{width: `${Math.min(100, (ph.ms / wall) * 100).toFixed(1)}%`}}
+                    />
+                </div>
+            ),
+        },
+    ];
+}
 
 export default MetricsTab;

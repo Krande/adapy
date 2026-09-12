@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {viewerApi} from "@/services/viewerApi";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Admin "Frontend Loads" tab — aggregates the browser load/render metrics
 // the viewer posts (opt-in, Performance options). Two views:
@@ -122,29 +123,15 @@ const HotspotsPanel: React.FC<{keyName: string; since: number; kind?: "view" | "
                 Top self-time frames across {data.loads_in_window} profiled {kind === "render" ? "render window(s)" : "load(s)"} — TS + WASM
                 {kind === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
             </div>
-            <table className="text-xs w-full">
-                <thead className="text-gray-400">
-                    <tr>
-                        <th className="text-left font-medium">Function</th>
-                        <th className="text-right font-medium">Self (sum)</th>
-                        <th className="text-right font-medium">Self (avg)</th>
-                        <th className="text-right font-medium">Samples</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data.functions.map((f, i) => (
-                        <tr key={i} className="border-t border-gray-800">
-                            <td className="py-0.5 font-mono truncate max-w-md" title={f.fn}>
-                                {f.is_wasm && <span className="text-violet-300 mr-1">[wasm]</span>}
-                                {f.fn}
-                            </td>
-                            <td className="text-right">{ms(f.self_ms_sum)}</td>
-                            <td className="text-right">{ms(f.self_ms_avg)}</td>
-                            <td className="text-right">{f.samples}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <DataTable
+                wrap={false}
+                columns={HOTSPOT_FN_COLUMNS}
+                rows={data.functions}
+                rowKey={(_f, i) => i}
+                className="text-xs w-full"
+                theadClassName="text-gray-400"
+                rowClassName="border-t border-gray-800"
+            />
         </div>
     );
 };
@@ -183,63 +170,26 @@ const LoadsView: React.FC<{days: number}> = ({days}) => {
         );
 
     return (
-        <table className="text-xs w-full">
-            <thead className="text-gray-400 sticky top-0 bg-gray-900">
-                <tr className="border-b border-gray-800">
-                    <th className="text-left font-medium px-2 py-1">File</th>
-                    <th className="text-left font-medium px-2">Bound</th>
-                    <th className="text-left font-medium px-2">Phase split (p50)</th>
-                    <th className="text-right font-medium px-2">Total p50/p95</th>
-                    <th className="text-right font-medium px-2">TTFB</th>
-                    <th className="text-right font-medium px-2">Download</th>
-                    <th className="text-right font-medium px-2">Parse</th>
-                    <th className="text-right font-medium px-2">Prepare</th>
-                    <th className="text-right font-medium px-2">GPU</th>
-                    <th className="text-right font-medium px-2">Mbps</th>
-                    <th className="text-right font-medium px-2">Wire</th>
-                    <th className="text-right font-medium px-2">Tris</th>
-                    <th className="text-right font-medium px-2">N</th>
+        <DataTable
+            wrap={false}
+            columns={loadColumns(expanded)}
+            rows={cells}
+            rowKey={(c) => String(c.key)}
+            className="text-xs w-full"
+            stickyHeader
+            theadClassName="text-gray-400 bg-gray-900"
+            headerRowClassName="border-b border-gray-800"
+            cellClassName="px-2 text-right"
+            rowClassName="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+            rowProps={(c) => ({onClick: () => setExpanded(expanded === String(c.key) ? null : String(c.key))})}
+            renderAfterRow={(c) => expanded === String(c.key) && (
+                <tr>
+                    <td colSpan={13}>
+                        <HotspotsPanel keyName={String(c.key)} since={days}/>
+                    </td>
                 </tr>
-            </thead>
-            <tbody>
-                {cells.map((c) => {
-                    const key = String(c.key);
-                    const isOpen = expanded === key;
-                    return (
-                        <React.Fragment key={key}>
-                            <tr
-                                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
-                                onClick={() => setExpanded(isOpen ? null : key)}
-                            >
-                                <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
-                                    <span className="text-gray-500 mr-1">{isOpen ? "▼" : "▶"}</span>
-                                    {shortKey(key)}
-                                </td>
-                                <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
-                                <td className="px-2"><BoundBar cell={c}/></td>
-                                <td className="px-2 text-right">{ms(c.total_ms_p50)} / {ms(c.total_ms_p95)}</td>
-                                <td className="px-2 text-right">{ms(c.ttfb_ms_p50)}</td>
-                                <td className="px-2 text-right">{ms(c.download_ms_p50)}</td>
-                                <td className="px-2 text-right">{ms(c.parse_ms_p50)}</td>
-                                <td className="px-2 text-right">{ms(c.prepare_ms_p50)}</td>
-                                <td className="px-2 text-right">{ms(c.first_render_ms_p50)}</td>
-                                <td className="px-2 text-right">{num(c.throughput_mbps_p50, 1)}</td>
-                                <td className="px-2 text-right">{bytes(c.transfer_bytes_avg)}</td>
-                                <td className="px-2 text-right">{num(c.triangles_p50)}</td>
-                                <td className="px-2 text-right">{c.sample_count}</td>
-                            </tr>
-                            {isOpen && (
-                                <tr>
-                                    <td colSpan={13}>
-                                        <HotspotsPanel keyName={key} since={days}/>
-                                    </td>
-                                </tr>
-                            )}
-                        </React.Fragment>
-                    );
-                })}
-            </tbody>
-        </table>
+            )}
+        />
     );
 };
 
@@ -273,59 +223,26 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
         );
 
     return (
-        <table className="text-xs w-full">
-            <thead className="text-gray-400 sticky top-0 bg-gray-900">
-                <tr className="border-b border-gray-800">
-                    <th className="text-left font-medium px-2 py-1">File</th>
-                    <th className="text-left font-medium px-2">Bound</th>
-                    <th className="text-right font-medium px-2">FPS p50</th>
-                    <th className="text-right font-medium px-2">FPS min</th>
-                    <th className="text-right font-medium px-2">CPU frame p50/p95</th>
-                    <th className="text-right font-medium px-2">GPU frame p50/p95</th>
-                    <th className="text-right font-medium px-2">Draw calls</th>
-                    <th className="text-right font-medium px-2">Tris</th>
-                    <th className="text-right font-medium px-2">Programs</th>
-                    <th className="text-right font-medium px-2">Long frames</th>
-                    <th className="text-right font-medium px-2">Windows</th>
+        <DataTable
+            wrap={false}
+            columns={renderColumns(expanded)}
+            rows={cells}
+            rowKey={(c) => String(c.key)}
+            className="text-xs w-full"
+            stickyHeader
+            theadClassName="text-gray-400 bg-gray-900"
+            headerRowClassName="border-b border-gray-800"
+            cellClassName="px-2 text-right"
+            rowClassName="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+            rowProps={(c) => ({onClick: () => setExpanded(expanded === String(c.key) ? null : String(c.key))})}
+            renderAfterRow={(c) => expanded === String(c.key) && (
+                <tr>
+                    <td colSpan={11}>
+                        <HotspotsPanel keyName={String(c.key)} since={days} kind="render"/>
+                    </td>
                 </tr>
-            </thead>
-            <tbody>
-                {cells.map((c) => {
-                    const key = String(c.key);
-                    const isOpen = expanded === key;
-                    return (
-                        <React.Fragment key={key}>
-                            <tr
-                                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
-                                onClick={() => setExpanded(isOpen ? null : key)}
-                            >
-                                <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
-                                    <span className="text-gray-500 mr-1">{isOpen ? "▼" : "▶"}</span>
-                                    {shortKey(key)}
-                                </td>
-                                <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
-                                <td className="px-2 text-right">{num(c.fps_p50, 1)}</td>
-                                <td className="px-2 text-right">{num(c.fps_min, 1)}</td>
-                                <td className="px-2 text-right">{ms(c.frame_ms_p50)} / {ms(c.frame_ms_p95)}</td>
-                                <td className="px-2 text-right">{ms(c.gpu_ms_p50)} / {ms(c.gpu_ms_p95)}</td>
-                                <td className="px-2 text-right">{num(c.draw_calls_p50)}</td>
-                                <td className="px-2 text-right">{num(c.triangles_p50)}</td>
-                                <td className="px-2 text-right">{num(c.programs_max)}</td>
-                                <td className="px-2 text-right">{num(c.long_frames_sum)}</td>
-                                <td className="px-2 text-right">{c.window_count}</td>
-                            </tr>
-                            {isOpen && (
-                                <tr>
-                                    <td colSpan={11}>
-                                        <HotspotsPanel keyName={key} since={days} kind="render"/>
-                                    </td>
-                                </tr>
-                            )}
-                        </React.Fragment>
-                    );
-                })}
-            </tbody>
-        </table>
+            )}
+        />
     );
 };
 
@@ -365,5 +282,92 @@ const FrontendLoadsTab: React.FC = () => {
         </div>
     );
 };
+
+
+type HotspotFn = Awaited<ReturnType<typeof viewerApi.adminFrontendLoadHotspots>>["functions"][number];
+
+const HOTSPOT_FN_COLUMNS: DataTableColumn<HotspotFn>[] = [
+    {
+        key: "fn",
+        header: "Function",
+        headerClassName: "text-left font-medium",
+        cellClassName: "py-0.5 font-mono truncate max-w-md",
+        title: (f) => f.fn,
+        cell: (f) => (
+            <>
+                {f.is_wasm && <span className="text-violet-300 mr-1">[wasm]</span>}
+                {f.fn}
+            </>
+        ),
+    },
+    {key: "self_sum", header: "Self (sum)", headerClassName: "text-right font-medium", cellClassName: "text-right", cell: (f) => ms(f.self_ms_sum)},
+    {key: "self_avg", header: "Self (avg)", headerClassName: "text-right font-medium", cellClassName: "text-right", cell: (f) => ms(f.self_ms_avg)},
+    {key: "samples", header: "Samples", headerClassName: "text-right font-medium", cellClassName: "text-right", cell: (f) => f.samples},
+];
+
+const CELL_TH_LEFT = "text-left font-medium px-2";
+const CELL_TH_RIGHT = "text-right font-medium px-2";
+
+// First column of both per-file tables: the expand chevron + shortened key.
+function fileColumn(expanded: string | null): DataTableColumn<Cell> {
+    return {
+        key: "file",
+        header: "File",
+        headerClassName: "text-left font-medium px-2 py-1",
+        cellClassName: "px-2 py-1 font-mono truncate max-w-xs",
+        title: (c) => String(c.key),
+        cell: (c) => {
+            const key = String(c.key);
+            return (
+                <>
+                    <span className="text-gray-500 mr-1">{expanded === key ? "▼" : "▶"}</span>
+                    {shortKey(key)}
+                </>
+            );
+        },
+    };
+}
+
+const boundColumn: DataTableColumn<Cell> = {
+    key: "bound",
+    header: "Bound",
+    headerClassName: CELL_TH_LEFT,
+    cellClassName: "px-2",
+    cell: (c) => <BoundChip bound={String(c.dominant_bound || "unknown")}/>,
+};
+
+function loadColumns(expanded: string | null): DataTableColumn<Cell>[] {
+    return [
+        fileColumn(expanded),
+        boundColumn,
+        {key: "split", header: "Phase split (p50)", headerClassName: CELL_TH_LEFT, cellClassName: "px-2", cell: (c) => <BoundBar cell={c}/>},
+        {key: "total", header: "Total p50/p95", headerClassName: CELL_TH_RIGHT, cell: (c) => <>{ms(c.total_ms_p50)} / {ms(c.total_ms_p95)}</>},
+        {key: "ttfb", header: "TTFB", headerClassName: CELL_TH_RIGHT, cell: (c) => ms(c.ttfb_ms_p50)},
+        {key: "download", header: "Download", headerClassName: CELL_TH_RIGHT, cell: (c) => ms(c.download_ms_p50)},
+        {key: "parse", header: "Parse", headerClassName: CELL_TH_RIGHT, cell: (c) => ms(c.parse_ms_p50)},
+        {key: "prepare", header: "Prepare", headerClassName: CELL_TH_RIGHT, cell: (c) => ms(c.prepare_ms_p50)},
+        {key: "gpu", header: "GPU", headerClassName: CELL_TH_RIGHT, cell: (c) => ms(c.first_render_ms_p50)},
+        {key: "mbps", header: "Mbps", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.throughput_mbps_p50, 1)},
+        {key: "wire", header: "Wire", headerClassName: CELL_TH_RIGHT, cell: (c) => bytes(c.transfer_bytes_avg)},
+        {key: "tris", header: "Tris", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.triangles_p50)},
+        {key: "n", header: "N", headerClassName: CELL_TH_RIGHT, cell: (c) => c.sample_count},
+    ];
+}
+
+function renderColumns(expanded: string | null): DataTableColumn<Cell>[] {
+    return [
+        fileColumn(expanded),
+        boundColumn,
+        {key: "fps_p50", header: "FPS p50", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.fps_p50, 1)},
+        {key: "fps_min", header: "FPS min", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.fps_min, 1)},
+        {key: "cpu_frame", header: "CPU frame p50/p95", headerClassName: CELL_TH_RIGHT, cell: (c) => <>{ms(c.frame_ms_p50)} / {ms(c.frame_ms_p95)}</>},
+        {key: "gpu_frame", header: "GPU frame p50/p95", headerClassName: CELL_TH_RIGHT, cell: (c) => <>{ms(c.gpu_ms_p50)} / {ms(c.gpu_ms_p95)}</>},
+        {key: "draw_calls", header: "Draw calls", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.draw_calls_p50)},
+        {key: "tris", header: "Tris", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.triangles_p50)},
+        {key: "programs", header: "Programs", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.programs_max)},
+        {key: "long_frames", header: "Long frames", headerClassName: CELL_TH_RIGHT, cell: (c) => num(c.long_frames_sum)},
+        {key: "windows", header: "Windows", headerClassName: CELL_TH_RIGHT, cell: (c) => c.window_count},
+    ];
+}
 
 export default FrontendLoadsTab;

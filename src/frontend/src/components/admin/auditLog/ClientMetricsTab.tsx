@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from "react";
 import {AuditEntry, viewerApi} from "@/services/viewerApi";
 import {formatBytes, formatDuration} from "./format";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Per-row inspection of a browser view/render event: the full
 // client_metrics payload (lazily fetched), shown as a phase/scalar grid
@@ -86,29 +87,15 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
                         Call hotspots (self-time, TS + WASM)
                         {entry.action === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
                     </div>
-                    <table className="w-full">
-                        <thead className="text-gray-400">
-                            <tr>
-                                <th className="text-left font-medium">Function</th>
-                                <th className="text-right font-medium">Self</th>
-                                <th className="text-right font-medium">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {frames.map((f, i) => (
-                                <tr key={i} className="border-t border-gray-800">
-                                    <td className="py-0.5 font-mono truncate max-w-md" title={f.fn}>
-                                        {typeof f.fn === "string" && f.fn.toLowerCase().includes("wasm") && (
-                                            <span className="text-violet-300 mr-1">[wasm]</span>
-                                        )}
-                                        {f.fn}
-                                    </td>
-                                    <td className="text-right font-mono">{formatDuration(f.self_ms ?? null)}</td>
-                                    <td className="text-right font-mono">{formatDuration(f.total_ms ?? null)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    <DataTable
+                        wrap={false}
+                        columns={FRAME_COLUMNS}
+                        rows={frames}
+                        rowKey={(_f, i) => i}
+                        className="w-full"
+                        theadClassName="text-gray-400"
+                        rowClassName="border-t border-gray-800"
+                    />
                 </div>
             ) : (
                 <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
@@ -119,5 +106,28 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         </div>
     );
 };
+
+
+type ProfileFrame = {fn?: string; self_ms?: number; total_ms?: number};
+
+const FRAME_COLUMNS: DataTableColumn<ProfileFrame>[] = [
+    {
+        key: "fn",
+        header: "Function",
+        headerClassName: "text-left font-medium",
+        cellClassName: "py-0.5 font-mono truncate max-w-md",
+        title: (f) => f.fn,
+        cell: (f) => (
+            <>
+                {typeof f.fn === "string" && f.fn.toLowerCase().includes("wasm") && (
+                    <span className="text-violet-300 mr-1">[wasm]</span>
+                )}
+                {f.fn}
+            </>
+        ),
+    },
+    {key: "self", header: "Self", headerClassName: "text-right font-medium", cellClassName: "text-right font-mono", cell: (f) => formatDuration(f.self_ms ?? null)},
+    {key: "total", header: "Total", headerClassName: "text-right font-medium", cellClassName: "text-right font-mono", cell: (f) => formatDuration(f.total_ms ?? null)},
+];
 
 export default ClientMetricsTab;

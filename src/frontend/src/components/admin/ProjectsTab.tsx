@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
+import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -398,71 +399,24 @@ const MemberPane: React.FC<{
             )}
             <div className="flex-1 min-h-0 overflow-auto">
                 {/* Desktop / tablet table */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
-                    <colgroup>
-                        <col className="w-56"/>
-                        <col className="w-[16rem]"/>
-                        <col className="w-48"/>
-                        <col className="w-28"/>
-                        <col className="w-48"/>
-                        <col className="w-24"/>
-                    </colgroup>
-                    <thead className="sticky top-0 bg-gray-800 text-left">
-                    <tr>
-                        <Th>Display name</Th>
-                        <Th>Email</Th>
-                        <Th>Sub</Th>
-                        <Th>Role</Th>
-                        <Th>Last seen</Th>
-                        <Th>{""}</Th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {members.map((m) => (
-                        <tr key={m.user_sub} className="border-t border-gray-800">
-                            <Td title={m.display_name || ""}>{m.display_name || ""}</Td>
-                            <Td title={m.email || ""}>{m.email || ""}</Td>
-                            <Td title={m.user_sub}>{shortSub(m.user_sub)}</Td>
-                            <Td>{m.role}</Td>
-                            <Td title={m.last_seen_at || ""}>
-                                {fmtIsoLocal(m.last_seen_at)}
-                            </Td>
-                            <Td>
-                                {!project.archived_at && (
-                                    <span className="flex gap-2 whitespace-nowrap">
-                                        {m.role === "ci" && (
-                                            <>
-                                                <button
-                                                    className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
-                                                    onClick={() => void onRotateCiBot(m.user_sub)}
-                                                    disabled={ciBotBusy}
-                                                    title="Mint a fresh token; the current one stops working"
-                                                >
-                                                    rotate
-                                                </button>
-                                                <button
-                                                    className="text-amber-400 hover:text-amber-300 disabled:opacity-50"
-                                                    onClick={() => void onRevokeCiBot(m.user_sub)}
-                                                    disabled={ciBotBusy}
-                                                    title="Kill its tokens without minting a replacement"
-                                                >
-                                                    revoke
-                                                </button>
-                                            </>
-                                        )}
-                                        <button
-                                            className="text-red-400 hover:text-red-300"
-                                            onClick={() => onRemove(m.user_sub)}
-                                        >
-                                            remove
-                                        </button>
-                                    </span>
-                                )}
-                            </Td>
-                        </tr>
-                    ))}
-                    </tbody>
-                </table>
+                <DataTable
+                    wrap={false}
+                    columns={memberColumns({
+                        archived: !!project.archived_at,
+                        ciBotBusy,
+                        onRotateCiBot,
+                        onRevokeCiBot,
+                        onRemove,
+                    })}
+                    rows={members}
+                    rowKey={(m) => m.user_sub}
+                    className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]"
+                    stickyHeader
+                    theadClassName="bg-gray-800 text-left"
+                    headerCellClassName="px-3 py-2 font-medium text-gray-300 whitespace-nowrap"
+                    cellClassName="px-3 py-1 truncate"
+                    rowClassName="border-t border-gray-800"
+                />
                 {/* Mobile cards */}
                 <ul className="sm:hidden divide-y divide-gray-800">
                     {members.map((m) => (
@@ -621,16 +575,6 @@ export ADAPY_VIEWER_URL=<viewer URL>
     );
 };
 
-const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
-);
-
-const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (
-    <td className="px-3 py-1 truncate" title={title}>
-        {children}
-    </td>
-);
-
 // Render an ISO-shaped UTC string in the browser's local timezone.
 // "sv-SE" preserves the "YYYY-MM-DD HH:MM:SS" shape the old raw-ISO
 // slice used to produce, but with the values shifted to wall clock.
@@ -653,6 +597,84 @@ function autoSlug(name: string): string {
         .replace(/[^a-z0-9-]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 63);
+}
+
+
+// Truncation lives at the cell level so long values (emails, full subs) don't
+// break layout; the <colgroup> widths do the gating.
+function memberColumns(h: {
+    archived: boolean;
+    ciBotBusy: boolean;
+    onRotateCiBot: (sub: string) => Promise<void>;
+    onRevokeCiBot: (sub: string) => Promise<void>;
+    onRemove: (sub: string) => void;
+}): DataTableColumn<ProjectMember>[] {
+    return [
+        {
+            key: "display_name",
+            header: "Display name",
+            col: {className: "w-56"},
+            title: (m) => m.display_name || "",
+            cell: (m) => m.display_name || "",
+        },
+        {
+            key: "email",
+            header: "Email",
+            col: {className: "w-[16rem]"},
+            title: (m) => m.email || "",
+            cell: (m) => m.email || "",
+        },
+        {
+            key: "sub",
+            header: "Sub",
+            col: {className: "w-48"},
+            title: (m) => m.user_sub,
+            cell: (m) => shortSub(m.user_sub),
+        },
+        {key: "role", header: "Role", col: {className: "w-28"}, cell: (m) => m.role},
+        {
+            key: "last_seen",
+            header: "Last seen",
+            col: {className: "w-48"},
+            title: (m) => m.last_seen_at || "",
+            cell: (m) => fmtIsoLocal(m.last_seen_at),
+        },
+        {
+            key: "actions",
+            header: "",
+            col: {className: "w-24"},
+            cell: (m) => !h.archived && (
+                <span className="flex gap-2 whitespace-nowrap">
+                    {m.role === "ci" && (
+                        <>
+                            <button
+                                className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                                onClick={() => void h.onRotateCiBot(m.user_sub)}
+                                disabled={h.ciBotBusy}
+                                title="Mint a fresh token; the current one stops working"
+                            >
+                                rotate
+                            </button>
+                            <button
+                                className="text-amber-400 hover:text-amber-300 disabled:opacity-50"
+                                onClick={() => void h.onRevokeCiBot(m.user_sub)}
+                                disabled={h.ciBotBusy}
+                                title="Kill its tokens without minting a replacement"
+                            >
+                                revoke
+                            </button>
+                        </>
+                    )}
+                    <button
+                        className="text-red-400 hover:text-red-300"
+                        onClick={() => h.onRemove(m.user_sub)}
+                    >
+                        remove
+                    </button>
+                </span>
+            ),
+        },
+    ];
 }
 
 export default ProjectsTab;
