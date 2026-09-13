@@ -75,8 +75,13 @@ class SpringTypes(BaseShapeEnum):
 
 class ShapeResolver:
     NUM_MAP = {
-        1: MassTypes.get_all() + SpringTypes.get_all(),
-        2: [LineShapes.LINE] + ConnectorTypes.get_all(),
+        # SPRING1 grounds a single node; SPRING2 joins two. Both used to sit under 1,
+        # which contradicted ``line_edges[SPRING2] = [[0, 1]]``: readers that size a
+        # record from this map (Sesam eltyp 40, Abaqus SPRING2) handed the walks a
+        # one-node element, and asking it for its second end raised out of the
+        # visualisation instead of drawing the spring.
+        1: MassTypes.get_all() + [SpringTypes.SPRING1],
+        2: [LineShapes.LINE, SpringTypes.SPRING2] + ConnectorTypes.get_all(),
         3: [LineShapes.LINE3, ShellShapes.TRI],
         4: [ShellShapes.QUAD, SolidShapes.TETRA],
         5: [SolidShapes.PYRAMID5],
@@ -311,6 +316,50 @@ class ElemShape:
 
     def __repr__(self):
         return f'{self.__class__.__name__}(Type: {self.type}, NodeIds: "{self.nodes}")'
+
+
+def is_renderable(el_type) -> bool:
+    """Whether the visualisation walks can turn elements of this type into geometry.
+
+    A cell block carries exactly one element type, so this is a per-block question:
+    asking it once per block keeps it off the hot path of a model with millions of
+    elements, and answering "no" there means ``ElemShape`` is never constructed for
+    a type it would only refuse.
+
+    Two reasons a type lands here, both with the same answer. Some have no geometry
+    by construction — a point mass is a node, and a SPRING1 grounds a single node
+    with no second end to draw a line to. Others are simply absent from the edge
+    tables because nobody has added them yet. Either way the renderer has nothing to
+    emit, and the honest response is to leave those elements out of the scene rather
+    than to throw away the rest of the model along with them.
+
+    Derived from the very tables ``ElemShape.edges_seq`` reads, so a type added to
+    one of them becomes renderable here without a second edit.
+    """
+    from .lines import line_edges
+    from .shells import shell_edges
+    from .solids import solid_edges
+
+    if isinstance(el_type, SolidShapes):
+        return el_type in solid_edges
+    if isinstance(el_type, ShellShapes):
+        return el_type in shell_edges
+    if isinstance(el_type, (LineShapes, ConnectorTypes, SpringTypes)):
+        return el_type in line_edges
+
+    # MassTypes, and anything outside the shape enums entirely: ElemShape.elem_type_group
+    # has no group for these and raises rather than returning one.
+    return False
+
+
+def has_faces(el_type) -> bool:
+    """Whether this type contributes triangles, or only edges.
+
+    Lines, connectors and springs are one-dimensional: they draw as edges and asking
+    them for faces reaches a face table that does not exist. Shells and solids are
+    the only types with a surface to tessellate.
+    """
+    return isinstance(el_type, (ShellShapes, SolidShapes))
 
 
 def get_elem_type_group(el_type):

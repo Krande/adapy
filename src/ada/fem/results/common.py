@@ -164,6 +164,25 @@ class MeshStore:
             )
 
 
+def report_unrenderable(unrenderable: dict[str, int]) -> None:
+    """One WARNING naming what the scene is missing, and why it is not an error.
+
+    A model that renders minus its springs is worth far more than an exception, but
+    only if the user can find out the springs are gone — otherwise the model just
+    looks subtly wrong. The conversion hands back GLB bytes with no slot for
+    diagnostics, so this log line is where that lands.
+    """
+    if not unrenderable:
+        return
+
+    logger.warning(
+        "Left %d element(s) out of the visualisation: %s. These element types carry no "
+        "renderable edges or faces; the rest of the model is unaffected.",
+        sum(unrenderable.values()),
+        ", ".join(f"{k}={v}" for k, v in sorted(unrenderable.items())),
+    )
+
+
 @dataclass
 class Mesh:
     elements: list[ElementBlock]
@@ -210,13 +229,16 @@ class Mesh:
 
         edges = []
         faces = []
+        unrenderable: dict[str, int] = {}
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
-            # Mass elements (point + nonstructural) don't contribute to
-            # vis. Skip at the block level so ElemShape construction
-            # never sees node-ref arrays bundled by an elset (e.g.
-            # *Nonstructural Mass) which would fail the 1-node check.
-            if isinstance(el_type, shape_def.MassTypes):
+            # A cell block is a single element type, so an unrenderable type makes the
+            # whole block unrenderable — point masses (whose node-ref arrays an elset
+            # such as *Nonstructural Mass bundles, and which would fail ElemShape's
+            # node-count check) and grounded SPRING1s alike. Deciding here also keeps
+            # ElemShape out of a construction it would only refuse.
+            if not shape_def.is_renderable(el_type):
+                unrenderable[str(el_type)] = unrenderable.get(str(el_type), 0) + len(cell_block.node_refs)
                 continue
 
             if cell_block.node_refs_are_indices:
@@ -225,6 +247,7 @@ class Mesh:
                 nodes_copy = cell_block.node_refs.copy()
                 nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
 
+            block_has_faces = shape_def.has_faces(el_type)
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
                 try:
@@ -232,9 +255,10 @@ class Mesh:
                 except IndexError as e:
                     logger.error(e)
                     continue
-                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
-                    continue
-                faces += elem_shape.get_faces()
+                if block_has_faces:
+                    faces += elem_shape.get_faces()
+
+        report_unrenderable(unrenderable)
 
         faces = np.array(faces).reshape(int(len(faces) / 3), 3)
         edges = np.array(edges).reshape(int(len(edges) / 2), 2)
@@ -288,10 +312,13 @@ class Mesh:
         sh_groups = []
         li_groups = []
 
+        unrenderable: dict[str, int] = {}
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
-            # Mass elements don't contribute to vis — see note above.
-            if isinstance(el_type, shape_def.MassTypes):
+            # Types the renderer has no tables for — see the note in
+            # get_edges_and_faces_from_mesh.
+            if not shape_def.is_renderable(el_type):
+                unrenderable[str(el_type)] = unrenderable.get(str(el_type), 0) + len(cell_block.node_refs)
                 continue
 
             if cell_block.node_refs_are_indices:
@@ -319,7 +346,7 @@ class Mesh:
                     )
                     li_groups.append(GroupReference(node, li_s, len(new_edges)))
 
-                if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
+                if not shape_def.has_faces(el_type):
                     continue
 
                 face_s = len(faces)
@@ -329,6 +356,8 @@ class Mesh:
                     GraphNode(f"EL{elem_id}", graph.next_node_id(), hash=create_guid(), parent=face_node)
                 )
                 sh_groups.append(GroupReference(node, face_s, len(new_faces)))
+
+        report_unrenderable(unrenderable)
 
         for i, n in enumerate(sorted(self.nodes.identifiers)):
             node = graph.add_node(GraphNode(f"P{int(n)}", graph.next_node_id(), parent=points_node))
