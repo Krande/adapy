@@ -1,4 +1,4 @@
-"""GELMNT1 records whose NODIN array is zero-padded past the element's node count.
+"""Sesam records that carry padding past what the card semantically needs.
 
 A .SIN reaches the CAD targets (xml, gnx) through its own input deck: the deck is
 extracted, then read back with ``ada.from_fem``. ``sin_to_sif`` writes four values
@@ -9,11 +9,17 @@ per line, so a one-noded MASS (eltyp 11) or SPRING1 (eltyp 18) comes back as
     ValueError: could not convert string to float:
     '5.85130000E+04 0.00000000E+00 0.00000000E+00 0.00000000E+00'
 
+The same padding shows up one card further along: MGSPRNG carries the 21 values of a
+6-DOF lower triangle in a record padded out to 22, and consuming the extra one opened
+a seventh matrix row (``operands could not be broadcast together with shapes (7,6)
+(6,7)``).
+
 ``files/fem_files/sesam/mass_spring_padded_nodin.FEM`` is the smallest deck that
-reproduces it: two nodes, one MASS and one SPRING1 written exactly as
+reproduces both: two nodes, one MASS and one SPRING1 written exactly as
 ``sin_to_sif._format_record_line`` writes them, with the MGMASS/MGSPRNG cards that
-send the reader down the failing branch. The ``fem`` target never hit this — it only
-extracts the deck and never reads it back.
+send the reader down the failing branches — MGSPRNG padded the way the real file is.
+The ``fem`` target never hit any of this: it only extracts the deck, never reads it
+back.
 """
 
 from __future__ import annotations
@@ -65,6 +71,19 @@ def test_padded_nodin_reads(padded_deck, both_reader_paths):
 
     # MGSPRNG resolves its node too — it reached the same parse by a different route.
     assert len(list(fem.springs)) == 1
+
+
+def test_a_padded_mgsprng_still_assembles_a_square_matrix(padded_deck, both_reader_paths):
+    a = ada.from_fem(padded_deck)
+
+    stiff = a.get_by_name("T1").fem.springs["spr2"].stiff
+
+    assert stiff.shape == (6, 6)
+    # Built from the 21 triangle values 1..21 and mirrored, so the trailing pad would
+    # show up as a wrong value, not only as a wrong shape.
+    assert stiff[0].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    assert stiff[5][5] == 21.0
+    assert (stiff == stiff.T).all()
 
 
 def test_padding_zeros_are_dropped_not_read_as_nodes():

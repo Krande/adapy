@@ -201,7 +201,13 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict):
             raise ValueError()
 
         elid = str_to_int(res["section_data"]["elno"])
-        bulk = d["bulk"].replace("\n", "").split()
+        # MGSPRNG carries the lower triangle of an ndof x ndof stiffness matrix, so how
+        # many values belong to it follows from ndof alone. Sesam pads a record out to a
+        # whole number of slots, and re-exporting a .SIN through its input deck carries
+        # that padding into the deck: a 6-DOF spring arrives with 22 values, not 21.
+        # Consuming the extra one opened a seventh row, and the symmetric assembly below
+        # then failed on `operands could not be broadcast together with shapes (7,6) (6,7)`.
+        bulk = d["bulk"].split()[: ndof * (ndof + 1) // 2]
 
         spr_name = f"spr{elid}"
         n1 = fem.nodes.from_id(gelmnt_point_node_id(res["gelmnt"]))
@@ -217,13 +223,9 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict):
                 subspring = []
                 a = 1
                 row += 1
-        new_s = []
-        for row in spring:
-            l = abs(len(row) - 6)
-            if l > 0:
-                new_s.append([0.0 for i in range(0, l)] + row)
-            else:
-                new_s.append(row)
+        # Left-pad each triangle row back out to the full ndof width. Was hardcoded to
+        # 6, which only ever agreed with the rows for a 6-DOF spring.
+        new_s = [[0.0] * (ndof - len(row)) + row for row in spring]
         spring_matrix = np.array(new_s)
         spring_matrix = spring_matrix + spring_matrix.T - np.diag(np.diag(spring_matrix))
         fs = FemSet(f"{spr_name}_set", [n1], FemSet.TYPES.NSET, parent=fem)
