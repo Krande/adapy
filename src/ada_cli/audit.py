@@ -7,6 +7,9 @@ helpers:
     ada audit runs                     list recent regression-sweep runs
     ada audit run <run_id> [--failed]  show a run's per-cell jobs
     ada audit log [--target step ...]  query the per-conversion audit log
+    ada audit loads [--kind render]    per-load browser model-load metrics
+    ada audit loads-summary            aggregated browser load/render perf, per file
+    ada audit loads-hotspots           function-level browser load/render hotspots
     ada audit perf [--source-ext .fem] function-level hot paths in a cell
     ada audit profile <audit_id>       one audit row's cProfile, function stats
     ada audit fetch <audit_id>         download a conversion's source blob
@@ -18,6 +21,17 @@ helpers:
                                        producing a local pass/fail report
     ada audit parity [path]            cross-format visual-parity check on a
                                        local model
+
+``loads`` / ``loads-summary`` / ``loads-hotspots`` read the viewer's opt-in
+browser instrumentation (``action = 'view'`` per-load rows, ``action =
+'render'`` steady-state windows). A few things about that data are easy to
+misread: a row is only written once a load finishes (success or failure) —
+there's no "still loading" row; ``transport=relayed`` means the browser did
+not load from storage directly and the server relayed the bytes instead
+(``client_metrics.fallback_reason`` says why: ``presign_failed``,
+``store_unreachable`` or ``direct_load_failed``); and ``first_render_ms`` is a
+wall-clock gap across two ``requestAnimationFrame`` callbacks, so it pauses
+(and can look huge) while the browser tab is hidden.
 
 Auth: ``ADAPY_API_TOKEN`` (a CLI token from the admin panel). Base URL:
 ``ADAPY_API_BASE`` or ``ADAPY_BASE_URL`` (host or full URL) — same env pair
@@ -140,6 +154,18 @@ def _short(text: str | None, n: int = 80) -> str:
     return (text or "").replace("\n", " ").strip()[:n]
 
 
+def _tail(text: str | None, n: int = 40) -> str:
+    """Right-truncate a long path-like string, keeping the end — for a source
+    ``key`` the filename (and its nearest parent) is more informative than a
+    long scope/prefix, which is what a left-truncation would keep instead."""
+    text = text or ""
+    return text if len(text) <= n else "…" + text[-(n - 1) :]
+
+
+def _num(v, fmt: str = "{:.0f}") -> str:
+    return fmt.format(v) if isinstance(v, (int, float)) else "-"
+
+
 # ── commands ─────────────────────────────────────────────────────────────
 
 
@@ -209,14 +235,28 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_log(args: argparse.Namespace) -> int:
     base, token = _config(args)
-    # The list endpoint filters by action/scope only; source/target/status/grep
-    # are matched client-side, paging back until the row budget is met.
+    # The list endpoint filters by action/scope/since/until server-side;
+    # source/target/status/grep are matched client-side, paging back until
+    # the row budget is met.
     source = (args.source or "").lstrip(".").lower()
     target = (args.target or "").lstrip(".").lower()
     rows: list[dict] = []
     before = None
     for _ in range(max(1, args.pages)):
-        d = _get_json(base, token, "/api/admin/audit" + _qs({"limit": 200, "before_id": before}))
+        d = _get_json(
+            base,
+            token,
+            "/api/admin/audit"
+            + _qs(
+                {
+                    "action": args.action,
+                    "since": args.since,
+                    "until": args.until,
+                    "limit": 200,
+                    "before_id": before,
+                }
+            ),
+        )
         entries = d.get("entries", [])
         if not entries:
             break
@@ -252,6 +292,174 @@ def cmd_log(args: argparse.Namespace) -> int:
         print(f"{str(r.get('id')):>8}  {str(r.get('status')):7}  {str(r.get('target_format')):6}  {tail}")
     if not rows:
         print("(no matching audit rows)", file=sys.stderr)
+    return 0
+
+
+# ── browser model-load / render metrics ────────────────────────────────────
+
+
+def cmd_loads(args: argparse.Namespace) -> int:
+    base, token = _config(args)
+    action = "render" if (args.kind or "view").strip().lower() == "render" else "view"
+    device_prefix = (args.device or "").strip().lower()
+
+    # since/until/key are honoured server-side (same list endpoint cmd_log
+    # uses); device is a client-side prefix match on device_id since the list
+    # endpoint has no such filter.
+    rows: list[dict] = []
+    before = None
+    for _ in range(max(1, args.pages)):
+        d = _get_json(
+            base,
+            token,
+            "/api/admin/audit"
+            + _qs(
+                {
+                    "action": action,
+                    "since": args.since,
+                    "until": args.until,
+                    "key": args.key,
+                    "limit": 200,
+                    "before_id": before,
+                }
+            ),
+        )
+        entries = d.get("entries", [])
+        if not entries:
+            break
+        for r in entries:
+            if device_prefix and not (r.get("device_id") or "").lower().startswith(device_prefix):
+                continue
+            rows.append(r)
+            if len(rows) >= args.limit:
+                break
+        if len(rows) >= args.limit:
+            break
+        before = d.get("next_before_id")
+        if not before:
+            break
+
+    # One client-metrics fetch per row: the list endpoint only surfaces
+    # device_id out of client_metrics, the rest of the per-phase breakdown
+    # lives only behind /client-metrics.
+    out_rows: list[dict] = []
+    for r in rows:
+        cm_resp = _get_json(base, token, f"/api/admin/audit/{r.get('id')}/client-metrics")
+        cm = cm_resp.get("client_metrics") or {}
+        if not args.profile:
+            cm = {k: v for k, v in cm.items() if k != "profile_frames"}
+        out_rows.append({**r, "client_metrics": cm})
+
+    if args.json:
+        print(json.dumps(out_rows, indent=2))
+        return 0
+
+    print(
+        f"{'id':>7}  {'ts':19}  {'status':7}  {'transport':9}  {'total_ms':>8}  {'ttfb_ms':>7}  "
+        f"{'dl_ms':>6}  {'parse_ms':>8}  {'prep_ms':>7}  {'render_ms':>9}  {'bytes':>9}  {'tris':>9}  "
+        f"{'device':8}  {'key / error'}"
+    )
+    for r in out_rows:
+        cm = r.get("client_metrics") or {}
+        ts = str(r.get("ts") or "")[:19]  # to-the-second
+        device = (r.get("device_id") or "")[:8]
+        tail = _tail(r.get("key"))
+        if r.get("status") == "error":
+            tail = f"{tail}  :: {_short(r.get('error'), 100)}"
+        print(
+            f"{str(r.get('id')):>7}  {ts:19}  {str(r.get('status')):7}  {str(cm.get('transport') or '-'):9}  "
+            f"{_num(cm.get('total_ms')):>8}  {_num(cm.get('ttfb_ms')):>7}  {_num(cm.get('download_ms')):>6}  "
+            f"{_num(cm.get('parse_ms')):>8}  {_num(cm.get('prepare_ms')):>7}  {_num(cm.get('first_render_ms')):>9}  "
+            f"{_num(cm.get('transfer_bytes')):>9}  {_num(cm.get('triangles')):>9}  {device:8}  {tail}"
+        )
+    if not out_rows:
+        print("(no matching loads)", file=sys.stderr)
+    return 0
+
+
+def cmd_loads_summary(args: argparse.Namespace) -> int:
+    base, token = _config(args)
+    kind = "render" if (args.kind or "view").strip().lower() == "render" else "view"
+
+    if kind == "render":
+        d = _get_json(base, token, "/api/admin/audit/render" + _qs({"since": args.since_days}))
+        cells = d.get("cells", [])
+        if args.json:
+            print(json.dumps(d, indent=2))
+            return 0
+        print(f"kind=render  since={d.get('since_days')}d")
+        print(
+            f"{'key':40}  {'n':>5}  {'fps_p50':>7}  {'fps_min':>7}  {'frame_p50':>9}  "
+            f"{'gpu_p50':>7}  {'tris_p50':>9}  {'bound':6}"
+        )
+        for c in cells:
+            print(
+                f"{_tail(c.get('key'), 40):40}  {c.get('window_count') or 0:>5}  "
+                f"{(c.get('fps_p50') or 0):>7.1f}  {(c.get('fps_min') or 0):>7.1f}  "
+                f"{(c.get('frame_ms_p50') or 0):>9.1f}  {(c.get('gpu_ms_p50') or 0):>7.1f}  "
+                f"{c.get('triangles_p50') or 0:>9}  {c.get('dominant_bound') or '-':6}"
+            )
+        if not cells:
+            print("(no render windows in this window)", file=sys.stderr)
+        return 0
+
+    d = _get_json(base, token, "/api/admin/audit/frontend-loads" + _qs({"since": args.since_days}))
+    cells = d.get("cells", [])
+    if args.json:
+        print(json.dumps(d, indent=2))
+        return 0
+    print(f"kind=view  since={d.get('since_days')}d")
+    print(
+        f"{'key':40}  {'n':>5}  {'fail':>4}  {'total_p50':>9}  {'total_p95':>9}  "
+        f"{'net_ms':>7}  {'cpu_ms':>7}  {'gpu_ms':>7}  {'bound':7}"
+    )
+    for c in cells:
+        print(
+            f"{_tail(c.get('key'), 40):40}  {c.get('sample_count') or 0:>5}  {c.get('fail_count') or 0:>4}  "
+            f"{_num(c.get('total_ms_p50')):>9}  {_num(c.get('total_ms_p95')):>9}  "
+            f"{(c.get('network_ms') or 0):>7.1f}  {(c.get('cpu_ms') or 0):>7.1f}  {(c.get('gpu_ms') or 0):>7.1f}  "
+            f"{c.get('dominant_bound') or '-':7}"
+        )
+    if not cells:
+        print("(no frontend loads in this window)", file=sys.stderr)
+    return 0
+
+
+def cmd_loads_hotspots(args: argparse.Namespace) -> int:
+    base, token = _config(args)
+    d = _get_json(
+        base,
+        token,
+        "/api/admin/audit/frontend-loads/hotspots"
+        + _qs(
+            {
+                "key": args.key,
+                "since": args.since_days,
+                "limit": args.limit,
+                "kind": args.kind,
+            }
+        ),
+    )
+    if args.json:
+        print(json.dumps(d, indent=2))
+        return 0
+    print(
+        f"kind={d.get('kind')}  key={d.get('key') or '-'}  since={d.get('since_days')}d  "
+        f"loads_in_window={d.get('loads_in_window')}"
+    )
+    functions = d.get("functions", [])
+    print(f"{'self_ms_sum':>11}  {'self_ms_avg':>11}  {'samples':>7}  {'wasm':4}  {'function'}")
+    for f in functions:
+        print(
+            f"{float(f.get('self_ms_sum') or 0):>11.1f}  {float(f.get('self_ms_avg') or 0):>11.1f}  "
+            f"{f.get('samples') or 0:>7}  {'yes' if f.get('is_wasm') else 'no':4}  {f.get('fn')}"
+        )
+    if not functions:
+        print(
+            "(no profiled frames in this window — self-profiling unsupported/disabled, "
+            "or the Document-Policy: js-profiling header isn't served)",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -990,7 +1198,77 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     log.add_argument("--status", default=None, help="Status, e.g. error / done.")
     log.add_argument("--key", default=None, help="Substring match on the source key.")
     log.add_argument("--grep", default=None, help="Substring match on the error text.")
+    log.add_argument(
+        "--action",
+        default=None,
+        help="Audit action to filter on server-side, e.g. convert / view / render / validate.",
+    )
+    log.add_argument(
+        "--since",
+        default=None,
+        help="Lower time bound (server-side): a relative duration like '6h'/'2d', or an ISO-8601 instant.",
+    )
+    log.add_argument("--until", default=None, help="Upper time bound (server-side), same forms as --since.")
     log.set_defaults(func=cmd_log)
+
+    loads = asub.add_parser(
+        "loads",
+        help="Per-load browser model-load metrics (--kind render for steady-state render windows). "
+        "Rows exist only for completed loads; transport=relayed means the server relayed the bytes "
+        "instead of a direct storage fetch (client_metrics.fallback_reason says why); "
+        "first_render_ms pauses while the tab is hidden.",
+    )
+    _remote(loads)
+    loads.add_argument(
+        "--kind",
+        default="view",
+        choices=["view", "render"],
+        help="view = per-load metrics (default), render = steady-state render windows.",
+    )
+    loads.add_argument(
+        "--since",
+        default=None,
+        help="Lower time bound (server-side): a relative duration like '6h'/'2d', or an ISO-8601 instant.",
+    )
+    loads.add_argument("--until", default=None, help="Upper time bound (server-side), same forms as --since.")
+    loads.add_argument("--key", default=None, help="Substring match on the source key (server-side).")
+    loads.add_argument("--device", default=None, help="Client-side prefix match on device_id.")
+    loads.add_argument("--pages", type=int, default=12, help="Max 200-row pages to scan.")
+    loads.add_argument("--limit", type=int, default=50, help="Max rows to return (after fetching client-metrics).")
+    loads.add_argument(
+        "--profile", action="store_true", help="Keep profile_frames (per-function self-time) in each row's output."
+    )
+    loads.set_defaults(func=cmd_loads)
+
+    loads_summary = asub.add_parser(
+        "loads-summary",
+        help="Aggregated browser load (or render) perf per file, over a time window.",
+    )
+    _remote(loads_summary)
+    loads_summary.add_argument("--since-days", type=int, default=1, help="Window in days (default 1).")
+    loads_summary.add_argument(
+        "--kind",
+        default="view",
+        choices=["view", "render"],
+        help="view = per-load summary (default), render = steady-state render-window summary.",
+    )
+    loads_summary.set_defaults(func=cmd_loads_summary)
+
+    loads_hotspots = asub.add_parser(
+        "loads-hotspots",
+        help="Function-level self-time hotspots across browser loads/renders (JS Self-Profiling frames).",
+    )
+    _remote(loads_hotspots)
+    loads_hotspots.add_argument("--since-days", type=int, default=1, help="Window in days (default 1).")
+    loads_hotspots.add_argument("--key", default=None, help="Only this source key (GLB file).")
+    loads_hotspots.add_argument(
+        "--kind",
+        default="view",
+        choices=["view", "render"],
+        help="view = profile frames from loads (default), render = from render windows.",
+    )
+    loads_hotspots.add_argument("--limit", type=int, default=100, help="Max functions to return (default 100).")
+    loads_hotspots.set_defaults(func=cmd_loads_hotspots)
 
     perf = asub.add_parser(
         "perf",

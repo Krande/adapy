@@ -37,8 +37,17 @@ import {useMeStore} from "@/state/meStore";
 import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
 import {getDeviceId} from "@/utils/deviceId";
 import {perfOptionsSnapshot} from "@/state/perfStore";
+import {
+    addLongTasks,
+    emptyLongTaskTotals,
+    findResourceEntry,
+    type LongTaskTotals,
+} from "@/utils/scene/loadTimingEntries";
 
 export type LoadTransport = "presigned" | "relayed" | "blob" | "unknown";
+
+// Cap on resource entries one recorder keeps while its load is in flight.
+const MAX_OBSERVED_RESOURCES = 500;
 
 interface LoadMeta {
     scope: string;
@@ -84,11 +93,12 @@ export class LoadMetricsRecorder {
     private t0: number;
     private marks: Record<string, number> = {};
     private url: string | null = null;
+    private fallbackReason: string | null = null;
     private callProfiler = new CallProfiler();
     private longTaskObserver: PerformanceObserver | null = null;
-    private longTasks = 0;
-    private longTaskMs = 0;
-    private blockingMs = 0;
+    private longTaskTotals: LongTaskTotals = emptyLongTaskTotals();
+    private resourceObserver: PerformanceObserver | null = null;
+    private resourceEntries: PerformanceResourceTiming[] = [];
     private done = false;
 
     constructor(meta: LoadMeta, wantProfile: boolean) {
@@ -96,17 +106,29 @@ export class LoadMetricsRecorder {
         this.t0 = performance.now();
         this.mark("start");
         // longtask observer — main-thread tasks >50ms during the load.
+        // Buffered so a task already queued at t0 isn't missed; addLongTasks
+        // drops the replayed tasks that predate this load.
         try {
             this.longTaskObserver = new PerformanceObserver((list) => {
-                for (const e of list.getEntries()) {
-                    this.longTasks += 1;
-                    this.longTaskMs += e.duration;
-                    this.blockingMs += Math.max(0, e.duration - 50);
-                }
+                addLongTasks(this.longTaskTotals, list.getEntries(), this.t0);
             });
             this.longTaskObserver.observe({type: "longtask", buffered: true});
         } catch {
             this.longTaskObserver = null;
+        }
+        // resource observer — the model fetch's Resource Timing, which an
+        // observer still receives after the global buffer is full.
+        try {
+            this.resourceObserver = new PerformanceObserver((list) => {
+                for (const e of list.getEntries() as PerformanceResourceTiming[]) {
+                    if (e.name.startsWith("blob:")) continue;
+                    this.resourceEntries.push(e);
+                    if (this.resourceEntries.length > MAX_OBSERVED_RESOURCES) this.resourceEntries.shift();
+                }
+            });
+            this.resourceObserver.observe({type: "resource"});
+        } catch {
+            this.resourceObserver = null;
         }
         // JS Self-Profiling — Chromium-only, needs Document-Policy:
         // js-profiling. Guarded start() is a no-op otherwise.
@@ -121,12 +143,17 @@ export class LoadMetricsRecorder {
         this.meta.transport = t;
     }
     setUrl(u: string): void {
-        // First-wins: the overlay path sets the real same-origin /blobs
-        // URL (for Resource Timing) before loadGLTF later sets the in-memory
-        // ``blob:`` object URL — which carries no network timing. Keep the
-        // first, meaningful URL. On the streaming view path nothing sets it
-        // before loadGLTF, so the presigned/relayed URL still wins there.
-        if (!this.url) this.url = u;
+        // The in-memory ``blob:`` object URL loadGLTF may set after the real
+        // one carries no network timing, so it never replaces a real URL. A
+        // real URL does replace an earlier one: when a presigned load falls
+        // back to the relay, the relay fetch is the one that delivered the
+        // model and the one to time.
+        if (!this.url || !u.startsWith("blob:")) this.url = u;
+    }
+    /** Why a stored-blob load left the presigned path for the relay
+     * (e.g. "presign_failed", "store_unreachable", "direct_load_failed"). */
+    setFallbackReason(reason: string): void {
+        this.fallbackReason = reason;
     }
     markDownloadDone(): void {
         if (!this.marks["download_done"]) this.mark("download_done");
@@ -138,15 +165,26 @@ export class LoadMetricsRecorder {
         this.mark("prepare_done");
     }
 
-    /** Look up the GLB fetch in the Resource Timing buffer. Returns the
+    /** Look up the GLB fetch's Resource Timing entry. Returns the
      * network/IO split where the browser exposes it (same-origin or TAO),
      * else just duration + whatever is available. */
     private resourceTiming(): Record<string, number | boolean> {
         const out: Record<string, number | boolean> = {};
         try {
-            if (!this.url || this.url.startsWith("blob:")) return out;
-            const entries = performance.getEntriesByName(this.url) as PerformanceResourceTiming[];
-            const e = entries[entries.length - 1];
+            const url = this.url;
+            if (!url || url.startsWith("blob:")) return out;
+            try {
+                // Deliver entries the observer has queued but not yet reported.
+                const pending = this.resourceObserver?.takeRecords() ?? [];
+                for (const p of pending as PerformanceResourceTiming[]) this.resourceEntries.push(p);
+            } catch {
+                /* ignore */
+            }
+            const e = findResourceEntry(
+                this.resourceEntries,
+                url,
+                () => performance.getEntriesByName(url) as PerformanceResourceTiming[],
+            );
             if (!e) return out;
             const pos = (v: number) => (v && v > 0 ? v : 0);
             if (e.domainLookupEnd && e.domainLookupStart)
@@ -247,6 +285,12 @@ export class LoadMetricsRecorder {
             m[a] != null && m[b] != null ? Math.round((m[b] - m[a]) * 10) / 10 : undefined;
 
         const rt = this.resourceTiming();
+        try {
+            this.resourceObserver?.disconnect();
+        } catch {
+            /* ignore */
+        }
+        this.resourceEntries = [];
         const total_ms = m["first_render"] != null ? Math.round(m["first_render"] - this.t0) : Math.round(performance.now() - this.t0);
 
         // CPU phases from wall-clock marks. download_done is the loader's
@@ -259,6 +303,7 @@ export class LoadMetricsRecorder {
 
         const cm: Record<string, unknown> = {
             transport: this.meta.transport,
+            fallback_reason: this.fallbackReason ?? undefined,
             source_name: this.meta.sourceName,
             total_ms,
             // network / IO — prefer Resource Timing, fall back to wall-clock.
@@ -276,9 +321,9 @@ export class LoadMetricsRecorder {
             // GPU
             first_render_ms,
             // jank
-            long_tasks: this.longTasks,
-            long_task_ms: Math.round(this.longTaskMs),
-            blocking_ms: Math.round(this.blockingMs),
+            long_tasks: this.longTaskTotals.count,
+            long_task_ms: Math.round(this.longTaskTotals.ms),
+            blocking_ms: Math.round(this.longTaskTotals.blockingMs),
             ...this.deviceContext(),
         };
 

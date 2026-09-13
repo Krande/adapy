@@ -1,6 +1,7 @@
 """Unit tests for the `ada audit` CLI client (HTTP mocked)."""
 
 import argparse
+import json
 
 import pytest
 
@@ -74,7 +75,20 @@ def test_cmd_log_filters(monkeypatch, capsys):
         "next_before_id": None,
     }
     monkeypatch.setattr(ac, "_get_json", lambda b, t, p: page)
-    rc = ac.cmd_log(_args(limit=50, pages=1, source=".fem", target="step", status="error", key=None, grep="closed"))
+    rc = ac.cmd_log(
+        _args(
+            limit=50,
+            pages=1,
+            source=".fem",
+            target="step",
+            status="error",
+            key=None,
+            grep="closed",
+            action=None,
+            since=None,
+            until=None,
+        )
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "fem/a.fem" in out  # matches all filters
@@ -133,6 +147,277 @@ def test_cmd_perf_run_mode_hits_cell_endpoint(monkeypatch, capsys):
     assert "fem->step" in out and "yes" in out  # streaming candidate flag
 
 
+def test_cmd_log_server_side_action_and_since(monkeypatch, capsys):
+    seen = {}
+
+    def fake(base, token, path):
+        seen["path"] = path
+        return {"entries": [], "next_before_id": None}
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_log(
+        _args(
+            limit=50,
+            pages=1,
+            source=None,
+            target=None,
+            status=None,
+            key=None,
+            grep=None,
+            action="view",
+            since="6h",
+            until="2026-01-01T00:00:00Z",
+        )
+    )
+    assert rc == 0
+    assert "action=view" in seen["path"]
+    assert "since=6h" in seen["path"]
+    assert "until=2026-01-01" in seen["path"]
+    assert "(no matching audit rows)" in capsys.readouterr().err
+
+
+# ── loads: per-load browser metrics ────────────────────────────────────────
+
+
+def _loads_page(entries, next_before_id=None):
+    return {"entries": entries, "next_before_id": next_before_id}
+
+
+def test_cmd_loads_device_and_limit_filter_plus_client_metrics_fetch(monkeypatch, capsys):
+    page = _loads_page(
+        [
+            {
+                "id": 1,
+                "ts": "2026-06-06T10:11:12.345+00:00",
+                "status": "done",
+                "key": "cad/a.glb",
+                "device_id": "abc12345xyz",
+                "error": None,
+            },
+            {
+                "id": 2,
+                "ts": "2026-06-06T10:12:00+00:00",
+                "status": "done",
+                "key": "cad/b.glb",
+                "device_id": "other99999",
+                "error": None,
+            },
+            {
+                "id": 3,
+                "ts": "2026-06-06T10:13:00+00:00",
+                "status": "error",
+                "key": "cad/c.glb",
+                "device_id": "abc12345aaa",
+                "error": "load failed",
+            },
+        ]
+    )
+    seen_paths = []
+
+    def fake(base, token, path):
+        seen_paths.append(path)
+        if path.startswith("/api/admin/audit?"):
+            return page
+        assert "/client-metrics" in path
+        audit_id = int(path.split("/api/admin/audit/")[1].split("/")[0])
+        return {
+            "audit_id": audit_id,
+            "client_metrics": {
+                "transport": "relayed",
+                "total_ms": 1200,
+                "ttfb_ms": 50,
+                "download_ms": 400,
+                "parse_ms": 100,
+                "prepare_ms": 60,
+                "first_render_ms": 30,
+                "transfer_bytes": 2048,
+                "triangles": 5000,
+                "profile_frames": [{"fn": "decode", "self_ms": 5}],
+            },
+        }
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads(
+        _args(
+            kind="view",
+            since=None,
+            until=None,
+            key=None,
+            device="abc123",
+            pages=1,
+            limit=50,
+            profile=False,
+        )
+    )
+    assert rc == 0
+
+    # Only the two device-matching rows should have triggered a client-metrics fetch.
+    cm_paths = [p for p in seen_paths if "/client-metrics" in p]
+    assert len(cm_paths) == 2
+    assert "/api/admin/audit/1/client-metrics" in cm_paths
+    assert "/api/admin/audit/3/client-metrics" in cm_paths
+
+    out = capsys.readouterr().out
+    assert "a.glb" in out and "relayed" in out
+    assert "b.glb" not in out  # filtered out by --device
+    assert "c.glb" in out and "load failed" in out  # error snippet shown
+
+
+def test_cmd_loads_server_side_query_params_in_path(monkeypatch):
+    seen = {}
+
+    def fake(base, token, path):
+        seen["path"] = path
+        return _loads_page([])
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads(
+        _args(
+            kind="render",
+            since="1d",
+            until=None,
+            key="cad/a.glb",
+            device=None,
+            pages=1,
+            limit=50,
+            profile=False,
+        )
+    )
+    assert rc == 0
+    assert seen["path"].startswith("/api/admin/audit?")
+    assert "action=render" in seen["path"]
+    assert "since=1d" in seen["path"]
+    assert "key=cad" in seen["path"]  # urlencoded key substring
+
+
+def test_cmd_loads_json_drops_profile_frames_unless_profile_flag(monkeypatch, capsys):
+    page = _loads_page(
+        [{"id": 1, "ts": "2026-06-06T10:11:12+00:00", "status": "done", "key": "cad/a.glb", "device_id": "d1"}]
+    )
+
+    def fake(base, token, path):
+        if path.startswith("/api/admin/audit?"):
+            return page
+        return {"audit_id": 1, "client_metrics": {"total_ms": 10, "profile_frames": [{"fn": "x", "self_ms": 1}]}}
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+
+    rc = ac.cmd_loads(
+        _args(kind="view", since=None, until=None, key=None, device=None, pages=1, limit=50, profile=False, json=True)
+    )
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert "profile_frames" not in rows[0]["client_metrics"]
+    assert rows[0]["client_metrics"]["total_ms"] == 10
+
+    rc = ac.cmd_loads(
+        _args(kind="view", since=None, until=None, key=None, device=None, pages=1, limit=50, profile=True, json=True)
+    )
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert rows[0]["client_metrics"]["profile_frames"] == [{"fn": "x", "self_ms": 1}]
+
+
+# ── loads-summary ───────────────────────────────────────────────────────────
+
+
+def test_cmd_loads_summary_view_table(monkeypatch, capsys):
+    def fake(base, token, path):
+        assert path.startswith("/api/admin/audit/frontend-loads?")
+        assert "frontend-loads/hotspots" not in path
+        return {
+            "since_days": 1,
+            "cells": [
+                {
+                    "key": "cad/a.glb",
+                    "sample_count": 10,
+                    "fail_count": 1,
+                    "total_ms_p50": 900,
+                    "total_ms_p95": 2000,
+                    "network_ms": 300.0,
+                    "cpu_ms": 150.0,
+                    "gpu_ms": 20.0,
+                    "dominant_bound": "network",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads_summary(_args(since_days=1, kind="view"))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "cad/a.glb" in out
+    assert "network" in out
+
+
+def test_cmd_loads_summary_render_endpoint(monkeypatch, capsys):
+    seen = {}
+
+    def fake(base, token, path):
+        seen["path"] = path
+        return {
+            "since_days": 7,
+            "cells": [
+                {
+                    "key": "cad/a.glb",
+                    "window_count": 5,
+                    "fps_p50": 58.0,
+                    "fps_min": 40.0,
+                    "frame_ms_p50": 17.0,
+                    "gpu_ms_p50": 5.0,
+                    "triangles_p50": 12000,
+                    "dominant_bound": "cpu",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads_summary(_args(since_days=7, kind="render"))
+    assert rc == 0
+    assert seen["path"].startswith("/api/admin/audit/render?")
+    out = capsys.readouterr().out
+    assert "cad/a.glb" in out and "cpu" in out
+
+
+# ── loads-hotspots ───────────────────────────────────────────────────────────
+
+
+def test_cmd_loads_hotspots_endpoint_params(monkeypatch, capsys):
+    seen = {}
+
+    def fake(base, token, path):
+        seen["path"] = path
+        return {
+            "functions": [
+                {"fn": "decodeMesh", "samples": 4, "self_ms_sum": 120.0, "self_ms_avg": 30.0, "is_wasm": True},
+            ],
+            "loads_in_window": 4,
+            "key": "cad/a.glb",
+            "kind": "view",
+            "since_days": 3,
+        }
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads_hotspots(_args(since_days=3, key="cad/a.glb", kind="view", limit=100))
+    assert rc == 0
+    assert seen["path"].startswith("/api/admin/audit/frontend-loads/hotspots?")
+    assert "key=cad" in seen["path"]
+    assert "since=3" in seen["path"]
+    assert "kind=view" in seen["path"]
+    out = capsys.readouterr().out
+    assert "decodeMesh" in out and "loads_in_window=4" in out
+
+
+def test_cmd_loads_hotspots_empty_hints_to_stderr(monkeypatch, capsys):
+    def fake(base, token, path):
+        return {"functions": [], "loads_in_window": 0, "key": None, "kind": "view", "since_days": 1}
+
+    monkeypatch.setattr(ac, "_get_json", fake)
+    rc = ac.cmd_loads_hotspots(_args(since_days=1, key=None, kind="view", limit=100))
+    assert rc == 0
+    assert "no profiled frames" in capsys.readouterr().err
+
+
 # ── parser wiring ─────────────────────────────────────────────────────────
 
 
@@ -143,6 +428,9 @@ def test_add_parser_routes_subcommands():
     for name, fn in [
         ("runs", ac.cmd_runs),
         ("log", ac.cmd_log),
+        ("loads", ac.cmd_loads),
+        ("loads-summary", ac.cmd_loads_summary),
+        ("loads-hotspots", ac.cmd_loads_hotspots),
         ("perf", ac.cmd_perf),
         ("profile", ac.cmd_profile),
     ]:
