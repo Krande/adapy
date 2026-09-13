@@ -2,6 +2,15 @@
 
 
 
+## v0.70.5 (2026-09-13)
+
+### Fix
+
+* fix(fem,gxml): four audit-sweep defects, and springs become elements (#354)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`bdf8b3f`](https://github.com/Krande/adapy/commit/bdf8b3f3e3473fe61ca2b1ff236eb5ceeff55388))
+
+
 ## v0.70.4 (2026-09-13)
 
 ### Fix
