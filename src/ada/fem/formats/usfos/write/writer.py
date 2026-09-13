@@ -31,6 +31,7 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, model_dat
         d.write(sections_str(part.fem) + "\n")
         d.write(materials_str(part) + "\n")
         d.write(mass_str(part.fem) + "\n")
+        _warn_dropped_springs(part.fem)
         d.write(create_usfos_set_str(part.fem, nonstrus) + "\n")
 
     control_file = metadata.get("control_file", None)
@@ -40,6 +41,19 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, model_dat
             d.write(nonstru_str(nonstrus) + "\n")
 
     logger.info(f'Created an Usfos input deck at "{analysis_dir}"')
+
+
+def _warn_dropped_springs(fem: FEM) -> None:
+    """Springs reach neither the beam nor the shell walk — both are type-filtered views
+    — so without this they leave the model without a trace. USFOS spells a spring as its
+    own SPRING/SPRI2GR card, which this writer does not emit."""
+    n_springs = sum(1 for _ in fem.elements.springs)
+    if n_springs > 0:
+        logger.warning(
+            "usfos writer: skipping %d spring element(s) — no SPRING card is emitted. "
+            "Output deck will be missing these elements.",
+            n_springs,
+        )
 
 
 def create_usfos_set_str(fem: FEM, nonstrus):

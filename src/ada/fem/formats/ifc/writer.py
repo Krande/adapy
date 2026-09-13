@@ -11,6 +11,7 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
 from ada.fem import Elem
+from ada.fem.shapes import definitions as shape_def
 
 from .helper_utils import ifc_vertex
 
@@ -36,6 +37,14 @@ def to_ifc_fem(fem: FEM, f: ifcopenshell.file) -> None:
             el_ids.append(elem.id)
         else:
             logger.error(f'Skipping doubly defined element "{elem.id}"')
+            continue
+
+        if shape_def.is_structural(elem.type) is False:
+            # Masses, springs and connectors have no FemSection, and line_elem_to_ifc
+            # dereferences fem_sec.local_z on its first line. `elem_type_group` maps a
+            # spring to LINE, so without this they are routed straight into that
+            # AttributeError rather than to the `Unsupported elem type` branch below.
+            logger.warning(f'Skipping "{elem.type}" element {elem.id} — no IFC FEM representation')
             continue
 
         if elem.shape.elem_type_group == elem.EL_TYPES.LINE:

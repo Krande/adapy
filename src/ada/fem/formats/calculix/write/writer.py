@@ -41,7 +41,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     # Check if contains gravity load and create a FemSet containing all elements if so
     all_gl = get_all_grav_loads(assembly.fem)
     if len(all_gl) > 0 and p.fem.elsets.get("Eall", None) is None:
-        fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements], "elset"))
+        fs = p.fem.add_set(FemSet("Eall", [el for el in p.fem.elements.stru_elements], "elset"))
         for grav_load in all_gl:
             grav_load.fem_set = fs
 

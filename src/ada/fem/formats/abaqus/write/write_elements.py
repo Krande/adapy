@@ -60,6 +60,11 @@ def elwriter(eltype_set, elements, fem: "FEM", written_on_assembly_level: bool):
     eltype, elset = eltype_set
     if isinstance(eltype, shape_def.ConnectorTypes):
         return None
+    elif isinstance(eltype, shape_def.SpringTypes):
+        # springs_str writes the *Spring cards for these. Emitting them here as well
+        # would define every spring twice in the deck — the same reason connectors
+        # return None and are left to write_connectors.
+        return None
     elif isinstance(eltype, shape_def.MassTypes):
         return write_mass_elem(eltype, elset, fem, elements, written_on_assembly_level)
     else:
