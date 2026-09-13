@@ -149,11 +149,15 @@ class ElemShapeTypes:
     solids = SolidShapes
     lines = LineShapes
 
-    spring1n = ["SPRING1"]
-    spring2n = ["SPRING2"]
+    # Enum members, not the strings these used to hold. An Elem's ``type`` is resolved
+    # to an enum member by ShapeResolver, so a membership test against strings was
+    # always False -- ``FEM.springs`` filters off ``springs``, and a filter that can
+    # never match is worse than no filter.
+    spring1n = [SpringTypes.SPRING1]
+    spring2n = [SpringTypes.SPRING2]
     springs = spring1n + spring2n
-    masses = ["MASS", "ROTARYI"]
-    connectors = ["CONNECTOR", "CONN3D2"]
+    masses = MassTypes.get_all()
+    connectors = ConnectorTypes.get_all()
     other2n = connectors
     other = other2n
 
@@ -280,13 +284,6 @@ class ElemShape:
         return faces_repo[generalized_type]
 
     @property
-    def spring_edges(self):
-        if self.type not in ElemShapeTypes.springs:
-            return None
-        springs = dict(SPRING2=[[0, 1]])
-        return springs[self.type]
-
-    @property
     def solids_face_seq(self):
         from .solids import solid_faces
 
@@ -350,6 +347,18 @@ def is_renderable(el_type) -> bool:
     # MassTypes, and anything outside the shape enums entirely: ElemShape.elem_type_group
     # has no group for these and raises rather than returning one.
     return False
+
+
+def is_structural(el_type) -> bool:
+    """Whether this type is ordinary mesh geometry a structural-element writer can emit.
+
+    False for the point- and link-like types — masses, springs, connectors. Every deck
+    format spells those as their own card family (``*Spring``, ``BNMASS``, ``NODEMASS``)
+    rather than as a row in the element table, and none of them carries the FemSection a
+    structural row is sized from. Writers route on this instead of finding out the hard
+    way that ``ShapeResolver.to_geom_repr`` has no group for them.
+    """
+    return isinstance(el_type, (LineShapes, ShellShapes, SolidShapes))
 
 
 def has_faces(el_type) -> bool:

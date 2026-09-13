@@ -188,7 +188,14 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
     return FemElements(chain(bn_masses, mg_masses), fem_obj=fem)
 
 
-def get_springs(bulk_str, fem: FEM, spring_elem: dict):
+def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
+    """Build the deck's Spring elements.
+
+    Returns a list, not the name-keyed dict it used to: ``FEM.springs`` is now a view
+    derived from ``FEM.elements``, so the caller adds these through ``add_spring`` and
+    there is no dict for anyone to assign over.
+    """
+
     matno_map = {str_to_int(sp["section_data"]["matno"]): sp for sp in spring_elem.values()}
 
     def find_mgspring(m):
@@ -231,4 +238,4 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict):
         fs = FemSet(f"{spr_name}_set", [n1], FemSet.TYPES.NSET, parent=fem)
         return Spring(spr_name, elid, "SPRING1", fem_set=fs, stiff=spring_matrix, parent=fem)
 
-    return {c.name: c for c in map(find_mgspring, cards.re_mgsprng.finditer(bulk_str))}
+    return list(map(find_mgspring, cards.re_mgsprng.finditer(bulk_str)))

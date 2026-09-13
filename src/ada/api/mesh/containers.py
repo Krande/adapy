@@ -403,11 +403,42 @@ class ArrayElements(FemElements):
         return self._group_view(Elem.EL_TYPES.SOLID_SHAPES)
 
     @property
+    def springs(self):
+        from ada.fem.shapes.definitions import ElemShapeTypes
+
+        return LazyElemSeq(lambda: (e for e in self._overflow if e.type in ElemShapeTypes.springs))
+
+    @property
     def stru_elements(self):
-        return LazyElemSeq(lambda: iter(self), counter=lambda: len(self))
+        from ada.fem.elements import Connector, Mass, Spring
+
+        # Mirror FemElements.stru_elements: the special elements in _overflow are not
+        # structural. This used to hand back everything, masses included, which only
+        # went unnoticed because nothing filtered by it on the array path yet.
+        not_strus = (Mass, Connector, Spring)
+        return LazyElemSeq(lambda: (e for e in self if isinstance(e, not_strus) is False))
 
     def renumber(self, start_id=1, renumber_map: dict = None):
+        from ada.fem.elements import Mass
+
         self._store.renumber_elems(start_id=start_id, renumber_map=renumber_map)
+        # The store only knows about its blocks, so the overflow elements (Mass, Spring,
+        # Connector) have to be renumbered alongside them or they keep pre-renumber ids
+        # while every set member around them moves on. Mass is excluded for the same
+        # reason FemElements._renumber_from_map excludes it: mass ids follow the node
+        # renumbering, not the element map.
+        overflow = [el for el in self._overflow if isinstance(el, Mass) is False]
+        if renumber_map is not None:
+            for el in overflow:
+                # An id absent from the map keeps what it has, matching
+                # _remap_id_backed_sets' pass-through for already-final ids.
+                el._el_id = renumber_map.get(el.id, el.id)
+            return
+
+        nxt = self.max_el_id + 1
+        for el in sorted(overflow, key=lambda e: e.id):
+            el._el_id = nxt
+            nxt += 1
 
     def to_elem_blocks(self):
         from ada.fem.results.common import ElementBlock, ElementInfo, FEATypes
