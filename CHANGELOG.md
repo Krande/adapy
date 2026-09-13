@@ -2,6 +2,15 @@
 
 
 
+## v0.70.4 (2026-09-13)
+
+### Fix
+
+* fix(geom): fuse a boundary arc a SAT loop split at a vertex that turns nothing (#353)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b0090e9`](https://github.com/Krande/adapy/commit/b0090e9225c6830c41f825b221d202a22afeb1ab))
+
+
 ## v0.70.3 (2026-09-13)
 
 ### Fix
