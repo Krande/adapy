@@ -2,6 +2,15 @@
 
 
 
+## v0.70.2 (2026-09-13)
+
+### Fix
+
+* fix(worker): retry a job-status report the API could not record (#351)
+
+Co-authored-by: Claude Opus 5 &lt;noreply@anthropic.com&gt; ([`efd8332`](https://github.com/Krande/adapy/commit/efd8332334281a72df4479486cf5d110ed53c74b))
+
+
 ## v0.70.1 (2026-09-12)
 
 ### Fix
