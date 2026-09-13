@@ -37,6 +37,7 @@ import zipfile
 from typing import TYPE_CHECKING, Callable
 
 from ..sat_helpers import xml_elem_to_sat_text
+from ..xml_parse import genie_xml_root_from_bytes, read_genie_xml_root
 
 if TYPE_CHECKING:
     from ada import Part
@@ -105,13 +106,26 @@ def _write_workspace_zip(gnx_path: pathlib.Path, xml_text: str, sat_text: str) -
         z.writestr("modelData.xml", xml_text)
 
 
+def _as_declared_ascii(xml_text: str) -> str:
+    """Fold any non-ASCII character to a numeric character reference.
+
+    Both members written below declare ``encoding="ASCII"``, because that is what
+    GeniE declares. A model carrying ``§`` or ``Ø`` in a name would make that
+    declaration a lie — the very defect ``read_genie_xml_root`` exists to recover
+    from, and one GeniE itself chokes on. ``&#167;`` is plain ASCII on the wire and
+    resolves back to the same character in any XML parser, so the declaration stays
+    true without changing what the model says.
+    """
+    return xml_text.encode("ascii", errors="xmlcharrefreplace").decode("ascii")
+
+
 def _finish_root(root: ET.Element, workspace_name: str) -> str:
     model = root.find("./model")
     if model is not None:
         # The workspace's model name is the workspace's own name — what the
         # title bar shows, and what GeniE would have set on save.
         model.set("name", workspace_name)
-    body = ET.tostring(root, encoding="unicode")
+    body = _as_declared_ascii(ET.tostring(root, encoding="unicode"))
     return '<?xml version="1.0" encoding="ASCII"?>\n' + body
 
 
@@ -153,8 +167,7 @@ def gnx_from_genie_xml(xml_file: str | pathlib.Path, gnx_file: str | pathlib.Pat
 
     xml_path = pathlib.Path(xml_file)
     gnx_path = pathlib.Path(gnx_file) if gnx_file is not None else xml_path.with_suffix(".gnx")
-    tree = ET.parse(str(xml_path))
-    root = tree.getroot()
+    root = read_genie_xml_root(xml_path)
     sat_text = _strip_embedded_sat(root)
     if sat_text:
         sat_text = sat_text.replace("\r\n", "\n").replace("\n", "\r\n")
@@ -190,7 +203,7 @@ def genie_xml_from_gnx(gnx_file: str | pathlib.Path, xml_file: str | pathlib.Pat
         xml_bytes = z.read("modelData.xml")
         sat_text = z.read("acisGeometry.sat").decode("utf-8", errors="replace") if "acisGeometry.sat" in names else ""
 
-    root = ET.fromstring(xml_bytes)
+    root = genie_xml_root_from_bytes(xml_bytes, f"{gnx_path.name}::modelData.xml")
     # Whatever body the XML itself carries wins over the member (a workspace
     # Genie wrote never has both; a repacked one of ours never has the former).
     if _strip_embedded_sat(root) is None and _sat_has_faces(sat_text):
@@ -202,7 +215,7 @@ def genie_xml_from_gnx(gnx_file: str | pathlib.Path, xml_file: str | pathlib.Pat
     else:
         xml_text = ET.tostring(root, encoding="unicode")
     xml_path.parent.mkdir(parents=True, exist_ok=True)
-    xml_path.write_text('<?xml version="1.0" encoding="ASCII"?>\n' + xml_text, encoding="utf-8")
+    xml_path.write_text('<?xml version="1.0" encoding="ASCII"?>\n' + _as_declared_ascii(xml_text), encoding="utf-8")
     return xml_path
 
 

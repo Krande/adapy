@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
+from ada.cadit.gxml.xml_parse import read_genie_xml_root
 from ada.config import Config, logger
 from ada.core.vector_utils import (
     is_coplanar_points,
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 def iter_beams_from_xml(xml_path):
     from ada import Part
 
-    xml_root = ET.parse(str(xml_path)).getroot()
+    xml_root = read_genie_xml_root(xml_path)
     all_beams = xml_root.findall(".//straight_beam") + xml_root.findall(".//curved_beam")
     p = Part("tmp")
     p._sections = get_sections(xml_root, p)

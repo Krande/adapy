@@ -113,6 +113,22 @@ def test_repack_lifts_an_embedded_body_out_of_a_concept_xml(tmp_path):
     assert " face " in m["acisGeometry.sat"].decode()
 
 
+def test_repack_of_a_mis_declared_concept_xml(example_files, tmp_path):
+    """A GeniE XML that declares ASCII but is not ASCII repacks anyway.
+
+    And the workspace we hand back does not repeat GeniE's mistake: modelData.xml
+    also declares ASCII, so the `§` has to leave as a numeric character reference
+    for that declaration to be true — and for GeniE to read the file at all.
+    """
+    xml = example_files / "fem_files/sesam/mis_declared_ascii.xml"
+
+    m = _members(gnx_from_genie_xml(xml, tmp_path / "mis_declared.gnx"))
+
+    model_data = m["modelData.xml"]
+    model_data.decode("ascii")  # raises if we wrote a byte the declaration forbids
+    assert ET.fromstring(model_data).find(".//report").get("title") == "§Genie_CBA_HTV_NoRigidLink"
+
+
 def test_repack_of_a_polygon_xml_gets_the_empty_body(tmp_path):
     xml = tmp_path / "polygons.xml"
     _build().to_genie_xml(xml, embed_sat=False)
