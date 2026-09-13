@@ -123,7 +123,25 @@ Credentials come from ``ADAPY_API_TOKEN`` with the base URL from
     to a single target format.
 ``ada audit log``
     Query the per-conversion audit log, filtered by ``--source``, ``--target``,
-    ``--status``, ``--key`` or ``--grep``.
+    ``--status``, ``--key`` or ``--grep``, and server-side by ``--action``
+    (``convert``, ``view``, ``render``, ``validate``, …) and ``--since`` /
+    ``--until`` (a relative duration such as ``6h`` or an ISO-8601 instant).
+``ada audit loads``
+    Per-load browser model-load metrics recorded by the viewer's opt-in
+    instrumentation: transport, TTFB, download, parse, prepare and first-render
+    times, bytes and triangles. Filter with ``--since``, ``--until``, ``--key``
+    and ``--device`` (a device-id prefix); ``--kind render`` lists steady-state
+    render windows instead. A row is written only once a load completes;
+    ``transport=relayed`` means the server relayed the bytes instead of a direct
+    storage fetch, with the reason in ``client_metrics.fallback_reason``; and
+    ``first_render_ms`` pauses while the tab is hidden.
+``ada audit loads-summary``
+    Per-file p50/p95 load times over ``--since-days`` (default 1), split into
+    network, CPU and GPU time with the dominant bottleneck. ``--kind render``
+    summarizes render windows (FPS, frame and GPU time).
+``ada audit loads-hotspots``
+    Function-level self-time across profiled browser loads (or render windows
+    with ``--kind render``), optionally for one ``--key``.
 ``ada audit perf``
     Hot paths across conversions — function-level by default, cell-level when
     ``--run``, ``--worker-tag`` or ``--trigger`` is given.
@@ -153,6 +171,8 @@ Credentials come from ``ADAPY_API_TOKEN`` with the base URL from
     ada audit runs --limit 5
     ada audit run 42 --failed
     ada audit repro 1234 --target step
+    ada audit loads --since 2h --device 3f2a9c1e
+    ada audit loads-summary --since-days 7
 
 ``ada serve``
 -------------

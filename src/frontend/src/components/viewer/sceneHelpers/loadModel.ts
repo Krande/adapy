@@ -16,7 +16,9 @@
 import * as THREE from "three";
 
 import {capabilities} from "@/services/capabilities";
+import type {PresignedDownload} from "@/services/capabilities/types";
 import {useModelState} from "@/state/modelState";
+import {directStoreReachable} from "@/utils/scene/directStoreProbe";
 import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
@@ -101,32 +103,50 @@ async function loadFrom(
  *  LOAD as well as the presign: local backends 503 the presign, and an object
  *  stored without the Content-Encoding metadata the browser needs decodes to
  *  garbage on the direct URL but streams correctly through the server, which
- *  forwards `Content-Encoding: gzip` reliably. */
+ *  forwards `Content-Encoding: gzip` reliably. An object store this browser
+ *  cannot reach at all doesn't fail the load, it hangs it, so the presigned
+ *  path is only taken once `directStoreReachable` has seen the store answer. */
 async function loadStoredBlob(
     source: LoadModelSource & {bytes: {from: "storage"; scope: string; glbKey: string}},
     metrics: ReturnType<typeof beginLoadMetrics>,
 ): Promise<THREE.Group | undefined> {
     const {scope, glbKey} = source.bytes;
     const {files} = capabilities;
+    const fallBack = (reason: string, detail?: unknown) => {
+        if (source.presignFallbackWarning) console.warn(source.presignFallbackWarning, reason, detail ?? "");
+        metrics?.setFallbackReason(reason);
+    };
+
+    let presigned: PresignedDownload | null = null;
     try {
-        const presigned = await files.requestDownloadUrl(scope, glbKey);
-        metrics?.setTransport("presigned");
-        metrics?.setUrl(presigned.url);
-        return await loadFrom(source, presigned.url, undefined, metrics);
+        presigned = await files.requestDownloadUrl(scope, glbKey);
     } catch (e) {
-        if (source.presignFallbackWarning) console.warn(source.presignFallbackWarning, e);
-        const {getAccessToken} = await import("@/services/auth/oidc");
-        const url = files.blobUrl(scope, glbKey);
-        const token = getAccessToken();
-        metrics?.setTransport("relayed");
-        metrics?.setUrl(url);
-        return await loadFrom(
-            source,
-            url,
-            token ? {Authorization: `Bearer ${token}`} : undefined,
-            metrics,
-        );
+        fallBack("presign_failed", e);
     }
+    if (presigned && !(await directStoreReachable(presigned.url))) {
+        fallBack("store_unreachable");
+        presigned = null;
+    }
+    if (presigned) {
+        try {
+            metrics?.setTransport("presigned");
+            metrics?.setUrl(presigned.url);
+            return await loadFrom(source, presigned.url, undefined, metrics);
+        } catch (e) {
+            fallBack("direct_load_failed", e);
+        }
+    }
+    const {getAccessToken} = await import("@/services/auth/oidc");
+    const url = files.blobUrl(scope, glbKey);
+    const token = getAccessToken();
+    metrics?.setTransport("relayed");
+    metrics?.setUrl(url);
+    return await loadFrom(
+        source,
+        url,
+        token ? {Authorization: `Bearer ${token}`} : undefined,
+        metrics,
+    );
 }
 
 /**
