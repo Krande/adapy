@@ -675,6 +675,145 @@ def _line_geom(a: Point, b: Point) -> cu.Line | None:
     return cu.Line(a, Direction(*_unit(d)))
 
 
+def _vclose(a, b, tol: float = 1e-9) -> bool:
+    d = _vsub(a, b)
+    return _vdot(d, d) <= tol * tol
+
+
+def _same_circle(c1: cu.Circle, c2: cu.Circle) -> bool:
+    """Are these two ``Circle`` records the SAME circle, parameterized the same way?
+
+    Radius, centre AND frame (axis + ref_direction) must agree: the frame is what the
+    edges' ``t_start`` / ``t_end`` are measured against, so two circles that coincide in
+    space but carry different ref_directions have incomparable parameters.
+    """
+    if c1 is c2:
+        return True
+    if abs(float(c1.radius) - float(c2.radius)) > 1e-9:
+        return False
+    if not _vclose(c1.position.location, c2.position.location):
+        return False
+    for a, b in ((c1.position.axis, c2.position.axis), (c1.position.ref_direction, c2.position.ref_direction)):
+        if (a is None) != (b is None):
+            return False
+        if a is not None and not _vclose(_unit(a), _unit(b)):
+            return False
+    return True
+
+
+def _merge_pcurves(pa, pb):
+    """One p-curve spanning both, or None when they can't be joined losslessly.
+
+    Only the straight-in-UV case is fused: degree 1, two control points, non-rational,
+    same sense, meeting at a shared control point and continuing in the same UV
+    direction. That is what a SAT boundary arc's ``exppc`` actually looks like. Anything
+    richer is left to the caller to drop — a wrong merged p-curve puts the trim wire on
+    the wrong part of the surface, which is worse than no p-curve at all (the OCC builder
+    then reprojects).
+    """
+    if pa is None or pb is None:
+        return None
+    if not (isinstance(pa, cu.Pcurve2dBSpline) and isinstance(pb, cu.Pcurve2dBSpline)):
+        return None
+    if pa == pb:
+        # SAT commonly hangs ONE ``exppc`` spanning the whole arc on both halves of a
+        # split coedge pair — it already describes the fused edge.
+        return pa
+    if pa.degree != 1 or pb.degree != 1 or pa.weights or pb.weights:
+        return None
+    if bool(pa.same_sense) != bool(pb.same_sense) or bool(pa.closed) or bool(pb.closed):
+        return None
+    ca, cb = list(pa.control_points_2d), list(pb.control_points_2d)
+    if len(ca) != 2 or len(cb) != 2:
+        return None
+    if abs(ca[1][0] - cb[0][0]) > 1e-9 or abs(ca[1][1] - cb[0][1]) > 1e-9:
+        return None
+    ua, ub = (ca[1][0] - ca[0][0], ca[1][1] - ca[0][1]), (cb[1][0] - cb[0][0], cb[1][1] - cb[0][1])
+    if abs(ua[0] * ub[1] - ua[1] * ub[0]) > 1e-9 or (ua[0] * ub[0] + ua[1] * ub[1]) <= 0.0:
+        return None  # the two legs kink or double back in UV -> not one straight p-curve
+    return cu.Pcurve2dBSpline(
+        degree=1,
+        control_points_2d=[list(ca[0]), list(cb[1])],
+        knots=[pa.knots[0], pb.knots[-1]],
+        knot_multiplicities=[2, 2],
+        weights=None,
+        closed=False,
+        fit_tolerance=max(float(pa.fit_tolerance), float(pb.fit_tolerance)),
+        same_sense=bool(pa.same_sense),
+    )
+
+
+def _fuse_arc_pair(a: cu.OrientedEdge, b: cu.OrientedEdge) -> cu.OrientedEdge | None:
+    """``a`` and ``b`` as ONE oriented edge when they are two contiguous trims of one
+    circle, else None. Exact by construction: same circle, adjoining parameter ranges,
+    so no point moves and the traversed curve is unchanged.
+    """
+    ea, eb = a.edge_element, b.edge_element
+    if not (isinstance(ea, cu.EdgeCurve) and isinstance(eb, cu.EdgeCurve)):
+        return None
+    ga, gb = ea.edge_geometry, eb.edge_geometry
+    if not (isinstance(ga, cu.Circle) and isinstance(gb, cu.Circle)) or not _same_circle(ga, gb):
+        return None
+    # Forward-only. A reversed OrientedEdge swaps which parametric end has to meet which,
+    # and every reader seen so far emits these pairs forward, so the reversed case is left
+    # alone rather than guessed at. ``same_sense`` is free to be False (a clockwise SAT
+    # arc is exactly that) as long as BOTH halves agree, since it is a property of the
+    # shared circle, not of the split.
+    if not (a.orientation and b.orientation) or bool(ea.same_sense) != bool(eb.same_sense):
+        return None
+    if _vkey(a.end) != _vkey(b.start):
+        return None
+    if None in (a.t_start, a.t_end, b.t_start, b.t_end):
+        return None  # without the parameters we cannot tell adjoining arcs from disjoint ones
+    # t_start/t_end are the circle's parameters AT THE EDGE'S OWN VERTICES, so contiguity
+    # reads the same whichever way the parametrization runs.
+    if abs(float(a.t_end) - float(b.t_start)) > 1e-9:
+        return None  # same circle, but two arcs that do not meet on it
+    ec = cu.EdgeCurve(ea.start, eb.end, edge_geometry=ga, same_sense=bool(ea.same_sense))
+    return cu.OrientedEdge(
+        a.start,
+        b.end,
+        edge_element=ec,
+        orientation=True,
+        pcurve=_merge_pcurves(a.pcurve, b.pcurve),
+        t_start=a.t_start,
+        t_end=b.t_end,
+    )
+
+
+def _merge_cocircular_edges(edge_list: list[cu.OrientedEdge]) -> list[cu.OrientedEdge]:
+    """Fuse loop edges that are two trims of ONE circle split at a geometry-free vertex.
+
+    A SAT boundary arc is routinely recorded as two coedges meeting at a vertex the
+    surface does not turn at — both halves ride the same circle, contiguous in its own
+    parameter. Nothing on the source face notices. :func:`face_to_thick_shell` does: it
+    emits one side face PER EDGE, so the split becomes an extra ruled patch, and when the
+    shorter half subtends a degree or two the stream tessellator meshes that patch into a
+    fan of near-degenerate triangles (measured on a hull-skin plate: 3582 triangles, 2816
+    of them under 1e-8 m^2, over a 0.0024 m^2 ribbon — a hard line where the skin should
+    be smooth). Fusing first costs nothing and is exact.
+    """
+    out = list(edge_list)
+    # Re-scan after each fuse: three or more coedges on one circle (a quarter arc cut into
+    # 22.5 deg pieces is common) collapse pair by pair. A loop needs three edges to stay a
+    # loop, so stop there and leave any remaining split in place.
+    fused_one = True
+    while fused_one and len(out) > 3:
+        fused_one = False
+        for i in range(len(out)):
+            j = (i + 1) % len(out)
+            fused = _fuse_arc_pair(out[i], out[j])
+            if fused is None:
+                continue
+            # j > i is the ordinary adjacent pair; j == 0 is the wrap-around (last, first),
+            # which becomes the loop's new FIRST edge — its traversal still starts where
+            # the (new) last edge ends, so the loop stays ordered.
+            out = out[:i] + [fused] + out[j + 1 :] if j > i else [fused] + out[1:i]
+            fused_one = True
+            break
+    return out
+
+
 def face_to_thick_shell(
     advanced_face: su.AdvancedFace | su.FaceSurface,
     direction,
@@ -712,6 +851,16 @@ def face_to_thick_shell(
         for oe in fb.bound.edge_list:
             if not isinstance(oe, cu.OrientedEdge) or not isinstance(oe.edge_element, cu.EdgeCurve):
                 return None
+
+    # Normalize BEFORE anything is built from the loops: bottom/top copies and the side
+    # faces must agree on the edge list, or the shell stops being a closed 2-manifold.
+    # The source face is left untouched — this rewrite exists only for the shell.
+    bounds = [
+        su.FaceBound(
+            bound=cu.EdgeLoop(edge_list=_merge_cocircular_edges(fb.bound.edge_list)), orientation=fb.orientation
+        )
+        for fb in bounds
+    ]
 
     dirn = _unit(direction)
     base_off = thickness_anchor_base_offset(anchor, t)
