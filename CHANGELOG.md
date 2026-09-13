@@ -2,6 +2,15 @@
 
 
 
+## v0.70.3 (2026-09-13)
+
+### Fix
+
+* fix: stop stored-model loads hanging on an unreachable object store, and fix the load metrics (#352)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`77d2fb7`](https://github.com/Krande/adapy/commit/77d2fb7b40b55b8731079871e7ee0475667b73be))
+
+
 ## v0.70.2 (2026-09-13)
 
 ### Fix
