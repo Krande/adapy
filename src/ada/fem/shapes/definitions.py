@@ -75,8 +75,13 @@ class SpringTypes(BaseShapeEnum):
 
 class ShapeResolver:
     NUM_MAP = {
-        1: MassTypes.get_all() + SpringTypes.get_all(),
-        2: [LineShapes.LINE] + ConnectorTypes.get_all(),
+        # SPRING1 grounds a single node; SPRING2 joins two. Both used to sit under 1,
+        # which contradicted ``line_edges[SPRING2] = [[0, 1]]``: readers that size a
+        # record from this map (Sesam eltyp 40, Abaqus SPRING2) handed the walks a
+        # one-node element, and asking it for its second end raised out of the
+        # visualisation instead of drawing the spring.
+        1: MassTypes.get_all() + [SpringTypes.SPRING1],
+        2: [LineShapes.LINE, SpringTypes.SPRING2] + ConnectorTypes.get_all(),
         3: [LineShapes.LINE3, ShellShapes.TRI],
         4: [ShellShapes.QUAD, SolidShapes.TETRA],
         5: [SolidShapes.PYRAMID5],
@@ -144,11 +149,15 @@ class ElemShapeTypes:
     solids = SolidShapes
     lines = LineShapes
 
-    spring1n = ["SPRING1"]
-    spring2n = ["SPRING2"]
+    # Enum members, not the strings these used to hold. An Elem's ``type`` is resolved
+    # to an enum member by ShapeResolver, so a membership test against strings was
+    # always False -- ``FEM.springs`` filters off ``springs``, and a filter that can
+    # never match is worse than no filter.
+    spring1n = [SpringTypes.SPRING1]
+    spring2n = [SpringTypes.SPRING2]
     springs = spring1n + spring2n
-    masses = ["MASS", "ROTARYI"]
-    connectors = ["CONNECTOR", "CONN3D2"]
+    masses = MassTypes.get_all()
+    connectors = ConnectorTypes.get_all()
     other2n = connectors
     other = other2n
 
@@ -275,13 +284,6 @@ class ElemShape:
         return faces_repo[generalized_type]
 
     @property
-    def spring_edges(self):
-        if self.type not in ElemShapeTypes.springs:
-            return None
-        springs = dict(SPRING2=[[0, 1]])
-        return springs[self.type]
-
-    @property
     def solids_face_seq(self):
         from .solids import solid_faces
 
@@ -311,6 +313,62 @@ class ElemShape:
 
     def __repr__(self):
         return f'{self.__class__.__name__}(Type: {self.type}, NodeIds: "{self.nodes}")'
+
+
+def is_renderable(el_type) -> bool:
+    """Whether the visualisation walks can turn elements of this type into geometry.
+
+    A cell block carries exactly one element type, so this is a per-block question:
+    asking it once per block keeps it off the hot path of a model with millions of
+    elements, and answering "no" there means ``ElemShape`` is never constructed for
+    a type it would only refuse.
+
+    Two reasons a type lands here, both with the same answer. Some have no geometry
+    by construction — a point mass is a node, and a SPRING1 grounds a single node
+    with no second end to draw a line to. Others are simply absent from the edge
+    tables because nobody has added them yet. Either way the renderer has nothing to
+    emit, and the honest response is to leave those elements out of the scene rather
+    than to throw away the rest of the model along with them.
+
+    Derived from the very tables ``ElemShape.edges_seq`` reads, so a type added to
+    one of them becomes renderable here without a second edit.
+    """
+    from .lines import line_edges
+    from .shells import shell_edges
+    from .solids import solid_edges
+
+    if isinstance(el_type, SolidShapes):
+        return el_type in solid_edges
+    if isinstance(el_type, ShellShapes):
+        return el_type in shell_edges
+    if isinstance(el_type, (LineShapes, ConnectorTypes, SpringTypes)):
+        return el_type in line_edges
+
+    # MassTypes, and anything outside the shape enums entirely: ElemShape.elem_type_group
+    # has no group for these and raises rather than returning one.
+    return False
+
+
+def is_structural(el_type) -> bool:
+    """Whether this type is ordinary mesh geometry a structural-element writer can emit.
+
+    False for the point- and link-like types — masses, springs, connectors. Every deck
+    format spells those as their own card family (``*Spring``, ``BNMASS``, ``NODEMASS``)
+    rather than as a row in the element table, and none of them carries the FemSection a
+    structural row is sized from. Writers route on this instead of finding out the hard
+    way that ``ShapeResolver.to_geom_repr`` has no group for them.
+    """
+    return isinstance(el_type, (LineShapes, ShellShapes, SolidShapes))
+
+
+def has_faces(el_type) -> bool:
+    """Whether this type contributes triangles, or only edges.
+
+    Lines, connectors and springs are one-dimensional: they draw as edges and asking
+    them for faces reaches a face table that does not exist. Shells and solids are
+    the only types with a surface to tessellate.
+    """
+    return isinstance(el_type, (ShellShapes, SolidShapes))
 
 
 def get_elem_type_group(el_type):

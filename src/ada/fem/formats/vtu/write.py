@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from ada.config import logger
 from ada.fem.results.common import ElementBlock, FemNodes
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
@@ -66,10 +67,15 @@ def write_to_vtu_object(nodes: FemNodes, element_blocks: list[ElementBlock], poi
     offsets = []
     offset = 0
 
+    skipped: dict[str, int] = {}
     for block in element_blocks:
         vtk_type = VTK_TYPE_MAP.get(block.elem_info.type)
         if vtk_type is None:
-            raise ValueError(f"Element type {block.elem_info.type} not supported by VTK")
+            # VTK has no cell for a mass, spring or connector, and raising cost the
+            # caller the whole .vtu over elements that were never going to be in it.
+            # Same call as the visualisation walks: drop them, and say what was dropped.
+            skipped[str(block.elem_info.type)] = skipped.get(str(block.elem_info.type), 0) + len(block.node_refs)
+            continue
         # Block node_refs starts at 1, but VTK starts at 0
         refs = block.node_refs - 1
         for refs in refs:
@@ -77,6 +83,13 @@ def write_to_vtu_object(nodes: FemNodes, element_blocks: list[ElementBlock], poi
             all_types.append(vtk_type)
             offset += len(refs)
             offsets.append(offset)
+
+    if skipped:
+        logger.warning(
+            "vtu writer: leaving %d element(s) out of the mesh, VTK has no cell type for them: %s.",
+            sum(skipped.values()),
+            ", ".join(f"{k}={v}" for k, v in sorted(skipped.items())),
+        )
 
     root = ET.Element("VTKFile", type="UnstructuredGrid", version="1.0", byte_order="LittleEndian")
     unstructured_grid = ET.SubElement(root, "UnstructuredGrid")

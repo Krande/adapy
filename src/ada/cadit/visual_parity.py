@@ -975,9 +975,9 @@ def _count_gxml_objects(path: "str | Path") -> int:
     ``flat_plate``/``curved_shell`` (inline ``<polygon>`` sheets when no faces), plus one
     beam per ``straight_beam``/``curved_beam``. A pure ElementTree pass — the SAT blob is
     never touched, so a 16 MB hull counts in well under a second."""
-    import xml.etree.ElementTree as ET
+    from ada.cadit.gxml.xml_parse import read_genie_xml_root
 
-    root = ET.parse(str(path)).getroot()
+    root = read_genie_xml_root(path)
     n = 0
     for tag in ("flat_plate", "curved_shell"):
         for el in root.iter(tag):

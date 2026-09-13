@@ -17,7 +17,7 @@ from code_aster.Cata.Language.SyntaxObjects import _F
 from code_aster.Commands import AFFE_CARA_ELEM, AFFE_CHAR_MECA, AFFE_MODELE, DEFI_GROUP
 
 import ada.fem
-from ada.fem import Connector, ConnectorSection, Elem, Mass
+from ada.fem import Connector, ConnectorSection, Elem, Mass, Spring
 from ada.fem.formats.code_aster.write.writer import write_to_med
 from ada.fem.formats.utils import get_fem_model_from_assembly
 
@@ -64,7 +64,10 @@ def assign_element_definitions(a: Assembly, mesh: CA.Mesh) -> CA.Model | None:
     line_elements = []
 
     for elem in assembly_element_iterator(a):
-        if isinstance(elem, (Connector, Mass)):
+        # Spring joins them: it has no fem_sec, so the `elem.fem_sec.type` branch below
+        # would raise on it. The .med writer already treats springs and masses as one
+        # case (both map to a PO1 discrete point), so this agrees with the file path.
+        if isinstance(elem, (Connector, Mass, Spring)):
             discrete_elements.append(elem)
         elif isinstance(elem, Elem) and elem.fem_sec.type:
             line_elements.append(elem)

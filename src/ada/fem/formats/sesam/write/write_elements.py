@@ -57,6 +57,19 @@ def elem_str(fem: FEM, thick_map) -> str:
     writable: list[Elem] = []
     skipped_connector = 0
     skipped_unsectioned = 0
+    # stru_elements already holds springs back, so nothing below would ever mention
+    # them. Say so rather than let them vanish: the reader builds Spring objects off
+    # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
+    # with springs loses them here, and silence makes that look like the deck never
+    # had any.
+    n_springs = sum(1 for _ in fem.elements.springs)
+    if n_springs > 0:
+        logger.warning(
+            "sesam writer: skipping %d spring element(s) — writing them back needs a "
+            "GELMNT1 + MGSPRNG pair the writer does not emit yet. Output deck will be "
+            "missing these elements.",
+            n_springs,
+        )
     for el in fem.elements.stru_elements:
         if isinstance(el.type, ConnectorTypes):
             skipped_connector += 1

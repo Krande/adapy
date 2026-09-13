@@ -13,11 +13,12 @@ from ada.api.containers import Materials
 from ada.api.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
-from ada.fem.elements import Connector, Elem, Mass, MassTypes
+from ada.fem.elements import Connector, Elem, Mass, MassTypes, Spring
 from ada.fem.exceptions.model_definition import FemSetNameExists
 from ada.fem.sections import FemSection
 from ada.fem.sets import FemSet, SetTypes
 from ada.fem.shapes import ElemType
+from ada.fem.shapes.definitions import ElemShapeTypes
 from ada.materials import Material
 from ada.sections import Section
 
@@ -395,8 +396,15 @@ class FemElements:
 
     @property
     def stru_elements(self) -> LazyElemSeq:
-        not_strus = (Mass, Connector)
+        # Spring joins Mass and Connector here now that springs live in this container:
+        # it is no more a structural element than they are, and the lines/shell/solids
+        # views below are built off this one.
+        not_strus = (Mass, Connector, Spring)
         return LazyElemSeq(lambda: filter(lambda x: isinstance(x, not_strus) is False, self._elements))
+
+    @property
+    def springs(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: x.type in ElemShapeTypes.springs, self._elements))
 
     def connector_by_name(self, name: str):
         """Get Connector by name"""
@@ -406,11 +414,6 @@ class FemElements:
     def from_id(self, el_id: int) -> Union[Elem, Connector]:
         el = self._idmap.get(el_id, None)
         if el is None:
-            spring_id_map = {m.id: m for m in self.parent.springs.values()}
-            res = spring_id_map.get(el_id, None)
-            if res is not None:
-                return res
-
             raise ValueError(f'The elem id "{el_id}" is not found')
         return el
 

@@ -2,6 +2,7 @@ from itertools import groupby
 from operator import attrgetter
 from typing import Iterable
 
+from ada.config import logger
 from ada.core.utils import NewLine
 from ada.fem import Elem, FemSection
 from ada.fem.containers import FemElements
@@ -15,10 +16,24 @@ def elements_str(fem_elements: FemElements) -> str:
         return "** No elements"
 
     el_str = ""
+    skipped: dict[str, int] = {}
     for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
-        if isinstance(el_type, shape_def.ConnectorTypes):
+        if shape_def.is_structural(el_type) is False:
+            # Connectors, masses and springs have no *ELEMENT row in a Calculix deck and
+            # no FemSection to size one from — el_type_sub dereferences fem_sec.parent
+            # and raises AttributeError on all three. Only connectors were skipped
+            # before, so a mass read off a Sesam deck took the writer down with it.
+            skipped[str(el_type)] = skipped.get(str(el_type), 0) + sum(1 for _ in elements)
             continue
         el_str += elwriter(el_type, fem_sec, elements)
+
+    if skipped:
+        logger.warning(
+            "calculix writer: skipping %d element(s) Calculix has no element row for: %s. "
+            "The rest of the deck is unaffected.",
+            sum(skipped.values()),
+            ", ".join(f"{k}={v}" for k, v in sorted(skipped.items())),
+        )
 
     return el_str
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.12-03" />
+	</administrative>
+	<model name="MisDeclaredAscii">
+		<properties>
+			<report name="Loads_HTV_Deadweight" title="§Genie_CBA_HTV_NoRigidLink" />
+		</properties>
+		<structure_domain>
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp">MjAwMCAwIDEgMAoxNiBBdXRvZGVzayBBdXRvQ0FEIDE5IEFTTSAyMjMuMC4xLjE5MzAgTlQgMjQgV2VkIEphbiAwMSAwMDowMDowMCAyMDI1CjEgOS45OTk5OTk5OTk5OTk5OTllLTA3IDFlLTEwCkVuZC1vZi1BQ0lTLUhpc3RvcnktRGF0YQo=</sat_embedded>
+			</geometry>
+		</structure_domain>
+	</model>
+</DNV_structure_concept_protocol>

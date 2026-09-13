@@ -1,5 +1,4 @@
 import pathlib
-import xml.etree.ElementTree as ET
 
 from ada import Part
 from ada.cadit.gxml.read.helpers import (
@@ -14,6 +13,7 @@ from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
 from ada.cadit.gxml.read.read_sets import get_sets
 from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
+from ada.cadit.gxml.xml_parse import read_genie_xml_root
 from ada.cadit.sat.store import SatReaderFactory
 from ada.config import Config, logger
 
@@ -32,7 +32,7 @@ class GxmlStore:
             logger.info("XML file is newer than SAT file. Updating SAT file")
             write_xml_sat_text_to_file(xml_file=xml_path, out_file=self.sat_file)
 
-        self.xml_root = ET.parse(str(xml_path)).getroot()
+        self.xml_root = read_genie_xml_root(xml_path)
         self.sat_factory = SatReaderFactory(self.sat_file)
 
         model = self.xml_root.find(".//model")

@@ -13,6 +13,32 @@ from ada.fem.shapes.lines import SpringTypes
 from . import cards
 
 
+def gelmnt_node_ids(nids: str) -> list[int]:
+    """The node ids in a GELMNT1 NODIN field.
+
+    NODIN is an array, and a record may carry more slots than its element type uses:
+    a .SIN re-exported through its own input deck writes four values per line, so a
+    one-noded MASS or SPRING1 arrives as ``58513 0 0 0``. Zero is Sesam's padding and
+    never a node number, so dropping zeros leaves exactly the nodes the element
+    references.
+    """
+    return [n for n in (str_to_int(x) for x in nids.split()) if n != 0]
+
+
+def gelmnt_point_node_id(gelmnt: dict) -> int:
+    """The single node a point element (MASS, SPRING1) sits on.
+
+    Handing the whole NODIN field to ``str_to_int`` — which is ``int(float(s))`` — is
+    what raised ``could not convert string to float: '5.85130000E+04 0.00000000E+00
+    0.00000000E+00 0.00000000E+00'`` on every .SIN converted to xml or gnx.
+    """
+    node_ids = gelmnt_node_ids(gelmnt["nids"])
+    if not node_ids:
+        raise ValueError(f"GELMNT1 element {gelmnt.get('elno')} references no node (NODIN was {gelmnt['nids']!r})")
+
+    return node_ids[0]
+
+
 def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict]:
     """Import elements from Sesam Bulk str"""
 
@@ -25,13 +51,7 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
         el_no = str_to_int(d["elno"])
         el_nox = str_to_int(d["elnox"])
         internal_external_element_map[el_no] = el_nox
-        nodes = [
-            fem.nodes.from_id(x)
-            for x in filter(
-                lambda x: x != 0,
-                map(str_to_int, d["nids"].replace("\n", "").split()),
-            )
-        ]
+        nodes = [fem.nodes.from_id(x) for x in gelmnt_node_ids(d["nids"])]
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(str_to_int(eltyp))
 
@@ -73,7 +93,7 @@ def get_elements_arrays(bulk_str: str):
         d = match.groupdict()
         el_no = str_to_int(d["elno"])
         ext_map[el_no] = str_to_int(d["elnox"])
-        nids = [x for x in map(str_to_int, d["nids"].replace("\n", "").split()) if x != 0]
+        nids = gelmnt_node_ids(d["nids"])
         el_type = sesam_eltype_2_general(str_to_int(d["eltyp"]))
         if isinstance(el_type, SpringTypes):
             spring_elem[el_no] = dict(gelmnt=d)
@@ -153,7 +173,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
         )
         # use symmetry to complete the 6x6 matrix
         mass_matrix_6x6 = np.tril(A) + np.triu(A.T, 1)
-        nodeno = str_to_int(mass_el["gelmnt"].get("nids"))
+        nodeno = gelmnt_point_node_id(mass_el["gelmnt"])
         elno = str_to_int(mass_el["gelmnt"].get("elno"))
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
@@ -168,7 +188,14 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
     return FemElements(chain(bn_masses, mg_masses), fem_obj=fem)
 
 
-def get_springs(bulk_str, fem: FEM, spring_elem: dict):
+def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
+    """Build the deck's Spring elements.
+
+    Returns a list, not the name-keyed dict it used to: ``FEM.springs`` is now a view
+    derived from ``FEM.elements``, so the caller adds these through ``add_spring`` and
+    there is no dict for anyone to assign over.
+    """
+
     matno_map = {str_to_int(sp["section_data"]["matno"]): sp for sp in spring_elem.values()}
 
     def find_mgspring(m):
@@ -181,11 +208,16 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict):
             raise ValueError()
 
         elid = str_to_int(res["section_data"]["elno"])
-        bulk = d["bulk"].replace("\n", "").split()
+        # MGSPRNG carries the lower triangle of an ndof x ndof stiffness matrix, so how
+        # many values belong to it follows from ndof alone. Sesam pads a record out to a
+        # whole number of slots, and re-exporting a .SIN through its input deck carries
+        # that padding into the deck: a 6-DOF spring arrives with 22 values, not 21.
+        # Consuming the extra one opened a seventh row, and the symmetric assembly below
+        # then failed on `operands could not be broadcast together with shapes (7,6) (6,7)`.
+        bulk = d["bulk"].split()[: ndof * (ndof + 1) // 2]
 
         spr_name = f"spr{elid}"
-        nid = res["gelmnt"].get("nids", None)
-        n1 = fem.nodes.from_id(str_to_int(nid))
+        n1 = fem.nodes.from_id(gelmnt_point_node_id(res["gelmnt"]))
         a = 1
         row = 0
         spring = []
@@ -198,16 +230,12 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict):
                 subspring = []
                 a = 1
                 row += 1
-        new_s = []
-        for row in spring:
-            l = abs(len(row) - 6)
-            if l > 0:
-                new_s.append([0.0 for i in range(0, l)] + row)
-            else:
-                new_s.append(row)
+        # Left-pad each triangle row back out to the full ndof width. Was hardcoded to
+        # 6, which only ever agreed with the rows for a 6-DOF spring.
+        new_s = [[0.0] * (ndof - len(row)) + row for row in spring]
         spring_matrix = np.array(new_s)
         spring_matrix = spring_matrix + spring_matrix.T - np.diag(np.diag(spring_matrix))
         fs = FemSet(f"{spr_name}_set", [n1], FemSet.TYPES.NSET, parent=fem)
         return Spring(spr_name, elid, "SPRING1", fem_set=fs, stiff=spring_matrix, parent=fem)
 
-    return {c.name: c for c in map(find_mgspring, cards.re_mgsprng.finditer(bulk_str))}
+    return list(map(find_mgspring, cards.re_mgsprng.finditer(bulk_str)))

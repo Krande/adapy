@@ -62,7 +62,6 @@ class FEM:
     surfaces: Dict[str, Surface] = field(init=False, default_factory=dict)
     amplitudes: Dict[str, Amplitude] = field(init=False, default_factory=dict)
     connector_sections: Dict[str, ConnectorSection] = field(init=False, default_factory=dict)
-    springs: Dict[str, Spring] = field(init=False, default_factory=dict)
     intprops: Dict[str, InteractionProperty] = field(init=False, default_factory=dict)
     interactions: Dict[str, Interaction] = field(init=False, default_factory=dict)
     predefined_fields: Dict[str, PredefinedField] = field(init=False, default_factory=dict)
@@ -291,7 +290,9 @@ class FEM:
     def add_spring(self, spring: Spring) -> Spring:
         if spring.fem_set.parent is None:
             self.sets.add(spring.fem_set)
-        self.springs[spring.name] = spring
+        # Exactly one add. A Spring IS an Elem, so the element container is its home;
+        # `springs` below reads back out of it rather than keeping a second copy.
+        self.add_elem(spring)
         return spring
 
     def add_interface_nodes(self, interface_nodes: List[Union[Node, InterfaceNode]]):
@@ -467,6 +468,23 @@ class FEM:
     @property
     def elsets(self):
         return self.sets.elements
+
+    @property
+    def springs(self) -> Dict[str, Spring]:
+        """Spring elements keyed by name — a view over :attr:`elements`, not a store.
+
+        Springs used to sit in a dict of their own, outside the element container, and
+        so missed everything that container does for an element: id lookup, the
+        internal->external renumbering pass, set resolution. A Sesam deck whose
+        GSETMEMB named a spring therefore failed outright on the array-backed reader
+        (``The elem id "128374" is not found``) and silently kept the spring's
+        pre-renumber id on the object reader. Deriving the view instead of duplicating
+        the objects is what makes a spring get all of it for free.
+
+        Read-only on purpose: a setter would be a second way in, and a second way in is
+        how the same spring ends up added twice. Use :meth:`add_spring`.
+        """
+        return {el.name: el for el in self.elements.springs}
 
     @property
     def options(self) -> FemOptions:

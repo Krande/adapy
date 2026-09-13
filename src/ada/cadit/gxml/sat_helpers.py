@@ -3,6 +3,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 
+from ada.cadit.gxml.xml_parse import read_genie_xml_root
+
 
 def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
     if sat_el.tag == "sat_embedded":
@@ -30,7 +32,7 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
 
 
 def write_xml_sat_text_to_file(xml_file, out_file):
-    xml_root = ET.parse(str(xml_file)).getroot()
+    xml_root = read_genie_xml_root(xml_file)
     with open(out_file, "w") as f:
         for sat_geometry_el in xml_root.iterfind(".//sat_embedded"):
             f.write(xml_elem_to_sat_text(sat_geometry_el))
@@ -39,7 +41,7 @@ def write_xml_sat_text_to_file(xml_file, out_file):
 
 
 def get_sat_text_from_xml(xml_file):
-    xml_root = ET.parse(str(xml_file)).getroot()
+    xml_root = read_genie_xml_root(xml_file)
     sat_text = ""
 
     for sat_geometry_el in xml_root.findall(".//sat_embedded"):
