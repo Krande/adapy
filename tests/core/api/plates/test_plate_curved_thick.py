@@ -289,3 +289,104 @@ def test_circle_arc_side_face_is_exact_ruled_patch():
         assert z == pytest.approx(0.0, abs=1e-12)
     # full circle (coincident endpoints) is ambiguous -> None
     assert _circle_arc_bspline(circle, a, Point(2, 0, 0), True) is None
+
+
+def _split_arc_face(t_ranges, same_sense: bool = True) -> su.AdvancedFace:
+    """A quarter-disc in z=0 whose arc boundary is recorded as TWO coedges on ONE circle.
+
+    ``t_ranges`` are the (t_start, t_end) pairs the two halves claim on that circle, so a
+    test can hand over adjoining ranges (the SAT split this models) or disjoint ones.
+    ``same_sense`` False walks the arc the other way round — a clockwise SAT boundary arc,
+    whose parameters descend along the traversal — which is the shape the hull-skin model
+    actually ships.
+    """
+    import math
+
+    from ada.geom.placement import Axis2Placement3D
+
+    r, c = 2.0, Point(0, 0, 0)
+    circle = cu.Circle(
+        position=Axis2Placement3D(location=c, axis=Direction(0, 0, 1), ref_direction=Direction(1, 0, 0)), radius=r
+    )
+    p0, pm, p1 = Point(r, 0, 0), Point(r / math.sqrt(2), r / math.sqrt(2), 0), Point(0, r, 0)
+    first, last = (p0, p1) if same_sense else (p1, p0)
+    e0 = cu.EdgeCurve(first, pm, edge_geometry=circle, same_sense=same_sense)
+    e1 = cu.EdgeCurve(pm, last, edge_geometry=circle, same_sense=same_sense)
+    e2 = cu.EdgeCurve(last, c, edge_geometry=cu.Line(last, Direction(*(-last / r))), same_sense=True)
+    e3 = cu.EdgeCurve(c, first, edge_geometry=cu.Line(c, Direction(*(first / r))), same_sense=True)
+    loop = cu.EdgeLoop(
+        edge_list=[
+            cu.OrientedEdge(first, pm, edge_element=e0, orientation=True, t_start=t_ranges[0][0], t_end=t_ranges[0][1]),
+            cu.OrientedEdge(pm, last, edge_element=e1, orientation=True, t_start=t_ranges[1][0], t_end=t_ranges[1][1]),
+            cu.OrientedEdge(last, c, edge_element=e2, orientation=True, t_start=0.0, t_end=r),
+            cu.OrientedEdge(c, first, edge_element=e3, orientation=True, t_start=0.0, t_end=r),
+        ]
+    )
+    plane = su.Plane(position=Axis2Placement3D(location=c, axis=Direction(0, 0, 1), ref_direction=Direction(1, 0, 0)))
+    return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=plane, same_sense=True)
+
+
+def _arc_side_faces(shell: su.ClosedShell) -> list[su.AdvancedFace]:
+    """Side faces swept from a circular boundary edge (the two cap faces excluded)."""
+    return [
+        f
+        for f in shell.cfs_faces[2:]
+        if any(isinstance(oe.edge_element.edge_geometry, cu.Circle) for fb in f.bounds for oe in fb.bound.edge_list)
+    ]
+
+
+@pytest.mark.parametrize("same_sense", [True, False])
+def test_cocircular_split_arc_fuses_to_one_side_face(same_sense):
+    """A boundary arc split at a geometry-free vertex must not become two ruled patches.
+
+    One side face per edge is right until a SAT loop splits an arc where nothing turns:
+    the shorter half then sweeps a patch subtending a degree or two, which the stream
+    tessellator meshes into a fan of near-degenerate triangles — the hull-skin "sharp
+    line". The fuse is exact (one circle, adjoining parameters), so the shell it builds
+    must be the one the unsplit loop would have produced.
+    """
+    import math
+
+    q = math.pi / 2
+    ranges = ((0.0, q / 2), (q / 2, q)) if same_sense else ((q, q / 2), (q / 2, 0.0))
+    shell = face_to_thick_shell(_split_arc_face(ranges, same_sense), (0, 0, 1), T)
+    assert shell is not None
+    assert len(shell.cfs_faces) == 5  # 2 caps + 3 sides, not 6
+    (arc_face,) = _arc_side_faces(shell)
+    arc_edges = [
+        oe
+        for fb in arc_face.bounds
+        for oe in fb.bound.edge_list
+        if isinstance(oe.edge_element.edge_geometry, cu.Circle)
+    ]
+    assert len(arc_edges) == 2  # the bottom + top copy of the single fused edge
+    for oe in arc_edges:
+        ec = oe.edge_element
+        assert {round(float(oe.t_start), 12), round(float(oe.t_end), 12)} == {0.0, round(q, 12)}
+        # the fused edge runs corner to corner: one end on the x axis, the other on y
+        assert {round(abs(float(ec.start[0])), 9), round(abs(float(ec.end[0])), 9)} == {0.0, 2.0}
+        assert {round(abs(float(ec.start[1])), 9), round(abs(float(ec.end[1])), 9)} == {0.0, 2.0}
+
+
+def test_disjoint_arcs_on_one_circle_are_left_alone():
+    """Same circle, but the two trims do not meet on it — fusing would invent boundary."""
+    import math
+
+    q = math.pi / 2
+    shell = face_to_thick_shell(_split_arc_face(((0.0, q / 2), (q, 1.5 * q))), (0, 0, 1), T)
+    assert shell is not None
+    assert len(shell.cfs_faces) == 6
+    assert len(_arc_side_faces(shell)) == 2
+
+
+def test_fused_shell_is_still_topologically_shared():
+    import math
+
+    q = math.pi / 2
+    shell = face_to_thick_shell(_split_arc_face(((0.0, q / 2), (q / 2, q))), (0, 0, 1), T)
+    use = Counter()
+    for f in shell.cfs_faces:
+        for fb in f.bounds:
+            for oe in fb.bound.edge_list:
+                use[id(oe.edge_element)] += 1
+    assert use and all(v == 2 for v in use.values())
