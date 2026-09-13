@@ -163,5 +163,7 @@ def convert_springs_to_connectors(assembly: "Assembly"):
             assembly.fem.add_connector_section(con_sec)
             con = Connector(spring.name + "_con", spring.id, n1, n2, "bushing", con_sec)
             assembly.fem.add_connector(con)
-        p.fem._springs = dict()
+        # Removing the elements IS removing the springs now that `springs` is a view
+        # over them. There used to be a `p.fem._springs = dict()` here to clear the
+        # separate store; it would now just bind a stray attribute nobody reads.
         p.fem.elements.filter_elements(delete_elem=["SPRING1"])
