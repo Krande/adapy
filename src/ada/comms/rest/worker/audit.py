@@ -18,6 +18,24 @@ from ..queue import Job
 from . import state
 from .source_nodes import _rest_source_nodes_config
 
+#: How many times a report that the API could not RECORD is attempted, and how
+#: long to wait between attempts.
+#:
+#: A report is the only place a pool-less worker's outcome exists, so losing one
+#: to a momentary 5xx leaves the row non-terminal for a job that finished --
+#: exactly the state this whole mechanism removes, arriving by a different door.
+#: The window that produces it is ordinary: an API rolling to a new version, a
+#: pod restarting, a connection pool not yet up.
+#:
+#: DELIBERATELY SHORT, because this is awaited on the job path. Every second
+#: spent retrying commentary is a second the worker is not taking the next job,
+#: so the budget is a few seconds against a window that is usually shorter --
+#: not a guarantee. A rollout slower than the budget still loses the report, and
+#: that is the accepted limit rather than an oversight: the alternative is a
+#: worker that stops working to finish talking about work it has already done.
+_REPORT_ATTEMPTS = 3
+_REPORT_BACKOFF_S = (1.0, 3.0)
+
 
 async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
     """Tell the API what a job is doing, for a worker with no database pool.
@@ -53,54 +71,85 @@ async def _report_job_status_over_api(job_id: str, payload: dict) -> bool:
 
         url = f"{base}/api/jobs/{urllib.parse.quote(job_id, safe='')}/status"
         body = _json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=body, method="POST")
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Accept", "application/json")
-        try:
-            with urllib.request.urlopen(req, timeout=20.0) as resp:
-                resp.read()
-            return True
-        except urllib.error.HTTPError as exc:
-            # THE BODY IS READ AND LOGGED, not just the status. A bare code is how
-            # two separate failures today each cost an hour: the server says what
-            # went wrong in the body, and throwing it away leaves the reader
-            # inferring from a number. Read defensively -- a body that cannot be
-            # read must not replace the error with a different one.
-            detail = ""
+
+        def _attempt() -> bool | None:
+            """True landed, False refused for good, None worth trying again.
+
+            Three answers rather than two, because the caller needs them apart: a
+            refusal retried is noise, and a transient failure NOT retried is the
+            lost row this mechanism exists to prevent.
+            """
+            req = urllib.request.Request(url, data=body, method="POST")
+            req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("Accept", "application/json")
             try:
-                detail = exc.read().decode("utf-8", "replace")[:500]
-            except Exception:  # noqa: BLE001
-                pass
-            # Logged at warning rather than retried: a 4xx will be just as wrong
-            # next time.
-            #
-            # 404/405 IS NAMED, because the bare status is actively misleading. A
-            # viewer that predates this route has no handler for the path, so the
-            # SPA's catch-all answers the GET shape and POST comes back 405 -- a
-            # status that reads as "the API refused this" when it means "this API
-            # does not have the feature yet". An afternoon went into a 405 that
-            # meant something equally structural, so this one says what to do.
-            if exc.code in (404, 405):
-                logger.warning(
-                    "worker: this viewer has no POST /api/jobs/{id}/status route (%s), so job "
-                    "outcomes stay `queued` in the audit log until it is updated. The jobs "
-                    "themselves are unaffected.",
-                    exc.code,
-                )
-            else:
-                # A 5xx here is the API failing to record, which is worth the body:
-                # it is the only place the reason exists.
+                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                    resp.read()
+                return True
+            except urllib.error.HTTPError as exc:
+                # THE BODY IS READ AND LOGGED, not just the status. A bare code is
+                # how two separate failures each cost an hour: the server says what
+                # went wrong in the body, and throwing it away leaves the reader
+                # inferring from a number. Read defensively -- a body that cannot
+                # be read must not replace the error with a different one.
+                detail = ""
+                try:
+                    detail = exc.read().decode("utf-8", "replace")[:500]
+                except Exception:  # noqa: BLE001
+                    pass
+                # 404/405 IS NAMED, because the bare status is actively
+                # misleading. A viewer that predates this route has no handler for
+                # the path, so the SPA's catch-all answers the GET shape and POST
+                # comes back 405 -- a status that reads as "the API refused this"
+                # when it means "this API does not have the feature yet". An
+                # afternoon went into a 405 that meant something equally
+                # structural, so this one says what to do.
+                if exc.code in (404, 405):
+                    logger.warning(
+                        "worker: this viewer has no POST /api/jobs/{id}/status route (%s), so job "
+                        "outcomes stay `queued` in the audit log until it is updated. The jobs "
+                        "themselves are unaffected.",
+                        exc.code,
+                    )
+                    return False
+                # A 5xx is the API failing to RECORD, which is the transient case
+                # worth another attempt: it is what a restarting pod, a rolling
+                # upgrade or a connection pool not yet up looks like from here. A
+                # 4xx is a refusal and will be just as wrong next time, so it is
+                # final -- retrying it would only bury the reason in repetition.
+                retryable = 500 <= exc.code < 600
                 logger.warning(
                     "worker: audit report for job %s refused (%s)%s",
                     job_id,
                     exc.code,
                     f": {detail}" if detail else "",
                 )
-            return False
-        except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
-            logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
-            return False
+                return None if retryable else False
+            except Exception as exc:  # noqa: BLE001 - commentary must not sink a job
+                # Never reached the API at all: a DNS blip, a reset connection, a
+                # timeout. Retryable for the same reason a 5xx is, and for a
+                # pool-less worker the more common of the two.
+                logger.warning("worker: audit report for job %s did not reach the API: %s", job_id, exc)
+                return None
+
+        for attempt in range(_REPORT_ATTEMPTS):
+            outcome = _attempt()
+            if outcome is not None:
+                return outcome
+            if attempt + 1 >= _REPORT_ATTEMPTS:
+                break
+            # `time.sleep`, not `asyncio.sleep`: this whole function runs in the
+            # loop's executor, so the wait costs a pool thread and not the event
+            # loop. The await in the caller yields for the duration.
+            time.sleep(_REPORT_BACKOFF_S[min(attempt, len(_REPORT_BACKOFF_S) - 1)])
+        logger.warning(
+            "worker: gave up reporting job %s after %d attempts; its audit row stays non-terminal "
+            "while the job itself is unaffected",
+            job_id,
+            _REPORT_ATTEMPTS,
+        )
+        return False
 
     try:
         return await asyncio.get_running_loop().run_in_executor(None, _post)
