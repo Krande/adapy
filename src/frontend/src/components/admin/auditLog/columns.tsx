@@ -97,6 +97,12 @@ export const AUDIT_LOG_TH_CLASS = "px-3 py-2 font-medium text-gray-300 whitespac
 // messages, full subs) don't break layout — but we let the column
 // widths do the gating now via <colgroup>, not a hard 20ch cap.
 export const AUDIT_LOG_TD_CLASS = "px-3 py-1 truncate";
+// …and the variant for a cell that holds controls rather than text. `truncate`
+// is overflow:hidden, which clips a button out of existence instead of letting
+// the row's scroller reach it; for a control that is not a cosmetic loss, it is
+// a dead action. Status is the only such column here — it carries the details
+// button and the issue-bot badge's resync button.
+export const AUDIT_LOG_TD_CONTROLS_CLASS = "px-3 py-1 whitespace-nowrap";
 
 export interface AuditLogColumnHandlers {
     onDetails: (entry: AuditEntry) => void;
@@ -180,6 +186,7 @@ export function buildAuditLogColumns(h: AuditLogColumnHandlers): DataTableColumn
         {
             key: "status",
             header: "Status",
+            cellClassName: AUDIT_LOG_TD_CONTROLS_CLASS,
             title: (e) => e.error || "",
             cell: (e) => (
                 <>
