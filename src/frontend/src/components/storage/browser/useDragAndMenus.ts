@@ -3,7 +3,7 @@ import type {ServerFileEntry} from "@/state/serverInfoStore";
 import {runtime} from "@/runtime/config";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
-import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {canOpenInScene} from "@/utils/scene/fileKinds";
 import {buildFileMenuItems, buildFolderMenuItems} from "../storageMenuItems";
 import {FOLDER_MIME, KEYS_MIME, basenameOf, dirnameOf} from "./helpers";
 import type {useProceduralModels} from "./useProceduralModels";
@@ -95,7 +95,7 @@ export function useDragAndMenus(p: {
             ...placementItems(f.name, displayName),
             isLoaded: loadedSourceNames.has(f.name),
             busy,
-            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
+            loadDisabled: !canOpenInScene(f.name),
             canMutate,
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:
@@ -115,7 +115,7 @@ export function useDragAndMenus(p: {
         return buildFileMenuItems(f, {
             isLoaded: loadedSourceNames.has(f.name),
             busy,
-            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
+            loadDisabled: !canOpenInScene(f.name),
             canMutate: false,
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:

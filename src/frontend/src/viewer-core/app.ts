@@ -84,8 +84,20 @@ export type { PanelTheme, ThemePresetId } from "@/state/themeStore";
 // ---------------------------------------------------------------------------
 // File classification. What a filename means (FEA result, streaming FEA result,
 // loadable geometry) is core's call — a shell that re-derives it will drift.
+//
+// `canOpenInScene` is the one to reach for: "can this file go in the scene at
+// all", across core's streaming bake, core's convert pipeline AND any plugin
+// that registered a renderable-file provider. The other three are the
+// individual routes, and a shell that ORs two of them together to answer the
+// general question will hide every plugin-rendered file — which is exactly the
+// drift this comment warns about, so it is spelled out.
 // ---------------------------------------------------------------------------
-export { canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult } from "@/utils/scene/fileKinds";
+export {
+  canLoadIntoSceneLegacy,
+  canOpenInScene,
+  isFEAResult,
+  isStreamingFEAResult,
+} from "@/utils/scene/fileKinds";
 
 // ---------------------------------------------------------------------------
 // Error containment. Shared boundary; `variant="fullscreen"` is the root card.

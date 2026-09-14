@@ -6,7 +6,7 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
-import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {canOpenInScene} from "@/utils/scene/fileKinds";
 import type {useStorageMutations} from "../useStorageMutations";
 import type {FolderPicker} from "./useUploads";
 
@@ -93,7 +93,7 @@ export function useBulkActions(p: {
     const onLoadSelected = () => {
         const targets = files.filter((f) =>
             selection.has(f.name) && !loadedSourceNames.has(f.name) &&
-            (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
+            canOpenInScene(f.name));
         for (const f of targets) enqueueLoad({name: f.name});
         // Models load through their own path (a compiled result, not a source
         // blob), but the button means the same thing, so a mixed selection
