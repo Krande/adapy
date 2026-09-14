@@ -34,9 +34,15 @@ permissions:
   contents: write
   pull-requests: read
 
+# One release at a time, and never cancel one. For pull_request_target,
+# github.sha is the BASE branch tip, so every PR closed against the same main
+# commit shares it -- when a PR merge auto-closes its folded sub-PRs, all those
+# `closed` events land in one group microseconds apart and cancel-in-progress
+# kills the run that actually had a merge to release (see runs 34600575060 and
+# 34588894394). Queue on a fixed key instead; the non-merged runs skip in ~1s.
 concurrency:
-  group: release-${{ github.sha }}
-  cancel-in-progress: true
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
   tag:
