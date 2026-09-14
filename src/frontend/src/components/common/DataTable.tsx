@@ -34,6 +34,15 @@ export interface DataTableColumn<Row> {
     sortDefaultDesc?: boolean;
     /** `<col>` attributes. The colgroup renders when any column sets this. */
     col?: {className?: string; style?: React.CSSProperties};
+    /** Plain-text name for the column chooser (`useTableLayout`). Needed only
+     * because `header` is a ReactNode and a checkbox needs a string; falls back
+     * to `header` when that happens to be one, then to `key`. Ignored by tables
+     * that do not opt into a layout. */
+    label?: string;
+    /** The column chooser refuses to hide this column. Mark the one that says
+     * WHICH row you are looking at — a grid of attributes with no identity is
+     * not a smaller table, it is an unreadable one. */
+    required?: boolean;
 }
 
 export interface DataTableProps<Row> {

@@ -91,6 +91,9 @@ export const IssueBotBadge: React.FC<{
     );
 };
 
+// localStorage key for this table's column layout (see useTableLayout).
+export const AUDIT_LOG_COLUMNS_KEY = "adapy.admin.audit-log.columns";
+
 // Header/cell classes the table used with its own <Th>/<Td> helpers.
 export const AUDIT_LOG_TH_CLASS = "px-3 py-2 font-medium text-gray-300 whitespace-nowrap";
 // Truncation lives at the cell level so long values (paths, error
@@ -126,6 +129,11 @@ export function buildAuditLogColumns(h: AuditLogColumnHandlers): DataTableColumn
             key: "time",
             header: "Time",
             col: {className: "min-w-[11rem]"},
+            // An audit entry without a time is not an audit entry — every other
+            // column answers "what", and this is the only one that answers
+            // "when". The ID stays hideable: it identifies the row to the
+            // database, not to the person reading it.
+            required: true,
             title: (e) => e.ts || "",
             cell: (e) => formatTs(e.ts),
         },
