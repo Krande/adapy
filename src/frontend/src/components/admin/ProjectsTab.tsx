@@ -1,6 +1,7 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useMemo, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
+import {useTableLayout} from "@/components/common/useTableLayout";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -319,6 +320,30 @@ const MemberPane: React.FC<{
         }
     };
 
+    // Column widths and visibility, persisted per browser under the key below.
+    // Opting in is a two-line change at the call site and changes nothing for
+    // the seventeen other tables that render through DataTable.
+    const columns = useMemo(
+        () => memberColumns({
+            archived: !!project.archived_at,
+            ciBotBusy,
+            onRotateCiBot,
+            onRevokeCiBot,
+            onRemove,
+        }),
+        // The handlers are re-created every render but always do the same
+        // thing; rebuilding the column array on each one would give the layout
+        // hook a new identity every frame of a drag.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [project.archived_at, ciBotBusy],
+    );
+    const layout = useTableLayout({
+        storageKey: MEMBER_COLUMNS_KEY,
+        columns,
+        headerCellClassName: MEMBER_TH_CLASS,
+        label: "members",
+    });
+
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 sm:px-4 py-3 border-b border-gray-700">
@@ -355,6 +380,14 @@ const MemberPane: React.FC<{
                             </button>
                         </div>
                     )}
+                    {/* The column menu lives here, in the pane header, and not
+                        in the table's own header row: `stickyHeader` pins the
+                        thead vertically but it still scrolls sideways with the
+                        body, so on a 1200px-wide table a menu at the right-hand
+                        end of the header row would be off-screen in exactly the
+                        case it exists to fix. Hidden below `sm`, where the list
+                        renders as cards and has no columns to choose. */}
+                    <div className="hidden sm:block shrink-0">{layout.menu}</div>
                 </div>
                 {ciBotErr && (
                     <div className="mt-2 text-red-300 text-xs bg-red-900/40 border border-red-700 rounded-sm px-2 py-1">
@@ -401,20 +434,19 @@ const MemberPane: React.FC<{
                 {/* Desktop / tablet table */}
                 <DataTable
                     wrap={false}
-                    columns={memberColumns({
-                        archived: !!project.archived_at,
-                        ciBotBusy,
-                        onRotateCiBot,
-                        onRevokeCiBot,
-                        onRemove,
-                    })}
+                    columns={layout.columns}
                     rows={members}
                     rowKey={(m) => m.user_sub}
                     className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]"
+                    // Undefined until the first drag, so an untouched table
+                    // lays out exactly as it always did. Afterwards it pins the
+                    // table to the sum of the column widths, which is what
+                    // keeps a dragged width from being scaled by `w-full`.
+                    style={layout.tableStyle}
                     stickyHeader
                     theadClassName="bg-gray-800 text-left"
-                    headerCellClassName="px-3 py-2 font-medium text-gray-300 whitespace-nowrap"
-                    cellClassName="px-3 py-1 truncate"
+                    headerCellClassName={MEMBER_TH_CLASS}
+                    cellClassName={MEMBER_TD_CLASS}
                     rowClassName="border-t border-gray-800"
                 />
                 {/* Mobile cards */}
@@ -600,6 +632,12 @@ function autoSlug(name: string): string {
 }
 
 
+// localStorage key for this table's column layout. Namespaced by app and tab so
+// two tables can never read each other's entry.
+const MEMBER_COLUMNS_KEY = "adapy.admin.project-members.columns";
+const MEMBER_TH_CLASS = "px-3 py-2 font-medium text-gray-300 whitespace-nowrap";
+const MEMBER_TD_CLASS = "px-3 py-1 truncate";
+
 // Truncation lives at the cell level so long values (emails, full subs) don't
 // break layout; the <colgroup> widths do the gating.
 //
@@ -635,6 +673,10 @@ export function memberColumns(h: {
             key: "sub",
             header: "Sub",
             col: {className: "w-48"},
+            // The only column that is always populated and always unique.
+            // Display name and email are both nullable — hide the sub as well
+            // and a CI bot row becomes an anonymous set of timestamps.
+            required: true,
             title: (m) => m.user_sub,
             cell: (m) => shortSub(m.user_sub),
         },
@@ -656,6 +698,9 @@ export function memberColumns(h: {
             // 12rem leaves room for a longer label without another regression.
             key: "actions",
             header: "",
+            // `header` is empty, so the column chooser has no text to show
+            // without one.
+            label: "Actions",
             col: {className: "w-48"},
             // No `truncate` here — unlike the text columns this cell holds
             // controls, and silently hiding a control is worse than letting
