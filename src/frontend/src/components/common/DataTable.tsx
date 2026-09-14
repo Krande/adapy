@@ -56,7 +56,13 @@ export interface DataTableProps<Row> {
     headerRowClassName?: string;
     /** Default `<th>` class; a column's `headerClassName` replaces it. */
     headerCellClassName?: string;
-    /** Default `<td>` class; a column's `cellClassName` replaces it. */
+    /** Default `<td>` class; a column's `cellClassName` replaces it.
+     *
+     * If this carries `truncate` (overflow:hidden) — several admin tables want
+     * it so a long path cannot stretch a column — then a column whose cell
+     * holds BUTTONS must override it. Clipped text is merely unreadable and the
+     * `title` attribute still carries the whole value; a clipped button is
+     * unclickable, and there is no other way to reach the action. */
     cellClassName?: string;
     tbodyClassName?: string;
     rowClassName?: string | ((row: Row, index: number) => string);

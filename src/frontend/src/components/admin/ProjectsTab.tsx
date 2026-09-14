@@ -602,7 +602,14 @@ function autoSlug(name: string): string {
 
 // Truncation lives at the cell level so long values (emails, full subs) don't
 // break layout; the <colgroup> widths do the gating.
-function memberColumns(h: {
+//
+// That default is right for text and wrong for controls: the table's
+// ``cellClassName`` carries ``truncate`` (overflow:hidden), so a cell whose
+// column is narrower than its content is CLIPPED rather than made scrollable,
+// and a clipped button is not merely ugly — it cannot be clicked. The actions
+// column below therefore sizes itself to its widest possible row and opts out
+// of truncation; see the comment there.
+export function memberColumns(h: {
     archived: boolean;
     ciBotBusy: boolean;
     onRotateCiBot: (sub: string) => Promise<void>;
@@ -640,9 +647,21 @@ function memberColumns(h: {
             cell: (m) => fmtIsoLocal(m.last_seen_at),
         },
         {
+            // Width is arithmetic, not taste. A `ci` row renders three
+            // buttons — rotate/revoke/remove, ~125px of text at this font —
+            // plus two 0.5rem flex gaps and the cell's 0.75rem padding on
+            // each side: ~165px. The column used to be `w-24` (96px), so the
+            // table-fixed layout clipped the last ~46px and "remove" simply
+            // vanished on exactly the rows that have all three buttons.
+            // 12rem leaves room for a longer label without another regression.
             key: "actions",
             header: "",
-            col: {className: "w-24"},
+            col: {className: "w-48"},
+            // No `truncate` here — unlike the text columns this cell holds
+            // controls, and silently hiding a control is worse than letting
+            // it spill. If a fourth button ever lands, it stays clickable and
+            // visibly too wide, which is a bug you can see.
+            cellClassName: "px-3 py-1 whitespace-nowrap",
             cell: (m) => !h.archived && (
                 <span className="flex gap-2 whitespace-nowrap">
                     {m.role === "ci" && (
