@@ -42,7 +42,18 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          1.3.0 meaning `trackJob` under `plugin_api >= 1.3.0`, so the
 //          number could not be reused for a different capability. Moving up
 //          costs nothing here, and keeps the viewer-core parity above intact.
-export const PLUGIN_API_VERSION = "1.4.0";
+//   1.5.0  `renderableFileProviders` — a plugin declares that it can turn a
+//          stored file of some kind into scene content core has no converter
+//          for. This is the first slot core's OWN behaviour reads outside a
+//          render path: `canOpenInScene` (@/utils/scene/fileKinds) asks the
+//          registry whether any plugin claims a key, so the storage browser
+//          and the gallery offer exactly the files something can actually
+//          open. A plugin built against this and loaded into a 1.4.0 core
+//          would register a slot nothing reads — its files would be filtered
+//          out of every list by 1.4.0's own predicate, silently — which is
+//          precisely the "fails from inside the plugin with nothing naming
+//          the mismatch" case a minor bump exists to turn into one log line.
+export const PLUGIN_API_VERSION = "1.5.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -350,6 +361,85 @@ export interface ResultSidecarLoader {
   ) => Promise<() => void>;
 }
 
+// ---------------------------------------------------------------------------
+// Renderable file providers (1.5.0)
+//
+// WHAT WAS MISSING. Every slot above extends what the viewer does with a model
+// core already loaded. None of them let a plugin say "I can turn a file of THIS
+// kind into scene content" — so a format core has no converter for was
+// unopenable no matter what a plugin could do with it, and core's own
+// "can this file go in the scene?" predicate had no one to ask.
+//
+// WHY IT IS A REGISTRY SLOT AND NOT JUST A BUTTON IN A PANEL. A plugin panel can
+// already load anything it likes through `SceneHandle.loadModelFromUrl`; that is
+// how the first such plugin does it. What a panel cannot do is make core's OWN
+// file affordances — the storage-browser load checkbox, the gallery walk — agree
+// that the file is openable. Those read one predicate, and the predicate is in
+// core. This slot is that predicate's answer.
+//
+// THE SPLIT: `claims` IS PURE, `open` IS NOT. `claims` takes a key and returns a
+// boolean. No context, no promise, no I/O. That is not minimalism, it is the only
+// shape that fits the caller: the predicate runs once per file in a listing of
+// hundreds, inside a `useMemo`, on every render — the gallery builds its whole
+// walk list from it. A per-file HTTP round trip there is a hundred requests to
+// draw one file list. (Core answers its own half the same way, from the
+// worker-advertised conversion matrix it already has; see
+// `@/utils/scene/fileKinds`.) `open` is where the work goes: it is async, gets a
+// full context, and runs once, for one file, when the user asks.
+//
+// A provider is NOT consulted for extensions core can already open. Core wins
+// ties, always — installing a plugin must not silently change how a `.ifc`
+// loads. Providers fill gaps; they do not override.
+// ---------------------------------------------------------------------------
+
+/**
+ * A plugin's claim that it can put a stored file in the scene.
+ *
+ * `claims` must be cheap, synchronous and a pure function of the key: see the
+ * block above for why. Throwing from it is a plugin defect and disables the
+ * plugin for the session, like every other predicate in this registry.
+ *
+ * `open` does the work and resolves once the model is visible. Throwing from it
+ * surfaces as a load error against THAT FILE and leaves the plugin enabled: a
+ * blob that has gone missing or a worker that timed out says nothing about
+ * whether the next file will open, and disabling the plugin would take its whole
+ * file kind out of every listing for the rest of the session.
+ */
+export interface RenderableFileProvider {
+  id: string; // namespaced on register
+  /** Short, user-facing: what opening this file will do ("Build and load the
+   * weld model"). Shown by a host that has somewhere to put it; core's own UI
+   * currently does not, so it is optional. */
+  label?: string;
+  /** Does this provider handle this storage key? Pure, synchronous, no I/O. */
+  claims: (key: string) => boolean;
+  /**
+   * Put the file's geometry in the scene. `scope` is the viewer scope the key
+   * lives in, resolved by core so a provider cannot open a key against a scope
+   * the user is not browsing.
+   *
+   * REGISTER THE MODEL UNDER `args.key`. That is `SceneHandle.loadModelFromUrl`'s
+   * `sourceName`, and it is a requirement rather than a suggestion: core tracks
+   * the scene by source name, and every "is this file shown?" affordance — the
+   * row's checkbox and eye marker, the bulk actions, the gallery's position
+   * anchor — plus the whole unload path are lookups in that set BY FILE KEY. A
+   * model registered under some other name is visible in the scene with its row
+   * unticked, and the checkbox that opened it cannot close it again.
+   *
+   * The constraint costs a plugin nothing it should want: a storage key is
+   * already unique, stable across reloads, and distinct per revision when the
+   * key space carries one — the three properties a scene identity needs. It is
+   * also exactly what core's own `overlay_file_in_scene` does with the files it
+   * loads, so a plugin-opened file and a core-opened one are the same kind of
+   * entry in the same list. A plugin that ALSO loads the same bytes from its own
+   * panel, under its own naming, is free to: that is a different entry point
+   * making a different claim, and it is not this one.
+   */
+  open: (ctx: AdaPluginContext, args: { key: string; scope: string }) => Promise<void>;
+  /** Tie-break among providers claiming the same key; ties broken by id. */
+  order?: number;
+}
+
 export interface UrlParamHandler {
   params: string[];
   // Return true when the plugin consumed the params (core stops offering them).
@@ -367,6 +457,9 @@ export interface PluginSpec {
   topBarButtons?: PanelSlot[]; // panels whose only purpose is a top-bar button
   sceneColorFields?: SceneColorFieldProvider[];
   resultSidecarLoaders?: ResultSidecarLoader[];
+  // File kinds this plugin can render (1.5.0). Read by core's own
+  // "can this file go in the scene?" predicate, not just by a UI host.
+  renderableFileProviders?: RenderableFileProvider[];
   urlParamHandlers?: UrlParamHandler[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
@@ -387,6 +480,7 @@ export interface RegisteredPlugin {
   panels: PanelSlot[];
   sceneColorFields: SceneColorFieldProvider[];
   resultSidecarLoaders: ResultSidecarLoader[];
+  renderableFileProviders: RenderableFileProvider[];
   urlParamHandlers: UrlParamHandler[];
   modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
@@ -477,6 +571,10 @@ export function registerPlugin(spec: PluginSpec): void {
     ...l,
     id: namespaced(id, l.id),
   }));
+  const renderableFileProviders = (spec.renderableFileProviders ?? []).map((r) => ({
+    ...r,
+    id: namespaced(id, r.id),
+  }));
   const urlParamHandlers = spec.urlParamHandlers ?? [];
   // UI shells go to their own registry (core mounts exactly one), but are
   // registered here so a plugin still has ONE entry point: registerPlugin().
@@ -496,6 +594,7 @@ export function registerPlugin(spec: PluginSpec): void {
     panels,
     sceneColorFields,
     resultSidecarLoaders,
+    renderableFileProviders,
     urlParamHandlers,
     // NOT namespaced, unlike panels and colour fields. A mode id is user-facing —
     // a panel writes `modes: ["capacity"]` and a shell may accept `?mode=capacity`
@@ -690,6 +789,62 @@ export function getResultSidecarLoaders(
     for (const loader of p.resultSidecarLoaders) out.push({ pluginId: p.id, loader });
   }
   return out;
+}
+
+/**
+ * Does ANY enabled plugin claim it can render this key?
+ *
+ * CONTEXT-FREE, and that is the whole reason it exists next to
+ * `getRenderableFileProviders` rather than being expressed through it. The
+ * caller is core's file-kind predicate: it runs per file over a whole listing,
+ * during render, in modules (`@/utils/scene/fileKinds`) that are deliberately
+ * free of stores and scene state. Building an `AdaPluginContext` there — which
+ * reaches into the mounted viewer's runtime — to answer a question about a
+ * string would invert that dependency for no gain.
+ *
+ * So `activationPredicate` is NOT consulted here, for the same reason
+ * `getPluginModes` does not consult it: what a plugin CAN render is a property
+ * of the plugin, not of the current scene. A file that appears and disappears
+ * from the storage list as the scene changes underneath it would be a worse
+ * failure than offering one file whose provider then declines. `open` runs the
+ * real, context-filtered resolution.
+ *
+ * A throwing `claims` disables its plugin for the session (failure isolation,
+ * Decision 4) and is treated as "does not claim" — a predicate that cannot
+ * answer must not make every file in the scope unopenable.
+ */
+export function isRenderableByPlugin(key: string): boolean {
+  for (const p of _registry.values()) {
+    if (p.disabled) continue;
+    for (const provider of p.renderableFileProviders) {
+      try {
+        if (provider.claims(key)) return true;
+      } catch (err) {
+        disablePlugin(p.id, `renderable provider "${provider.id}" claims() threw: ${String(err)}`);
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+/** Renderable-file providers across active plugins, ordered by `(order ?? 0,
+ * id)`. Unlike `isRenderableByPlugin` this DOES honour activation predicates:
+ * there is a context by the time a file is actually being opened, and a plugin
+ * that says it is inactive should not be handed work. */
+export function getRenderableFileProviders(
+  ctx: AdaPluginContext,
+): Array<{ pluginId: string; provider: RenderableFileProvider }> {
+  const out: Array<{ pluginId: string; provider: RenderableFileProvider; order: number }> = [];
+  for (const p of _registry.values()) {
+    const pctx: AdaPluginContext = { ...ctx, pluginId: p.id };
+    if (!isActive(p, pctx)) continue;
+    for (const provider of p.renderableFileProviders) {
+      out.push({ pluginId: p.id, provider, order: provider.order ?? 0 });
+    }
+  }
+  out.sort((a, b) => a.order - b.order || a.provider.id.localeCompare(b.provider.id));
+  return out.map(({ pluginId, provider }) => ({ pluginId, provider }));
 }
 
 /** All url-param handlers across active plugins (order = insertion). */
