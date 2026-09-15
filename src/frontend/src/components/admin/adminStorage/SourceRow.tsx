@@ -101,7 +101,13 @@ const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggle
             <Td title={file.last_modified || ""}>
                 {fmtIsoLocal(file.last_modified)}
             </Td>
-            <Td>
+            {/* Controls, not text: opt out of the Td default's `truncate`.
+                This column is user-resizable down to MIN_COL_WIDTH (48px), and
+                with overflow:hidden a narrow drag silently ate the Convert
+                select and the kebab. Without it the `flex-wrap` below does what
+                it was always there for — the buttons stack onto a second line
+                and stay reachable. */}
+            <Td className="px-3 py-2">
                 <div className="flex flex-wrap gap-1 justify-end">
                     {!file.orphan && (
                         <button

@@ -1,11 +1,17 @@
 import React, {useMemo, useState} from "react";
 import type {AuditEntry} from "@/services/viewerApi";
 import {DataTable} from "@/components/common/DataTable";
+import {useTableLayout} from "@/components/common/useTableLayout";
 import AdminTabShell from "../AdminTabShell";
 import AuditEntryCards from "./AuditEntryCards";
 import DetailsModal from "./DetailsModal";
 import MetricsControls from "./MetricsControls";
-import {AUDIT_LOG_TD_CLASS, AUDIT_LOG_TH_CLASS, buildAuditLogColumns} from "./columns";
+import {
+    AUDIT_LOG_COLUMNS_KEY,
+    AUDIT_LOG_TD_CLASS,
+    AUDIT_LOG_TH_CLASS,
+    buildAuditLogColumns,
+} from "./columns";
 import {useAuditLogEntries} from "./useAuditLogEntries";
 
 // Filterable audit log view. Two layouts:
@@ -27,10 +33,37 @@ const AuditLogTab: React.FC = () => {
         [],
     );
 
+    // Nine columns and a 1260px floor: the table this feature is most for. The
+    // chooser only — `resizable: false` — because this table is deliberately
+    // `table-auto` (see the comment on the DataTable below), and under auto
+    // layout a `<col>` width is a suggestion the browser may overrule to fit
+    // content. A grip that sometimes moves the border and sometimes does not is
+    // worse than no grip; hiding a column works exactly the same either way.
+    const layout = useTableLayout({
+        storageKey: AUDIT_LOG_COLUMNS_KEY,
+        columns,
+        headerCellClassName: AUDIT_LOG_TH_CLASS,
+        resizable: false,
+        label: "audit log",
+    });
+
     return (
         <AdminTabShell
             header={false}
-            subheader={<MetricsControls onError={setError} onCleared={reload}/>}
+            subheader={
+                <>
+                    <MetricsControls onError={setError} onCleared={reload}/>
+                    {/* Above the table, not inside its header row: the thead is
+                        `sticky top-0`, which pins it vertically but lets it
+                        scroll sideways with the body, so a menu at the far right
+                        of a 1260px header row is off-screen until you scroll
+                        there. Hidden below `sm`, where the entries render as
+                        cards. */}
+                    <div className="hidden sm:flex justify-end px-3 sm:px-4 py-1 border-b border-gray-700">
+                        {layout.menu}
+                    </div>
+                </>
+            }
             error={error}
             loadingLabel={null}
             footer={
@@ -53,7 +86,7 @@ const AuditLogTab: React.FC = () => {
                 content on one line when the natural width exceeds the floor. */}
             <DataTable
                 wrap={false}
-                columns={columns}
+                columns={layout.columns}
                 rows={entries}
                 rowKey={(e) => e.id}
                 className="hidden sm:table w-full text-sm min-w-[1260px]"

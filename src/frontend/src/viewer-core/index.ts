@@ -74,7 +74,19 @@
 //          `feaValuesForElement` for reading a picked element as numbers.
 //   1.1.0  `ExternalModelsPanel` + `useExternalModelsStore` on
 //          `@/viewer-core/scene`
-export const VIEWER_CORE_API_VERSION = "1.4.0";
+//
+// Out of sequence, because the list above runs newest-first and this is the
+// newest entry:
+//
+//   1.5.0  `canOpenInScene` on `@/viewer-core/app`, and the
+//          `RenderableFileProvider` slot types below. A shell that offers files
+//          — a storage browser, a gallery — must ask that ONE predicate rather
+//          than compose `isStreamingFEAResult || canLoadIntoSceneLegacy` for
+//          itself, because the answer now also depends on what plugins have
+//          registered and a shell composing it by hand would silently hide
+//          their files. Kept in step with PLUGIN_API_VERSION 1.5.0, which is
+//          the same capability seen from the plugin's side.
+export const VIEWER_CORE_API_VERSION = "1.5.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -102,6 +114,7 @@ export type {
   PluginSpec,
   PluginTheme,
   RegisteredPlugin,
+  RenderableFileProvider,
   ResultSidecarLoader,
   SceneColorFieldProvider,
   SceneColorFieldResult,
