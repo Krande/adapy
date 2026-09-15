@@ -2,6 +2,16 @@
 
 
 
+## v0.71.1 (2026-09-15)
+
+### Fix
+
+* fix(fem): read the line forces of beams RDPOINTS does not list (#357)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`1adcb20`](https://github.com/Krande/adapy/commit/1adcb20aa66d8115ee9b9dd633b15c4be625c5f5))
+
+
 ## v0.71.0 (2026-09-15)
 
 ### Chore
