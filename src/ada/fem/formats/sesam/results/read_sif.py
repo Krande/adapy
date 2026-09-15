@@ -669,7 +669,12 @@ class SifReader:
         return result
 
     def get_rdpoints_map(self) -> dict:
-        rdpoints = self.get_result(cards.RDPOINTS.name)[0][1]
+        blocks = self.get_result(cards.RDPOINTS.name)
+        if not blocks:
+            # A deck without an RDPOINTS card has no result-point definitions —
+            # an empty map, not an error (line forces do not need them).
+            return {}
+        rdpoints = blocks[0][1]
         return {x[2]: x for x in rdpoints[1:]}
 
     def get_rdstress_map(self) -> dict:
@@ -1060,18 +1065,24 @@ class Sif2Mesh:
         rdpoints_map = self.sif.get_rdpoints_map()
         # RDPOINTS supplies the element type and result-point count, but it is
         # only needed by the *shell* (stress) path. Some SINs (e.g. SESTRA
-        # "smart load combination" / force-only runs) ship no RDPOINTS at all
-        # yet still carry beam/line forces in RVFORCES. For line elements both
-        # pieces are recoverable without it — the element type from the mesh and
-        # the result-point count from the record length — so don't bail here.
+        # "smart load combination" / force-only runs) ship no RDPOINTS at all,
+        # or one that lists only a few elements, yet still carry every beam's
+        # forces in RVFORCES. For line elements both pieces are recoverable
+        # without it — the element type from the mesh and the result-point
+        # count from the record length — so an element RDPOINTS does not list
+        # takes that fallback instead of being dropped. The mesh map is built
+        # the first time such an element turns up, and only then.
         rdforces_map = self.sif.get_rdforces_map()
-        elem_type_by_id = self._element_source_type_map() if not rdpoints_map else {}
+        elem_type_by_id: dict[int, int] | None = None
 
         def keyfunc(x):
+            nonlocal elem_type_by_id
             iielno = int(x[ielno_i])
             rdpoints_res = rdpoints_map.get(iielno)
             if rdpoints_res is not None:
                 return x[ires_i], int(rdpoints_res[nsp_i]), int(rdpoints_res[eltyp_i]), x[irforc_i]
+            if elem_type_by_id is None:
+                elem_type_by_id = self._element_source_type_map()
             ncomp = len(rdforces_map.get(int(x[irforc_i]), ())) or 1
             nsp = (len(x) - (irforc_i + 1)) // ncomp
             return x[ires_i], nsp, elem_type_by_id.get(iielno, -1), x[irforc_i]
@@ -1092,15 +1103,15 @@ class Sif2Mesh:
     def _element_source_type_map(self) -> dict[int, int]:
         """Map element id → Sesam source element type, from the converted mesh.
 
-        Fallback for the element type when RDPOINTS is absent (line-force path).
+        Fallback for the element type of an element RDPOINTS does not list
+        (line-force path).
         """
         out: dict[int, int] = {}
         if self.mesh is None:
             return out
         for block in self.mesh.elements:
-            source_type = int(block.elem_info.source_type)
-            for eid in block.identifiers:
-                out[int(eid)] = source_type
+            ids = np.asarray(block.identifiers, dtype=int).tolist()
+            out.update(dict.fromkeys(ids, int(block.elem_info.source_type)))
         return out
 
     def _get_line_field_data(self, rv_forces, ires, irforc, elem_type, nsp) -> ElementFieldData:
