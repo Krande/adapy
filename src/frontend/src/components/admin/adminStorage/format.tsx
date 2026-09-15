@@ -1,8 +1,18 @@
 import React from "react";
 import {formatBytes as formatBytesBase} from "@/utils/format";
 
-export const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (
-    <td className="px-3 py-2 truncate" title={title}>
+// The storage table's body cell. `truncate` is the right default for the text
+// columns — a long key must not stretch a `table-fixed` column — but it is
+// overflow:hidden, so a cell of BUTTONS narrower than its content loses those
+// buttons outright rather than scrolling or wrapping. Pass `className` to
+// replace the default (it replaces rather than merges, the same contract
+// DataTable's per-column `cellClassName` has) for any cell holding controls.
+export const Td: React.FC<{
+    children: React.ReactNode;
+    title?: string;
+    className?: string;
+}> = ({children, title, className = "px-3 py-2 truncate"}) => (
+    <td className={className} title={title}>
         {children}
     </td>
 );

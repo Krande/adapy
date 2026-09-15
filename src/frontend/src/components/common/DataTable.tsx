@@ -34,6 +34,15 @@ export interface DataTableColumn<Row> {
     sortDefaultDesc?: boolean;
     /** `<col>` attributes. The colgroup renders when any column sets this. */
     col?: {className?: string; style?: React.CSSProperties};
+    /** Plain-text name for the column chooser (`useTableLayout`). Needed only
+     * because `header` is a ReactNode and a checkbox needs a string; falls back
+     * to `header` when that happens to be one, then to `key`. Ignored by tables
+     * that do not opt into a layout. */
+    label?: string;
+    /** The column chooser refuses to hide this column. Mark the one that says
+     * WHICH row you are looking at — a grid of attributes with no identity is
+     * not a smaller table, it is an unreadable one. */
+    required?: boolean;
 }
 
 export interface DataTableProps<Row> {
@@ -56,7 +65,13 @@ export interface DataTableProps<Row> {
     headerRowClassName?: string;
     /** Default `<th>` class; a column's `headerClassName` replaces it. */
     headerCellClassName?: string;
-    /** Default `<td>` class; a column's `cellClassName` replaces it. */
+    /** Default `<td>` class; a column's `cellClassName` replaces it.
+     *
+     * If this carries `truncate` (overflow:hidden) — several admin tables want
+     * it so a long path cannot stretch a column — then a column whose cell
+     * holds BUTTONS must override it. Clipped text is merely unreadable and the
+     * `title` attribute still carries the whole value; a clipped button is
+     * unclickable, and there is no other way to reach the action. */
     cellClassName?: string;
     tbodyClassName?: string;
     rowClassName?: string | ((row: Row, index: number) => string);

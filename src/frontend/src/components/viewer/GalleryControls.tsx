@@ -10,7 +10,7 @@ import {convertWithSelection} from "@/services/conversion";
 import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessellatorSelect";
 import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
 import {boolOptionFor, boolOptionSupported} from "@/services/conversion/serializerMatrix";
-import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {canOpenInScene} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import FilePickerModal from "@/components/common/FilePickerModal";
@@ -69,7 +69,7 @@ const GalleryControls: React.FC = () => {
         () =>
             fileObjects
                 .map((f) => f.name)
-                .filter((n) => isStreamingFEAResult(n) || canLoadIntoSceneLegacy(n)),
+                .filter((n) => canOpenInScene(n)),
         [fileObjects],
     );
 
@@ -525,7 +525,7 @@ const GalleryControls: React.FC = () => {
                 scope={scopeKey}
                 title="Jump to file"
                 initialKey={current ?? undefined}
-                filter={(f) => isStreamingFEAResult(f.key) || canLoadIntoSceneLegacy(f.key)}
+                filter={(f) => canOpenInScene(f.key)}
                 onCancel={() => setFilePickerOpen(false)}
                 onPick={jumpToFile}
             />

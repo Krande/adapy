@@ -6,7 +6,7 @@ import InlineNameInput from "@/components/common/InlineNameInput";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FileTypeIcon from "../../icons/FileTypeIcon";
 import ViewIcon from "../../icons/ViewIcon";
-import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {canOpenInScene, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {Spinner, formatRelative} from "./helpers";
 
 // FileRow: one storage entry, optionally indented (for use inside
@@ -185,18 +185,25 @@ const FileRow: React.FC<FileRowProps> = ({
                         checked={isLoaded || isQueued || isViewing}
                         onChange={() => void onToggle(f, !(isLoaded || isQueued))}
                         onClick={(e) => e.stopPropagation()}
-                        disabled={
-                            isViewing ||
-                            (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
-                        }
+                        // One predicate for all three routes into the scene —
+                        // the streaming bake, the convert pipeline, and a
+                        // plugin-registered renderable-file provider. This was
+                        // `!isStreamingFEAResult && !canLoadIntoSceneLegacy`
+                        // here and in four other places, i.e. one place per
+                        // opportunity to forget the third route.
+                        disabled={isViewing || !canOpenInScene(f.name)}
                         aria-busy={isViewing || undefined}
-                        title={isLoaded
-                            ? "Unload from scene"
-                            : isQueued
-                                ? "Queued to load — untick to remove from the queue"
-                                : isStreamingFEAResult(f.name)
-                                    ? "Open in streaming FEA viewer (queues if another model is loading)"
-                                    : "Load into scene (queues if another model is loading)"}
+                        // A disabled checkbox with a "Load into scene" tooltip
+                        // reads as broken. Say why it is off instead.
+                        title={!canOpenInScene(f.name)
+                            ? "Nothing installed can open this file type"
+                            : isLoaded
+                                ? "Unload from scene"
+                                : isQueued
+                                    ? "Queued to load — untick to remove from the queue"
+                                    : isStreamingFEAResult(f.name)
+                                        ? "Open in streaming FEA viewer (queues if another model is loading)"
+                                        : "Load into scene (queues if another model is loading)"}
                     />
                 )}
                 <FileTypeIcon name={f.name}/>

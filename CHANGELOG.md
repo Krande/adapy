@@ -2,6 +2,21 @@
 
 
 
+## v0.71.0 (2026-09-15)
+
+### Chore
+
+* chore(release): queue the release job instead of cancelling it (#356)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`8a5befc`](https://github.com/Krande/adapy/commit/8a5befc02db8755053bfbb6dec5d140e29585486))
+
+### Feature
+
+* feat(viewer,admin): a plugin can declare the file kinds it renders, and admin tables get resizable columns (#355)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`26cf5f3`](https://github.com/Krande/adapy/commit/26cf5f31caef58dd8f7c73a530bfe7a289e23e72))
+
+
 ## v0.70.5 (2026-09-13)
 
 ### Fix

@@ -91,12 +91,21 @@ export const IssueBotBadge: React.FC<{
     );
 };
 
+// localStorage key for this table's column layout (see useTableLayout).
+export const AUDIT_LOG_COLUMNS_KEY = "adapy.admin.audit-log.columns";
+
 // Header/cell classes the table used with its own <Th>/<Td> helpers.
 export const AUDIT_LOG_TH_CLASS = "px-3 py-2 font-medium text-gray-300 whitespace-nowrap";
 // Truncation lives at the cell level so long values (paths, error
 // messages, full subs) don't break layout — but we let the column
 // widths do the gating now via <colgroup>, not a hard 20ch cap.
 export const AUDIT_LOG_TD_CLASS = "px-3 py-1 truncate";
+// …and the variant for a cell that holds controls rather than text. `truncate`
+// is overflow:hidden, which clips a button out of existence instead of letting
+// the row's scroller reach it; for a control that is not a cosmetic loss, it is
+// a dead action. Status is the only such column here — it carries the details
+// button and the issue-bot badge's resync button.
+export const AUDIT_LOG_TD_CONTROLS_CLASS = "px-3 py-1 whitespace-nowrap";
 
 export interface AuditLogColumnHandlers {
     onDetails: (entry: AuditEntry) => void;
@@ -120,6 +129,11 @@ export function buildAuditLogColumns(h: AuditLogColumnHandlers): DataTableColumn
             key: "time",
             header: "Time",
             col: {className: "min-w-[11rem]"},
+            // An audit entry without a time is not an audit entry — every other
+            // column answers "what", and this is the only one that answers
+            // "when". The ID stays hideable: it identifies the row to the
+            // database, not to the person reading it.
+            required: true,
             title: (e) => e.ts || "",
             cell: (e) => formatTs(e.ts),
         },
@@ -180,6 +194,7 @@ export function buildAuditLogColumns(h: AuditLogColumnHandlers): DataTableColumn
         {
             key: "status",
             header: "Status",
+            cellClassName: AUDIT_LOG_TD_CONTROLS_CLASS,
             title: (e) => e.error || "",
             cell: (e) => (
                 <>
