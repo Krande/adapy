@@ -44,6 +44,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_so.make_fixed_reference_swept_area_shape_from_geom(geometry)
     elif isinstance(geometry, so.SweptDiskSolid):
         occ_geom = geo_so.make_swept_disk_solid_from_geom(geometry)
+    elif isinstance(geometry, so.Torus):
+        occ_geom = geo_so.make_torus_from_geom(geometry)
     elif isinstance(geometry, so.FacetedBrep):
         occ_geom = geo_so.make_faceted_brep_from_geom(geometry)
 

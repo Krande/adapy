@@ -86,13 +86,105 @@ def make_cone_from_geom(cone: geo_so.Cone) -> TopoDS_Shape:
     return cone_maker.Shape()
 
 
+#: Below this, a profile dimension is treated as collapsed rather than small.
+_SECTION_TOL = 1e-12
+
+
+def _reject_degenerate_section(profile, field: str) -> None:
+    """Refuse a section with no area, naming the solid that does model it.
+
+    A swept solid needs two real sections. A section that collapses is a
+    different solid wearing this one's clothes, and both collapses have an
+    exact representation already:
+
+    * to a POINT -- the frustum is a cone or a pyramid. Use ``Cone`` or
+      ``RectangularPyramid``, which carry the apex natively.
+    * to an EDGE -- the solid is a wedge, whose sides are planar. Extrude a
+      triangular profile, or give the six faces to ``FacetedBrep``.
+
+    Both are also invalid IFC: ``IfcCircleProfileDef.Radius`` and
+    ``IfcRectangleProfileDef.XDim``/``YDim`` are all required to be positive.
+    So this is not adapy declining to do arithmetic it could do -- it is
+    declining to accept a shape the model has no way to mean.
+
+    The reason to raise rather than improvise is that the lofter's own answers
+    differ: an apex builds correctly, while an edge-collapsed section makes it
+    report failure. Papering over that would turn one of the two into a silent
+    wrong solid.
+    """
+    radius = getattr(profile, "radius", None)
+    if radius is not None:
+        if abs(radius) > _SECTION_TOL:
+            return
+        raise ValueError(
+            f"{field}: a circular section of radius {radius} has no area. "
+            "A frustum whose end collapses to a point is a cone -- build a Cone."
+        )
+
+    x_dim, y_dim = getattr(profile, "x_dim", None), getattr(profile, "y_dim", None)
+    if x_dim is None or y_dim is None:
+        return  # an arbitrary outline; its own builder reports what it cannot do
+    flat_x, flat_y = abs(x_dim) <= _SECTION_TOL, abs(y_dim) <= _SECTION_TOL
+    if not (flat_x or flat_y):
+        return
+    if flat_x and flat_y:
+        raise ValueError(
+            f"{field}: a rectangular section of {x_dim} x {y_dim} has no area. "
+            "A frustum whose end collapses to a point is a pyramid -- build a "
+            "RectangularPyramid."
+        )
+    raise ValueError(
+        f"{field}: a rectangular section of {x_dim} x {y_dim} collapses to an edge, "
+        "which a lofted solid cannot bound. That solid is a wedge: extrude a "
+        "triangular profile, or build it as a FacetedBrep."
+    )
+
+
 def make_extruded_area_shape_tapered_from_geom(eas: geo_so.ExtrudedAreaSolidTapered):
+    """Loft between the start and end profiles, `depth` apart along `extruded_direction`.
+
+    THE END PROFILE FOLLOWS `extruded_direction`, which is what makes an
+    OBLIQUE frustum expressible: the two sections stay parallel (both normal to
+    the profile plane) while the second is displaced along a direction that
+    need not be the profile normal. A truncated cone whose top circle is offset
+    sideways from its base is the common case, and there is no other attribute
+    in the IFC model to carry that offset -- `IfcExtrudedAreaSolidTapered`
+    inherits `ExtrudedDirection` from `IfcExtrudedAreaSolid` precisely so it
+    can be something other than the normal.
+
+    It used to be hardcoded to +Z, so the attribute was accepted and silently
+    ignored: a caller asking for an oblique loft got a right one, with no
+    error. An axial direction reproduces the previous behaviour exactly.
+
+    A section that collapses is rejected rather than guessed at -- see
+    `_reject_degenerate_section` for what to build instead.
+    """
+    direction = eas.extruded_direction
+    if direction is None:
+        direction = Direction(0, 0, 1)
+    else:
+        direction = Direction(*direction)
+
+    # `depth` is measured along the extruded direction, so the direction is
+    # normalised first -- otherwise a non-unit vector scales the solid's length
+    # by its own magnitude.
+    length = direction.get_length()
+    if length < 1e-12:
+        raise ValueError("ExtrudedAreaSolidTapered has a zero-length extruded_direction")
+    unit = Direction(*(c / length for c in direction))
+
+    _reject_degenerate_section(eas.swept_area, "swept_area")
+    _reject_degenerate_section(eas.end_swept_area, "end_swept_area")
+
     o = Point(0, 0, 0)
     z = Direction(0, 0, 1)
-    p2 = o + eas.depth * z
+    p2 = o + eas.depth * unit
 
     profile1 = make_profile_from_geom(eas.swept_area)
     _profile2 = make_profile_from_geom(eas.end_swept_area)
+    # Placed with the profile's own normal (z), not with `unit`: an oblique
+    # loft displaces the end section, it does not tilt it. Both sections stay
+    # parallel to the profile plane.
     profile2 = transform_shape_to_pos(_profile2, p2, z, Direction(1, 0, 0))
 
     wire1 = list(TopologyExplorer(profile1).wires())[0]
@@ -126,6 +218,29 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
     ras_shape = occBrep.BRepPrimAPI_MakeRevol(profile, rev_axis, math.radians(ras.angle)).Shape()
 
     return ras_shape
+
+
+def make_torus_from_geom(torus: geo_so.Torus) -> TopoDS_Shape | TopoDS_Solid:
+    """A full torus about ``position.axis``, of ``major_radius`` and ``minor_radius``.
+
+    STEP AP242 ``torus``; there is no IFC CSG equivalent, which is why the
+    solid carries the STEP attribute names.
+
+    ``Axis1Placement`` fixes the axis but not a direction in the plane normal
+    to it, and a full revolution does not need one: every starting direction
+    gives the same solid. A PARTIAL sweep does need one, and that is a
+    ``RevolvedAreaSolid`` of a ``CircleProfileDef`` rather than this -- its
+    ``position`` says where the arc starts, which is exactly the information a
+    torus has nowhere to put.
+
+    ``minor_radius`` may equal or exceed ``major_radius``; OCC builds the
+    self-intersecting spindle form rather than refusing, and that is the
+    surface STEP describes.
+    """
+    axis = torus.position.axis
+    direction = gp_Dir(0, 0, 1) if axis is None else gp_Dir(*axis)
+    frame = gp_Ax2(gp_Pnt(*torus.position.location), direction)
+    return occBrep.BRepPrimAPI_MakeTorus(frame, torus.major_radius, torus.minor_radius).Shape()
 
 
 def make_faceted_brep_from_geom(brep: geo_so.FacetedBrep) -> TopoDS_Shape | TopoDS_Solid:
