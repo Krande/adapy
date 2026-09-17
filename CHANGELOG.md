@@ -2,6 +2,15 @@
 
 
 
+## v0.72.0 (2026-09-17)
+
+### Feature
+
+* feat(sesam): make the writer linear in mesh size and stream to file (#359)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`15ec4d0`](https://github.com/Krande/adapy/commit/15ec4d083295e0eb153ae613c4270ebd981c90f0))
+
+
 ## v0.71.1 (2026-09-15)
 
 ### Fix
