@@ -14,14 +14,14 @@ def write_ff(flag: str, data):
     :return:
     """
 
-    out_str = f"{flag:<8}"
-    for row in data:
-        v = [format_data(x) for x in row]
-        if row == data[-1]:
-            out_str += "".join(v) + "\n"
-        else:
-            out_str += "".join(v) + "\n" + 8 * " "
-    return out_str
+    # Join by position, not by value: comparing each row against ``data[-1]`` ended a
+    # record early whenever an intermediate row happened to equal the last one.
+    last = len(data) - 1
+    parts = [f"{flag:<8}"]
+    for i, row in enumerate(data):
+        parts.append("".join([format_data(x) for x in row]))
+        parts.append("\n" if i == last else "\n        ")
+    return "".join(parts)
 
 
 def format_data(d):

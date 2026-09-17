@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Iterator, List, Tuple
 
 from ada import FEM
 from ada.config import logger
@@ -8,13 +8,17 @@ from ada.fem.shapes.definitions import ConnectorTypes
 from ..common import sesam_el_map
 from .write_utils import write_ff
 
+# Reverse of ``sesam_el_map``, built once rather than re-scanned per element. Several
+# Sesam codes map to the same general shape (15 and 2 are both LINE); reversing the
+# iteration keeps the first-listed code winning.
+_gen_2_sesam: dict = {gen: ses for ses, gen in reversed(list(sesam_el_map.items()))}
+
 
 def eltype_2_sesam(eltyp) -> int:
-    for ses, gen in sesam_el_map.items():
-        if eltyp == gen:
-            return ses
-
-    raise Exception("Currently unsupported eltype", eltyp)
+    ses = _gen_2_sesam.get(eltyp)
+    if ses is None:
+        raise Exception("Currently unsupported eltype", eltyp)
+    return ses
 
 
 def _is_writable_to_sesam(el: Elem) -> bool:
@@ -46,7 +50,7 @@ def _is_writable_to_sesam(el: Elem) -> bool:
     return True
 
 
-def elem_str(fem: FEM, thick_map) -> str:
+def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     """
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
             'eccno', 'transno'), 'members|'
@@ -95,20 +99,17 @@ def elem_str(fem: FEM, thick_map) -> str:
             skipped_unsectioned,
         )
 
-    out_str = "".join(
-        [
-            write_ff(
-                "GELMNT1",
-                [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el),
-            )
-            for el in writable
-        ]
-    )
-
+    # Yield record by record so the caller can stream: accumulating into one string
+    # re-grew a deck-sized buffer per element, and held the whole element block in
+    # memory on top of the mesh.
     for el in writable:
-        out_str += write_elem(el, thick_map)
+        yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el))
+    for el in writable:
+        yield write_elem(el, thick_map)
 
-    return out_str
+
+def elem_str(fem: FEM, thick_map) -> str:
+    return "".join(elem_gen(fem, thick_map))
 
 
 def write_nodal_data(el: Elem) -> List[Tuple[int]]:
