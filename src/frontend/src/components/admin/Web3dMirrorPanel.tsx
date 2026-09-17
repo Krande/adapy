@@ -1,7 +1,15 @@
 import React, {useCallback, useEffect, useState} from "react";
 
 import {viewerApi} from "@/services/viewerApi";
-import {MirrorReport, mirrorStatus, readActionResult, startMirrorSync} from "@/services/externalModels";
+import {
+    MirrorProject,
+    MirrorReport,
+    mirrorProjects,
+    mirrorStatus,
+    readActionResult,
+    startMirrorSync,
+} from "@/services/externalModels";
+import {fuzzyFilter} from "@/services/fuzzy";
 import {ConvertStatus, useConversionStore} from "@/state/conversionStore";
 
 // The web3d cache, and the switch that governs it.
@@ -67,14 +75,17 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
     // person, so they are shown verbatim rather than translated here.
     const [unavailable, setUnavailable] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [projectsDraft, setProjectsDraft] = useState("");
+    // What this deployment COULD mirror. Empty until asked for -- it is a live
+    // read against the storage account, and a panel that cannot reach web3d
+    // should still render everything else it knows.
+    const [available, setAvailable] = useState<MirrorProject[] | null>(null);
+    const [projectFilter, setProjectFilter] = useState("");
+    const [projectsOpen, setProjectsOpen] = useState(false);
 
     const loadSetting = useCallback(async () => {
         try {
             const raw = await viewerApi.getPublicSetting(MIRROR_SETTING_KEY);
-            const parsed = parseSetting(raw);
-            setSetting(parsed);
-            setProjectsDraft(parsed.projects.join(", "));
+            setSetting(parseSetting(raw));
         } catch {
             // An unset key is the normal first state, not a failure.
             setSetting({enabled: false, projects: []});
@@ -102,6 +113,20 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
         },
         [provider],
     );
+
+    // Fetched on demand rather than on mount: it is a live round trip to the
+    // storage account for something nobody looks at until they open the list.
+    const loadProjects = useCallback(async () => {
+        if (available) return;
+        try {
+            setAvailable(await mirrorProjects(provider, CATALOGUE_SCOPE));
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            // [] rather than leaving it null: null means "not asked yet" and
+            // would re-fetch on every render of an open list.
+            setAvailable([]);
+        }
+    }, [available, provider]);
 
     useEffect(() => {
         void loadSetting();
@@ -238,27 +263,102 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                 it in the progress toast; the counts here refresh when it finishes.
             </div>
 
-            <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400" htmlFor="web3d-projects">
-                    Projects
-                </label>
-                <input
-                    id="web3d-projects"
-                    className="flex-1 text-xs bg-gray-900 border border-gray-700 rounded-sm px-2 py-1"
-                    placeholder="ASP, GUA — comma separated"
-                    value={projectsDraft}
-                    disabled={busy !== null}
-                    onChange={(e) => setProjectsDraft(e.target.value)}
-                    onBlur={() => {
-                        const next = projectsDraft
-                            .split(",")
-                            .map((p) => p.trim())
-                            .filter(Boolean);
-                        if (next.join(",") !== setting.projects.join(",")) {
-                            void persist({...setting, projects: next});
-                        }
-                    }}
-                />
+            {/* PICKED FROM A LIST, NOT TYPED. It was a comma-separated field, and
+                a free-text control for a set of 95 identifiers is a typo away
+                from silently mirroring nothing -- the project simply would not
+                match, and no error says so. The list is what the service
+                principal can actually see, so an unavailable project cannot be
+                entered at all.
+
+                Collapsed by default and fetched on open: it is a live read
+                against the storage account, and most visits to this panel are
+                to look at the counts. */}
+            <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                    <div className="text-xs text-gray-400 flex-1">
+                        Projects
+                        {setting.projects.length > 0 && (
+                            <span className="text-gray-500"> — {setting.projects.join(", ")}</span>
+                        )}
+                        {setting.projects.length === 0 && (
+                            <span className="text-gray-500"> — none chosen, so nothing is mirrored</span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800"
+                        onClick={() => {
+                            setProjectsOpen((v) => !v);
+                            void loadProjects();
+                        }}
+                    >
+                        {projectsOpen ? "Done" : "Choose…"}
+                    </button>
+                </div>
+
+                {projectsOpen && (
+                    <div className="rounded-sm border border-gray-700 bg-gray-900/60 p-2 space-y-2">
+                        {available === null && (
+                            <div className="text-xs text-gray-500">Reading what web3d offers…</div>
+                        )}
+                        {available !== null && available.length === 0 && (
+                            <div className="text-xs text-gray-400">
+                                No project could be listed. The credential reaches the storage
+                                account or it does not; the message above says which.
+                            </div>
+                        )}
+                        {available !== null && available.length > 0 && (
+                            <>
+                                {/* The same subsequence filter the external-models
+                                    menu uses. 95 projects is a scroll, not a list. */}
+                                <input
+                                    type="search"
+                                    value={projectFilter}
+                                    onChange={(e) => setProjectFilter(e.target.value)}
+                                    placeholder={`Filter ${available.length} projects…`}
+                                    aria-label="Filter web3d projects"
+                                    className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                                />
+                                <ul className="max-h-56 overflow-auto">
+                                    {fuzzyFilter(
+                                        available,
+                                        projectFilter,
+                                        (p) => `${p.key} ${p.name}`,
+                                    ).map((p) => {
+                                        const on = setting.projects.includes(p.key);
+                                        return (
+                                            <li key={p.key}>
+                                                <label className="flex items-center gap-2 py-0.5 text-xs cursor-pointer hover:bg-gray-800/60 rounded-sm px-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={on}
+                                                        disabled={busy !== null}
+                                                        onChange={() => {
+                                                            // Persisted per toggle. The write is one
+                                                            // small setting, and a Save button here
+                                                            // would be a second place for the choice
+                                                            // to be lost by closing the panel.
+                                                            const next = on
+                                                                ? setting.projects.filter((k) => k !== p.key)
+                                                                : [...setting.projects, p.key].sort();
+                                                            void persist({...setting, projects: next});
+                                                        }}
+                                                    />
+                                                    <span className="font-medium text-gray-200">{p.key}</span>
+                                                    <span className="truncate text-gray-500">{p.name}</span>
+                                                </label>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                                <div className="text-[11px] text-gray-500">
+                                    {setting.projects.length} of {available.length} chosen. A project
+                                    is mirrored on the next sync, not when you tick it.
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
 
             {unavailable && (

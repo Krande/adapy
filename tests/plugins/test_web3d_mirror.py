@@ -419,6 +419,28 @@ def test_projects_come_from_the_setting_first(monkeypatch):
     assert web3d.configured_projects() == ["A", "B"]
 
 
+def test_the_project_picker_is_offered_everything_and_told_what_is_chosen(mirror, monkeypatch):
+    # THE LIST TO CHOOSE FROM IS NOT THE LIST IN USE. `list_collections` answers
+    # with what this deployment mirrors -- the handful an admin picked -- and the
+    # picker needs the other one, which cannot be derived from it: the whole
+    # point is to see the projects you have NOT picked.
+    m, client, cache = mirror
+    provider = web3d.Web3dMirrorCatalog(m._source, cache, m, ["ASP"])
+
+    projects = provider.upstream_projects()
+    assert [p["key"] for p in projects] == ["ASP"], "inactive projects are not offered"
+    assert projects[0]["selected"] is True
+    assert projects[0]["collection"] == "asp"
+
+
+def test_a_project_not_chosen_is_offered_unticked(mirror):
+    # The case a free-text field could not express and a checkbox list must:
+    # something visible upstream that this deployment does not mirror.
+    m, _, cache = mirror
+    provider = web3d.Web3dMirrorCatalog(m._source, cache, m, ["SOMETHING-ELSE"])
+    assert [p["selected"] for p in provider.upstream_projects()] == [False]
+
+
 def test_can_mirror_needs_every_piece_of_the_surface():
     from ada.plugins.external_models.adapy_plugin import _can_mirror
 

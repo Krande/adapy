@@ -974,6 +974,31 @@ class Web3dMirrorCatalog:
 
     # --- the mirror's own surface, so the admin panel can reach it -----------
 
+    def upstream_projects(self) -> list[dict]:
+        """Every project the service principal can see, and which are mirrored.
+
+        THE CONFIGURED LIST IS NOT THIS LIST. `list_collections` answers with
+        what this deployment MIRRORS, which is the handful an admin chose;
+        this answers with what it COULD, which on the ASP account is 95. A panel
+        offering the choice needs the second, and deriving it from the first is
+        impossible -- the whole point is to see the ones you have not picked.
+
+        `selected` rides along so the caller needs one round trip rather than
+        two, and cannot render a checkbox list against a stale selection.
+        """
+        chosen = {collection_for(k) for k in self._projects}
+        out = []
+        for p in self._source.list_projects():
+            out.append(
+                {
+                    "key": p["key"],
+                    "name": p.get("name") or p["key"],
+                    "collection": collection_for(p["key"]),
+                    "selected": collection_for(p["key"]) in chosen,
+                }
+            )
+        return sorted(out, key=lambda x: x["key"])
+
     def mirror_status(self, project: str, **kw):
         return self._mirror.status(project, **kw)
 

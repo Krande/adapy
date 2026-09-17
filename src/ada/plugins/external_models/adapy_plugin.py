@@ -43,6 +43,7 @@ ACTIONS = (
     "model_upload_url",
     "mirror_status",
     "mirror_sync",
+    "mirror_projects",
 )
 
 # Kept so a single-provider deployment need not thread an id through every call.
@@ -250,6 +251,16 @@ def run_job(
             "has_revisions": _has_revisions(cat),
             "collections": [asdict(c) for c in collections],
         }
+
+    if action == "mirror_projects":
+        lister = getattr(cat, "upstream_projects", None)
+        if not callable(lister):
+            raise ValueError(
+                f"provider {provider!r} does not know what it could mirror; only a provider "
+                "backed by an upstream catalogue can answer that"
+            )
+        _progress(action, 0.5)
+        return {"action": action, "provider": provider, "projects": lister()}
 
     if action in ("mirror_status", "mirror_sync"):
         _progress(action, 0.2)

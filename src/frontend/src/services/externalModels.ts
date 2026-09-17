@@ -150,6 +150,14 @@ export interface MirrorProjectReport {
   entries: MirrorEntry[];
 }
 
+/** One upstream project the mirror COULD cache, and whether it is chosen. */
+export interface MirrorProject {
+  key: string;
+  name: string;
+  collection: string;
+  selected: boolean;
+}
+
 export interface MirrorReport {
   action: string;
   provider: string;
@@ -353,6 +361,26 @@ export async function listProviders(
  *  calls: fresh data when a view opens, and the cache still absorbs re-renders. */
 export function catalogueNonce(): string {
   return Date.now().toString(36);
+}
+
+/** Every project this deployment COULD mirror, and which it does.
+ *
+ *  NOT the same question as `listCollections`, which answers with what is
+ *  mirrored -- the handful an admin chose. This is the list to choose FROM, and
+ *  it cannot be derived from the other: the point is to see the ones you have
+ *  not picked. On the ASP storage account it is 95 entries. */
+export async function mirrorProjects(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<MirrorProject[]> {
+  const out = await runAction<{ projects: MirrorProject[] }>(
+    { action: "mirror_projects", provider, refresh: opts?.refresh ?? catalogueNonce() },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
+  return out.projects ?? [];
 }
 
 /** What the cache holds for each configured web3d project, and what upstream
