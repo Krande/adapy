@@ -72,3 +72,83 @@ def test_nodes_str_emits_every_node_sorted_by_id():
     assert len(gnodes) == len(ids)
     emitted = [int(float(ln.split()[1])) for ln in gnodes]
     assert emitted == sorted(ids)
+
+
+def _shell2solid_fem():
+    """A shell edge (2 nodes) meeting a solid face (4 nodes, offset in z)."""
+    from ada.fem import Constraint, Surface
+
+    shell_nodes = [ada.Node((0, 0, 0), 1), ada.Node((1, 0, 0), 2)]
+    solid_nodes = [
+        ada.Node((0, 0, -0.5), 11),
+        ada.Node((0, 0, 0.5), 12),
+        ada.Node((1, 0, -0.5), 13),
+        ada.Node((1, 0, 0.5), 14),
+    ]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(shell_nodes + solid_nodes))
+    edge = fem.add_set(ada.fem.FemSet("edge", shell_nodes, "nset"))
+    face = fem.add_set(ada.fem.FemSet("face", solid_nodes, "nset"))
+    m = Surface("edge_surf", Surface.TYPES.NODE, edge, parent=fem)
+    s = Surface("face_surf", Surface.TYPES.NODE, face, parent=fem)
+    return fem, Constraint("s2s", Constraint.TYPES.SHELL2SOLID, m, s, parent=fem)
+
+
+def test_shell2solid_writes_one_bldep_per_solid_node():
+    from ada.fem.formats.sesam.write.write_constraints import write_shell2solid
+
+    _, constraint = _shell2solid_fem()
+    out = write_shell2solid(constraint)
+
+    records = [ln for ln in out.splitlines() if ln.startswith("BLDEP")]
+    assert len(records) == 4  # one per solid-face node
+    # SLAVE MASTER NDDOF NDEP -- the solid node depends on the shell node, not the reverse
+    slaves, masters = set(), set()
+    for rec in records:
+        slave, master, nddof, ndep = (int(float(x)) for x in rec.split()[1:5])
+        assert (nddof, ndep) == (3, 9)
+        slaves.add(slave)
+        masters.add(master)
+    assert slaves == {11, 12, 13, 14}
+    assert masters == {1, 2}  # each paired with the nearest shell-edge node
+
+
+def test_shell2solid_lever_arm_coefficients():
+    """Slave dof 1 (x) picks up master dof 5 (Ry) with beta = dz."""
+    from ada.fem.formats.sesam.write.write_constraints import write_shell2solid
+
+    _, constraint = _shell2solid_fem()
+    lines = write_shell2solid(constraint).splitlines()
+    # first record: slave 11 at z=-0.5 under master 1 at z=0 -> dz = -0.5
+    assert int(float(lines[0].split()[1])) == 11
+    dof_s, dof_m, beta = (float(x) for x in lines[2].split()[:3])
+    assert (int(dof_s), int(dof_m)) == (1, 5)
+    assert beta == -0.5
+
+
+def test_surface_nodes_resolves_named_sets_via_id_refs():
+    """A surface listing several sets by name resolves through the parent FEM."""
+    from ada.fem import Surface
+    from ada.fem.surfaces import surface_nodes
+
+    nodes = [ada.Node((i, 0, 0), i + 1) for i in range(4)]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(nodes))
+    fem.add_set(ada.fem.FemSet("a", nodes[:2], "nset"))
+    fem.add_set(ada.fem.FemSet("b", nodes[2:], "nset"))
+    surf = Surface("s", Surface.TYPES.NODE, None, id_refs=[("a", ""), ("b", "")], parent=fem)
+    assert sorted(n.id for n in surface_nodes(surf)) == [1, 2, 3, 4]
+
+
+def test_shell2solid_bldep_is_readable_by_the_sesam_reader():
+    from ada.fem.formats.sesam.read import cards
+    from ada.fem.formats.sesam.write.write_constraints import write_shell2solid
+    from ada.fem.formats.utils import str_to_int
+
+    _, constraint = _shell2solid_fem()
+    parsed = [m.groupdict() for m in cards.re_bldep.finditer(write_shell2solid(constraint))]
+
+    assert len(parsed) == 4
+    for d in parsed:
+        assert str_to_int(d["nddof"]) == 3
+        assert str_to_int(d["ndep"]) == 9
+        assert len(d["bulk"].split()) // 4 == 9
+    assert {str_to_int(d["slave"]): str_to_int(d["master"]) for d in parsed} == {11: 1, 12: 1, 13: 2, 14: 2}

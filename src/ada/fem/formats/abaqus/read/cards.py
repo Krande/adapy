@@ -92,7 +92,13 @@ connector_behaviour = AbaFF(
 connector_section = AbaFF("Connector Section", [("elset=", "behavior="), ("contype",), ("csys",)])
 
 # Constraints
-sh2so_re = AbaFF("Shell to Solid Coupling", [("constraint name=", "influence distance=|"), ("surf1", "surf2")])
+sh2so_re = AbaFF(
+    "Shell to Solid Coupling",
+    # Abaqus sizes the coupling region with either "influence distance" or
+    # "position tolerance". Without the latter listed the name group ran to the end
+    # of the line and swallowed it.
+    [("constraint name=", "influence distance=|", "position tolerance=|"), ("surf1", "surf2")],
+)
 rigid_bodies = AbaFF("Rigid Body", [("ref node=", "elset=")])
 coupling = AbaFF(
     "Coupling",
