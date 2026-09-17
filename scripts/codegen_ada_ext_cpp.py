@@ -44,7 +44,7 @@ def _field(name: str, prop: dict) -> tuple[str, str]:
 
 
 def generate(schema_path: pathlib.Path) -> str:
-    schema = json.loads(schema_path.read_text())
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     props: dict = schema["properties"]
     version = props.get("version", {}).get("default", "0.0.0")
     title = schema.get("title", "ADA_EXT_data")
@@ -109,8 +109,8 @@ def main() -> int:
     if not out.parent.is_dir():
         sys.stderr.write(f"codegen_ada_ext_cpp: output dir missing: {out.parent} (is adacpp a sibling checkout?)\n")
         return 2
-    out.write_text(generate(_SCHEMA))
-    version = json.loads(_SCHEMA.read_text())["properties"]["version"]["default"]
+    out.write_text(generate(_SCHEMA), encoding="utf-8")
+    version = json.loads(_SCHEMA.read_text(encoding="utf-8"))["properties"]["version"]["default"]
     print(f"wrote {out}  (schema version {version})")
     return 0
 

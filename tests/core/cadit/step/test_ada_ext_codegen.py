@@ -34,12 +34,12 @@ def _load_generator():
 def test_ada_ext_header_matches_schema():
     """The committed header must equal a fresh generation — else it's stale vs the schema."""
     expected = _load_generator().generate(_SCHEMA)
-    actual = _HEADER.read_text()
+    actual = _HEADER.read_text(encoding="utf-8")
     assert actual == expected, "ada_ext_schema.h is stale vs the schema — run `pixi run json-code-gen-cpp`"
 
 
 @pytest.mark.skipif(not _HEADER.exists(), reason="adacpp sibling checkout / generated header absent")
 def test_ada_ext_schema_version_stamped():
     """The schema's version default is stamped into the header (the drift-detection anchor)."""
-    version = json.loads(_SCHEMA.read_text())["properties"]["version"]["default"]
-    assert f'kSchemaVersion = "{version}"' in _HEADER.read_text()
+    version = json.loads(_SCHEMA.read_text(encoding="utf-8"))["properties"]["version"]["default"]
+    assert f'kSchemaVersion = "{version}"' in _HEADER.read_text(encoding="utf-8")
