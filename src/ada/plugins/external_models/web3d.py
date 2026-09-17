@@ -83,6 +83,9 @@ __all__ = [
     "MIRROR_SETTING_KEY",
     "collection_for",
     "model_id_for",
+    "Web3dMirrorCatalog",
+    "provider_from_env",
+    "can_hold_a_mirror",
 ]
 
 #: Per-collection record of what was mirrored and from where. A sidecar rather
@@ -486,6 +489,10 @@ class MirrorCache(Protocol):
         self, collection: str, model_id: str, *, expires_in_seconds: int = 900, content_type: str | None = None
     ) -> str: ...
 
+    #: Optional, and preferred when present: a write from THIS process, with the
+    #: content headers carried alongside the bytes.
+    def put_model(self, collection: str, model_id: str, body: bytes, headers: dict | None = None) -> None: ...
+
     def model_upload_headers(self, collection: str, model_id: str) -> dict[str, str]: ...
 
     def get_sidecar(self, collection: str, filename: str) -> dict: ...
@@ -648,6 +655,22 @@ class Web3dMirror:
             raw = gzip.compress(raw)
         elif gzipped and not wants_gzip:
             raw = gzip.decompress(raw)
+
+        # DIRECT WHERE THE STORE ALLOWS IT. `model_upload_url` signs against the
+        # PUBLIC endpoint -- correct for the browser it was written for, and
+        # inside a container `localhost:3900` is the container, so the PUT comes
+        # back `Connection refused`. That is not a misconfiguration to work
+        # around: a worker holding the credential should not be asking itself
+        # for a signature to use against itself.
+        direct = getattr(self._cache, "put_model", None)
+        if callable(direct):
+            # The headers go WITH the bytes. A direct write is the one path that
+            # does not run through an uploader obeying `model_upload_headers`,
+            # so dropping them here stores gzip with nothing saying so -- which
+            # the viewer reports as `Unexpected token '\x1f' ... is not valid
+            # JSON`, naming neither compression nor the file.
+            direct(collection, entry.model_id, raw, headers)
+            return len(raw)
 
         url = self._cache.model_upload_url(
             collection, entry.model_id, content_type=headers.get("Content-Type")
@@ -831,6 +854,158 @@ def sites_summary(sites: Iterable[Web3dSite]) -> str:
 
 
 # =============================================================================
+# The provider: web3d as an external-model catalogue, served from the cache
+# =============================================================================
+
+
+class Web3dMirrorCatalog:
+    """web3d as an external-model provider, backed by the mirror.
+
+    WHY THIS EXISTS RATHER THAN A DIRECT READER. The browser-side `web3d`
+    provider reads as the SIGNED-IN USER, and refuses when there is no session:
+
+        web3d is read as the signed-in user, and this viewer has no signed-in
+        session
+
+    -- which is every deployment running with auth off, and every scheduled job.
+    The service principal removes the need for a session, but it must not be
+    handed to a browser: a bearer for the storage account is a credential for
+    EVERY project on it, and `model_download_headers` would put it in page
+    JavaScript.
+
+    So the bytes come the long way round and the credential never leaves the
+    worker: LIST from web3d, SERVE from this deployment's own store, and MIRROR
+    on first request. A presigned GET from the viewer's own bucket is a URL that
+    grants one object for fifteen minutes, which is what a browser should be
+    given.
+
+    THE LISTING IS LIVE, NOT THE CACHE'S. A collection lists what web3d
+    publishes, whether or not it has been mirrored yet -- otherwise a fresh
+    deployment shows an empty catalogue and there is no way to ask for anything.
+    `ExternalModel.labelled` is reused to say which entries are already local;
+    `mirror_status` is the detailed answer.
+    """
+
+    def __init__(self, source: "Web3dSource", cache, mirror: "Web3dMirror", projects: list[str]):
+        self._source = source
+        self._cache = cache
+        self._mirror = mirror
+        self._projects = projects
+
+    # --- the three required methods -----------------------------------------
+
+    def list_collections(self) -> list:
+        from ada.plugins.external_models.catalog import Collection
+
+        keys = self._projects or [p["key"] for p in self._source.list_projects()]
+        return [Collection(id=collection_for(k), name=k) for k in sorted(set(keys))]
+
+    def list_models(self, collection: str) -> list:
+        from ada.plugins.external_models.catalog import ExternalModel
+
+        project = self._project_for(collection)
+        cached = {m.id for m in self._cache.list_models(collection)}
+        out = []
+        for site in self._source.list_sites(project):
+            model_id = site.model_id
+            stem = model_id[: -len(".glb")] if model_id.endswith(".glb") else model_id
+            out.append(
+                ExternalModel(
+                    id=stem,
+                    name=f"{site.model_file} / {site.site}",
+                    collection=collection,
+                    key=f"{collection}/{model_id}",
+                    # Reused to mean "already in this deployment's store". A UI
+                    # that renders it as "curated" is not wrong either -- both
+                    # say the entry is more than a filename.
+                    labelled=stem in cached,
+                )
+            )
+        return sorted(out, key=lambda m: m.name)
+
+    def model_download_url(self, collection: str, model_id: str, *, expires_in_seconds: int = 900) -> str:
+        """A presigned GET from the cache, mirroring the model first if it is
+        not there yet.
+
+        ON-DEMAND, and the first open of a 40 MB site therefore takes as long as
+        the transfer. The alternative -- refusing until a scheduled sync has run
+        -- makes a correctly configured deployment look broken for a day.
+        """
+        project = self._project_for(collection)
+        stem = model_id[: -len(".glb")] if model_id.endswith(".glb") else model_id
+        stored = f"{stem}.glb"
+
+        if stem not in {m.id for m in self._cache.list_models(collection)}:
+            report = self._mirror.sync(project, model_id=stored)
+            if stored in report.failed:
+                raise RuntimeError(f"web3d: could not mirror {stored}: {report.failed[stored]}")
+            if stored not in report.transferred:
+                raise KeyError(f"web3d publishes no model {model_id!r} in {collection!r}")
+
+        return self._cache.model_download_url(collection, stem, expires_in_seconds=expires_in_seconds)
+
+    # --- the mirror's own surface, so the admin panel can reach it -----------
+
+    def mirror_status(self, project: str, **kw):
+        return self._mirror.status(project, **kw)
+
+    def mirror_sync(self, project: str, **kw):
+        return self._mirror.sync(project, **kw)
+
+    def _project_for(self, collection: str) -> str:
+        wanted = (collection or "").strip().lower()
+        for key in self._projects or [p["key"] for p in self._source.list_projects()]:
+            if collection_for(key) == wanted:
+                return key
+        # Not a failure to look up: a collection id IS a lower-cased project
+        # key, so the round trip is exact for every project that exists.
+        return collection
+
+
+def can_hold_a_mirror(cache) -> bool:
+    """Can this store accept a mirror? Upload surface plus sidecars, all three.
+
+    Shared with the job layer so the panel's `can_mirror` and this provider's
+    own refusal cannot drift apart.
+    """
+    writable = any(callable(getattr(cache, a, None)) for a in ("put_model", "model_upload_url"))
+    return writable and all(
+        callable(getattr(cache, attr, None))
+        for attr in ("model_upload_headers", "get_sidecar", "put_sidecar")
+    )
+
+
+def provider_from_env():
+    """The `web3d` provider, or a refusal explaining which half is missing.
+
+    Registered as a FACTORY, so nothing here runs until someone actually asks
+    for the provider -- which is what keeps a deployment with no credential from
+    paying for one at import time.
+    """
+    if not mirror_configured():
+        raise ValueError(
+            f"web3d needs the read-only service principal on the storage account "
+            f"({TENANT_VAR}, {CLIENT_ID_VAR}, {CLIENT_SECRET_VAR}). Without it web3d can only be "
+            "read as a signed-in user, which is what the browser-side provider does."
+        )
+
+    from ada.plugins.external_models.catalog import demo_catalog_from_env
+
+    cache = demo_catalog_from_env()
+    if not can_hold_a_mirror(cache):
+        raise ValueError(
+            "web3d serves its models from THIS deployment's own store, and the configured "
+            "external-model catalogue cannot hold them -- it has no upload or sidecar surface. "
+            "Set ADA_EXTERNAL_MODELS_CATALOG=s3 and its bucket: the credential stays in the "
+            "worker and the browser is given a presigned GET, which is the whole point."
+        )
+
+    client = blob_client_from_env()
+    source = Web3dSource(client)
+    return Web3dMirrorCatalog(source, cache, Web3dMirror(source, cache, client=client), configured_projects())
+
+
+# =============================================================================
 # The scheduled half
 # =============================================================================
 
@@ -889,7 +1064,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        mirror = mirror_from_env()
+        from ada.plugins.external_models.catalog import demo_catalog_from_env
+
+        cache = demo_catalog_from_env()
+        if not can_hold_a_mirror(cache):
+            # The stub is the DEFAULT catalogue, so this is the first thing a
+            # freshly configured deployment hits. Saying which setting is
+            # missing beats an AttributeError from inside `status`.
+            logger.error(
+                "the configured external-model catalogue cannot hold a mirror: it has no upload "
+                "or sidecar surface. Set ADA_EXTERNAL_MODELS_CATALOG=s3 and its bucket."
+            )
+            return 2
+        mirror = mirror_from_env(cache)
     except Exception as e:  # noqa: BLE001 - a missing bucket or credential is a 2, not a crash
         logger.error("cannot build the mirror: %s", e)
         return 2

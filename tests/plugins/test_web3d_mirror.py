@@ -63,6 +63,7 @@ class FakeCache:
         self.objects: dict[str, bytes] = {}
         self.sidecars: dict[str, dict] = {}
         self.puts: list[str] = []
+        self.headers: dict[str, dict] = {}
 
     def list_models(self, collection: str):
         class _M:
@@ -81,6 +82,14 @@ class FakeCache:
 
     def model_upload_headers(self, collection, model_id):
         return {"Content-Type": "model/gltf-binary", "Content-Encoding": "gzip"}
+
+    def put_model(self, collection, model_id, body, headers=None):
+        self.objects[f"{collection}/{model_id}"] = body
+        self.puts.append(f"{collection}/{model_id}")
+        # Recorded, because dropping them is the failure this fake exists to
+        # catch: gzip stored with no Content-Encoding reaches the viewer as
+        # `Unexpected token '' ... is not valid JSON`.
+        self.headers[f"{collection}/{model_id}"] = dict(headers or {})
 
     def get_sidecar(self, collection: str, filename: str) -> dict:
         return dict(self.sidecars.get(f"{collection}/{filename}") or {})
@@ -304,6 +313,32 @@ def test_bytes_are_gzipped_on_the_way_in_when_the_cache_asks_for_it(mirror, monk
     # under that header reaches the viewer as a parse error naming neither the
     # compression nor the file.
     assert gzip.decompress(stored) == b"glTF-one"
+
+
+def test_the_content_headers_are_stored_with_the_bytes(mirror, monkeypatch):
+    # THE FAILURE THIS EXISTS FOR. A direct server-side write is the one path
+    # that does not run through an uploader obeying `model_upload_headers`, so
+    # it is the one that can store gzip with nothing saying so. That reaches the
+    # viewer as `Unexpected token '', "..." is not valid JSON`, which names
+    # neither the compression nor the file -- and it happened on the mirror's
+    # first real transfer.
+    m, _, cache = mirror
+    m.sync("ASP")
+    headers = cache.headers["asp/ModelExportMain.rvm~AP400-STRU_MS.glb"]
+    assert headers.get("Content-Encoding") == "gzip"
+    assert headers.get("Content-Type") == "model/gltf-binary"
+
+
+def test_a_direct_write_is_preferred_over_a_presigned_put(mirror, monkeypatch):
+    # `model_upload_url` signs against the PUBLIC endpoint, which inside a
+    # container is the container itself -- the mirror's first transfer came back
+    # `Connection refused`. A cache that can be written directly is.
+    m, _, cache = mirror
+    calls = []
+    cache.model_upload_url = lambda *a, **k: calls.append(a) or "http://unused.invalid"
+    m.sync("ASP")
+    assert calls == [], "the presigned path was not taken"
+    assert cache.puts, "and the direct one was"
 
 
 # ---------------------------------------------------------------------------

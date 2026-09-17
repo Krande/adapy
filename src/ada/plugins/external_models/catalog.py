@@ -154,6 +154,15 @@ class ExternalModelCatalog(Protocol):
     #
     # ALSO OPTIONAL, same convention:
     #
+    #   put_model(collection, model_id, body, headers=None) -> None
+    #
+    # A catalogue that can be filled by the WORKER rather than by the browser.
+    # `model_upload_url` is not a substitute: it signs against the public
+    # endpoint, which is the right host for a browser and the wrong one for a
+    # process inside the cluster.
+    #
+    # ALSO OPTIONAL, same convention:
+    #
     #   get_sidecar(collection, filename) -> dict
     #   put_sidecar(collection, filename, data) -> None
     #
@@ -481,6 +490,45 @@ class S3ExternalModelCatalog:
         _, _, ext = model_id.rpartition(".")
         content_type = "model/gltf+json" if ext.lower() == "gltf" else "model/gltf-binary"
         return {"Content-Type": content_type, "Content-Encoding": "gzip"}
+
+    def put_model(self, collection: str, model_id: str, body: bytes, headers: dict | None = None) -> None:
+        """Write one model from THIS process, against the internal endpoint.
+
+        WHY NOT JUST PRESIGN AND PUT. `model_upload_url` signs against the
+        PUBLIC endpoint, because the browser is the uploader it exists for and a
+        signature covers the host. A worker filling its own bucket is not the
+        browser: inside a container `localhost:3900` is the container, and the
+        PUT comes back `Connection refused` -- which is exactly what the web3d
+        mirror hit on its first real transfer.
+
+        It is also a pointless round trip. The worker already holds the
+        credential the URL would be signed with, so it writes directly.
+
+        `headers` DEFAULTS TO `model_upload_headers` AND MUST NOT BE DROPPED.
+        Writing the bytes without them is the one failure this class already
+        warns about twice: a gzipped body stored with no `Content-Encoding`
+        reaches the viewer as gzip where it expects glTF, and surfaces as
+
+            Unexpected token '\x1f', "\x1f\x8b..." is not valid JSON
+
+        naming neither compression nor the file. It has been found in exactly
+        that state before, one object among forty -- and the first pass of the
+        web3d mirror put it there again, because a direct write is the one path
+        that does not go through an uploader obeying those headers.
+
+        Presence of this method is how a catalogue declares it can be filled
+        server-side, the same convention upload and revisions already use.
+        """
+        import obstore as obs
+
+        if headers is None:
+            headers = self.model_upload_headers(collection, model_id)
+        obs.put(
+            self._store,
+            self._upload_key(collection, model_id),
+            body,
+            attributes=dict(headers or {}),
+        )
 
     def _upload_key(self, collection: str, model_id: str) -> str:
         """`collection/model_id.glb`, or a refusal naming what was wrong.

@@ -222,10 +222,20 @@ def test_importing_the_package_does_not_auto_register():
 # --- the provider registry (the wrapper half) -------------------------------
 
 
-def test_register_installs_the_demo_provider():
+def test_register_installs_the_builtin_providers():
     register()
-    assert [p["id"] for p in external_model_providers()] == [DEMO_PROVIDER_ID]
+    assert [p["id"] for p in external_model_providers()] == [DEMO_PROVIDER_ID, "web3d"]
     assert isinstance(get_external_model_provider(DEMO_PROVIDER_ID), StubExternalModelCatalog)
+
+
+def test_web3d_is_registered_even_with_no_credential_and_says_what_is_missing():
+    # REGISTERED UNCONDITIONALLY, and the FACTORY is what refuses. A provider
+    # that vanishes when a credential is absent leaves an admin panel with no
+    # web3d in it and nothing saying why; one that appears and names the
+    # variable can be fixed.
+    register()
+    with pytest.raises(ValueError, match="ASA_WEB3D_RO_ST"):
+        get_external_model_provider("web3d")
 
 
 def test_unknown_provider_error_names_what_is_registered():
@@ -274,7 +284,7 @@ def test_a_third_party_provider_registers_exactly_like_the_builtin():
 
     register()
     register_external_model_provider("third-party", _ThirdPartyCatalog, label="Third party")
-    assert {p["id"] for p in external_model_providers()} == {DEMO_PROVIDER_ID, "third-party"}
+    assert {p["id"] for p in external_model_providers()} == {DEMO_PROVIDER_ID, "web3d", "third-party"}
 
     # The same call shape serves both — the consumer only varies the id.
     for pid, expected in ((DEMO_PROVIDER_ID, "demo"), ("third-party", "alpha")):
@@ -286,7 +296,13 @@ def test_a_third_party_provider_registers_exactly_like_the_builtin():
 def test_run_job_lists_providers():
     register()
     out = run_job({"action": "list_providers"})
-    assert out["providers"] == [{"id": "demo", "label": "Demo (object store)"}]
+    assert out["providers"] == [
+        {"id": "demo", "label": "Demo (object store)"},
+        # The label says how it reads web3d, because the OTHER web3d provider --
+        # the browser-side one -- reads as the signed-in user and the difference
+        # is the whole reason both exist.
+        {"id": "web3d", "label": "web3d (service principal)"},
+    ]
 
 
 def test_run_job_defaults_to_the_demo_provider():

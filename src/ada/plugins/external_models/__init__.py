@@ -51,6 +51,8 @@ __all__ = [
     "DEMO_PROVIDER_ID",
     "register",
     "register_demo_provider",
+    "register_web3d_provider",
+    "WEB3D_PROVIDER_ID",
     # the API
     "register_external_model_provider",
     "unregister_external_model_provider",
@@ -87,6 +89,35 @@ def register_demo_provider() -> None:
     )
 
 
+#: The web3d provider's id. The BROWSER-SIDE plugin registers the same one, and
+#: a browser-side client wins a shared id by design -- it normally has an
+#: identity the worker cannot obtain. That preference is exactly wrong when it
+#: has no session to read as, which is every deployment running with auth off:
+#: it claims the id and then refuses every call with "web3d is read as the
+#: signed-in user, and this viewer has no signed-in session". The frontend now
+#: declines to register when auth is disabled, which leaves this one holding the
+#: id and serving from the mirror.
+WEB3D_PROVIDER_ID = "web3d"
+
+
+def register_web3d_provider() -> None:
+    """Register the worker-side ``web3d`` provider.
+
+    Registered UNCONDITIONALLY, and the factory is what refuses. A provider that
+    vanishes when a credential is missing is a deployment where the admin panel
+    shows no web3d at all and nothing says why; one that appears and explains
+    which environment variable is absent can be fixed. Registration takes a
+    factory precisely so nothing is built until someone asks.
+    """
+    from ada.plugins.external_models.web3d import provider_from_env
+
+    register_external_model_provider(
+        WEB3D_PROVIDER_ID,
+        provider_from_env,
+        label="web3d (service principal)",
+    )
+
+
 def register() -> None:
     """Register the backend plugin spec and the built-in ``demo`` provider.
 
@@ -103,3 +134,4 @@ def register() -> None:
         job_entrypoint="ada.plugins.external_models.adapy_plugin:run_job",
     )
     register_demo_provider()
+    register_web3d_provider()

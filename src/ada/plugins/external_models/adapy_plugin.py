@@ -75,10 +75,11 @@ def _can_mirror(cat: ExternalModelCatalog) -> bool:
     web3d is `mirror_status`'s business; this is only about whether the
     destination can accept a mirror at all.
     """
-    return all(
-        callable(getattr(cat, attr, None))
-        for attr in ("model_upload_url", "model_upload_headers", "get_sidecar", "put_sidecar")
-    )
+    from ada.plugins.external_models.web3d import can_hold_a_mirror
+
+    # One definition, shared with the provider and the CLI, so the panel's
+    # `can_mirror` and the thing that actually refuses cannot drift apart.
+    return can_hold_a_mirror(cat)
 
 
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
