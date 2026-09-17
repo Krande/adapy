@@ -56,7 +56,13 @@ const ExternalModelsPanel: React.FC = () => {
     // project, which is hundreds of near-identical names. Scrolling that is not
     // a way to find anything, so the filter is not a refinement of the list --
     // it is how the list is used.
-    const shown = useMemo(() => fuzzyFilter(models, query, (m) => m.name), [models, query]);
+    // FILTERED ON BOTH. Moving the model file out of the name would otherwise
+    // make it unsearchable, and "TempSteel" is a perfectly reasonable thing to
+    // type when looking for the temporary-steel export of a site.
+    const shown = useMemo(
+        () => fuzzyFilter(models, query, (m) => (m.description ? `${m.name} ${m.description}` : m.name)),
+        [models, query],
+    );
 
     useEffect(() => {
         if (!visible) return;
@@ -269,7 +275,19 @@ const ExternalModelsPanel: React.FC = () => {
                     const isLoaded = loaded.has(m.id);
                     return (
                         <li key={m.id} className="flex items-center gap-2 px-3 py-2 border-t border-gray-800">
-                            <span className="flex-1 truncate text-sm text-gray-100" title={m.name}>{m.name}</span>
+                            {/* The description is the hover, not the label: a
+                                provider puts the part that does not fit there
+                                -- for web3d, the RVM export the site came from,
+                                which is the same string on nearly every row.
+                                Falls back to the name so a provider that sets
+                                no description still gets a tooltip for a
+                                truncated one. */}
+                            <span
+                                className="flex-1 truncate text-sm text-gray-100"
+                                title={m.description ? `${m.name}\n${m.description}` : m.name}
+                            >
+                                {m.name}
+                            </span>
                             <button
                                 type="button"
                                 className="text-xs px-2 py-1 rounded-sm border border-gray-700 text-gray-200 hover:bg-gray-800 disabled:opacity-50"

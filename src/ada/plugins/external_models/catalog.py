@@ -78,6 +78,18 @@ class ExternalModel:
     # derived, and lets a scan job find what is still unlabelled.
     labelled: bool = False
 
+    # The part of a model's identity that is NOT worth a row's width.
+    #
+    # A catalogue often knows more than fits: web3d names a model by its SITE,
+    # which is what anyone looks for, and by the RVM export it came from, which
+    # is the same string on almost every row and pushes the site name out of a
+    # truncating cell. Putting it here lets a UI show the name and offer the
+    # rest on hover.
+    #
+    # It is NOT a second name. A consumer that shows only this shows nothing
+    # identifying, and one that shows neither still has `name`.
+    description: str | None = None
+
 
 @dataclass(frozen=True)
 class ModelRevision:

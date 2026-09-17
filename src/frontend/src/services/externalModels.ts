@@ -88,6 +88,19 @@ export {
 /** The plugin id core's built-in external-model backend registers under. */
 export const EXTERNAL_MODELS_PLUGIN_ID = "external-models";
 
+/** The provider that mirrors web3d into this deployment's own store.
+ *
+ *  NAMED, and this is the one place a provider id is hardcoded on purpose. The
+ *  rule everywhere else -- list providers, pass the chosen id, never assume one
+ *  exists -- is about the external-model FEATURE, which must keep working when
+ *  a deployment swaps catalogues. The web3d cache admin panel is not that: it
+ *  administers one specific mirror, says so in its heading, and has nothing to
+ *  offer for a provider that is not it.
+ *
+ *  It is matched against the registered ids rather than assumed, so a
+ *  deployment without it simply gets no panel. */
+export const WEB3D_PROVIDER_ID = "web3d";
+
 interface JobOptions {
   action: string;
   provider?: string;

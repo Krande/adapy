@@ -441,6 +441,24 @@ def test_a_project_not_chosen_is_offered_unticked(mirror):
     assert [p["selected"] for p in provider.upstream_projects()] == [False]
 
 
+def test_a_model_is_named_for_its_site_with_the_export_on_the_side(mirror):
+    # The row is what someone looks for; the RVM export is the same string on
+    # nearly every row and belongs in the hover. Two exports can publish the
+    # SAME site, so the names collide on screen -- the id carries both and the
+    # description is what tells them apart.
+    m, _, cache = mirror
+    provider = web3d.Web3dMirrorCatalog(m._source, cache, m, ["ASP"])
+    models = provider.list_models("asp")
+
+    names = [x.name for x in models]
+    assert "/AP400-STRU_MS" in names
+    assert not any("rvm" in n for n in names), "the export is not in the row"
+
+    one = next(x for x in models if x.name == "/AP400-STRU_MS")
+    assert "ModelExportMain.rvm" in (one.description or "")
+    assert one.id == "ModelExportMain.rvm~AP400-STRU_MS", "the id still carries both"
+
+
 def test_can_mirror_needs_every_piece_of_the_surface():
     from ada.plugins.external_models.adapy_plugin import _can_mirror
 

@@ -4,6 +4,7 @@ import {AdminProject, viewerApi} from "@/services/viewerApi";
 import {
     ExternalCollection,
     ExternalModelProvider,
+    WEB3D_PROVIDER_ID,
     catalogueNonce,
     listCollections,
     listProviders,
@@ -255,13 +256,23 @@ const ExternalModelsTab: React.FC = () => {
         },
     ];
 
-    // WHICH PROVIDER HOLDS THE CACHE. The one `shared` is bound to, because that
-    // is the scope a deployment-wide catalogue is bound to and the one the
-    // mirror fills; failing that, the first registered provider, so the panel
-    // still appears on a deployment that has not bound anything yet and can say
-    // why it cannot mirror. It is never guessed to be a browser-side provider:
-    // the mirror runs in the worker by construction.
-    const mirrorProvider = bindingFor(map, CATALOGUE_SCOPE)?.provider ?? providers[0]?.id ?? "";
+    // WHICH PROVIDER HOLDS THE CACHE: the web3d one, by name.
+    //
+    // It used to be "whatever `shared` is bound to, else the first registered",
+    // which is wrong in the ordinary case. A deployment binds `shared` to its
+    // OBJECT STORE -- that is the point of the binding -- and the panel then
+    // asked the object store which web3d projects it could mirror, getting
+    //
+    //     provider 'object-store' does not know what it could mirror; only a
+    //     provider backed by an upstream catalogue can answer that
+    //
+    // which is the backend correctly refusing a question meant for someone
+    // else. Being bound is not the same property as owning an upstream mirror,
+    // and only the second one matters here.
+    //
+    // Matched against the registered ids, so a deployment without the provider
+    // gets no panel rather than a panel full of refusals.
+    const mirrorProvider = providers.find((p) => p.id === WEB3D_PROVIDER_ID)?.id ?? "";
 
     if (loading) {
         return <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>;

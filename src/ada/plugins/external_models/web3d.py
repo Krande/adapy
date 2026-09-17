@@ -940,7 +940,18 @@ class Web3dMirrorCatalog:
             out.append(
                 ExternalModel(
                     id=stem,
-                    name=f"{site.model_file} / {site.site}",
+                    # THE SITE ALONE. It used to be "<model file> / <site>",
+                    # which reads well in web3d's own UI and badly in a narrow
+                    # list: `ModelExportMain.rvm / ` is the same 20 characters
+                    # on nearly every row, and it is the SITE that is being
+                    # looked for. The model file moves to the description,
+                    # where a hover finds it.
+                    #
+                    # Two model files can publish the same site, so these names
+                    # can collide on screen. The `id` does not -- it carries
+                    # both -- and the description is what tells them apart.
+                    name=site.site,
+                    description=f"{site.model_file} · {site.project}",
                     collection=collection,
                     key=f"{collection}/{model_id}",
                     # Reused to mean "already in this deployment's store". A UI
