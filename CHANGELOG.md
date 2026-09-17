@@ -2,6 +2,15 @@
 
 
 
+## v0.73.0 (2026-09-17)
+
+### Feature
+
+* feat(sesam): write shell-to-solid coupling as BLDEP (#360)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`664f241`](https://github.com/Krande/adapy/commit/664f24136c3d5b0e5558c6b3d6e4a33d165afd57))
+
+
 ## v0.72.0 (2026-09-17)
 
 ### Feature
