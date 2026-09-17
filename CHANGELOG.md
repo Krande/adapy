@@ -2,6 +2,15 @@
 
 
 
+## v0.74.0 (2026-09-17)
+
+### Feature
+
+* feat(viewer): show FEM constraints in the Scene &gt; FEM tab (#361)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`2e80bb0`](https://github.com/Krande/adapy/commit/2e80bb01fb16635fec66cf49b3918701380d9536))
+
+
 ## v0.73.0 (2026-09-17)
 
 ### Feature
