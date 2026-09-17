@@ -5,13 +5,15 @@ import { bindingFor, boundCollectionOption } from "../../services/externalModels
 
 test("bindingFor resolves provider:collection", () => {
   const b = bindingFor({ "project:1": "vendor:alpha" }, "project:1");
-  assert.deepEqual(b, { provider: "vendor", collection: "alpha" });
+  // `hide` is [] rather than absent: a binding always answers whether it
+  // filters, so no caller has to decide what `undefined` means.
+  assert.deepEqual(b, { provider: "vendor", collection: "alpha", hide: [] });
 });
 
 test("bindingFor treats a bare value as a collection on the default provider", () => {
   // The shape a single-provider deployment naturally writes.
   const b = bindingFor({ shared: "alpha" }, "shared");
-  assert.deepEqual(b, { provider: "demo", collection: "alpha" });
+  assert.deepEqual(b, { provider: "demo", collection: "alpha", hide: [] });
 });
 
 test("bindingFor returns null for an unbound scope", () => {
@@ -27,7 +29,7 @@ test("bindingFor rejects a half-written binding rather than guessing", () => {
 test("bindingFor keeps colons inside the collection name", () => {
   // Only the FIRST colon separates; a collection may contain one.
   const b = bindingFor({ shared: "vendor:a:b" }, "shared");
-  assert.deepEqual(b, { provider: "vendor", collection: "a:b" });
+  assert.deepEqual(b, { provider: "vendor", collection: "a:b", hide: [] });
 });
 
 // boundCollectionOption — a bound <select> must render its own value.

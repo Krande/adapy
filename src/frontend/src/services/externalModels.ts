@@ -43,7 +43,12 @@ import {
   bindingFor,
   EXTERNAL_MODELS_BINDING_KEY,
   parseBindingMap,
+  type ExternalModelBinding,
   type ExternalModelBindingMap,
+  isHidden,
+  matchesGlob,
+  serialiseBinding,
+  type StoredBinding,
 } from "./externalModelsBinding";
 import { viewerApi, type ScopeUrl } from "./viewerApi";
 import {
@@ -61,8 +66,13 @@ import type {
 export {
   bindingFor,
   EXTERNAL_MODELS_BINDING_KEY,
+  isHidden,
+  matchesGlob,
   parseBindingMap,
+  serialiseBinding,
+  type ExternalModelBinding,
   type ExternalModelBindingMap,
+  type StoredBinding,
 };
 
 // The vocabulary and the browser-side registry both live in leaf modules (see

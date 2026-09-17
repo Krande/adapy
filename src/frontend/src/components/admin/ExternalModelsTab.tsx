@@ -15,7 +15,11 @@ import {
     boundCollectionOption,
     parseBindingMap,
     EXTERNAL_MODELS_BINDING_KEY,
+    isHidden,
+    serialiseBinding,
 } from "@/services/externalModelsBinding";
+import type {ExternalModel} from "@/services/externalModels";
+import {listModels} from "@/services/externalModels";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import Web3dMirrorPanel from "@/components/admin/Web3dMirrorPanel";
 
@@ -57,6 +61,15 @@ const ExternalModelsTab: React.FC = () => {
     // would write an incomplete binding, which `setBinding` correctly treats as
     // "unbind", so the control snapped straight back to none.
     const [pendingProvider, setPendingProvider] = useState<Record<string, string>>({});
+    // The scope whose model filter is being edited, and the draft text. One at a
+    // time: the editor carries a live preview, and previewing several at once
+    // would mean holding several collections' model lists.
+    const [hideScope, setHideScope] = useState<string | null>(null);
+    const [hideDraft, setHideDraft] = useState("");
+    // The bound collection's models, for that preview. Fetched when the editor
+    // opens, because a filter whose effect nobody can see is exactly the
+    // fragile thing it is meant to replace.
+    const [hidePreview, setHidePreview] = useState<ExternalModel[] | null>(null);
     // Cache-busting token, refreshed on mount and on demand. Without it the
     // catalogue reads cache-hit forever and this tab cannot show a deployment
     // whose provider configuration changed after the first ever read.
@@ -148,6 +161,52 @@ const ExternalModelsTab: React.FC = () => {
         await viewerApi.adminSetSetting(EXTERNAL_MODELS_BINDING_KEY, JSON.stringify(next));
         setMap(next);
     }, []);
+
+    const openHideEditor = useCallback(
+        async (scope: string) => {
+            const bound = bindingFor(map, scope);
+            if (!bound) return;
+            setHideScope(scope);
+            setHideDraft(bound.hide.join(", "));
+            setHidePreview(null);
+            try {
+                setHidePreview(
+                    await listModels(bound.provider, bound.collection, CATALOGUE_SCOPE, {
+                        refresh: catalogueNonce(),
+                    }),
+                );
+            } catch {
+                // A preview that cannot be fetched is no reason to refuse the
+                // edit: the patterns are still valid, they just cannot be
+                // counted here. [] renders as "cannot preview".
+                setHidePreview([]);
+            }
+        },
+        [map],
+    );
+
+    const saveHide = useCallback(
+        async (scope: string, patterns: string[]) => {
+            const bound = bindingFor(map, scope);
+            if (!bound) return;
+            setBusy(scope);
+            setError(null);
+            try {
+                const next = {...map};
+                next[scope] = serialiseBinding({
+                    provider: bound.provider,
+                    collection: bound.collection,
+                    hide: patterns,
+                });
+                await persist(next);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setBusy(null);
+            }
+        },
+        [map, persist],
+    );
 
     const setBinding = useCallback(
         async (scope: string, provider: string, collection: string) => {
@@ -251,6 +310,112 @@ const ExternalModelsTab: React.FC = () => {
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
+                );
+            },
+        },
+        {
+            key: "hide",
+            header: "Hidden models",
+            cellClassName: "px-3 py-2 align-top",
+            cell: (row) => {
+                const bound = bindingFor(map, row.scope);
+                if (!bound) return <span className="text-xs text-gray-600">—</span>;
+                return (
+                    <div className="space-y-1">
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
+                            disabled={busy === row.scope}
+                            onClick={() => {
+                                if (hideScope === row.scope) {
+                                    setHideScope(null);
+                                } else {
+                                    void openHideEditor(row.scope);
+                                }
+                            }}
+                        >
+                            {bound.hide.length === 0
+                                ? "None hidden"
+                                : `${bound.hide.length} pattern${bound.hide.length === 1 ? "" : "s"}`}
+                        </button>
+                        {hideScope === row.scope && (
+                            <div className="space-y-1">
+                                {/* FREE TEXT, deliberately, and previewed for the
+                                    same reason. A pattern is not something that
+                                    can be ticked from a list -- the whole value
+                                    is matching a family of names at once -- but
+                                    an unchecked pattern is a guess. The count
+                                    below turns a typo into something visible
+                                    instead of a scope that silently shows
+                                    everything. */}
+                                <input
+                                    className="w-full text-xs bg-gray-900 border border-gray-700 rounded-sm px-2 py-1"
+                                    placeholder="TempSteel, *_VAT, *Volumes.rvm*"
+                                    value={hideDraft}
+                                    onChange={(e) => setHideDraft(e.target.value)}
+                                />
+                                {(() => {
+                                    const patterns = hideDraft
+                                        .split(",")
+                                        .map((p: string) => p.trim())
+                                        .filter(Boolean);
+                                    if (hidePreview === null) {
+                                        return (
+                                            <div className="text-[11px] text-gray-500">
+                                                Reading the collection…
+                                            </div>
+                                        );
+                                    }
+                                    if (hidePreview.length === 0) {
+                                        return (
+                                            <div className="text-[11px] text-gray-500">
+                                                Cannot preview this collection; the patterns still apply.
+                                            </div>
+                                        );
+                                    }
+                                    const hit = hidePreview.filter((m) => isHidden(m, patterns));
+                                    return (
+                                        <div className="text-[11px] text-gray-500">
+                                            hides {hit.length} of {hidePreview.length}
+                                            {hit.length > 0 && (
+                                                <span className="text-gray-600">
+                                                    {" — "}
+                                                    {hit.slice(0, 3).map((m) => m.name).join(", ")}
+                                                    {hit.length > 3 ? `, +${hit.length - 3}` : ""}
+                                                </span>
+                                            )}
+                                            {patterns.length > 0 && hit.length === 0 && (
+                                                <span className="text-amber-300"> — matches nothing</span>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                                <div className="flex gap-1">
+                                    <button
+                                        type="button"
+                                        className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
+                                        disabled={busy === row.scope}
+                                        onClick={() => {
+                                            void saveHide(
+                                                row.scope,
+                                                hideDraft.split(",").map((p: string) => p.trim()).filter(Boolean),
+                                            );
+                                            setHideScope(null);
+                                        }}
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
+                                        onClick={() => setHideScope(null)}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 );
             },
         },
