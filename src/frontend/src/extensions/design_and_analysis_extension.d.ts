@@ -245,6 +245,10 @@ export interface FemConcepts {
    */
   bcs?: BcGlyph[];
   /**
+   * Constraints (coupling, tie, rigid body, mpc, shell-to-solid): the master and slave node positions each one ties together.
+   */
+  constraints?: ConstraintGlyph[];
+  /**
    * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
    */
   scenarios?: LoadScenario[];
@@ -279,6 +283,37 @@ export interface BcGlyph {
    * Boundary condition type (e.g. displacement).
    */
   bc_type?: string;
+  [k: string]: unknown;
+}
+export interface ConstraintGlyph {
+  /**
+   * Constraint name.
+   */
+  name?: string;
+  /**
+   * Constraint type (coupling, tie, rigid body, mpc, shell2solid).
+   */
+  constraint_type?: string;
+  /**
+   * Positions of the independent (master) nodes.
+   */
+  master_positions: Vec31[];
+  /**
+   * Positions of the dependent (slave) nodes.
+   */
+  slave_positions: Vec31[];
+  /**
+   * Constrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).
+   */
+  dofs?: number[];
+  /**
+   * Influence distance, where the source defined one.
+   */
+  influence_distance?: number;
+  /**
+   * Position tolerance, where the source defined one.
+   */
+  position_tolerance?: number;
   [k: string]: unknown;
 }
 export interface LoadScenario {
@@ -485,6 +520,10 @@ export interface FemConcepts1 {
    * Boundary conditions: a set of restrained node positions and which dofs are fixed.
    */
   bcs?: BcGlyph[];
+  /**
+   * Constraints (coupling, tie, rigid body, mpc, shell-to-solid): the master and slave node positions each one ties together.
+   */
+  constraints?: ConstraintGlyph[];
   /**
    * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
    */

@@ -1,5 +1,5 @@
 """Shared builders turning adapy's in-memory FEA *input* concepts —
-point masses, boundary conditions, and concept loads — into the
+point masses, boundary conditions, constraints, and concept loads — into the
 ``fem_concepts`` glTF-extension payload the viewer's FEM mode renders.
 
 Three producers share this so they emit byte-identical concepts:
@@ -7,7 +7,7 @@ Three producers share this so they emit byte-identical concepts:
 * :mod:`ada.visit.scene_handling.scene_from_part` — masses + load
   scenarios on the *design* extension of a CAD/FEM GLB.
 * :mod:`ada.visit.scene_handling.scene_from_fem` — boundary conditions
-  on the *simulation* extension.
+  and constraints on the *simulation* extension.
 * the Code Aster ``<name>.adapy_fem.json`` sidecar (write side) — the
   full bundle, so the streaming FEA-result bake can carry the concepts
   into the result GLB's manifest. A ``.rmed`` is a *result* file and
@@ -20,8 +20,20 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from ada.config import logger
+
 if TYPE_CHECKING:
     from ada import FEM
+
+
+def _opt_float(v):
+    """float(v), or None when the source left the field unset / unparseable."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _norm_mag(v):
@@ -168,6 +180,47 @@ def build_bc_glyphs(fem: "FEM"):
     return bcs
 
 
+def build_constraint_glyphs(fem: "FEM"):
+    """One ConstraintGlyph per constraint, carrying the master and slave node
+    positions so the viewer can draw the two sides in different colours.
+
+    A constraint's sides are ``FemSet`` or ``Surface``, and a surface may name its
+    region through a set, a list of sets, or ``id_refs`` -- ``surface_nodes``
+    flattens all of those to nodes, so this doesn't have to care which it got.
+    """
+    from ada.extension import fem_concepts_schema as fem_ext
+    from ada.fem.surfaces import surface_nodes
+
+    def positions(region):
+        if region is None:
+            return []
+        try:
+            return [[float(n.p[0]), float(n.p[1]), float(n.p[2])] for n in surface_nodes(region)]
+        except Exception as e:
+            # A region naming a set the FEM can't resolve shouldn't cost the viewer
+            # every other constraint.
+            logger.debug(e)
+            return []
+
+    constraints = []
+    for c in (getattr(fem, "constraints", None) or {}).values():
+        masters, slaves = positions(c.m_set), positions(c.s_set)
+        if not masters and not slaves:
+            continue
+        constraints.append(
+            fem_ext.ConstraintGlyph(
+                name=c.name,
+                constraint_type=str(getattr(c, "type", "") or "") or None,
+                master_positions=masters,
+                slave_positions=slaves,
+                dofs=[int(d) for d in (c.dofs or []) if d is not None] or None,
+                influence_distance=_opt_float(getattr(c, "influence_distance", None)),
+                position_tolerance=_opt_float(getattr(c, "pos_tol", None)),
+            )
+        )
+    return constraints
+
+
 def build_design_fem_concepts(part_or_assembly):
     """Design-side bundle: masses + load scenarios. None when empty.
 
@@ -183,13 +236,14 @@ def build_design_fem_concepts(part_or_assembly):
 
 
 def build_sim_fem_concepts(fem: "FEM"):
-    """Simulation-side bundle: boundary conditions. None when empty."""
+    """Simulation-side bundle: boundary conditions and constraints. None when empty."""
     from ada.extension import fem_concepts_schema as fem_ext
 
     bcs = build_bc_glyphs(fem)
-    if not bcs:
+    constraints = build_constraint_glyphs(fem)
+    if not bcs and not constraints:
         return None
-    return fem_ext.FemConcepts(bcs=bcs)
+    return fem_ext.FemConcepts(bcs=bcs or None, constraints=constraints or None)
 
 
 def _iter_fems(assembly):
@@ -217,13 +271,16 @@ def build_combined_fem_concepts(assembly):
     masses = build_mass_glyphs(assembly)
     scenarios = build_load_scenarios(assembly)
     bcs = []
+    constraints = []
     for fem in _iter_fems(assembly):
         bcs.extend(build_bc_glyphs(fem))
+        constraints.extend(build_constraint_glyphs(fem))
 
-    if not masses and not scenarios and not bcs:
+    if not masses and not scenarios and not bcs and not constraints:
         return None
     return fem_ext.FemConcepts(
         masses=masses or None,
         bcs=bcs or None,
+        constraints=constraints or None,
         scenarios=scenarios or None,
     )

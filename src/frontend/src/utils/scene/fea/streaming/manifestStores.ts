@@ -78,7 +78,7 @@ export async function registerManifestStores(args: {
         }
     }
 
-    // FEA input concepts (masses / BCs / load scenarios) carried
+    // FEA input concepts (masses / BCs / constraints / load scenarios) carried
     // from adapy's deck-write sidecar through the manifest. A baked
     // FEA-result GLB is geometry-only (no ADA_EXT extension), so
     // FemConceptsController's adaExtension parse finds nothing
@@ -93,6 +93,7 @@ export async function registerManifestStores(args: {
         useFemConceptsStore.getState().setData({
             masses: fc.masses ?? [],
             bcs: fc.bcs ?? [],
+            constraints: fc.constraints ?? [],
             scenarios: fc.scenarios ?? [],
         });
     }
