@@ -74,13 +74,13 @@ const SceneInfoBox = () => {
     const setShow = useSceneInfoStore((s) => s.setShowSceneInfoBox);
 
     // FEM is a contextual tab. It appears when the loaded model carries FE
-    // concepts (masses / boundary conditions / load cases) OR whenever an FEA
+    // concepts (masses / boundary conditions / constraints / load cases) OR whenever an FEA
     // result session is active — any FEA result file (e.g. a Sesam SIN) streams
     // through the FEA path and enables the panel's mesh tools ("Beams as solid",
     // scenario selector) even when the result carries no baked concepts, so the
     // tab shouldn't be limited to concept-carrying models.
     const femHasConcepts = useFemConceptsStore(
-        (s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0,
+        (s) => s.masses.length > 0 || s.bcs.length > 0 || s.constraints.length > 0 || s.scenarios.length > 0,
     );
     const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
     const femTabAvailable = femHasConcepts || feaSessionActive;

@@ -90,7 +90,9 @@ def _shell2solid_fem():
     face = fem.add_set(ada.fem.FemSet("face", solid_nodes, "nset"))
     m = Surface("edge_surf", Surface.TYPES.NODE, edge, parent=fem)
     s = Surface("face_surf", Surface.TYPES.NODE, face, parent=fem)
-    return fem, Constraint("s2s", Constraint.TYPES.SHELL2SOLID, m, s, parent=fem)
+    constraint = Constraint("s2s", Constraint.TYPES.SHELL2SOLID, m, s, parent=fem)
+    fem.add_constraint(constraint)
+    return fem, constraint
 
 
 def test_shell2solid_writes_one_bldep_per_solid_node():

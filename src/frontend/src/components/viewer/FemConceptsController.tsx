@@ -7,12 +7,18 @@ import {requestRender} from "@/state/perfStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import {clipWithModel} from "@/utils/scene/section_clipping";
-import type {MassGlyph, BcGlyph, LoadScenario} from "@/extensions/design_and_analysis_extension";
+import type {
+    MassGlyph,
+    BcGlyph,
+    ConstraintGlyph,
+    LoadScenario,
+    Vec31,
+} from "@/extensions/design_and_analysis_extension";
 
 // Headless: reconciles the FEM-concepts store with three.js, drawing a glyph
-// overlay (masses, and — later phases — boundary conditions + the selected load
-// scenario's arrows) into a layer-1 group. Renders nothing itself. Mirrors
-// SectionPlanesController.
+// overlay (masses, boundary conditions, the selected constraint's master/slave
+// nodes, and the selected load scenario's arrows) into a layer-1 group. Renders
+// nothing itself. Mirrors SectionPlanesController.
 const FemConceptsController: React.FC = () => {
     // This viewer instance's handles, for the parts of the file that are inside
     // React. The module-level scene code below has no tree to read a context
@@ -49,9 +55,15 @@ const FemConceptsController: React.FC = () => {
 // The runtime adaExtension is only consulted while something is loaded (the
 // streaming/replace path) — it still holds the LAST model's data after an
 // unload, which used to leave dead masses/BCs/loads in the overlay.
-function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: LoadScenario[]} {
+function parseExtension(): {
+    masses: MassGlyph[];
+    bcs: BcGlyph[];
+    constraints: ConstraintGlyph[];
+    scenarios: LoadScenario[];
+} {
     const masses: MassGlyph[] = [];
     const bcs: BcGlyph[] = [];
+    const constraints: ConstraintGlyph[] = [];
     const scenarios: LoadScenario[] = [];
 
     const ingest = (ext: any) => {
@@ -62,6 +74,7 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
             if (!fc) continue;
             if (fc.masses) masses.push(...fc.masses);
             if (fc.bcs) bcs.push(...fc.bcs);
+            if (fc.constraints) constraints.push(...fc.constraints);
             if (fc.scenarios) scenarios.push(...fc.scenarios);
         }
     };
@@ -81,12 +94,15 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
     if (!foundPerSource && loadedNames.size > 0) {
         ingest(getViewerRuntime().adaExtension.current as any);
     }
-    return {masses, bcs, scenarios};
+    return {masses, bcs, constraints, scenarios};
 }
 
 const MASS_COLOR = 0xffb300; // amber
 const BC_COLOR = 0xff3b30; // red — restrained nodes
 const LOAD_COLOR = 0x2ecc71; // green — applied loads
+const MASTER_COLOR = 0x00b0ff; // blue — independent (master) nodes of a constraint
+const SLAVE_COLOR = 0xd500f9; // magenta — dependent (slave) nodes
+// The swatches in FemConceptsPanel's constraint info panel mirror these two.
 
 function init(scene: THREE.Scene): () => void {
     const container = new THREE.Group();
@@ -233,6 +249,39 @@ function init(scene: THREE.Scene): () => void {
         }
     };
 
+    // The selected constraint's two sides, drawn as instanced glyphs in different
+    // colours: masters as larger spheres (there are usually far fewer of them, and
+    // they're the side that drives the relation), slaves as smaller boxes. Instanced
+    // because a constraint over an interface can carry thousands of nodes.
+    const addConstraintSide = (pts: Vec31[], color: number, radius: number, master: boolean, name?: string) => {
+        if (!pts.length) return;
+        const geo = master
+            ? new THREE.SphereGeometry(radius, 10, 8)
+            : new THREE.BoxGeometry(radius * 1.5, radius * 1.5, radius * 1.5);
+        const mat = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.9,
+            depthTest: false, // always visible, even inside the structure
+        });
+        const inst = new THREE.InstancedMesh(geo, mat, pts.length);
+        inst.renderOrder = 9993;
+        inst.layers.set(1); // non-pickable overlay
+        const m = new THREE.Matrix4();
+        pts.forEach((p, i) => {
+            m.makeTranslation(p[0], p[1], p[2]);
+            inst.setMatrixAt(i, m);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        inst.userData.__femConcept = {kind: master ? "constraint_master" : "constraint_slave", name};
+        container.add(inst);
+    };
+
+    const addConstraint = (c: ConstraintGlyph, glyph: number) => {
+        addConstraintSide(c.master_positions ?? [], MASTER_COLOR, glyph * 0.5, true, c.name);
+        addConstraintSide(c.slave_positions ?? [], SLAVE_COLOR, glyph * 0.28, false, c.name);
+    };
+
     const rebuild = () => {
         if (!getViewerRuntime().scene.current) return;
         disposeContainer();
@@ -252,6 +301,8 @@ function init(scene: THREE.Scene): () => void {
         if (st.showBcs) addBcs(st.bcs, glyph);
         const sc = st.selectedScenario;
         if (sc >= 0 && sc < st.scenarios.length) addLoads(st.scenarios[sc], glyph);
+        const ci = st.selectedConstraint;
+        if (ci >= 0 && ci < st.constraints.length) addConstraint(st.constraints[ci], glyph);
         // Glyphs go with the part of the model a section plane cuts away. Rebuilt
         // on their own store, so seeded here rather than left to the next plane edit.
         clipWithModel(container);
