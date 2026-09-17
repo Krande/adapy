@@ -7,7 +7,8 @@ import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FileTypeIcon from "../../icons/FileTypeIcon";
 import ViewIcon from "../../icons/ViewIcon";
 import {canOpenInScene, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
-import {Spinner, formatRelative} from "./helpers";
+import {localDateTime} from "@/utils/time";
+import {Spinner, formatRelative, parseLastModifiedMs} from "./helpers";
 
 // FileRow: one storage entry, optionally indented (for use inside
 // the per-commit subtree). Pulled out of the main component so the
@@ -48,7 +49,17 @@ export interface FileRowProps {
     renaming?: boolean;
     onRenameCommit?: (newBasename: string) => void;
     onRenameCancel?: () => void;
-    /** Maximized view: show the last-modified column. */
+    /** Show when the file last changed. On by default from the file tree.
+     *
+     *  IT USED TO BE MAXIMIZED-ONLY, for horizontal space, and the cost of
+     *  that was the question it exists to answer: given `review/x.glb` and
+     *  `review/x-v9.glb`, which one is current? Nothing else in the row says.
+     *  Sixty pixels of a truncating filename is a cheap price for not having
+     *  to open a second panel to find out.
+     *
+     *  Still a prop rather than hard-coded, because this row is rendered by
+     *  more than one list and a future one may have the time in its own
+     *  header; every caller today passes it. */
     showModified?: boolean;
 }
 
@@ -228,10 +239,21 @@ const FileRow: React.FC<FileRowProps> = ({
                     </button>
                 )}
                 <div className="flex items-center gap-1 shrink-0">
-                    {showModified && (
+                    {/* `hidden sm:inline`: the relative time is worth 60px of a
+                        448px desktop panel and is not worth it on a phone,
+                        where the same 60px is a fifth of the row. Rendered
+                        nothing at all when the entry carries no timestamp --
+                        an empty span still takes its gap and reads as a value
+                        that failed to load.
+
+                        The tooltip is the ABSOLUTE time, in the viewer's own
+                        timezone. "2 d ago" answers which of two files is newer;
+                        it does not answer whether this is the copy you uploaded
+                        at 10:49, and that is the next question every time. */}
+                    {showModified && parseLastModifiedMs(f.lastModified) > 0 && (
                         <span
-                            className="text-[10px] text-gray-400 tabular-nums whitespace-nowrap"
-                            title={f.lastModified}
+                            className="hidden sm:inline text-[10px] text-gray-400 tabular-nums whitespace-nowrap"
+                            title={localDateTime(f.lastModified)}
                         >
                             {formatRelative(f.lastModified)}
                         </span>

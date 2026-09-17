@@ -1,5 +1,6 @@
-import React, {useCallback, useEffect, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useState} from "react";
 
+import {fuzzyFilter} from "@/services/fuzzy";
 import {makePluginContextStandalone} from "@/plugins";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useExternalModelsStore} from "@/state/externalModelsStore";
@@ -7,6 +8,7 @@ import {
     ExternalModel,
     bindingFor,
     catalogueNonce,
+    isHidden,
     listModelsDetailed,
     loadBindingMap,
     modelUrl,
@@ -31,7 +33,9 @@ const ExternalModelsPanel: React.FC = () => {
     const scope = useScopeStore((s) => scopeUrlPart(s.current));
 
     const [models, setModels] = useState<ExternalModel[]>([]);
-    const [binding, setBinding] = useState<{provider: string; collection: string} | null>(null);
+    const [binding, setBinding] = useState<{provider: string; collection: string; hide: string[]} | null>(
+        null,
+    );
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loaded, setLoaded] = useState<Set<string>>(new Set());
@@ -41,7 +45,47 @@ const ExternalModelsPanel: React.FC = () => {
     // rather than showing one that fails when pressed.
     const [uploadable, setUploadable] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [query, setQuery] = useState("");
+    // `null` when no bulk load is running. While one is, it is the progress a
+    // person needs to decide whether to wait: which model, and how far in.
+    const [bulk, setBulk] = useState<{done: number; total: number; name: string} | null>(null);
+    const cancelBulk = React.useRef(false);
     const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+    // ORDER IS DECIDED HERE, not taken from the provider. The built-in S3
+    // catalogue happens to sort its listing, but that is its choice and not a
+    // promise of the interface -- a browser-side provider returns whatever its
+    // vendor API returned, and a list that is alphabetical for one catalogue
+    // and arbitrary for the next is worse than one that is always arbitrary,
+    // because you stop trusting the order you can see.
+    //
+    // A collection may hold one entry per SITE across every source export, which is hundreds of near-identical names. Scrolling that is not
+    // a way to find anything, so the filter is not a refinement of the list --
+    // it is how the list is used.
+    // FILTERED ON BOTH. Moving the model file out of the name would otherwise
+    // make it unsearchable, and the name of a source export is a
+    // perfectly reasonable thing to type when looking for one.
+    // THE SCOPE'S OWN FILTER, applied before anything the user typed. An admin
+    // binds a scope and says which models are irrelevant to it -- the temporary
+    // steel exports, the volume models -- and this is where that takes effect.
+    // It matters most for "Load all", which would otherwise pull in exactly the
+    // models someone had already declared unwanted.
+    //
+    // Hidden here rather than at the provider: the provider reports what the
+    // catalogue HOLDS, which is a fact, and which models a scope cares about is
+    // a decision this deployment made about itself.
+    const visibleModels = useMemo(
+        () => (binding?.hide?.length ? models.filter((m) => !isHidden(m, binding.hide)) : models),
+        [models, binding],
+    );
+
+    const shown = useMemo(
+        () =>
+            fuzzyFilter(visibleModels, query, (m) =>
+                m.description ? `${m.name} ${m.description}` : m.name,
+            ),
+        [visibleModels, query],
+    );
 
     useEffect(() => {
         if (!visible) return;
@@ -115,9 +159,16 @@ const ExternalModelsPanel: React.FC = () => {
         [],
     );
 
+    /** Load one model. Resolves to whether it made it into the scene.
+     *
+     *  IT REPORTS RATHER THAN ONLY SHOWING. It used to swallow its own failure
+     *  into `error` and return nothing, which is fine for a row's own button
+     *  and useless to a bulk caller: "Load all" could not tell nine successes
+     *  and one failure from ten successes, and the last model's message would
+     *  be the only one left standing. */
     const onLoad = useCallback(
-        async (m: ExternalModel) => {
-            if (!binding) return;
+        async (m: ExternalModel): Promise<boolean> => {
+            if (!binding) return false;
             setBusy(m.id);
             setError(null);
             try {
@@ -138,13 +189,69 @@ const ExternalModelsPanel: React.FC = () => {
                     sourceUpAxis: "y",
                 });
                 setLoaded((prev) => new Set(prev).add(m.id));
+                return true;
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
+                return false;
             } finally {
                 setBusy(null);
             }
         },
         [binding, scope, sourceNameFor],
+    );
+
+    //: Above this many, ask first. One collection can be hundreds of models of tens of
+    //: megabytes each; "Load all" with an empty filter would fetch the lot and
+    //: take the browser with it. The number is low enough that a deliberate
+    //: bulk load still confirms, which is the point -- the accident this
+    //: prevents is pressing it without having filtered.
+    const CONFIRM_ABOVE = 8;
+
+    const onLoadAll = useCallback(
+        async (targets: ExternalModel[]) => {
+            if (!binding || bulk) return;
+            // Already-loaded models are skipped rather than reloaded: the button
+            // means "have all of these in the scene", and re-fetching what is
+            // already there is the expensive way to do nothing.
+            const todo = targets.filter((m) => !loaded.has(m.id));
+            if (todo.length === 0) return;
+            if (
+                todo.length > CONFIRM_ABOVE &&
+                !window.confirm(
+                    `Load ${todo.length} models into the scene?\n\n` +
+                        `They are fetched one at a time and each can be tens of megabytes. ` +
+                        `Filter the list first to load fewer.`,
+                )
+            ) {
+                return;
+            }
+
+            cancelBulk.current = false;
+            setError(null);
+            const failed: string[] = [];
+
+            // ONE AT A TIME, deliberately. Firing 200 fetches at once would
+            // saturate the network and the GPU upload path, and the failure mode
+            // is a viewer that appears hung. Sequential also means the scene
+            // fills progressively, which is what makes waiting bearable.
+            for (let i = 0; i < todo.length; i++) {
+                if (cancelBulk.current) break;
+                const m = todo[i];
+                setBulk({done: i, total: todo.length, name: m.name});
+                // Collected rather than thrown: one unreachable model must not
+                // abandon the other two hundred.
+                if (!(await onLoad(m))) failed.push(m.name);
+            }
+
+            setBulk(null);
+            if (failed.length) {
+                setError(
+                    `${failed.length} of ${todo.length} did not load: ${failed.slice(0, 3).join(", ")}` +
+                        (failed.length > 3 ? `, and ${failed.length - 3} more` : ""),
+                );
+            }
+        },
+        [binding, bulk, loaded, onLoad],
     );
 
     const onUnload = useCallback(
@@ -203,6 +310,31 @@ const ExternalModelsPanel: React.FC = () => {
                 </div>
             </div>
 
+            {bulk && (
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-[11px] text-gray-400">
+                            Loading {bulk.done + 1} of {bulk.total}
+                        </div>
+                        <div className="truncate text-[11px] text-gray-500" title={bulk.name}>
+                            {bulk.name}
+                        </div>
+                    </div>
+                    {/* Stops after the model in flight rather than aborting it:
+                        a half-loaded source in the scene is worse than one more
+                        finished one. */}
+                    <button
+                        type="button"
+                        className="shrink-0 rounded-sm border border-gray-600 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800"
+                        onClick={() => {
+                            cancelBulk.current = true;
+                        }}
+                    >
+                        Stop
+                    </button>
+                </div>
+            )}
+
             {error && <div className="px-3 py-2 text-xs text-red-300">{error}</div>}
 
             {loading && <div className="px-3 py-4 text-center text-xs text-gray-500">Loading…</div>}
@@ -220,12 +352,89 @@ const ExternalModelsPanel: React.FC = () => {
                 </div>
             )}
 
+            {/* A scope whose filter hides everything is a configuration mistake
+                worth saying out loud -- otherwise it is indistinguishable from
+                an empty collection, and the two are fixed in different places. */}
+            {!loading && binding && models.length > 0 && visibleModels.length === 0 && (
+                <div className="px-3 py-4 text-xs text-amber-300">
+                    All {models.length} models are hidden by this scope&rsquo;s filter
+                    ({binding.hide.join(", ")}).
+                </div>
+            )}
+
+            {/* Shown from two models up. Below that the filter is furniture, and
+                the count line it carries would be saying "2 of 2". */}
+            {!loading && binding && visibleModels.length > 1 && (
+                <div className="px-3 py-2 border-b border-gray-800">
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        data-testid="external-models-filter"
+                        placeholder={`Filter ${visibleModels.length} model${visibleModels.length === 1 ? "" : "s"}…`}
+                        aria-label="Filter external models"
+                        className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                    />
+                    <div className="flex items-center gap-2 pt-1">
+                        {query.trim() !== "" && (
+                            <div className="text-[11px] text-gray-500 flex-1">
+                                {shown.length} of {visibleModels.length}
+                            </div>
+                        )}
+                        {query.trim() === "" && <div className="flex-1" />}
+                        {/* Acts on what is SHOWN, not on everything. The filter is
+                            how you say which ones you mean, so "load all" and
+                            "load all of these" are the same button -- and with an
+                            empty filter it does mean all, which is what the
+                            confirmation is for. */}
+                        <button
+                            type="button"
+                            data-testid="external-models-load-all"
+                            disabled={bulk !== null || shown.length === 0}
+                            onClick={() => void onLoadAll(shown)}
+                            title={
+                                bulk
+                                    ? "A bulk load is already running"
+                                    : "Load every model currently listed, one at a time"
+                            }
+                            className="shrink-0 rounded-sm border border-gray-600 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800 disabled:opacity-40"
+                        >
+                            {(() => {
+                                const todo = shown.filter((m) => !loaded.has(m.id)).length;
+                                if (todo === 0) return "All loaded";
+                                return `Load all (${todo})`;
+                            })()}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* A filter that matches nothing must say so. An empty <ul> under a
+                box you have just typed into reads as the panel having broken. */}
+            {!loading && binding && visibleModels.length > 0 && shown.length === 0 && (
+                <div className="px-3 py-4 text-xs text-gray-400">
+                    No model matches “{query.trim()}”.
+                </div>
+            )}
+
             <ul>
-                {models.map((m) => {
+                {shown.map((m) => {
                     const isLoaded = loaded.has(m.id);
                     return (
                         <li key={m.id} className="flex items-center gap-2 px-3 py-2 border-t border-gray-800">
-                            <span className="flex-1 truncate text-sm text-gray-100" title={m.name}>{m.name}</span>
+                            {/* The description is the hover, not the label: a
+                                provider puts the part that does not fit there
+                                -- the source export a model came from,
+                                which can be the same string on nearly every row.
+                                Falls back to the name so a provider that sets
+                                no description still gets a tooltip for a
+                                truncated one. */}
+                            <span
+                                className="flex-1 truncate text-sm text-gray-100"
+                                title={m.description ? `${m.name}\n${m.description}` : m.name}
+                            >
+                                {m.name}
+                            </span>
                             <button
                                 type="button"
                                 className="text-xs px-2 py-1 rounded-sm border border-gray-700 text-gray-200 hover:bg-gray-800 disabled:opacity-50"

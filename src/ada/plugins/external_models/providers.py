@@ -26,6 +26,7 @@ from ada.plugins.external_models.catalog import ExternalModelCatalog
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "PROVIDER_ALIASES",
     "register_external_model_provider",
     "unregister_external_model_provider",
     "external_model_provider_ids",
@@ -76,15 +77,38 @@ def external_model_providers() -> list[dict]:
     return [{"id": pid, "label": label} for pid, (label, _) in _PROVIDERS.items()]
 
 
+#: Retired provider ids, and what they are now.
+#:
+#: A BINDING IS A STORED STRING. `public.external_models.binding_map` holds
+#: `"<provider>:<collection>"` per scope, so renaming a provider id silently
+#: unbinds every scope that used it -- the viewer shows no external models and
+#: nothing anywhere says why. Resolving the old name keeps those working while
+#: the picker offers only the new one; an admin who re-binds is migrated, and
+#: one who never touches it never notices.
+PROVIDER_ALIASES: dict[str, str] = {
+    # It was never a demo. It serves the deployment's own object store -- the
+    # same bucket or container the viewer itself is configured with -- which is
+    # what an admin is actually choosing when they pick it.
+    "demo": "object-store",
+}
+
+
 def get_external_model_provider(provider_id: str) -> ExternalModelCatalog:
     """Resolve a provider, constructing it on first use.
 
     Raises ``KeyError`` naming the registered ids, because the common failure is
     a deployment that simply did not preload the provider's module — and the
     list is the fastest way to see that.
+
+    A retired id resolves to its replacement; see :data:`PROVIDER_ALIASES`.
     """
     if provider_id in _INSTANCES:
         return _INSTANCES[provider_id]
+    if provider_id not in _PROVIDERS and provider_id in PROVIDER_ALIASES:
+        logger.debug("external-models: provider %r is now %r", provider_id, PROVIDER_ALIASES[provider_id])
+        provider_id = PROVIDER_ALIASES[provider_id]
+        if provider_id in _INSTANCES:
+            return _INSTANCES[provider_id]
     entry = _PROVIDERS.get(provider_id)
     if entry is None:
         known = ", ".join(_PROVIDERS) or "<none registered>"

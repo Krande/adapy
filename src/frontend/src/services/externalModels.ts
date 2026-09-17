@@ -43,7 +43,12 @@ import {
   bindingFor,
   EXTERNAL_MODELS_BINDING_KEY,
   parseBindingMap,
+  type ExternalModelBinding,
   type ExternalModelBindingMap,
+  isHidden,
+  matchesGlob,
+  serialiseBinding,
+  type StoredBinding,
 } from "./externalModelsBinding";
 import { viewerApi, type ScopeUrl } from "./viewerApi";
 import {
@@ -61,8 +66,13 @@ import type {
 export {
   bindingFor,
   EXTERNAL_MODELS_BINDING_KEY,
+  isHidden,
+  matchesGlob,
   parseBindingMap,
+  serialiseBinding,
+  type ExternalModelBinding,
   type ExternalModelBindingMap,
+  type StoredBinding,
 };
 
 // The vocabulary and the browser-side registry both live in leaf modules (see
@@ -101,6 +111,71 @@ interface JobOptions {
   /** Opaque token folded into the options hash to deliberately MISS the job
    *  cache. Pass one when the user explicitly asked to re-read the source. */
   refresh?: string;
+
+  // --- the the upstream catalogue mirror -----------------------------------------------------
+  /** Which upstream projects to report on or refresh. Omitted, the deployment's
+   *  configured list is used, which is the normal case for both the panel and
+   *  the scheduled job. */
+  projects?: string[];
+  /** Skip the per-site HEAD against the upstream catalogue. A panel's first paint wants what is
+   *  cached, not a round trip per model; staleness then reads as unknown rather
+   *  than as fresh, which is the honest answer to a question not asked. */
+  check_source?: boolean;
+  /** Re-transfer regardless of ETag. The escape hatch for a cache whose
+   *  contents and provenance record have drifted apart. */
+  force?: boolean;
+  dry_run?: boolean;
+  model_file?: string;
+}
+
+/** One site's cache state. `stale` is deliberately THREE-valued: `null` means
+ *  the comparison was not made, and rendering that as "up to date" is the one
+ *  mistake a staleness display cannot afford. */
+export interface MirrorEntry {
+  collection: string;
+  model_id: string;
+  cached: boolean;
+  stale: boolean | null;
+  cached_etag: string | null;
+  source_etag: string | null;
+  mirrored_at: string | null;
+  size: number | null;
+  site: {
+    project: string;
+    model_file: string;
+    site: string;
+    container: string;
+    path: string;
+  };
+}
+
+export interface MirrorProjectReport {
+  total: number;
+  cached: number;
+  stale: number;
+  unknown: number;
+  transferred: string[];
+  failed: Record<string, string>;
+  dry_run: boolean;
+  entries: MirrorEntry[];
+}
+
+/** One upstream project the mirror COULD cache, and whether it is chosen. */
+export interface MirrorProject {
+  key: string;
+  name: string;
+  collection: string;
+  selected: boolean;
+}
+
+export interface MirrorReport {
+  action: string;
+  provider: string;
+  /** Whether the deployment's mirror switch is on. Reported by a status read
+   *  rather than enforced by it: an admin who has just switched mirroring off
+   *  still wants to see what is in the cache. */
+  enabled: boolean;
+  projects: Record<string, MirrorProjectReport>;
 }
 
 /** Derived summaries are stored GZIPPED above a size threshold, so a small
@@ -144,6 +219,49 @@ const PROVIDER_FALLBACK_TIMEOUT_MS = 8_000;
  *  in particular "unknown external-model provider 'x' (registered: …)", which
  *  names what IS registered and is usually the fastest way to see that a
  *  provider's module simply was not preloaded on the worker. */
+/** A sync moves whole GLBs and a status read does one HEAD per site, so
+ *  neither fits the poll budget a dropdown is written to. Twenty minutes is
+ *  sized for a first mirror of a project that has never been cached; an
+ *  incremental run finishes in seconds. */
+const MIRROR_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** Enqueue one action and hand back the job, WITHOUT waiting for it.
+ *
+ *  `runAction` below is this plus a poll loop, and it is the right shape for a
+ *  dropdown: the answer is the point and it arrives in a round trip. A MIRROR
+ *  SYNC is not that. A first mirror of a project is hundreds of sites and tens
+ *  of minutes, and awaiting it holds a panel open on a promise nobody should be
+ *  made to sit in front of.
+ *
+ *  So a caller that wants to watch rather than wait takes the job id, drives the
+ *  global toast from `convertStatus`, and reads the summary at the end with
+ *  `readActionResult`. */
+export async function enqueueAction(
+  options: JobOptions,
+  scope: ScopeUrl,
+): Promise<{ job_id: string; derived_key: string }> {
+  return viewerApi.pluginJob(
+    EXTERNAL_MODELS_PLUGIN_ID,
+    { options: options as unknown as Record<string, unknown> },
+    { scope },
+  );
+}
+
+/** The summary an enqueued action wrote, once its job is `done`.
+ *
+ *  Read from the key the ENQUEUE named: the status row echoes a `derived_key`
+ *  too, but the enqueue's is the one core hashed the options into, so it is the
+ *  authoritative one for a cache hit. */
+export async function readActionResult<T>(scope: ScopeUrl, derivedKey: string): Promise<T> {
+  const buf = await viewerApi.getBlob(scope, derivedKey);
+  const text = await decodeSummary(buf);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ExternalModelsError("external-models returned a non-JSON summary");
+  }
+}
+
 async function runAction<T>(
   options: JobOptions,
   scope: ScopeUrl,
@@ -255,20 +373,148 @@ export function catalogueNonce(): string {
   return Date.now().toString(36);
 }
 
+/** Every project this deployment COULD mirror, and which it does.
+ *
+ *  NOT the same question as `listCollections`, which answers with what is
+ *  mirrored -- the handful an admin chose. This is the list to choose FROM, and
+ *  it cannot be derived from the other: the point is to see the ones you have
+ *  not picked. It can run to many dozens of entries. */
+export async function mirrorProjects(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<MirrorProject[]> {
+  const out = await runAction<{ projects: MirrorProject[] }>(
+    { action: "mirror_projects", provider, refresh: opts?.refresh ?? catalogueNonce() },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
+  return out.projects ?? [];
+}
+
+/** What the cache holds for each configured upstream project, and what upstream
+ *  has moved on from.
+ *
+ *  ALWAYS A ROUND TRIP TO THE WORKER, never to a browser-side provider: the
+ *  mirror is a deployment-side thing by construction -- it is the whole point
+ *  that no signed-in user is in the path -- so there is no page-side
+ *  implementation to prefer.
+ *
+ *  `refresh` is passed on every call because the job cache is keyed on the
+ *  options hash, and a status read whose whole purpose is to be current must
+ *  not answer from a cached job. */
+export async function mirrorStatus(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { projects?: string[]; checkSource?: boolean; refresh?: string; signal?: AbortSignal },
+): Promise<MirrorReport> {
+  return runAction<MirrorReport>(
+    {
+      action: "mirror_status",
+      provider,
+      projects: opts?.projects,
+      check_source: opts?.checkSource ?? true,
+      refresh: opts?.refresh ?? catalogueNonce(),
+    },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
+}
+
+/** Start a sync and return its job, without waiting for it.
+ *
+ *  The caller drives the global toast from `convertStatus` and reads the
+ *  summary with `readActionResult` when it finishes. See `enqueueAction` for
+ *  why a sync is not awaited inline. */
+export async function startMirrorSync(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { projects?: string[]; force?: boolean; dryRun?: boolean; modelFile?: string; modelId?: string },
+): Promise<{ job_id: string; derived_key: string }> {
+  return enqueueAction(
+    {
+      action: "mirror_sync",
+      provider,
+      projects: opts?.projects,
+      force: opts?.force,
+      dry_run: opts?.dryRun,
+      model_file: opts?.modelFile,
+      model_id: opts?.modelId,
+      refresh: catalogueNonce(),
+    },
+    scope,
+  );
+}
+
+/** Bring the cache up to date, transferring only what changed.
+ *
+ *  AWAITS THE WHOLE TRANSFER. Kept for a caller with nothing else to do -- the
+ *  CLI-shaped path, and the tests -- while the panel uses `startMirrorSync`.
+ *
+ *  The long timeout is not caution: a project whose sites all rebuilt is tens
+ *  of megabytes per site, moving the upstream catalogue -> worker -> object store, and the poll
+ *  giving up first would leave a transfer running with nobody watching it. */
+export async function mirrorSync(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: {
+    projects?: string[];
+    force?: boolean;
+    dryRun?: boolean;
+    modelFile?: string;
+    modelId?: string;
+    signal?: AbortSignal;
+  },
+): Promise<MirrorReport> {
+  return runAction<MirrorReport>(
+    {
+      action: "mirror_sync",
+      provider,
+      projects: opts?.projects,
+      force: opts?.force,
+      dry_run: opts?.dryRun,
+      model_file: opts?.modelFile,
+      model_id: opts?.modelId,
+      refresh: catalogueNonce(),
+    },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
+}
+
 export async function listCollections(
   provider: string,
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalCollection[]> {
-  const impl = externalModelClient(provider);
-  if (impl) return (await impl.listCollections(opts)) ?? [];
+  return (await listCollectionsDetailed(provider, scope, opts)).collections;
+}
 
-  const out = await runAction<{ collections: ExternalCollection[] }>(
+/** The collections, AND what this provider can do.
+ *
+ *  Split from `listCollections` the same way `listModelsDetailed` is: almost
+ *  every caller wants the collections, and one that only lists should not have
+ *  to unwrap a capability it never asks about. The capabilities ride on the
+ *  same response, so asking costs no extra round trip. */
+export async function listCollectionsDetailed(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<{ collections: ExternalCollection[]; canMirror: boolean }> {
+  const impl = externalModelClient(provider);
+  // A browser-side provider cannot mirror: a mirror is a copy made by something
+  // holding a service credential, which is the one thing a page does not have.
+  if (impl) return { collections: (await impl.listCollections(opts)) ?? [], canMirror: false };
+
+  const out = await runAction<{ collections: ExternalCollection[]; can_mirror?: boolean }>(
     { action: "list_collections", provider, refresh: opts?.refresh },
     scope,
     opts?.signal,
   );
-  return out.collections ?? [];
+  return { collections: out.collections ?? [], canMirror: Boolean(out.can_mirror) };
 }
 
 /** The models, AND what the provider will let you do with them.

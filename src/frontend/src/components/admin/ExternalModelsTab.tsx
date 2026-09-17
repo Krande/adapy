@@ -4,8 +4,9 @@ import {AdminProject, viewerApi} from "@/services/viewerApi";
 import {
     ExternalCollection,
     ExternalModelProvider,
-    catalogueNonce,
+        catalogueNonce,
     listCollections,
+    listCollectionsDetailed,
     listProviders,
 } from "@/services/externalModels";
 import {
@@ -14,8 +15,15 @@ import {
     boundCollectionOption,
     parseBindingMap,
     EXTERNAL_MODELS_BINDING_KEY,
+    isHidden,
+    isPattern,
+    serialiseBinding,
 } from "@/services/externalModelsBinding";
+import {fuzzyFilter} from "@/services/fuzzy";
+import type {ExternalModel} from "@/services/externalModels";
+import {listModels} from "@/services/externalModels";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
+import MirrorPanel from "@/components/admin/MirrorPanel";
 
 // Admin tab — bind a viewer scope to an external model collection.
 //
@@ -48,6 +56,9 @@ const ExternalModelsTab: React.FC = () => {
     // provider id -> its collections, fetched lazily and cached: each call is an
     // enqueue/poll round-trip, so re-fetching per row would be visibly slow.
     const [collections, setCollections] = useState<Record<string, ExternalCollection[]>>({});
+    // provider id -> does it mirror an upstream catalogue? Reported by the same
+    // listing the collections come from, so it costs no extra round trip.
+    const [canMirror, setCanMirror] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState<string | null>(null);
     // Provider chosen for a scope but not yet persisted, because a binding needs
@@ -55,6 +66,17 @@ const ExternalModelsTab: React.FC = () => {
     // would write an incomplete binding, which `setBinding` correctly treats as
     // "unbind", so the control snapped straight back to none.
     const [pendingProvider, setPendingProvider] = useState<Record<string, string>>({});
+    // The scope whose model filter is being edited, and the draft text. One at a
+    // time: the editor carries a live preview, and previewing several at once
+    // would mean holding several collections' model lists.
+    const [hideScope, setHideScope] = useState<string | null>(null);
+    // The filter over the model list, not a draft of the selection: each tick
+    // persists on its own, the same way the project picker does.
+    const [hideFilter, setHideFilter] = useState("");
+    // The bound collection's models, for that preview. Fetched when the editor
+    // opens, because a filter whose effect nobody can see is exactly the
+    // fragile thing it is meant to replace.
+    const [hidePreview, setHidePreview] = useState<ExternalModel[] | null>(null);
     // Cache-busting token, refreshed on mount and on demand. Without it the
     // catalogue reads cache-hit forever and this tab cannot show a deployment
     // whose provider configuration changed after the first ever read.
@@ -73,6 +95,10 @@ const ExternalModelsTab: React.FC = () => {
                 viewerApi.getPublicSetting(EXTERNAL_MODELS_BINDING_KEY).catch(() => null),
             ]);
             setProviders(provs);
+            // Probed for ALL of them, not only the bound ones: a provider's
+            // mirror panel has to appear before anything is bound to it, and
+            // that is exactly the state a first-time admin is in.
+            for (const prov of provs) void loadCollections(prov.id);
             setProjects(projs.filter((p) => !p.archived_at));
             setMap(parseBindingMap(raw));
             if (provs.length === 0) {
@@ -100,11 +126,13 @@ const ExternalModelsTab: React.FC = () => {
         async (provider: string) => {
             if (!provider || collections[provider]) return;
             try {
-                const cols = await listCollections(provider, CATALOGUE_SCOPE, {refresh: nonce});
-                setCollections((prev) => ({...prev, [provider]: cols}));
+                const out = await listCollectionsDetailed(provider, CATALOGUE_SCOPE, {refresh: nonce});
+                setCollections((prev) => ({...prev, [provider]: out.collections}));
+                setCanMirror((prev) => ({...prev, [provider]: out.canMirror}));
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
                 setCollections((prev) => ({...prev, [provider]: []}));
+                setCanMirror((prev) => ({...prev, [provider]: false}));
             }
         },
         [collections, nonce],
@@ -146,6 +174,52 @@ const ExternalModelsTab: React.FC = () => {
         await viewerApi.adminSetSetting(EXTERNAL_MODELS_BINDING_KEY, JSON.stringify(next));
         setMap(next);
     }, []);
+
+    const openHideEditor = useCallback(
+        async (scope: string) => {
+            const bound = bindingFor(map, scope);
+            if (!bound) return;
+            setHideScope(scope);
+            setHideFilter("");
+            setHidePreview(null);
+            try {
+                setHidePreview(
+                    await listModels(bound.provider, bound.collection, CATALOGUE_SCOPE, {
+                        refresh: catalogueNonce(),
+                    }),
+                );
+            } catch {
+                // A preview that cannot be fetched is no reason to refuse the
+                // edit: the patterns are still valid, they just cannot be
+                // counted here. [] renders as "cannot preview".
+                setHidePreview([]);
+            }
+        },
+        [map],
+    );
+
+    const saveHide = useCallback(
+        async (scope: string, entries: string[]) => {
+            const bound = bindingFor(map, scope);
+            if (!bound) return;
+            setBusy(scope);
+            setError(null);
+            try {
+                const next = {...map};
+                next[scope] = serialiseBinding({
+                    provider: bound.provider,
+                    collection: bound.collection,
+                    hide: entries,
+                });
+                await persist(next);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setBusy(null);
+            }
+        },
+        [map, persist],
+    );
 
     const setBinding = useCallback(
         async (scope: string, provider: string, collection: string) => {
@@ -252,7 +326,179 @@ const ExternalModelsTab: React.FC = () => {
                 );
             },
         },
+        {
+            key: "hide",
+            header: "Hidden models",
+            cellClassName: "px-3 py-2 align-top",
+            cell: (row) => {
+                const bound = bindingFor(map, row.scope);
+                if (!bound) return <span className="text-xs text-gray-600">—</span>;
+
+                // Entries are model ids, except any hand-written wildcards.
+                // Separated because only the first kind can be ticked, and a
+                // pattern that silently survived a "nothing is hidden" reading
+                // of the list would be the worst of both.
+                const patterns = bound.hide.filter(isPattern);
+                const ticked = bound.hide.filter((h) => !isPattern(h));
+
+                const toggle = (id: string) => {
+                    const next = ticked.includes(id)
+                        ? bound.hide.filter((h) => h !== id)
+                        : [...bound.hide, id];
+                    void saveHide(row.scope, next);
+                };
+
+                return (
+                    <div className="space-y-1">
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
+                            disabled={busy === row.scope}
+                            onClick={() => {
+                                if (hideScope === row.scope) {
+                                    setHideScope(null);
+                                } else {
+                                    void openHideEditor(row.scope);
+                                }
+                            }}
+                        >
+                            {bound.hide.length === 0
+                                ? "None hidden"
+                                : `${bound.hide.length} hidden`}
+                        </button>
+
+                        {hideScope === row.scope && (
+                            <div className="rounded-sm border border-gray-700 bg-gray-900/60 p-2 space-y-2">
+                                {hidePreview === null && (
+                                    <div className="text-[11px] text-gray-500">
+                                        Reading the collection…
+                                    </div>
+                                )}
+
+                                {hidePreview !== null && hidePreview.length === 0 && (
+                                    <div className="text-[11px] text-gray-500">
+                                        This collection could not be listed, so there is nothing to
+                                        tick. Anything already hidden stays hidden.
+                                    </div>
+                                )}
+
+                                {hidePreview !== null && hidePreview.length > 0 && (
+                                    <>
+                                        {/* TICKED, NOT TYPED. It was a comma-separated
+                                            box, which is a typo away from hiding
+                                            nothing -- and a filter that silently does
+                                            nothing is invisible by construction. An id
+                                            picked off the list cannot be misspelled.
+
+                                            The same subsequence filter the project
+                                            picker and the models menu use; a
+                                            collection can be hundreds of rows. */}
+                                        <input
+                                            type="search"
+                                            value={hideFilter}
+                                            onChange={(e) => setHideFilter(e.target.value)}
+                                            placeholder={`Filter ${hidePreview.length} models…`}
+                                            aria-label="Filter models to hide"
+                                            className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                                        />
+                                        <ul className="max-h-56 overflow-auto">
+                                            {fuzzyFilter(hidePreview, hideFilter, (m) =>
+                                                m.description ? `${m.name} ${m.description}` : m.name,
+                                            ).map((m) => {
+                                                const on = ticked.includes(m.id);
+                                                // A model hidden by a PATTERN shows as
+                                                // hidden and cannot be unticked -- the
+                                                // checkbox would appear to do nothing,
+                                                // which is worse than saying why.
+                                                const byPattern = !on && isHidden(m, patterns);
+                                                return (
+                                                    <li key={m.id}>
+                                                        <label
+                                                            className={`flex items-center gap-2 py-0.5 px-1 text-xs rounded-sm ${
+                                                                byPattern
+                                                                    ? "opacity-60"
+                                                                    : "cursor-pointer hover:bg-gray-800/60"
+                                                            }`}
+                                                            title={
+                                                                byPattern
+                                                                    ? "Hidden by a pattern on this scope"
+                                                                    : m.description || m.name
+                                                            }
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={on || byPattern}
+                                                                disabled={byPattern || busy === row.scope}
+                                                                onChange={() => toggle(m.id)}
+                                                            />
+                                                            <span className="truncate text-gray-200">
+                                                                {m.name}
+                                                            </span>
+                                                            {m.description && (
+                                                                <span className="truncate text-gray-600">
+                                                                    {m.description}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                        <div className="text-[11px] text-gray-500">
+                                            {hidePreview.filter((m) => isHidden(m, bound.hide)).length} of{" "}
+                                            {hidePreview.length} hidden from this scope.
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Patterns are not written here, and saying so beats
+                                    leaving an entry nobody can find a tick for. They
+                                    keep applying to models that do not exist yet,
+                                    which a list of ticks cannot do -- so they are
+                                    shown, and removable, but not composed. */}
+                                {patterns.length > 0 && (
+                                    <div className="space-y-1 border-t border-gray-800 pt-2">
+                                        <div className="text-[11px] text-gray-500">
+                                            Also hidden by pattern:
+                                        </div>
+                                        {patterns.map((pat) => (
+                                            <div key={pat} className="flex items-center gap-2 text-[11px]">
+                                                <code className="flex-1 truncate text-gray-400">{pat}</code>
+                                                <button
+                                                    type="button"
+                                                    className="shrink-0 rounded-sm border border-gray-700 px-1.5 hover:bg-gray-800"
+                                                    disabled={busy === row.scope}
+                                                    onClick={() =>
+                                                        void saveHide(
+                                                            row.scope,
+                                                            bound.hide.filter((h) => h !== pat),
+                                                        )
+                                                    }
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            },
+        },
     ];
+
+    // WHICH PROVIDERS OWN A MIRROR. Asked of each provider rather than named
+    // here: core owns the mirror SEAM and no opinion about what is upstream, so
+    // hardcoding a provider id would put one deployment's asset system into
+    // code every deployment runs.
+    //
+    // It used to fall back to "whatever `shared` is bound to", which is wrong in
+    // the ordinary case -- a deployment binds `shared` to its OBJECT STORE, and
+    // the panel then asked the object store what it could mirror and got a
+    // refusal. Being BOUND and OWNING A MIRROR are different properties.
+    const mirrorProviders = providers.filter((p) => canMirror[p.id]);
 
     if (loading) {
         return <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>;
@@ -285,6 +531,10 @@ const ExternalModelsTab: React.FC = () => {
             {error && (
                 <div className="px-3 py-2 text-red-300 text-xs border-b border-gray-700">{error}</div>
             )}
+
+            {mirrorProviders.map((p) => (
+                <MirrorPanel key={p.id} provider={p.id} />
+            ))}
 
             <DataTable
                 wrap={false}

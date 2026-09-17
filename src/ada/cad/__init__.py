@@ -404,6 +404,16 @@ class AdacppBackend:
             # Must precede ExtrudedAreaSolid (subclass). Loft between the start
             # and end profiles' outer wires — matches OccBackend's
             # make_extruded_area_shape_tapered_from_geom (ThruSections).
+            #
+            # THE SAME TWO REFUSALS AS THE OCC PATH, from the shared rules in
+            # `ada.geom.solids`: a collapsed section and a zero-length direction
+            # are facts about the solid, not about the kernel, and a backend
+            # that accepted what the other refused would be a difference nobody
+            # could see from the outside.
+            so.reject_degenerate_section(g.swept_area, "swept_area")
+            so.reject_degenerate_section(g.end_swept_area, "end_swept_area")
+            unit = so.resolve_extrusion_direction(g.extruded_direction)
+
             area = _arbitrary(g.swept_area)
             end_area = _arbitrary(g.end_swept_area)
             if not isinstance(area, su.ArbitraryProfileDef) or not isinstance(end_area, su.ArbitraryProfileDef):
@@ -412,13 +422,37 @@ class AdacppBackend:
                     f"{type(area).__name__!r}/{type(end_area).__name__!r} not yet ported to adacpp."
                 )
             p = g.position
-            shape = self._cad.build_extruded_area_solid_tapered(
+            args = [
                 self._encode_curve(area.outer_curve),
                 self._encode_curve(end_area.outer_curve),
                 self._xyz(p.location),
                 _axis(p.axis, (0, 0, 1)),
                 _axis(p.ref_direction, (1, 0, 0)),
                 g.depth,
+            ]
+            try:
+                shape = self._cad.build_extruded_area_solid_tapered(*args, [float(c) for c in unit])
+            except TypeError:
+                # AN OLDER adacpp, whose builder translates the end profile
+                # along +Z and takes no direction. That is the RIGHT frustum and
+                # nothing else, so an oblique request is refused rather than
+                # quietly built as a right one -- the exact silent-wrong-shape
+                # this parameter exists to end. An axial direction is what the
+                # old signature already meant, so it goes through unchanged.
+                if abs(unit[0]) > 1e-9 or abs(unit[1]) > 1e-9 or unit[2] <= 0:
+                    raise NotImplementedError(
+                        f"AdacppBackend.build: this ada-cpp builds only right frustums, so an "
+                        f"ExtrudedAreaSolidTapered along {tuple(unit)} cannot be built. Upgrade "
+                        f"ada-cpp, or select the OCC backend."
+                    ) from None
+                shape = self._cad.build_extruded_area_solid_tapered(*args)
+        elif isinstance(g, so.Torus):
+            # STEP AP242 `torus`; no IFC CSG equivalent. An Axis1Placement fixes
+            # the axis but not a start direction in the plane normal to it, and
+            # a full revolution does not need one.
+            p = g.position
+            shape = self._cad.build_torus(
+                self._xyz(p.location), _axis(p.axis, (0, 0, 1)), g.major_radius, g.minor_radius
             )
         elif isinstance(g, so.ExtrudedAreaSolid):
             area = _arbitrary(g.swept_area)

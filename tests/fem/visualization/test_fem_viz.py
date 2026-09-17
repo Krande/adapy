@@ -1,10 +1,21 @@
-import medcoupling as mc
 import pytest
 
-import ada
-from ada.base.types import GeomRepr
-from ada.fem.meshing import GmshOptions
-from ada.materials.metals import CarbonSteel
+# A bare `import medcoupling` here was a COLLECTION ERROR -- it aborted the
+# whole run rather than this one module, which is why the adacpp `test-all`
+# carried an --ignore for this directory and why `pixi run test` could not
+# simply point at tests/.
+#
+# medcoupling is declared in NO environment in this manifest, so these tests do
+# not currently run anywhere; they were merely invisible before instead of
+# reported. That is worth knowing rather than hiding: a skip says the module
+# exists and is unexercised, which is the honest state. Install medcoupling
+# into the fem env to run them.
+mc = pytest.importorskip("medcoupling", reason="medcoupling is not declared in any pixi environment")
+
+import ada  # noqa: E402
+from ada.base.types import GeomRepr  # noqa: E402
+from ada.fem.meshing import GmshOptions  # noqa: E402
+from ada.materials.metals import CarbonSteel  # noqa: E402
 
 
 def _make_cube_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool) -> ada.Part:

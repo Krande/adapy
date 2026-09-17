@@ -290,7 +290,12 @@ def box(sec: Section, return_solid) -> SectionProfile:
     if return_solid is False:
         outer_curve = build_joined([p1, p2, p3, p4])
     else:
-        tftop = sec.t_fbtn
+        # t_ftop, not t_fbtn. Read from the bottom, an asymmetric box came back
+        # with its BOTTOM flange thickness on both faces -- invisible on every
+        # RHS/SHS, where the wall is uniform, and wrong by the difference on a
+        # welded box girder, whose flanges are separate plates: a 35 mm top over
+        # a 25 mm bottom came out 25/25.
+        tftop = sec.t_ftop
         tfbtn = sec.t_fbtn
         tw = sec.t_w
         p5 = (rd(-wtop / 2 + tw), rd(h / 2 - tftop))

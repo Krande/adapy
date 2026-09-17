@@ -203,6 +203,83 @@ class Torus:
     minor_radius: float
 
 
+#: Below this, a profile dimension is treated as collapsed rather than small.
+SECTION_TOL = 1e-12
+
+
+def reject_degenerate_section(profile, field: str) -> None:
+    """Refuse a swept section with no area, naming the solid that does model it.
+
+    A swept solid needs two real sections. One that collapses is a different
+    solid wearing this one's clothes, and both collapses have an exact
+    representation already:
+
+    * to a POINT -- the frustum is a cone or a pyramid. Use :class:`Cone` or
+      :class:`RectangularPyramid`, which carry the apex natively.
+    * to an EDGE -- the solid is a wedge, whose sides are planar. Extrude a
+      triangular profile, or give the six faces to :class:`FacetedBrep`.
+
+    Both are also invalid IFC: ``IfcCircleProfileDef.Radius`` and
+    ``IfcRectangleProfileDef.XDim``/``YDim`` are all required to be positive. So
+    this is not adapy declining to do arithmetic it could do -- it is declining
+    to accept a shape the model has no way to mean.
+
+    IT LIVES WITH THE GEOMETRY, not with a kernel, because it is a fact about
+    the solid rather than about who builds it. Written against one backend it
+    would be a rule the other silently did not apply, which is the one kind of
+    difference nobody can see from the outside.
+
+    The reason to raise rather than improvise is that a lofter's own answers
+    differ between the two cases: an apex builds correctly, while an
+    edge-collapsed section makes it report failure. Papering over that would
+    turn one of the two into a silent wrong solid.
+    """
+    radius = getattr(profile, "radius", None)
+    if radius is not None:
+        if abs(radius) > SECTION_TOL:
+            return
+        raise ValueError(
+            f"{field}: a circular section of radius {radius} has no area. "
+            "A frustum whose end collapses to a point is a cone -- build a Cone."
+        )
+
+    x_dim, y_dim = getattr(profile, "x_dim", None), getattr(profile, "y_dim", None)
+    if x_dim is None or y_dim is None:
+        return  # an arbitrary outline; its own builder reports what it cannot do
+    flat_x, flat_y = abs(x_dim) <= SECTION_TOL, abs(y_dim) <= SECTION_TOL
+    if not (flat_x or flat_y):
+        return
+    if flat_x and flat_y:
+        raise ValueError(
+            f"{field}: a rectangular section of {x_dim} x {y_dim} has no area. "
+            "A frustum whose end collapses to a point is a pyramid -- build a "
+            "RectangularPyramid."
+        )
+    raise ValueError(
+        f"{field}: a rectangular section of {x_dim} x {y_dim} collapses to an edge, "
+        "which a lofted solid cannot bound. That solid is a wedge: extrude a "
+        "triangular profile, or build it as a FacetedBrep."
+    )
+
+
+def resolve_extrusion_direction(direction, field: str = "extruded_direction"):
+    """The unit extrusion direction, or a refusal. ``None`` means +Z.
+
+    Shared for the same reason as the section check: a zero-length direction is
+    a solid with no length whichever kernel is asked, and defaulting it to +Z
+    would quietly build a shape nobody asked for.
+    """
+    from ada.geom.direction import Direction
+
+    if direction is None:
+        return Direction(0, 0, 1)
+    direction = Direction(*direction)
+    length = sum(c * c for c in direction) ** 0.5
+    if length <= SECTION_TOL:
+        raise ValueError(f"a zero-length {field} has no direction to extrude along")
+    return Direction(*(c / length for c in direction))
+
+
 @dataclass(slots=True)
 class AdvancedBrep:
     """

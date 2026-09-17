@@ -41,11 +41,14 @@ ACTIONS = (
     "list_model_revisions",
     "model_url",
     "model_upload_url",
+    "mirror_status",
+    "mirror_sync",
+    "mirror_projects",
 )
 
 # Kept so a single-provider deployment need not thread an id through every call.
 # Multi-provider deployments should always pass one explicitly.
-DEFAULT_PROVIDER = "demo"
+DEFAULT_PROVIDER = "object-store"
 
 
 def _can_upload(cat: ExternalModelCatalog) -> bool:
@@ -59,6 +62,24 @@ def _can_upload(cat: ExternalModelCatalog) -> bool:
     return callable(getattr(cat, "model_upload_url", None))
 
 
+def _can_mirror(cat: ExternalModelCatalog) -> bool:
+    """Does this provider mirror an upstream catalogue into a local store?
+
+    Presence of the three mirror methods IS the declaration, the same convention
+    upload and revisions use. Reported alongside every listing so a UI decides
+    whether to offer the controls BEFORE anyone presses one -- a "refresh"
+    button that fails on a provider with nothing upstream is worse than no
+    button.
+
+    CORE KNOWS NOTHING ABOUT WHAT IS UPSTREAM. Which catalogue, which
+    credential, and whether the deployment can reach it are the provider's
+    business; this asks only whether it claims to be a mirror at all. That is
+    the same line every other optional capability here is drawn on, and it is
+    what lets an out-of-tree provider offer this without core naming it.
+    """
+    return all(callable(getattr(cat, attr, None)) for attr in ("mirror_status", "mirror_sync", "upstream_projects"))
+
+
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
     """Does this provider keep more than one version of a model?
 
@@ -67,6 +88,98 @@ def _has_revisions(cat: ExternalModelCatalog) -> bool:
     picker before it has asked about any particular model.
     """
     return callable(getattr(cat, "list_model_revisions", None))
+
+
+def _run_mirror(action, options, cat, provider, progress):
+    """Report or refresh a provider's mirror of its upstream catalogue.
+
+    ONE ENTRY POINT FOR BOTH CALLERS. An admin panel asks for `mirror_status` to
+    render and `mirror_sync` when someone presses refresh; a scheduled job asks
+    for exactly the same two. Neither is a special path, so the thing an
+    operator can trigger by hand is the thing the cron runs -- which is the only
+    way a "refresh now" button stays honest about what the nightly run does.
+
+    EVERY REFUSAL BELONGS TO THE PROVIDER. Whether a credential is present,
+    whether an administrator has switched mirroring off, which projects are
+    configured by default -- core cannot answer any of those without knowing
+    what is upstream, and knowing that is exactly what would make this file
+    care about one deployment's asset system. So the provider raises, and its
+    message is passed through unchanged; the only thing checked here is that it
+    claims to be a mirror.
+    """
+    if not _can_mirror(cat):
+        raise ValueError(
+            f"provider {provider!r} does not mirror anything: it has no `mirror_status`, "
+            "`mirror_sync` and `upstream_projects`, so there is no upstream catalogue to "
+            "report on or refresh"
+        )
+
+    if action == "mirror_projects":
+        _progress = progress
+        _progress(action, 0.5)
+        return {"action": action, "provider": provider, "projects": cat.upstream_projects()}
+
+    projects = options.get("projects") or options.get("project") or []
+    if isinstance(projects, str):
+        projects = [projects]
+    projects = [p for p in (str(x).strip() for x in projects) if p]
+    if not projects:
+        # The provider's own default list. A deployment configures it there,
+        # because "which projects" is a fact about the upstream catalogue.
+        getter = getattr(cat, "mirror_default_projects", None)
+        projects = list(getter()) if callable(getter) else []
+    if not projects:
+        raise ValueError(
+            f"no project named for provider {provider!r}, and it has no default list, so there " "is nothing to mirror"
+        )
+
+    # Reported rather than enforced on a STATUS read: an admin who has just
+    # switched mirroring off still wants to see what is in the cache. A SYNC is
+    # the write, so the provider is asked to refuse that one itself.
+    enabled_getter = getattr(cat, "mirror_enabled", None)
+    enabled = bool(enabled_getter()) if callable(enabled_getter) else True
+
+    out: dict = {"action": action, "provider": provider, "enabled": enabled, "projects": {}}
+    span = 0.7 / max(len(projects), 1)
+
+    for i, project in enumerate(projects):
+        base = 0.2 + span * i
+        progress(action, base)
+
+        if action == "mirror_status":
+            report = cat.mirror_status(
+                project,
+                model_file=(options.get("model_file") or None),
+                # One upstream read per model. Skippable, because a panel's
+                # first paint wants what is cached and not a round trip per
+                # model; entries then report staleness as unknown rather than
+                # as fresh.
+                check_source=bool(options.get("check_source", True)),
+            )
+        else:
+            # PER-MODEL PROGRESS, mapped onto this project's slice of the bar.
+            # A first mirror is tens of minutes and hundreds of models; without
+            # this the job reports 0.2 and then 0.9, which tells a watcher
+            # nothing about whether it is moving.
+            def tick(done, total, model_id, _base=base, _span=span, _p=project):
+                progress(f"{_p}: {model_id} ({done}/{total})", _base + _span * (done / max(total, 1)))
+
+            report = cat.mirror_sync(
+                project,
+                model_file=(options.get("model_file") or None),
+                model_id=(options.get("model_id") or None),
+                force=bool(options.get("force")),
+                dry_run=bool(options.get("dry_run")),
+                on_progress=tick,
+            )
+
+        # A provider may hand back its own report object or a plain dict; both
+        # have to reach the browser as JSON.
+        as_dict = getattr(report, "as_dict", None)
+        out["projects"][project] = as_dict() if callable(as_dict) else report
+
+    progress(action, 0.9)
+    return out
 
 
 def run_job(
@@ -121,9 +234,14 @@ def run_job(
             "action": action,
             "provider": provider,
             "can_upload": _can_upload(cat),
+            "can_mirror": _can_mirror(cat),
             "has_revisions": _has_revisions(cat),
             "collections": [asdict(c) for c in collections],
         }
+
+    if action in ("mirror_status", "mirror_sync", "mirror_projects"):
+        _progress(action, 0.2)
+        return _run_mirror(action, options, cat, provider, _progress)
 
     collection = (options.get("collection") or "").strip()
     if not collection:
@@ -137,6 +255,7 @@ def run_job(
             "provider": provider,
             "collection": collection,
             "can_upload": _can_upload(cat),
+            "can_mirror": _can_mirror(cat),
             "has_revisions": _has_revisions(cat),
             "models": [asdict(m) for m in models],
         }

@@ -50,8 +50,14 @@ jobs:
             environments: tests
             cache: true
 
+        # `test-quick` not `test`: this leg is the fast per-PR gate on three
+        # OSes, and `test` now means the WHOLE suite. The FEM half needs the
+        # fem-deps environment and has its own job in test.yml, so running it
+        # here would triple its cost and gate nothing new. -e is what picks the
+        # backend; `test`'s default environment is deliberately not relied on
+        # in CI, where the environment is always stated.
         - name: Runs Tests
-          run: pixi run -e tests test
+          run: pixi run -e tests test-quick
 
     test-cad-parity:
         name: Test CAD backend parity (PR)

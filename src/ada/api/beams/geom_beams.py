@@ -251,6 +251,30 @@ def parametric_profile_to_arbitrary(area: geo_su.ProfileDef) -> geo_su.Arbitrary
             [],
             profile_name=getattr(area, "profile_name", None),
         )
+    elif isinstance(area, geo_su.CircleProfileDef):
+        # IFC semantics: the circle is centred on the profile position, which
+        # like the rectangle above is always the default here, so this outline
+        # is exact rather than an approximation.
+        #
+        # A single Circle curve rather than a polygon, deliberately: the
+        # outline stays analytic, so a solid swept from it carries true
+        # conical and cylindrical faces and its facet count is decided by the
+        # mesher's tolerance rather than frozen when the profile was built.
+        #
+        # This is what lets the generic swept-solid builders handle a circular
+        # section at all. Two of these make a truncated cone as an
+        # ExtrudedAreaSolidTapered, and one of them revolved about an axis
+        # makes a torus of any swept angle as a RevolvedAreaSolid -- neither
+        # of which had a buildable path before.
+        from ada.geom.curves import Circle
+        from ada.geom.placement import Axis2Placement3D
+
+        return geo_su.ArbitraryProfileDef(
+            area.profile_type,
+            Circle(Axis2Placement3D(), area.radius),
+            [],
+            profile_name=getattr(area, "profile_name", None),
+        )
     else:
         raise NotImplementedError(f"Profile def {type(area).__name__} is not implemented")
 

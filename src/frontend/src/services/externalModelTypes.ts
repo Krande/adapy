@@ -23,6 +23,13 @@ export interface ExternalModel {
   collection: string;
   key: string;
   size?: number | null;
+  /** True when `name` is curated rather than derived from the filename. Some
+   *  providers reuse it to mean "this entry is already local". */
+  labelled?: boolean;
+  /** What a row has no width for: the rest of the model's identity, offered on
+   *  hover. Not a second name -- a consumer showing only this shows nothing
+   *  identifying. */
+  description?: string | null;
 }
 
 /** One stored version of a model, for providers that keep more than one.

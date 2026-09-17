@@ -9,6 +9,7 @@ import pytest
 from ada.plugins import plugin_backend_spec, reset_registry
 from ada.plugins.external_models import (
     DEMO_PROVIDER_ID,
+    OBJECT_STORE_PROVIDER_ID,
     PLUGIN_ID,
     external_model_providers,
     get_external_model_provider,
@@ -222,15 +223,21 @@ def test_importing_the_package_does_not_auto_register():
 # --- the provider registry (the wrapper half) -------------------------------
 
 
-def test_register_installs_the_demo_provider():
+def test_register_installs_the_builtin_provider():
     register()
-    assert [p["id"] for p in external_model_providers()] == [DEMO_PROVIDER_ID]
-    assert isinstance(get_external_model_provider(DEMO_PROVIDER_ID), StubExternalModelCatalog)
+    # ONE built-in. Core ships the object store and the registry; anything
+    # wrapping a third-party catalogue registers from out of tree.
+    assert [p["id"] for p in external_model_providers()] == [OBJECT_STORE_PROVIDER_ID]
+    assert isinstance(get_external_model_provider(OBJECT_STORE_PROVIDER_ID), StubExternalModelCatalog)
+    # The OLD id still resolves. A binding is a stored string
+    # (`public.external_models.binding_map` holds "<provider>:<collection>"), so
+    # a rename that did not do this would silently unbind every scope using it.
+    assert get_external_model_provider(DEMO_PROVIDER_ID) is get_external_model_provider(OBJECT_STORE_PROVIDER_ID)
 
 
 def test_unknown_provider_error_names_what_is_registered():
     register()
-    with pytest.raises(KeyError, match="demo"):
+    with pytest.raises(KeyError, match="object-store"):
         get_external_model_provider("not-installed")
 
 
@@ -274,10 +281,10 @@ def test_a_third_party_provider_registers_exactly_like_the_builtin():
 
     register()
     register_external_model_provider("third-party", _ThirdPartyCatalog, label="Third party")
-    assert {p["id"] for p in external_model_providers()} == {DEMO_PROVIDER_ID, "third-party"}
+    assert {p["id"] for p in external_model_providers()} == {OBJECT_STORE_PROVIDER_ID, "third-party"}
 
     # The same call shape serves both — the consumer only varies the id.
-    for pid, expected in ((DEMO_PROVIDER_ID, "demo"), ("third-party", "alpha")):
+    for pid, expected in ((OBJECT_STORE_PROVIDER_ID, "demo"), ("third-party", "alpha")):
         out = run_job({"action": "list_collections", "provider": pid})
         assert out["provider"] == pid
         assert expected in [c["id"] for c in out["collections"]]
@@ -286,13 +293,13 @@ def test_a_third_party_provider_registers_exactly_like_the_builtin():
 def test_run_job_lists_providers():
     register()
     out = run_job({"action": "list_providers"})
-    assert out["providers"] == [{"id": "demo", "label": "Demo (object store)"}]
+    assert out["providers"] == [{"id": "object-store", "label": "Object store (this deployment)"}]
 
 
-def test_run_job_defaults_to_the_demo_provider():
+def test_run_job_defaults_to_the_object_store_provider():
     register()
     out = run_job({"action": "list_collections"})
-    assert out["provider"] == DEMO_PROVIDER_ID
+    assert out["provider"] == OBJECT_STORE_PROVIDER_ID
 
 
 # --- label manifest -----------------------------------------------------------

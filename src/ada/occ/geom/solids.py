@@ -87,12 +87,38 @@ def make_cone_from_geom(cone: geo_so.Cone) -> TopoDS_Shape:
 
 
 def make_extruded_area_shape_tapered_from_geom(eas: geo_so.ExtrudedAreaSolidTapered):
+    """Loft between the start and end profiles, `depth` apart along `extruded_direction`.
+
+    THE END PROFILE FOLLOWS `extruded_direction`, which is what makes an
+    OBLIQUE frustum expressible: the two sections stay parallel (both normal to
+    the profile plane) while the second is displaced along a direction that
+    need not be the profile normal. A truncated cone whose top circle is offset
+    sideways from its base is the common case, and there is no other attribute
+    in the IFC model to carry that offset -- `IfcExtrudedAreaSolidTapered`
+    inherits `ExtrudedDirection` from `IfcExtrudedAreaSolid` precisely so it
+    can be something other than the normal.
+
+    It used to be hardcoded to +Z, so the attribute was accepted and silently
+    ignored: a caller asking for an oblique loft got a right one, with no
+    error. An axial direction reproduces the previous behaviour exactly.
+
+    A section that collapses is rejected rather than guessed at -- see
+    `ada.geom.solids.reject_degenerate_section` for what to build instead.
+    """
+    unit = geo_so.resolve_extrusion_direction(eas.extruded_direction)
+
+    geo_so.reject_degenerate_section(eas.swept_area, "swept_area")
+    geo_so.reject_degenerate_section(eas.end_swept_area, "end_swept_area")
+
     o = Point(0, 0, 0)
     z = Direction(0, 0, 1)
-    p2 = o + eas.depth * z
+    p2 = o + eas.depth * unit
 
     profile1 = make_profile_from_geom(eas.swept_area)
     _profile2 = make_profile_from_geom(eas.end_swept_area)
+    # Placed with the profile's own normal (z), not with `unit`: an oblique
+    # loft displaces the end section, it does not tilt it. Both sections stay
+    # parallel to the profile plane.
     profile2 = transform_shape_to_pos(_profile2, p2, z, Direction(1, 0, 0))
 
     wire1 = list(TopologyExplorer(profile1).wires())[0]
@@ -126,6 +152,29 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
     ras_shape = occBrep.BRepPrimAPI_MakeRevol(profile, rev_axis, math.radians(ras.angle)).Shape()
 
     return ras_shape
+
+
+def make_torus_from_geom(torus: geo_so.Torus) -> TopoDS_Shape | TopoDS_Solid:
+    """A full torus about ``position.axis``, of ``major_radius`` and ``minor_radius``.
+
+    STEP AP242 ``torus``; there is no IFC CSG equivalent, which is why the
+    solid carries the STEP attribute names.
+
+    ``Axis1Placement`` fixes the axis but not a direction in the plane normal
+    to it, and a full revolution does not need one: every starting direction
+    gives the same solid. A PARTIAL sweep does need one, and that is a
+    ``RevolvedAreaSolid`` of a ``CircleProfileDef`` rather than this -- its
+    ``position`` says where the arc starts, which is exactly the information a
+    torus has nowhere to put.
+
+    ``minor_radius`` may equal or exceed ``major_radius``; OCC builds the
+    self-intersecting spindle form rather than refusing, and that is the
+    surface STEP describes.
+    """
+    axis = torus.position.axis
+    direction = gp_Dir(0, 0, 1) if axis is None else gp_Dir(*axis)
+    frame = gp_Ax2(gp_Pnt(*torus.position.location), direction)
+    return occBrep.BRepPrimAPI_MakeTorus(frame, torus.major_radius, torus.minor_radius).Shape()
 
 
 def make_faceted_brep_from_geom(brep: geo_so.FacetedBrep) -> TopoDS_Shape | TopoDS_Solid:
