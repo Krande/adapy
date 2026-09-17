@@ -47,7 +47,7 @@ ACTIONS = (
 
 # Kept so a single-provider deployment need not thread an id through every call.
 # Multi-provider deployments should always pass one explicitly.
-DEFAULT_PROVIDER = "demo"
+DEFAULT_PROVIDER = "object-store"
 
 
 def _can_upload(cat: ExternalModelCatalog) -> bool:

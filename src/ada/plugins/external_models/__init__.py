@@ -49,6 +49,7 @@ __all__ = [
     "PLUGIN_ID",
     "WORKER_CAPABILITY",
     "DEMO_PROVIDER_ID",
+    "OBJECT_STORE_PROVIDER_ID",
     "register",
     "register_demo_provider",
     "register_web3d_provider",
@@ -73,6 +74,20 @@ __all__ = [
 
 PLUGIN_ID = "external-models"
 WORKER_CAPABILITY = "external-models"
+#: The deployment's OWN object store, as an external-model provider.
+#:
+#: It was `"demo"`, and that was a misnomer with consequences: an admin choosing
+#: where a scope's external models come from was offered "Demo (object store)"
+#: for the thing that serves the deployment's real bucket -- the same S3 bucket
+#: or Azure container the viewer is configured with. The fixture it is named
+#: after is only what it falls back to when no catalogue is configured at all.
+#:
+#: `"demo"` still RESOLVES, through `PROVIDER_ALIASES`, because a binding is a
+#: stored string and renaming an id would silently unbind every scope using it.
+OBJECT_STORE_PROVIDER_ID = "object-store"
+
+#: Retained for callers that import it. It is the OLD id and resolves to
+#: `OBJECT_STORE_PROVIDER_ID`; new code should name the new one.
 DEMO_PROVIDER_ID = "demo"
 
 
@@ -83,9 +98,9 @@ def register_demo_provider() -> None:
     alone — the API is useful with zero built-in providers.
     """
     register_external_model_provider(
-        DEMO_PROVIDER_ID,
+        OBJECT_STORE_PROVIDER_ID,
         demo_catalog_from_env,
-        label="Demo (object store)",
+        label="Object store (this deployment)",
     )
 
 
