@@ -105,9 +105,7 @@ def get_external_model_provider(provider_id: str) -> ExternalModelCatalog:
     if provider_id in _INSTANCES:
         return _INSTANCES[provider_id]
     if provider_id not in _PROVIDERS and provider_id in PROVIDER_ALIASES:
-        logger.debug(
-            "external-models: provider %r is now %r", provider_id, PROVIDER_ALIASES[provider_id]
-        )
+        logger.debug("external-models: provider %r is now %r", provider_id, PROVIDER_ALIASES[provider_id])
         provider_id = PROVIDER_ALIASES[provider_id]
         if provider_id in _INSTANCES:
             return _INSTANCES[provider_id]

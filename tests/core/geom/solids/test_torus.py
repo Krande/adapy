@@ -30,6 +30,34 @@ from ada.geom.points import Point
 R, r = 1.0, 0.25
 FULL = 2 * math.pi**2 * R * r**2
 
+#: Evaluated once, after `_backend_builds` is defined -- see the bottom of the
+#: imports. A backend with no torus skips this module rather than failing it.
+_TORUS = geo_so.Torus(Axis1Placement(Point(0, 0, 0), Direction(0, 0, 1)), R, r)
+
+
+def _backend_builds(solid) -> bool:
+    """Can the ACTIVE backend build this solid at all?
+
+    A backend declares its coverage by building or refusing, and a kernel that
+    predates a solid raises rather than returning the wrong shape. Tests that
+    need one say so here, so an older backend SKIPS instead of failing --
+    which is the difference between "this build cannot do it yet" and "this
+    build gets it wrong", and only the second is a bug.
+
+    Anything else propagates: a backend that has the builder and throws inside
+    it is a real failure and must not be skipped past.
+    """
+    try:
+        active_backend().build(Geometry(0, solid, None))
+    except (NotImplementedError, AttributeError):
+        return False
+    except Exception:
+        return True
+    return True
+
+
+pytestmark = pytest.mark.skipif(not _backend_builds(_TORUS), reason="this CAD backend has no torus builder")
+
 
 def build(solid):
     """Through the CAD backend, not a kernel import.
@@ -97,9 +125,7 @@ def test_a_partial_torus_is_a_revolved_circular_profile(degrees):
     profile = geo_su.CircleProfileDef(geo_su.ProfileType.AREA, r)
     # The section sits at distance R from the axis, in the plane it revolves in.
     position = Axis2Placement3D(Point(R, 0, 0), Direction(0, 1, 0), Direction(1, 0, 0))
-    solid = geo_so.RevolvedAreaSolid(
-        profile, position, Axis1Placement(Point(0, 0, 0), Direction(0, 0, 1)), degrees
-    )
+    solid = geo_so.RevolvedAreaSolid(profile, position, Axis1Placement(Point(0, 0, 0), Direction(0, 0, 1)), degrees)
 
     volume = active_backend().volume(build(solid))
 

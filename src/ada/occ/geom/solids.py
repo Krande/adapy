@@ -86,60 +86,6 @@ def make_cone_from_geom(cone: geo_so.Cone) -> TopoDS_Shape:
     return cone_maker.Shape()
 
 
-#: Below this, a profile dimension is treated as collapsed rather than small.
-_SECTION_TOL = 1e-12
-
-
-def _reject_degenerate_section(profile, field: str) -> None:
-    """Refuse a section with no area, naming the solid that does model it.
-
-    A swept solid needs two real sections. A section that collapses is a
-    different solid wearing this one's clothes, and both collapses have an
-    exact representation already:
-
-    * to a POINT -- the frustum is a cone or a pyramid. Use ``Cone`` or
-      ``RectangularPyramid``, which carry the apex natively.
-    * to an EDGE -- the solid is a wedge, whose sides are planar. Extrude a
-      triangular profile, or give the six faces to ``FacetedBrep``.
-
-    Both are also invalid IFC: ``IfcCircleProfileDef.Radius`` and
-    ``IfcRectangleProfileDef.XDim``/``YDim`` are all required to be positive.
-    So this is not adapy declining to do arithmetic it could do -- it is
-    declining to accept a shape the model has no way to mean.
-
-    The reason to raise rather than improvise is that the lofter's own answers
-    differ: an apex builds correctly, while an edge-collapsed section makes it
-    report failure. Papering over that would turn one of the two into a silent
-    wrong solid.
-    """
-    radius = getattr(profile, "radius", None)
-    if radius is not None:
-        if abs(radius) > _SECTION_TOL:
-            return
-        raise ValueError(
-            f"{field}: a circular section of radius {radius} has no area. "
-            "A frustum whose end collapses to a point is a cone -- build a Cone."
-        )
-
-    x_dim, y_dim = getattr(profile, "x_dim", None), getattr(profile, "y_dim", None)
-    if x_dim is None or y_dim is None:
-        return  # an arbitrary outline; its own builder reports what it cannot do
-    flat_x, flat_y = abs(x_dim) <= _SECTION_TOL, abs(y_dim) <= _SECTION_TOL
-    if not (flat_x or flat_y):
-        return
-    if flat_x and flat_y:
-        raise ValueError(
-            f"{field}: a rectangular section of {x_dim} x {y_dim} has no area. "
-            "A frustum whose end collapses to a point is a pyramid -- build a "
-            "RectangularPyramid."
-        )
-    raise ValueError(
-        f"{field}: a rectangular section of {x_dim} x {y_dim} collapses to an edge, "
-        "which a lofted solid cannot bound. That solid is a wedge: extrude a "
-        "triangular profile, or build it as a FacetedBrep."
-    )
-
-
 def make_extruded_area_shape_tapered_from_geom(eas: geo_so.ExtrudedAreaSolidTapered):
     """Loft between the start and end profiles, `depth` apart along `extruded_direction`.
 
@@ -157,24 +103,12 @@ def make_extruded_area_shape_tapered_from_geom(eas: geo_so.ExtrudedAreaSolidTape
     error. An axial direction reproduces the previous behaviour exactly.
 
     A section that collapses is rejected rather than guessed at -- see
-    `_reject_degenerate_section` for what to build instead.
+    `ada.geom.solids.reject_degenerate_section` for what to build instead.
     """
-    direction = eas.extruded_direction
-    if direction is None:
-        direction = Direction(0, 0, 1)
-    else:
-        direction = Direction(*direction)
+    unit = geo_so.resolve_extrusion_direction(eas.extruded_direction)
 
-    # `depth` is measured along the extruded direction, so the direction is
-    # normalised first -- otherwise a non-unit vector scales the solid's length
-    # by its own magnitude.
-    length = direction.get_length()
-    if length < 1e-12:
-        raise ValueError("ExtrudedAreaSolidTapered has a zero-length extruded_direction")
-    unit = Direction(*(c / length for c in direction))
-
-    _reject_degenerate_section(eas.swept_area, "swept_area")
-    _reject_degenerate_section(eas.end_swept_area, "end_swept_area")
+    geo_so.reject_degenerate_section(eas.swept_area, "swept_area")
+    geo_so.reject_degenerate_section(eas.end_swept_area, "end_swept_area")
 
     o = Point(0, 0, 0)
     z = Direction(0, 0, 1)

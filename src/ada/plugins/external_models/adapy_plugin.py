@@ -77,10 +77,7 @@ def _can_mirror(cat: ExternalModelCatalog) -> bool:
     the same line every other optional capability here is drawn on, and it is
     what lets an out-of-tree provider offer this without core naming it.
     """
-    return all(
-        callable(getattr(cat, attr, None))
-        for attr in ("mirror_status", "mirror_sync", "upstream_projects")
-    )
+    return all(callable(getattr(cat, attr, None)) for attr in ("mirror_status", "mirror_sync", "upstream_projects"))
 
 
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
@@ -133,8 +130,7 @@ def _run_mirror(action, options, cat, provider, progress):
         projects = list(getter()) if callable(getter) else []
     if not projects:
         raise ValueError(
-            f"no project named for provider {provider!r}, and it has no default list, so there "
-            "is nothing to mirror"
+            f"no project named for provider {provider!r}, and it has no default list, so there " "is nothing to mirror"
         )
 
     # Reported rather than enforced on a STATUS read: an admin who has just
