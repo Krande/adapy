@@ -17,8 +17,8 @@ export const DEFAULT_EXTERNAL_MODEL_PROVIDER = "demo";
 export interface ExternalModelBinding {
   provider: string;
   collection: string;
-  /** Glob patterns for models this scope should not see. Empty means show all.
-   *  See {@link isHidden}. */
+  /** Models this scope should not see: model ids, plus any hand-written
+   *  wildcard patterns. Empty means show all. See {@link isHidden}. */
   hide: string[];
 }
 
@@ -91,23 +91,23 @@ export function serialiseBinding(b: {
   return { provider: b.provider, collection: b.collection, hide };
 }
 
+/** Does an entry carry a wildcard, and therefore mean a pattern? */
+export function isPattern(entry: string): boolean {
+  return entry.includes("*") || entry.includes("?");
+}
+
 /** Does `text` match a glob with `*` and `?`, case-insensitively?
  *
- *  A GLOB RATHER THAN A REGEX, because these are written by an admin into a
- *  small box and `*Temp*` is what someone means. Everything else is escaped, so
- *  a pattern containing `.` or `(` matches those characters rather than
- *  quietly meaning something else -- a model named `AP400(511)-STRU` is an
- *  ordinary thing to want to hide.
+ *  ANCHORED, and a regex only internally: everything but the wildcards is
+ *  escaped, so `*(511)*` matches an E3D name containing parentheses rather
+ *  than quietly meaning a capture group.
  *
- *  A pattern with no wildcard at all is treated as a SUBSTRING, because that is
- *  what typing `Temp` into a filter box means to everyone who is not thinking
- *  about globs. */
+ *  Only reached for entries that HAVE a wildcard -- see {@link isHidden}. */
 export function matchesGlob(text: string, pattern: string): boolean {
   const p = pattern.trim();
   if (!p) return false;
   const hay = text.toLowerCase();
   const needle = p.toLowerCase();
-  if (!needle.includes("*") && !needle.includes("?")) return hay.includes(needle);
   const escaped = needle.replace(/[.+^${}()|[\]\\]/g, "\\$&");
   const rx = new RegExp(`^${escaped.replace(/\*/g, ".*").replace(/\?/g, ".")}$`);
   return rx.test(hay);
@@ -115,21 +115,37 @@ export function matchesGlob(text: string, pattern: string): boolean {
 
 /** Should this model be hidden from the scope it was listed for?
  *
- *  Matched against the id, the name AND the description, because they carry
- *  different halves of what an admin is looking at: web3d names a model for its
- *  SITE and puts the RVM export in the description, so "hide the temporary
- *  steel exports" is a pattern over the description while "hide the VAT sites"
- *  is one over the name. Requiring the admin to know which would make the box
- *  fail silently half the time. */
+ *  TWO KINDS OF ENTRY, and which one applies is decided by the entry itself.
+ *
+ *  Without a wildcard it is a MODEL ID, matched EXACTLY. That is what the admin
+ *  panel's checkbox list writes, and exactness is the whole reason: these ids
+ *  nest -- `ModelExportMain.rvm~AP400-STRU` is a prefix of
+ *  `ModelExportMain.rvm~AP400-STRU_MS` -- so a substring rule would tick one
+ *  site and hide two. Hiding a model nobody asked to hide is the failure mode
+ *  worth designing against, because the model simply is not there and nothing
+ *  says why.
+ *
+ *  With a wildcard it is a pattern, matched against the id, the name AND the
+ *  description. That form is not written by the UI; it exists because a
+ *  hand-edited `*TempSteel*` keeps applying to models that do not exist yet,
+ *  which a list of ticks cannot do. Both kinds live in one list, and the panel
+ *  shows the patterns separately so they are never mistaken for a tick nobody
+ *  can find. */
 export function isHidden(
   model: { id?: string; name?: string; description?: string | null },
-  patterns: readonly string[],
+  entries: readonly string[],
 ): boolean {
-  if (!patterns.length) return false;
+  if (!entries.length) return false;
+  const id = (model.id ?? "").toLowerCase();
   const fields = [model.id, model.name, model.description].filter(
     (f): f is string => typeof f === "string" && f.length > 0,
   );
-  return patterns.some((p) => fields.some((f) => matchesGlob(f, p)));
+  return entries.some((entry) => {
+    const e = entry.trim();
+    if (!e) return false;
+    if (!isPattern(e)) return id !== "" && id === e.toLowerCase();
+    return fields.some((f) => matchesGlob(f, e));
+  });
 }
 
 /** The binding for one scope, or null. Separate from the read so a consumer can

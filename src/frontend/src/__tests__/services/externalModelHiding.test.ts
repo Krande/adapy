@@ -4,6 +4,7 @@ import {test} from "node:test";
 import {
     bindingFor,
     isHidden,
+    isPattern,
     matchesGlob,
     parseBindingMap,
     serialiseBinding,
@@ -77,15 +78,36 @@ test("an unrecognised row is dropped rather than guessed at", () => {
 
 // --- matching ---------------------------------------------------------------
 
-test("a pattern with no wildcard is a substring", () => {
-    // What typing "Temp" into a filter box means to everyone not thinking
-    // about globs.
-    assert.ok(matchesGlob("ModelExportTempSteel.rvm", "Temp"));
-    assert.ok(!matchesGlob("ModelExportMain.rvm", "Temp"));
+test("an entry is a pattern only when it carries a wildcard", () => {
+    // Which kind an entry is decides how it matches, and the UI writes only the
+    // first kind.
+    assert.equal(isPattern("ModelExportMain.rvm~AP400-STRU_MS"), false);
+    assert.equal(isPattern("*TempSteel*"), true);
+    assert.equal(isPattern("AP4?0"), true);
+});
+
+test("an id is matched EXACTLY, because these ids nest", () => {
+    // `...~AP400-STRU` is a prefix of `...~AP400-STRU_MS`. A substring rule
+    // would tick one site and hide two, and the second one is simply absent
+    // with nothing saying why.
+    const stru = model({id: "ModelExportMain.rvm~AP400-STRU", name: "/AP400-STRU"});
+    const struMs = model({id: "ModelExportMain.rvm~AP400-STRU_MS", name: "/AP400-STRU_MS"});
+    const hide = ["ModelExportMain.rvm~AP400-STRU"];
+
+    assert.equal(isHidden(stru, hide), true);
+    assert.equal(isHidden(struMs, hide), false, "the longer id is a different model");
+});
+
+test("an exact entry does not match the name or the description", () => {
+    // Only a pattern searches those. An id that happened to appear inside a
+    // description would otherwise hide a model the admin never ticked.
+    assert.equal(isHidden(model({id: "other"}), ["/AP400-STRU_MS"]), false);
 });
 
 test("matching is case-insensitive", () => {
-    assert.ok(matchesGlob("ModelExportTempSteel.rvm", "tempsteel"));
+    assert.ok(matchesGlob("ModelExportTempSteel.rvm", "*tempsteel*"));
+    assert.ok(isHidden(model({id: "ModelExportMain.rvm~AP400-STRU_MS"}),
+                       ["modelexportmain.rvm~ap400-stru_ms"]));
 });
 
 test("* and ? are wildcards and anchor the whole string", () => {
@@ -108,21 +130,30 @@ test("no patterns hides nothing", () => {
     assert.equal(isHidden(model(), []), false);
 });
 
-test("a pattern is matched against the name, the id AND the description", () => {
+test("a WILDCARD pattern is matched against the name, the id AND the description", () => {
     // They carry different halves of what an admin is looking at: web3d names a
     // model for its SITE and puts the RVM export in the description, so
     // "hide the temporary steel" is a description pattern while "hide the VAT
     // sites" is a name one. Requiring them to know which would make the box
     // fail silently half the time.
-    assert.ok(isHidden(model({description: "ModelExportTempSteel.rvm · ASP"}), ["TempSteel"]));
+    assert.ok(isHidden(model({description: "ModelExportTempSteel.rvm · ASP"}), ["*TempSteel*"]));
     assert.ok(isHidden(model({name: "/AP400-ELEC_VAT"}), ["*_VAT"]));
     assert.ok(isHidden(model({id: "ModelExportVolumes.rvm~A000-AREAS"}), ["*Volumes*"]));
 });
 
 test("a model matching none of several patterns survives", () => {
-    assert.equal(isHidden(model(), ["TempSteel", "*_VAT", "*Volumes*"]), false);
+    assert.equal(isHidden(model(), ["*TempSteel*", "*_VAT", "*Volumes*"]), false);
 });
 
 test("a model with no description is still matched on what it has", () => {
-    assert.ok(isHidden(model({description: null}), ["AP400-STRU_MS"]));
+    assert.ok(isHidden(model({description: null}), ["*AP400-STRU_MS*"]));
+});
+
+test("both kinds of entry live in one list", () => {
+    // The UI writes ids; a hand-edited pattern keeps applying to models that do
+    // not exist yet, which a list of ticks cannot do. Neither disables the other.
+    const hide = ["ModelExportMain.rvm~AP400-STRU_MS", "*_VAT"];
+    assert.ok(isHidden(model(), hide), "hidden by its exact id");
+    assert.ok(isHidden(model({id: "x", name: "/AP400-ELEC_VAT"}), hide), "hidden by the pattern");
+    assert.equal(isHidden(model({id: "y", name: "/AP400-ELEC", description: null}), hide), false);
 });

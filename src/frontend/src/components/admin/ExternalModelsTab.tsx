@@ -16,8 +16,10 @@ import {
     parseBindingMap,
     EXTERNAL_MODELS_BINDING_KEY,
     isHidden,
+    isPattern,
     serialiseBinding,
 } from "@/services/externalModelsBinding";
+import {fuzzyFilter} from "@/services/fuzzy";
 import type {ExternalModel} from "@/services/externalModels";
 import {listModels} from "@/services/externalModels";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
@@ -65,7 +67,9 @@ const ExternalModelsTab: React.FC = () => {
     // time: the editor carries a live preview, and previewing several at once
     // would mean holding several collections' model lists.
     const [hideScope, setHideScope] = useState<string | null>(null);
-    const [hideDraft, setHideDraft] = useState("");
+    // The filter over the model list, not a draft of the selection: each tick
+    // persists on its own, the same way the project picker does.
+    const [hideFilter, setHideFilter] = useState("");
     // The bound collection's models, for that preview. Fetched when the editor
     // opens, because a filter whose effect nobody can see is exactly the
     // fragile thing it is meant to replace.
@@ -167,7 +171,7 @@ const ExternalModelsTab: React.FC = () => {
             const bound = bindingFor(map, scope);
             if (!bound) return;
             setHideScope(scope);
-            setHideDraft(bound.hide.join(", "));
+            setHideFilter("");
             setHidePreview(null);
             try {
                 setHidePreview(
@@ -186,7 +190,7 @@ const ExternalModelsTab: React.FC = () => {
     );
 
     const saveHide = useCallback(
-        async (scope: string, patterns: string[]) => {
+        async (scope: string, entries: string[]) => {
             const bound = bindingFor(map, scope);
             if (!bound) return;
             setBusy(scope);
@@ -196,7 +200,7 @@ const ExternalModelsTab: React.FC = () => {
                 next[scope] = serialiseBinding({
                     provider: bound.provider,
                     collection: bound.collection,
-                    hide: patterns,
+                    hide: entries,
                 });
                 await persist(next);
             } catch (e) {
@@ -320,6 +324,21 @@ const ExternalModelsTab: React.FC = () => {
             cell: (row) => {
                 const bound = bindingFor(map, row.scope);
                 if (!bound) return <span className="text-xs text-gray-600">—</span>;
+
+                // Entries are model ids, except any hand-written wildcards.
+                // Separated because only the first kind can be ticked, and a
+                // pattern that silently survived a "nothing is hidden" reading
+                // of the list would be the worst of both.
+                const patterns = bound.hide.filter(isPattern);
+                const ticked = bound.hide.filter((h) => !isPattern(h));
+
+                const toggle = (id: string) => {
+                    const next = ticked.includes(id)
+                        ? bound.hide.filter((h) => h !== id)
+                        : [...bound.hide, id];
+                    void saveHide(row.scope, next);
+                };
+
                 return (
                     <div className="space-y-1">
                         <button
@@ -336,83 +355,123 @@ const ExternalModelsTab: React.FC = () => {
                         >
                             {bound.hide.length === 0
                                 ? "None hidden"
-                                : `${bound.hide.length} pattern${bound.hide.length === 1 ? "" : "s"}`}
+                                : `${bound.hide.length} hidden`}
                         </button>
+
                         {hideScope === row.scope && (
-                            <div className="space-y-1">
-                                {/* FREE TEXT, deliberately, and previewed for the
-                                    same reason. A pattern is not something that
-                                    can be ticked from a list -- the whole value
-                                    is matching a family of names at once -- but
-                                    an unchecked pattern is a guess. The count
-                                    below turns a typo into something visible
-                                    instead of a scope that silently shows
-                                    everything. */}
-                                <input
-                                    className="w-full text-xs bg-gray-900 border border-gray-700 rounded-sm px-2 py-1"
-                                    placeholder="TempSteel, *_VAT, *Volumes.rvm*"
-                                    value={hideDraft}
-                                    onChange={(e) => setHideDraft(e.target.value)}
-                                />
-                                {(() => {
-                                    const patterns = hideDraft
-                                        .split(",")
-                                        .map((p: string) => p.trim())
-                                        .filter(Boolean);
-                                    if (hidePreview === null) {
-                                        return (
-                                            <div className="text-[11px] text-gray-500">
-                                                Reading the collection…
-                                            </div>
-                                        );
-                                    }
-                                    if (hidePreview.length === 0) {
-                                        return (
-                                            <div className="text-[11px] text-gray-500">
-                                                Cannot preview this collection; the patterns still apply.
-                                            </div>
-                                        );
-                                    }
-                                    const hit = hidePreview.filter((m) => isHidden(m, patterns));
-                                    return (
+                            <div className="rounded-sm border border-gray-700 bg-gray-900/60 p-2 space-y-2">
+                                {hidePreview === null && (
+                                    <div className="text-[11px] text-gray-500">
+                                        Reading the collection…
+                                    </div>
+                                )}
+
+                                {hidePreview !== null && hidePreview.length === 0 && (
+                                    <div className="text-[11px] text-gray-500">
+                                        This collection could not be listed, so there is nothing to
+                                        tick. Anything already hidden stays hidden.
+                                    </div>
+                                )}
+
+                                {hidePreview !== null && hidePreview.length > 0 && (
+                                    <>
+                                        {/* TICKED, NOT TYPED. It was a comma-separated
+                                            box, which is a typo away from hiding
+                                            nothing -- and a filter that silently does
+                                            nothing is invisible by construction. An id
+                                            picked off the list cannot be misspelled.
+
+                                            The same subsequence filter the project
+                                            picker and the models menu use; a web3d
+                                            collection is 208 rows. */}
+                                        <input
+                                            type="search"
+                                            value={hideFilter}
+                                            onChange={(e) => setHideFilter(e.target.value)}
+                                            placeholder={`Filter ${hidePreview.length} models…`}
+                                            aria-label="Filter models to hide"
+                                            className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                                        />
+                                        <ul className="max-h-56 overflow-auto">
+                                            {fuzzyFilter(hidePreview, hideFilter, (m) =>
+                                                m.description ? `${m.name} ${m.description}` : m.name,
+                                            ).map((m) => {
+                                                const on = ticked.includes(m.id);
+                                                // A model hidden by a PATTERN shows as
+                                                // hidden and cannot be unticked -- the
+                                                // checkbox would appear to do nothing,
+                                                // which is worse than saying why.
+                                                const byPattern = !on && isHidden(m, patterns);
+                                                return (
+                                                    <li key={m.id}>
+                                                        <label
+                                                            className={`flex items-center gap-2 py-0.5 px-1 text-xs rounded-sm ${
+                                                                byPattern
+                                                                    ? "opacity-60"
+                                                                    : "cursor-pointer hover:bg-gray-800/60"
+                                                            }`}
+                                                            title={
+                                                                byPattern
+                                                                    ? "Hidden by a pattern on this scope"
+                                                                    : m.description || m.name
+                                                            }
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={on || byPattern}
+                                                                disabled={byPattern || busy === row.scope}
+                                                                onChange={() => toggle(m.id)}
+                                                            />
+                                                            <span className="truncate text-gray-200">
+                                                                {m.name}
+                                                            </span>
+                                                            {m.description && (
+                                                                <span className="truncate text-gray-600">
+                                                                    {m.description}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
                                         <div className="text-[11px] text-gray-500">
-                                            hides {hit.length} of {hidePreview.length}
-                                            {hit.length > 0 && (
-                                                <span className="text-gray-600">
-                                                    {" — "}
-                                                    {hit.slice(0, 3).map((m) => m.name).join(", ")}
-                                                    {hit.length > 3 ? `, +${hit.length - 3}` : ""}
-                                                </span>
-                                            )}
-                                            {patterns.length > 0 && hit.length === 0 && (
-                                                <span className="text-amber-300"> — matches nothing</span>
-                                            )}
+                                            {hidePreview.filter((m) => isHidden(m, bound.hide)).length} of{" "}
+                                            {hidePreview.length} hidden from this scope.
                                         </div>
-                                    );
-                                })()}
-                                <div className="flex gap-1">
-                                    <button
-                                        type="button"
-                                        className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
-                                        disabled={busy === row.scope}
-                                        onClick={() => {
-                                            void saveHide(
-                                                row.scope,
-                                                hideDraft.split(",").map((p: string) => p.trim()).filter(Boolean),
-                                            );
-                                            setHideScope(null);
-                                        }}
-                                    >
-                                        Save
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="text-xs px-2 py-0.5 rounded-sm border border-gray-700 hover:bg-gray-800"
-                                        onClick={() => setHideScope(null)}
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
+                                    </>
+                                )}
+
+                                {/* Patterns are not written here, and saying so beats
+                                    leaving an entry nobody can find a tick for. They
+                                    keep applying to models that do not exist yet,
+                                    which a list of ticks cannot do -- so they are
+                                    shown, and removable, but not composed. */}
+                                {patterns.length > 0 && (
+                                    <div className="space-y-1 border-t border-gray-800 pt-2">
+                                        <div className="text-[11px] text-gray-500">
+                                            Also hidden by pattern:
+                                        </div>
+                                        {patterns.map((pat) => (
+                                            <div key={pat} className="flex items-center gap-2 text-[11px]">
+                                                <code className="flex-1 truncate text-gray-400">{pat}</code>
+                                                <button
+                                                    type="button"
+                                                    className="shrink-0 rounded-sm border border-gray-700 px-1.5 hover:bg-gray-800"
+                                                    disabled={busy === row.scope}
+                                                    onClick={() =>
+                                                        void saveHide(
+                                                            row.scope,
+                                                            bound.hide.filter((h) => h !== pat),
+                                                        )
+                                                    }
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
