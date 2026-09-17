@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import datetime
-from operator import attrgetter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
+
+import numpy as np
 
 from ada.config import logger
 from ada.core.utils import Counter, get_current_user
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
     from .write_constraints import constraint_str
-    from .write_elements import elem_str
+    from .write_elements import elem_gen
     from .write_loads import loads_str
     from .write_masses import mass_str
     from .write_sections import sections_str
@@ -75,13 +76,13 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(materials_str(materials))
         d.write(sections_str(part.fem, thick_map))
         d.write(univec_str(part.fem))
-        d.write(nodes_str(part.fem))
+        d.writelines(nodes_gen(part.fem))
         d.write(mass_str(part.fem))
         d.write(sets_str(part.fem))
         d.write(bc_str(part.fem) + bc_str(assembly.fem))
         d.write(constraint_str(part.fem) + constraint_str(assembly.fem))
         d.write(hinges_str(part.fem))
-        d.write(elem_str(part.fem, thick_map))
+        d.writelines(elem_gen(part.fem, thick_map))
         d.write(loads_str(assembly.fem) + loads_str(part.fem))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
@@ -106,21 +107,51 @@ def materials_str(materials: list[Material]):
     return out_str
 
 
-def nodes_str(fem: FEM) -> str:
-    nodes = sorted(fem.nodes, key=attrgetter("id"))
+def _nodes_as_arrays(fem: FEM) -> tuple[np.ndarray, np.ndarray]:
+    """Return (node_ids, coords) sorted by ascending node id.
 
-    nids = []
-    for n in nodes:
-        if n.id not in nids:
-            nids.append(n.id)
-        else:
-            raise Exception('Doubly defined node id "{}". TODO: Make necessary code updates'.format(n[0]))
-    if len(nodes) == 0:
-        return "** No Nodes"
+    On the array-backed mesh path the ids and coordinates already sit in the packed
+    store, so sort the raw arrays instead of minting a proxy per node. The object
+    path materialises the nodes once.
+    """
+    store = getattr(fem.nodes, "store", None)
+    if store is not None:
+        node_ids, coords = store.node_ids, store.coords
     else:
-        out_str = "".join([write_ff("GNODE", [(no.id, no.id, 6, 123456)]) for no in nodes])
-        out_str += "".join([write_ff("GCOORD", [(no.id, no[0], no[1], no[2])]) for no in nodes])
-        return out_str
+        nodes = list(fem.nodes)
+        if not nodes:
+            return np.zeros(0, dtype=np.int64), np.zeros((0, 3), dtype=float)
+        node_ids = np.fromiter((n.id for n in nodes), dtype=np.int64, count=len(nodes))
+        coords = np.asarray([(n[0], n[1], n[2]) for n in nodes], dtype=float)
+
+    order = np.argsort(node_ids, kind="stable")
+    return node_ids[order], coords[order]
+
+
+def nodes_gen(fem: FEM) -> Iterator[str]:
+    """Yield the GNODE + GCOORD records one at a time so the caller can stream them
+    straight to file instead of holding a deck-sized string in memory."""
+    node_ids, coords = _nodes_as_arrays(fem)
+    if node_ids.size == 0:
+        yield "** No Nodes"
+        return
+
+    # Duplicate detection via adjacent-equality on the sorted id array: O(n), where a
+    # ``not in`` scan over a growing list was O(n^2).
+    dupes = np.flatnonzero(node_ids[1:] == node_ids[:-1])
+    if dupes.size:
+        raise Exception(
+            'Doubly defined node id "{}". TODO: Make necessary code updates'.format(int(node_ids[dupes[0]]))
+        )
+
+    for nid in node_ids:
+        yield write_ff("GNODE", [(int(nid), int(nid), 6, 123456)])
+    for nid, p in zip(node_ids, coords):
+        yield write_ff("GCOORD", [(int(nid), p[0], p[1], p[2])])
+
+
+def nodes_str(fem: FEM) -> str:
+    return "".join(nodes_gen(fem))
 
 
 def bc_str(fem: FEM) -> str:
