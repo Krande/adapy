@@ -242,7 +242,7 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                                 renaming={renaming?.kind === "file" && renaming.path === node.file.name}
                                                 onRenameCommit={(v) => void onRenameFileCommit(node.file, v)}
                                                 onRenameCancel={() => setRenaming(null)}
-                                                showModified={maximized}
+                                                showModified
                                             />
                                         );
                                     }
@@ -332,7 +332,7 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                     onSelectToggle={toggleSelection}
                                     fileMenuItemsFor={versionFileMenuItems}
                                     onOpenContextMenu={openCtxMenu}
-                                    showModified={maximized}
+                                    showModified
                                 />
                             )}
                         </div>
