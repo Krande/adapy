@@ -178,3 +178,38 @@ def elem_has_parallel_face(el: Elem, nodes: List[Node]):
         if all_face_nodes_in_plane is True:
             return i
     return None
+
+
+def surface_nodes(region: Union[Surface, FemSet]) -> List[Node]:
+    """Unique nodes covered by a surface (or a plain set), in first-seen order.
+
+    A ``Surface`` names its region through one or more ``FemSet`` objects, or -- when a
+    deck listed several sets under a single surface -- through ``id_refs`` entries
+    naming those sets or element / node ids outright. Callers that only need the nodes
+    shouldn't have to know which of the three they got.
+    """
+    if isinstance(region, FemSet):
+        members = list(region.members)
+    else:
+        members = []
+        fem_set = region.fem_set
+        for fs in fem_set if isinstance(fem_set, list) else [fem_set]:
+            if fs is not None:
+                members += list(fs.members)
+
+        id_refs = region.id_refs or []
+        if id_refs and region.parent is None:
+            raise ValueError(f'Surface "{region.name}" references sets by name but has no parent FEM')
+        nodal = region.type == SurfTypes.NODE
+        for ref in (r[0] for r in id_refs):
+            if isinstance(ref, str):
+                sets = region.parent.sets
+                members += list((sets.get_nset_from_name(ref) if nodal else sets.get_elset_from_name(ref)).members)
+            else:
+                members.append(region.parent.nodes.from_id(ref) if nodal else region.parent.elements.from_id(ref))
+
+    nodes = {}
+    for m in members:
+        for n in getattr(m, "nodes", [m]):
+            nodes.setdefault(n.id, n)
+    return list(nodes.values())

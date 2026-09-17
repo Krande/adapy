@@ -861,11 +861,22 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     sh2solids = []
     for m in cards.sh2so_re.regex.finditer(bulk_str):
         d = m.groupdict()
-        name = d["constraint_name"]
+        name = d["constraint_name"].strip()
         influence = d["influence_distance"]
+        pos_tol = d["position_tolerance"]
         surf1 = get_set_from_assembly(d["surf1"], fem, "surface")
         surf2 = get_set_from_assembly(d["surf2"], fem, "surface")
-        sh2solids.append(Constraint(name, Constraint.TYPES.SHELL2SOLID, surf1, surf2, influence_distance=influence))
+        sh2solids.append(
+            Constraint(
+                name,
+                Constraint.TYPES.SHELL2SOLID,
+                surf1,
+                surf2,
+                pos_tol=float(pos_tol) if pos_tol else None,
+                influence_distance=float(influence) if influence else None,
+                parent=fem,
+            )
+        )
 
     # MPC's
     mpc_dict = dict()
