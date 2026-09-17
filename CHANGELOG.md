@@ -2,6 +2,15 @@
 
 
 
+## v0.75.0 (2026-09-17)
+
+### Feature
+
+* feat: Buildable circular/tapered/torus solids, a generic external-model mirror seam, and a findable model list (#358)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`704d5b2`](https://github.com/Krande/adapy/commit/704d5b2cfe81c168f1337da7dddc533f996ec30a))
+
+
 ## v0.74.0 (2026-09-17)
 
 ### Feature
