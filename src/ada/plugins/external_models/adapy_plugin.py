@@ -41,6 +41,8 @@ ACTIONS = (
     "list_model_revisions",
     "model_url",
     "model_upload_url",
+    "mirror_status",
+    "mirror_sync",
 )
 
 # Kept so a single-provider deployment need not thread an id through every call.
@@ -59,6 +61,26 @@ def _can_upload(cat: ExternalModelCatalog) -> bool:
     return callable(getattr(cat, "model_upload_url", None))
 
 
+def _can_mirror(cat: ExternalModelCatalog) -> bool:
+    """Can this provider hold a mirror of an upstream catalogue?
+
+    Three capabilities together, and it needs all three: somewhere to PUT a
+    model, headers saying how, and a sidecar to record what was mirrored and
+    from where. Reported alongside every listing, the same way upload and
+    revisions are, so a UI decides whether to offer the control BEFORE anyone
+    presses it -- a "refresh from web3d" button that fails on a read-only
+    catalogue is worse than no button.
+
+    A credential is NOT part of this answer. Whether the deployment can reach
+    web3d is `mirror_status`'s business; this is only about whether the
+    destination can accept a mirror at all.
+    """
+    return all(
+        callable(getattr(cat, attr, None))
+        for attr in ("model_upload_url", "model_upload_headers", "get_sidecar", "put_sidecar")
+    )
+
+
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
     """Does this provider keep more than one version of a model?
 
@@ -67,6 +89,88 @@ def _has_revisions(cat: ExternalModelCatalog) -> bool:
     picker before it has asked about any particular model.
     """
     return callable(getattr(cat, "list_model_revisions", None))
+
+
+def _run_mirror(action, options, cat, provider, progress):
+    """Report or refresh the web3d cache held in this provider's store.
+
+    ONE ENTRY POINT FOR BOTH CALLERS. The admin panel asks for `mirror_status`
+    to render, and `mirror_sync` when someone presses refresh; the scheduled job
+    asks for exactly the same two. Neither is a special path, so the thing an
+    operator can trigger by hand is the thing the cron runs -- which is the only
+    way a "refresh now" button stays honest about what the nightly run does.
+
+    REFUSALS, IN THE ORDER THEY MATTER. A caller asking about a mirror wants to
+    know which of three different things is wrong, and a single "unavailable"
+    would collapse them: this provider cannot hold a mirror at all; the
+    deployment has no web3d credential; or an admin switched mirroring off. Only
+    the last is a state anyone here can change from the panel.
+    """
+    from ada.plugins.external_models import web3d
+
+    if not _can_mirror(cat):
+        raise ValueError(
+            f"provider {provider!r} cannot hold a mirror: it has no upload or sidecar surface, "
+            "so there is nowhere to put a cached model or to record where it came from"
+        )
+    if not web3d.mirror_configured():
+        raise ValueError(
+            "this deployment has no web3d credential. The read-only service principal on the "
+            f"web3d storage account arrives as {web3d.TENANT_VAR} / {web3d.CLIENT_ID_VAR} / "
+            f"{web3d.CLIENT_SECRET_VAR}, and none of them is a setting anyone can change here."
+        )
+
+    projects = options.get("projects") or options.get("project") or web3d.configured_projects()
+    if isinstance(projects, str):
+        projects = [projects]
+    projects = [p for p in (str(x).strip() for x in projects) if p]
+    if not projects:
+        raise ValueError(
+            f"no web3d project named, and {web3d.PROJECTS_VAR} is not set, so there is nothing "
+            "to mirror. Name one, or configure the deployment's default list."
+        )
+
+    # `enabled` is reported rather than enforced on a STATUS read: an admin who
+    # has just switched mirroring off still wants to see what is in the cache.
+    # A SYNC is the write, so that one refuses.
+    enabled = web3d.mirror_enabled()
+    if action == "mirror_sync" and not enabled and not options.get("force_disabled"):
+        raise ValueError(
+            f"web3d mirroring is switched off ({web3d.MIRROR_ENABLED_VAR}). Turn it on before "
+            "refreshing, or pass force_disabled to run this once anyway."
+        )
+
+    mirror = web3d.mirror_from_env(cat)
+    out: dict = {
+        "action": action,
+        "provider": provider,
+        "enabled": enabled,
+        "projects": {},
+    }
+    for i, project in enumerate(projects):
+        progress(action, 0.2 + 0.7 * (i / max(len(projects), 1)))
+        if action == "mirror_status":
+            report = mirror.status(
+                project,
+                model_file=(options.get("model_file") or None),
+                # One HEAD per site against web3d. Skippable, because a panel's
+                # first paint wants what is cached and not a round trip per
+                # model; the entries then report staleness as unknown rather
+                # than as fresh.
+                check_source=bool(options.get("check_source", True)),
+            )
+        else:
+            report = mirror.sync(
+                project,
+                model_file=(options.get("model_file") or None),
+                model_id=(options.get("model_id") or None),
+                force=bool(options.get("force")),
+                dry_run=bool(options.get("dry_run")),
+            )
+        out["projects"][project] = report.as_dict()
+
+    progress(action, 0.9)
+    return out
 
 
 def run_job(
@@ -121,9 +225,14 @@ def run_job(
             "action": action,
             "provider": provider,
             "can_upload": _can_upload(cat),
+            "can_mirror": _can_mirror(cat),
             "has_revisions": _has_revisions(cat),
             "collections": [asdict(c) for c in collections],
         }
+
+    if action in ("mirror_status", "mirror_sync"):
+        _progress(action, 0.2)
+        return _run_mirror(action, options, cat, provider, _progress)
 
     collection = (options.get("collection") or "").strip()
     if not collection:
@@ -137,6 +246,7 @@ def run_job(
             "provider": provider,
             "collection": collection,
             "can_upload": _can_upload(cat),
+            "can_mirror": _can_mirror(cat),
             "has_revisions": _has_revisions(cat),
             "models": [asdict(m) for m in models],
         }

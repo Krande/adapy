@@ -1,5 +1,6 @@
-import React, {useCallback, useEffect, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useState} from "react";
 
+import {fuzzyFilter} from "@/services/fuzzy";
 import {makePluginContextStandalone} from "@/plugins";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useExternalModelsStore} from "@/state/externalModelsStore";
@@ -41,7 +42,21 @@ const ExternalModelsPanel: React.FC = () => {
     // rather than showing one that fails when pressed.
     const [uploadable, setUploadable] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [query, setQuery] = useState("");
     const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+    // ORDER IS DECIDED HERE, not taken from the provider. The built-in S3
+    // catalogue happens to sort its listing, but that is its choice and not a
+    // promise of the interface -- a browser-side provider returns whatever its
+    // vendor API returned, and a list that is alphabetical for one catalogue
+    // and arbitrary for the next is worse than one that is always arbitrary,
+    // because you stop trusting the order you can see.
+    //
+    // A collection here is one per E3D SITE across every model file of a
+    // project, which is hundreds of near-identical names. Scrolling that is not
+    // a way to find anything, so the filter is not a refinement of the list --
+    // it is how the list is used.
+    const shown = useMemo(() => fuzzyFilter(models, query, (m) => m.name), [models, query]);
 
     useEffect(() => {
         if (!visible) return;
@@ -220,8 +235,37 @@ const ExternalModelsPanel: React.FC = () => {
                 </div>
             )}
 
+            {/* Shown from two models up. Below that the filter is furniture, and
+                the count line it carries would be saying "2 of 2". */}
+            {!loading && binding && models.length > 1 && (
+                <div className="px-3 py-2 border-b border-gray-800">
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        data-testid="external-models-filter"
+                        placeholder={`Filter ${models.length} model${models.length === 1 ? "" : "s"}…`}
+                        aria-label="Filter external models"
+                        className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
+                    />
+                    {query.trim() !== "" && (
+                        <div className="pt-1 text-[11px] text-gray-500">
+                            {shown.length} of {models.length}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* A filter that matches nothing must say so. An empty <ul> under a
+                box you have just typed into reads as the panel having broken. */}
+            {!loading && binding && models.length > 0 && shown.length === 0 && (
+                <div className="px-3 py-4 text-xs text-gray-400">
+                    No model matches “{query.trim()}”.
+                </div>
+            )}
+
             <ul>
-                {models.map((m) => {
+                {shown.map((m) => {
                     const isLoaded = loaded.has(m.id);
                     return (
                         <li key={m.id} className="flex items-center gap-2 px-3 py-2 border-t border-gray-800">

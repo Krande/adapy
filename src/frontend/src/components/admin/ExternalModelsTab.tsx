@@ -16,6 +16,7 @@ import {
     EXTERNAL_MODELS_BINDING_KEY,
 } from "@/services/externalModelsBinding";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
+import Web3dMirrorPanel from "@/components/admin/Web3dMirrorPanel";
 
 // Admin tab — bind a viewer scope to an external model collection.
 //
@@ -254,6 +255,14 @@ const ExternalModelsTab: React.FC = () => {
         },
     ];
 
+    // WHICH PROVIDER HOLDS THE CACHE. The one `shared` is bound to, because that
+    // is the scope a deployment-wide catalogue is bound to and the one the
+    // mirror fills; failing that, the first registered provider, so the panel
+    // still appears on a deployment that has not bound anything yet and can say
+    // why it cannot mirror. It is never guessed to be a browser-side provider:
+    // the mirror runs in the worker by construction.
+    const mirrorProvider = bindingFor(map, CATALOGUE_SCOPE)?.provider ?? providers[0]?.id ?? "";
+
     if (loading) {
         return <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>;
     }
@@ -285,6 +294,8 @@ const ExternalModelsTab: React.FC = () => {
             {error && (
                 <div className="px-3 py-2 text-red-300 text-xs border-b border-gray-700">{error}</div>
             )}
+
+            {mirrorProvider && <Web3dMirrorPanel provider={mirrorProvider} />}
 
             <DataTable
                 wrap={false}

@@ -101,6 +101,63 @@ interface JobOptions {
   /** Opaque token folded into the options hash to deliberately MISS the job
    *  cache. Pass one when the user explicitly asked to re-read the source. */
   refresh?: string;
+
+  // --- the web3d mirror -----------------------------------------------------
+  /** Which upstream projects to report on or refresh. Omitted, the deployment's
+   *  configured list is used, which is the normal case for both the panel and
+   *  the scheduled job. */
+  projects?: string[];
+  /** Skip the per-site HEAD against web3d. A panel's first paint wants what is
+   *  cached, not a round trip per model; staleness then reads as unknown rather
+   *  than as fresh, which is the honest answer to a question not asked. */
+  check_source?: boolean;
+  /** Re-transfer regardless of ETag. The escape hatch for a cache whose
+   *  contents and provenance record have drifted apart. */
+  force?: boolean;
+  dry_run?: boolean;
+  model_file?: string;
+}
+
+/** One site's cache state. `stale` is deliberately THREE-valued: `null` means
+ *  the comparison was not made, and rendering that as "up to date" is the one
+ *  mistake a staleness display cannot afford. */
+export interface MirrorEntry {
+  collection: string;
+  model_id: string;
+  cached: boolean;
+  stale: boolean | null;
+  cached_etag: string | null;
+  source_etag: string | null;
+  mirrored_at: string | null;
+  size: number | null;
+  site: {
+    project: string;
+    model_file: string;
+    site: string;
+    container: string;
+    path: string;
+  };
+}
+
+export interface MirrorProjectReport {
+  total: number;
+  cached: number;
+  stale: number;
+  unknown: number;
+  transferred: string[];
+  failed: Record<string, string>;
+  dry_run: boolean;
+  entries: MirrorEntry[];
+}
+
+export interface MirrorReport {
+  action: string;
+  provider: string;
+  /** Whether the deployment's mirror switch is on. Reported by a status read
+   *  rather than enforced by it: an admin who has just switched mirroring off
+   *  still wants to see what is in the cache. */
+  enabled: boolean;
+  projects: Record<string, MirrorProjectReport>;
 }
 
 /** Derived summaries are stored GZIPPED above a size threshold, so a small
@@ -144,6 +201,12 @@ const PROVIDER_FALLBACK_TIMEOUT_MS = 8_000;
  *  in particular "unknown external-model provider 'x' (registered: …)", which
  *  names what IS registered and is usually the fastest way to see that a
  *  provider's module simply was not preloaded on the worker. */
+/** A sync moves whole GLBs and a status read does one HEAD per site, so
+ *  neither fits the poll budget a dropdown is written to. Twenty minutes is
+ *  sized for a first mirror of a project that has never been cached; an
+ *  incremental run finishes in seconds. */
+const MIRROR_TIMEOUT_MS = 20 * 60 * 1000;
+
 async function runAction<T>(
   options: JobOptions,
   scope: ScopeUrl,
@@ -253,6 +316,70 @@ export async function listProviders(
  *  calls: fresh data when a view opens, and the cache still absorbs re-renders. */
 export function catalogueNonce(): string {
   return Date.now().toString(36);
+}
+
+/** What the cache holds for each configured web3d project, and what upstream
+ *  has moved on from.
+ *
+ *  ALWAYS A ROUND TRIP TO THE WORKER, never to a browser-side provider: the
+ *  mirror is a deployment-side thing by construction -- it is the whole point
+ *  that no signed-in user is in the path -- so there is no page-side
+ *  implementation to prefer.
+ *
+ *  `refresh` is passed on every call because the job cache is keyed on the
+ *  options hash, and a status read whose whole purpose is to be current must
+ *  not answer from a cached job. */
+export async function mirrorStatus(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { projects?: string[]; checkSource?: boolean; refresh?: string; signal?: AbortSignal },
+): Promise<MirrorReport> {
+  return runAction<MirrorReport>(
+    {
+      action: "mirror_status",
+      provider,
+      projects: opts?.projects,
+      check_source: opts?.checkSource ?? true,
+      refresh: opts?.refresh ?? catalogueNonce(),
+    },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
+}
+
+/** Bring the cache up to date, transferring only what changed.
+ *
+ *  The long timeout is not caution: a project whose sites all rebuilt is tens
+ *  of megabytes per site, moving web3d -> worker -> object store, and the poll
+ *  giving up first would leave a transfer running with nobody watching it. */
+export async function mirrorSync(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: {
+    projects?: string[];
+    force?: boolean;
+    dryRun?: boolean;
+    modelFile?: string;
+    modelId?: string;
+    signal?: AbortSignal;
+  },
+): Promise<MirrorReport> {
+  return runAction<MirrorReport>(
+    {
+      action: "mirror_sync",
+      provider,
+      projects: opts?.projects,
+      force: opts?.force,
+      dry_run: opts?.dryRun,
+      model_file: opts?.modelFile,
+      model_id: opts?.modelId,
+      refresh: catalogueNonce(),
+    },
+    scope,
+    opts?.signal,
+    MIRROR_TIMEOUT_MS,
+  );
 }
 
 export async function listCollections(

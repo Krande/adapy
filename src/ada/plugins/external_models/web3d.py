@@ -47,7 +47,6 @@ module writes is the external-models cache.
 
 from __future__ import annotations
 
-import base64
 import dataclasses
 import gzip
 import json
@@ -64,6 +63,11 @@ from typing import Any, Iterable, Protocol, runtime_checkable
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "MIRROR_ENABLED_VAR",
+    "PROJECTS_VAR",
+    "TENANT_VAR",
+    "CLIENT_ID_VAR",
+    "CLIENT_SECRET_VAR",
     "WEB3D_SIDECAR_FILENAME",
     "Web3dSite",
     "MirrorEntry",
@@ -73,6 +77,10 @@ __all__ = [
     "Web3dMirror",
     "mirror_from_env",
     "mirror_enabled",
+    "mirror_configured",
+    "configured_projects",
+    "read_mirror_setting",
+    "MIRROR_SETTING_KEY",
     "collection_for",
     "model_id_for",
 ]
@@ -654,19 +662,120 @@ class Web3dMirror:
 # Configuration
 # =============================================================================
 
-#: The admin toggle. Read by the job entrypoint before it will mirror anything,
-#: so turning it off stops a scheduled sync without unregistering a provider or
-#: redeploying a worker.
-MIRROR_ENABLED_VAR = "ADA_WEB3D_MIRROR_ENABLED"
-PROJECTS_VAR = "ADA_WEB3D_PROJECTS"
+#: The admin toggle. Read before anything is mirrored, so turning it off stops a
+#: scheduled sync without unregistering a provider or redeploying a worker. It
+#: is a `public.`-prefixed viewer setting in the deployment and an environment
+#: variable here; either turning it off is enough.
+MIRROR_ENABLED_VAR = "ASA_WEB3D_MIRROR_ENABLED"
+PROJECTS_VAR = "ASA_WEB3D_PROJECTS"
+
+#: The read-only service principal on the web3d STORAGE ACCOUNT. Named for
+#: where they come from -- Vault, on asa-viewer -- rather than renamed on the
+#: way in, so an operator grepping for a secret finds the same string in the
+#: vault, the deployment and this file.
+#:
+#: `_RO_` is load-bearing and worth keeping in the name: nothing in this module
+#: writes to web3d, the principal is not granted write, and a future reader
+#: should be able to see that from the variable alone.
+TENANT_VAR = "ASA_WEB3D_RO_ST_TENANT_ID"
+CLIENT_ID_VAR = "ASA_WEB3D_RO_ST_CLIENT_ID"
+CLIENT_SECRET_VAR = "ASA_WEB3D_RO_ST_CLIENT_SECRET"
+
+
+#: The admin toggle, as a viewer setting rather than an environment variable.
+#:
+#: WHY IT IS NOT ENFORCED IN THE WORKER. Settings live in the API's database and
+#: the worker that runs a plugin job has no pool -- so the process doing the
+#: mirroring cannot read this, and pretending otherwise would be a switch that
+#: silently does nothing. Both CALLERS can read it and do: the admin panel, from
+#: the browser, and :func:`main` below, through the API with a CLI token. The
+#: environment variable stays as the deployment-level master switch underneath
+#: it, which is the half an operator with shell access can always reach.
+#:
+#: `public.` is load-bearing: any authenticated user may READ a key in that
+#: namespace and only an admin may write one, which is exactly the access this
+#: needs -- every user's panel has to know whether the cache is live, and only
+#: an admin may change it.
+MIRROR_SETTING_KEY = "public.external_models.web3d_mirror"
+
+API_BASE_VAR = "ADAPY_API_BASE"
+API_TOKEN_VAR = "ADAPY_API_TOKEN"
+
+
+def read_mirror_setting() -> dict[str, Any] | None:
+    """The admin toggle, read through the viewer API, or None.
+
+    None is a THIRD answer and not a default: it means the setting could not be
+    consulted -- no API configured, or it did not answer -- which is different
+    from an admin having switched mirroring off. A caller falls back to the
+    environment on None and refuses on `{"enabled": false}`.
+    """
+    base = (os.environ.get(API_BASE_VAR) or "").strip().rstrip("/")
+    token = (os.environ.get(API_TOKEN_VAR) or "").strip()
+    if not base or not token:
+        return None
+    url = f"{base}/api/settings/{urllib.parse.quote(MIRROR_SETTING_KEY, safe='')}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read() or b"{}")
+    except Exception as e:  # noqa: BLE001 - an unreachable API is "unknown", not "off"
+        logger.warning("web3d: could not read %s: %s", MIRROR_SETTING_KEY, e)
+        return None
+
+    raw = payload.get("value")
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            logger.warning("web3d: %s is not valid JSON", MIRROR_SETTING_KEY)
+            return None
+    return raw if isinstance(raw, dict) else None
 
 
 def mirror_enabled() -> bool:
+    """Is mirroring switched on?
+
+    The setting wins where it exists, because it is the one an admin can change
+    without a redeploy. The environment variable answers when it does not.
+    """
+    setting = read_mirror_setting()
+    if setting is not None and "enabled" in setting:
+        return bool(setting["enabled"])
     return (os.environ.get(MIRROR_ENABLED_VAR) or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def mirror_configured() -> bool:
+    """Whether the credential is present at all.
+
+    Separate from :func:`mirror_enabled` because they are different answers to
+    an admin panel: "your deployment has no web3d credential" and "you switched
+    this off" call for different things to do next, and a single boolean makes
+    the first look like the second.
+    """
+    return all((os.environ.get(v) or "").strip() for v in (TENANT_VAR, CLIENT_ID_VAR, CLIENT_SECRET_VAR))
+
+
 def configured_projects() -> list[str]:
-    raw = os.environ.get(PROJECTS_VAR) or ""
+    """Which web3d projects this deployment mirrors, setting first.
+
+    Same precedence as the switch, and for the same reason: adding a project to
+    the cache should not need a redeploy.
+    """
+    setting = read_mirror_setting() or {}
+    raw = setting.get("projects")
+    if isinstance(raw, list):
+        out = [str(x).strip() for x in raw if str(x).strip()]
+        if out:
+            return list(dict.fromkeys(out))
+    if isinstance(raw, str) and raw.strip():
+        return _split_projects(raw)
+    return _split_projects(os.environ.get(PROJECTS_VAR) or "")
+
+
+def _split_projects(raw: str) -> list[str]:
     out: list[str] = []
     for part in raw.replace(";", ",").split(","):
         key = part.strip()
@@ -682,22 +791,20 @@ def blob_client_from_env() -> Web3dBlobClient:
     is sensitive -- so the error names which variable is missing and never what
     any of them contained.
     """
-    missing = [
-        v
-        for v in ("ADA_WEB3D_TENANT_ID", "ADA_WEB3D_CLIENT_ID", "ADA_WEB3D_CLIENT_SECRET")
-        if not (os.environ.get(v) or "").strip()
-    ]
+    missing = [v for v in (TENANT_VAR, CLIENT_ID_VAR, CLIENT_SECRET_VAR) if not (os.environ.get(v) or "").strip()]
     if missing:
         raise ValueError(
             f"web3d mirroring needs {', '.join(missing)}. These are the read-only service "
-            "principal on the web3d storage account; a personal sign-in is not used here."
+            "principal on the web3d storage account, injected from Vault; a personal sign-in "
+            "is deliberately not used here, because a cache nobody can refresh unattended is "
+            "not a cache."
         )
     return Web3dBlobClient(
-        tenant_id=os.environ["ADA_WEB3D_TENANT_ID"].strip(),
-        client_id=os.environ["ADA_WEB3D_CLIENT_ID"].strip(),
-        client_secret=os.environ["ADA_WEB3D_CLIENT_SECRET"].strip(),
-        storage_url=(os.environ.get("ADA_WEB3D_STORAGE_URL") or DEFAULT_STORAGE_URL).strip(),
-        authority=(os.environ.get("ADA_WEB3D_AUTHORITY") or DEFAULT_AUTHORITY).strip(),
+        tenant_id=os.environ[TENANT_VAR].strip(),
+        client_id=os.environ[CLIENT_ID_VAR].strip(),
+        client_secret=os.environ[CLIENT_SECRET_VAR].strip(),
+        storage_url=(os.environ.get("ASA_WEB3D_STORAGE_URL") or DEFAULT_STORAGE_URL).strip(),
+        authority=(os.environ.get("ASA_WEB3D_AUTHORITY") or DEFAULT_AUTHORITY).strip(),
     )
 
 
@@ -716,14 +823,110 @@ def mirror_from_env(cache: MirrorCache | None = None) -> Web3dMirror:
     return Web3dMirror(Web3dSource(client), cache, client=client)  # type: ignore[arg-type]
 
 
-def _b64_json(raw: str) -> dict:
-    """Decode one JWT segment. Only used to report who a token belongs to."""
-    pad = "=" * (-len(raw) % 4)
-    return json.loads(base64.urlsafe_b64decode(raw + pad))
-
-
 def sites_summary(sites: Iterable[Web3dSite]) -> str:
     by_file: dict[str, int] = {}
     for s in sites:
         by_file[s.model_file] = by_file.get(s.model_file, 0) + 1
     return ", ".join(f"{k}: {v}" for k, v in sorted(by_file.items())) or "nothing"
+
+
+# =============================================================================
+# The scheduled half
+# =============================================================================
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m ada.plugins.external_models.web3d check|sync` -- the cron entry.
+
+    IT RUNS THE SAME TWO CALLS THE ADMIN PANEL DOES, deliberately: `check` is
+    `status`, `sync` is `sync`. A scheduled job that took a different path from
+    the button would drift from it, and the drift would only ever show up as a
+    cache that is stale in a way the panel says it is not.
+
+    EXIT CODES ARE THE POINT OF `check`. A cron wrapper needs to act on the
+    answer without parsing anything:
+
+        0  every cached model matches web3d
+        1  something is stale, or is not cached at all
+        2  the question could not be asked -- no credential, mirroring off,
+           or web3d unreachable
+
+    `sync` returns 0 when it transferred everything it meant to and 1 when any
+    site failed, so a job that half-succeeds is not reported as a success. Note
+    that `sync` deliberately does NOT treat "nothing needed transferring" as a
+    failure: a nightly run over an unchanged project is the normal case and the
+    expensive one to get wrong.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="web3d-mirror", description=__doc__.splitlines()[0])
+    ap.add_argument("command", choices=("check", "sync"))
+    ap.add_argument("projects", nargs="*", help=f"web3d project keys; default is {PROJECTS_VAR}")
+    ap.add_argument("--model-file", default=None, help="only this model file's sites")
+    ap.add_argument("--force", action="store_true", help="re-transfer even where the ETag matches")
+    ap.add_argument("--dry-run", action="store_true", help="say what would be transferred, write nothing")
+    ap.add_argument(
+        "--ignore-disabled",
+        action="store_true",
+        help=f"sync even when {MIRROR_ENABLED_VAR} is off",
+    )
+    args = ap.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    if not mirror_configured():
+        logger.error(
+            "no web3d credential: %s / %s / %s must all be set", TENANT_VAR, CLIENT_ID_VAR, CLIENT_SECRET_VAR
+        )
+        return 2
+    if args.command == "sync" and not mirror_enabled() and not args.ignore_disabled:
+        logger.error("web3d mirroring is switched off (%s); --ignore-disabled runs it anyway", MIRROR_ENABLED_VAR)
+        return 2
+
+    projects = args.projects or configured_projects()
+    if not projects:
+        logger.error("no project named and %s is not set", PROJECTS_VAR)
+        return 2
+
+    try:
+        mirror = mirror_from_env()
+    except Exception as e:  # noqa: BLE001 - a missing bucket or credential is a 2, not a crash
+        logger.error("cannot build the mirror: %s", e)
+        return 2
+
+    worst = 0
+    for project in projects:
+        try:
+            if args.command == "check":
+                report = mirror.status(project, model_file=args.model_file, check_source=True)
+            else:
+                report = mirror.sync(
+                    project, model_file=args.model_file, force=args.force, dry_run=args.dry_run
+                )
+        except Exception as e:  # noqa: BLE001 - one unreachable project must not hide the others
+            logger.error("%s: %s", project, e)
+            worst = max(worst, 2)
+            continue
+
+        logger.info(
+            "%s: %d site(s), %d cached, %d stale, %d unchecked%s",
+            project,
+            len(report.entries),
+            report.cached_count,
+            report.stale_count,
+            report.unknown_count,
+            f", {len(report.transferred)} transferred" if args.command == "sync" else "",
+        )
+        for model_id, why in sorted(report.failed.items()):
+            logger.warning("  %s: %s", model_id, why)
+
+        if report.failed:
+            worst = max(worst, 1)
+        if args.command == "check" and (report.stale_count or report.cached_count < len(report.entries)):
+            worst = max(worst, 1)
+
+    return worst
+
+
+if __name__ == "__main__":  # pragma: no cover - the cron entry
+    raise SystemExit(main())

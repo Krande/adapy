@@ -152,6 +152,17 @@ class ExternalModelCatalog(Protocol):
     # nothing anywhere naming compression. One catalogue was found in exactly
     # that state, one object among forty.
     #
+    # ALSO OPTIONAL, same convention:
+    #
+    #   get_sidecar(collection, filename) -> dict
+    #   put_sidecar(collection, filename, data) -> None
+    #
+    # A catalogue that can keep a small JSON blob PER COLLECTION, next to the
+    # models rather than inside any of them. `_labels.json` is one; `_web3d.json`
+    # -- which records where a mirrored model came from and the source ETag it
+    # was current at -- is another. A provider without them simply cannot be
+    # mirrored into, and the mirror says so rather than half-working.
+    #
     # ALSO OPTIONAL, same convention, and these two travel TOGETHER:
     #
     #   list_model_revisions(collection, model_id) -> list[ModelRevision]
@@ -324,35 +335,60 @@ class S3ExternalModelCatalog:
                 seen.add(head)
         return [Collection(id=c, name=c) for c in sorted(seen)]
 
-    def _labels(self, collection: str) -> dict[str, str]:
-        """The collection's id -> label map, or empty.
+    def get_sidecar(self, collection: str, filename: str) -> dict:
+        """One of a collection's JSON sidecars, or `{}`.
 
-        Every failure mode here is deliberately silent: a collection with no
-        manifest is the normal case, and a malformed one should degrade to
-        filenames rather than break the listing it decorates.
+        A sidecar is a single object holding what the listing cannot: labels
+        today, mirror provenance next to them. It is one file per collection
+        rather than metadata per object because an S3 listing does not carry
+        user metadata, so per-object state would cost one HEAD per model on
+        every page load.
+
+        EVERY FAILURE MODE HERE IS DELIBERATELY SILENT. A collection with no
+        sidecar is the normal case, and a malformed one should degrade to "no
+        sidecar" rather than break the listing it decorates.
 
         THE IMPORT IS INSIDE THE TRY for that reason. Left outside it, an
         environment without obstore raised straight through `list_models` --
         which is a listing failing because its DECORATION is unavailable, and
-        the opposite of what this docstring promises. It also broke the test
-        fake, which overrides `_list_keys` precisely so it can exercise the
-        key-walking without a bucket or the dependency.
+        the opposite of what this promises. It also broke the test fake, which
+        overrides `_list_keys` precisely so it can exercise the key-walking
+        without a bucket or the dependency.
         """
         import json
 
         try:
             import obstore as obs
 
-            raw = obs.get(self._store, f"{collection}/{LABELS_FILENAME}").bytes()
+            raw = obs.get(self._store, f"{collection}/{filename}").bytes()
         except Exception:
             return {}
         try:
             parsed = json.loads(bytes(raw).decode("utf-8"))
         except Exception:
-            logger.warning("external-models: %s/%s is not valid JSON", collection, LABELS_FILENAME)
+            logger.warning("external-models: %s/%s is not valid JSON", collection, filename)
             return {}
-        if not isinstance(parsed, dict):
-            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def put_sidecar(self, collection: str, filename: str, data: dict) -> None:
+        """Replace one sidecar.
+
+        NOT silent, unlike the read. A sidecar that cannot be written is a cache
+        that will re-transfer everything on the next run and report everything
+        as uncached in between -- which looks like the source changed. The read
+        can shrug because its worst case is a listing with no decoration; this
+        one cannot.
+        """
+        import json
+
+        import obstore as obs
+
+        body = json.dumps(data, indent=1, sort_keys=True).encode("utf-8")
+        obs.put(self._store, f"{collection}/{filename}", body)
+
+    def _labels(self, collection: str) -> dict[str, str]:
+        """The collection's id -> label map, or empty."""
+        parsed = self.get_sidecar(collection, LABELS_FILENAME)
         return {str(k): str(v) for k, v in parsed.items() if isinstance(v, (str, int, float))}
 
     def list_models(self, collection: str) -> list[ExternalModel]:
