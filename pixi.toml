@@ -276,9 +276,10 @@ PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
 [feature.adacpp.tasks]
 # ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
 # ada-cpp CAD backend. No longer excludes tests/fem/visualization: that module
-# imports medcoupling, which lives in fem-deps, and it now skips itself rather
-# than aborting collection -- so it reports as skipped here instead of being
-# invisibly absent, and still RUNS under fem. This task is gated to
+# imports medcoupling and now skips itself rather than aborting collection, so
+# it reports as skipped instead of being invisibly absent. (medcoupling is
+# declared in no environment here, so it skips everywhere -- which the --ignore
+# was concealing.) This task is gated to
 # the tests-adacpp env by feature membership: that env carries `adacpp` but not
 # `fem`, while the fem env carries `fem` but not `adacpp`, so each env resolves
 # `test-all` to exactly one definition (no recursion). The fem-env orchestrator
