@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Fem Concepts",
-  "description": "FEA input concepts for viewer visualization: masses, boundary conditions, and load scenarios. Purely geometric (positions, vectors, scalars, labels) — the viewer draws glyphs from these, it carries no FEA solver semantics.",
+  "description": "FEA input concepts for viewer visualization: masses, boundary conditions, constraints, and load scenarios. Purely geometric (positions, vectors, scalars, labels) — the viewer draws glyphs from these, it carries no FEA solver semantics.",
   "type": "object",
   "properties": {
     "masses": {
@@ -13,6 +13,11 @@
       "type": "array",
       "description": "Boundary conditions: a set of restrained node positions and which dofs are fixed.",
       "items": { "$ref": "#/definitions/BcGlyph" }
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Constraints (coupling, tie, rigid body, mpc, shell-to-solid): the master and slave node positions each one ties together.",
+      "items": { "$ref": "#/definitions/ConstraintGlyph" }
     },
     "scenarios": {
       "type": "array",
@@ -54,6 +59,34 @@
         "bc_type": { "type": "string", "description": "Boundary condition type (e.g. displacement)." }
       },
       "required": ["positions", "dofs"]
+    },
+    "ConstraintGlyph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Constraint name." },
+        "constraint_type": {
+          "type": "string",
+          "description": "Constraint type (coupling, tie, rigid body, mpc, shell2solid)."
+        },
+        "master_positions": {
+          "type": "array",
+          "description": "Positions of the independent (master) nodes.",
+          "items": { "$ref": "#/definitions/Vec3" }
+        },
+        "slave_positions": {
+          "type": "array",
+          "description": "Positions of the dependent (slave) nodes.",
+          "items": { "$ref": "#/definitions/Vec3" }
+        },
+        "dofs": {
+          "type": "array",
+          "description": "Constrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).",
+          "items": { "type": "integer", "minimum": 1, "maximum": 6 }
+        },
+        "influence_distance": { "type": "number", "description": "Influence distance, where the source defined one." },
+        "position_tolerance": { "type": "number", "description": "Position tolerance, where the source defined one." }
+      },
+      "required": ["master_positions", "slave_positions"]
     },
     "LoadGlyph": {
       "type": "object",
