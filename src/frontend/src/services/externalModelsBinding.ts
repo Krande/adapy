@@ -99,7 +99,7 @@ export function isPattern(entry: string): boolean {
 /** Does `text` match a glob with `*` and `?`, case-insensitively?
  *
  *  ANCHORED, and a regex only internally: everything but the wildcards is
- *  escaped, so `*(511)*` matches an E3D name containing parentheses rather
+ *  escaped, so `*(511)*` matches a name containing parentheses rather
  *  than quietly meaning a capture group.
  *
  *  Only reached for entries that HAVE a wildcard -- see {@link isHidden}. */
@@ -119,15 +119,15 @@ export function matchesGlob(text: string, pattern: string): boolean {
  *
  *  Without a wildcard it is a MODEL ID, matched EXACTLY. That is what the admin
  *  panel's checkbox list writes, and exactness is the whole reason: these ids
- *  nest -- `ModelExportMain.rvm~AP400-STRU` is a prefix of
- *  `ModelExportMain.rvm~AP400-STRU_MS` -- so a substring rule would tick one
+ *  nest -- `export-a.rvm~site` is a prefix of
+ *  `export-a.rvm~site-one` -- so a substring rule would tick one
  *  site and hide two. Hiding a model nobody asked to hide is the failure mode
  *  worth designing against, because the model simply is not there and nothing
  *  says why.
  *
  *  With a wildcard it is a pattern, matched against the id, the name AND the
  *  description. That form is not written by the UI; it exists because a
- *  hand-edited `*TempSteel*` keeps applying to models that do not exist yet,
+ *  hand-edited `*draft*` keeps applying to models that do not exist yet,
  *  which a list of ticks cannot do. Both kinds live in one list, and the panel
  *  shows the patterns separately so they are never mistaken for a tick nobody
  *  can find. */

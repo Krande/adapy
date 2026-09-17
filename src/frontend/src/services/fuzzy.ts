@@ -1,9 +1,9 @@
 // Subsequence filtering for lists people have to find one thing in.
 //
 // WHY NOT `includes`. The names this is written for are long, structured and
-// share most of their characters: `ModelExportMain.rvm~AP400-STRU_MS`,
-// `ModelExportTempSteel.rvm~AP400-STRU_TS`. A substring filter makes you type
-// the separator and the case exactly, and "ap400ms" -- which is how someone
+// share most of their characters: `export-main.rvm~site-one`,
+// `export-draft.rvm~site-two`. A substring filter makes you type
+// the separator and the case exactly, and "mainsite1" -- which is how someone
 // actually thinks of that site -- matches nothing. A subsequence match finds it
 // on the first three characters and keeps narrowing.
 //
@@ -17,14 +17,14 @@
 // SHARED PREFIX that is not a mild inaccuracy, it is the difference between
 // working and not:
 //
-//     query "elec" against  ModelExportMain.rvm~AP400-ELEC
-//     greedy takes e,l,e from "ModelExport" and only then looks for c
+//     query "elec" against  export-main.rvm~elec-one
+//     greedy takes e,x,p from the shared prefix and never reaches the rest
 //
 // -- so every candidate matches through its prefix, every candidate scores
 // within 0.1 of every other, and the ranking is noise. Measured on exactly the
-// list above: 19.53, 19.51, 19.41, with `AP300-MECH` first. The list this
-// serves is one entry per E3D SITE across a project's model files, which is
-// hundreds of names all beginning `ModelExport`, so the case that breaks a
+// list above: 19.53, 19.51, 19.41, with the wrong entry first. The list this
+// serves can be one entry per SITE across a project's source exports, which is
+// hundreds of names sharing a prefix, so the case that breaks a
 // greedy matcher is the only case there is.
 //
 // So it finds the BEST alignment, by dynamic programming over (query position,
@@ -36,7 +36,7 @@
 // shown; the score only decides which appears first.
 
 /** Characters that begin a "word" in the names this filters: the separators an
- *  E3D path, a model file and a site name are built out of. A match just after
+ *  identifier path, a source export and a site name are built out of. A match just after
  *  one of these is what a person means by "starts with". */
 const WORD_BREAK = /[\s\-_./~:()[\]]/;
 
@@ -44,7 +44,7 @@ const WORD_BREAK = /[\s\-_./~:()[\]]/;
  *  outranks a shorter one that matched by luck. */
 const BASE = 1;
 /** Landing at the start of a word. Deliberately larger than CONTIGUOUS: typing
- *  `elec` means the ELEC in the site name, not the `ele` inside `ModelExport`,
+ *  `elec` means the ELEC in the site name, not letters inside a shared prefix,
  *  and only this bonus can tell the two apart. */
 const WORD_START = 12;
 /** Directly after the previous match. What makes a run read as deliberate. */
@@ -164,8 +164,8 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
  *  person reads names.
  *
  *  `localeCompare` with `numeric` is not a nicety here: these names are full of
- *  numbers, and a plain string sort puts `AP4000` before `AP400` and `10PL02`
- *  before `2PL01`, which reads as the list being in no order at all.
+ *  numbers, and a plain string sort puts `item4000` before `item400` and `item10`
+ *  before `item2`, which reads as the list being in no order at all.
  */
 export function fuzzyFilter<T>(items: T[], query: string, label: (item: T) => string): T[] {
     const collate = (a: string, b: string) => a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});

@@ -293,8 +293,8 @@ def box(sec: Section, return_solid) -> SectionProfile:
         # t_ftop, not t_fbtn. Read from the bottom, an asymmetric box came back
         # with its BOTTOM flange thickness on both faces -- invisible on every
         # RHS/SHS, where the wall is uniform, and wrong by the difference on a
-        # welded box girder. One BGA.1358x495x35x25 in /AP400-STRU_MS is
-        # exactly that: 35 mm top, 25 mm bottom.
+        # welded box girder, whose flanges are separate plates: a 35 mm top over
+        # a 25 mm bottom came out 25/25.
         tftop = sec.t_ftop
         tfbtn = sec.t_fbtn
         tw = sec.t_w

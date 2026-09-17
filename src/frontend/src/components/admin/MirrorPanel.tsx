@@ -12,29 +12,31 @@ import {
 import {fuzzyFilter} from "@/services/fuzzy";
 import {ConvertStatus, useConversionStore} from "@/state/conversionStore";
 
-// The web3d cache, and the switch that governs it.
+// A provider's cache of an upstream catalogue: what is in it, and the switch
+// that governs refreshing it.
 //
-// WHAT THIS IS FOR. web3d publishes one GLB per E3D site, and reaching them
-// through web3d's own access API needs an identity carrying an Aibel Repro
-// allocation -- so every consumer so far has had to sign a real person in
-// interactively before it could read anything. A read-only service principal on
-// the storage account goes around that, and the worker copies what it finds
-// into this deployment's own external-model store. From then on the viewer
-// serves those GLBs like any other external model and a user needs nothing but
-// the session they already have.
+// WHAT THIS IS FOR. Some external-model providers do not serve their upstream
+// directly -- they COPY it into this deployment's own object store and serve it
+// from there. That is the only way to offer a catalogue whose own API
+// authorises per user: the copy is made once, by something holding a service
+// credential, and every viewer then reads from storage this deployment already
+// owns. A provider says it works that way by implementing `mirror_status`,
+// `mirror_sync` and `upstream_projects`; nothing here knows which catalogue is
+// upstream, and it must not.
 //
 // WHY THE SWITCH IS A SETTING AND NOT A BUTTON THAT DOES THE WORK. Settings
 // live in the API's database and the worker that runs a plugin job has no pool,
 // so the process doing the mirroring cannot read this key. Both CALLERS can:
-// this panel, and the scheduled job through the API with a CLI token. So the
-// toggle is enforced HERE and there, over a deployment-level environment
-// variable underneath that an operator with shell access can always reach.
-// Writing it admin-only and reading it publicly is why the key is `public.`-
-// prefixed -- every user's UI may need to know whether the cache is live, and
-// only an admin may change that.
+// this panel, and a scheduled job through the API. So the toggle is enforced
+// HERE and there, over whatever deployment-level configuration the provider
+// reads underneath it. Writing it admin-only and reading it publicly is why the
+// key is `public.`-prefixed -- every user's UI may need to know whether the
+// cache is live, and only an admin may change that.
 
 const CATALOGUE_SCOPE = "shared";
-const MIRROR_SETTING_KEY = "public.external_models.web3d_mirror";
+//: One key per provider, so two mirrors on one deployment cannot overwrite
+//: each other's switch.
+const mirrorSettingKey = (provider: string) => `public.external_models.mirror.${provider}`;
 
 interface MirrorSetting {
     enabled: boolean;
@@ -58,25 +60,25 @@ function parseSetting(raw: unknown): MirrorSetting {
 }
 
 interface Props {
-    /** The provider whose store holds the cache. The mirror always goes through
-     *  the worker, so this is a worker-side provider id and never a browser-side
-     *  one -- the point of the mirror is that no signed-in user is in the path. */
+    /** The provider that owns the mirror. Always a worker-side id: the point of
+     *  a mirror is that no signed-in user is in the request path. */
     provider: string;
 }
 
-const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
+const MirrorPanel: React.FC<Props> = ({provider}) => {
+    const settingKey = mirrorSettingKey(provider);
     const [setting, setSetting] = useState<MirrorSetting>({enabled: false, projects: []});
     const [report, setReport] = useState<MirrorReport | null>(null);
     const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState<string | null>(null);
     // Not an error state: the common reason a status read fails is that this
-    // deployment has no web3d credential, which is a FACT about the deployment
+    // provider has no upstream credential, which is a FACT about the deployment
     // and not a fault. The backend's refusals are written to be read by a
     // person, so they are shown verbatim rather than translated here.
     const [unavailable, setUnavailable] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     // What this deployment COULD mirror. Empty until asked for -- it is a live
-    // read against the storage account, and a panel that cannot reach web3d
+    // read against the upstream catalogue, and a panel that cannot reach upstream
     // should still render everything else it knows.
     const [available, setAvailable] = useState<MirrorProject[] | null>(null);
     const [projectFilter, setProjectFilter] = useState("");
@@ -84,7 +86,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
 
     const loadSetting = useCallback(async () => {
         try {
-            const raw = await viewerApi.getPublicSetting(MIRROR_SETTING_KEY);
+            const raw = await viewerApi.getPublicSetting(settingKey);
             setSetting(parseSetting(raw));
         } catch {
             // An unset key is the normal first state, not a failure.
@@ -92,7 +94,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
         }
     }, []);
 
-    // `checkSource` false skips one HEAD against web3d per site. The first paint
+    // `checkSource` false skips one HEAD against the upstream catalogue per site. The first paint
     // wants what is cached and not a round trip per model; entries then report
     // staleness as unknown, which the table renders as "—" rather than as
     // up to date. Pressing Check asks the real question.
@@ -138,7 +140,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
             setBusy("setting");
             setError(null);
             try {
-                await viewerApi.adminSetSetting(MIRROR_SETTING_KEY, JSON.stringify(next));
+                await viewerApi.adminSetSetting(settingKey, JSON.stringify(next));
                 setSetting(next);
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
@@ -163,11 +165,11 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
             setBusy(force ? "resync" : "sync");
             setError(null);
 
-            const toastKey = "util:web3d-mirror";
+            const toastKey = `util:mirror:${provider}`;
             const cs = useConversionStore.getState();
             const push = (s: {job_id: string; status: string; progress?: number; stage?: string; error?: string | null}) =>
                 cs.setJob(toastKey, {
-                    sourceKey: force ? "web3d cache (full re-sync)" : "web3d cache",
+                    sourceKey: force ? `${provider} cache (full re-sync)` : `${provider} cache`,
                     jobId: s.job_id,
                     derivedKey: "",
                     status: (s.status as ConvertStatus) || "running",
@@ -224,7 +226,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
     return (
         <div className="px-3 py-3 border-b border-gray-700 space-y-2">
             <div className="flex items-center gap-2">
-                <div className="text-sm font-medium flex-1">web3d cache</div>
+                <div className="text-sm font-medium flex-1">Upstream cache</div>
                 <label className="flex items-center gap-1 text-xs">
                     <input
                         type="checkbox"
@@ -248,7 +250,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                     disabled={!setting.enabled || busy !== null || unavailable !== null}
                     title={
                         setting.enabled
-                            ? "Transfer anything web3d has changed since it was last cached"
+                            ? "Transfer anything the upstream catalogue has changed since it was last cached"
                             : "Switch the cache on first"
                     }
                     onClick={() => void sync(false)}
@@ -258,9 +260,10 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
             </div>
 
             <div className="text-xs text-gray-400">
-                Mirrored GLBs are served from this deployment&rsquo;s own store, so anyone signed in
-                can open them. Nobody signs in to web3d. A sync runs in the background &mdash; watch
-                it in the progress toast; the counts here refresh when it finishes.
+                Mirrored models are served from this deployment&rsquo;s own store, so anyone
+                signed in can open them &mdash; nobody signs in upstream. A sync runs in the
+                background; watch it in the progress toast, and the counts here refresh when it
+                finishes.
             </div>
 
             {/* PICKED FROM A LIST, NOT TYPED. It was a comma-separated field, and
@@ -299,12 +302,11 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                 {projectsOpen && (
                     <div className="rounded-sm border border-gray-700 bg-gray-900/60 p-2 space-y-2">
                         {available === null && (
-                            <div className="text-xs text-gray-500">Reading what web3d offers…</div>
+                            <div className="text-xs text-gray-500">Reading what the provider offers…</div>
                         )}
                         {available !== null && available.length === 0 && (
                             <div className="text-xs text-gray-400">
-                                No project could be listed. The credential reaches the storage
-                                account or it does not; the message above says which.
+                                No project could be listed. The message above says why.
                             </div>
                         )}
                         {available !== null && available.length > 0 && (
@@ -316,7 +318,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                                     value={projectFilter}
                                     onChange={(e) => setProjectFilter(e.target.value)}
                                     placeholder={`Filter ${available.length} projects…`}
-                                    aria-label="Filter web3d projects"
+                                    aria-label="Filter upstream projects"
                                     className="w-full rounded-sm border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-100 placeholder:text-gray-500"
                                 />
                                 <ul className="max-h-56 overflow-auto">
@@ -396,7 +398,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                                     the cache is current on no evidence. */}
                                 <td className="py-1">
                                     {p.unknown === p.total ? (
-                                        <span className="text-gray-500" title="not checked against web3d">
+                                        <span className="text-gray-500" title="not checked against the upstream catalogue">
                                             &mdash;
                                         </span>
                                     ) : (
@@ -420,7 +422,7 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
 
             {report && (anyStale || anyMissing) && setting.enabled && (
                 <div className="text-xs text-amber-300">
-                    web3d has rebuilt since this cache was filled. Sync to pick it up.
+                    Upstream has changed since this cache was filled. Sync to pick it up.
                 </div>
             )}
             {report && !setting.enabled && (
@@ -433,4 +435,4 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
     );
 };
 
-export default Web3dMirrorPanel;
+export default MirrorPanel;

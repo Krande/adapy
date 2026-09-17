@@ -23,7 +23,7 @@ type ServerFileEntry = import("@/state/serverInfoStore").ServerFileEntry;
 
 const file = (over: Partial<ServerFileEntry> = {}): ServerFileEntry =>
     ({
-        name: "review/ap400-stru-ms-ours.glb",
+        name: "review/model.glb",
         size: 3622692,
         lastModified: "2026-09-17T10:49:00Z",
         ...over,
@@ -33,7 +33,7 @@ const render = (over: Partial<React.ComponentProps<typeof FileRow>> = {}) =>
     renderToStaticMarkup(
         <FileRow
             file={file()}
-            displayName="ap400-stru-ms-ours.glb"
+            displayName="model.glb"
             indentLevel={0}
             viewingName={null}
             loadedSourceNames={new Set<string>()}

@@ -4,9 +4,9 @@ import {AdminProject, viewerApi} from "@/services/viewerApi";
 import {
     ExternalCollection,
     ExternalModelProvider,
-    WEB3D_PROVIDER_ID,
-    catalogueNonce,
+        catalogueNonce,
     listCollections,
+    listCollectionsDetailed,
     listProviders,
 } from "@/services/externalModels";
 import {
@@ -23,7 +23,7 @@ import {fuzzyFilter} from "@/services/fuzzy";
 import type {ExternalModel} from "@/services/externalModels";
 import {listModels} from "@/services/externalModels";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
-import Web3dMirrorPanel from "@/components/admin/Web3dMirrorPanel";
+import MirrorPanel from "@/components/admin/MirrorPanel";
 
 // Admin tab — bind a viewer scope to an external model collection.
 //
@@ -56,6 +56,9 @@ const ExternalModelsTab: React.FC = () => {
     // provider id -> its collections, fetched lazily and cached: each call is an
     // enqueue/poll round-trip, so re-fetching per row would be visibly slow.
     const [collections, setCollections] = useState<Record<string, ExternalCollection[]>>({});
+    // provider id -> does it mirror an upstream catalogue? Reported by the same
+    // listing the collections come from, so it costs no extra round trip.
+    const [canMirror, setCanMirror] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState<string | null>(null);
     // Provider chosen for a scope but not yet persisted, because a binding needs
@@ -92,6 +95,10 @@ const ExternalModelsTab: React.FC = () => {
                 viewerApi.getPublicSetting(EXTERNAL_MODELS_BINDING_KEY).catch(() => null),
             ]);
             setProviders(provs);
+            // Probed for ALL of them, not only the bound ones: a provider's
+            // mirror panel has to appear before anything is bound to it, and
+            // that is exactly the state a first-time admin is in.
+            for (const prov of provs) void loadCollections(prov.id);
             setProjects(projs.filter((p) => !p.archived_at));
             setMap(parseBindingMap(raw));
             if (provs.length === 0) {
@@ -119,11 +126,13 @@ const ExternalModelsTab: React.FC = () => {
         async (provider: string) => {
             if (!provider || collections[provider]) return;
             try {
-                const cols = await listCollections(provider, CATALOGUE_SCOPE, {refresh: nonce});
-                setCollections((prev) => ({...prev, [provider]: cols}));
+                const out = await listCollectionsDetailed(provider, CATALOGUE_SCOPE, {refresh: nonce});
+                setCollections((prev) => ({...prev, [provider]: out.collections}));
+                setCanMirror((prev) => ({...prev, [provider]: out.canMirror}));
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
                 setCollections((prev) => ({...prev, [provider]: []}));
+                setCanMirror((prev) => ({...prev, [provider]: false}));
             }
         },
         [collections, nonce],
@@ -382,8 +391,8 @@ const ExternalModelsTab: React.FC = () => {
                                             picked off the list cannot be misspelled.
 
                                             The same subsequence filter the project
-                                            picker and the models menu use; a web3d
-                                            collection is 208 rows. */}
+                                            picker and the models menu use; a
+                                            collection can be hundreds of rows. */}
                                         <input
                                             type="search"
                                             value={hideFilter}
@@ -480,23 +489,16 @@ const ExternalModelsTab: React.FC = () => {
         },
     ];
 
-    // WHICH PROVIDER HOLDS THE CACHE: the web3d one, by name.
+    // WHICH PROVIDERS OWN A MIRROR. Asked of each provider rather than named
+    // here: core owns the mirror SEAM and no opinion about what is upstream, so
+    // hardcoding a provider id would put one deployment's asset system into
+    // code every deployment runs.
     //
-    // It used to be "whatever `shared` is bound to, else the first registered",
-    // which is wrong in the ordinary case. A deployment binds `shared` to its
-    // OBJECT STORE -- that is the point of the binding -- and the panel then
-    // asked the object store which web3d projects it could mirror, getting
-    //
-    //     provider 'object-store' does not know what it could mirror; only a
-    //     provider backed by an upstream catalogue can answer that
-    //
-    // which is the backend correctly refusing a question meant for someone
-    // else. Being bound is not the same property as owning an upstream mirror,
-    // and only the second one matters here.
-    //
-    // Matched against the registered ids, so a deployment without the provider
-    // gets no panel rather than a panel full of refusals.
-    const mirrorProvider = providers.find((p) => p.id === WEB3D_PROVIDER_ID)?.id ?? "";
+    // It used to fall back to "whatever `shared` is bound to", which is wrong in
+    // the ordinary case -- a deployment binds `shared` to its OBJECT STORE, and
+    // the panel then asked the object store what it could mirror and got a
+    // refusal. Being BOUND and OWNING A MIRROR are different properties.
+    const mirrorProviders = providers.filter((p) => canMirror[p.id]);
 
     if (loading) {
         return <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading…</div>;
@@ -530,7 +532,9 @@ const ExternalModelsTab: React.FC = () => {
                 <div className="px-3 py-2 text-red-300 text-xs border-b border-gray-700">{error}</div>
             )}
 
-            {mirrorProvider && <Web3dMirrorPanel provider={mirrorProvider} />}
+            {mirrorProviders.map((p) => (
+                <MirrorPanel key={p.id} provider={p.id} />
+            ))}
 
             <DataTable
                 wrap={false}

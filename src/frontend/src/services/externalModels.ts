@@ -98,19 +98,6 @@ export {
 /** The plugin id core's built-in external-model backend registers under. */
 export const EXTERNAL_MODELS_PLUGIN_ID = "external-models";
 
-/** The provider that mirrors web3d into this deployment's own store.
- *
- *  NAMED, and this is the one place a provider id is hardcoded on purpose. The
- *  rule everywhere else -- list providers, pass the chosen id, never assume one
- *  exists -- is about the external-model FEATURE, which must keep working when
- *  a deployment swaps catalogues. The web3d cache admin panel is not that: it
- *  administers one specific mirror, says so in its heading, and has nothing to
- *  offer for a provider that is not it.
- *
- *  It is matched against the registered ids rather than assumed, so a
- *  deployment without it simply gets no panel. */
-export const WEB3D_PROVIDER_ID = "web3d";
-
 interface JobOptions {
   action: string;
   provider?: string;
@@ -125,12 +112,12 @@ interface JobOptions {
    *  cache. Pass one when the user explicitly asked to re-read the source. */
   refresh?: string;
 
-  // --- the web3d mirror -----------------------------------------------------
+  // --- the the upstream catalogue mirror -----------------------------------------------------
   /** Which upstream projects to report on or refresh. Omitted, the deployment's
    *  configured list is used, which is the normal case for both the panel and
    *  the scheduled job. */
   projects?: string[];
-  /** Skip the per-site HEAD against web3d. A panel's first paint wants what is
+  /** Skip the per-site HEAD against the upstream catalogue. A panel's first paint wants what is
    *  cached, not a round trip per model; staleness then reads as unknown rather
    *  than as fresh, which is the honest answer to a question not asked. */
   check_source?: boolean;
@@ -391,7 +378,7 @@ export function catalogueNonce(): string {
  *  NOT the same question as `listCollections`, which answers with what is
  *  mirrored -- the handful an admin chose. This is the list to choose FROM, and
  *  it cannot be derived from the other: the point is to see the ones you have
- *  not picked. On the ASP storage account it is 95 entries. */
+ *  not picked. It can run to many dozens of entries. */
 export async function mirrorProjects(
   provider: string,
   scope: ScopeUrl,
@@ -406,7 +393,7 @@ export async function mirrorProjects(
   return out.projects ?? [];
 }
 
-/** What the cache holds for each configured web3d project, and what upstream
+/** What the cache holds for each configured upstream project, and what upstream
  *  has moved on from.
  *
  *  ALWAYS A ROUND TRIP TO THE WORKER, never to a browser-side provider: the
@@ -467,7 +454,7 @@ export async function startMirrorSync(
  *  CLI-shaped path, and the tests -- while the panel uses `startMirrorSync`.
  *
  *  The long timeout is not caution: a project whose sites all rebuilt is tens
- *  of megabytes per site, moving web3d -> worker -> object store, and the poll
+ *  of megabytes per site, moving the upstream catalogue -> worker -> object store, and the poll
  *  giving up first would leave a transfer running with nobody watching it. */
 export async function mirrorSync(
   provider: string,
@@ -503,15 +490,31 @@ export async function listCollections(
   scope: ScopeUrl,
   opts?: { refresh?: string; signal?: AbortSignal },
 ): Promise<ExternalCollection[]> {
-  const impl = externalModelClient(provider);
-  if (impl) return (await impl.listCollections(opts)) ?? [];
+  return (await listCollectionsDetailed(provider, scope, opts)).collections;
+}
 
-  const out = await runAction<{ collections: ExternalCollection[] }>(
+/** The collections, AND what this provider can do.
+ *
+ *  Split from `listCollections` the same way `listModelsDetailed` is: almost
+ *  every caller wants the collections, and one that only lists should not have
+ *  to unwrap a capability it never asks about. The capabilities ride on the
+ *  same response, so asking costs no extra round trip. */
+export async function listCollectionsDetailed(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { refresh?: string; signal?: AbortSignal },
+): Promise<{ collections: ExternalCollection[]; canMirror: boolean }> {
+  const impl = externalModelClient(provider);
+  // A browser-side provider cannot mirror: a mirror is a copy made by something
+  // holding a service credential, which is the one thing a page does not have.
+  if (impl) return { collections: (await impl.listCollections(opts)) ?? [], canMirror: false };
+
+  const out = await runAction<{ collections: ExternalCollection[]; can_mirror?: boolean }>(
     { action: "list_collections", provider, refresh: opts?.refresh },
     scope,
     opts?.signal,
   );
-  return out.collections ?? [];
+  return { collections: out.collections ?? [], canMirror: Boolean(out.can_mirror) };
 }
 
 /** The models, AND what the provider will let you do with them.

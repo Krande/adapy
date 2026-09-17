@@ -80,7 +80,7 @@ class ExternalModel:
 
     # The part of a model's identity that is NOT worth a row's width.
     #
-    # A catalogue often knows more than fits: web3d names a model by its SITE,
+    # A catalogue often knows more than fits: a catalogue may name a model by its SITE,
     # which is what anyone looks for, and by the RVM export it came from, which
     # is the same string on almost every row and pushes the site name out of a
     # truncating cell. Putting it here lets a UI show the name and offer the
@@ -179,7 +179,7 @@ class ExternalModelCatalog(Protocol):
     #   put_sidecar(collection, filename, data) -> None
     #
     # A catalogue that can keep a small JSON blob PER COLLECTION, next to the
-    # models rather than inside any of them. `_labels.json` is one; `_web3d.json`
+    # models rather than inside any of them. `_labels.json` is one; `_mirror.json`
     # -- which records where a mirrored model came from and the source ETag it
     # was current at -- is another. A provider without them simply cannot be
     # mirrored into, and the mirror says so rather than half-working.
@@ -510,7 +510,7 @@ class S3ExternalModelCatalog:
         PUBLIC endpoint, because the browser is the uploader it exists for and a
         signature covers the host. A worker filling its own bucket is not the
         browser: inside a container `localhost:3900` is the container, and the
-        PUT comes back `Connection refused` -- which is exactly what the web3d
+        PUT comes back `Connection refused` -- which is exactly what a
         mirror hit on its first real transfer.
 
         It is also a pointless round trip. The worker already holds the
@@ -524,8 +524,8 @@ class S3ExternalModelCatalog:
             Unexpected token '\x1f', "\x1f\x8b..." is not valid JSON
 
         naming neither compression nor the file. It has been found in exactly
-        that state before, one object among forty -- and the first pass of the
-        web3d mirror put it there again, because a direct write is the one path
+        that state before, one object among forty -- and the first pass of a
+        mirror put it there again, because a direct write is the one path
         that does not go through an uploader obeying those headers.
 
         Presence of this method is how a catalogue declares it can be filled

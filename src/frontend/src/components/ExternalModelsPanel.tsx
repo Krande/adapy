@@ -59,13 +59,12 @@ const ExternalModelsPanel: React.FC = () => {
     // and arbitrary for the next is worse than one that is always arbitrary,
     // because you stop trusting the order you can see.
     //
-    // A collection here is one per E3D SITE across every model file of a
-    // project, which is hundreds of near-identical names. Scrolling that is not
+    // A collection may hold one entry per SITE across every source export, which is hundreds of near-identical names. Scrolling that is not
     // a way to find anything, so the filter is not a refinement of the list --
     // it is how the list is used.
     // FILTERED ON BOTH. Moving the model file out of the name would otherwise
-    // make it unsearchable, and "TempSteel" is a perfectly reasonable thing to
-    // type when looking for the temporary-steel export of a site.
+    // make it unsearchable, and the name of a source export is a
+    // perfectly reasonable thing to type when looking for one.
     // THE SCOPE'S OWN FILTER, applied before anything the user typed. An admin
     // binds a scope and says which models are irrelevant to it -- the temporary
     // steel exports, the volume models -- and this is where that takes effect.
@@ -201,7 +200,7 @@ const ExternalModelsPanel: React.FC = () => {
         [binding, scope, sourceNameFor],
     );
 
-    //: Above this many, ask first. A web3d collection is 208 sites of tens of
+    //: Above this many, ask first. One collection can be hundreds of models of tens of
     //: megabytes each; "Load all" with an empty filter would fetch the lot and
     //: take the browser with it. The number is low enough that a deliberate
     //: bulk load still confirms, which is the point -- the accident this
@@ -425,8 +424,8 @@ const ExternalModelsPanel: React.FC = () => {
                         <li key={m.id} className="flex items-center gap-2 px-3 py-2 border-t border-gray-800">
                             {/* The description is the hover, not the label: a
                                 provider puts the part that does not fit there
-                                -- for web3d, the RVM export the site came from,
-                                which is the same string on nearly every row.
+                                -- the source export a model came from,
+                                which can be the same string on nearly every row.
                                 Falls back to the name so a provider that sets
                                 no description still gets a tooltip for a
                                 truncated one. */}

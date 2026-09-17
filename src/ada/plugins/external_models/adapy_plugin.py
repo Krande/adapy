@@ -63,29 +63,24 @@ def _can_upload(cat: ExternalModelCatalog) -> bool:
 
 
 def _can_mirror(cat: ExternalModelCatalog) -> bool:
-    """Can this provider hold a mirror of an upstream catalogue?
+    """Does this provider mirror an upstream catalogue into a local store?
 
-    Three capabilities together, and it needs all three: somewhere to PUT a
-    model, headers saying how, and a sidecar to record what was mirrored and
-    from where. Reported alongside every listing, the same way upload and
-    revisions are, so a UI decides whether to offer the control BEFORE anyone
-    presses it -- a "refresh from web3d" button that fails on a read-only
-    catalogue is worse than no button.
+    Presence of the three mirror methods IS the declaration, the same convention
+    upload and revisions use. Reported alongside every listing so a UI decides
+    whether to offer the controls BEFORE anyone presses one -- a "refresh"
+    button that fails on a provider with nothing upstream is worse than no
+    button.
 
-    A credential is NOT part of this answer. Whether the deployment can reach
-    web3d is `mirror_status`'s business; this is only about whether the
-    destination can accept a mirror at all.
+    CORE KNOWS NOTHING ABOUT WHAT IS UPSTREAM. Which catalogue, which
+    credential, and whether the deployment can reach it are the provider's
+    business; this asks only whether it claims to be a mirror at all. That is
+    the same line every other optional capability here is drawn on, and it is
+    what lets an out-of-tree provider offer this without core naming it.
     """
-    from ada.plugins.external_models.web3d import can_hold_a_mirror, is_a_mirror
-
-    # TWO WAYS TO BE MIRRORABLE, and the web3d provider is the second. A STORE
-    # qualifies by being fillable -- upload surface plus sidecars -- which is
-    # how the object-store catalogue does it. A PROVIDER qualifies by already
-    # owning a mirror, which `Web3dMirrorCatalog` does: it holds the source, the
-    # cache and the transfer between them, and is not itself a store. Asking
-    # only the first question reported `can_mirror=False` on the one provider
-    # that is a mirror.
-    return is_a_mirror(cat) or can_hold_a_mirror(cat)
+    return all(
+        callable(getattr(cat, attr, None))
+        for attr in ("mirror_status", "mirror_sync", "upstream_projects")
+    )
 
 
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
@@ -99,89 +94,81 @@ def _has_revisions(cat: ExternalModelCatalog) -> bool:
 
 
 def _run_mirror(action, options, cat, provider, progress):
-    """Report or refresh the web3d cache held in this provider's store.
+    """Report or refresh a provider's mirror of its upstream catalogue.
 
-    ONE ENTRY POINT FOR BOTH CALLERS. The admin panel asks for `mirror_status`
-    to render, and `mirror_sync` when someone presses refresh; the scheduled job
-    asks for exactly the same two. Neither is a special path, so the thing an
+    ONE ENTRY POINT FOR BOTH CALLERS. An admin panel asks for `mirror_status` to
+    render and `mirror_sync` when someone presses refresh; a scheduled job asks
+    for exactly the same two. Neither is a special path, so the thing an
     operator can trigger by hand is the thing the cron runs -- which is the only
     way a "refresh now" button stays honest about what the nightly run does.
 
-    REFUSALS, IN THE ORDER THEY MATTER. A caller asking about a mirror wants to
-    know which of three different things is wrong, and a single "unavailable"
-    would collapse them: this provider cannot hold a mirror at all; the
-    deployment has no web3d credential; or an admin switched mirroring off. Only
-    the last is a state anyone here can change from the panel.
+    EVERY REFUSAL BELONGS TO THE PROVIDER. Whether a credential is present,
+    whether an administrator has switched mirroring off, which projects are
+    configured by default -- core cannot answer any of those without knowing
+    what is upstream, and knowing that is exactly what would make this file
+    care about one deployment's asset system. So the provider raises, and its
+    message is passed through unchanged; the only thing checked here is that it
+    claims to be a mirror.
     """
-    from ada.plugins.external_models import web3d
-
     if not _can_mirror(cat):
         raise ValueError(
-            f"provider {provider!r} cannot hold a mirror: it has no upload or sidecar surface, "
-            "so there is nowhere to put a cached model or to record where it came from"
-        )
-    # A provider that OWNS a mirror answers for itself. Building a second one
-    # around it from the environment would mirror into the wrong store -- its
-    # cache is its own, chosen when the provider was built.
-    own = web3d.is_a_mirror(cat)
-    if not web3d.mirror_configured():
-        raise ValueError(
-            "this deployment has no web3d credential. The read-only service principal on the "
-            f"web3d storage account arrives as {web3d.TENANT_VAR} / {web3d.CLIENT_ID_VAR} / "
-            f"{web3d.CLIENT_SECRET_VAR}, and none of them is a setting anyone can change here."
+            f"provider {provider!r} does not mirror anything: it has no `mirror_status`, "
+            "`mirror_sync` and `upstream_projects`, so there is no upstream catalogue to "
+            "report on or refresh"
         )
 
-    projects = options.get("projects") or options.get("project") or web3d.configured_projects()
+    if action == "mirror_projects":
+        _progress = progress
+        _progress(action, 0.5)
+        return {"action": action, "provider": provider, "projects": cat.upstream_projects()}
+
+    projects = options.get("projects") or options.get("project") or []
     if isinstance(projects, str):
         projects = [projects]
     projects = [p for p in (str(x).strip() for x in projects) if p]
     if not projects:
+        # The provider's own default list. A deployment configures it there,
+        # because "which projects" is a fact about the upstream catalogue.
+        getter = getattr(cat, "mirror_default_projects", None)
+        projects = list(getter()) if callable(getter) else []
+    if not projects:
         raise ValueError(
-            f"no web3d project named, and {web3d.PROJECTS_VAR} is not set, so there is nothing "
-            "to mirror. Name one, or configure the deployment's default list."
+            f"no project named for provider {provider!r}, and it has no default list, so there "
+            "is nothing to mirror"
         )
 
-    # `enabled` is reported rather than enforced on a STATUS read: an admin who
-    # has just switched mirroring off still wants to see what is in the cache.
-    # A SYNC is the write, so that one refuses.
-    enabled = web3d.mirror_enabled()
-    if action == "mirror_sync" and not enabled and not options.get("force_disabled"):
-        raise ValueError(
-            f"web3d mirroring is switched off ({web3d.MIRROR_ENABLED_VAR}). Turn it on before "
-            "refreshing, or pass force_disabled to run this once anyway."
-        )
+    # Reported rather than enforced on a STATUS read: an admin who has just
+    # switched mirroring off still wants to see what is in the cache. A SYNC is
+    # the write, so the provider is asked to refuse that one itself.
+    enabled_getter = getattr(cat, "mirror_enabled", None)
+    enabled = bool(enabled_getter()) if callable(enabled_getter) else True
 
-    mirror = cat if own else web3d.mirror_from_env(cat)
-    out: dict = {
-        "action": action,
-        "provider": provider,
-        "enabled": enabled,
-        "projects": {},
-    }
+    out: dict = {"action": action, "provider": provider, "enabled": enabled, "projects": {}}
+    span = 0.7 / max(len(projects), 1)
+
     for i, project in enumerate(projects):
-        progress(action, 0.2 + 0.7 * (i / max(len(projects), 1)))
+        base = 0.2 + span * i
+        progress(action, base)
+
         if action == "mirror_status":
-            report = (mirror.mirror_status if own else mirror.status)(
+            report = cat.mirror_status(
                 project,
                 model_file=(options.get("model_file") or None),
-                # One HEAD per site against web3d. Skippable, because a panel's
+                # One upstream read per model. Skippable, because a panel's
                 # first paint wants what is cached and not a round trip per
-                # model; the entries then report staleness as unknown rather
-                # than as fresh.
+                # model; entries then report staleness as unknown rather than
+                # as fresh.
                 check_source=bool(options.get("check_source", True)),
             )
         else:
-            # PER-SITE PROGRESS, mapped onto this project's slice of the bar.
-            # A first mirror is tens of minutes and hundreds of sites; without
+            # PER-MODEL PROGRESS, mapped onto this project's slice of the bar.
+            # A first mirror is tens of minutes and hundreds of models; without
             # this the job reports 0.2 and then 0.9, which tells a watcher
             # nothing about whether it is moving.
-            span = 0.7 / max(len(projects), 1)
-            base = 0.2 + span * i
+            def tick(done, total, model_id, _base=base, _span=span, _p=project):
+                progress(f"{_p}: {model_id} ({done}/{total})", _base + _span * (done / max(total, 1)))
 
-            def tick(done, total, model_id, _base=base, _span=span):
-                progress(f"{project}: {model_id} ({done}/{total})", _base + _span * (done / max(total, 1)))
-
-            report = (mirror.mirror_sync if own else mirror.sync)(
+            report = cat.mirror_sync(
                 project,
                 model_file=(options.get("model_file") or None),
                 model_id=(options.get("model_id") or None),
@@ -189,7 +176,11 @@ def _run_mirror(action, options, cat, provider, progress):
                 dry_run=bool(options.get("dry_run")),
                 on_progress=tick,
             )
-        out["projects"][project] = report.as_dict()
+
+        # A provider may hand back its own report object or a plain dict; both
+        # have to reach the browser as JSON.
+        as_dict = getattr(report, "as_dict", None)
+        out["projects"][project] = as_dict() if callable(as_dict) else report
 
     progress(action, 0.9)
     return out
@@ -252,17 +243,7 @@ def run_job(
             "collections": [asdict(c) for c in collections],
         }
 
-    if action == "mirror_projects":
-        lister = getattr(cat, "upstream_projects", None)
-        if not callable(lister):
-            raise ValueError(
-                f"provider {provider!r} does not know what it could mirror; only a provider "
-                "backed by an upstream catalogue can answer that"
-            )
-        _progress(action, 0.5)
-        return {"action": action, "provider": provider, "projects": lister()}
-
-    if action in ("mirror_status", "mirror_sync"):
+    if action in ("mirror_status", "mirror_sync", "mirror_projects"):
         _progress(action, 0.2)
         return _run_mirror(action, options, cat, provider, _progress)
 
