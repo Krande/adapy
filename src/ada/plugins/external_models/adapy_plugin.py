@@ -75,11 +75,16 @@ def _can_mirror(cat: ExternalModelCatalog) -> bool:
     web3d is `mirror_status`'s business; this is only about whether the
     destination can accept a mirror at all.
     """
-    from ada.plugins.external_models.web3d import can_hold_a_mirror
+    from ada.plugins.external_models.web3d import can_hold_a_mirror, is_a_mirror
 
-    # One definition, shared with the provider and the CLI, so the panel's
-    # `can_mirror` and the thing that actually refuses cannot drift apart.
-    return can_hold_a_mirror(cat)
+    # TWO WAYS TO BE MIRRORABLE, and the web3d provider is the second. A STORE
+    # qualifies by being fillable -- upload surface plus sidecars -- which is
+    # how the object-store catalogue does it. A PROVIDER qualifies by already
+    # owning a mirror, which `Web3dMirrorCatalog` does: it holds the source, the
+    # cache and the transfer between them, and is not itself a store. Asking
+    # only the first question reported `can_mirror=False` on the one provider
+    # that is a mirror.
+    return is_a_mirror(cat) or can_hold_a_mirror(cat)
 
 
 def _has_revisions(cat: ExternalModelCatalog) -> bool:
@@ -114,6 +119,10 @@ def _run_mirror(action, options, cat, provider, progress):
             f"provider {provider!r} cannot hold a mirror: it has no upload or sidecar surface, "
             "so there is nowhere to put a cached model or to record where it came from"
         )
+    # A provider that OWNS a mirror answers for itself. Building a second one
+    # around it from the environment would mirror into the wrong store -- its
+    # cache is its own, chosen when the provider was built.
+    own = web3d.is_a_mirror(cat)
     if not web3d.mirror_configured():
         raise ValueError(
             "this deployment has no web3d credential. The read-only service principal on the "
@@ -141,7 +150,7 @@ def _run_mirror(action, options, cat, provider, progress):
             "refreshing, or pass force_disabled to run this once anyway."
         )
 
-    mirror = web3d.mirror_from_env(cat)
+    mirror = cat if own else web3d.mirror_from_env(cat)
     out: dict = {
         "action": action,
         "provider": provider,
@@ -151,7 +160,7 @@ def _run_mirror(action, options, cat, provider, progress):
     for i, project in enumerate(projects):
         progress(action, 0.2 + 0.7 * (i / max(len(projects), 1)))
         if action == "mirror_status":
-            report = mirror.status(
+            report = (mirror.mirror_status if own else mirror.status)(
                 project,
                 model_file=(options.get("model_file") or None),
                 # One HEAD per site against web3d. Skippable, because a panel's
@@ -161,12 +170,23 @@ def _run_mirror(action, options, cat, provider, progress):
                 check_source=bool(options.get("check_source", True)),
             )
         else:
-            report = mirror.sync(
+            # PER-SITE PROGRESS, mapped onto this project's slice of the bar.
+            # A first mirror is tens of minutes and hundreds of sites; without
+            # this the job reports 0.2 and then 0.9, which tells a watcher
+            # nothing about whether it is moving.
+            span = 0.7 / max(len(projects), 1)
+            base = 0.2 + span * i
+
+            def tick(done, total, model_id, _base=base, _span=span):
+                progress(f"{project}: {model_id} ({done}/{total})", _base + _span * (done / max(total, 1)))
+
+            report = (mirror.mirror_sync if own else mirror.sync)(
                 project,
                 model_file=(options.get("model_file") or None),
                 model_id=(options.get("model_id") or None),
                 force=bool(options.get("force")),
                 dry_run=bool(options.get("dry_run")),
+                on_progress=tick,
             )
         out["projects"][project] = report.as_dict()
 

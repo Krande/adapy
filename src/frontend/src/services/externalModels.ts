@@ -207,6 +207,43 @@ const PROVIDER_FALLBACK_TIMEOUT_MS = 8_000;
  *  incremental run finishes in seconds. */
 const MIRROR_TIMEOUT_MS = 20 * 60 * 1000;
 
+/** Enqueue one action and hand back the job, WITHOUT waiting for it.
+ *
+ *  `runAction` below is this plus a poll loop, and it is the right shape for a
+ *  dropdown: the answer is the point and it arrives in a round trip. A MIRROR
+ *  SYNC is not that. A first mirror of a project is hundreds of sites and tens
+ *  of minutes, and awaiting it holds a panel open on a promise nobody should be
+ *  made to sit in front of.
+ *
+ *  So a caller that wants to watch rather than wait takes the job id, drives the
+ *  global toast from `convertStatus`, and reads the summary at the end with
+ *  `readActionResult`. */
+export async function enqueueAction(
+  options: JobOptions,
+  scope: ScopeUrl,
+): Promise<{ job_id: string; derived_key: string }> {
+  return viewerApi.pluginJob(
+    EXTERNAL_MODELS_PLUGIN_ID,
+    { options: options as unknown as Record<string, unknown> },
+    { scope },
+  );
+}
+
+/** The summary an enqueued action wrote, once its job is `done`.
+ *
+ *  Read from the key the ENQUEUE named: the status row echoes a `derived_key`
+ *  too, but the enqueue's is the one core hashed the options into, so it is the
+ *  authoritative one for a cache hit. */
+export async function readActionResult<T>(scope: ScopeUrl, derivedKey: string): Promise<T> {
+  const buf = await viewerApi.getBlob(scope, derivedKey);
+  const text = await decodeSummary(buf);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ExternalModelsError("external-models returned a non-JSON summary");
+  }
+}
+
 async function runAction<T>(
   options: JobOptions,
   scope: ScopeUrl,
@@ -348,7 +385,35 @@ export async function mirrorStatus(
   );
 }
 
+/** Start a sync and return its job, without waiting for it.
+ *
+ *  The caller drives the global toast from `convertStatus` and reads the
+ *  summary with `readActionResult` when it finishes. See `enqueueAction` for
+ *  why a sync is not awaited inline. */
+export async function startMirrorSync(
+  provider: string,
+  scope: ScopeUrl,
+  opts?: { projects?: string[]; force?: boolean; dryRun?: boolean; modelFile?: string; modelId?: string },
+): Promise<{ job_id: string; derived_key: string }> {
+  return enqueueAction(
+    {
+      action: "mirror_sync",
+      provider,
+      projects: opts?.projects,
+      force: opts?.force,
+      dry_run: opts?.dryRun,
+      model_file: opts?.modelFile,
+      model_id: opts?.modelId,
+      refresh: catalogueNonce(),
+    },
+    scope,
+  );
+}
+
 /** Bring the cache up to date, transferring only what changed.
+ *
+ *  AWAITS THE WHOLE TRANSFER. Kept for a caller with nothing else to do -- the
+ *  CLI-shaped path, and the tests -- while the panel uses `startMirrorSync`.
  *
  *  The long timeout is not caution: a project whose sites all rebuilt is tens
  *  of megabytes per site, moving web3d -> worker -> object store, and the poll

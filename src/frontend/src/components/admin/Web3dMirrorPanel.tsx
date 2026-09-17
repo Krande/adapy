@@ -1,7 +1,8 @@
 import React, {useCallback, useEffect, useState} from "react";
 
 import {viewerApi} from "@/services/viewerApi";
-import {MirrorReport, mirrorStatus, mirrorSync} from "@/services/externalModels";
+import {MirrorReport, mirrorStatus, readActionResult, startMirrorSync} from "@/services/externalModels";
+import {ConvertStatus, useConversionStore} from "@/state/conversionStore";
 
 // The web3d cache, and the switch that governs it.
 //
@@ -123,18 +124,70 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
         [],
     );
 
+    // A SYNC IS NOT AWAITED. A first mirror of a project is hundreds of sites
+    // and tens of minutes -- awaiting it holds this panel open on a promise
+    // nobody should have to sit in front of, and closing the panel would then
+    // look like cancelling a transfer that is in fact still running.
+    //
+    // So it enqueues, reports into the SAME global toast the model loader and
+    // the conversions use, and polls in the background. The button frees itself
+    // as soon as the job is accepted. The worker ticks that job once per SITE
+    // transferred, so the bar moves while it works rather than once at the end.
     const sync = useCallback(
         async (force: boolean) => {
             setBusy(force ? "resync" : "sync");
             setError(null);
+
+            const toastKey = "util:web3d-mirror";
+            const cs = useConversionStore.getState();
+            const push = (s: {job_id: string; status: string; progress?: number; stage?: string; error?: string | null}) =>
+                cs.setJob(toastKey, {
+                    sourceKey: force ? "web3d cache (full re-sync)" : "web3d cache",
+                    jobId: s.job_id,
+                    derivedKey: "",
+                    status: (s.status as ConvertStatus) || "running",
+                    progress: s.progress ?? 0,
+                    stage: s.stage || "mirroring",
+                    error: s.error ?? null,
+                    startedAt: Date.now(),
+                });
+
+            let job;
             try {
-                const out = await mirrorSync(provider, CATALOGUE_SCOPE, {force});
-                setReport(out);
+                job = await startMirrorSync(provider, CATALOGUE_SCOPE, {force});
             } catch (e) {
+                // The ENQUEUE failing is this panel's problem to show: it means
+                // the deployment refused before any work started, and the toast
+                // would otherwise appear and vanish with no explanation.
                 setError(e instanceof Error ? e.message : String(e));
-            } finally {
                 setBusy(null);
+                return;
             }
+            push({job_id: job.job_id, status: "running", stage: "mirroring"});
+            setBusy(null);
+
+            void (async () => {
+                try {
+                    let status = await viewerApi.convertStatus(job.job_id);
+                    // Ten minutes at one-second intervals is not a timeout on
+                    // the TRANSFER -- the worker goes on regardless -- it is a
+                    // bound on how long this page watches one.
+                    for (let i = 0; i < 600 && status.status !== "done" && status.status !== "error"; i++) {
+                        await new Promise((r) => setTimeout(r, 1000));
+                        status = await viewerApi.convertStatus(job.job_id);
+                        push(status);
+                    }
+                    push(status);
+                    if (status.status === "done") {
+                        const out = await readActionResult<MirrorReport>(CATALOGUE_SCOPE, job.derived_key);
+                        setReport(out);
+                    } else if (status.status === "error") {
+                        setError(status.error || "the sync failed");
+                    }
+                } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                }
+            })();
         },
         [provider],
     );
@@ -175,13 +228,14 @@ const Web3dMirrorPanel: React.FC<Props> = ({provider}) => {
                     }
                     onClick={() => void sync(false)}
                 >
-                    {busy === "sync" ? "Syncing…" : "Sync now"}
+                    {busy === "sync" ? "Starting…" : "Sync now"}
                 </button>
             </div>
 
             <div className="text-xs text-gray-400">
                 Mirrored GLBs are served from this deployment&rsquo;s own store, so anyone signed in
-                can open them. Nobody signs in to web3d.
+                can open them. Nobody signs in to web3d. A sync runs in the background &mdash; watch
+                it in the progress toast; the counts here refresh when it finishes.
             </div>
 
             <div className="flex items-center gap-2">

@@ -86,6 +86,7 @@ __all__ = [
     "Web3dMirrorCatalog",
     "provider_from_env",
     "can_hold_a_mirror",
+    "is_a_mirror",
 ]
 
 #: Per-collection record of what was mirrored and from where. A sidecar rather
@@ -586,18 +587,39 @@ class Web3dMirror:
         model_id: str | None = None,
         force: bool = False,
         dry_run: bool = False,
+        on_progress=None,
     ) -> MirrorReport:
         """Bring the cache up to date, transferring only what changed.
 
         `force` re-transfers regardless of ETag -- the escape hatch for a cache
         whose sidecar and contents have drifted apart. `model_id` narrows to one
         site, which is what a "refresh this one" button sends.
+
+        `on_progress(done, total, model_id)` is called once per site actually
+        transferred. PER SITE, not per project: a first mirror of ASP is 208
+        sites and tens of minutes, and a progress bar that moves once at the end
+        of all of them is a progress bar that never moves. It is also the only
+        place that knows the denominator -- `status` has already decided which
+        sites are stale by the time the transfers begin.
         """
         collection = collection_for(project)
         report = self.status(project, model_file=model_file, check_source=True)
         report.dry_run = dry_run
         recorded = self._sidecar(collection)
         changed = False
+
+        # The denominator the caller sees. Counted before the loop so a progress
+        # fraction is over the work actually queued, not over every site in the
+        # project -- on a second run those differ by two orders of magnitude.
+        todo = [
+            e
+            for e in report.entries
+            if (not model_id or e.model_id == model_id)
+            and e.model_id not in report.failed
+            and (force or e.stale is not False)
+        ]
+        total = len(todo)
+        done = 0
 
         for entry in report.entries:
             if model_id and entry.model_id != model_id:
@@ -627,6 +649,12 @@ class Web3dMirror:
             }
             report.transferred.append(entry.model_id)
             changed = True
+            done += 1
+            if on_progress is not None:
+                try:
+                    on_progress(done, total, entry.model_id)
+                except Exception:  # noqa: BLE001 - progress must never sink a transfer
+                    logger.debug("web3d: progress callback failed", exc_info=True)
 
         # Written once at the end rather than per object: a sidecar rewritten per
         # transfer is N round-trips and N chances to leave it describing half a
@@ -952,6 +980,10 @@ class Web3dMirrorCatalog:
     def mirror_sync(self, project: str, **kw):
         return self._mirror.sync(project, **kw)
 
+    #: `on_progress` rides through `**kw` above. Named here because it is the
+    #: one keyword a caller has to know about and the signature no longer shows
+    #: it: see `Web3dMirror.sync`.
+
     def _project_for(self, collection: str) -> str:
         wanted = (collection or "").strip().lower()
         for key in self._projects or [p["key"] for p in self._source.list_projects()]:
@@ -963,16 +995,30 @@ class Web3dMirrorCatalog:
 
 
 def can_hold_a_mirror(cache) -> bool:
-    """Can this store accept a mirror? Upload surface plus sidecars, all three.
+    """Can this store accept a mirror? Somewhere to write, and somewhere to
+    record what was written.
 
-    Shared with the job layer so the panel's `can_mirror` and this provider's
-    own refusal cannot drift apart.
+    Shared with the job layer so the panel's `can_mirror` and the code that
+    actually refuses cannot drift apart.
     """
     writable = any(callable(getattr(cache, a, None)) for a in ("put_model", "model_upload_url"))
     return writable and all(
         callable(getattr(cache, attr, None))
         for attr in ("model_upload_headers", "get_sidecar", "put_sidecar")
     )
+
+
+def is_a_mirror(catalogue) -> bool:
+    """Does this PROVIDER carry a mirror of its own?
+
+    `can_hold_a_mirror` asks whether a store can be filled; this asks whether a
+    catalogue already owns the thing that fills it. `Web3dMirrorCatalog` does --
+    it holds the source, the cache and the mirror -- and it is not itself a
+    store, so the first question answers False for the one provider that most
+    obviously has a mirror. Both are needed, and conflating them reported
+    `can_mirror=False` on the web3d provider.
+    """
+    return all(callable(getattr(catalogue, attr, None)) for attr in ("mirror_status", "mirror_sync"))
 
 
 def provider_from_env():
