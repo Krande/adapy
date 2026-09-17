@@ -1,5 +1,12 @@
-import medcoupling as mc
 import pytest
+
+# medcoupling ships only in the fem-deps environment, and a bare import here
+# was a COLLECTION ERROR everywhere else -- it aborted the whole run rather
+# than this one module, which is why `pixi run test` had to carry an
+# --ignore for this directory to be runnable on any other backend. Skipping
+# is the same outcome for an env that cannot run it and a strictly better one
+# for an env that can: the tests still run under fem, where they always did.
+mc = pytest.importorskip("medcoupling", reason="medcoupling ships only in the fem-deps environment")
 
 import ada
 from ada.base.types import GeomRepr

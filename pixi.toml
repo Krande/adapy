@@ -34,9 +34,39 @@ serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory doc
 # `--with-deps` omitted on purpose — it shells out to `sudo apt` and
 # breaks in non-interactive shells. Run `pixi run -e tests playwright
 # install-deps chromium` once by hand if a test reports a missing lib.
-pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install chromium && touch $PIXI_PROJECT_ROOT/.temp/playwright-browsers.stamp", outputs = [".temp/playwright-browsers.stamp"] }
+# Same default as `test`, and for the same reason: a depends-on is resolved as
+# its own task lookup, so an ambiguous DEPENDENCY makes an unambiguous task
+# unrunnable. Without this, `pixi run test` failed with "the task 'pre-install'
+# is ambiguous" and never reached pytest.
+pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install chromium && touch $PIXI_PROJECT_ROOT/.temp/playwright-browsers.stamp", outputs = [".temp/playwright-browsers.stamp"], default-environment = "fem" }
 
-test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# THE WHOLE SUITE, and the one to reach for by default.
+#
+# `default-environment` is what makes `pixi run test` work with no -e. The task
+# is defined on the `tests` feature, so four environments carry it (tests,
+# tests-adacpp, tests-adacpp-dev, fem) and pixi would otherwise refuse to guess
+# between them -- it errors listing all four. Naming a default picks one
+# WITHOUT taking the choice away: `pixi run -e tests-adacpp test` still runs the
+# same whole suite on the native backend, which is the point of having four.
+#
+# fem is the default because it is the only environment with every dependency
+# the suite needs -- fem-deps AND the `tests` feature's playwright, so
+# tests/fem and the frontend e2e tests under tests/full both actually run. In a
+# lighter env the same command collects them and errors.
+#
+# TWO DIRECTORIES ARE STILL EXCLUDED, both because they cannot run here rather
+# than because they are optional:
+#   * tests/comms/rest needs the viewer-api stack -- `test-rest`, its own env.
+#   * tests/profiling is pytest-benchmark, minutes of timing runs whose numbers
+#     mean nothing on a busy machine -- `bench-cad`.
+# Anything else that is skipped is skipped by the test, which says why.
+test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# The inner-loop subset: everything that needs no FEM solver and no viewer
+# stack. This WAS `test`, and it is what CI's per-PR leg runs, because the
+# FEM/e2e halves have their own jobs and running them twice buys nothing.
+# Deliberately left ambiguous across environments (no default): it exists to be
+# pointed at a backend, and every caller passes -e.
+test-quick = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -245,13 +275,15 @@ PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
 
 [feature.adacpp.tasks]
 # ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
-# ada-cpp CAD backend. Excludes tests/fem/visualization (needs medcoupling,
-# which is in fem-deps and not in the tests-adacpp env). This task is gated to
+# ada-cpp CAD backend. No longer excludes tests/fem/visualization: that module
+# imports medcoupling, which lives in fem-deps, and it now skips itself rather
+# than aborting collection -- so it reports as skipped here instead of being
+# invisibly absent, and still RUNS under fem. This task is gated to
 # the tests-adacpp env by feature membership: that env carries `adacpp` but not
 # `fem`, while the fem env carries `fem` but not `adacpp`, so each env resolves
 # `test-all` to exactly one definition (no recursion). The fem-env orchestrator
 # chains into this via `pixi run -e tests-adacpp test-all`.
-test-all = { cmd = "pytest tests --ignore=tests/comms/rest --ignore=tests/fem/visualization --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.prod.dependencies]
 python = "3.12.*"
