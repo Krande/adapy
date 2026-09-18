@@ -180,7 +180,29 @@ async def _audit_done(
                 "status": status,
                 "error": error,
                 "traceback": traceback,
-                "duration_ms": int((time.time() - started_at) * 1000),
+                # MONOTONIC, because that is what `started_at` IS -- every
+                # caller passes `time.monotonic()` (worker/process.py:63,
+                # worker/loop.py:514). Subtracting it from `time.time()` does
+                # not measure a duration; it returns the wall clock, seconds
+                # since the epoch less a little uptime.
+                #
+                # `audit_log.duration_ms` is int32, so the API refused the
+                # write rather than storing nonsense:
+                #
+                #     asyncpg.exceptions.DataError: invalid input for query
+                #     argument $4: 1789557360408 (value out of int32 range)
+                #
+                # -- reaching the worker as a bare 500, three retries and
+                # "gave up reporting", for a job that had finished correctly
+                # in 7.0s. The audit row then stays non-terminal for ever,
+                # which is worse than a wrong number: the concurrent-fire
+                # guard blocks on jobs that ended minutes ago.
+                #
+                # ONLY THE POOL-LESS PATH WAS WRONG. The branch below writes
+                # through a pool and has always used monotonic against this
+                # same argument, so no deployment with a database could show
+                # it -- and those are the ones anyone watches.
+                "duration_ms": int((time.monotonic() - started_at) * 1000),
                 "worker_image_tag": state._WORKER_IMAGE_TAG,
                 **{
                     key: metrics[key]
