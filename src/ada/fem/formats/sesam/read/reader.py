@@ -81,10 +81,16 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     from ada.api.mesh.containers import ArrayElements, ArrayNodes
     from ada.api.mesh.store import MeshArrays
 
+    from ..node_order import SESAM_ORDER
+
     fem = part.fem
     store = MeshArrays(coords, node_ids)
     for ctype, (el_ids, conns) in by_type.items():
-        store.add_elem_block_from_id_conn(ctype, np.array(el_ids, dtype=np.int64), np.array(conns, dtype=np.int64))
+        # Sesam interleaves corner and mid-side nodes on the iso-parametric solids
+        # and on SCQS; bring them into adapy's ordering on the way in, with one
+        # gather per block. Both the bulk-string and streaming parsers land here.
+        conn = SESAM_ORDER.conn_from_format(ctype, np.array(conns, dtype=np.int64))
+        store.add_elem_block_from_id_conn(ctype, np.array(el_ids, dtype=np.int64), conn)
 
     fem.nodes = ArrayNodes(store, parent=fem)
     fem.elements = ArrayElements(store, fem_obj=fem)

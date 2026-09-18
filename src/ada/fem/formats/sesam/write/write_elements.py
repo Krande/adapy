@@ -6,6 +6,7 @@ from ada.fem import Elem
 from ada.fem.shapes.definitions import ConnectorTypes
 
 from ..common import sesam_el_map
+from ..node_order import SESAM_ORDER
 from .write_utils import write_ff
 
 # Reverse of ``sesam_el_map``, built once rather than re-scanned per element. Several
@@ -102,10 +103,32 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in
     # memory on top of the mesh.
+    by_block = _sesam_ordered_ids(fem)
     for el in writable:
-        yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + write_nodal_data(el))
+        ids = by_block.get(el.type)
+        row = getattr(el, "_row", None)
+        if ids is not None and row is not None:
+            nids = ids[row].tolist()
+        else:
+            nids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
+        yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
     for el in writable:
         yield write_elem(el, thick_map)
+
+
+def _sesam_ordered_ids(fem: FEM) -> dict:
+    """Node ids in Sesam's ordering, one ``(m, k)`` array per element block.
+
+    On the array-backed mesh the reorder is a single gather per block --
+    ``node_ids[conn[:, perm]]`` -- rather than a permutation per element. One array
+    per block also keeps this proportional to the mesh rather than to the deck, so
+    it doesn't undo the writer's streaming. Empty on the object mesh path, where
+    the caller reorders each element's node list instead.
+    """
+    store = getattr(fem.elements, "store", None)
+    if store is None:
+        return {}
+    return {ctype: store.node_ids[SESAM_ORDER.conn_to_format(ctype, blk.conn)] for ctype, blk in store.blocks.items()}
 
 
 def elem_str(fem: FEM, thick_map) -> str:
@@ -113,21 +136,14 @@ def elem_str(fem: FEM, thick_map) -> str:
 
 
 def write_nodal_data(el: Elem) -> List[Tuple[int]]:
-    if len(el.nodes) <= 4:
-        return [tuple([e.id for e in el.nodes])]
+    """GELMNT1's node ids for one element, in Sesam ordering, four per record line."""
+    nodes = SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))
+    return _chunk_nodal_data([n.id for n in nodes])
 
-    nodes = []
-    curr_tup = []
-    counter = 0
-    for n in el.nodes:
-        curr_tup.append(n.id)
-        counter += 1
-        if counter == 4:
-            counter = 0
-            nodes.append(tuple(curr_tup))
-            curr_tup = []
 
-    return nodes + [tuple(curr_tup)]
+def _chunk_nodal_data(node_ids) -> List[Tuple[int]]:
+    """Group node ids into the 4-per-line tuples a GELMNT1 record is written in."""
+    return [tuple(node_ids[i : i + 4]) for i in range(0, len(node_ids), 4)]
 
 
 def write_elem(el: Elem, thick_map) -> str:

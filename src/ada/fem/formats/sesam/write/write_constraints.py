@@ -25,17 +25,6 @@ def constraint_str(fem: FEM) -> str:
     return out_str
 
 
-def _slave_nodes(members):
-    """Unique slave nodes of a coupling/rigid-body set. The set may hold nodes directly or
-    elements (e.g. a rigid body whose region is an element set) — flatten those to their
-    nodes, de-duplicated and order-preserving."""
-    nodes = {}
-    for m in members:
-        for n in getattr(m, "nodes", [m]):  # element -> its nodes; node -> itself
-            nodes.setdefault(n.id, n)
-    return list(nodes.values())
-
-
 def _bldep(master, slave) -> str:
     """One BLDEP record tying a slave node rigidly to a master node.
 
@@ -51,14 +40,29 @@ def _bldep(master, slave) -> str:
 
 
 def write_coupling(constraint: Constraint) -> str:
-    out_str = ""
-    master = constraint.m_set.members[0]
-    for node in _slave_nodes(constraint.s_set.members):
+    """A coupling / rigid body as BLDEP links from every slave node to the master.
+
+    Both sides go through ``surface_nodes``: either may be given as a ``Surface``
+    rather than a ``FemSet`` (Abaqus writes ``*Coupling`` with ``surface=``), and a
+    set may hold elements rather than nodes, as a rigid body over an element region
+    does.
+    """
+    masters = surface_nodes(constraint.m_set)
+    if not masters:
+        logger.warning(
+            "sesam writer: coupling %s has no master node and is written as nothing.",
+            constraint.name,
+        )
+        return ""
+    master = masters[0]
+
+    out_str = []
+    for node in surface_nodes(constraint.s_set):
         if node.id == master.id:
             continue  # the reference node can't depend on itself
-        out_str += _bldep(master, node)
+        out_str.append(_bldep(master, node))
 
-    return out_str
+    return "".join(out_str)
 
 
 def write_shell2solid(constraint: Constraint) -> str:

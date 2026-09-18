@@ -154,3 +154,130 @@ def test_shell2solid_bldep_is_readable_by_the_sesam_reader():
         assert str_to_int(d["ndep"]) == 9
         assert len(d["bulk"].split()) // 4 == 9
     assert {str_to_int(d["slave"]): str_to_int(d["master"]) for d in parsed} == {11: 1, 12: 1, 13: 2, 14: 2}
+
+
+def test_surface_based_coupling_writes_bldep():
+    """Abaqus writes *Coupling with surface=, so a coupling's sides arrive as Surface
+    rather than FemSet. Reading .members straight off one raised AttributeError."""
+    from ada.fem import Constraint, Surface
+    from ada.fem.formats.sesam.write.write_constraints import constraint_str
+
+    ref = [ada.Node((0, 0, 1), 1)]
+    region = [ada.Node((1, 0, 0), 2), ada.Node((0, 1, 0), 3)]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(ref + region))
+    m = Surface("ref_surf", Surface.TYPES.NODE, fem.add_set(ada.fem.FemSet("m", ref, "nset")), parent=fem)
+    s = Surface("reg_surf", Surface.TYPES.NODE, fem.add_set(ada.fem.FemSet("s", region, "nset")), parent=fem)
+    fem.add_constraint(Constraint("cpl", Constraint.TYPES.COUPLING, m, s, parent=fem))
+
+    records = [ln for ln in constraint_str(fem).splitlines() if ln.startswith("BLDEP")]
+    assert len(records) == 2, "one BLDEP per slave node"
+    assert {int(float(r.split()[1])) for r in records} == {2, 3}
+    assert {int(float(r.split()[2])) for r in records} == {1}, "all slaves hang off the reference node"
+
+
+def test_coupling_still_accepts_plain_femsets():
+    from ada.fem import Constraint
+    from ada.fem.formats.sesam.write.write_constraints import constraint_str
+
+    ref = [ada.Node((0, 0, 1), 1)]
+    region = [ada.Node((1, 0, 0), 2)]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(ref + region))
+    m = fem.add_set(ada.fem.FemSet("m", ref, "nset"))
+    s = fem.add_set(ada.fem.FemSet("s", region, "nset"))
+    fem.add_constraint(Constraint("cpl", Constraint.TYPES.COUPLING, m, s, parent=fem))
+
+    assert len([ln for ln in constraint_str(fem).splitlines() if ln.startswith("BLDEP")]) == 1
+
+
+def test_rigid_body_over_an_element_region_still_flattens_to_nodes():
+    """A rigid body whose region is an element set must resolve to that set's nodes."""
+    from ada.fem import Constraint
+    from ada.fem.formats.sesam.write.write_constraints import constraint_str
+    from ada.fem.shapes.definitions import LineShapes
+
+    nodes = [ada.Node((0, 0, 1), 1), ada.Node((1, 0, 0), 2), ada.Node((2, 0, 0), 3)]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(nodes))
+    el = ada.fem.Elem(1, [nodes[1], nodes[2]], LineShapes.LINE, parent=fem)
+    fem.elements = ada.fem.containers.FemElements([el], fem_obj=fem)
+    m = fem.add_set(ada.fem.FemSet("m", [nodes[0]], "nset"))
+    s = fem.add_set(ada.fem.FemSet("s", [el], "elset"))
+    fem.add_constraint(Constraint("rb", Constraint.TYPES.RIGID_BODY, m, s, parent=fem))
+
+    records = [ln for ln in constraint_str(fem).splitlines() if ln.startswith("BLDEP")]
+    assert {int(float(r.split()[1])) for r in records} == {2, 3}
+
+
+def _tet10_array_fem():
+    """A one-element TETRA10 FEM on the array-backed mesh, in adapy native ordering."""
+    import numpy as np
+
+    from ada.api.mesh.containers import ArrayElements, ArrayNodes
+    from ada.api.mesh.store import MeshArrays
+    from ada.fem.shapes.definitions import SolidShapes
+    from ada.fem.shapes.node_order import NATIVE_MIDSIDE_EDGES
+
+    corners = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    coords = np.vstack([corners, np.zeros((6, 3))])
+    for slot, (i, j) in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10].items():
+        coords[slot] = 0.5 * (corners[i] + corners[j])
+    node_ids = np.arange(1, 11, dtype=np.int64)
+
+    store = MeshArrays(coords, node_ids)
+    store.add_elem_block_from_id_conn(SolidShapes.TETRA10, np.array([1], dtype=np.int64), node_ids.reshape(1, 10))
+    fem = ada.FEM("MyFem")
+    fem.nodes = ArrayNodes(store, parent=fem)
+    fem.elements = ArrayElements(store, fem_obj=fem)
+    return fem
+
+
+def test_gelmnt1_emits_tet10_nodes_in_sesam_order():
+    """The bug this guards: an Abaqus-ordered tet written straight into GELMNT1 puts
+    corner and mid-side nodes in each other's slots, and Sestra sees a distorted
+    element."""
+    from ada.fem.formats.sesam.node_order import SESAM_ORDER
+    from ada.fem.formats.sesam.write.write_elements import write_nodal_data
+    from ada.fem.shapes.definitions import SolidShapes
+
+    fem = _tet10_array_fem()
+    elem = list(fem.elements)[0]
+
+    emitted = [nid for row in write_nodal_data(elem) for nid in row]
+    perm = SESAM_ORDER.to_format(SolidShapes.TETRA10)
+    # node ids are 1..10 in native slot order, so the expected record is the
+    # permutation itself, shifted to 1-based ids
+    assert emitted == [p + 1 for p in perm]
+    assert emitted != list(range(1, 11)), "unpermuted output would be the native ordering"
+
+
+def test_gelmnt1_records_group_four_node_ids_per_line():
+    from ada.fem.formats.sesam.write.write_elements import write_nodal_data
+
+    rows = write_nodal_data(list(_tet10_array_fem().elements)[0])
+    assert [len(r) for r in rows] == [4, 4, 2]
+
+
+def test_sesam_tet10_survives_a_write_read_round_trip_in_native_order():
+    """Write permutes to Sesam ordering, read permutes back — the connectivity adapy
+    holds must be identical either side."""
+    from ada.fem.formats.sesam.read.read_elements import get_elements
+    from ada.fem.formats.sesam.write.write_elements import (
+        eltype_2_sesam,
+        write_nodal_data,
+    )
+    from ada.fem.formats.sesam.write.write_utils import write_ff
+    from ada.fem.shapes.definitions import SolidShapes
+
+    fem = _tet10_array_fem()
+    elem = list(fem.elements)[0]
+    store = fem.elements.store
+    before = [int(store.node_ids[i]) for i in store.blocks[SolidShapes.TETRA10].conn[0]]
+
+    bulk = write_ff(
+        "GELMNT1",
+        [(elem.id, elem.id, eltype_2_sesam(elem.type), 0)] + write_nodal_data(elem),
+    )
+
+    back = ada.FEM("RoundTrip")
+    back.nodes = fem.nodes
+    elements, *_ = get_elements(bulk, back)
+    assert [n.id for n in list(elements)[0].nodes] == before
