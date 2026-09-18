@@ -10,6 +10,7 @@ from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.lines import SpringTypes
 
+from ..node_order import SESAM_ORDER
 from . import cards
 
 
@@ -51,9 +52,9 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
         el_no = str_to_int(d["elno"])
         el_nox = str_to_int(d["elnox"])
         internal_external_element_map[el_no] = el_nox
-        nodes = [fem.nodes.from_id(x) for x in gelmnt_node_ids(d["nids"])]
         eltyp = d["eltyp"]
         el_type = sesam_eltype_2_general(str_to_int(eltyp))
+        nodes = SESAM_ORDER.nodes_from_format(el_type, [fem.nodes.from_id(x) for x in gelmnt_node_ids(d["nids"])])
 
         if isinstance(el_type, SpringTypes):
             spring_elem[el_no] = dict(gelmnt=d)
