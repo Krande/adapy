@@ -2,6 +2,15 @@
 
 
 
+## v0.75.2 (2026-09-18)
+
+### Fix
+
+* fix(worker): report elapsed time, not the wall clock, without a pool (#364)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`180a784`](https://github.com/Krande/adapy/commit/180a78479b0adbf3bbcd73447f00aae32588b3e4))
+
+
 ## v0.75.1 (2026-09-18)
 
 ### Fix
