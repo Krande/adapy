@@ -14,13 +14,14 @@ from ada.fem.formats.calculix.node_order import CALCULIX_ORDER
 from ada.fem.formats.code_aster.node_order import CODE_ASTER_ORDER
 from ada.fem.formats.sesam.node_order import SESAM_ORDER
 from ada.fem.formats.usfos.node_order import USFOS_ORDER
-from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from ada.fem.shapes.node_order import (
+    NATIVE_CORNERS,
     NATIVE_MIDSIDE_EDGES,
-    NUM_CORNERS,
     NodeOrder,
     derive_midside_edges,
     invert,
+    num_nodes,
 )
 
 ALL_ORDERS = [ABAQUS_ORDER, CALCULIX_ORDER, CODE_ASTER_ORDER, SESAM_ORDER, USFOS_ORDER]
@@ -45,7 +46,7 @@ def test_every_declared_permutation_is_self_consistent(order):
         if fwd is None:
             continue
         assert order.from_format(ctype) == invert(fwd)
-        n = NUM_CORNERS[ctype] + len(NATIVE_MIDSIDE_EDGES[ctype])
+        n = num_nodes(ctype)
         assert sorted(fwd) == list(range(n)), f"{order.name}/{ctype} does not cover {n} nodes"
 
 
@@ -53,8 +54,7 @@ def test_every_declared_permutation_is_self_consistent(order):
 def test_conn_round_trips_through_a_format(order):
     rng = np.random.default_rng(0)
     for ctype in NATIVE_MIDSIDE_EDGES:
-        n = NUM_CORNERS[ctype] + len(NATIVE_MIDSIDE_EDGES[ctype])
-        conn = rng.integers(0, 1000, size=(7, n))
+        conn = rng.integers(0, 1000, size=(7, num_nodes(ctype)))
         assert np.array_equal(order.conn_from_format(ctype, order.conn_to_format(ctype, conn)), conn)
 
 
@@ -94,12 +94,10 @@ def test_sesam_tetra10_matches_figure_5_31():
     base and 7/8/9 up to the apex."""
     perm = SESAM_ORDER.to_format(SolidShapes.TETRA10)
     edges = NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10]
-    n_corner = NUM_CORNERS[SolidShapes.TETRA10]
 
     def edge_at(slot):
         """The native corner pair the node in sesam slot `slot` (0-based) bisects."""
-        native = perm[slot]
-        return tuple(sorted(edges[native - n_corner]))
+        return tuple(sorted(edges[perm[slot]]))
 
     corner_native = {0: perm[0], 2: perm[2], 4: perm[4], 9: perm[9]}
     assert sorted(corner_native.values()) == [0, 1, 2, 3], "slots 1,3,5,10 must be the corners"
@@ -112,10 +110,43 @@ def test_sesam_tetra10_matches_figure_5_31():
     assert edge_at(8) == tuple(sorted((c, d)))
 
 
-def test_formats_that_match_native_declare_nothing():
-    for order in (ABAQUS_ORDER, CALCULIX_ORDER, CODE_ASTER_ORDER, USFOS_ORDER):
+def test_native_line3_is_end_mid_end():
+    """The one shape where native is NOT the VTK/meshio ordering. Verified against
+    CalculiX: a B32 cantilever built (end, mid, end) gives a sane tip deflection,
+    (end, end, mid) is ~4.6x too stiff."""
+    assert NATIVE_CORNERS[LineShapes.LINE3] == (0, 2)
+    assert NATIVE_MIDSIDE_EDGES[LineShapes.LINE3] == {1: (0, 2)}
+    # line_edges draws the element end-to-end; it must agree with the corner slots
+    from ada.fem.shapes.lines import line_edges
+
+    assert line_edges[LineShapes.LINE3] == [[0, 2]]
+
+
+def test_abaqus_family_matches_native_everywhere():
+    """Abaqus and Calculix share Abaqus' element definitions, native included, so any
+    permutation appearing here means native drifted away from Abaqus."""
+    for order in (ABAQUS_ORDER, CALCULIX_ORDER, USFOS_ORDER):
         for ctype in NATIVE_MIDSIDE_EDGES:
             assert order.to_format(ctype) is None, f"{order.name} unexpectedly reorders {ctype}"
+
+
+def test_code_aster_matches_native_except_for_seg3():
+    """MED is corners-first with the same edge order as native for every solid and
+    shell; SEG3 alone is (end, end, mid). Both established from MEDCoupling."""
+    for ctype in NATIVE_MIDSIDE_EDGES:
+        if ctype is LineShapes.LINE3:
+            continue
+        assert CODE_ASTER_ORDER.to_format(ctype) is None, f"code_aster unexpectedly reorders {ctype}"
+    assert CODE_ASTER_ORDER.to_format(LineShapes.LINE3) == (0, 2, 1)
+
+
+def test_line3_permutations_are_self_inverse():
+    """(end, mid, end) <-> (end, end, mid) is a single swap, so read and write share
+    one table — a format cannot get one direction right and the other wrong."""
+    for order in (CODE_ASTER_ORDER, SESAM_ORDER):
+        perm = order.to_format(LineShapes.LINE3)
+        assert perm == (0, 2, 1)
+        assert order.from_format(LineShapes.LINE3) == perm
 
 
 # ── the geometric check that lets a table be verified against a real mesh ─────
@@ -124,26 +155,55 @@ def test_formats_that_match_native_declare_nothing():
 def _unit_tet10():
     """A straight-sided tet10 in native ordering: corners then mid-sides."""
     corners = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
-    mids = [0.5 * (corners[i] + corners[j]) for i, j in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10]]
-    coords = np.vstack([corners, np.array(mids)])
+    coords = np.vstack([corners, np.zeros((6, 3))])
+    for slot, (i, j) in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10].items():
+        coords[slot] = 0.5 * (corners[i] + corners[j])
     return coords, np.arange(10).reshape(1, 10)
 
 
 def test_derive_midside_edges_recovers_the_native_convention():
     coords, conn = _unit_tet10()
     got = derive_midside_edges(conn, coords, SolidShapes.TETRA10)
-    want = {4 + i: e for i, e in enumerate(NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10])}
+    want = NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10]
     assert {k: tuple(sorted(v)) for k, v in got.items()} == {k: tuple(sorted(v)) for k, v in want.items()}
+
+
+def test_derive_midside_edges_recovers_native_line3():
+    """LINE3's mid node sits in the middle slot, so a corners-first assumption would
+    look right here by accident — check it reads back as slot 1 bisecting (0, 2)."""
+    coords = np.array([[0.0, 0, 0], [0.5, 0, 0], [1.0, 0, 0]])
+    got = derive_midside_edges(np.arange(3).reshape(1, 3), coords, LineShapes.LINE3)
+    assert {k: tuple(sorted(v)) for k, v in got.items()} == {1: (0, 2)}
 
 
 def test_derive_midside_edges_sees_through_a_sesam_permuted_element():
     """Permute a known element into Sesam order; reading the convention back off the
-    coordinates must show Sesam's edges, not native's."""
+    coordinates must no longer look like the native convention."""
     coords, conn = _unit_tet10()
     sesam_conn = SESAM_ORDER.conn_to_format(SolidShapes.TETRA10, conn)
     got = derive_midside_edges(sesam_conn, coords, SolidShapes.TETRA10)
-    # In Sesam ordering slots 0,2,4,9 are corners, so the "corner" slots the helper
-    # assumes (0-3) no longer all are — what matters is that it does NOT come back
-    # looking like the native convention.
-    want_native = {4 + i: tuple(sorted(e)) for i, e in enumerate(NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10])}
+    want_native = {k: tuple(sorted(v)) for k, v in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10].items()}
     assert {k: tuple(sorted(v)) for k, v in got.items()} != want_native
+
+
+def test_code_aster_line3_round_trips_through_the_med_writer(tmp_path):
+    """MED's SEG3 differs from native, so the writer must permute and the reader must
+    put it back. Checked end to end rather than only on the tables."""
+    import ada
+    from ada.fem.shapes.definitions import LineShapes
+
+    nodes = [ada.Node((0, 0, 0), 1), ada.Node((0.5, 0, 0), 2), ada.Node((1.0, 0, 0), 3)]
+    fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(nodes))
+    # native ordering: (end, mid, end)
+    elem = ada.fem.Elem(1, [nodes[0], nodes[1], nodes[2]], LineShapes.LINE3, parent=fem)
+    fem.elements = ada.fem.containers.FemElements([elem], fem_obj=fem)
+    fem.add_set(ada.fem.FemSet("all", [elem], "elset", parent=fem))
+
+    a = ada.Assembly("a") / (ada.Part("p", fem=fem))
+    a.to_fem("m", "code_aster", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+
+    back = ada.from_fem(tmp_path / "m" / "m.med", fem_format="code_aster")
+    part = [p for p in back.get_all_subparts(include_self=True) if len(p.fem.elements) > 0][0]
+    got = [n.p[0] for n in list(part.fem.elements)[0].nodes]
+    assert got[1] == pytest.approx(0.5), "mid node must come back in the middle slot"
+    assert sorted(got) == pytest.approx([0.0, 0.5, 1.0])

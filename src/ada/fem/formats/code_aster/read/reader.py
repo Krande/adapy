@@ -12,6 +12,7 @@ from ada.fem import Elem
 from ada.fem.containers import FemElements, FemSets
 
 from ..common import med_to_ada_type
+from ..node_order import CODE_ASTER_ORDER
 from .read_sets import (
     _cell_tag_to_set,
     _element_set_dict_to_list_of_femset,
@@ -122,7 +123,13 @@ def med_to_fem(fem_file, fem_name) -> FEM:
                 num = np.arange(0, len(nodes_in))
 
             element_block = [
-                Elem(num[i], [fem.nodes.from_id(e) for e in c], cell_type, parent=fem) for i, c in enumerate(nodes_in)
+                Elem(
+                    num[i],
+                    CODE_ASTER_ORDER.nodes_from_format(cell_type, [fem.nodes.from_id(e) for e in c]),
+                    cell_type,
+                    parent=fem,
+                )
+                for i, c in enumerate(nodes_in)
             ]
             elements += element_block
             # Cell tags
@@ -193,7 +200,10 @@ def _med_to_fem_array(fem_file, fem_name) -> FEM:
             n_cells = nod.attrs["NBR"]
             nodes_in = nod[()].reshape(n_cells, -1, order="F")
             num = np.asarray(grp["NUM"], dtype=np.int64) if "NUM" in grp.keys() else np.arange(n_cells, dtype=np.int64)
-            store.add_elem_block_from_id_conn(cell_type, num, np.asarray(nodes_in, dtype=np.int64))
+            # MED orders SEG3 (end, end, mid); native is (end, mid, end). One gather
+            # per block brings the whole thing into native ordering.
+            conn = CODE_ASTER_ORDER.conn_from_format(cell_type, np.asarray(nodes_in, dtype=np.int64))
+            store.add_elem_block_from_id_conn(cell_type, num, conn)
             if "FAM" in grp:
                 cell_type_sets = _cell_tag_to_set(grp["FAM"][()], cell_tags)
                 for key, rows in cell_type_sets.items():

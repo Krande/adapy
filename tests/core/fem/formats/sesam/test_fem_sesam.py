@@ -205,6 +205,8 @@ def test_rigid_body_over_an_element_region_still_flattens_to_nodes():
 
     records = [ln for ln in constraint_str(fem).splitlines() if ln.startswith("BLDEP")]
     assert {int(float(r.split()[1])) for r in records} == {2, 3}
+
+
 def _tet10_array_fem():
     """A one-element TETRA10 FEM on the array-backed mesh, in adapy native ordering."""
     import numpy as np
@@ -215,8 +217,9 @@ def _tet10_array_fem():
     from ada.fem.shapes.node_order import NATIVE_MIDSIDE_EDGES
 
     corners = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]])
-    mids = [0.5 * (corners[i] + corners[j]) for i, j in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10]]
-    coords = np.vstack([corners, np.array(mids)])
+    coords = np.vstack([corners, np.zeros((6, 3))])
+    for slot, (i, j) in NATIVE_MIDSIDE_EDGES[SolidShapes.TETRA10].items():
+        coords[slot] = 0.5 * (corners[i] + corners[j])
     node_ids = np.arange(1, 11, dtype=np.int64)
 
     store = MeshArrays(coords, node_ids)

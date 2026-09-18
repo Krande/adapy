@@ -10,6 +10,7 @@ from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
 from ..elem_shapes import med_geometry_type
+from ..node_order import CODE_ASTER_ORDER
 from .write_sets import _add_cell_sets, _add_node_sets
 
 if TYPE_CHECKING:
@@ -38,7 +39,9 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
     """
 
     def get_node_ids_from_element(el_):
-        return [int(n.id) for n in el_.nodes]
+        # MED orders SEG3 (end, end, mid) where native is (end, mid, end); every
+        # other shape MED carries matches native and passes through untouched.
+        return [int(n.id) for n in CODE_ASTER_ORDER.nodes_to_format(el_.type, list(el_.nodes))]
 
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)

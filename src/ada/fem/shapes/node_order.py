@@ -1,10 +1,15 @@
 """Element node ordering, and conversion between adapy's ordering and a format's.
 
-adapy's **native** ordering is the VTK / meshio one, which Abaqus also uses: the
-corner nodes first, in the shape's own cyclic order, then one mid-side node per
-edge in the edge order :data:`NATIVE_MIDSIDE_EDGES` records. Every reader is
-expected to hand the mesh over in that ordering, and every writer to emit its
-format's ordering, so the in-memory mesh has exactly one convention.
+adapy's **native** ordering is Abaqus': corner nodes first, then one mid-side node
+per edge. For every shape except ``LINE3`` that is also the VTK / meshio ordering.
+``LINE3`` is the exception on purpose -- native is ``(end, mid, end)``, matching
+Abaqus B32, where VTK / meshio / gmsh all use ``(end, end, mid)``.
+
+Because of that exception the tables below never assume "corners are the leading
+slots": :data:`NATIVE_CORNERS` names the corner slots outright and
+:data:`NATIVE_MIDSIDE_EDGES` maps each mid-side slot to the two corner slots it
+sits between. Every reader is expected to hand the mesh over in native ordering
+and every writer to emit its format's, so the in-memory mesh has one convention.
 
 A format states how it differs in its own ``node_order.py`` as a
 :class:`NodeOrder`, holding one permutation per shape. Conversion is a single
@@ -31,55 +36,62 @@ import numpy as np
 
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
-#: For every second-order shape, the corner pair each mid-side slot bisects, in
-#: native slot order. This *is* the definition of adapy's native ordering for
-#: those shapes -- the corners occupy the leading ``len(shape) - len(edges)``
-#: slots, and the rest follow in this order. :func:`derive_midside_edges` reads
-#: the same relation back off real coordinates, so a table can be checked
-#: against a deck rather than taken on trust.
-NATIVE_MIDSIDE_EDGES: dict = {
-    LineShapes.LINE3: ((0, 1),),
-    ShellShapes.TRI6: ((0, 1), (1, 2), (2, 0)),
-    ShellShapes.QUAD8: ((0, 1), (1, 2), (2, 3), (3, 0)),
-    ShellShapes.QUAD9: ((0, 1), (1, 2), (2, 3), (3, 0)),
-    SolidShapes.TETRA10: ((0, 1), (1, 2), (0, 2), (0, 3), (1, 3), (2, 3)),
-    SolidShapes.WEDGE15: (
-        (0, 1),
-        (1, 2),
-        (2, 0),
-        (3, 4),
-        (4, 5),
-        (5, 3),
-        (0, 3),
-        (1, 4),
-        (2, 5),
-    ),
-    SolidShapes.HEX20: (
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
-    ),
+#: Corner (vertex) slots of each second-order shape, in native ordering. Named
+#: explicitly rather than implied as "the first N slots", because ``LINE3`` puts
+#: its mid node between the two ends.
+NATIVE_CORNERS: dict = {
+    LineShapes.LINE3: (0, 2),
+    ShellShapes.TRI6: (0, 1, 2),
+    ShellShapes.QUAD8: (0, 1, 2, 3),
+    ShellShapes.QUAD9: (0, 1, 2, 3),
+    SolidShapes.TETRA10: (0, 1, 2, 3),
+    SolidShapes.WEDGE15: (0, 1, 2, 3, 4, 5),
+    SolidShapes.HEX20: (0, 1, 2, 3, 4, 5, 6, 7),
 }
 
-#: Corner count per shape that carries mid-side nodes.
-NUM_CORNERS: dict = {
-    LineShapes.LINE3: 2,
-    ShellShapes.TRI6: 3,
-    ShellShapes.QUAD8: 4,
-    ShellShapes.QUAD9: 4,
-    SolidShapes.TETRA10: 4,
-    SolidShapes.WEDGE15: 6,
-    SolidShapes.HEX20: 8,
+#: ``{mid-side slot: (corner slot, corner slot)}`` per shape, in native ordering.
+#: This *is* the definition of adapy's native ordering for second-order shapes,
+#: and :func:`derive_midside_edges` reads the same relation back off real
+#: coordinates -- so a table can be checked against a deck rather than trusted.
+#: The solid and shell entries were checked against MEDCoupling, by exploding each
+#: quadratic cell into its edges and reading the (corner, corner, mid) triples back.
+NATIVE_MIDSIDE_EDGES: dict = {
+    LineShapes.LINE3: {1: (0, 2)},
+    ShellShapes.TRI6: {3: (0, 1), 4: (1, 2), 5: (2, 0)},
+    ShellShapes.QUAD8: {4: (0, 1), 5: (1, 2), 6: (2, 3), 7: (3, 0)},
+    ShellShapes.QUAD9: {4: (0, 1), 5: (1, 2), 6: (2, 3), 7: (3, 0)},
+    SolidShapes.TETRA10: {4: (0, 1), 5: (1, 2), 6: (0, 2), 7: (0, 3), 8: (1, 3), 9: (2, 3)},
+    SolidShapes.WEDGE15: {
+        6: (0, 1),
+        7: (1, 2),
+        8: (2, 0),
+        9: (3, 4),
+        10: (4, 5),
+        11: (5, 3),
+        12: (0, 3),
+        13: (1, 4),
+        14: (2, 5),
+    },
+    SolidShapes.HEX20: {
+        8: (0, 1),
+        9: (1, 2),
+        10: (2, 3),
+        11: (3, 0),
+        12: (4, 5),
+        13: (5, 6),
+        14: (6, 7),
+        15: (7, 4),
+        16: (0, 4),
+        17: (1, 5),
+        18: (2, 6),
+        19: (3, 7),
+    },
 }
+
+
+def num_nodes(ctype) -> int:
+    """Node count of a second-order shape, from its own tables."""
+    return len(NATIVE_CORNERS[ctype]) + len(NATIVE_MIDSIDE_EDGES[ctype])
 
 
 def invert(perm) -> tuple[int, ...]:
@@ -103,9 +115,10 @@ class NodeOrder:
         self.name = name
         self._to_format = dict(native_to_format or {})
         for ctype, perm in self._to_format.items():
-            expected = sorted(range(len(perm)))
-            if sorted(perm) != expected:
+            if sorted(perm) != sorted(range(len(perm))):
                 raise ValueError(f"{name}: {ctype} permutation {perm} is not a permutation of 0..{len(perm) - 1}")
+            if ctype in NATIVE_MIDSIDE_EDGES and len(perm) != num_nodes(ctype):
+                raise ValueError(f"{name}: {ctype} permutation has {len(perm)} slots, expected {num_nodes(ctype)}")
         self._from_format = {c: invert(p) for c, p in self._to_format.items()}
 
     def to_format(self, ctype) -> tuple[int, ...] | None:
@@ -151,26 +164,29 @@ NATIVE_ORDER = NodeOrder("native")
 def derive_midside_edges(conn: np.ndarray, coords: np.ndarray, ctype, rtol: float = 1e-4) -> dict:
     """Read a mesh's mid-side convention back off its geometry.
 
-    For each mid-side slot, finds the corner pair whose midpoint it sits on across
-    the sampled elements, and returns ``{slot: (i, j)}``. Compare that against
-    :data:`NATIVE_MIDSIDE_EDGES` (or a permuted form of it) to check what ordering
-    a file actually uses instead of assuming one.
+    For each non-corner slot, finds the corner pair whose midpoint it sits on across
+    the sampled elements, and returns ``{slot: (i, j)}`` in the same shape as
+    :data:`NATIVE_MIDSIDE_EDGES` -- so a table can be compared against what a file
+    actually contains instead of assumed.
 
-    Second-order elements on curved geometry carry mid-side nodes deliberately off
-    the straight-line midpoint, so this votes across elements rather than
-    demanding every one agree; slots with no clear winner are left out.
+    ``corners`` defaults to the native corner slots; pass a format's own corner
+    slots to read that format's file in its own terms. Second-order elements on
+    curved geometry carry mid-side nodes deliberately off the straight-line
+    midpoint, so this votes across elements rather than demanding every one agree;
+    slots with no clear winner are left out.
     """
     import itertools
 
-    edges = NATIVE_MIDSIDE_EDGES.get(ctype)
-    if edges is None:
+    if ctype not in NATIVE_MIDSIDE_EDGES:
         return {}
-    n_corner = NUM_CORNERS[ctype]
+    corners = NATIVE_CORNERS[ctype]
     p = coords[conn]  # (m, k, 3)
     out = {}
-    for slot in range(n_corner, conn.shape[1]):
+    for slot in range(conn.shape[1]):
+        if slot in corners:
+            continue
         best, best_hits = None, 0
-        for i, j in itertools.combinations(range(n_corner), 2):
+        for i, j in itertools.combinations(corners, 2):
             span = np.linalg.norm(p[:, i] - p[:, j], axis=1)
             off = np.linalg.norm(p[:, slot] - 0.5 * (p[:, i] + p[:, j]), axis=1)
             hits = int((off <= rtol * np.maximum(span, 1e-12)).sum())
