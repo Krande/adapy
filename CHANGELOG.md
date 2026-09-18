@@ -2,6 +2,15 @@
 
 
 
+## v0.75.1 (2026-09-18)
+
+### Fix
+
+* fix(fem): give adapy one native node ordering, and permute per format (#362)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`c08feb3`](https://github.com/Krande/adapy/commit/c08feb3526708a8c806569d8db8949e470d7342b))
+
+
 ## v0.75.0 (2026-09-17)
 
 ### Feature
