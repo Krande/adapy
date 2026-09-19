@@ -216,6 +216,21 @@ export interface FeaManifest {
     beam_solids_url?: string;
     beam_solids_elements_url?: string;
     n_beam_solids?: number;
+    /** Optional AFBS artefact — the same beam solids as
+     *  ``beam_solids_url`` shipped as their generators: a
+     *  per-section outline table plus a 56-byte frame per beam,
+     *  which the viewer expands in a worker into the same vertex,
+     *  index, draw-range and warp buffers. An order of magnitude
+     *  smaller, and there is no GLB to parse on the main thread.
+     *  A separate key rather than a new value under
+     *  ``beam_solids_url`` so a viewer that predates the format
+     *  sees no beam-solid URL it knows and falls back to line
+     *  rendering. Mutually exclusive with the GLB trio: the bake
+     *  writes one artefact set or the other
+     *  (``beam_solid_format``). Beams the compact format has no
+     *  room for — tapered, swept, boolean — are counted in
+     *  ``beam_solids_skip_reasons`` and render as lines. */
+    beam_solids_compact_url?: string;
     /** Optional AFBV sidecar — per-beam-solid-vertex
      *  ``(node0_idx, node1_idx, t)``. The frontend lerps nodal
      *  displacements onto the solid vertices so the solid mesh
