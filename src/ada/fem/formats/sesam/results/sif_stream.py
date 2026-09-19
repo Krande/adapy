@@ -303,8 +303,8 @@ class SifStreamReader:
             for esv in ad.iter_element_field_steps(ad_spec):
                 yield dataclasses.replace(esv, step_index=i, step_value=labels[i])
 
-    def try_solid_beams(self):
-        return self._adapter_for(0).try_solid_beams()
+    def try_solid_beams(self, **kwargs):
+        return self._adapter_for(0).try_solid_beams(**kwargs)
 
     def try_history_records(self):
         return None
