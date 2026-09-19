@@ -148,12 +148,14 @@ def test_fem2concepts_include_ecc_is_respected(tmp_path):
     assert Config().fem_convert_options_fem2concepts_include_ecc is True
 
 
-@pytest.mark.parametrize("mesh_size", [5.0, 2.0])
-def test_offsets_land_on_the_end_elements_only(tmp_path, mesh_size):
-    """Subdividing a beam must not spread its end offsets over the interior nodes.
+@pytest.mark.parametrize("mesh_size", [5.0, 2.0, 1.0])
+def test_offsets_are_interpolated_along_a_subdivided_beam(tmp_path, mesh_size):
+    """Subdividing a beam spreads its offset over every node, end to end.
 
-    At mesh size 2.0 the 4 m beam becomes two elements; the offsets belong to the
-    outermost nodes only, so the middle node stays on the nodal line.
+    A beam offset belongs to the whole member, so a node at fraction ``s`` of the
+    length carries ``e1 + s * (e2 - e1)`` (in the file's sign). Giving it to the end
+    nodes alone would leave the interior nodes on the nodal line and kink the beam:
+    a two-element beam hung 0.3 m below its nodes came out with its midspan on them.
     """
     bm = ada.Beam("B", (0, 0, 0), (4, 0, 0), "IPE300", e1=(0, 0, -0.3), e2=(0, 0.2, 0.1))
     p = ada.Part("p") / bm
@@ -166,6 +168,10 @@ def test_offsets_land_on_the_end_elements_only(tmp_path, mesh_size):
             if end is not None:
                 ecc_by_node[end.node.id] = end.ecc_vector
 
-    assert len(ecc_by_node) == 2
-    offset_x = sorted(p.fem.nodes.from_id(nid).p[0] for nid in ecc_by_node)
-    assert offset_x == [0.0, 4.0]
+    n_elems = len(list(p.fem.elements.lines))
+    assert len(ecc_by_node) == n_elems + 1, "every node of the beam carries an offset"
+    e1 = np.array([0, 0, 0.3])  # the file's sign: node + vector = beam end
+    e2 = np.array([0, -0.2, -0.1])
+    for nid, vec in ecc_by_node.items():
+        s = p.fem.nodes.from_id(nid).p[0] / 4.0
+        assert np.allclose(vec, e1 + s * (e2 - e1)), f"node {nid} at s={s}"

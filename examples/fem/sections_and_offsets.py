@@ -23,12 +23,16 @@ Variants (``e1`` is the offset at the start node, ``e2`` at the end node)::
     c   up = (0, 0,  1)   e1 = (0, 0.2, 0.1)   e2 = (0, -0.2, 0.1)
     d   up = (0, 0, -1)   e1 = (0, 0, 0.15)    e2 = (0.3, 0, 0.15)
 
-``a`` is the reference. ``b`` hangs the whole beam below its nodes without tilting
-it. ``c`` gives the two ends opposite Y offsets, so the beam axis is rotated away
-from the node line -- if a viewer applies one end's offset to both, ``c`` comes out
-parallel to ``a`` instead of skewed. ``d`` flips the local z axis *and* adds an axial
-(X) component at the far end, which is the case that catches an offset applied in
-local instead of global coordinates.
+Where a beam lands: a Sesam GECCEN vector is added to the node to reach the beam
+end, and ``Beam.e1``/``e2`` are that vector's NEGATION (the geometry path starts its
+offsets from ``-e``), so the solids sit at ``node - e``. ``a`` is the reference. ``b``
+lifts the whole beam 0.3 m ABOVE its nodes without tilting it. ``c`` gives the two
+ends opposite Y offsets (-0.2 at the start, +0.2 at the end, both 0.1 below), so the
+beam axis is rotated away from the node line -- if a viewer applies one end's offset
+to both, ``c`` comes out parallel to ``a`` instead of skewed. ``d`` flips the local z
+axis *and* pulls the far end 0.3 m back along the axis, which is the case that catches
+an offset applied in local instead of global coordinates. Every node of a beam carries
+its interpolated offset, so the two elements of a beam stay collinear.
 
 Beams are named ``<SECTION>_<a|b|c|d>``, which is what the deck's TDSCONC concept
 names and the SIN's section names carry, so a beam in the picture can be traced back

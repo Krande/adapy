@@ -8,7 +8,7 @@ import numpy as np
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.api.transforms import Placement
 from ada.base.types import GeomRepr
-from ada.config import Config, logger
+from ada.config import logger
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -183,13 +183,21 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
 
 def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
-    """Carry ``Beam.e1`` / ``Beam.e2`` onto the line elements at the beam's ends.
+    """Carry ``Beam.e1`` / ``Beam.e2`` onto the line elements, interpolated along the beam.
 
     The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
     wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
     offsets are simply dropped on the way into the FEM, and every downstream writer
     has nothing to write. That is why the Sesam writer never emitted a GECCEN record:
     not because it chose not to, but because no element ever carried one.
+
+    Every element node gets an offset, not only the beam's two end nodes. A beam
+    offset is a property of the whole member -- the same ``e1``/``e2`` a CAD program
+    interpolates from end to end when it meshes the beam into several elements -- so an
+    interior node at fraction ``s`` of the length carries ``e1 + s * (e2 - e1)``. Giving
+    the offset to the end nodes alone would leave the interior nodes on the nodal line
+    and turn a straight, offset beam into a kinked one: it drew the solid of a
+    two-element beam with one end 0.3 m above its node and the midspan on it.
 
     Sign: ``EccPoint.ecc_vector`` holds the vector the way a file holds it -- a global
     offset to be ADDED to the node position, see
@@ -200,28 +208,36 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     deck is read into concepts. ``tests/core/fem/formats/sesam/test_write_geccen.py``
     is the proof: a beam written to a Sesam deck and read back keeps the ``e1``/``e2``
     it was built with.
-
-    Only the elements that actually sit at the beam ends get an eccentricity; a
-    subdivided beam's interior nodes are on the nodal line and stay there.
     """
-    from ada.core.vector_utils import vector_length
     from ada.fem.elements import Eccentricity, EccPoint
 
     if beam.e1 is None and beam.e2 is None:
         return
 
-    tol = Config().general_point_tol
-    e1 = -np.array(beam.e1, dtype=float) if beam.e1 is not None else None
-    e2 = -np.array(beam.e2, dtype=float) if beam.e2 is not None else None
+    # A missing end means "no offset there", which is what the geometry path assumes
+    # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
+    e1 = -np.array(beam.e1, dtype=float) if beam.e1 is not None else np.zeros(3)
+    e2 = -np.array(beam.e2, dtype=float) if beam.e2 is not None else np.zeros(3)
+    p1 = np.asarray(beam.n1.p, dtype=float)
+    axis = np.asarray(beam.n2.p, dtype=float) - p1
+    length_sq = float(np.dot(axis, axis))
+
+    def offset_at(node) -> np.ndarray | None:
+        s = float(np.dot(np.asarray(node.p, dtype=float) - p1, axis)) / length_sq if length_sq > 0 else 0.0
+        vec = e1 + min(max(s, 0.0), 1.0) * (e2 - e1)
+        return None if not np.any(np.abs(vec) > 1e-12) else vec
 
     for el in elements:
         n1 = el.nodes[0]
         n2 = el.nodes[-1]
-        end1 = EccPoint(n1, e1.copy()) if e1 is not None and vector_length(beam.n1.p - n1.p) < tol else None
-        end2 = EccPoint(n2, e2.copy()) if e2 is not None and vector_length(beam.n2.p - n2.p) < tol else None
-        if end1 is None and end2 is None:
+        v1 = offset_at(n1)
+        v2 = offset_at(n2)
+        if v1 is None and v2 is None:
             continue
-        el.eccentricity = Eccentricity(end1, end2)
+        el.eccentricity = Eccentricity(
+            EccPoint(n1, v1) if v1 is not None else None,
+            EccPoint(n2, v2) if v2 is not None else None,
+        )
 
 
 def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):

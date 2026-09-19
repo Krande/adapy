@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 
+import numpy as np
 import pytest
 
 import ada
@@ -47,11 +48,20 @@ def test_deck_has_one_section_per_type_and_the_expected_offsets(example, deck):
     # Two elements per beam, so two GELREF1 records each.
     assert records["GELREF1"] == 2 * len(expected)
 
-    # Five distinct offset vectors across the four variants, and the records are
-    # deduplicated, so all eight rows share those five: b contributes one (its two
-    # ends share a vector), c and d two each, a none.
-    distinct = {e for up_e1_e2 in example.VARIANTS.values() for e in up_e1_e2[1:] if e is not None}
-    assert len(distinct) == 5
+    # Seven distinct offset vectors across the four variants, and the records are
+    # deduplicated, so all eight rows share those seven: b contributes one (its two
+    # ends and its midspan share a vector), c and d three each (each end, and the
+    # interpolated midspan between them), a none.
+    distinct = set()
+    for _up, e1, e2 in example.VARIANTS.values():
+        if e1 is None and e2 is None:
+            continue
+        a = np.zeros(3) if e1 is None else np.asarray(e1, float)
+        b = np.zeros(3) if e2 is None else np.asarray(e2, float)
+        for vec in (a, b, 0.5 * (a + b)):
+            if np.any(vec):
+                distinct.add(tuple(np.round(vec, 10)))
+    assert len(distinct) == 7
     assert records["GECCEN"] == len(distinct)
 
 
