@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 
 import numpy as np
@@ -454,9 +454,71 @@ class Placement:
             ref_direction=self.xdir.get_normalized(),
         )
 
+    def _is_identity_on_floats(self) -> bool | None:
+        """``self == Placement(O(), XV(), YV(), ZV())``, decided on plain floats.
+
+        ``__eq__`` asks, of each of the four vectors, whether the *length* of
+        its difference from the identity's is ``> 0.0``. Length is
+        ``sqrt(dot(v, v))`` and ``sqrt`` is monotone, so that is the same
+        question as whether the sum of the squared components is ``> 0.0`` --
+        for every input, not just the well-behaved ones: a NaN component makes
+        both the sum and the root NaN (``> 0.0`` false, i.e. "equal"), and
+        components so small that their squares underflow to zero sum to zero in
+        both (likewise "equal"). Summation order cannot change the answer since
+        squares are never negative, so nothing can cancel.
+
+        Asking it this way skips what made the old formulation cost ~35 us a
+        call: a whole identity ``Placement``, plus the four ``Point``/
+        ``Direction`` differences ``__eq__`` allocates -- each one a trip
+        through the value-interning cache -- only to take a norm and discard
+        them again.
+
+        Returns ``None`` when this shortcut does not apply and the caller must
+        fall back to ``__eq__``: with rounding switched on the difference is
+        rounded before its length is taken (which can turn a non-zero
+        difference into a zero one), and a vector that is not a plain
+        3-component ``Point``/``Direction`` is not what this reasons about.
+        """
+        if Point.precision is not None or Direction.precision is not None:
+            return None
+
+        origin = self._origin
+        if type(origin) is not Point or origin.shape != (3,):
+            return None
+
+        ox, oy, oz = origin.tolist()
+        if ox * ox + oy * oy + oz * oz > 0.0:
+            return False
+
+        # The default ``Placement()`` -- the one every element gets -- leaves
+        # all three directions unset, and ``compute_orientation_vec`` turns
+        # that into exactly the global axes. Settle it without resolving them.
+        if self._xdir is None and self._ydir is None and self._zdir is None:
+            return True
+
+        xdir, ydir, zdir = self.xdir, self.ydir, self.zdir
+        # ``Direction`` is value-interned, so a placement built from the global
+        # axes holds *the* ``XV()``/``YV()``/``ZV()`` objects.
+        if xdir is XV() and ydir is YV() and zdir is ZV():
+            return True
+
+        for vec, unit in ((xdir, (1.0, 0.0, 0.0)), (ydir, (0.0, 1.0, 0.0)), (zdir, (0.0, 0.0, 1.0))):
+            if type(vec) is not Direction or vec.shape != (3,):
+                return None
+            vx, vy, vz = vec.tolist()
+            ux, uy, uz = unit
+            dx, dy, dz = ux - vx, uy - vy, uz - vz
+            if dx * dx + dy * dy + dz * dz > 0.0:
+                return False
+
+        return True
+
     def is_identity(self, use_absolute_placement=True) -> bool:
         place = self.get_absolute_placement() if use_absolute_placement else self
-        return place == Placement(O(), XV(), YV(), ZV())
+        identical = place._is_identity_on_floats()
+        if identical is not None:
+            return identical
+        return place == _identity_placement()
 
     def with_zdir(self, new_zdir: Direction | Iterable[float]) -> Placement:
         """Returns a new Placement with the zdir transformed to match new_zdir."""
@@ -511,6 +573,18 @@ class Placement:
         return (
             f"Placement(origin={self.origin}, xdir={self.xdir}, ydir={self.ydir}, zdir={self.zdir}, scale={self.scale})"
         )
+
+
+@lru_cache(maxsize=1)
+def _identity_placement() -> Placement:
+    """The identity placement, built once.
+
+    Only ``Placement.is_identity`` uses it, and only as the right-hand side of
+    an ``==`` that reads attributes -- it never escapes this module, so the one
+    instance can be shared. It is reached only on the paths
+    :meth:`Placement._is_identity_on_floats` declines to answer.
+    """
+    return Placement(O(), XV(), YV(), ZV())
 
 
 @dataclass
