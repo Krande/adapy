@@ -69,7 +69,9 @@ class SolidBeamMesh:
     # is without parsing worker logs. ``total_beams`` is the count
     # of line elements the reader saw; ``skip_reasons`` buckets the
     # failures by category ("no-section", "genbeam-no-profile",
-    # "occ-error[StdFail_NotDone]", ...).
+    # "occ-error[StdFail_NotDone]", ...). An ``occ-fallback[...]``
+    # bucket is not a failure: that beam IS in the output, it just
+    # took the CAD kernel rather than the procedural extruder.
     total_beams: int = 0
     skip_reasons: dict = dc_field(default_factory=dict)
 

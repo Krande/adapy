@@ -1,3 +1,11 @@
 # SCM syntax highlighting
 pixi.lock linguist-language=YAML linguist-generated=true
 files/ifc_files/beam-standard-case-gz.ifc binary
+
+# The AFBS parity fixtures are compared byte for byte against what the Python
+# reference expander emits (tests/core/fem/results/test_beam_compact.py) and
+# read as raw bytes by the frontend test. A CRLF translation on checkout would
+# change the JSON on disk and fail that comparison on Windows, so both files
+# are exempt from end-of-line conversion.
+src/frontend/src/__tests__/fixtures/beam_solids_compact/two_beams.bin binary
+src/frontend/src/__tests__/fixtures/beam_solids_compact/two_beams.expected.json -text

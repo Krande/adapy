@@ -68,13 +68,35 @@ def _dedup_beam_tessellation(
     return unique_verts, remapped, unique_t
 
 
+BEAM_SOLID_METHODS = ("procedural", "occ")
+
+
 def tessellate_beams_to_solid_mesh(
     beams,
     *,
     extra_skip_reasons: dict | None = None,
     total_beams: int | None = None,
+    method: str = "procedural",
+    deflection: float | None = None,
+    max_angle: float | None = None,
 ) -> "SolidBeamMesh | None":
-    """Run OCC tessellation over a list of beams and produce a SolidBeamMesh.
+    """Tessellate a list of beams as extruded solids into one SolidBeamMesh.
+
+    ``method`` picks how the solid is built:
+
+    * ``"procedural"`` (default) — sweep the sampled section outline along the
+      beam's frame with numpy (see :mod:`.beam_extrude`), roughly two orders of
+      magnitude cheaper than a per-beam CAD round trip. Beams the extruder
+      cannot take (tapered / swept / revolved, booleans, a profile with no
+      native sampler) fall back to OCC one at a time and are counted under
+      ``occ-fallback[<reason>]`` in ``skip_reasons`` -- a fallback is not a
+      skip, the beam is still in the output.
+    * ``"occ"`` — every beam through the CAD kernel, the behaviour that
+      predates the extruder. Kept as the geometry of record and as the escape
+      hatch if a profile ever renders differently.
+
+    ``deflection`` / ``max_angle`` tune how finely curved outlines are sampled
+    on the procedural path only; both default to :mod:`.beam_extrude`'s.
 
     Each ``beams`` entry is a ``(beam, elem_id, n0_idx, n1_idx, n0_pos, n1_pos)``
     tuple where ``beam`` is a fully-constructed :class:`ada.Beam` (its
@@ -101,11 +123,36 @@ def tessellate_beams_to_solid_mesh(
     overrides the auto-default of ``len(beams)`` for the same reason.
     """
 
+    import time
+
+    from ada.api.beams.geom_beams import straight_beam_frame
     from ada.config import get_logger
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.rendering.femviz import ElementRange
 
-    bt = BatchTessellator()
+    from .beam_extrude import (
+        DEFAULT_DEFLECTION,
+        DEFAULT_MAX_ANGLE,
+        SectionOutlineCache,
+        extrude_outline,
+        unsupported_reason,
+    )
+
+    if method not in BEAM_SOLID_METHODS:
+        raise ValueError(f"unknown beam-solid method {method!r}; expected one of {BEAM_SOLID_METHODS}")
+
+    procedural = method == "procedural"
+    outlines = (
+        SectionOutlineCache(
+            deflection=DEFAULT_DEFLECTION if deflection is None else deflection,
+            max_angle=DEFAULT_MAX_ANGLE if max_angle is None else max_angle,
+        )
+        if procedural
+        else None
+    )
+    # The kernel is only spun up if something actually needs it — a deck of
+    # plain prismatic beams never imports pythonocc on the procedural path.
+    bt = None
+    t_start = time.perf_counter()
 
     all_positions: list[np.ndarray] = []
     all_indices: list[np.ndarray] = []
@@ -124,26 +171,52 @@ def tessellate_beams_to_solid_mesh(
     success_count = 0
 
     for beam, elem_id, n0_idx, n1_idx, n0_pos, n1_pos in beams:
-        try:
-            geom = beam.solid_geom()
-            ms = bt.tessellate_geom(geom, beam)
-        except Exception as e:  # noqa: BLE001 — defensive
-            skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
-            get_logger().debug(
-                "beam-solid OCC failure elem %s: %s",
-                elem_id,
-                e,
-            )
-            continue
+        verts_raw = None
+        tris_local = None
 
-        pos = getattr(ms, "position", None)
-        idx = getattr(ms, "indices", None)
-        if pos is None or idx is None or pos.size == 0 or idx.size == 0:
-            skip_reasons["empty-tessellation"] += 1
-            continue
+        if procedural:
+            reason = unsupported_reason(beam)
+            outline = outlines.get(beam.section) if reason is None else None
+            if reason is None and outline is None:
+                reason = "outline"
+            if reason is None:
+                try:
+                    frame = straight_beam_frame(beam)
+                    verts_raw, tris_local = extrude_outline(outline, frame)
+                except Exception as e:  # noqa: BLE001 — defensive, the kernel still has a go
+                    reason = f"error[{type(e).__name__}]"
+                    get_logger().debug("beam-solid extrude failure elem %s: %s", elem_id, e)
+            if verts_raw is None:
+                skip_reasons[f"occ-fallback[{reason}]"] += 1
 
-        verts_raw = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
-        tris_local = np.asarray(idx, dtype=np.uint32).reshape(-1, 3)
+        if verts_raw is None:
+            if bt is None:
+                from ada.occ.tessellating import BatchTessellator
+
+                bt = BatchTessellator()
+            try:
+                geom = beam.solid_geom()
+                ms = bt.tessellate_geom(geom, beam)
+            except Exception as e:  # noqa: BLE001 — defensive
+                skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
+                get_logger().debug(
+                    "beam-solid OCC failure elem %s: %s",
+                    elem_id,
+                    e,
+                )
+                continue
+
+            pos = getattr(ms, "position", None)
+            idx = getattr(ms, "indices", None)
+            if pos is None or idx is None or pos.size == 0 or idx.size == 0:
+                skip_reasons["empty-tessellation"] += 1
+                continue
+
+            verts_raw = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+            tris_local = np.asarray(idx, dtype=np.uint32).reshape(-1, 3)
+            occ_shape = True
+        else:
+            occ_shape = False
 
         p0 = np.asarray(n0_pos, dtype=np.float64)
         p1 = np.asarray(n1_pos, dtype=np.float64)
@@ -151,17 +224,25 @@ def tessellate_beams_to_solid_mesh(
         axis_sq = float(np.dot(axis, axis))
         if axis_sq <= 0:
             # Zero-length beam: every vertex t=0 so disp collapses to disp[n0].
-            t_vals_raw = np.zeros(verts_raw.shape[0], dtype=np.float32)
+            t_vals = np.zeros(verts_raw.shape[0], dtype=np.float32)
         else:
             rel = verts_raw - p0
-            t_vals_raw = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
+            t_vals = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
 
-        verts, tris_local_dedup, t_vals = _dedup_beam_tessellation(
-            verts_raw,
-            tris_local,
-            t_vals_raw,
-        )
-        tris = tris_local_dedup + vertex_offset
+        if occ_shape:
+            verts, tris_local, t_vals = _dedup_beam_tessellation(
+                verts_raw,
+                tris_local,
+                t_vals,
+            )
+        else:
+            # The extruder already emits one vertex per outline point per end,
+            # shared by the side walls and the caps — the very layout the dedup
+            # pass exists to recover from OCC's per-face tessellation. Running
+            # it anyway would put an np.unique back in the per-beam loop, which
+            # is a good part of what this path is here to remove.
+            verts = verts_raw
+        tris = tris_local + vertex_offset
 
         all_positions.append(verts)
         all_indices.append(tris.astype(np.uint32, copy=False))
@@ -184,9 +265,11 @@ def tessellate_beams_to_solid_mesh(
     if total_beams:
         skip_summary = ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items())) or "none"
         get_logger().info(
-            "beam-solid coverage: %d of %d beams tessellated (skip: %s)",
+            "beam-solid coverage: %d of %d beams tessellated via %s in %.2fs (reasons: %s)",
             success_count,
             total_beams,
+            method,
+            time.perf_counter() - t_start,
             skip_summary,
         )
 
