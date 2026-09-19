@@ -8,7 +8,7 @@ import numpy as np
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.api.transforms import Placement
 from ada.base.types import GeomRepr
-from ada.config import logger
+from ada.config import Config, logger
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -162,6 +162,8 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
         )
         add_sec_to_fem(fem, fem_sec, fem_set)
 
+    add_beam_ecc_to_elements(beam, elements)
+
     hinge_prop = beam.connection_props.hinge_prop
     if hinge_prop is None:
         return
@@ -178,6 +180,48 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
         if hinge_prop.end2 is not None and vector_length(end2_p - n2.p) == 0.0:
             el.hinge_prop.end2.fem_node = n2
+
+
+def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
+    """Carry ``Beam.e1`` / ``Beam.e2`` onto the line elements at the beam's ends.
+
+    The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
+    wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
+    offsets are simply dropped on the way into the FEM, and every downstream writer
+    has nothing to write. That is why the Sesam writer never emitted a GECCEN record:
+    not because it chose not to, but because no element ever carried one.
+
+    Sign: ``EccPoint.ecc_vector`` holds the vector the way a file holds it -- a global
+    offset to be ADDED to the node position, see
+    :mod:`ada.fem.formats.sesam.results.eccentricity`. ``Beam.e1``/``e2`` are the
+    negation of that, because the geometry path runs them through
+    :meth:`BeamJustification.curve_offset_local`, whose offsets "start from ``-e``".
+    So they are flipped here, exactly as ``line_elem_to_beam`` flips them back when a
+    deck is read into concepts. ``tests/core/fem/formats/sesam/test_write_geccen.py``
+    is the proof: a beam written to a Sesam deck and read back keeps the ``e1``/``e2``
+    it was built with.
+
+    Only the elements that actually sit at the beam ends get an eccentricity; a
+    subdivided beam's interior nodes are on the nodal line and stay there.
+    """
+    from ada.core.vector_utils import vector_length
+    from ada.fem.elements import Eccentricity, EccPoint
+
+    if beam.e1 is None and beam.e2 is None:
+        return
+
+    tol = Config().general_point_tol
+    e1 = -np.array(beam.e1, dtype=float) if beam.e1 is not None else None
+    e2 = -np.array(beam.e2, dtype=float) if beam.e2 is not None else None
+
+    for el in elements:
+        n1 = el.nodes[0]
+        n2 = el.nodes[-1]
+        end1 = EccPoint(n1, e1.copy()) if e1 is not None and vector_length(beam.n1.p - n1.p) < tol else None
+        end2 = EccPoint(n2, e2.copy()) if e2 is not None and vector_length(beam.n2.p - n2.p) < tol else None
+        if end1 is None and end2 is None:
+            continue
+        el.eccentricity = Eccentricity(end1, end2)
 
 
 def get_so_sections(model: gmsh.model, solid_object: Beam, gmsh_data: GmshData, fem: FEM):

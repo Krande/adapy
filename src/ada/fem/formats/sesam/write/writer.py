@@ -76,6 +76,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(materials_str(materials))
         d.write(sections_str(part.fem, thick_map))
         d.write(univec_str(part.fem))
+        d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem))
         d.write(mass_str(part.fem))
         d.write(sets_str(part.fem))
@@ -221,5 +222,88 @@ def univec_str(fem: FEM) -> str:
             continue
         out_str += res_str
         el.metadata["transno"] = transno
+
+    return out_str
+
+
+def eccen_str(fem: FEM) -> str:
+    """GECCEN records for beam end eccentricities, plus the ``eccno`` each element refers to.
+
+    The reader has understood GECCEN for a long time (``sesam/read/read_sections.py``
+    and ``sesam/results/eccentricity.py``); the writer never emitted one, so a model
+    with offset beams — a stiffener pushed onto its plate, a girder hung under its
+    nodes — round-tripped through a Sesam deck with every beam back on its own axis.
+
+    Sign convention: a GECCEN vector is a global offset to be ADDED to the node
+    position to reach the beam end, which is the NEGATION of ``Beam.e1``/``e2`` (see
+    ``ada.fem.meshing.utils.add_beam_ecc_to_elements`` and ``line_elem_to_beam`` for
+    why the concept side carries the flipped sign). ``EccPoint.ecc_vector`` already
+    holds the file's own sign, so it is written out as-is.
+    ``tests/core/fem/formats/sesam/test_write_geccen.py`` is the proof: it builds
+    beams with known ``e1``/``e2``, writes, reads back and compares.
+
+    Deduplicated the way ``univec_str`` deduplicates GUNIVEC — decks repeat the same
+    handful of offsets over thousands of stiffeners, and one record per element would
+    dwarf the rest of the deck.
+
+    The ``eccno`` is left on ``el.metadata`` for ``write_elem`` to pick up, mirroring
+    how ``transno`` and ``fixno`` are handed over: an int when every node of the
+    element shares one vector, and a per-node list when they differ, which GELREF1
+    signals with ``eccno = -1`` and a tail.
+    """
+    from ..node_order import SESAM_ORDER
+
+    out_str = ""
+    ecc_id = Counter(1)
+    ecc_nos: dict[tuple, int] = {}
+
+    def write_ecc(vec) -> int:
+        nonlocal out_str
+        key = tuple(round(float(v), 10) for v in vec)
+        if not any(key):
+            # An all-zero offset is "no offset". Writing it as a record would make a
+            # reader unable to tell the two apart.
+            return 0
+        ecc_no = ecc_nos.get(key)
+        if ecc_no is not None:
+            return ecc_no
+        ecc_no = next(ecc_id)
+        ecc_nos[key] = ecc_no
+        out_str += write_ff("GECCEN", [(ecc_no, *key)])
+        return ecc_no
+
+    for el in fem.elements.lines_ecc:
+        # Unsectioned elements are dropped by the GELREF1 emitter, so an eccno on one
+        # would only leave an orphaned GECCEN behind.
+        if el.fem_sec is None:
+            continue
+        ecc = el.eccentricity
+        # The tail is read back node by node in the order GELMNT1 wrote the nodes, so
+        # build it in Sesam's ordering rather than ada's (they differ for BTSS/LINE3).
+        node_ids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
+        per_node = [0] * len(node_ids)
+        for end in (ecc.end1, ecc.end2):
+            if end is None or end.ecc_vector is None:
+                continue
+            ecc_no = write_ecc(end.ecc_vector)
+            if ecc_no == 0:
+                continue
+            node_id = end.node.id
+            if node_id not in node_ids:
+                logger.warning(
+                    "sesam writer: element %s carries an eccentricity on node %s, which is not "
+                    "one of its own nodes. Skipping that offset.",
+                    el.id,
+                    node_id,
+                )
+                continue
+            per_node[node_ids.index(node_id)] = ecc_no
+
+        if not any(per_node):
+            continue
+        if len(set(per_node)) == 1:
+            el.metadata["eccno"] = per_node[0]
+        else:
+            el.metadata["eccno"] = per_node
 
     return out_str
