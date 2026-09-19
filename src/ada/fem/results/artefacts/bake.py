@@ -27,6 +27,37 @@ from .readers import make_stream_reader
 from .specs import ElementFieldArtefactMeta, FieldArtefactMeta
 
 
+def _try_solid_beams(reader: FEAStreamReader, method: str):
+    """Ask a reader for beam solids, naming the extruder only if it listens.
+
+    ``try_solid_beams`` is an optional part of the reader protocol and readers
+    live outside this package (a third-party one registered via
+    ``register_stream_reader``). Introspecting rather than passing blind keeps
+    a reader that predates ``method`` working on its own default instead of
+    failing the whole bake on an unexpected keyword.
+    """
+
+    import inspect
+
+    fn = reader.try_solid_beams
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # builtins / C callables have no signature
+        params = {}
+    takes_method = "method" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    if takes_method:
+        return fn(method=method)
+    if method != "procedural":
+        from ada.config import get_logger
+
+        get_logger().warning(
+            "beam-solid method %r ignored: %s.try_solid_beams takes no method",
+            method,
+            type(reader).__name__,
+        )
+    return fn()
+
+
 def bake_fea_artefacts_from_source(
     src_path: os.PathLike,
     out_dir: os.PathLike,
@@ -35,6 +66,7 @@ def bake_fea_artefacts_from_source(
     source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
     include_beam_solids: bool = True,
+    beam_solid_method: str = "procedural",
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -52,6 +84,7 @@ def bake_fea_artefacts_from_source(
             source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
             include_beam_solids=include_beam_solids,
+            beam_solid_method=beam_solid_method,
         )
 
 
@@ -73,6 +106,7 @@ def bake_artefacts(
     nodal_only: bool = True,
     include_element_fields: bool = True,
     include_beam_solids: bool = True,
+    beam_solid_method: str = "procedural",
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -93,6 +127,15 @@ def bake_artefacts(
     tessellation while retaining the line mesh and its result fields.
     This is useful for lightweight or headless bakes, and for native
     geometry environments where beam-solid generation is unavailable.
+
+    ``beam_solid_method`` picks how those solids are built:
+    ``"procedural"`` (default) sweeps the sampled section outline with
+    numpy — no CAD kernel, ~2 orders of magnitude faster per beam —
+    and falls back to OCC per beam for tapered / swept / revolved
+    beams, beams with booleans, and profiles it cannot sample.
+    ``"occ"`` puts every beam through the kernel. It is forwarded only
+    to readers whose ``try_solid_beams`` accepts it, so a third-party
+    reader that predates the kwarg keeps working on its own default.
 
     ``on_artefact``: optional sink invoked with each artefact file's
     path *immediately after it is fully written* (the manifest last).
@@ -164,7 +207,7 @@ def bake_artefacts(
     solid_beams = None
     if include_beam_solids:
         try:
-            solid_beams = reader.try_solid_beams()
+            solid_beams = _try_solid_beams(reader, beam_solid_method)
         except (AttributeError, NotImplementedError):
             pass
     beam_solids_warp_path: pathlib.Path | None = None
