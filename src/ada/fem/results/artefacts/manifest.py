@@ -132,6 +132,7 @@ def build_manifest(
     beam_solids_glb_filename: str | None = None,
     beam_solids_elements_filename: str | None = None,
     beam_solids_warp_filename: str | None = None,
+    beam_solids_compact_filename: str | None = None,
     n_beam_solids: int = 0,
     n_beam_solid_verts: int = 0,
     n_beam_total: int = 0,
@@ -382,7 +383,20 @@ def build_manifest(
     if mesh_elements_filename is not None:
         mesh_meta["elements_url"] = mesh_elements_filename
         mesh_meta["n_elements"] = int(n_elements)
-    if beam_solids_glb_filename is not None:
+    if beam_solids_compact_filename is not None:
+        # AFBS — the same beam solids as the block below, shipped as the
+        # per-section outline table plus one 56-byte record per beam and
+        # expanded in the viewer's worker. A DIFFERENT key, not a different
+        # value under ``beam_solids_url``: a viewer that predates the format
+        # must see no beam-solid URL it recognises and fall back to line
+        # rendering, which it already does for a bake with no solids at all.
+        mesh_meta["beam_solids_compact_url"] = beam_solids_compact_filename
+        # What the expansion produces, so the frontend can check the buffers
+        # it built against the manifest exactly as it checked the AFBV row
+        # count against the GLB's vertex count.
+        mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
+        mesh_meta["n_beam_solids"] = int(n_beam_solids)
+    elif beam_solids_glb_filename is not None:
         # Parallel beam-solid mesh emitted when the reader carried
         # section + axis info per beam (SIF today). Frontend renders
         # it alongside the main mesh and can toggle between line and
@@ -399,10 +413,14 @@ def build_manifest(
             mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
             mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
+    if beam_solids_compact_filename is not None or beam_solids_glb_filename is not None:
         # Coverage telemetry: total source-side beams + skip reasons
         # by category. Frontend can render "X of Y beams shown as
         # solids" with a tooltip listing the skipped categories so
-        # users know what's missing without parsing logs.
+        # users know what's missing without parsing logs. Same shape
+        # whichever artefact was written -- on the compact path the
+        # dropped tapered / boolean beams show up as
+        # ``compact-unsupported[...]`` buckets.
         if n_beam_total:
             mesh_meta["n_beam_total"] = int(n_beam_total)
         if beam_solids_skip_reasons:

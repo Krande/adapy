@@ -21,6 +21,15 @@ adapt their existing eager readers via :class:`FEAResultStreamAdapter`.
 from __future__ import annotations
 
 from .bake import BakeResult, bake_artefacts, bake_fea_artefacts_from_source
+from .beam_compact import (
+    BEAM_SOLID_FORMATS,
+    BeamSolidInstances,
+    CompactSection,
+    collect_beam_solid_instances,
+    expand_beam_solid_instances,
+    read_beam_solids_compact,
+    write_beam_solids_compact,
+)
 from .beam_extrude import SectionOutline, SectionOutlineCache, extrude_beam, outline_for
 from .beam_solids import BEAM_SOLID_METHODS
 from .beam_solids import (  # noqa: F401
@@ -46,6 +55,10 @@ from .fields import (
     write_field_blob_streaming,
 )
 from .formats import (
+    BEAM_COMPACT_BEAM_BYTES,
+    BEAM_COMPACT_HEADER_BYTES,
+    BEAM_COMPACT_MAGIC,
+    BEAM_COMPACT_VERSION,
     BEAM_WARP_ENTRY_BYTES,
     BEAM_WARP_HEADER_BYTES,
     BEAM_WARP_MAGIC,
@@ -149,6 +162,10 @@ __all__ = [
     "BEAM_WARP_VERSION",
     "BEAM_WARP_HEADER_BYTES",
     "BEAM_WARP_ENTRY_BYTES",
+    "BEAM_COMPACT_MAGIC",
+    "BEAM_COMPACT_VERSION",
+    "BEAM_COMPACT_HEADER_BYTES",
+    "BEAM_COMPACT_BEAM_BYTES",
     "MeshGeometry",
     "SolidBeamMesh",
     "FieldCategory",
@@ -169,10 +186,17 @@ __all__ = [
     "build_history_payload",
     "FEAResultStreamAdapter",
     "BEAM_SOLID_METHODS",
+    "BEAM_SOLID_FORMATS",
     "SectionOutline",
     "SectionOutlineCache",
+    "CompactSection",
+    "BeamSolidInstances",
     "outline_for",
     "extrude_beam",
+    "collect_beam_solid_instances",
+    "expand_beam_solid_instances",
+    "write_beam_solids_compact",
+    "read_beam_solids_compact",
     "tessellate_beams_to_solid_mesh",
     "write_beam_solids_glb",
     "write_beam_solids_warp",

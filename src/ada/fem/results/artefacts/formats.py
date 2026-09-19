@@ -116,3 +116,52 @@ BEAM_WARP_HEADER_BYTES = 16  # magic + version + n_verts + 4-byte pad
 
 
 BEAM_WARP_ENTRY_BYTES = 12  # uint32 n0, uint32 n1, float32 t
+
+
+# Compact beam-solids artefact (AFBS). The GLB + AFBV + AFEM trio above
+# ships one record per VERTEX of a mesh that is fully determined by a
+# handful of section outlines and one frame per beam — 122 MB on a large
+# deck, of which 88 MB is a vertex buffer the browser could have produced
+# itself. AFBS ships the generators instead: a per-section outline table
+# (points + the triangle list of the extrusion, both shared by every beam
+# on that section) and a 56-byte record per beam. The viewer expands it in
+# a worker into exactly the buffers the GLB path builds — same vertex
+# order, same triangles, same draw ranges, and the AFBV triple recomputed
+# per vertex — so nothing downstream of the expansion can tell them apart.
+#
+#   header   16 B: magic, uint32 version, uint32 n_sections, uint32 n_beams
+#   sections     : uint32 n_points, uint32 n_tris,
+#                  float32 points[n_points * 2]   (u, v) in the profile plane
+#                  uint32  tris[n_tris * 3]       into the 2*n_points extrusion
+#   beams        : 56 B each, see BEAM_COMPACT_BEAM_BYTES
+#
+# Little-endian and 4-byte aligned throughout, so the browser reads every
+# run as a typed-array view on the fetched ArrayBuffer rather than a
+# byte-at-a-time DataView walk.
+#
+# A NEW MAGIC rather than a version bump on AFBV/AFEM: the frontend's
+# per-format checks are ``!==`` equality, so an older viewer has to meet an
+# unknown manifest KEY (and fall back to line rendering, which it already
+# does when ``beam_solids_url`` is absent) rather than a known key whose
+# bytes it would reject.
+BEAM_COMPACT_MAGIC = b"AFBS"
+
+
+BEAM_COMPACT_VERSION = 1
+
+
+BEAM_COMPACT_HEADER_BYTES = 16  # magic + version + n_sections + n_beams
+
+
+# uint32 label, uint32 section, uint32 node0, uint32 node1,
+# float32 origin[3], float32 xvec[3], float32 yvec[3], float32 length.
+#
+# ``up`` is NOT stored: it is ``normalize(cross(xvec, yvec))`` by
+# construction (see :class:`ada.api.beams.geom_beams.BeamFrame`), and one
+# cross product per beam in the expander is cheaper than 12 more bytes per
+# beam AND cannot drift out of step with the two axes it is derived from.
+# Neither is ``t``: it is not constant per ring on an eccentric beam (the
+# extrusion axis is not the element axis when e1 != e2), so it is a
+# per-vertex quantity that only the node positions can answer — which the
+# browser has, in the main mesh's point buffer.
+BEAM_COMPACT_BEAM_BYTES = 56

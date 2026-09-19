@@ -8,6 +8,7 @@ import numpy as np
 
 from ada.fem.results.common import CellBlockData
 
+from .beam_compact import BeamSolidInstances
 from .beam_solids import tessellate_beams_to_solid_mesh
 from .manifest import analysis_kind_from_result_cases
 from .specs import (
@@ -530,12 +531,25 @@ class FEAResultStreamAdapter:
                 values=np.ascontiguousarray(comp_vals, dtype=np.float32),
             )
 
-    def try_solid_beams(self, *, method: str = "procedural") -> "SolidBeamMesh | None":
+    def try_solid_beams(
+        self,
+        *,
+        method: str = "procedural",
+        format: str = "mesh",
+    ) -> SolidBeamMesh | BeamSolidInstances | None:
         """Tessellate each beam (line) element as a 3D extruded section
         and merge into a single vertex+index buffer with per-beam draw
         ranges. ``method`` picks the extruder — ``"procedural"`` (numpy)
         or ``"occ"`` (the CAD kernel); see
         :func:`tessellate_beams_to_solid_mesh`.
+
+        ``format="compact"`` stops short of the buffers and returns the
+        generators instead — a :class:`~.beam_compact.BeamSolidInstances`
+        the viewer expands into the same mesh. Everything above the
+        dispatch at the bottom (which beams qualify, their eccentricity
+        correction, the pre-filter buckets) is shared, so the two formats
+        cannot disagree about which beams are in the model or where they
+        sit.
 
         Requires the wrapped FEAResult.mesh to carry sections +
         materials + vectors + elem_data (the SIF reader populates all
@@ -621,6 +635,15 @@ class FEAResultStreamAdapter:
                     beam.e2 = -shift1
 
             beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
+
+        if format == "compact":
+            from .beam_compact import collect_beam_solid_instances
+
+            return collect_beam_solid_instances(
+                beams,
+                extra_skip_reasons=extra_skip,
+                total_beams=len(line_elems),
+            )
 
         return tessellate_beams_to_solid_mesh(
             beams,
