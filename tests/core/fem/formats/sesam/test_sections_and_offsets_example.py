@@ -23,6 +23,10 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parents[5]
 @pytest.fixture(scope="module")
 def example():
     path = ROOT_DIR / "examples" / "fem" / "sections_and_offsets.py"
+    if not path.is_file():
+        # The conda feedstock's test job ships tests/ without examples/; the
+        # deck is then simply not here to build, the same as a missing fixture.
+        pytest.skip(f"example not present: {path}")
     spec = importlib.util.spec_from_file_location("sections_and_offsets", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
