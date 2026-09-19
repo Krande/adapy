@@ -21,6 +21,8 @@ adapt their existing eager readers via :class:`FEAResultStreamAdapter`.
 from __future__ import annotations
 
 from .bake import BakeResult, bake_artefacts, bake_fea_artefacts_from_source
+from .beam_extrude import SectionOutline, SectionOutlineCache, extrude_beam, outline_for
+from .beam_solids import BEAM_SOLID_METHODS
 from .beam_solids import (  # noqa: F401
     _dedup_beam_tessellation as _dedup_beam_tessellation,
 )
@@ -166,6 +168,11 @@ __all__ = [
     "HistoryRecords",
     "build_history_payload",
     "FEAResultStreamAdapter",
+    "BEAM_SOLID_METHODS",
+    "SectionOutline",
+    "SectionOutlineCache",
+    "outline_for",
+    "extrude_beam",
     "tessellate_beams_to_solid_mesh",
     "write_beam_solids_glb",
     "write_beam_solids_warp",

@@ -215,7 +215,7 @@ class RmedStreamReader:
 
         return try_load_fem_concepts(self._path)
 
-    def try_solid_beams(self):
+    def try_solid_beams(self, *, method: str = "procedural"):
         # Code Aster's .med output has no section / orientation info
         # of its own — that lives in the .comm deck. adapy's MED
         # writer emits a <name>.adapy_fem.json sidecar at write
@@ -233,6 +233,7 @@ class RmedStreamReader:
             beams,
             extra_skip_reasons=extra_skip,
             total_beams=len(beams) + sum(extra_skip.values()),
+            method=method,
         )
 
     def _nmap_for_beams(self) -> dict[int, int]:

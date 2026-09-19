@@ -530,10 +530,12 @@ class FEAResultStreamAdapter:
                 values=np.ascontiguousarray(comp_vals, dtype=np.float32),
             )
 
-    def try_solid_beams(self) -> "SolidBeamMesh | None":
+    def try_solid_beams(self, *, method: str = "procedural") -> "SolidBeamMesh | None":
         """Tessellate each beam (line) element as a 3D extruded section
-        via OCC and merge into a single vertex+index buffer with
-        per-beam draw ranges.
+        and merge into a single vertex+index buffer with per-beam draw
+        ranges. ``method`` picks the extruder — ``"procedural"`` (numpy)
+        or ``"occ"`` (the CAD kernel); see
+        :func:`tessellate_beams_to_solid_mesh`.
 
         Requires the wrapped FEAResult.mesh to carry sections +
         materials + vectors + elem_data (the SIF reader populates all
@@ -624,6 +626,7 @@ class FEAResultStreamAdapter:
             beams,
             extra_skip_reasons=extra_skip,
             total_beams=len(line_elems),
+            method=method,
         )
 
     def close(self) -> None:

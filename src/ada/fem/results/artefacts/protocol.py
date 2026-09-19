@@ -39,7 +39,7 @@ class FEAStreamReader(Protocol):
 
     def iter_element_field_steps(self, spec: ElementFieldSpec) -> Iterator[ElementStepValues]: ...
 
-    def try_solid_beams(self) -> "SolidBeamMesh | None":
+    def try_solid_beams(self, *, method: str = "procedural") -> "SolidBeamMesh | None":
         """Optional: tessellate beam elements as 3D extruded solids.
 
         Readers that have section + axis info per beam element (SIF
@@ -47,6 +47,10 @@ class FEAStreamReader(Protocol):
         metadata) return a :class:`SolidBeamMesh`. Readers without it
         (native RMED, FRD) return ``None`` — the bake then skips beam-
         solid emission and the manifest carries no ``beam_solids_url``.
+
+        ``method`` selects the extruder (``"procedural"`` / ``"occ"``).
+        The bake passes it only when the reader accepts it, so a
+        third-party reader predating the kwarg keeps working.
         """
         ...
 

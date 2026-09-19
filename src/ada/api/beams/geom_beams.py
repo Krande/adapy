@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -21,7 +21,54 @@ if TYPE_CHECKING:
     from ada.api.beams import Beam, BeamSweep, BeamTapered
 
 
-def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
+def _cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``np.cross`` for two 3-vectors, without its axis bookkeeping.
+
+    ``np.cross`` spends more time normalising axes than multiplying three
+    pairs of floats. Immaterial per CAD call; the dominant term once a beam's
+    frame is the whole of the per-beam work.
+    """
+
+    return np.array(
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ],
+        dtype=float,
+    )
+
+
+class BeamFrame(NamedTuple):
+    """Where a straight beam's profile is placed, and how it is swept.
+
+    A profile point ``(u, v)`` at axial fraction ``s`` in [0, 1] lands at
+    ``origin + u * yvec + v * up + s * length * xvec``. That is exactly the
+    ``Axis2Placement3D(location=origin, axis=xvec, ref_direction=yvec)``
+    that :func:`straight_beam_to_geom` hands to ``ExtrudedAreaSolid``, so a
+    non-OCC extruder reading this frame reproduces the kernel's solid.
+    """
+
+    origin: np.ndarray  # p1 after the curve offset
+    end: np.ndarray  # p2 after the curve offset
+    xvec: np.ndarray  # extrusion direction (NOT the element axis when e1 != e2)
+    yvec: np.ndarray  # profile local +y
+    up: np.ndarray  # profile local +z
+    length: float
+
+
+def straight_beam_frame(beam: Beam | PipeSegStraight) -> BeamFrame:
+    """Resolve the placement, curve offsets and rebuilt axes of a straight beam.
+
+    Split out of :func:`straight_beam_to_geom` so the OCC path and the
+    procedural extruder consume the SAME endpoint and frame maths. The ``-e``
+    sign convention lives in three places already (``curve_offset_local``,
+    ``line_elem_to_beam``, the SIF stream adapter) and each carries a comment
+    about the bug that getting it wrong caused; a fourth copy in an extruder
+    would be a fourth chance to drift, and the drift would be invisible -- both
+    paths would render, just not the same solid.
+    """
+
     xvec = beam.xvec
     yvec = beam.yvec
     up = beam.up
@@ -48,6 +95,16 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
         else:
             p1 = place_abs.origin + p1
             p2 = place_abs.origin + p2
+
+    # Plain float arrays from here on. Point / Direction are ndarray subclasses
+    # whose arithmetic re-enters an interning cache on every operation; that is
+    # invisible when a CAD kernel dominates the cost and is most of it once the
+    # kernel is gone (the procedural extruder calls this once per beam).
+    xvec = np.asarray(xvec, dtype=float)
+    yvec = np.asarray(yvec, dtype=float)
+    up = np.asarray(up, dtype=float)
+    p1 = np.asarray(p1, dtype=float)
+    p2 = np.asarray(p2, dtype=float)
 
     # ---- Apply Genie-equivalent curve_offset at BOTH ends ----
     data = beam.offset_helper.curve_offset_local()
@@ -80,24 +137,38 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
 
     # Rebuild y/up to stay orthonormal & close to original 'up'
     up0 = up / (np.linalg.norm(up) + 1e-30)
-    ytmp = np.cross(up0, xvec2)
+    ytmp = _cross3(up0, xvec2)
     yn = np.linalg.norm(ytmp)
     if yn <= 1e-12:
         # up parallel to x -> fall back to original yvec
         y0 = yvec / (np.linalg.norm(yvec) + 1e-30)
-        ytmp = np.cross(y0, xvec2)
+        ytmp = _cross3(y0, xvec2)
         yn = np.linalg.norm(ytmp)
         if yn <= 1e-12:
             # last resort: pick any perpendicular vector
             a = np.array([1.0, 0.0, 0.0])
             if abs(np.dot(a, xvec2)) > 0.9:
                 a = np.array([0.0, 1.0, 0.0])
-            ytmp = np.cross(a, xvec2)
+            ytmp = _cross3(a, xvec2)
             yn = np.linalg.norm(ytmp)
 
     yvec2 = ytmp / (yn + 1e-30)
-    up2 = np.cross(xvec2, yvec2)
+    up2 = _cross3(xvec2, yvec2)
     up2 = up2 / (np.linalg.norm(up2) + 1e-30)
+
+    return BeamFrame(
+        origin=p1_off,
+        end=p2_off,
+        xvec=xvec2,
+        yvec=yvec2,
+        up=up2,
+        length=L,
+    )
+
+
+def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
+    frame = straight_beam_frame(beam)
+    p1_off, xvec2, yvec2, L = frame.origin, frame.xvec, frame.yvec, frame.length
 
     if is_solid:
         profile = section_to_arbitrary_profile_def_with_voids(beam.section)

@@ -1417,6 +1417,42 @@ def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
     assert seen_pairs <= line_pairs, "AFBV pair not found among source line elements"
 
 
+def test_bake_beam_solid_methods_produce_the_same_artefact_set(fem_files, tmp_path):
+    """The extruder replaced a CAD-kernel round trip per beam; it did not
+    change what the bake emits. Both methods must cover the same beams and
+    write the same three artefacts, with the AFBV row count still matching the
+    GLB's vertex count on each.
+    """
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    trimesh = pytest.importorskip("trimesh")
+    metas = {}
+    for method in ("procedural", "occ"):
+        bake = bake_fea_artefacts_from_source(
+            sif,
+            tmp_path / method,
+            src_key=sif.stem,
+            beam_solid_method=method,
+        )
+        mesh_meta = json.loads(bake.manifest_path.read_text())["mesh"]
+        assert mesh_meta.get("beam_solids_url") == "fea.beam_solids.glb"
+        assert mesh_meta.get("beam_solids_elements_url") == "fea.beam_solids.elements.bin"
+        assert mesh_meta.get("beam_solids_warp_url") == "fea.beam_solids.warp.bin"
+
+        # AFBV carries one record per beam-solid vertex, so its count has to be
+        # the GLB's vertex count — the frontend indexes them in lockstep.
+        scene = trimesh.load(bake.out_dir / "fea.beam_solids.glb", force="scene")
+        n_glb_verts = sum(int(g.vertices.shape[0]) for g in scene.geometry.values())
+        assert mesh_meta["n_beam_solid_verts"] == n_glb_verts
+
+        metas[method] = mesh_meta
+
+    assert metas["procedural"]["n_beam_solids"] == metas["occ"]["n_beam_solids"]
+
+
 def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     """Shell-only fixtures have no line elements; the bake must skip
     the optional beam-solid emission entirely (no manifest key, no
