@@ -46,6 +46,10 @@ load -- enough for Sestra to produce a non-trivial result on every element witho
 any of them being a mechanism. Each beam is meshed into two elements so that a
 midspan node exists.
 
+A single 2 m x 1 m plate sits 2 m below the first row, fixed at its corners. It is
+not part of the check: the viewer's FEA loader cannot open a model with no shell
+element in its main mesh, and the plate is what makes the deck viewable at all.
+
 Note on POLY sections: a ``CurvePoly2d``-based section has no Sesam profile record
 (the format has no general-outline beam card that adapy reads or writes) and adapy
 does not compute its section properties, so a POLY beam cannot be part of a deck
@@ -93,6 +97,7 @@ LENGTH = 4.0
 Y_SPACING = 1.5
 Z_SPACING = 2.0
 POINT_LOAD = 10e3  # N, downwards at midspan
+PLATE_DROP = 2.0  # m below the first row; where the viewer's plate sits
 
 
 def beam_name(section: str, variant: str) -> str:
@@ -135,16 +140,27 @@ def build_assembly(mesh_size: float = 2.0) -> ada.Assembly:
                 )
             )
 
-    part = ada.Part("sections") / beams
+    # One plate, well clear of the beam rows and fixed at its corners. The viewer's
+    # FEA loader refuses a model whose main mesh has no shell element at all ("loaded
+    # GLB has no mesh"), so a beams-only deck cannot even be opened; this plate is the
+    # cheapest thing that makes the deck viewable and plays no part in the check.
+    plate = ada.Plate("viewer_plate", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.01, origin=(0, 0, -PLATE_DROP))
+
+    part = ada.Part("sections") / (plate, *beams)
     a = ada.Assembly("SectionsAndOffsets") / part
 
     # mesh_size of half the beam length puts a node at midspan, which is where the
     # load goes. Line elements only; the eccentricities are what is being checked and
     # they live on the beam elements.
-    part.fem = part.to_fem_obj(mesh_size, "line")
+    part.fem = part.to_fem_obj(mesh_size, bm_repr="line", pl_repr="shell")
 
     end_nodes = []
     mid_nodes = []
+    for corner in ((0, 0, -PLATE_DROP), (2, 0, -PLATE_DROP), (2, 1, -PLATE_DROP), (0, 1, -PLATE_DROP)):
+        node = part.fem.nodes.get_by_volume(p=corner, single_member=True)
+        if node is None:
+            raise ValueError(f"No FEM node at plate corner {corner}")
+        end_nodes.append(node)
     for bm in beams:
         for p, bucket in ((bm.n1.p, end_nodes), (bm.n2.p, end_nodes), ((bm.n1.p + bm.n2.p) / 2, mid_nodes)):
             node = part.fem.nodes.get_by_volume(p=p, single_member=True)

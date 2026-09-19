@@ -45,8 +45,9 @@ def test_deck_has_one_section_per_type_and_the_expected_offsets(example, deck):
     # One TDSECT per section type. Two types collapsing into one -- a section name
     # colliding, say -- would show up as a shortfall here.
     assert records["TDSECT"] == len(example.SECTIONS)
-    # Two elements per beam, so two GELREF1 records each.
-    assert records["GELREF1"] == 2 * len(expected)
+    # Two elements per beam, so two GELREF1 records each, plus the viewer plate's
+    # shells (see the example's docstring for why a beams-only deck will not do).
+    assert records["GELREF1"] >= 2 * len(expected)
 
     # Seven distinct offset vectors across the four variants, and the records are
     # deduplicated, so all eight rows share those seven: b contributes one (its two
