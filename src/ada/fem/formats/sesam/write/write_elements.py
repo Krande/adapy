@@ -170,11 +170,33 @@ def write_elem(el: Elem, thick_map) -> str:
 
     fixno = el.metadata.get("fixno", None)
     transno = el.metadata.get("transno")
+    # ``eccno`` is left here by ``eccen_str`` once it has written the GECCEN records:
+    # absent when the element has no offset, an int when both ends share one vector,
+    # and a per-node list when they differ.
+    eccno = el.metadata.get("eccno", None)
+
+    # GELREF1's OPT convention: a field is either a single value covering every node
+    # of the element, or -1 with a per-node list moved into the record's tail. The
+    # tail carries those lists in field order — geono, fixno, eccno, transno — so
+    # fixno's list has to go in before eccno's, or a reader pairs them up wrong.
+    members: list[int] = []
     if fixno is None:
-        last_tuples = [(sec_id, 0, 0, transno)]
+        fixno_field = 0
     else:
-        h1_fix, h2_fix = fixno
-        last_tuples = [(sec_id, -1, 0, transno), (h1_fix, h2_fix)]
+        fixno_field = -1
+        members += list(fixno)
+
+    if eccno is None:
+        eccno_field = 0
+    elif isinstance(eccno, (list, tuple)):
+        eccno_field = -1
+        members += list(eccno)
+    else:
+        eccno_field = eccno
+
+    last_tuples = [(sec_id, fixno_field, eccno_field, transno)]
+    # Four fields per record line, the same chunking GELMNT1's node ids get.
+    last_tuples += [tuple(members[i : i + 4]) for i in range(0, len(members), 4)]
 
     return write_ff(
         "GELREF1",

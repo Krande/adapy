@@ -73,10 +73,19 @@ def tubular(sec: Section, sec_id) -> str:
 
 
 def circular(sec: Section, sec_id) -> str:
+    """A solid bar as the thickest pipe the format will take.
+
+    Sesam has no solid-round beam card, so GPIPE stands in with an inner diameter of
+    1% of the outer one. The wall thickness has to follow from that -- ``(dy - di) / 2
+    = 0.99 * r``. Reading it off ``sec.wt`` instead wrote a bare ``None`` into the
+    record, which ``format_data`` rejects: a CIRCULAR section is defined by its radius
+    alone and never has a wall thickness to read.
+    """
     p = sec.properties
+    di = (sec.r - sec.r * 0.99) * 2
     return write_ff(
         "GPIPE",
-        [(sec_id, (sec.r - sec.r * 0.99) * 2, sec.r * 2, sec.wt), (p.Sfy, p.Sfz)],
+        [(sec_id, di, sec.r * 2, (sec.r * 2 - di) / 2), (p.Sfy, p.Sfz)],
     )
 
 
@@ -105,7 +114,14 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         return sec_str
 
     if sec_str_writer is None:
+        # The GBEAMG record written above already carries the section's stiffness, so a
+        # type with no profile card of its own — CHANNEL (Sesam's GCHAN, which adapy
+        # neither reads nor writes) and POLY — still yields a deck an analysis program
+        # can run; it just loses the outline. Saying so and carrying on is exactly what
+        # the message promises. It used to say it and then call ``None`` anyway, turning
+        # a section adapy understands perfectly well into a TypeError mid-deck.
         logger.error(f'Unable to convert "{sec}". This will be exported as general section only')
+        return sec_str
 
     sec_str += sec_str_writer(sec, sec_id)
 
