@@ -148,16 +148,27 @@ fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-
 # only under tests/full/frontend and need the `tests` feature's playwright).
 fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-viewer-api = { features = ["viewer-api", "prod", "pyocc", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
+# `pyocc` DROPPED and moved off the `prod` solve-group (2026-09-21). conda-forge
+# migrated ada-cpp to occt 8.0.1 (ada-cpp-feedstock#65) while pythonocc-core has
+# no occt 8 build at all — every published build pins `occt <8`, and
+# pythonocc-core-feedstock#57 is still open — so the two can no longer co-solve.
+# Staying put would have frozen the production conversion worker on ada-cpp
+# 0.20.0 for good. The worker runs the AdacppBackend, which reached geometry
+# parity; with no pythonocc present `select_backend()` auto-detects it (adacpp is
+# tried first, and `OccBackend()` raises ImportError only on instantiation), the
+# same way `viewer-api-slim` has always run. The `prod` group stays exactly as it
+# was and is now the pyocc/occt-7.9.3 compatibility group.
+viewer-api = { features = ["viewer-api", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 # Same as viewer-api-tests but adds ada-cpp (adacpp-runtime) so the REST streaming-path tests run
 # against the AdacppBackend (tessellate_stream / NGEOM libtess2) instead of the OCC object-path
-# fallback. Mirrors the production `viewer-api` env's closure (pyocc + adacpp-runtime share occt
-# 7.9.3, solve-group prod) — NOT the `adacpp` feature (separate solve-group, drops pyocc by design).
-viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "pyocc", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
+# fallback. Its whole point is to mirror the production `viewer-api` env's closure, so it follows
+# viewer-api off pyocc and onto the `viewer` solve-group (see the note there). `viewer-api-tests`
+# above keeps pyocc on the `prod` group, so the OCC REST path is still covered.
+viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 
@@ -210,13 +221,16 @@ meshio = "*"
 pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 occt = { version = "7.9.3.*", build = "novtk_*" }
 
-# ada-cpp as a *runtime library alongside pyocc* — no ADAPY_CAD_BACKEND flip (unlike
-# the `adacpp` feature). The conversion worker (viewer-api env) needs ada-cpp present
-# so the default libtess2 STEP→GLB pipeline can run; pyocc stays the default backend
-# for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
-# pyocc (see above) so both coexist in one env.
+# ada-cpp with no ADAPY_CAD_BACKEND flip (unlike the `adacpp` feature), so the backend
+# is whatever `select_backend()` auto-detects. It was "runtime library *alongside pyocc*"
+# until 2026-09-21; since viewer-api dropped pyocc (see the env note) adacpp is the only
+# backend present there, so it now serves every path — IFC/XML/FEM as well as the
+# libtess2 STEP→GLB pipeline — not just the tessellation one.
+# 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
+# first release built against occt 8.0.1 (which is why this feature can no longer share a
+# solve-group with pyocc).
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.22.0.*"
+ada-cpp = "0.24.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -253,7 +267,10 @@ ada-cpp = "0.22.0.*"
 # makes them silently vacuous on this leg rather than failing. Before it, an extrusion direction
 # that was not the profile normal came out as a RIGHT frustum here and an oblique one on OCC —
 # the same input, two different solids, with no error on either side.
-ada-cpp = "0.22.0.*"
+# 0.24 adds `stream_ifc_to_glb(include_guids=...)`. REQUIRED for the same reason: the native IFC
+# subset tests probe the binding via `native_ifc_subset_available()` and SKIP on an older build,
+# so a lower pin leaves them silently vacuous instead of exercising the filter.
+ada-cpp = "0.24.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
