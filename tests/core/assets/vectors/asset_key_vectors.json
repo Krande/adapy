@@ -1,0 +1,64 @@
+{
+  "_comment": "Shared grammar vectors. Python (tests/core/assets/test_key_vectors.py) and TypeScript (src/frontend/src/__tests__/assets/keys.test.ts) both read THIS file, so the two implementations of one grammar cannot drift apart silently. Add a case here before adding it to either side.",
+  "valid": [
+    {
+      "key": "assets/plant-a/n1/20260921T143001Z/asset.json",
+      "collection": "plant-a",
+      "subject": "n1",
+      "revision": "20260921T143001Z",
+      "filename": "asset.json",
+      "collection_level": false,
+      "why": "the ordinary node case"
+    },
+    {
+      "key": "assets/plant-a/plant-a/20260921T143001Z/hierarchy.json",
+      "collection": "plant-a",
+      "subject": "plant-a",
+      "revision": "20260921T143001Z",
+      "filename": "hierarchy.json",
+      "collection_level": true,
+      "why": "collection level is EQUALITY with the collection, never a regex on the subject"
+    },
+    {
+      "key": "assets/c/1cPbYcLayHxe$Cv5utukF4/20260101T000000Z/asset.json",
+      "collection": "c",
+      "subject": "1cPbYcLayHxe$Cv5utukF4",
+      "revision": "20260101T000000Z",
+      "filename": "asset.json",
+      "collection_level": false,
+      "why": "a 22-char IFC GlobalId is a subject VERBATIM -- '$' is why the alphabet admits it"
+    },
+    {
+      "key": "assets/c/n_1.v2-final/20261231T235959Z/model.glb",
+      "collection": "c",
+      "subject": "n_1.v2-final",
+      "revision": "20261231T235959Z",
+      "filename": "model.glb",
+      "collection_level": false,
+      "why": "'_', '.' and '-' are legal after the first character"
+    }
+  ],
+  "invalid": [
+    {"key": "assets/plant-a/n1/20260921T143001Z", "why": "four segments -- a _staging key shape, never an asset"},
+    {"key": "assets/plant-a/n1/20260921T143001Z/sub/asset.json", "why": "six segments"},
+    {"key": "assets/_staging/upload-1/source.bin", "why": "staging is four segments by construction"},
+    {"key": "blobs/plant-a/n1/20260921T143001Z/asset.json", "why": "wrong prefix"},
+    {"key": "assets/_private/n1/20260921T143001Z/asset.json", "why": "leading '_' is reserved for core"},
+    {"key": "assets/.hidden/n1/20260921T143001Z/asset.json", "why": "no leading '.' -- keeps '.'/'..' out"},
+    {"key": "assets/-flag/n1/20260921T143001Z/asset.json", "why": "no leading '-' -- a key must not read as a CLI flag"},
+    {"key": "assets/plant-a/n1/2026-09-21T14:30:01Z/asset.json", "why": "revision must be compact UTC"},
+    {"key": "assets/plant-a/n1/20260921T143001/asset.json", "why": "no 'Z' -- would not sort against the others"},
+    {"key": "assets/plant-a/n1/20260921T143001+0200/asset.json", "why": "an offset is not UTC"},
+    {"key": "assets/plant a/n1/20260921T143001Z/asset.json", "why": "whitespace is not URL-path-safe"}
+  ],
+  "instants": [
+    {"in": "2026-09-21T14:30:01Z", "out": "20260921T143001Z", "why": "already UTC"},
+    {"in": "2026-09-21T16:30:01+02:00", "out": "20260921T143001Z", "why": "same instant, other offset"},
+    {"in": "2025-12-31T23:59:59Z", "out": "20251231T235959Z", "why": "year boundary"}
+  ],
+  "naive_instants": ["2026-09-21T14:30:01", "2026-09-21"],
+  "ordering": {
+    "why": "lexical order must equal chronological order -- 'latest' is max() with no parsing",
+    "chronological": ["20251231T235959Z", "20260101T000000Z", "20260921T143001Z"]
+  }
+}

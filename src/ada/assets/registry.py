@@ -33,6 +33,21 @@ class AssetProviderError(LookupError):
     """No such provider, or a conflicting registration."""
 
 
+def _factory_origin(factory: Callable[[], Any]) -> str:
+    """Where a factory came from, as ``module:qualname``.
+
+    Conflicts are judged on this rather than on function IDENTITY, because identity is unusable
+    here: a ``register()`` that builds its factory as a closure or lambda -- which is the normal
+    shape, since the factory usually captures a client or a store -- produces a NEW function
+    object on every call. Comparing by identity would turn the legitimate case this registry
+    exists to tolerate (an entry point loaded twice, e.g. by discovery AND an explicit preload)
+    into a hard error, while two genuinely different providers claiming one id still differ here.
+    """
+    module = getattr(factory, "__module__", "?")
+    qualname = getattr(factory, "__qualname__", repr(factory))
+    return f"{module}:{qualname}"
+
+
 @dataclass(frozen=True)
 class _Registration:
     id: str
@@ -54,11 +69,12 @@ def register_asset_provider(
         )
     with _LOCK:
         existing = _REGISTRY.get(provider_id)
-        if existing is not None and existing.factory is not factory:
+        if existing is not None and _factory_origin(existing.factory) != _factory_origin(factory):
             raise AssetProviderError(
-                f"provider id {provider_id!r} is already registered with a different factory "
-                f"({existing.factory!r} vs {factory!r}). Which one answered would depend on import "
-                f"order, so this is refused rather than resolved silently."
+                f"provider id {provider_id!r} is already registered from "
+                f"{_factory_origin(existing.factory)}, and {_factory_origin(factory)} is claiming it too. "
+                f"Which one answered would depend on import order, so this is refused rather than "
+                f"resolved silently."
             )
         _REGISTRY[provider_id] = _Registration(id=provider_id, factory=factory, label=label)
 

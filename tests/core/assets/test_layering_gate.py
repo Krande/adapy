@@ -15,7 +15,16 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 
 # Everything core must not know about the fixture provider.
-FORBIDDEN = ("fixture-lines", "vendor-lines", ".jsonl", "asset-build-fixture")
+FORBIDDEN = (
+    "fixture-lines",
+    "vendor-lines",
+    ".jsonl",
+    "asset-build-fixture",
+    # the second fixture, whose format is an indented outline and shares nothing with the first
+    "fixture-outline",
+    ".outline",
+    "asset-build-outline",
+)
 
 # Where core lives. The asset store and the REST layer must both be clean.
 CORE_PATHS = ("src/ada/assets", "src/ada/comms/rest")

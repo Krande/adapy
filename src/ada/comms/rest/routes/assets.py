@@ -105,7 +105,12 @@ async def api_asset_tree(
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """A hierarchy slice. Published or live -- the browser cannot tell which, by design."""
+    """A hierarchy slice. Published or live -- the browser cannot tell which, by design.
+
+    ``provider`` in the path selects how the slice is OBTAINED, not who produced each node. A
+    published collection may be mixed: its rows can carry a per-node ``provider`` column naming a
+    different producer per branch, and the delivery claim for each node names the same.
+    """
     if not _is_published(provider):
         slice_ = await _live_hierarchy(provider, scope_obj, collection, root, depth)
         return JSONResponse(_slice_to_dict(slice_))
@@ -178,6 +183,12 @@ async def api_asset_delivery(
                 "options": dict(spec.options),
                 "fingerprint_inputs": list(spec.fingerprint_inputs),
                 "revision": manifest.revision,
+                # The provider that PRODUCED this subject-revision, which is not necessarily the
+                # one in the route: a collection may be mixed, with one branch fed by a provider
+                # whose source is one format and a sibling branch by another, each with its own
+                # build capability. The claim has to say which, or the browser cannot tell the
+                # caller who will build it.
+                "provider": manifest.provider,
             }
         )
     mesh = next((a for a in manifest.artefacts if a.role == "mesh"), None)
@@ -188,7 +199,14 @@ async def api_asset_delivery(
         )
     mesh_key = mesh.key or asset_key(collection, node, manifest.revision, mesh.file)
     return JSONResponse(
-        {"kind": "mesh", "url": mesh_key, "headers": {}, "source_up_axis": "z", "revision": manifest.revision}
+        {
+            "kind": "mesh",
+            "url": mesh_key,
+            "headers": {},
+            "source_up_axis": "z",
+            "revision": manifest.revision,
+            "provider": manifest.provider,
+        }
     )
 
 

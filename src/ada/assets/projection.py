@@ -25,6 +25,7 @@ from typing import Any, Iterator, Mapping, Sequence
 __all__ = [
     "HIERARCHY_SCHEMA",
     "BASE_COLS",
+    "OPTIONAL_COLS",
     "HierarchyError",
     "HierarchySlice",
     "build_hierarchy",
@@ -33,9 +34,20 @@ __all__ = [
 
 HIERARCHY_SCHEMA = "ada.assets/hierarchy@1"
 
-# The columns every slice carries. "path" is the one optional extra core knows about; a provider
-# may add its own, and a reader that does not know a column ignores it.
+# The columns every slice carries. A provider may add its own, and a reader that does not know a
+# column ignores it.
 BASE_COLS = ("id", "parent", "label", "kind", "leaf", "delivery")
+
+# Optional columns core DOES know about.
+#
+# ``provider`` is the one that makes a MIXED tree first class: a collection is not required to come
+# from a single source. One branch may be fed by a provider whose source is one format and a
+# sibling branch by a provider using another, each with its own build capability, inside one
+# hierarchy the browser renders as one tree. The per-node manifest has always recorded which
+# provider produced a subject-revision; this column is how that reaches the spine, so the browser
+# can label and filter by origin without a round trip per node. Absent means "the slice's
+# provider", which is what a single-source collection wants and costs it nothing.
+OPTIONAL_COLS = ("path", "provider")
 
 _DELIVERY_VALUES = ("", "mesh", "build")
 
@@ -86,13 +98,22 @@ class HierarchySlice:
             raise HierarchyError(f"no column {name!r} in this slice; it has {self.cols}") from None
 
     def records(self) -> Iterator[dict]:
-        """Rows as name-keyed dicts, with ``leaf`` normalised to bool."""
+        """Rows as name-keyed dicts, with ``leaf`` normalised to bool and ``provider`` always
+        present -- falling back to the slice's provider when the column is absent, so a reader
+        never has to care whether a collection is single-source or mixed."""
         idx = {name: i for i, name in enumerate(self.cols)}
         leaf_at = idx["leaf"]
+        provider_at = idx.get("provider")
         for row in self.rows:
             rec = {name: row[i] for name, i in idx.items()}
             rec["leaf"] = _as_leaf(row[leaf_at])
+            rec["provider"] = (row[provider_at] or self.provider) if provider_at is not None else self.provider
             yield rec
+
+    @property
+    def is_mixed(self) -> bool:
+        """True when this slice's nodes name more than one producing provider."""
+        return len({r["provider"] for r in self.records()}) > 1
 
     def node_ids(self) -> tuple[str, ...]:
         at = self.column("id")
@@ -123,7 +144,13 @@ def build_hierarchy(
     extra_cols: Sequence[str] = (),
 ) -> HierarchySlice:
     """Compose a slice from name-keyed node dicts. Validates the delivery vocabulary, which is
-    core's, unlike ``kind`` and ``label`` which are the provider's to choose."""
+    core's, unlike ``kind`` and ``label`` which are the provider's to choose.
+
+    A ``provider`` key on any node adds the ``provider`` column automatically -- that is how a
+    mixed collection declares per-branch origin without the caller having to ask for the column.
+    """
+    if any(n.get("provider") for n in nodes) and "provider" not in extra_cols:
+        extra_cols = tuple(extra_cols) + ("provider",)
     cols = tuple(BASE_COLS) + tuple(c for c in extra_cols if c not in BASE_COLS)
     rows = []
     for n in nodes:

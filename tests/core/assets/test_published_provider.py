@@ -98,12 +98,21 @@ def test_manifest_stored_where_it_says_it_is(store_and_provider):
 
 
 def test_registry_is_idempotent_by_id_but_refuses_a_conflict(store_and_provider):
+    """Idempotency is judged on where a factory came from, not on function identity.
+
+    A register() that builds its factory as a closure -- the normal shape, since it usually
+    captures a client -- makes a new function object per call, so identity would fail the very
+    case this tolerates: an entry point loaded twice (discovery AND an explicit preload).
+    """
     store, _, _ = store_and_provider
-    factory = lambda: FixtureLinesProvider(store.reader())  # noqa: E731
-    register_asset_provider("x", factory)
-    register_asset_provider("x", factory)  # same factory: a no-op, as an entry point may load twice
-    with pytest.raises(AssetProviderError, match="already registered with a different factory"):
-        register_asset_provider("x", lambda: FixtureLinesProvider(store.reader()))
+    register_fixture_provider(store)
+    register_fixture_provider(store)  # same registration site: a no-op
+
+    def rival_factory():  # a genuinely different site claiming the same id
+        return FixtureLinesProvider(store.reader())
+
+    with pytest.raises(AssetProviderError, match="claiming it too"):
+        register_asset_provider(FIXTURE_PROVIDER_ID, rival_factory)
 
 
 def test_providers_listing_reports_capabilities_by_presence(store_and_provider):
