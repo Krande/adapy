@@ -327,6 +327,12 @@ def test_cap_triangulation_tiles_the_profile_area():
         assert float(area.sum()) == pytest.approx(outline.area, rel=1e-9)
 
 
+# ---------------------------------------------------------------------------
+# Section centroid
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sec_name", sorted({**POLYGONAL_SECTIONS, **CURVED_SECTIONS}))
 def test_section_centroid_matches_the_occ_measurement(sec_name):
     """``SectionCentroidCache`` decides where an eccentric beam's profile sits.
     Its failure mode is silent — every section in the model drawn off its plate
