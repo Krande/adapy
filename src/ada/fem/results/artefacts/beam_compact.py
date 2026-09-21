@@ -311,96 +311,62 @@ def expand_beam_solid_instances(inst: BeamSolidInstances, points) -> SolidBeamMe
     ``t`` is measured against those NODE positions, not against the extrusion
     axis: when a beam's two ends carry different eccentricities the frame axis
     tilts away from the element axis, so ``t`` varies within a ring. That is
-    why it is computed here (and in the browser) instead of shipped.
+    why it is derived rather than shipped.
 
-    This is the reference for the TypeScript expander, so the arithmetic is
-    written the way JavaScript will do it — see the module docstring.
+    The sweep itself is ``adacpp.cad.expand_beam_solids``, which is the same
+    C++ the browser runs (built to wasm) and the same core the bake sweeps
+    sections with. This function marshals; it does not compute. When it did
+    compute, it was the second of three implementations of one formula — bake,
+    reference, browser — kept agreeing by a committed fixture rather than by
+    sharing code.
     """
+
+    from adacpp.cad import expand_beam_solids, make_extruded_section
 
     from ada.visit.rendering.femviz import ElementRange
 
-    pts_main = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    n_beams = inst.n_beams
+    pts_main = np.ascontiguousarray(np.asarray(points, dtype=np.float64).reshape(-1, 3))
 
-    positions = np.empty((inst.n_verts, 3), dtype=np.float32)
-    triangles = np.empty((inst.n_triangles, 3), dtype=np.uint32)
-    vertex_node0 = np.empty(inst.n_verts, dtype=np.uint32)
-    vertex_node1 = np.empty(inst.n_verts, dtype=np.uint32)
-    vertex_t = np.empty(inst.n_verts, dtype=np.float32)
-    ranges: list = []
+    # Sections arrive off the wire as plain arrays, so they are rebuilt rather
+    # than re-derived: the artefact's triangle list is the authority here, not
+    # whatever a fresh triangulation of the same outline would produce.
+    sections = [
+        make_extruded_section(
+            np.ascontiguousarray(sec.points, dtype=np.float64),
+            np.ascontiguousarray(sec.triangles, dtype=np.uint32),
+        )
+        for sec in inst.sections
+    ]
 
-    vertex_offset = 0
-    tri_cursor = 0
-    for k in range(n_beams):
-        sec = inst.sections[int(inst.section_idx[k])]
-        n = sec.n_points
-        uv = np.asarray(sec.points, dtype=np.float64)
+    def _f64(a, cols=None):
+        arr = np.ascontiguousarray(np.asarray(a, dtype=np.float64))
+        return arr.reshape(-1, cols) if cols else arr.reshape(-1)
 
-        ox, oy, oz = (float(v) for v in inst.origin[k])
-        xx, xy, xz = (float(v) for v in inst.xvec[k])
-        yx, yy, yz = (float(v) for v in inst.yvec[k])
-        length = float(inst.length[k])
+    out = expand_beam_solids(
+        sections,
+        label=np.ascontiguousarray(inst.label, dtype=np.uint32),
+        section_idx=np.ascontiguousarray(inst.section_idx, dtype=np.uint32),
+        origin=_f64(inst.origin, 3),
+        xvec=_f64(inst.xvec, 3),
+        yvec=_f64(inst.yvec, 3),
+        length=_f64(inst.length),
+        node0=np.ascontiguousarray(inst.node0, dtype=np.uint32),
+        node1=np.ascontiguousarray(inst.node1, dtype=np.uint32),
+        points=pts_main,
+    )
 
-        # up = normalize(cross(xvec, yvec)) — BeamFrame's own construction.
-        ux = xy * yz - xz * yy
-        uy = xz * yx - xx * yz
-        uz = xx * yy - xy * yx
-        un = np.sqrt(ux * ux + uy * uy + uz * uz)
-        if un > 0.0:
-            ux, uy, uz = ux / un, uy / un, uz / un
-
-        u = uv[:, 0]
-        v = uv[:, 1]
-        verts = np.empty((2 * n, 3), dtype=np.float64)
-        # (u, v) -> origin + u*yvec + v*up, exactly extrude_outline's mapping.
-        verts[:n, 0] = u * yx + v * ux + ox
-        verts[:n, 1] = u * yy + v * uy + oy
-        verts[:n, 2] = u * yz + v * uz + oz
-        verts[n:, 0] = verts[:n, 0] + length * xx
-        verts[n:, 1] = verts[:n, 1] + length * xy
-        verts[n:, 2] = verts[:n, 2] + length * xz
-
-        # Round to float32 BEFORE measuring t: the browser has no other
-        # positions to measure against, so the reference must not either.
-        vf = verts.astype(np.float32)
-        positions[vertex_offset : vertex_offset + 2 * n] = vf
-
-        i0 = int(inst.node0[k])
-        i1 = int(inst.node1[k])
-        p0 = pts_main[i0]
-        p1 = pts_main[i1]
-        ax = float(p1[0]) - float(p0[0])
-        ay = float(p1[1]) - float(p0[1])
-        az = float(p1[2]) - float(p0[2])
-        axis_sq = ax * ax + ay * ay + az * az
-        if axis_sq <= 0.0:
-            # Zero-length beam: every vertex at t=0, so the warp lerp collapses
-            # onto disp[node0] instead of dividing by nothing.
-            t_vals = np.zeros(2 * n, dtype=np.float32)
-        else:
-            w = np.asarray(vf, dtype=np.float64)
-            rel_x = w[:, 0] - float(p0[0])
-            rel_y = w[:, 1] - float(p0[1])
-            rel_z = w[:, 2] - float(p0[2])
-            t_vals = ((rel_x * ax + rel_y * ay + rel_z * az) / axis_sq).clip(0.0, 1.0).astype(np.float32)
-        vertex_t[vertex_offset : vertex_offset + 2 * n] = t_vals
-        vertex_node0[vertex_offset : vertex_offset + 2 * n] = i0
-        vertex_node1[vertex_offset : vertex_offset + 2 * n] = i1
-
-        tri_count = sec.n_triangles
-        triangles[tri_cursor : tri_cursor + tri_count] = sec.triangles + np.uint32(vertex_offset)
-        ranges.append(ElementRange(label=int(inst.label[k]), tri_start=tri_cursor, tri_count=tri_count))
-
-        vertex_offset += 2 * n
-        tri_cursor += tri_count
+    ranges = [
+        ElementRange(label=int(lbl), tri_start=int(start), tri_count=int(count))
+        for lbl, start, count in zip(out.range_label, out.range_tri_start, out.range_tri_count)
+    ]
 
     return SolidBeamMesh(
-        points=positions,
-        triangles=triangles,
+        points=np.asarray(out.positions, dtype=np.float32).reshape(-1, 3),
+        triangles=np.asarray(out.indices, dtype=np.uint32).reshape(-1, 3),
         element_ranges=ranges,
-        vertex_node0=vertex_node0,
-        vertex_node1=vertex_node1,
-        vertex_t=vertex_t,
+        vertex_node0=np.asarray(out.node0, dtype=np.uint32),
+        vertex_node1=np.asarray(out.node1, dtype=np.uint32),
+        vertex_t=np.asarray(out.t, dtype=np.float32),
         total_beams=inst.total_beams,
         skip_reasons=dict(inst.skip_reasons),
     )
