@@ -2,6 +2,15 @@
 
 
 
+## v0.79.0 (2026-09-21)
+
+### Feature
+
+* feat: core asset store — grammar, provider contract and browser routes (#371)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`0c7fca4`](https://github.com/Krande/adapy/commit/0c7fca43b2ec0865501e5c2d294d995344f3d898))
+
+
 ## v0.78.0 (2026-09-21)
 
 ### Feature
