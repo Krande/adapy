@@ -52,6 +52,7 @@ from .routes.admin_settings import router as admin_settings_router
 from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_workers import router as admin_workers_router
+from .routes.assets import router as assets_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -78,7 +79,6 @@ from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
 from .routes.procedural_models import router as procedural_models_router
 from .routes.projects import router as projects_router
-from .routes.assets import router as assets_router
 from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
 from .scope import Scope
