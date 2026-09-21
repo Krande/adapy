@@ -2,6 +2,15 @@
 
 
 
+## v0.76.0 (2026-09-21)
+
+### Feature
+
+* feat(perf,api): Placement.is_identity without building a placement to compare against (#367)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`2b1451a`](https://github.com/Krande/adapy/commit/2b1451a3d7165d86750b004a70ea9babc234e9d8))
+
+
 ## v0.75.2 (2026-09-18)
 
 ### Fix
