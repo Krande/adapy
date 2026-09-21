@@ -209,16 +209,21 @@ meshio = "*"
 # it is carried for) no single hdf5 version satisfies code-aster, gmsh and ifcopenshell at
 # once. As published on conda-forge, checked 2026-09-21:
 #   ifcopenshell 0.8.5 (occt 8)     hdf5 1.14.6 or 2.2
-#   gmsh 4.15.2 (ada-cpp: >=4.15.2) hdf5 1.14.6 or 2.1   -- no 2.2
+#   libmed 4.2 (nompi/openmpi/mpich) hdf5 1.14.6 or 2.1  -- no 2.2   <- the root blocker
+#   gmsh 4.15.2 (ada-cpp: >=4.15.2) follows libmed; pins only `libmed >=4.2,<4.3 nompi_*`,
+#                                   links only libmedC.so.11 (soname stable across hdf5),
+#                                   uses no hdf5 symbols itself -- needs no rebuild
 #   code-aster 18.1.6               hdf5 2.1
 #   code-aster 18.0.10              hdf5 1.14, but libboost 1.88, which the occt-8
 #                                   ifcopenshell (libboost 1.90) rules out
-# ada-cpp itself links no hdf5; its hdf5 comes only through gmsh and ifcopenshell. Dropping
-# pyocc here WITHOUT adding ada-cpp would solve, but leave FEM with no CAD backend at all.
+# ada-cpp itself links no hdf5; its hdf5 comes only through gmsh (via libmed) and
+# ifcopenshell. Dropping pyocc here WITHOUT adding ada-cpp would solve, but leave FEM with no
+# CAD backend at all.
 #
 # Decision: align forward on hdf5 2.2 -- not pin 2.1, not fall back to 1.14. Unblocked when
-# gmsh 4.15.2 ships an hdf5 2.2 build AND code-aster is rebuilt on 2.2. Then swap `pyocc`
-# for `adacpp-runtime` in the three envs and delete this feature.
+# libmed 4.2 ships an hdf5 2.2 build (a build-number bump; its recipe already builds the
+# hdf5-2 variant) AND code-aster is rebuilt on 2.2. Then swap `pyocc` for `adacpp-runtime`
+# in the three envs and delete this feature.
 # novtk: default occt builds link VTK + X libs we don't render through.
 # pythonocc-core's build string must match occt's or the solver picks the
 # vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
