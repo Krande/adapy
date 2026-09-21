@@ -2,6 +2,16 @@
 
 
 
+## v0.77.0 (2026-09-21)
+
+### Feature
+
+* feat(fem): write beam end eccentricities as GECCEN, and a sections-and-offsets deck (#366)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`02c24e4`](https://github.com/Krande/adapy/commit/02c24e40d2cdcf9249071efa9ec1f4ad25a28c65))
+
+
 ## v0.76.0 (2026-09-21)
 
 ### Feature
