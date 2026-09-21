@@ -31,8 +31,11 @@ export interface BeamSolidsExpandInput {
 export type BeamSolidsExpandOutput = ExpandedBeamSolids;
 
 const api = {
-    expand(input: BeamSolidsExpandInput): BeamSolidsExpandOutput {
-        const out = expandBeamSolidsFromBytes(input.compact, input.mainPositions);
+    async expand(input: BeamSolidsExpandInput): Promise<BeamSolidsExpandOutput> {
+        // Async because the expansion is the adacpp wasm module now, which has to
+        // be instantiated first. Comlink already returns a promise either way, so
+        // the caller is unchanged.
+        const out = await expandBeamSolidsFromBytes(input.compact, input.mainPositions);
         // ``.buffer`` is typed ArrayBufferLike (it covers SharedArrayBuffer
         // too); every array here is freshly allocated from a plain
         // ArrayBuffer, so the cast is safe. Same note as pickerGeometry.worker.

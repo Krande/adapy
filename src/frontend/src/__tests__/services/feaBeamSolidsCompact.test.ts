@@ -7,7 +7,6 @@ import path from "node:path";
 import {
     BEAM_COMPACT_BEAM_BYTES,
     BEAM_COMPACT_HEADER_BYTES,
-    expandBeamSolids,
     parseBeamSolidsCompact,
 } from "../../services/feaBeamSolidsCompact";
 
@@ -163,87 +162,13 @@ describe("parseBeamSolidsCompact", () => {
     });
 });
 
-describe("expandBeamSolids", () => {
-    it("reproduces the Python expander's buffers exactly", () => {
-        const expected = readExpected();
-        const parsed = parseBeamSolidsCompact(readFixtureBytes("two_beams.bin"));
-        const mainPositions = new Float32Array(expected.mainPositions);
-        const got = expandBeamSolids(parsed, mainPositions);
-
-        assert.equal(got.nVerts, expected.nVerts);
-        assert.equal(got.positions.length, expected.positions.length);
-        // Both sides round to float32 at the same points in the arithmetic, so
-        // this is an equality, not a tolerance. A mismatch here means the two
-        // expanders have drifted — which is the whole reason for the fixture.
-        assert.deepEqual(Array.from(got.positions), expected.positions);
-        assert.deepEqual(Array.from(got.indices), expected.indices);
-        assert.deepEqual(Array.from(got.node0), expected.node0);
-        assert.deepEqual(Array.from(got.node1), expected.node1);
-        assert.deepEqual(Array.from(got.t), expected.t);
-
-        assert.deepEqual(Array.from(got.elemLabel), expected.drawRanges.map((r) => r.label));
-        assert.deepEqual(Array.from(got.elemTriStart), expected.drawRanges.map((r) => r.triStart));
-        assert.deepEqual(Array.from(got.elemTriCount), expected.drawRanges.map((r) => r.triCount));
-    });
-
-    it("tiles the triangle buffer with the per-beam draw ranges, in record order", () => {
-        const expected = readExpected();
-        const parsed = parseBeamSolidsCompact(readFixtureBytes("two_beams.bin"));
-        const got = expandBeamSolids(parsed, new Float32Array(expected.mainPositions));
-
-        let cursor = 0;
-        for (let i = 0; i < got.elemLabel.length; i++) {
-            assert.equal(got.elemTriStart[i], cursor);
-            assert.ok(got.elemTriCount[i] > 0);
-            cursor += got.elemTriCount[i];
-        }
-        assert.equal(cursor * 3, got.indices.length);
-        // Every index is inside the vertex buffer.
-        for (const idx of got.indices) assert.ok(idx < got.nVerts);
-    });
-
-    it("varies t around a ring when the node axis is not the extrusion axis", () => {
-        // One beam, a unit square profile swept along +x, whose two NODES sit
-        // off the extrusion axis in +y — exactly what unequal end
-        // eccentricities produce. A ring of vertices at one axial station of
-        // the extrusion then projects onto a spread of stations of the
-        // element, so t cannot be a per-section constant.
-        const buf = buildAfbs({
-            sections: [{
-                points: [-1, -1, 1, -1, 1, 1, -1, 1],
-                tris: [0, 1, 5, 0, 5, 4],
-            }],
-            beams: [{
-                label: 5, section: 0, node0: 0, node1: 1,
-                origin: [0, 0, 0], xvec: [1, 0, 0], yvec: [0, 1, 0], length: 4,
-            }],
-        });
-        // Node axis tilted in +y relative to the extrusion axis (+x).
-        const mainPositions = new Float32Array([0, -1, 0, 4, 1, 0]);
-        const got = expandBeamSolids(parseBeamSolidsCompact(buf), mainPositions);
-
-        assert.equal(got.nVerts, 8);
-        // axis = (4, 2, 0), |axis|^2 = 20. Near ring point 0 is
-        // origin + (-1)*yvec + (-1)*up = (0, -1, -1); rel = (0, 0, -1) -> t = 0.
-        // Point 2 is (0, 1, 1); rel = (0, 2, 1) -> t = 4/20 = 0.2.
-        assert.equal(got.t[0], 0);
-        assert.ok(Math.abs(got.t[2] - 0.2) < 1e-6, `t[2] = ${got.t[2]}`);
-        const nearRing = Array.from(got.t.slice(0, 4));
-        assert.ok(Math.max(...nearRing) - Math.min(...nearRing) > 1e-3);
-    });
-
-    it("collapses t to zero when the element has no axis", () => {
-        const buf = buildAfbs({
-            sections: [{points: [0, 0, 1, 0, 0, 1], tris: [0, 1, 2]}],
-            beams: [{
-                label: 9, section: 0, node0: 0, node1: 1,
-                origin: [0, 0, 0], xvec: [1, 0, 0], yvec: [0, 1, 0], length: 2,
-            }],
-        });
-        // Both endpoint nodes at the same place: nothing to project onto, so
-        // the warp lerp must collapse onto disp[node0] rather than divide by
-        // zero.
-        const got = expandBeamSolids(parseBeamSolidsCompact(buf), new Float32Array([1, 2, 3, 1, 2, 3]));
-        assert.ok(Array.from(got.t).every((v) => v === 0));
-    });
-});
+// The expansion itself is no longer TypeScript: it is adacpp.cad.expand_beam_solids,
+// compiled to wasm, and the four cases that used to live here moved with it --
+// reproducing the reference buffers, draw ranges tiling the index buffer in record
+// order, t varying around a ring on an eccentric beam, and t collapsing to zero on a
+// zero-length element are all covered in adacpp's tests/ngeom/test_extrude.cpp and
+// tests/py/test_extrude_sections.py.
+//
+// Testing it from here would mean loading a wasm module that only exists inside the
+// deploy image, and a stub of it would test the stub. What IS still TypeScript is the
+// AFBS parser above, and that is what this file covers.

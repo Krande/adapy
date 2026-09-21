@@ -31,6 +31,38 @@
 
 import type {FeaFetcher} from "./fea/feaFetcher";
 
+import {loadEmscriptenModule} from "@/utils/wasm/emscriptenLoader";
+
+const WASM_URL = "/wasm/adacpp_extrude.js";
+
+/** The embind surface of adacpp_extrude. Positional names in the generated
+ *  .d.ts carry no meaning, so the shape is stated here instead. */
+interface AdacppExtrude {
+    expandBeamSolids(
+        sections: {points: Float64Array; triangles: Uint32Array}[],
+        instances: {
+            label: Uint32Array;
+            section: Uint32Array;
+            node0: Uint32Array;
+            node1: Uint32Array;
+            origin: Float64Array;
+            xvec: Float64Array;
+            yvec: Float64Array;
+            length: Float64Array;
+        },
+        points: Float64Array,
+    ): {
+        positions: Float32Array;
+        indices: Uint32Array;
+        node0: Uint32Array;
+        node1: Uint32Array;
+        t: Float32Array;
+        rangeLabel: Uint32Array;
+        rangeTriStart: Uint32Array;
+        rangeTriCount: Uint32Array;
+    };
+}
+
 const BEAM_COMPACT_MAGIC = 0x53424641; // "AFBS" little-endian
 export const BEAM_COMPACT_HEADER_BYTES = 16;
 export const BEAM_COMPACT_BEAM_BYTES = 56;
@@ -192,125 +224,63 @@ export function parseBeamSolidsCompact(buf: ArrayBuffer): ParsedBeamSolidsCompac
  *  rather than against the extrusion axis: an eccentric beam (different
  *  offsets at its two ends) has a frame axis that is not the element axis, so
  *  `t` is not constant around a ring and cannot be shipped per section. */
-export function expandBeamSolids(
+/** Expand the parsed artefact into mesh buffers, through the same C++ the bake
+ *  sweeps its sections with (`adacpp.cad.expand_beam_solids`, built to wasm).
+ *
+ *  This used to be a hand-written transcription of the Python reference
+ *  expander, the two kept agreeing by a committed fixture and by writing each
+ *  "the way the other would do it". One formula, three implementations. Now the
+ *  formula lives once and this marshals into it.
+ *
+ *  Worker-only: the module is an ES6 emscripten factory served from /wasm. */
+export async function expandBeamSolids(
     parsed: ParsedBeamSolidsCompact,
     mainPositions: Float32Array,
-): ExpandedBeamSolids {
-    const {sections, nBeams, nVerts, nTriangles} = parsed;
+): Promise<ExpandedBeamSolids> {
+    const mod = await loadEmscriptenModule<AdacppExtrude>(WASM_URL);
 
-    const positions = new Float32Array(nVerts * 3);
-    const indices = new Uint32Array(nTriangles * 3);
-    const node0 = new Uint32Array(nVerts);
-    const node1 = new Uint32Array(nVerts);
-    const t = new Float32Array(nVerts);
-    const elemLabel = new Uint32Array(nBeams);
-    const elemTriStart = new Uint32Array(nBeams);
-    const elemTriCount = new Uint32Array(nBeams);
+    // embind takes plain typed arrays; the module reads f64 for anything
+    // positional, so widen here rather than let it coerce element by element.
+    const sections = parsed.sections.map((sec) => ({
+        points: Float64Array.from(sec.points),
+        triangles: sec.triangles,
+    }));
 
-    let vertexOffset = 0;
-    let triCursor = 0;
-    for (let b = 0; b < nBeams; b++) {
-        const sec = sections[parsed.section[b]];
-        const n = sec.nPoints;
-        const pts = sec.points;
-
-        const o = b * 3;
-        const ox = parsed.origin[o], oy = parsed.origin[o + 1], oz = parsed.origin[o + 2];
-        const xx = parsed.xvec[o], xy = parsed.xvec[o + 1], xz = parsed.xvec[o + 2];
-        const yx = parsed.yvec[o], yy = parsed.yvec[o + 1], yz = parsed.yvec[o + 2];
-        const len = parsed.length[b];
-
-        // up = normalize(cross(xvec, yvec)) — BeamFrame's own construction, so
-        // the profile's local +z is derived rather than stored (and cannot
-        // drift out of step with the two axes it comes from).
-        let ux = xy * yz - xz * yy;
-        let uy = xz * yx - xx * yz;
-        let uz = xx * yy - xy * yx;
-        const un = Math.sqrt(ux * ux + uy * uy + uz * uz);
-        if (un > 0) {
-            ux /= un;
-            uy /= un;
-            uz /= un;
-        }
-        const dx = len * xx, dy = len * xy, dz = len * xz;
-
-        const base = vertexOffset * 3;
-        for (let i = 0; i < n; i++) {
-            const u = pts[i * 2];
-            const v = pts[i * 2 + 1];
-            // (u, v) -> origin + u*yvec + v*up, then the far ring one length
-            // along xvec. Float32Array stores round to float32 on the way in.
-            const nx = u * yx + v * ux + ox;
-            const ny = u * yy + v * uy + oy;
-            const nz = u * yz + v * uz + oz;
-            const nOff = base + i * 3;
-            positions[nOff] = nx;
-            positions[nOff + 1] = ny;
-            positions[nOff + 2] = nz;
-            const fOff = base + (n + i) * 3;
-            positions[fOff] = nx + dx;
-            positions[fOff + 1] = ny + dy;
-            positions[fOff + 2] = nz + dz;
-        }
-
-        const i0 = parsed.node0[b];
-        const i1 = parsed.node1[b];
-        const p0x = mainPositions[i0 * 3], p0y = mainPositions[i0 * 3 + 1], p0z = mainPositions[i0 * 3 + 2];
-        const ax = mainPositions[i1 * 3] - p0x;
-        const ay = mainPositions[i1 * 3 + 1] - p0y;
-        const az = mainPositions[i1 * 3 + 2] - p0z;
-        const axisSq = ax * ax + ay * ay + az * az;
-        const twoN = 2 * n;
-        for (let i = 0; i < twoN; i++) {
-            const vi = vertexOffset + i;
-            node0[vi] = i0;
-            node1[vi] = i1;
-            if (axisSq <= 0) {
-                // Zero-length beam: t = 0 everywhere, so the warp lerp
-                // collapses onto disp[node0] instead of dividing by nothing.
-                t[vi] = 0;
-                continue;
-            }
-            // Read the positions BACK out of the float32 array: the reference
-            // measures t against the rounded vertices, because those are the
-            // only ones that exist by the time anyone can look.
-            const q = (vertexOffset + i) * 3;
-            const rx = positions[q] - p0x;
-            const ry = positions[q + 1] - p0y;
-            const rz = positions[q + 2] - p0z;
-            const s = (rx * ax + ry * ay + rz * az) / axisSq;
-            t[vi] = s < 0 ? 0 : s > 1 ? 1 : s;
-        }
-
-        const tris = sec.triangles;
-        const triCount = sec.nTriangles;
-        const iBase = triCursor * 3;
-        for (let i = 0; i < triCount * 3; i++) {
-            indices[iBase + i] = tris[i] + vertexOffset;
-        }
-
-        elemLabel[b] = parsed.label[b];
-        elemTriStart[b] = triCursor;
-        elemTriCount[b] = triCount;
-
-        vertexOffset += twoN;
-        triCursor += triCount;
-    }
+    const out = mod.expandBeamSolids(
+        sections,
+        {
+            label: parsed.label,
+            section: parsed.section,
+            node0: parsed.node0,
+            node1: parsed.node1,
+            origin: Float64Array.from(parsed.origin),
+            xvec: Float64Array.from(parsed.xvec),
+            yvec: Float64Array.from(parsed.yvec),
+            length: Float64Array.from(parsed.length),
+        },
+        Float64Array.from(mainPositions),
+    );
 
     return {
-        positions, indices, nVerts,
-        elemLabel, elemTriStart, elemTriCount,
-        node0, node1, t,
+        positions: out.positions,
+        indices: out.indices,
+        nVerts: out.positions.length / 3,
+        elemLabel: out.rangeLabel,
+        elemTriStart: out.rangeTriStart,
+        elemTriCount: out.rangeTriCount,
+        node0: out.node0,
+        node1: out.node1,
+        t: out.t,
     };
 }
 
 /** Parse + expand in one call. The worker's entry point, and the main
  *  thread's fallback when no worker can be spawned — one function so the two
  *  cannot drift apart. */
-export function expandBeamSolidsFromBytes(
+export async function expandBeamSolidsFromBytes(
     compact: ArrayBuffer,
     mainPositions: Float32Array,
-): ExpandedBeamSolids {
+): Promise<ExpandedBeamSolids> {
     return expandBeamSolids(parseBeamSolidsCompact(compact), mainPositions);
 }
 
