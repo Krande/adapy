@@ -2,6 +2,25 @@
 
 
 
+## v0.77.0 (2026-09-21)
+
+### Feature
+
+* feat(fem): write beam end eccentricities as GECCEN, and a sections-and-offsets deck (#366)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`02c24e4`](https://github.com/Krande/adapy/commit/02c24e40d2cdcf9249071efa9ec1f4ad25a28c65))
+
+
+## v0.76.0 (2026-09-21)
+
+### Feature
+
+* feat(perf,api): Placement.is_identity without building a placement to compare against (#367)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`2b1451a`](https://github.com/Krande/adapy/commit/2b1451a3d7165d86750b004a70ea9babc234e9d8))
+
+
 ## v0.75.2 (2026-09-18)
 
 ### Fix
