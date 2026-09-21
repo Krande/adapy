@@ -36,7 +36,7 @@ class PrimCyl(Shape):
             self._occ_cache = self.solid_occ()
 
     def solid_occ(self) -> ShapeHandle:
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

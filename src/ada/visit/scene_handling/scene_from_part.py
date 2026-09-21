@@ -21,7 +21,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         plate_metadata,
     )
     from ada.config import logger
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     params = converter.params
 

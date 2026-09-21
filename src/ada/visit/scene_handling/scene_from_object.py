@@ -18,9 +18,9 @@ def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -
     import trimesh
 
     from ada import Pipe
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.optimize import concatenate_stores
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     params = converter.params
@@ -48,7 +48,7 @@ def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -
 
     # Tally distorted (degenerate/sliver) triangles for the per-cell audit flag — raw triangles
     # here, before any GLB/meshopt encoding. Best-effort; never affects the scene.
-    from ada.occ.tessellating import accumulate_mesh_distortion
+    from ada.visit.tessellate import accumulate_mesh_distortion
 
     for _ms in mesh_stores:
         accumulate_mesh_distortion(getattr(_ms, "position", None), getattr(_ms, "indices", None))

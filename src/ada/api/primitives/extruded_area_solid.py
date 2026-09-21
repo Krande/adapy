@@ -63,7 +63,7 @@ class PrimExtrude(Shape):
         return self._extrude_depth
 
     def solid_occ(self) -> ShapeHandle:
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

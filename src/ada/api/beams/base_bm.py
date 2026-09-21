@@ -329,12 +329,12 @@ class Beam(BackendGeom):
         return active_backend().make_wire([self.n1.p, self.n2.p])
 
     def shell_occ(self) -> ShapeHandle:
-        from ada.occ.geom.cache import get_shell_occ
+        from ada.cad.shape_cache import get_shell_occ
 
         return get_shell_occ(self)
 
     def solid_occ(self) -> ShapeHandle:
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

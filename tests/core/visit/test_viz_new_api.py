@@ -1,7 +1,7 @@
 import pytest
 
 from ada import Beam
-from ada.occ.tessellating import tessellate_shape
+from ada.visit.tessellate import tessellate_shape
 
 
 @pytest.fixture

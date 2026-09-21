@@ -16,7 +16,7 @@ from ada.geom.points import Point
 
 
 def test_polygonal_face_set_fan_triangulates_in_3d():
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     # Two faces sharing an edge: a quad (-> 2 tris) and a triangle (-> 1 tri). Non-planar quad to
     # prove the vertices aren't flattened onto a plane.

@@ -1767,7 +1767,7 @@ class Part(BackendGeom):
             raise ValueError(f"unknown writer {writer!r}; expected 'occ', 'stream' or 'native'")
 
         from ada.cad.doc import active_doc_backend
-        from ada.occ.geom.cache import invalidate
+        from ada.cad.shape_cache import invalidate
         from ada.occ.store import OCCStore
 
         step_writer = active_doc_backend().step_writer()

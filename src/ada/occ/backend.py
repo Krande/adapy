@@ -104,10 +104,10 @@ class OccBackend:
         from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
         from OCC.Extend.TopologyUtils import TopologyExplorer
 
-        from ada.occ.tessellating import tessellate_shape
         from ada.occ.utils import make_box_by_points
         from ada.occ.utils import make_cylinder as _occ_make_cylinder
         from ada.occ.utils import make_sphere as _occ_make_sphere
+        from ada.visit.tessellate import tessellate_shape
 
         self._Bnd_Box = Bnd_Box
         self._brepbndlib = brepbndlib
@@ -247,7 +247,7 @@ class OccBackend:
         return self._make_sphere((0, 0, 0), radius)
 
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
-        # ada.occ.tessellating uses a `quality` parameter; lower = finer.
+        # ada.visit.tessellate uses a `quality` parameter; lower = finer.
         # Map the adacpp linear_deflection convention onto it: <=0 → default.
         if linear_deflection <= 0.0:
             return self._tessellate_shape(shape)

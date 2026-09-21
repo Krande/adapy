@@ -516,10 +516,10 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
     import numpy as np
 
+    from ada.cad.shape_cache import clear_all
     from ada.cadit.step.read.stream_reader import build_one_solid, prepare_stream_index
     from ada.config import logger
     from ada.core.guid import create_guid
-    from ada.occ.geom.cache import clear_all
     from ada.visit.gltf.graph import GraphNode
 
     # No sibling code path should have left OCC shapes pinned in the process-global
@@ -1071,10 +1071,10 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
 
     import trimesh
 
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.meshes import MeshStore, MeshType
     from ada.visit.gltf.optimize import concatenate_stores
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()  # parent-side material store + material lookup for the merge
     params = converter.params
@@ -1132,9 +1132,9 @@ def convert_step_stream_to_glb(source: StepStreamSource, glb_path: str | Path) -
     from ada.extension.design_and_analysis_extension_schema import (
         AdaDesignAndAnalysisExtension,
     )
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.graph import GraphNode, GraphStore
     from ada.visit.gltf.meshes import MergedMesh, MeshType
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     root = GraphNode("root", 0, hash=create_guid())

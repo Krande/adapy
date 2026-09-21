@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from ada.occ.tessellating import BatchTessellator
+from ada.visit.tessellate import BatchTessellator
 
 
 class FakePlate:

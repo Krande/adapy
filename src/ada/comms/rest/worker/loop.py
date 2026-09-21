@@ -65,7 +65,7 @@ def _warm_convert_imports() -> None:
 
     for mod, why in (
         ("ada.cadit.ifc.store", "ifcopenshell + ifcopenshell.geom"),
-        ("ada.occ.tessellating", "OCC.Core tessellation + backends"),
+        ("ada.visit.tessellate", "OCC.Core tessellation + backends"),
     ):
         t0 = time.perf_counter()
         try:

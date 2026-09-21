@@ -17,7 +17,7 @@ import numpy as np
 
 import ada
 from ada.cad import active_backend
-from ada.occ.tessellating import tessellate_shape
+from ada.visit.tessellate import tessellate_shape
 
 
 def _fresh_cyl(r=0.5, h=1.0):

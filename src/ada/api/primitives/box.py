@@ -35,7 +35,7 @@ class PrimBox(Shape):
         self._bbox = BoundingBox(self)
 
     def solid_occ(self):
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

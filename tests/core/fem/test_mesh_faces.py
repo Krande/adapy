@@ -150,7 +150,7 @@ def test_surface_strategy_object_stream_yields_curved_plates():
     assert 1 <= len(curved) <= 8
     assert len(objs) < 20  # 288 shells -> a handful of concept objects
     # each curved plate tessellates on the active backend (renderable, not just writable)
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     for o in curved:

@@ -13,7 +13,7 @@ Three benchmarks, each isolating a distinct seam:
   round so the OCC build is actually exercised (not skipped by the guid
   cache). This is the primary gate.
 * ``test_bench_solid_occ_cache_build`` — the Phase 0 seam
-  (``ada.occ.geom.cache.get_solid_occ`` -> ``active_backend().build``) on a
+  (``ada.cad.shape_cache.get_solid_occ`` -> ``active_backend().build``) on a
   cold cache. Confirms the construction funnel stays flat.
 * ``test_bench_solid_occ_cache_hit`` — pure cache-hit cost: the per-access
   ``active_backend()`` call + ``f"{name}:{guid}"`` key build. Should be
@@ -37,8 +37,8 @@ slows the normal suite or CI.
 import pytest
 
 import ada
-from ada.occ.geom.cache import clear_all, get_solid_occ
-from ada.occ.tessellating import BatchTessellator
+from ada.cad.shape_cache import clear_all, get_solid_occ
+from ada.visit.tessellate import BatchTessellator
 
 # Per-type instance counts. Kept modest so each round is a few seconds:
 # enough parts to average out per-shape noise, few enough to stay quick.

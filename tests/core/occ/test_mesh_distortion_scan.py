@@ -7,7 +7,7 @@ import numpy as np
 
 
 def test_distortion_counts_slivers_only():
-    from ada.occ.tessellating import (
+    from ada.visit.tessellate import (
         accumulate_mesh_distortion,
         consume_mesh_distortion_stats,
     )
@@ -40,7 +40,7 @@ def test_distortion_counts_slivers_only():
 
 
 def test_fallback_counter_reset_on_consume():
-    from ada.occ.tessellating import _record_tess_fallback, consume_tess_fallback_stats
+    from ada.visit.tessellate import _record_tess_fallback, consume_tess_fallback_stats
 
     consume_tess_fallback_stats()  # reset
     _record_tess_fallback("empty mesh (geom type not NGEOM-serializable)", "FacetedBrep")

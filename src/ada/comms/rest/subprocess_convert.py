@@ -482,7 +482,7 @@ async def run_isolated_convert(
                 # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
                 # a tally failure must never fail an otherwise-successful conversion.
                 try:
-                    from ada.occ.tessellating import (
+                    from ada.visit.tessellate import (
                         consume_mesh_distortion_stats,
                         consume_tess_fallback_stats,
                     )

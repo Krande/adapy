@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ada.occ.tessellating import (
+from ada.visit.tessellate import (
     accumulate_mesh_distortion,
     consume_mesh_distortion_stats,
 )

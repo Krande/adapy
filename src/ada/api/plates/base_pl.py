@@ -156,12 +156,12 @@ class Plate(BackendGeom):
         return self._poly.occ_wire()
 
     def shell_occ(self):
-        from ada.occ.geom.cache import get_shell_occ
+        from ada.cad.shape_cache import get_shell_occ
 
         return get_shell_occ(self)
 
     def solid_occ(self) -> ShapeHandle:
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 
