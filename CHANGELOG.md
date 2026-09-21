@@ -2,6 +2,15 @@
 
 
 
+## v0.78.0 (2026-09-21)
+
+### Feature
+
+* feat: native IFC-&gt;GLB subset streaming via include_guids (#369)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`f2e3dac`](https://github.com/Krande/adapy/commit/f2e3dac5c6651bf2f2698cfb0454b5633aa79304))
+
+
 ## v0.77.0 (2026-09-21)
 
 ### Feature
