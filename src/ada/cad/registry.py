@@ -283,6 +283,17 @@ def native_ifc_track_selection_available() -> bool:
     return _native_binding_takes("stream_ifc_to_glb", "pipeline")
 
 
+def native_ifc_subset_available() -> bool:
+    """True if THIS adacpp's native IFC binding can stream a SUBSET of a file by GlobalId.
+
+    ``stream_ifc_to_glb(include_guids=[...])`` streams only the products whose IFC GlobalId is in
+    the set, so a branch of a published spatial tree can be built without first slicing a subset
+    IFC (slicing duplicates the bytes per build and is slower). Added after adacpp 0.22; the probe,
+    not a version number, is the authority, because a mixed install is the case that matters.
+    """
+    return _native_binding_takes("stream_ifc_to_glb", "include_guids")
+
+
 def native_face_regions_available(family: str) -> bool:
     """True if THIS adacpp's native converter for ``family`` ('step' | 'generic') takes
     ``face_regions``.

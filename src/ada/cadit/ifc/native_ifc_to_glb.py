@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pathlib
 
+from ada.cad.registry import native_ifc_subset_available as _native_ifc_subset_available
 from ada.cad.registry import (
     native_ifc_track_selection_available as _native_ifc_track_selection_available,
 )
@@ -42,6 +43,7 @@ def native_ifc_glb_available() -> bool:
 # published vocabulary, and that image has no ada.cadit). Kept importable from here because this is
 # the module whose binding the answer is about.
 native_ifc_track_selection_available = _native_ifc_track_selection_available
+native_ifc_subset_available = _native_ifc_subset_available
 
 
 def native_ifc_to_glb(
@@ -52,6 +54,7 @@ def native_ifc_to_glb(
     meshopt: bool = True,
     on_progress=None,
     pipeline: str | None = None,
+    include_guids: list[str] | None = None,
 ) -> dict:
     """Convert ``ifc_path`` to a GLB at ``glb_path`` with the native adacpp IFC pipeline.
 
@@ -60,6 +63,12 @@ def native_ifc_to_glb(
     of the corpus defaults), matching the streaming path. ``meshopt`` (default on) bakes
     ``EXT_meshopt_compression`` inline in the C++ writer. Returns ``{solids, total, skipped}``. Raises
     if adacpp is unavailable or the conversion fails (the converter falls back per its fallback chain).
+
+    ``include_guids`` streams only the products whose IFC GlobalId is in the sequence — one branch of
+    a published spatial tree, without slicing a subset IFC first. ``None``/empty is every product. Ids
+    that match no body (containers, curve-only axes, ids absent from the file) are skipped by the C++
+    side; a filter that matches NOTHING is an error there, so it surfaces here as a raise rather than
+    a GLB of the whole model.
     """
     import adacpp
 
@@ -106,8 +115,27 @@ def native_ifc_to_glb(
             f"{_NATIVE_DEFAULT_TRACK!r}"
         )
 
+    # Subset streaming, same refuse-don't-widen contract as the track above, and for a sharper
+    # reason: an older binding ignoring this kwarg would convert the WHOLE model and report success,
+    # so a caller asking for one branch would silently get the file.
+    if include_guids:
+        if not native_ifc_subset_available():
+            raise RuntimeError(
+                f"adacpp build predates native IFC subset streaming (stream_ifc_to_glb takes no "
+                f"'include_guids'); cannot stream the {len(include_guids)} requested GlobalId(s) — "
+                f"it would silently convert the whole model"
+            )
+        kwargs["include_guids"] = list(include_guids)
+
     n = adacpp.cad.stream_ifc_to_glb(str(ifc_path), str(glb_path), **kwargs)
     if n < 0:
+        if include_guids:
+            # The C++ side returns -1 (and writes no GLB) when a filter matches nothing, which for a
+            # subset build is the interesting failure: the spine disagrees with the file.
+            raise RuntimeError(
+                f"adacpp native stream_ifc_to_glb failed for {ifc_path} — none of the "
+                f"{len(include_guids)} requested GlobalId(s) matched a product with geometry"
+            )
         raise RuntimeError(f"adacpp native stream_ifc_to_glb failed for {ifc_path}")
 
     logger.info("adacpp-native IFC->GLB: %s products -> %s", n, glb_path)
