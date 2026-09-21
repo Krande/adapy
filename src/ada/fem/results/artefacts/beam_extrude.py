@@ -19,6 +19,14 @@ disagree about where a profile sits, only about how finely a circle is faceted.
 The sampled outline (and its cap triangulation) is cached per distinct section,
 so the deck's dozen profiles are built a dozen times rather than 162k.
 
+The cap triangulation and the extrusion's connectivity come from
+``adacpp.cad.build_extruded_section``: the same libtess2 path the kernel-free
+tessellator already runs for every other face, including its shrunk-hole retry
+for a void that touches the outer boundary. The viewer expands the compact
+artefact through the same C++ (built to wasm), so the triangle list a beam gets
+at bake time and the one the browser rebuilds come from one implementation
+rather than two that have to be kept agreeing.
+
 OCC remains the fallback for everything this cannot do — tapered, swept and
 revolved beams, beams with booleans, and any profile whose curves have no native
 sampler (splines) — and remains selectable outright via ``method="occ"``.
@@ -62,17 +70,18 @@ _AREA_EPS = 1e-14
 class SectionOutline:
     """A section's 2D outline, ready to sweep.
 
-    ``rings`` is the outer boundary first, then one ring per void. ``points`` is
-    those rings concatenated — the vertex order of ONE extrusion end — and
-    ``cap_tris`` indexes into it. Winding is normalised on construction: the
-    outer ring counter-clockwise, every void clockwise, so a ring walked in
-    order always has the material on its left and the side quads come out with
-    outward normals without a per-beam orientation test.
+    ``points`` is the outer boundary first then one ring per void, concatenated
+    — the vertex order of ONE extrusion end — and ``ring_slices`` says where
+    each ring starts and stops. ``triangles`` indexes the 2n vertices a sweep
+    produces: [0, n) is the near end, [n, 2n) the far one.
+
+    Winding is normalised (outer counter-clockwise, every void clockwise), so a
+    ring walked in order always has the material on its left and the side quads
+    come out with outward normals without a per-beam orientation test.
     """
 
     points: np.ndarray  # (n, 2) float64, all rings concatenated
     ring_slices: tuple[tuple[int, int], ...]  # (start, stop) into points, outer first
-    cap_tris: np.ndarray  # (k, 3) int32 into points, counter-clockwise
     triangles: np.ndarray  # (m, 3) uint32 into the 2n extruded vertices
     centroid: tuple[float, float]  # area centroid, voids removed
     area: float  # net area, voids removed
@@ -164,165 +173,6 @@ def _ring_centroid(ring: np.ndarray) -> tuple[float, float, float]:
 # ---------------------------------------------------------------------------
 
 
-def _segments_properly_intersect(p1, p2, q1, q2) -> bool:
-    """True when segment p1-p2 crosses q1-q2 somewhere other than a shared end."""
-
-    def cross(o, a, b):
-        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-
-    # Endpoints shared with the bridge are allowed to touch — that is what a
-    # bridge IS — so any segment sharing a position with the probe is skipped.
-    for a in (p1, p2):
-        for b in (q1, q2):
-            if abs(a[0] - b[0]) <= _POINT_TOL and abs(a[1] - b[1]) <= _POINT_TOL:
-                return False
-
-    d1 = cross(q1, q2, p1)
-    d2 = cross(q1, q2, p2)
-    d3 = cross(p1, p2, q1)
-    d4 = cross(p1, p2, q2)
-    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
-        return True
-    # Collinear overlap counts as blocked: a bridge lying along an edge would
-    # produce zero-area ears rather than a triangulation.
-    if abs(d1) <= _AREA_EPS and abs(d2) <= _AREA_EPS:
-        lo = min(q1[0], q2[0]) - _POINT_TOL, min(q1[1], q2[1]) - _POINT_TOL
-        hi = max(q1[0], q2[0]) + _POINT_TOL, max(q1[1], q2[1]) + _POINT_TOL
-        for a in (p1, p2):
-            if lo[0] <= a[0] <= hi[0] and lo[1] <= a[1] <= hi[1]:
-                return True
-    return False
-
-
-def _loop_edges(pts: np.ndarray, loop: list[int]):
-    n = len(loop)
-    for i in range(n):
-        yield pts[loop[i]], pts[loop[(i + 1) % n]]
-
-
-def _bridge_holes(pts: np.ndarray, outer: list[int], holes: list[list[int]]) -> list[int] | None:
-    """Splice each void into the outer loop with a zero-width cut.
-
-    The standard trick: take the void's rightmost vertex M, find an outer vertex
-    P that M can see, and walk ``... P, M, <the whole void>, M, P ...``. The loop
-    is then a single simple polygon an ear clipper handles, at the cost of two
-    duplicated vertices per void (they are duplicated in the LOOP, not in the
-    vertex buffer, so the extruded mesh keeps one vertex per outline point).
-
-    Voids are merged rightmost-first so a later bridge never has to cross an
-    already-spliced one from the wrong side. Returns None when no visible
-    partner exists, which is the caller's cue to fall back to OCC.
-    """
-
-    loop = list(outer)
-    remaining = sorted(holes, key=lambda h: -float(pts[h, 0].max()))
-
-    for hi, hole in enumerate(remaining):
-        m_local = int(np.lexsort((pts[hole, 1], pts[hole, 0]))[-1])
-        m_idx = hole[m_local]
-        m_pt = pts[m_idx]
-
-        # Everything the bridge must not cross: the loop as it stands plus the
-        # voids not yet merged (this one included).
-        blockers = list(_loop_edges(pts, loop))
-        for other in remaining[hi:]:
-            blockers.extend(_loop_edges(pts, other))
-
-        order = np.argsort([float(np.linalg.norm(pts[v] - m_pt)) for v in loop])
-        chosen = None
-        for pos in order:
-            cand = loop[int(pos)]
-            if _POINT_TOL >= float(np.linalg.norm(pts[cand] - m_pt)):
-                continue
-            if any(_segments_properly_intersect(m_pt, pts[cand], a, b) for a, b in blockers):
-                continue
-            chosen = int(pos)
-            break
-        if chosen is None:
-            return None
-
-        rotated = hole[m_local:] + hole[:m_local]
-        loop = loop[: chosen + 1] + rotated + [m_idx] + loop[chosen:]
-
-    return loop
-
-
-def _point_in_triangle(p, a, b, c) -> bool:
-    d1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-    d2 = (c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0])
-    d3 = (a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0])
-    return d1 >= -_AREA_EPS and d2 >= -_AREA_EPS and d3 >= -_AREA_EPS
-
-
-def _earclip(pts: np.ndarray, loop: list[int]) -> np.ndarray | None:
-    """Triangulate a counter-clockwise simple polygon given as a loop of indices.
-
-    O(n^2) and unashamedly so: it runs once per DISTINCT section, on an outline
-    of at most ~70 points after circle sampling, not once per beam.
-
-    Only reflex vertices are tested for containment (the classic optimisation),
-    which also keeps a bridge's duplicated vertices from blocking every ear:
-    a duplicate sits exactly on a corner of any ear that touches it, and a
-    containment test that counted corners as inside would stall the clip.
-    """
-
-    idx = list(loop)
-    tris: list[tuple[int, int, int]] = []
-
-    while len(idx) > 3:
-        m = len(idx)
-        ear = None
-        for i in range(m):
-            ia = idx[(i - 1) % m]
-            ib = idx[i]
-            ic = idx[(i + 1) % m]
-            a, b, c = pts[ia], pts[ib], pts[ic]
-            if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= _AREA_EPS:
-                continue  # reflex or degenerate corner
-
-            blocked = False
-            for k in range(m):
-                if k in ((i - 1) % m, i, (i + 1) % m):
-                    continue
-                kp = pts[idx[k]]
-                # Skip vertices coincident with a corner of this ear — a bridge
-                # duplicate, or two rings touching.
-                if (
-                    abs(kp[0] - a[0]) <= _POINT_TOL
-                    and abs(kp[1] - a[1]) <= _POINT_TOL
-                    or abs(kp[0] - b[0]) <= _POINT_TOL
-                    and abs(kp[1] - b[1]) <= _POINT_TOL
-                    or abs(kp[0] - c[0]) <= _POINT_TOL
-                    and abs(kp[1] - c[1]) <= _POINT_TOL
-                ):
-                    continue
-                kprev = pts[idx[(k - 1) % m]]
-                knext = pts[idx[(k + 1) % m]]
-                reflex = (kp[0] - kprev[0]) * (knext[1] - kprev[1]) - (kp[1] - kprev[1]) * (knext[0] - kprev[0]) <= 0.0
-                if reflex and _point_in_triangle(kp, a, b, c):
-                    blocked = True
-                    break
-            if not blocked:
-                ear = i
-                tris.append((ia, ib, ic))
-                break
-
-        if ear is None:
-            return None
-        del idx[ear]
-
-    if len(idx) != 3:
-        return None
-    a, b, c = pts[idx[0]], pts[idx[1]], pts[idx[2]]
-    if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= _AREA_EPS:
-        # The last three are collinear or wound the wrong way. Report failure
-        # rather than shipping a cap with a hole or an inverted facet in it —
-        # the caller falls back to OCC, which is always a correct answer.
-        return None
-    tris.append((idx[0], idx[1], idx[2]))
-    return np.asarray(tris, dtype=np.int32)
-
-
 # ---------------------------------------------------------------------------
 # Section -> SectionOutline
 # ---------------------------------------------------------------------------
@@ -364,20 +214,22 @@ def outline_for(
         holes.append(ring)
 
     rings = [outer, *holes]
-    points = np.ascontiguousarray(np.concatenate(rings, axis=0), dtype=np.float64)
     slices: list[tuple[int, int]] = []
     cursor = 0
     for ring in rings:
         slices.append((cursor, cursor + ring.shape[0]))
         cursor += ring.shape[0]
 
-    outer_idx = list(range(*slices[0]))
-    hole_idx = [list(range(*s)) for s in slices[1:]]
-    loop = _bridge_holes(points, outer_idx, hole_idx) if hole_idx else outer_idx
-    if loop is None:
+    section_mesh = _section_mesh(rings)
+    if section_mesh is None:
         return None
-    cap_tris = _earclip(points, loop)
-    if cap_tris is None:
+    points, triangles = section_mesh
+    if points.shape[0] != cursor:
+        # The rings handed over are already open and already wound outer-CCW /
+        # void-CW, so the builder's own normalisation is a no-op and the point
+        # order it returns is the one we sent. If that ever stops being true the
+        # slices below would silently mis-name which ring is which, so fail here
+        # instead and let the caller fall back to OCC.
         return None
 
     a_out, cx_out, cy_out = _ring_centroid(outer)
@@ -395,41 +247,35 @@ def outline_for(
     return SectionOutline(
         points=points,
         ring_slices=tuple(slices),
-        cap_tris=cap_tris,
-        triangles=_extrusion_triangles(slices, cap_tris, points.shape[0]),
+        triangles=triangles,
         centroid=(mx / area, my / area),
         area=area,
     )
 
 
-def _extrusion_triangles(slices, cap_tris: np.ndarray, n: int) -> np.ndarray:
-    """The whole triangle list of the extrusion, in outline-local indices.
+def _section_mesh(rings) -> tuple[np.ndarray, np.ndarray] | None:
+    """Cap triangulation plus the whole extrusion connectivity, from adacpp.
 
     Connectivity depends on the SECTION, not the beam: vertex ``k`` is outline
-    point ``k`` at the near end and ``k + n`` at the far end for every beam that
-    shares the profile. Building it once per section rather than once per beam
+    point ``k`` at the near end and ``k + n`` at the far end for every beam
+    sharing the profile. Building it once per section rather than once per beam
     leaves the per-beam work at two matrix multiplies.
+
+    ``None`` when the section cannot be meshed — a cap whose triangulation
+    introduces vertices that are not outline points cannot be indexed against
+    the two rings this layout is built on, and adacpp declines rather than
+    return caps that do not meet their own walls. The caller falls back to OCC.
     """
 
-    tris: list[np.ndarray] = []
-    for start, stop in slices:
-        i = np.arange(start, stop, dtype=np.int64)
-        j = np.roll(i, -1)
-        # Each ring is walked with the material on its left, so
-        # (edge x extrusion) points out of the solid: outward on the outer
-        # ring, into the void on a hole ring.
-        tris.append(np.stack([i, j, j + n], axis=1))
-        tris.append(np.stack([i, j + n, i + n], axis=1))
+    from adacpp.cad import build_extruded_section
 
-    cap = cap_tris.astype(np.int64, copy=False)
-    # The far cap keeps the counter-clockwise winding (normal +xvec); the near
-    # cap is reversed so its normal is -xvec. Both then face out of the solid.
-    tris.append(cap + n)
-    tris.append(cap[:, ::-1])
-
-    out = np.concatenate(tris, axis=0).astype(np.uint32)
-    out.flags.writeable = False  # shared by every beam on this section
-    return out
+    sec = build_extruded_section([[(float(x), float(y)) for x, y in ring] for ring in rings])
+    if not sec.ok:
+        return None
+    points = np.ascontiguousarray(sec.points, dtype=np.float64)
+    triangles = np.ascontiguousarray(sec.triangles, dtype=np.uint32)
+    triangles.flags.writeable = False  # shared by every beam on this section
+    return points, triangles
 
 
 class SectionOutlineCache:

@@ -26,7 +26,6 @@ from ada import Beam, BeamTapered, Section
 from ada.api.curves import CurvePoly2d
 from ada.fem.results.artefacts.beam_extrude import (
     SectionOutlineCache,
-    _earclip,
     extrude_beam,
     outline_for,
     unsupported_reason,
@@ -315,7 +314,11 @@ def test_cap_triangulation_tiles_the_profile_area():
     for name in ("HEA300", "UNP180x10", "BG800x600x20x30", "TUB375x35"):
         outline = outline_for(_named(name))
         p = outline.points
-        t = outline.cap_tris
+        n = outline.n_points
+        all_tris = np.asarray(outline.triangles, dtype=np.int64)
+        # The near cap is reversed (its normal is -xvec), so flip it back rather
+        # than carry a separate array of the same triangles.
+        t = all_tris[(all_tris < n).all(axis=1)][:, ::-1]
         a = p[t[:, 0]]
         b = p[t[:, 1]]
         c = p[t[:, 2]]
@@ -324,23 +327,6 @@ def test_cap_triangulation_tiles_the_profile_area():
         assert float(area.sum()) == pytest.approx(outline.area, rel=1e-9)
 
 
-def test_earclip_refuses_a_polygon_it_cannot_triangulate():
-    """A degenerate loop returns None rather than a partial fan, so the caller
-    falls back to OCC instead of emitting a broken cap."""
-
-    pts = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])
-    # Four collinear points enclose nothing: no corner is ever an ear.
-    assert _earclip(pts, [0, 1, 2, 3]) is None
-    # Fewer than three vertices is not a polygon at all.
-    assert _earclip(pts, [0, 1]) is None
-
-
-# ---------------------------------------------------------------------------
-# Centroid parity
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("sec_name", sorted({**POLYGONAL_SECTIONS, **CURVED_SECTIONS}))
 def test_section_centroid_matches_the_occ_measurement(sec_name):
     """``SectionCentroidCache`` decides where an eccentric beam's profile sits.
     Its failure mode is silent — every section in the model drawn off its plate
