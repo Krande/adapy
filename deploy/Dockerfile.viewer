@@ -160,6 +160,14 @@ COPY src/ada/comms/ /app/src/ada/comms/
 # correctly reports no tracks and the API publishes the static vocabulary — the adacpp tracks reach
 # the dropdown from the pools that actually run them, via each worker's advertised enum.
 COPY src/ada/cad/ /app/src/ada/cad/
+# ada.assets — the core asset store's storage half. ada.comms.rest.app imports routes/assets.py at
+# MODULE level (it is an include_router at startup like every other router), so leaving it out
+# crashlooped the slim API on `No module named 'ada.assets'` exactly the way ada.cad did above.
+# Safe to ship on the same test: the whole package is stdlib-only by construction -- json, re,
+# dataclasses, datetime, threading and typing, plus its own submodules. It reads and writes blobs
+# core owns the schema for and never opens a provider's source artefact, so nothing native or
+# format-specific is dragged in.
+COPY src/ada/assets/ /app/src/ada/assets/
 # ada.core.file_system — ada.comms.rest.{app,converter} import new_temp_path at MODULE level, so
 # without this the API crashloops on `No module named 'ada.core'` exactly the way it did on
 # `ada.cad` above. Only the one module ships, not the package: the rest of ada/core is numpy-bound

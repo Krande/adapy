@@ -51,6 +51,14 @@ COPY src/ada/comms/ /app/src/ada/comms/
 # ada.cad — imported at module level by ada.comms.rest.converter for the discovered tessellator
 # vocabulary. See the matching COPY in Dockerfile.viewer for why it is safe in the slim runtime.
 COPY src/ada/cad/ /app/src/ada/cad/
+# ada.assets — the core asset store's storage half. ada.comms.rest.app imports routes/assets.py at
+# MODULE level (it is an include_router at startup like every other router), so leaving it out
+# crashlooped the slim API on `No module named 'ada.assets'` exactly the way ada.cad did above.
+# Safe to ship on the same test: the whole package is stdlib-only by construction -- json, re,
+# dataclasses, datetime, threading and typing, plus its own submodules. It reads and writes blobs
+# core owns the schema for and never opens a provider's source artefact, so nothing native or
+# format-specific is dragged in.
+COPY src/ada/assets/ /app/src/ada/assets/
 # ada.core.file_system — new_temp_path is imported at module level by ada.comms.rest.{app,converter}.
 # See the matching COPY in Dockerfile.viewer for why only this one module ships.
 COPY src/ada/core/__init__.py /app/src/ada/core/__init__.py

@@ -50,6 +50,7 @@ router = APIRouter()
 async def api_scope_files(
     scope_obj: Scope = Depends(scope_from_path),
     include_derived: bool = False,
+    prefix: str | None = None,
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
     from ..converter import (
@@ -71,7 +72,15 @@ async def api_scope_files(
         # a full listing made this endpoint O(audit history) — ~1.6 s to return 9 KB, against
         # 30 ms for an unaudited scope with the same file count. is_hidden_key still runs; it
         # is now cheap agreement rather than the mechanism.
-        files = await storage.list(scope_obj, skip_prefixes=HIDDEN_PREFIXES)
+        if prefix:
+            # Bounded listing: the backend enumerates only that sub-prefix. The asset browser
+            # asks for one collection at a time (`assets/<collection>/`), and a scope holds far
+            # more derived blobs than files, so the unbounded walk is what made this endpoint
+            # O(audit history). The hidden-key filter below still applies, so naming a hidden
+            # prefix here does NOT reveal it -- include_derived remains the only way in.
+            files = await storage.list_prefix(scope_obj, prefix)
+        else:
+            files = await storage.list(scope_obj, skip_prefixes=HIDDEN_PREFIXES)
         rows = {f.key: {"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)}
         # A key with a pending upload gets the "uploading" fields whether or
         # not it already appears above — present-but-pending means the PUT
