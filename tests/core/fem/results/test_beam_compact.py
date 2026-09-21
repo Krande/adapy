@@ -20,6 +20,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# the compact artefact takes its section mesh from adacpp, so without it there is
+# nothing here to assert against: every beam falls back to the kernel by design.
+# The adacpp CI leg is where these run.
+pytest.importorskip("adacpp.cad")
+
 from ada import Beam, BeamTapered, Section
 from ada.fem.results.artefacts.beam_compact import (
     collect_beam_solid_instances,

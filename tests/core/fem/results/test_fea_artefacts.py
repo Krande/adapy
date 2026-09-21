@@ -10,6 +10,7 @@ public :class:`FEAStreamReader` protocol.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import struct
 
@@ -1457,6 +1458,14 @@ def test_bake_beam_solid_methods_produce_the_same_artefact_set(fem_files, tmp_pa
     assert metas["procedural"]["n_beam_solids"] == metas["occ"]["n_beam_solids"]
 
 
+# The compact beam-solid format is written from adacpp-meshed sections, so
+# without adacpp the bake has no instances to write and emits no compact
+# artefact at all -- correctly, and the mesh path still covers the beams.
+# These two assert the compact output specifically.
+needs_adacpp = pytest.mark.skipif(importlib.util.find_spec("adacpp") is None, reason="compact beam solids need adacpp")
+
+
+@needs_adacpp
 def test_bake_writes_one_compact_beam_solid_artefact_by_default(fem_files, tmp_path):
     """The default bake emits AFBS and nothing else for beam solids: no GLB,
     no AFBV, no AFEM, and a manifest key an older viewer does not know (so it
@@ -1506,6 +1515,7 @@ def test_bake_writes_one_compact_beam_solid_artefact_by_default(fem_files, tmp_p
     assert float(expanded.vertex_t.max()) <= 1.0
 
 
+@needs_adacpp
 def test_bake_compact_and_mesh_formats_draw_the_same_beams(fem_files, tmp_path):
     """The two artefacts are two encodings of one mesh, and the compact one is
     an order of magnitude smaller. Both claims are asserted here: same beam

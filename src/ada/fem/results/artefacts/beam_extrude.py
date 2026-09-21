@@ -267,7 +267,13 @@ def _section_mesh(rings) -> tuple[np.ndarray, np.ndarray] | None:
     return caps that do not meet their own walls. The caller falls back to OCC.
     """
 
-    from adacpp.cad import build_extruded_section
+    try:
+        from adacpp.cad import build_extruded_section
+    except ImportError:
+        # unsupported_reason() gates this for the bake, but outline_for is
+        # public: answer None rather than raise, which is what every other
+        # 'cannot sample this section' path here does.
+        return None
 
     sec = build_extruded_section([[(float(x), float(y)) for x, y in ring] for ring in rings])
     if not sec.ok:
@@ -311,15 +317,45 @@ class SectionOutlineCache:
 # ---------------------------------------------------------------------------
 
 
+def adacpp_available() -> bool:
+    """Whether the section mesher is installed. Cached: asked once per beam.
+
+    ada-py does not depend on ada-cpp, so this is a normal state rather than a
+    broken install — it costs the fast path, not the output.
+    """
+
+    global _ADACPP_AVAILABLE
+    if _ADACPP_AVAILABLE is None:
+        try:
+            import adacpp.cad  # noqa: F401
+        except ImportError:
+            _ADACPP_AVAILABLE = False
+        else:
+            _ADACPP_AVAILABLE = True
+    return _ADACPP_AVAILABLE
+
+
+_ADACPP_AVAILABLE: bool | None = None
+
+
 def unsupported_reason(beam) -> str | None:
     """Why this beam needs the kernel, or None when the extruder can take it.
 
-    Geometry only — whether the SECTION samples is answered by
+    Geometry mostly — whether the SECTION samples is answered by
     :func:`outline_for`, which the caller asks separately so the reason string
     distinguishes the two.
+
+    The exception is a missing adacpp, which is not about this beam at all:
+    it is reported here because this is the gate both callers already consult,
+    so the bake counts ``occ-fallback[adacpp-unavailable]`` and says plainly
+    why every beam took the slow path — rather than each section quietly
+    failing to sample for no stated reason.
     """
 
     from ada.api.beams import Beam
+
+    if not adacpp_available():
+        return "adacpp-unavailable"
 
     if type(beam) is not Beam:
         # BeamTapered / BeamSweep / BeamRevolve sweep a changing or curved path;
