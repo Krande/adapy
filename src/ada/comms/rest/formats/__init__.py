@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from . import (
     asset_build,
+    asset_publish,
     component,
     convert,
     engine_build,
@@ -36,6 +37,7 @@ from .registry import (
 # Synthetic (sourceless) kinds — dispatched before any source download.
 register(component.ComponentBuildHandler())
 register(asset_build.AssetBuildHandler())
+register(asset_publish.AssetPublishHandler())
 register(procedural_build.ProceduralBuildHandler())
 register(plugin.PluginJobHandler())
 register(procedural_detail.ProceduralDetailHandler())

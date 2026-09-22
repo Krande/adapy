@@ -24,6 +24,18 @@ without a manifest would be a promise `PublishedAssetProvider.delivery()` could 
 becomes independently buildable only once ITS OWN scoped publish (``--root``/``--leaf``) gives it a
 manifest -- that is the whole of Decision 3's leaf-addressable publishing, expressed as "only the
 declared root of THIS publish gets `delivery='build'`".
+
+**Phase 4: this module PLANS, it does not decide whether to write (Decision 2a's "a provider
+PLANS; core WRITES", ``ada.assets.publish``).** :func:`_derive_ifc_plan` is the one derivation --
+it builds the ordered write list and, when ``enforce_occupancy=True``, the SAME occupancy refusal
+:func:`publish_ifc` has always made (kept here because :func:`publish_ifc` is still a direct,
+side-effecting entry point used by tests and any caller without a job queue in front of it).
+``ada.assets.ifc.publisher.IfcAssetPublisher.derive()`` calls the identical function with
+``enforce_occupancy=False`` -- core's own ``apply_publish_plan`` decides occupancy and ``replace``
+for a job-driven publish, and a provider deciding it twice would just be two places that could
+disagree. Both callers get the OTHER guarantee this split does not change: a plan half-derived
+because a node id does not exist, or because the file has no instant, still raises
+:class:`IfcPublishError` before anything is written.
 """
 
 from __future__ import annotations
@@ -60,9 +72,11 @@ from ada.assets.keys import (
 from ada.assets.manifest import (
     HIERARCHY_FILENAME,
     MANIFEST_FILENAME,
+    Actor,
     ArtefactEntry,
     AssetManifest,
     BuildSpec,
+    ChangeRecord,
 )
 from ada.assets.projection import build_hierarchy
 from ada.cadit.ifc.store import IfcStore
@@ -107,6 +121,19 @@ class PublishResult:
     written: tuple[str, ...]  # every key written (or, under dry_run, that WOULD be written)
 
 
+@dataclass(frozen=True)
+class _DerivedIfcPlan:
+    """What :func:`_derive_ifc_plan` computes -- the shared shape both :func:`publish_ifc` (which
+    writes it) and ``IfcAssetPublisher.derive()`` (which hands it to core as a ``PublishPlan``,
+    unwritten) build on."""
+
+    collection: str
+    revision: str
+    subjects: tuple[str, ...]
+    writes: tuple[tuple[str, bytes], ...]  # IN ORDER -- see the module docstring's write-order note
+    counts: dict[str, int]
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -124,6 +151,55 @@ def _instant_from_project(ifc_store: IfcStore) -> str | None:
     if oh is None or not oh.CreationDate:
         return None
     return datetime.fromtimestamp(oh.CreationDate, tz=timezone.utc).isoformat()
+
+
+def _actor_from_owner_history(oh: Any) -> Actor | None:
+    """``IfcOwnerHistory`` -> ``Actor`` (Decision 7's adopt-renamed carrier). Best-effort: a
+    history missing ``OwningUser`` entirely (legal in the schema) yields ``None`` rather than a
+    half-filled actor with no identity."""
+    if oh is None:
+        return None
+    person_org = getattr(oh, "OwningUser", None)
+    person = getattr(person_org, "ThePerson", None) if person_org is not None else None
+    org = getattr(person_org, "TheOrganization", None) if person_org is not None else None
+    ident: str | None = None
+    display: str | None = None
+    if person is not None:
+        parts = [p for p in (getattr(person, "GivenName", None), getattr(person, "FamilyName", None)) if p]
+        display = " ".join(parts) if parts else None
+        # `IfcPerson.Identification` -- NOT `.Id` (that is ifcopenshell's own STEP line number,
+        # `entity.id()`, an unrelated concept this actor's identity must never be keyed by).
+        ident = getattr(person, "Identification", None) or display
+    if ident is None and org is not None:
+        ident = getattr(org, "Name", None)
+        display = display or ident
+    if ident is None:
+        return None
+    application = None
+    app = getattr(oh, "OwningApplication", None)
+    if app is not None:
+        name = getattr(app, "ApplicationFullName", None)
+        version = getattr(app, "Version", None)
+        if name:
+            application = f"{name} {version}".strip() if version else str(name)
+    return Actor(id=str(ident), display=display, application=application)
+
+
+def _relay_source_actor(ifc_file: Any, project: Any, product: Any) -> Actor | None:
+    """Decision 6's IFC rule, verbatim: relay ``source_actor`` from the product's own
+    ``IfcOwnerHistory`` ONLY when the file has more than one owner history, or this product's
+    history differs from the project's -- otherwise a single file-wide author says nothing about
+    this one leaf and is left out rather than repeated on every subject."""
+    product_oh = getattr(product, "OwnerHistory", None)
+    if product_oh is None:
+        return None
+    project_oh = getattr(project, "OwnerHistory", None) if project is not None else None
+    histories = ifc_file.by_type("IfcOwnerHistory")
+    has_multiple = len(histories) > 1
+    differs_from_project = project_oh is not None and product_oh.id() != project_oh.id()
+    if not has_multiple and not differs_from_project:
+        return None
+    return _actor_from_owner_history(product_oh)
 
 
 def _hierarchy_revision_for(store: IfcAssetStore, collection: str, ancestors: list[str]) -> str | None:
@@ -183,9 +259,50 @@ def publish_ifc(
     already-published source blob instead of uploading a fresh one, and record
     ``hierarchy_revision`` against the nearest already-published ancestor.
 
-    Core's ``AssetPublisher.derive()`` protocol is the REST publish job's contract (Phase 4, not
-    wired here); this function is that logic with the staging/scope plumbing left to the caller,
-    so it is directly callable from a test or a future job handler alike.
+    A direct, side-effecting entry point: derives the plan (:func:`_derive_ifc_plan`, occupancy
+    enforced) and writes it here. ``ada.assets.ifc.publisher.IfcAssetPublisher.derive()`` is the
+    OTHER caller of the same derivation -- see the module docstring's Phase-4 note for why
+    occupancy is enforced in exactly one of the two places for each.
+    """
+    plan = _derive_ifc_plan(
+        store,
+        collection=collection,
+        staged_key=staged_key,
+        root=root,
+        leaf=leaf,
+        source=source,
+        extracted_at=extracted_at,
+        published_at=published_at,
+        enforce_occupancy=True,
+        replace=replace,
+    )
+    written: list[str] = []
+    _write(store, list(plan.writes), written, dry_run=dry_run)
+    return PublishResult(
+        dry_run=dry_run,
+        collection=plan.collection,
+        revision=plan.revision,
+        subjects=plan.subjects,
+        written=tuple(written),
+    )
+
+
+def _derive_ifc_plan(
+    store: IfcAssetStore,
+    *,
+    collection: str,
+    staged_key: str,
+    root: str | None = None,
+    leaf: str | None = None,
+    source: str | None = None,
+    extracted_at: str | None = None,
+    published_at: str | None = None,
+    enforce_occupancy: bool,
+    replace: bool = False,
+) -> _DerivedIfcPlan:
+    """The one derivation behind both ``publish_ifc`` and ``IfcAssetPublisher.derive()`` --
+    identical logic, only whether occupancy is enforced HERE differs (see the module docstring).
+    Never writes: the caller decides that.
     """
     if root is not None and leaf is not None:
         raise IfcPublishError("pass at most one of root= / leaf=, not both")
@@ -213,22 +330,26 @@ def publish_ifc(
         raise IfcPublishError(str(exc)) from exc
     published_at = published_at or datetime.now(timezone.utc).isoformat()
 
+    projects = ifc_store.f.by_type("IfcProject")
+    project = projects[0] if projects else None
+
     nodes = walk_full(ifc_store.f)
     by_id = {n.id: n for n in nodes}
 
-    written: list[str] = []
     subjects: list[str] = []
     planned: list[tuple[str, bytes]] = []
+    counts: dict[str, int] = {}
 
     if root is None and leaf is None:
         root_ids = declared_site_roots(nodes)
         if not root_ids:
             raise IfcPublishError("no IfcSite reachable from IfcProject -- pass root= or leaf= explicitly")
-        for subject in root_ids:
-            if not replace and _occupied(store, collection, subject, revision):
-                raise IfcPublishError(
-                    f"{ASSET_PREFIX}/{collection}/{subject}/{revision}/ is already occupied; pass replace=True"
-                )
+        if enforce_occupancy:
+            for subject in root_ids:
+                if not replace and _occupied(store, collection, subject, revision):
+                    raise IfcPublishError(
+                        f"{ASSET_PREFIX}/{collection}/{subject}/{revision}/ is already occupied; pass replace=True"
+                    )
         source_key = asset_key(collection, collection, revision, SOURCE_FILENAME)
         planned.append((source_key, raw))
         source_ref = {"key": source_key}
@@ -237,6 +358,7 @@ def publish_ifc(
             _publish_one_subject(
                 store,
                 ifc_file=ifc_store.f,
+                project=project,
                 subject_nodes=subtree_nodes(nodes, subject),
                 collection=collection,
                 subject=subject,
@@ -262,6 +384,7 @@ def publish_ifc(
         index_bytes = index_slice.to_json()
         index_hierarchy_key = asset_key(collection, collection, revision, HIERARCHY_FILENAME)
         planned.append((index_hierarchy_key, index_bytes))
+        counts = {"sites": len(root_ids), "nodes": len(index_nodes)}
         collection_manifest = AssetManifest(
             provider=IFC_PROVIDER_ID,
             collection=collection,
@@ -277,7 +400,7 @@ def publish_ifc(
                 ),
                 ArtefactEntry(role="source", file=SOURCE_FILENAME, sha256=_sha(raw), size=len(raw)),
             ),
-            counts={"sites": len(root_ids), "nodes": len(index_nodes)},
+            counts=counts,
         )
         planned.append((asset_key(collection, collection, revision, MANIFEST_FILENAME), collection_manifest.to_json()))
 
@@ -285,7 +408,7 @@ def publish_ifc(
         target = root if root is not None else leaf
         if target not in by_id:
             raise IfcPublishError(f"no node {target!r} reachable from IfcProject in this file")
-        if not replace and _occupied(store, collection, target, revision):
+        if enforce_occupancy and not replace and _occupied(store, collection, target, revision):
             raise IfcPublishError(
                 f"{ASSET_PREFIX}/{collection}/{target}/{revision}/ is already occupied; pass replace=True"
             )
@@ -302,9 +425,10 @@ def publish_ifc(
             source_ref = {"key": source_key}
             hierarchy_revision = _hierarchy_revision_for(store, collection, _ancestor_chain(nodes, target))
 
-        _publish_one_subject(
+        counts = _publish_one_subject(
             store,
             ifc_file=ifc_store.f,
+            project=project,
             subject_nodes=subtree_nodes(nodes, target),
             collection=collection,
             subject=target,
@@ -318,9 +442,12 @@ def publish_ifc(
         )
         subjects.append(target)
 
-    _write(store, planned, written, dry_run=dry_run)
-    return PublishResult(
-        dry_run=dry_run, collection=collection, revision=revision, subjects=tuple(subjects), written=tuple(written)
+    return _DerivedIfcPlan(
+        collection=collection,
+        revision=revision,
+        subjects=tuple(subjects),
+        writes=tuple(planned),
+        counts=counts,
     )
 
 
@@ -328,6 +455,7 @@ def _publish_one_subject(
     store: IfcAssetStore,
     *,
     ifc_file: Any,
+    project: Any,
     subject_nodes: list[IfcNode],
     collection: str,
     subject: str,
@@ -338,11 +466,12 @@ def _publish_one_subject(
     source_ref: dict,
     hierarchy_revision: str | None,
     planned: list[tuple[str, bytes]],
-) -> None:
+) -> dict[str, int]:
     """One subject's own hierarchy.json + ifc.index.json + asset.json, appended to ``planned``
     in that order -- the per-subject half of the write-order contract (the manifest is written
     last because it is the one file whose mere presence a reader treats as "this revision is
-    complete")."""
+    complete"). Returns this subject's own ``counts``, for a scoped (``--root``/``--leaf``)
+    publish's plan to report."""
     slice_ = build_hierarchy(
         provider=IFC_PROVIDER_ID,
         collection=collection,
@@ -364,6 +493,18 @@ def _publish_one_subject(
     planned.append((index_key, index_bytes))
 
     leaves = sum(1 for n in subject_nodes if n.leaf)
+    counts = {"nodes": len(subject_nodes), "leaves": leaves}
+
+    # Decision 6's IFC rule: relay `source_actor` from THIS subject's own product only when the
+    # file has more than one owner history, or this product's differs from the project's --
+    # `change` stays absent otherwise (never `published_by`/`published_via`: those are core's,
+    # and a provider that set them is refused at the publish job, `ada.assets.publish`).
+    change = None
+    subject_product = ifc_file.by_guid(subject) if hasattr(ifc_file, "by_guid") else None
+    relayed = _relay_source_actor(ifc_file, project, subject_product) if subject_product is not None else None
+    if relayed is not None:
+        change = ChangeRecord(source_actor=relayed)
+
     manifest = AssetManifest(
         provider=IFC_PROVIDER_ID,
         collection=collection,
@@ -373,6 +514,7 @@ def _publish_one_subject(
         produced_at=instant,
         published_at=published_at,
         delivery="build",
+        change=change,
         hierarchy_revision=hierarchy_revision,
         build=_build_spec(source_key_ref=source_ref, hierarchy_key=hierarchy_key, node_id=subject),
         artefacts=(
@@ -384,9 +526,10 @@ def _publish_one_subject(
                 role=IFC_INDEX_ROLE, file=IFC_INDEX_FILENAME, sha256=_sha(index_bytes), size=len(index_bytes)
             ),
         ),
-        counts={"nodes": len(subject_nodes), "leaves": leaves},
+        counts=counts,
     )
     planned.append((asset_key(collection, subject, revision, MANIFEST_FILENAME), manifest.to_json()))
+    return counts
 
 
 def _max_depth(nodes: list[IfcNode]) -> int:

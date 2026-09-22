@@ -19,12 +19,18 @@ an ADD-ON, and the design's own "Still open" note leaves the exact sweep hash in
 sets included or not" -- an unmeasured, provider-internal choice). Widening this hash to include
 property sets is additive and does not change the artefact's shape.
 
-**Why STEP entity-instance numbers are excluded.** ``get_info`` embeds the numeric ``#id`` of
-every referenced entity by default only through nested dicts (each referenced entity is itself
-expanded to its own attribute dict, not left as a bare ``#123`` token), so two files that assign
-different STEP line numbers to logically identical entities still hash the same -- which matters
-here because ``v1`` and a re-exported ``v2`` are independently written files, not the same file
-re-saved.
+**Why STEP entity-instance numbers must be stripped, recursively.** ``get_info(recursive=True)``
+expands every referenced entity into its own nested dict rather than leaving a bare ``#123``
+token -- but EACH of those nested dicts still carries its own numeric ``"id"`` key alongside the
+expanded attributes (verified against ifcopenshell's own output, not assumed), at every depth: the
+product's own top-level id, its placement's id, its placement's axis' id, and so on down the whole
+representation graph. Two files that assign different STEP line numbers to logically identical
+entities -- the ordinary case for ``v1`` and an independently re-exported ``v2``, where adding or
+removing ANY entity anywhere in the file shifts numbering for everything written after it -- would
+therefore hash as "changed" everywhere, not just where content actually moved, if only the
+top-level ``"id"`` were dropped. :func:`_strip_step_ids` walks the WHOLE nested structure and drops
+every ``"id"`` key it finds, which is what makes the hash a statement about content rather than
+about write order.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Any
 
 import ifcopenshell
 
@@ -57,6 +64,17 @@ class IfcIndexEntry:
     hash: str  # sha256 of representation + placement + own attributes
 
 
+def _strip_step_ids(node: Any) -> Any:
+    """Drop every ``"id"`` key (the STEP entity-instance number) at every depth of a
+    ``get_info(recursive=True)`` tree -- see the module docstring for why this must be recursive,
+    not just applied to the top-level dict."""
+    if isinstance(node, dict):
+        return {k: _strip_step_ids(v) for k, v in node.items() if k != "id"}
+    if isinstance(node, (list, tuple)):
+        return [_strip_step_ids(v) for v in node]
+    return node
+
+
 def _product_hash(product: ifcopenshell.entity_instance) -> str:
     info = product.get_info(recursive=True)
     # OwnerHistory carries a per-write timestamp that moves on every re-export even when nothing
@@ -64,6 +82,7 @@ def _product_hash(product: ifcopenshell.entity_instance) -> str:
     # the entry's own key already. Both would make an untouched product hash as "changed".
     info.pop("OwnerHistory", None)
     info.pop("GlobalId", None)
+    info = _strip_step_ids(info)
     blob = json.dumps(info, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 

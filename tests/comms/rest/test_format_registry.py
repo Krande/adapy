@@ -28,6 +28,7 @@ from ada.comms.rest.worker import _process_one
 CHAIN_KINDS = [
     ("component_build", True),
     ("asset_build", True),
+    ("asset_publish", True),
     ("procedural_build", True),
     ("plugin_job", True),
     ("procedural_detail", True),

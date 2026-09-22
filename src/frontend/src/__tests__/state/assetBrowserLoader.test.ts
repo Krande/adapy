@@ -11,9 +11,10 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 
+import type { SourceNodesAnswer } from "../../assets/changes";
 import type { WireAssetIndex, WireHierarchySlice } from "../../assets/types";
 import { useAssetBrowserStore } from "../../state/assetBrowserStore";
-import { createAssetBrowserLoader, type AssetsApiLike } from "../../state/assetBrowserLoader";
+import { createAssetBrowserLoader, type AssetsApiLike, type SourceNodesApiLike } from "../../state/assetBrowserLoader";
 
 const SCOPE = "user:me";
 const R1 = "20260901T100000Z";
@@ -172,6 +173,99 @@ test("a failed spine is recorded against its root and retried explicitly", async
   const s = useAssetBrowserStore.getState();
   assert.match(s.spineErrors.get("area-2") ?? "", /no tree/);
   assert.ok(!s.spineLoading.has("area-2"));
+});
+
+// ---------------------------------------------------------------------------
+// the change feed's fetch side (§Decision 4, Phase 4): eager per published
+// root, lazy per spine, best-effort, and optional (a caller with no
+// `sourceNodesApi` -- every test above this point -- gets a pure no-op).
+// ---------------------------------------------------------------------------
+
+function makeSourceNodesApi(answerFor: (source: string, refs: readonly string[]) => SourceNodesAnswer | null) {
+  const calls: { source: string; refs: readonly string[] }[] = [];
+  const api: SourceNodesApiLike = {
+    async getSourceNodes(_scope, source, refs) {
+      calls.push({ source, refs: [...refs] });
+      return answerFor(source, refs);
+    },
+  };
+  return { api, calls };
+}
+
+test("root evidence is fetched eagerly for every published subject (not the collection itself), grouped by provider", async () => {
+  const { api } = makeApi();
+  const { api: sourceApi, calls } = makeSourceNodesApi((source, refs) => ({
+    source,
+    rows: new Map(refs.map((r) => [r, { nodeRef: r, parentRef: null, name: null, lastChangedAt: "2026-08-01T00:00:00Z", lastChangedBy: null, observedAt: "2026-08-01T00:00:00Z", action: null }])),
+    unknown: new Set(),
+  }));
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api, sourceApi);
+  await loader.loadCollections(SCOPE);
+  // area-1 is the only published subject other than the collection index
+  // itself ("plant-a"); the collection subject is never asked about as an
+  // export root.
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].source, "fixture-lines");
+  assert.deepEqual(calls[0].refs, ["area-1"]);
+  const s = useAssetBrowserStore.getState();
+  assert.ok(s.evidenceAsked.has("area-1"));
+  assert.ok(!s.evidenceAsked.has("plant-a"), "the collection index is not an export root");
+});
+
+test("per-spine evidence asks only the refs THIS spine brought in, deduped against what root evidence already asked", async () => {
+  const { api } = makeApi();
+  const { api: sourceApi, calls } = makeSourceNodesApi((source, refs) => ({
+    source,
+    rows: new Map(),
+    unknown: new Set(refs),
+  }));
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api, sourceApi);
+  await loader.loadCollections(SCOPE); // asks about area-1 eagerly (root evidence)
+  calls.length = 0;
+  await loader.loadSpine(SCOPE, { subject: "area-1", revision: R1, root: "area-1" });
+  assert.equal(calls.length, 1);
+  // area-1 itself was already asked by root evidence -- the spine call's own
+  // refs (its root plus every node id the slice brought in) are deduped
+  // against the GLOBAL `evidenceAsked` set, not re-requested.
+  assert.deepEqual([...calls[0].refs].sort(), ["level-1", "member-1"]);
+  const s = useAssetBrowserStore.getState();
+  assert.ok(s.evidenceAsked.has("level-1"));
+  assert.ok(s.evidenceAsked.has("member-1"));
+});
+
+test("a second load of the same spine does not re-ask evidence for refs it already has", async () => {
+  const { api } = makeApi();
+  const { api: sourceApi, calls } = makeSourceNodesApi((source, refs) => ({ source, rows: new Map(), unknown: new Set(refs) }));
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api, sourceApi);
+  await loader.loadCollections(SCOPE);
+  const source = { subject: "area-1", revision: R1, root: "area-1" };
+  await loader.loadSpine(SCOPE, source);
+  const before = calls.length;
+  await loader.loadSpine(SCOPE, source); // idempotent: `spineLoaded` already matches
+  assert.equal(calls.length, before, "the spine itself is not re-fetched, so evidence is not re-asked either");
+});
+
+test("the feed answering no-feed (null) is recorded as such, not silently dropped", async () => {
+  const { api } = makeApi();
+  const { api: sourceApi } = makeSourceNodesApi(() => null);
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api, sourceApi);
+  await loader.loadCollections(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.equal(s.sourceAnswer.get("fixture-lines"), null);
+  assert.ok(s.evidenceAsked.has("area-1"), "asked and told no-feed is still having asked");
+});
+
+test("a caller that supplies no sourceNodesApi gets a pure no-op -- evidence fetching is optional plumbing", async () => {
+  const { api } = makeApi();
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, api); // two-arg call, exactly like every earlier test in this file
+  await loader.loadCollections(SCOPE);
+  const source = { subject: "area-1", revision: R1, root: "area-1" };
+  await loader.loadSpine(SCOPE, source);
+  const s = useAssetBrowserStore.getState();
+  assert.equal(s.evidenceAsked.size, 0);
+  assert.equal(s.sourceAnswer.size, 0);
+  // The hierarchy work itself is unaffected either way.
+  assert.equal(s.forest.nodes.get("member-1")?.parent, "level-1");
 });
 
 test("a response for a collection the user has left is dropped", async () => {

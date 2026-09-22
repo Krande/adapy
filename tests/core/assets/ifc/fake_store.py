@@ -30,14 +30,21 @@ class FakeStore:
 
 
 class FakeSyncStorageFacade:
-    """The subset of ``worker/source_nodes.py::_SyncStorageFacade`` a builder actually calls:
-    ``get_bytes`` / ``put_bytes(key, data, content_encoding=None)``."""
+    """The subset of ``worker/source_nodes.py::_SyncStorageFacade`` a builder OR a publisher
+    actually calls: ``get_bytes`` / ``list_keys(prefix)`` / ``put_bytes(key, data,
+    content_encoding=None)``. ``AssetPublisher.derive()`` is handed exactly this shape
+    (``formats/asset_publish.py``, ``local_jobs.py::start_asset_publish``), so
+    ``IfcAssetPublisher``'s tests are driven against it rather than against
+    :class:`FakeStore`'s own ``list_prefix``-shaped reader."""
 
     def __init__(self, store: FakeStore) -> None:
         self._store = store
 
     def get_bytes(self, key: str) -> bytes:
         return self._store.get_bytes(key)
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        return list(self._store.list_prefix(prefix))
 
     def put_bytes(self, key: str, data: bytes, content_encoding: str | None = None) -> None:
         self._store.put_bytes(key, data)

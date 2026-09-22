@@ -8,18 +8,25 @@
 // A row receives the view and its id and nothing else (`rowFacts`), so every
 // mark on it is one function of one derived object.
 //
-// FOUR WAYS A ROW CAN READ AS LESS THAN ORDINARY, kept visually apart:
-//   dimmed   nothing at or below to deliver -- reduced opacity, and it SAYS so
-//            in its title. Rendered, never hidden: "there is nothing here" is
-//            an answer, a missing row is not.
-//   gap      something below, no publish covers it -- an amber `gap` tag.
-//   stale    drawn from a spine the resolution moved past -- a `stale` tag.
-//   drift    published against an older tree -- an amber `older tree` tag.
+// SIX WAYS A ROW CAN READ AS LESS THAN ORDINARY, kept visually apart:
+//   dimmed    nothing at or below to deliver -- reduced opacity, and it SAYS so
+//             in its title. Rendered, never hidden: "there is nothing here" is
+//             an answer, a missing row is not.
+//   gap       something below, no publish covers it -- an amber `gap` tag.
+//   stale     drawn from a spine the resolution moved past -- a gray `stale`
+//             tag. Fixed by Refresh.
+//   drift     published against an older tree -- an amber `older tree` tag.
+//   behind    (change feed) the SOURCE moved after this root was published --
+//             a RED chip, never the same mark as `stale`: fixed only by a new
+//             export, and Refresh does nothing for it.
+//   evidence  (change feed) the sweep found THIS node added/modified/deleted --
+//             a purple per-node letter, independent of the root's own chip.
 
 import React, { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { AssetView } from "@/assets/assetView";
+import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { flattenVisible } from "@/assets/hierarchy";
 import { rowFacts, searchRows, type RowBadge } from "@/assets/rowFacts";
 import { canFetchSpine, rowSpineState, type SpineSource } from "@/assets/spines";
@@ -62,6 +69,57 @@ const Tag: React.FC<{ tone: "amber" | "gray"; title: string; children: React.Rea
         }`}
     >
         {children}
+    </span>
+);
+
+// BEHIND-UPSTREAM is a change-feed fact, never the same mark as `stale`
+// (freshness, gray) or `drift` (hierarchy, amber) above: a red family, its
+// own word per state, so a row that is stale, drifted AND behind at once
+// shows three visibly different tags rather than one overloaded amber dot.
+const CHANGE_CHIP: Record<ChangeState, { cls: string; label: string; title: string }> = {
+    behind: {
+        cls: "bg-red-800/70 text-red-100",
+        label: "behind",
+        title: "The source moved after this root was published. Re-export to catch up -- Refresh will not fix this.",
+    },
+    current: {
+        cls: "bg-emerald-800/60 text-emerald-100",
+        label: "current",
+        title: "The change feed covered this root and found nothing newer at the source.",
+    },
+    "not-recorded": {
+        cls: "bg-gray-600 text-gray-300",
+        label: "not recorded",
+        title: "The change feed has never covered this root -- nobody has looked, which is not the same as unchanged.",
+    },
+    "no-feed": {
+        cls: "bg-gray-700 text-gray-400 italic",
+        label: "no feed",
+        title: "This deployment has no change-feed database. Whether the source moved cannot be said.",
+    },
+};
+
+const ChangeChip: React.FC<{ state: ChangeState }> = ({ state }) => {
+    const c = CHANGE_CHIP[state];
+    return (
+        <span title={c.title} className={`ml-1 shrink-0 rounded-sm px-1 text-[9px] leading-[14px] ${c.cls}`}>
+            {c.label}
+        </span>
+    );
+};
+
+const EVIDENCE_LETTER: Record<ChangeAction, string> = { added: "+", modified: "~", deleted: "−" };
+
+// Per-NODE evidence -- what the sweep found AT this row -- is a purple
+// family, deliberately apart from the root-level red `ChangeChip`: a leaf the
+// sweep flagged `modified` inside a root already marked `behind` would
+// otherwise repaint the same fact twice in the same colour.
+const EvidenceMark: React.FC<{ action: ChangeAction }> = ({ action }) => (
+    <span
+        title={`The change feed's sweep recorded this node as ${action}.`}
+        className="ml-1 inline-flex items-center justify-center rounded-sm text-[9px] leading-none font-bold w-3.5 h-3.5 shrink-0 bg-purple-700/80 text-purple-100"
+    >
+        {EVIDENCE_LETTER[action]}
     </span>
 );
 
@@ -114,6 +172,8 @@ const AssetRow: React.FC<{
                 <span className="ml-1 text-[10px] text-gray-500">{facts.payload}</span>
             )}
             {facts.badge && <Badge badge={facts.badge} />}
+            {facts.changeState && <ChangeChip state={facts.changeState} />}
+            {facts.evidenceMark && <EvidenceMark action={facts.evidenceMark} />}
             {facts.gap && <Tag tone="amber" title={`${facts.uncovered} leaf node(s) at or below are not covered by any publish`}>gap</Tag>}
             {spine.deadEnd && (
                 <Tag tone="gray" title="Marked as a branch, but no published hierarchy holds its children">no subtree</Tag>

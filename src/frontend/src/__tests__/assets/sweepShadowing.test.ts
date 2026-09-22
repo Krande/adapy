@@ -40,10 +40,10 @@ const INDEX = foldListing(
     K("area-1", SWEEP, HIERARCHY_FILENAME),
   ],
   new Map<string, ManifestSummary>([
-    [`${COLL}/${COLL}/${CONTENT_RUN}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: CONTENT_RUN, hierarchyRevision: null }],
-    [`${COLL}/area-1/${CONTENT_RUN}`, { provider: "fixture-lines", node: "area-1", delivery: "mesh", producedAt: CONTENT_RUN, hierarchyRevision: null }],
-    [`${COLL}/${COLL}/${SWEEP}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: SWEEP, hierarchyRevision: null }],
-    [`${COLL}/area-1/${SWEEP}`, { provider: "fixture-lines", node: "area-1", delivery: "none", producedAt: SWEEP, hierarchyRevision: null }],
+    [`${COLL}/${COLL}/${CONTENT_RUN}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: CONTENT_RUN, hierarchyRevision: null, change: null }],
+    [`${COLL}/area-1/${CONTENT_RUN}`, { provider: "fixture-lines", node: "area-1", delivery: "mesh", producedAt: CONTENT_RUN, hierarchyRevision: null, change: null }],
+    [`${COLL}/${COLL}/${SWEEP}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: SWEEP, hierarchyRevision: null, change: null }],
+    [`${COLL}/area-1/${SWEEP}`, { provider: "fixture-lines", node: "area-1", delivery: "none", producedAt: SWEEP, hierarchyRevision: null, change: null }],
   ]),
 );
 

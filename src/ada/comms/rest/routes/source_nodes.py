@@ -52,6 +52,9 @@ def _source_nodes_pool(request: Request):
     return pool
 
 
+_ACTIONS = ("added", "modified", "deleted")
+
+
 def _source_node_json(n) -> dict:
     return {
         "node_ref": n.node_ref,
@@ -60,6 +63,9 @@ def _source_node_json(n) -> dict:
         "last_changed_at": n.last_changed_at.isoformat(),
         "last_changed_by": n.last_changed_by,
         "observed_at": n.observed_at.isoformat(),
+        # None for every row written before migration 030, and for any writer
+        # that has no opinion -- absent is a normal, complete answer, not a gap.
+        "action": getattr(n, "action", None),
     }
 
 
@@ -198,12 +204,20 @@ def _parse_source_node(raw, index: int) -> dict:
         val = str(val).strip()
         return val or None
 
+    action = _opt("action")
+    if action is not None and action not in _ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"nodes[{index}].action {action!r} not in {_ACTIONS} (omit it if the writer has no opinion)",
+        )
+
     return {
         "node_ref": node_ref,
         "parent_ref": _opt("parent_ref"),
         "name": _opt("name"),
         "last_changed_at": changed,
         "last_changed_by": _opt("last_changed_by"),
+        "action": action,
     }
 
 
