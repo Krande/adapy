@@ -739,3 +739,31 @@ def test_a_user_scope_refuses_to_invent_a_wire_form(worker_mod):
     rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", Scope.user("someone"))
     with pytest.raises(ValueError, match="user:me"):
         rec._url()
+
+
+def test_no_database_is_no_feed_never_current():
+    """`_source_nodes_pool` is the read side's only source of truth for whether a feed exists at
+    all: no `db_pool` on `app.state` is refused with 503, not answered with an empty-but-200
+    "nothing changed". A sweep's rows are meaningless without somewhere to record them -- this is
+    the third "cannot say" state Decision 4 lists alongside `behind` / `current` /
+    `not-recorded`, and it must never collapse into `current`.
+
+    Lives with the REST tests rather than beside the IFC sweep that motivated it: it asserts a
+    ROUTE helper, and the core asset suite runs in an environment with no REST stack at all.
+    """
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes.source_nodes import _source_nodes_pool
+
+    class _State:
+        db_pool = None
+
+    class _App:
+        state = _State()
+
+    class _Request:
+        app = _App()
+
+    with pytest.raises(HTTPException) as exc_info:
+        _source_nodes_pool(_Request())
+    assert exc_info.value.status_code == 503

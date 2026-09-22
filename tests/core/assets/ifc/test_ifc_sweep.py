@@ -15,11 +15,9 @@ import pathlib
 
 import ifcopenshell
 import pytest
-from fastapi import HTTPException
 
 from ada.assets.ifc.publish import publish_ifc
 from ada.assets.ifc.sweep import IFC_SOURCE_ID, IfcSweepError, run_ifc_sweep, sweep_ifc
-from ada.comms.rest.routes.source_nodes import _source_nodes_pool
 
 from .fake_store import FakeStore, FakeSyncStorageFacade
 
@@ -162,27 +160,6 @@ def test_unknown_root_is_refused(published_v1):
 
 
 # --- no-feed is a third, distinct state -- never answered as `current` ----------------------------
-
-
-def test_no_database_is_no_feed_never_current():
-    """`_source_nodes_pool` (`routes/source_nodes.py`) is the read side's only source of truth for
-    whether a feed exists at all: no `db_pool` on `app.state` is refused with 503, not answered
-    with an empty-but-200 'nothing changed'. A sweep's rows are meaningless without somewhere to
-    record them -- this is the third 'cannot say' state Decision 4 lists alongside `behind` /
-    `current` / `not-recorded`, and it must never collapse into `current`."""
-
-    class _State:
-        db_pool = None
-
-    class _App:
-        state = _State()
-
-    class _Request:
-        app = _App()
-
-    with pytest.raises(HTTPException) as exc_info:
-        _source_nodes_pool(_Request())
-    assert exc_info.value.status_code == 503
 
 
 # --- the worker entry: sweep + hand rows to an injected recorder ----------------------------------
