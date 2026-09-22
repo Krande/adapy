@@ -19,17 +19,111 @@ import React, { useEffect, useMemo } from "react";
 
 import { revisionsOf } from "@/assets/assetIndex";
 import { buildAssetHierarchy, buildAssetView, type AssetView } from "@/assets/assetView";
+import {
+    assetSourceName,
+    loadNode,
+    parseDeliveryClaim,
+    type LoadNodeDeps,
+    type NodeRef,
+} from "@/assets/delivery";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
-import { rowFacts } from "@/assets/rowFacts";
+import { rowFacts, type RowBadge } from "@/assets/rowFacts";
 import { canFetchSpine } from "@/assets/spines";
 import type { ResolutionMode } from "@/assets/types";
+import type { TreeNodeData } from "@/components/tree_view/CustomNode";
+import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
+import { conversionApi } from "@/services/api/conversion";
+import { filesApi } from "@/services/api/files";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { loaderFor } from "@/state/assetBrowserLoader";
+import { useModelSessionStore } from "@/state/modelSession";
+import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart } from "@/state/scopeStore";
+import { getViewerRuntime } from "@/state/viewerRuntime";
+import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 
 import AssetTree from "./AssetTree";
 import { formatRevision } from "./format";
+
+// Owner tag for every scene object this tab adds -- the same role `OWNER` in
+// `ExternalModelsPanel.tsx` plays for the External Models panel: a standalone
+// plugin context is the documented way for CORE UI (not just a plugin) to
+// reach `SceneHandle.loadModelFromUrl`/`unloadModel`, so loading and unloading
+// go through the exact path a plugin would use rather than a second one.
+const OWNER = "assets";
+
+/** `state/model_worker/cacheModelUtils.ts`'s synthetic container id -- every
+ *  loaded model's tree root is one of its children (or the tree root itself,
+ *  when only one model is loaded). Mirrored here rather than imported because
+ *  that module exports no constant, only the behaviour. */
+const ROOTS_CONTAINER_ID = "__roots__";
+
+/** Real `LoadNodeDeps` for `loadNode`: REST calls through `assetsApi` /
+ *  `conversionApi` (the same job-status route a plugin job polls), the scene
+ *  through a standalone plugin context, and `useModelState.loadedSourceNames`
+ *  for "is this already loaded". Built fresh per call rather than memoised --
+ *  every field it closes over is either a stable module export or a snapshot
+ *  read at call time, so there is nothing to keep in sync. */
+function realDeliveryDeps(isLoaded: (sourceName: string) => boolean): LoadNodeDeps {
+    return {
+        api: {
+            buildAssetNode: (scope, body) => assetsApi.buildAssetNode(scope, body),
+            getBuildSummary: (scope, key) => assetsApi.getBuildSummary(scope, key),
+            async jobStatus(jobId) {
+                const status = await conversionApi.convertStatus(jobId);
+                return { status: status.status, error: status.error };
+            },
+        },
+        loadModelFromUrl: (owner, url, opts) => makePluginContextStandalone(OWNER).scene.loadModelFromUrl(owner, url, opts),
+        isLoaded,
+        blobUrl: (scope, key) => filesApi.blobUrl(scope, key),
+        trackJob: (opts) => {
+            makePluginContextStandalone(OWNER).trackJob(opts);
+        },
+    };
+}
+
+/** The `NodeRef` a Load click on row `id` targets: `badge.at` (the manifest-
+ *  owning subject -- the clicked row itself for a `solid` badge, the covering
+ *  ancestor for `ghost`/`below`) carries the request; `id` rides along as
+ *  `node` only when it differs, so two different covered rows stay separately
+ *  revealable (`assetSourceName`) even though both load the same content. */
+function refForBadge(view: AssetView, id: string, badge: RowBadge): NodeRef | null {
+    const owner = view.hierarchy.byId.get(badge.at)?.data;
+    if (!owner) return null;
+    return {
+        provider: owner.provider,
+        collection: view.collection,
+        subject: badge.at,
+        revision: badge.revision,
+        node: badge.at === id ? undefined : id,
+    };
+}
+
+/** The Files-tab tree root for an already-loaded source, if the tree has been built at all.
+ *
+ * TWO NAMES, AND THEY ARE NOT THE SAME NAME. A load registers its group under the SOURCE NAME
+ * (`registerLoadedSource`), while `cacheAndBuildTree` stamps the tree root's `model_key` with the
+ * runtime MODEL KEY -- `<scene name>_<uuid>`, minted inside the loader. Matching the root by
+ * source name therefore never matched anything, and the reveal action sat permanently disabled
+ * beside a model that was plainly on screen.
+ *
+ * The bridge between the two is the group object itself, which is exactly how the unload path
+ * resolves the same question (`unload_source_from_scene`): find the group registered under this
+ * source name, then find the key it is stored under in the runtime's model-key map. */
+function loadedTreeRoot(treeData: TreeNodeData | null, sourceName: string): TreeNodeData | null {
+    if (!treeData) return null;
+    const group = useModelSessionStore.getState().current()?.groups.get(sourceName);
+    if (!group) return null;
+    let modelKey: string | null = null;
+    getViewerRuntime().modelKeyMap.current?.forEach((g, key) => {
+        if (g === group) modelKey = key;
+    });
+    if (modelKey === null) return null;
+    const candidates = treeData.id === ROOTS_CONTAINER_ID ? treeData.children : [treeData];
+    return candidates.find((c) => c.model_key === modelKey) ?? null;
+}
 
 const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactNode; title?: string }> = ({
     tone,
@@ -167,7 +261,102 @@ const Orphans: React.FC<{
     );
 };
 
-const Detail: React.FC<{ view: AssetView; id: string }> = ({ view, id }) => {
+/** Load / reveal / unload for one row, driven off the same `RowBadge` the
+ *  tree's badge dot reads (`rowFacts`) -- a `solid` or `ghost` badge is
+ *  deliverable; `below` is not (the content is further DOWN the tree, so
+ *  there is nothing at or above this row to load) and gets no control. */
+const LoadControls: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view, id, scope }) => {
+    const { useAssetBrowserStore, useModelState, useTreeViewStore } = useViewerStores();
+    const busy = useAssetBrowserStore((s) => s.loadBusy.has(id));
+    const error = useAssetBrowserStore((s) => s.loadErrors.get(id) ?? null);
+    const loaded = useAssetBrowserStore((s) => s.loaded);
+    const liveSourceNames = useModelState((s) => s.loadedSourceNames);
+    const treeData = useTreeViewStore((s) => s.treeData);
+
+    // Keep the `loaded` mirror honest against the scene's own truth: a model
+    // unloaded from the Files tab (or anywhere else) must stop showing as
+    // loaded here on the very next render, not linger until some unrelated
+    // asset-browser action happens to touch the store.
+    useEffect(() => {
+        useAssetBrowserStore.getState().reconcileLoaded(liveSourceNames);
+    }, [liveSourceNames, useAssetBrowserStore]);
+
+    const facts = rowFacts(view, id);
+    const badge = facts?.badge;
+    if (!badge || badge.weight === "below") return null;
+    const ref = refForBadge(view, id, badge);
+    if (!ref) return null;
+    const sourceName = assetSourceName(ref);
+    const entry = loaded.find((a) => a.sourceName === sourceName);
+
+    if (entry) {
+        const root = loadedTreeRoot(treeData, sourceName);
+        return (
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <span className="text-green-300">Loaded{badge.weight === "ghost" ? ` (via ${badge.at})` : ""}</span>
+                <button
+                    type="button"
+                    className="text-blue-300 hover:text-white disabled:text-gray-500"
+                    disabled={!root}
+                    title={root ? "Select this model's root in the Files tab" : "Not in the Files tree yet"}
+                    onClick={() => root && void selectTreeNode(root)}
+                >
+                    reveal in Files
+                </button>
+                <button
+                    type="button"
+                    className="text-gray-300 hover:text-white"
+                    onClick={() => {
+                        makePluginContextStandalone(OWNER).scene.unloadModel(sourceName);
+                        requestRender();
+                        // Optimistic: the effect above will re-confirm against
+                        // `loadedSourceNames` on the next render regardless.
+                        useAssetBrowserStore.getState().reconcileLoaded(new Set([...liveSourceNames].filter((n) => n !== sourceName)));
+                    }}
+                >
+                    unload
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
+            <button
+                type="button"
+                disabled={busy}
+                className="text-blue-300 hover:text-white disabled:text-gray-500"
+                onClick={() => {
+                    const store = useAssetBrowserStore.getState();
+                    store.beginLoad(id);
+                    void (async () => {
+                        try {
+                            const wireClaim = await assetsApi.getAssetDelivery(scope, ref.provider, ref.collection, ref.subject, {
+                                revision: ref.revision,
+                            });
+                            const claim = parseDeliveryClaim(wireClaim);
+                            const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name));
+                            const asset = await loadNode(deps, scope, ref, claim);
+                            useAssetBrowserStore.getState().endLoad(id, asset);
+                            requestRender();
+                        } catch (e) {
+                            useAssetBrowserStore.getState().failLoad(id, e instanceof Error ? e.message : String(e));
+                        }
+                    })();
+                }}
+            >
+                {busy ? "loading…" : badge.weight === "ghost" ? `Load (from ${badge.at})` : "Load"}
+            </button>
+            {error && (
+                <span className="text-red-300 truncate" title={error}>
+                    {error}
+                </span>
+            )}
+        </div>
+    );
+};
+
+const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view, id, scope }) => {
     const facts = rowFacts(view, id);
     const orphan = view.orphans.find((o) => o.id === id);
     const resolved = view.resolution.subjects.get(id);
@@ -203,6 +392,7 @@ const Detail: React.FC<{ view: AssetView; id: string }> = ({ view, id }) => {
                     <span className="min-w-0 break-words">{v}</span>
                 </div>
             ))}
+            <LoadControls view={view} id={id} scope={scope} />
         </div>
     );
 };
@@ -386,7 +576,7 @@ const AssetsTab: React.FC = () => {
                     onPlace={() => void loader.loadSpines(scope, view.unmergedSpines)}
                 />
             )}
-            {view && selected && <Detail view={view} id={selected} />}
+            {view && selected && <Detail view={view} id={selected} scope={scope} />}
         </div>
     );
 };

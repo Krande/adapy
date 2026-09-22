@@ -9,6 +9,7 @@
 
 import { create } from "zustand";
 
+import type { LoadedAsset } from "@/assets/delivery";
 import { EMPTY_FOREST, mergeSpine, type Forest, type SpineMerge } from "@/assets/merge";
 import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
 
@@ -17,6 +18,7 @@ export type AssetBrowserTab = "files" | "assets";
 const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
 const EMPTY_LOADED: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
+const EMPTY_LOADED_ASSETS: readonly LoadedAsset[] = Object.freeze([]);
 
 export interface AssetBrowserState {
   tab: AssetBrowserTab;
@@ -52,6 +54,19 @@ export interface AssetBrowserState {
   selected: string | null;
   searchTerm: string;
 
+  /** Scene content loaded through the Assets tab (Phase 3), mirrored against
+   *  the scene's live loaded-source set (`reconcileLoaded`) so a model
+   *  unloaded elsewhere -- the Files tab, another plugin -- does not leave a
+   *  stale "loaded" mark here. Not reset on a collection/scope switch: what
+   *  is actually in the scene does not change just because the tab is
+   *  looking somewhere else. */
+  loaded: readonly LoadedAsset[];
+  /** ROW id (the one the user clicked `Load` on, not necessarily the subject
+   *  that owns the claim -- see `NodeRef`) -> a load in flight. */
+  loadBusy: ReadonlySet<string>;
+  /** ROW id -> why its last load attempt failed. Cleared on the next attempt. */
+  loadErrors: ReadonlyMap<string, string>;
+
   setTab: (tab: AssetBrowserTab) => void;
   setScope: (scope: string | null) => void;
   setCollections: (collections: readonly string[]) => void;
@@ -72,6 +87,19 @@ export interface AssetBrowserState {
   setExpanded: (id: string, on: boolean) => void;
   select: (id: string | null) => void;
   setSearchTerm: (term: string) => void;
+  /** A load just started for `id` -- clears any previous error for it too, so
+   *  retrying a failed row does not show a stale message beside the spinner. */
+  beginLoad: (id: string) => void;
+  /** A load for `id` finished. Adds `asset` to `loaded` unless a source of
+   *  that name is already there (two rows covered by the same ancestor both
+   *  finishing must not duplicate the entry). */
+  endLoad: (id: string, asset: LoadedAsset) => void;
+  failLoad: (id: string, error: string) => void;
+  clearLoadError: (id: string) => void;
+  /** Drop every `loaded` entry whose source name the scene no longer holds --
+   *  what keeps this mirror honest against an unload that happened anywhere
+   *  else. Driven from `useModelState.loadedSourceNames`, never guessed. */
+  reconcileLoaded: (liveSourceNames: ReadonlySet<string>) => void;
   /** Drop everything drawn from the current collection, keep the choice of it.
    *  What Refresh does: a union cannot express deletion, so rebuilding from
    *  nothing is the one way to see a tree with nothing stale in it. */
@@ -109,6 +137,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   expanded: EMPTY_SET,
   selected: null,
   searchTerm: "",
+  loaded: EMPTY_LOADED_ASSETS,
+  loadBusy: EMPTY_SET,
+  loadErrors: EMPTY_ERRORS,
 
   setTab: (tab) => set({ tab }),
   setScope: (scope) => set({ scope }),
@@ -173,6 +204,43 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   select: (selected) => set({ selected }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
 
+  beginLoad: (id) =>
+    set((s) => {
+      const busy = new Set(s.loadBusy);
+      busy.add(id);
+      if (!s.loadErrors.has(id)) return { loadBusy: busy };
+      const errors = new Map(s.loadErrors);
+      errors.delete(id);
+      return { loadBusy: busy, loadErrors: errors };
+    }),
+  endLoad: (id, asset) =>
+    set((s) => {
+      const busy = new Set(s.loadBusy);
+      busy.delete(id);
+      const loaded = s.loaded.some((a) => a.sourceName === asset.sourceName) ? s.loaded : [...s.loaded, asset];
+      return { loadBusy: busy, loaded };
+    }),
+  failLoad: (id, error) =>
+    set((s) => {
+      const busy = new Set(s.loadBusy);
+      busy.delete(id);
+      const errors = new Map(s.loadErrors);
+      errors.set(id, error);
+      return { loadBusy: busy, loadErrors: errors };
+    }),
+  clearLoadError: (id) =>
+    set((s) => {
+      if (!s.loadErrors.has(id)) return s;
+      const errors = new Map(s.loadErrors);
+      errors.delete(id);
+      return { loadErrors: errors };
+    }),
+  reconcileLoaded: (liveSourceNames) =>
+    set((s) => {
+      const next = s.loaded.filter((a) => liveSourceNames.has(a.sourceName));
+      return next.length === s.loaded.length ? s : { loaded: next };
+    }),
+
   resetForest: () => set((s) => ({ ...FOREST_RESET, forestVersion: s.forestVersion + 1 })),
   resetForScope: (scope) =>
     set((s) => ({
@@ -185,5 +253,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       ...FOREST_RESET,
       forestVersion: s.forestVersion + 1,
       searchTerm: "",
+      // `loaded` is left alone: it mirrors the scene, which a scope switch's
+      // own model-clear reconciles separately, not a fact about this forest.
+      loadBusy: EMPTY_SET,
+      loadErrors: EMPTY_ERRORS,
     })),
 }));

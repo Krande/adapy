@@ -87,6 +87,17 @@ export async function setupModelLoaderAsync(
     const gltf = await loadGLTF(modelUrl, undefined, requestHeaders, metrics);
 
     const gltf_scene = gltf.scene;
+    // A glTF document is allowed to carry no default scene, and a loader that only fails on the
+    // NEXT line reads it back as "Cannot read properties of undefined (reading 'name')" -- a
+    // message that names neither the file nor the problem. It matters here because core now
+    // loads models it did not produce: a delivery claim can hand over any GLB a provider wrote,
+    // and "this file has no scene" is the one sentence that sends the reader to the right side.
+    if (!gltf_scene) {
+        throw new Error(
+            `${sourceName ?? modelUrl}: the glTF has no scene to load (no default scene, or no ` +
+                `scenes at all), so there is nothing to put in the viewer.`,
+        );
+    }
     const animations = gltf.animations;
     const modelStore = useModelState.getState()
     const optionsStore = useOptionsStore.getState()

@@ -309,3 +309,118 @@ def start_plugin_job(
     # would starve every other threadpool user for the duration.
     threading.Thread(target=_run, name=f"local-plugin-job-{plugin_id}", daemon=True).start()
     return job
+
+
+def start_asset_build(
+    *,
+    request: Any,
+    capability: str,
+    options: dict[str, Any],
+    derived_prefix: str,
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run an ``asset_build`` in a thread -- the queue-less half of Decision 1's ``build`` kind.
+
+    Same argument as ``start_plugin_job``: a single-node viewer with an asset published in its
+    own scope should be able to load it, and a 503 there would make ``build`` a delivery kind
+    that only exists in a cluster. The builder sees exactly what the worker hands it (the sync
+    storage facade, the core-composed derived prefix, a cancel event), and the summary is
+    validated and stored the same way, so neither the builder nor the browser can tell the
+    transports apart.
+
+    Raises ``LookupError`` before returning when no builder here serves the capability -- a 501
+    the caller can read beats a job id that errors two polls later.
+    """
+    from ada.assets.build import (
+        BuildError,
+        BuildSummary,
+        parse_build_summary,
+        validate_build_summary,
+    )
+    from ada.assets.builders import asset_builder
+
+    builder = asset_builder(capability)  # LookupError if this process does not serve it
+    loop = asyncio.get_running_loop()
+
+    from ada.comms.rest.worker import _SyncStorageFacade
+
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=capability,
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _on_progress(stage: str, frac: float) -> None:
+        job.stage = str(stage)
+        try:
+            job.progress = max(0.0, min(1.0, float(frac)))
+        except (TypeError, ValueError):
+            pass
+
+    def _run() -> None:
+        try:
+            result = builder.build(
+                options,
+                request=request,
+                storage=sync_storage,
+                scope=scope,
+                derived_prefix=derived_prefix,
+                on_progress=_on_progress,
+                cancel_event=job.cancel_event,
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status = STATUS_CANCELLED
+                job.stage = "cancelled"
+                return
+            summary = result if isinstance(result, BuildSummary) else parse_build_summary(result)
+            validate_build_summary(
+                summary,
+                provider=request.provider,
+                collection=request.collection,
+                subject=request.subject,
+                revision=request.revision,
+                node=request.node,
+                fingerprint=request.fingerprint,
+                derived_prefix=derived_prefix,
+            )
+            job.stage = "upload"
+            job.progress = 0.95
+            payload = summary.to_dict()
+            sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            job.result = payload
+            job.status = STATUS_DONE
+            job.stage = "done"
+            job.progress = 1.0
+        except BuildError as exc:
+            # A summary core refuses is the builder's bug, and it must not reach the store: the
+            # browser would then validate a blob it did not ask for and blame the wrong side.
+            if job.status != STATUS_RUNNING:
+                return
+            logger.error("local asset build %s refused its own summary: %s", job.job_id, exc)
+            job.status = STATUS_ERROR
+            job.error = str(exc)
+            job.stage = "error"
+        except Exception as exc:  # noqa: BLE001 — the build's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status = STATUS_CANCELLED
+                job.stage = "cancelled"
+                return
+            logger.exception("local asset build %s (%s) failed", job.job_id, capability)
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.stage = "error"
+            logger.debug("local asset build traceback:\n%s", traceback.format_exc())
+
+    threading.Thread(target=_run, name=f"local-asset-build-{capability}", daemon=True).start()
+    return job

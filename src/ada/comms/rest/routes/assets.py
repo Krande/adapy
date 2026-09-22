@@ -20,9 +20,15 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.assets.build import (
+    BuildError,
+    build_fingerprint,
+    derived_asset_key,
+    derived_asset_prefix,
+)
 from ada.assets.index import fold_listing
 from ada.assets.keys import ASSET_PREFIX, AssetKeyError, asset_key
 from ada.assets.manifest import (
@@ -41,6 +47,9 @@ from ada.assets.registry import (
     registered_provider_ids,
 )
 
+from .. import auth as auth_module
+from ..auth import User
+from ..job_transport import JobRequest
 from ..scope import Scope
 from .deps import RestContext, rest_context, scope_from_path
 
@@ -172,18 +181,7 @@ async def api_asset_delivery(
             raise HTTPException(status_code=404, detail=f"node {node!r} has no delivery claim")
         return JSONResponse(_claim_to_dict(claim))
 
-    revision = revision or await _latest_complete_revision(ctx, scope_obj, collection, node)
-    if revision is None:
-        raise HTTPException(status_code=404, detail=f"no published revision for node {node!r}")
-    key = asset_key(collection, node, revision, MANIFEST_FILENAME)
-    try:
-        raw = await ctx.storage.get_bytes(scope_obj, key)
-    except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=f"no {MANIFEST_FILENAME} at {key}") from exc
-    try:
-        manifest = parse_manifest(raw)
-    except ManifestError as exc:
-        raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, node, revision)
 
     if manifest.delivery == "none":
         raise HTTPException(status_code=404, detail=f"node {node!r} has no delivery claim")
@@ -208,7 +206,10 @@ async def api_asset_delivery(
     if mesh is None:
         raise HTTPException(
             status_code=502,
-            detail=f"{key}: delivery='mesh' but no artefact with role 'mesh'",
+            detail=(
+                f"{asset_key(collection, node, manifest.revision, MANIFEST_FILENAME)}: "
+                f"delivery='mesh' but no artefact with role 'mesh'"
+            ),
         )
     mesh_key = mesh.key or asset_key(collection, node, manifest.revision, mesh.file)
     return JSONResponse(
@@ -221,6 +222,154 @@ async def api_asset_delivery(
             "provider": manifest.provider,
         }
     )
+
+
+@router.post("/scopes/{scope}/assets/build")
+async def api_asset_build(
+    body: dict,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Build one node's geometry on demand. Body: ``{provider, collection, node, subject?, revision?}``.
+
+    THE CLAIM IS READ SERVER-SIDE, from the node's own manifest -- the caller names a node, never
+    a capability or a set of options. That is what keeps the layering rule true at the route: a
+    browser cannot ask for a build of something that was not published as buildable, and it
+    cannot influence the key, because core composes it from
+    ``(provider, collection, subject, revision, node, fingerprint)`` and from nothing inside the
+    provider's options.
+
+    A REPEAT IS NOT A JOB. Identical requests fingerprint identically, so the summary is already
+    at the key core just composed; the answer is that key with ``cached: true`` and no job. The
+    alternative -- enqueueing and letting the worker's cached-blob short circuit notice -- costs a
+    round trip through the queue to learn what the store already knew.
+    """
+    asked_provider = str(body.get("provider") or PUBLISHED_PROVIDER_ID)
+    collection = str(body.get("collection") or "")
+    node = str(body.get("node") or "")
+    # WHICH SUBJECT SPEAKS FOR THE NODE. A node published in its own right is its own subject and
+    # this is absent. A node COVERED by a publish rooted above it has no manifest of its own --
+    # coverage is the whole point of Decision 3 -- so the caller names the covering subject, which
+    # it already resolved to draw the row's badge. The route cannot work it out: it reads one
+    # manifest by its exact key and holds no hierarchy to walk.
+    #
+    # The NODE still rides into the fingerprint and the derived key, so a covered build is scoped
+    # to the node asked for rather than to the whole subject. That is Decision 3's "scoping must
+    # be a property of every call, not an exception path" -- and without it two rows under one
+    # publish would load byte-identical geometry under two names.
+    subject = str(body.get("subject") or node)
+    revision = body.get("revision")
+    if not collection or not node:
+        raise HTTPException(status_code=400, detail="'collection' and 'node' are required")
+
+    ctx.jobs.require("asset_build")
+
+    manifest, revision = await _manifest_for_node(ctx, scope_obj, collection, subject, revision)
+    if manifest.delivery != "build":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"subject {manifest.subject!r} at {revision} claims delivery {manifest.delivery!r}, "
+                f"not 'build' -- a mesh claim is loaded directly and a subject with no claim "
+                f"cannot be built"
+            ),
+        )
+    # The caller names the provider it believes produced this node. Core does not need it --
+    # the manifest is authoritative, and in a MIXED collection (Decision 18) the producing
+    # provider is per node -- but a disagreement is worth refusing rather than quietly building
+    # against the other one: the caller is acting on a view that has moved.
+    if asked_provider not in (PUBLISHED_PROVIDER_ID, manifest.provider):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"subject {manifest.subject!r} at {revision} was produced by provider {manifest.provider!r}, "
+                f"not {asked_provider!r}"
+            ),
+        )
+    spec = manifest.build
+    if spec is None:  # parse_manifest already refuses this pairing; belt and braces at the route
+        raise HTTPException(status_code=502, detail="manifest claims 'build' but carries no build spec")
+
+    # Which hierarchy placed this node. A leaf published against an older collection index and
+    # the same leaf re-published against a newer one are two builds, because the node can sit
+    # under a different parent -- so the tree the placement came from is part of the identity.
+    hierarchy_source = manifest.hierarchy_revision or manifest.revision
+    try:
+        fingerprint = build_fingerprint(
+            options=dict(spec.options),
+            fingerprint_inputs=spec.fingerprint_inputs,
+            node=node,
+            hierarchy_source=hierarchy_source,
+        )
+        prefix = derived_asset_prefix(
+            provider=manifest.provider,
+            collection=collection,
+            subject=manifest.subject,
+            revision=revision,
+            node=node,
+            fingerprint=fingerprint,
+        )
+        derived_key = derived_asset_key(
+            provider=manifest.provider,
+            collection=collection,
+            subject=manifest.subject,
+            revision=revision,
+            node=node,
+            fingerprint=fingerprint,
+        )
+    except BuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    answer = {
+        "derived_key": derived_key,
+        "capability": spec.capability,
+        "provider": manifest.provider,
+        "subject": manifest.subject,
+        "revision": revision,
+        "node": node,
+        "fingerprint": fingerprint,
+    }
+    if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
+        return JSONResponse({**answer, "job_id": None, "cached": True})
+
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=f"_synthetic/asset_build/{manifest.provider}/{collection}/{manifest.subject}/{fingerprint}",
+            target_format="asset_build",
+            scope=scope_obj,
+            feature="asset_build",
+            derived_prefix=prefix,
+            derived_key=derived_key,
+            # The provider's options stay opaque and travel whole; everything core will validate
+            # the summary against travels beside them, composed here.
+            conversion_options={
+                "provider": manifest.provider,
+                "collection": collection,
+                "subject": manifest.subject,
+                "revision": revision,
+                "node": node,
+                "fingerprint": fingerprint,
+                "hierarchy_source": hierarchy_source,
+                "capability": spec.capability,
+                "options": dict(spec.options),
+                "derived_prefix": prefix,
+            },
+            target_capability=spec.capability,
+        ),
+        before_dispatch=lambda submitted: ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "asset_build",
+            key=derived_key,
+            target_format="asset_build",
+            status="queued",
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse({**answer, "job_id": submitted.job_id, "cached": False})
 
 
 # --- helpers -------------------------------------------------------------------------------------
@@ -259,6 +408,27 @@ async def _fold_manifest_summaries(ctx: RestContext, scope: Scope, collection: s
             if MANIFEST_FILENAME in rev["files"]
         )
     )
+
+
+async def _manifest_for_node(ctx: RestContext, scope: Scope, collection: str, node: str, revision: str | None):
+    """The manifest that speaks for ``node``, and the revision it was read at.
+
+    One reader for the delivery claim and the build request, so the two cannot disagree about
+    which revision a node resolves to -- a build keyed on one revision while the claim shown came
+    from another is exactly the inconsistency the single-resolution discipline exists to stop.
+    """
+    revision = revision or await _latest_complete_revision(ctx, scope, collection, node)
+    if revision is None:
+        raise HTTPException(status_code=404, detail=f"no published revision for node {node!r}")
+    key = asset_key(collection, node, revision, MANIFEST_FILENAME)
+    try:
+        raw = await ctx.storage.get_bytes(scope, key)
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=f"no {MANIFEST_FILENAME} at {key}") from exc
+    try:
+        return parse_manifest(raw), revision
+    except ManifestError as exc:
+        raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
 
 
 async def _latest_complete_revision(ctx: RestContext, scope: Scope, collection: str, subject: str) -> str | None:
