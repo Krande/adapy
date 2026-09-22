@@ -20,6 +20,20 @@ One global option applies to all of them:
     Logging level for the commands that initialise the ``ada`` package
     (``convert``, ``view``, ``audit repro``, ``audit parity``). Default ``INFO``.
 
+Every command exits ``0`` on success. An argparse error exits ``2``, and so does
+a bare command with nothing to act on — a bare invocation prints that parser's
+*full* help rather than a one-line usage, but to stderr, and still exits ``2``,
+because a wrong invocation must not look like success to a script. An explicit
+``--help`` goes to stdout and exits ``0``.
+
+``convert`` and ``view`` also exit ``2`` for a usage error they raise
+themselves — an extension nothing can be inferred from, an output that names a
+directory, an input that is not there — printed as
+``ada <command>: error: <what was wrong>``. For those two, ``1`` means the
+invocation was fine and the work itself failed. The commands that talk to a
+hosted viewer (``files``, ``audit``, ``build``) predate this convention and
+return ``1`` for a request that failed or was declined.
+
 The command groups are ``convert``, ``view``, ``build``, ``files``, ``audit``
 and ``serve``. The first two run entirely locally; the rest of this page notes
 where a group talks to a hosted viewer instead.
@@ -27,15 +41,143 @@ where a group talks to a hosted viewer instead.
 ``ada convert``
 ---------------
 
-Convert a model to another format. Input formats: ifc, step/stp, xml, inp, fem,
-sat/acis. Output formats: ifc, step/stp, gltf/glb, xml, inp. The output format
-is inferred from the destination extension.
+Convert a model to another format. Both ends are inferred from the file
+extensions, and ``--from`` / ``--to`` override that inference.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Read (``--from``)
+     - Extensions
+     - Notes
+   * - ``ifc``
+     - ``.ifc``
+     -
+   * - ``step``
+     - ``.step``, ``.stp``
+     -
+   * - ``xml``
+     - ``.xml``
+     - GeniE XML.
+   * - ``acis``
+     - ``.sat``, ``.acis``
+     -
+   * - ``abaqus``
+     - ``.inp``
+     - Also how you read a Calculix deck; they share the keyword syntax.
+   * - ``sesam``
+     - ``.fem``, ``.sif``
+     -
+   * - ``code_aster``
+     - ``.med``, ``.rmed``
+     -
+
+.. list-table::
+   :header-rows: 1
+
+   * - Write (``--to``)
+     - Extensions
+     - Notes
+   * - ``ifc``
+     - ``.ifc``
+     -
+   * - ``step``
+     - ``.step``, ``.stp``
+     -
+   * - ``gltf``
+     - ``.gltf``, ``.glb``
+     - ``.glb`` is the binary flavour.
+   * - ``xml``
+     - ``.xml``
+     - GeniE XML.
+   * - ``abaqus``
+     - ``.inp``
+     - Default owner of ``.inp``. One self-contained deck — the include files
+       the writer uses internally are inlined and removed.
+   * - ``calculix``
+     - ``.inp``
+     - Shares ``.inp`` with Abaqus, so it is reachable only as ``--to calculix``.
+   * - ``sesam``
+     - ``.fem``
+     - Default owner of ``.fem``. Writes ``sestra.inp`` beside the deck when the
+       model carries an analysis step.
+   * - ``usfos``
+     - ``.fem``
+     - Shares ``.fem`` with Sesam, so it is reachable only as ``--to usfos``.
+   * - ``code_aster``
+     - ``.med``
+     - The output is the ``.med`` mesh; the ``.comm`` command file and two
+       ``.json`` maps land beside it.
+
+Two extensions name more than one FEM format — ``.inp`` is both Abaqus and
+Calculix, ``.fem`` is both Sesam and USFOS — so each has exactly one default
+owner, picked to agree with what ``ada.from_fem`` already infers from a path:
+``.inp`` means Abaqus, ``.fem`` means Sesam. The minority dialect is reached with
+``--to`` and no other way. Inference is not silent about it: resolving a shared
+extension is logged at ``INFO``, naming the flag that would have chosen the other
+one.
+
+The output argument always names **one file**, never a directory, and that exact
+path is what exists when the command exits ``0``. This is worth stating because
+the FEM writers do not work that way on their own: called through the Python API
+they name the deck after the *model* and leave it in a scratch directory
+(``<scratch>/<name>/<name>T1.FEM`` for Sesam, ``ufo_bulk.fem`` for USFOS
+regardless of the name given). The CLI writes into a temporary directory next to
+your output and moves the format's primary deck onto the path you asked for.
+
+Formats that genuinely need more than one file write the rest **beside** it,
+under the writer's own names — so point the output at a directory of its own when
+the sidecars matter. Every path written is printed to stdout as an absolute path,
+one per line, the file you asked for first and the sidecars after it:
+
+.. code-block:: console
+
+    $ cd /work && ada convert model.inp analysis/mesh.med
+    /work/analysis/mesh.med
+    /work/analysis/mesh.adapy_fem.json
+    /work/analysis/mesh.comm
+    /work/analysis/mesh.name_map.json
+
+The sidecars are printed sorted by name, so the output is stable between runs.
+The temporary directory the deck is built in goes away
+even if the writer fails, so a failed conversion does not litter the output
+directory; in the rare case it cannot be removed, a warning names it.
+
+Sidecars keep the writer's own names, so converting twice into one directory
+replaces the previous run's sidecars -- that is warned about, and giving each
+conversion its own output directory avoids the question entirely.
+
+Two consequences of that rule are worth knowing. A Sesam output may be named
+either ``model.FEM`` or ``modelT1.FEM`` — the ``T1`` the Sesam writer appends is
+recognised, not doubled, so a name that already has it needs no rename
+afterwards. And Code_Aster output must be named ``*.med``, because the mesh is
+the primary file; naming the ``.comm`` is a usage error rather than a silent
+surprise.
 
 .. code-block:: bash
 
     ada convert model.sat model.stp
     ada convert model.ifc model.glb
+    ada convert model.inp model.FEM                  # Abaqus deck -> Sesam deck
+    ada convert model.inp analysis/modelT1.FEM       # same, named as Sesam names it
+    ada convert model.inp ufo/model.fem --to usfos
+    ada convert model.FEM ccx/model.inp --to calculix
+    ada convert deck.dat model.FEM --from abaqus
+    ada convert --list-formats
 
+``-f``, ``--from``
+    Read the input as this format instead of inferring it from the extension.
+    Use it for an Abaqus deck that is not named ``.inp``, or to read a Calculix
+    deck (``--from abaqus``). There is deliberately no ``--from calculix``:
+    adapy has no Calculix reader, and a ``.frd`` is a result file, not a model.
+``-t``, ``--to``
+    Write this format instead of inferring it from the output extension. This is
+    the only route to ``calculix`` and ``usfos``. An explicit ``--to`` always
+    wins; if it disagrees with the extension you named, the conversion still runs
+    and logs a warning naming the usual extension.
+``--list-formats``
+    Print both tables, with the primary file each FEM writer produces, and exit
+    ``0``. Works without the input and output arguments.
 ``--split``
     Split ACIS/SAT bodies into individual faces.
 ``--limit``
@@ -50,7 +192,11 @@ Open the built-in web viewer on a file.
 
     ada view model.ifc
     ada view model.ifc --renderer pygfx
+    ada view deck.dat --from abaqus
 
+``-f``, ``--from``
+    Read the input as this format instead of inferring it from the extension.
+    Same names as ``ada convert``'s ``--from``.
 ``--renderer``
     One of ``react`` (default), ``pygfx`` or ``trimesh``.
 ``--host``

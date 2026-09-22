@@ -1,117 +1,300 @@
+"""The conversion engine behind ``ada convert`` (and the loader behind ``ada view``).
+
+The parser lives in :mod:`ada_cli.main`; this module is only the implementation it imports
+lazily, so nothing here runs during ``ada --help``. The format tables come from
+:mod:`ada_cli.formats` — the same objects the parser uses for ``choices=`` — so the CLI's
+advertised surface and what this module will actually do cannot drift apart.
+
+**What OUT means.** ``OUT`` is the path of *one file*: the primary deck of the chosen
+format, at exactly the path the user typed. On a clean exit that file exists there. Formats
+that are genuinely multi-file (Code_Aster's ``.comm`` and JSON sidecars, Sesam's
+``sestra.inp``) write the rest *beside* it under the writer's own names, and every path
+written is printed to stdout, primary first.
+
+That needs a shim, because ``Assembly.to_fem(name, fmt, scratch_dir=...)`` does not take an
+output path at all: it creates ``<scratch_dir>/<name>/`` and names the deck after ``name``.
+So :func:`_write_fem` writes into a temporary directory, moves the primary onto ``OUT`` and
+the rest next to it, then removes the temporary directory. That directory is created *inside*
+``OUT``'s parent so it shares a filesystem with the destination and the move is a rename
+rather than a copy — these decks reach hundreds of megabytes.
+"""
+
+from __future__ import annotations
+
 import argparse
+import os
 import pathlib
-import sys
+import shutil
+import tempfile
 
-READ_FORMATS = ("ifc", "step", "stp", "xml", "inp", "fem", "sat", "acis")
-WRITE_FORMATS = ("ifc", "step", "stp", "gltf", "glb", "xml", "inp")
-VIEW_FORMATS = READ_FORMATS
+from ada.config import logger
+from ada_cli import CliUsageError
+from ada_cli.formats import (
+    DEFAULT_READ_BY_EXT,
+    DEFAULT_WRITE_BY_EXT,
+    FEM_READ_FORMATS,
+    FEM_WRITE_FORMATS,
+    FEM_WRITE_PRIMARY,
+    READ_FORMATS,
+    SHARED_WRITE_EXT,
+    WRITE_FORMATS,
+    suffix,
+)
+
+# ASCII on purpose: this one is *printed* to a console, and an em dash renders as a replacement
+# character under the Windows cp1252 default. Log messages elsewhere can afford the nicer dash.
+_CODE_ASTER_EXT_MSG = "code_aster output is the .med mesh; the .comm is written beside it - name the output *.med"
 
 
-def _suffix(path: str) -> str:
-    return pathlib.Path(path).suffix.lstrip(".").lower()
+def _ext_label(path) -> str:
+    """How an extension is named in an error message, including when there isn't one."""
+    ext = suffix(path)
+    return f"'.{ext}'" if ext else f"'{pathlib.Path(path).name}' (no extension)"
 
 
-def _load(input_file: str, split: bool = False, limit: int | None = None):
+def _resolve_read_format(input_file, fmt: str | None) -> str:
+    """The input format to use: an explicit ``--from`` wins, otherwise the extension decides."""
+    if fmt is not None:
+        if fmt not in READ_FORMATS:
+            raise CliUsageError(f"unknown input format {fmt!r}; --from must be one of: {', '.join(READ_FORMATS)}")
+        return fmt
+
+    inferred = DEFAULT_READ_BY_EXT.get(suffix(input_file))
+    if inferred is None:
+        raise CliUsageError(
+            f"cannot infer the input format from {_ext_label(input_file)}; "
+            f"pass --from one of: {', '.join(READ_FORMATS)}"
+        )
+    return inferred
+
+
+def _resolve_write_format(output_file, fmt: str | None) -> str:
+    """The output format to use.
+
+    An explicit ``--to`` always wins; without one the extension decides, and every extension
+    has exactly one default owner. ``.inp`` is both Abaqus and Calculix and ``.fem`` is both
+    Sesam and USFOS, so those two resolve to the format ``ada.from_fem`` would also pick and
+    say so at INFO — the minority dialect is reached with ``--to``.
+    """
+    ext = suffix(output_file)
+
+    if fmt is None:
+        inferred = DEFAULT_WRITE_BY_EXT.get(ext)
+        if inferred is None:
+            if ext == "comm":
+                raise CliUsageError(_CODE_ASTER_EXT_MSG)
+            raise CliUsageError(
+                f"cannot infer the output format from {_ext_label(output_file)}; "
+                f"pass --to one of: {', '.join(WRITE_FORMATS)}"
+            )
+        others = [o for o in SHARED_WRITE_EXT.get(ext, ()) if o != inferred]
+        if others:
+            hint = " or ".join(f"--to {o} for {o.upper()}" for o in others)
+            logger.info("output format %r inferred from '.%s' (use %s)", inferred, ext, hint)
+        fmt = inferred
+    elif fmt not in WRITE_FORMATS:
+        raise CliUsageError(f"unknown output format {fmt!r}; --to must be one of: {', '.join(WRITE_FORMATS)}")
+
+    # Code_Aster is the one format whose primary file is not negotiable: the mesh is the .med
+    # and the .comm is a sidecar, so naming the .comm asks for an OUT we cannot deliver.
+    if fmt == "code_aster" and ext != "med":
+        raise CliUsageError(_CODE_ASTER_EXT_MSG)
+
+    usual = WRITE_FORMATS[fmt]
+    if ext not in usual:
+        logger.warning(
+            "writing %s to '%s'; the usual extension is %s",
+            fmt,
+            pathlib.Path(output_file).name,
+            " or ".join(f".{e}" for e in usual),
+        )
+
+    return fmt
+
+
+def _load(input_file, fmt: str | None = None, split: bool = False, limit: int | None = None):
+    """Read ``input_file`` into an :class:`~ada.Assembly`.
+
+    ``fmt`` is a resolved ``ada_cli.formats`` read name, or ``None`` to infer it from the
+    extension. Shared with ``ada view``, which never resolves a format of its own.
+    """
     import ada
 
-    suffix = _suffix(input_file)
-    if suffix == "ifc":
-        return ada.from_ifc(input_file)
-    if suffix in ("step", "stp"):
-        return ada.from_step(input_file)
-    if suffix == "xml":
-        return ada.from_genie_xml(input_file)
-    if suffix in ("inp", "fem"):
-        return ada.from_fem(input_file)
-    if suffix in ("sat", "acis"):
-        return ada.from_acis(input_file, split=split, limit=limit)
-    raise ValueError(f"Unsupported input file format: {suffix!r}. Supported: {READ_FORMATS}")
+    path = pathlib.Path(input_file)
+    if not path.is_file():
+        raise CliUsageError(f"input file not found: {input_file}")
+
+    fmt = _resolve_read_format(input_file, fmt)
+
+    if fmt == "ifc":
+        return ada.from_ifc(path)
+    if fmt == "step":
+        return ada.from_step(path)
+    if fmt == "xml":
+        return ada.from_genie_xml(path)
+    if fmt == "acis":
+        return ada.from_acis(path, split=split, limit=limit)
+    if fmt in FEM_READ_FORMATS:
+        return ada.from_fem(path, fem_format=fmt)
+
+    raise CliUsageError(f"reading {fmt!r} is not implemented; --from must be one of: {', '.join(READ_FORMATS)}")
 
 
-def _write(model, output_file: str) -> None:
-    suffix = _suffix(output_file)
-    out_path = pathlib.Path(output_file)
-    if suffix == "ifc":
-        model.to_ifc(out_path)
-    elif suffix in ("step", "stp"):
-        model.to_stp(out_path)
-    elif suffix in ("gltf", "glb"):
-        model.to_gltf(out_path)
-    elif suffix == "xml":
-        model.to_genie_xml(out_path)
-    elif suffix == "inp":
-        model.to_fem(model.name, fem_format="abaqus", scratch_dir=out_path)
+def _validate_out(output_file) -> pathlib.Path:
+    """Check that ``OUT`` names a file and return it resolved. Touches nothing on disk.
+
+    Separate from :func:`_prepare_out` so ``_cmd_convert`` can reject a directory-shaped
+    ``OUT`` *before* reading the input, rather than after a multi-minute parse.
+    """
+    raw = str(output_file)
+    out = pathlib.Path(output_file)
+    if raw.endswith(("/", "\\")) or out.is_dir():
+        raise CliUsageError(f"OUT must name a file, not a directory: {out}")
+
+    out = out.resolve()
+    if not out.name or not out.stem:
+        raise CliUsageError(f"OUT must name a file, not a directory: {output_file}")
+    return out
+
+
+def _prepare_out(output_file) -> pathlib.Path:
+    """Validate ``OUT`` and make sure its parent directory exists.
+
+    ``to_stp`` and ``to_ifc`` do not create their destination's parent, and a path the user
+    meant as a directory must be refused rather than silently turned into a file name.
+    """
+    out = _validate_out(output_file)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def _deck_name(out: pathlib.Path, fmt: str) -> str:
+    """The ``name`` to hand ``to_fem`` so that its primary file lands on ``out``.
+
+    Normally ``OUT``'s stem. Sesam is the exception: it writes ``<name>T1.FEM`` (``T1`` being
+    Sesam's own suffix for an input deck, ``R1`` for results), so a user who names the target
+    the way Sesam itself would — ``modelT1.FEM`` — must not silently get a ``modelT1T1.FEM``
+    renamed behind their back. Stripping the ``T1`` also keeps ``sestra.inp``'s ``INAM`` /
+    ``LNAM`` prefix in agreement with the deck actually on disk.
+
+    A dot inside the stem is replaced. The sesam, calculix and code_aster writers build their
+    filenames with ``Path.with_suffix``, which *replaces* whatever it takes to be a suffix, so
+    the name ``model.v2`` makes the sesam writer emit ``model.FEM`` instead of
+    ``model.v2T1.FEM`` and the deck is not where this function promised it would be.
+    ``model.v2.FEM`` and ``beam_0.5m.FEM`` are ordinary names, so the *internal* name is
+    sanitised rather than the user's. ``OUT`` is delivered by ``os.replace`` and keeps every
+    dot that was typed; the only other trace is Sesam's ``INAM`` prefix in ``sestra.inp``,
+    which could not have carried the dotted name either.
+    """
+    name = out.stem
+    if fmt == "sesam" and len(name) > 2 and name[-2:].upper() == "T1":
+        name = name[:-2]
+    return name.replace(".", "_")
+
+
+def _listing(directory: pathlib.Path) -> str:
+    """A listing of ``directory``, for the message when a writer contract turns out broken."""
+    if not directory.is_dir():
+        return f"  <nothing: {directory} does not exist>"
+    found = sorted(str(p.relative_to(directory)) for p in directory.rglob("*"))
+    return "\n".join(f"  {f}" for f in found) if found else "  <empty>"
+
+
+def _write_fem(model, output_file, fmt: str) -> list[pathlib.Path]:
+    """Write a FEM deck so that its primary file *is* ``output_file``.
+
+    Returns every path written, primary first. See the module docstring for why this goes
+    through a temporary directory next to the destination.
+    """
+    out = _prepare_out(output_file)
+    name = _deck_name(out, fmt)
+
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix=".ada-convert-", dir=out.parent))
+    try:
+        model.to_fem(
+            name,
+            fem_format=fmt,
+            scratch_dir=tmp,
+            overwrite=True,
+            write_input_files_only=True,
+        )
+
+        produced = tmp / name
+        primary = produced / FEM_WRITE_PRIMARY[fmt].format(name=name)
+        if not primary.is_file():
+            raise RuntimeError(
+                f"the {fmt} writer did not produce {primary.name!r}, which "
+                f"ada_cli.formats.FEM_WRITE_PRIMARY says it should. It wrote:\n{_listing(produced)}"
+            )
+
+        os.replace(primary, out)
+        written = [out]
+
+        # Sidecars: everything else the writer left behind, under its own name, beside OUT.
+        for extra in sorted(produced.rglob("*")):
+            if not extra.is_file():
+                continue
+            dest = out.parent / extra.name
+            if dest == out:
+                # Would overwrite the deck we just delivered; the deck wins.
+                logger.warning("skipping sidecar %s: it would overwrite the output file", extra.name)
+                continue
+            if dest.exists():
+                # Sidecars keep the writer's own names (sestra.inp, <name>.comm), so a second
+                # conversion into a directory that already holds one silently replaces it.
+                # Say so: the user named OUT, not this.
+                logger.warning("overwriting existing %s with the %s writer's sidecar", dest, fmt)
+            os.replace(extra, dest)
+            written.append(dest)
+
+        return written
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        if tmp.exists():
+            # ignore_errors swallows the reason (an open handle, a scanner holding a
+            # file). Say it is there rather than let the docs' "nothing else is left
+            # behind" quietly become false.
+            logger.warning("could not remove the temporary directory %s; it can be deleted", tmp)
+
+
+def _write(model, output_file, fmt: str) -> list[pathlib.Path]:
+    """Write ``model`` as ``fmt`` to ``output_file``. Returns every path written."""
+    if fmt in FEM_WRITE_FORMATS:
+        return _write_fem(model, output_file, fmt)
+
+    out = _prepare_out(output_file)
+    if fmt == "ifc":
+        model.to_ifc(out)
+    elif fmt == "step":
+        model.to_stp(out)
+    elif fmt == "gltf":
+        model.to_gltf(out)
+    elif fmt == "xml":
+        model.to_genie_xml(out)
     else:
-        raise ValueError(f"Unsupported output file format: {suffix!r}. Supported: {WRITE_FORMATS}")
+        raise CliUsageError(f"writing {fmt!r} is not implemented; --to must be one of: {', '.join(WRITE_FORMATS)}")
+
+    return [out]
 
 
 def _cmd_convert(args: argparse.Namespace) -> None:
-    model = _load(args.input, split=args.split, limit=args.limit)
-    _write(model, args.output)
+    # Every usage error is raised before the input is touched: one must not cost the
+    # multi-minute parse of a large deck first.
+    in_fmt = _resolve_read_format(args.input, getattr(args, "from_format", None))
+    out_fmt = _resolve_write_format(args.output, getattr(args, "to_format", None))
+    _validate_out(args.output)
+
+    model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
+
+    for path in _write(model, args.output, out_fmt):
+        print(path)
 
 
 def _cmd_view(args: argparse.Namespace) -> None:
-    model = _load(args.input, split=args.split, limit=args.limit)
+    model = _load(
+        args.input,
+        fmt=getattr(args, "from_format", None),
+        split=args.split,
+        limit=args.limit,
+    )
     model.show(renderer=args.renderer, host=args.host, ws_port=args.ws_port)
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ada",
-        description="ADA CLI - convert and view CAD/FEM models (Genie XML, IFC, STEP, FEM, ACIS, glTF).",
-    )
-    parser.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR).")
-
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    convert = subparsers.add_parser(
-        "convert",
-        help="Convert between supported CAD/FEM formats.",
-        description=(
-            f"Convert an input model to another format. "
-            f"Input formats: {', '.join(READ_FORMATS)}. "
-            f"Output formats: {', '.join(WRITE_FORMATS)}."
-        ),
-    )
-    convert.add_argument("input", help="Input file path.")
-    convert.add_argument("output", help="Output file path (format is inferred from extension).")
-    convert.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
-    convert.add_argument("--limit", type=int, default=None, help="Limit the number of geometries (debugging).")
-    convert.set_defaults(func=_cmd_convert)
-
-    view = subparsers.add_parser(
-        "view",
-        help="Open the built-in web viewer on the given file.",
-        description=f"Open the adapy web viewer for a supported file. Supported: {', '.join(VIEW_FORMATS)}.",
-    )
-    view.add_argument("input", help="Input file path.")
-    view.add_argument("--renderer", default="react", choices=["react", "pygfx", "trimesh"], help="Viewer renderer.")
-    view.add_argument("--host", default="localhost", help="Web viewer host.")
-    view.add_argument("--ws-port", type=int, default=8765, help="WebSocket port.")
-    view.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
-    view.add_argument("--limit", type=int, default=None, help="Limit the number of geometries (debugging).")
-    view.set_defaults(func=_cmd_view)
-
-    return parser
-
-
-def app(argv: list[str] | None = None) -> None:
-    import ada
-
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    ada.logger.setLevel(args.log_level)
-    ada.logger.propagate = False
-
-    args.func(args)
-
-
-if __name__ == "__main__":
-    try:
-        app()
-    except Exception:
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)

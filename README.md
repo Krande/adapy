@@ -35,7 +35,7 @@ ada --help
 
 | Command | What it does |
 | --- | --- |
-| `ada convert` | Convert a model between CAD/FEM formats (ifc, step, xml, inp, fem, sat → ifc, step, gltf/glb, xml, inp). Local. |
+| `ada convert` | Convert a model between CAD/FEM formats. Reads ifc, step, xml, sat/acis and the FEM decks abaqus (`.inp`), sesam (`.fem`/`.sif`), code_aster (`.med`/`.rmed`); writes ifc, step, gltf/glb, xml and the FEM decks abaqus, calculix, sesam, usfos, code_aster. The extensions pick the formats unless `--from`/`--to` say otherwise, and `--to` is the only way to reach calculix and usfos, which share `.inp` and `.fem` with abaqus and sesam. The output path is the one file you name; extra files a format needs land beside it. Local. |
 | `ada view` | Open the built-in web viewer on a file, with the `react`, `pygfx` or `trimesh` renderer. Local. |
 | `ada build` | Run the entrypoints declared in an `ada_config.toml` and push the artefacts to a viewer (`run`, `upload`, `run-and-upload`). |
 | `ada files` | List, download, upload and delete blobs in a viewer scope (`list`, `download`, `upload`, `delete`). |

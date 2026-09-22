@@ -8,7 +8,7 @@ pays for what it uses.
 
 Subcommand layout:
 
-    ada convert IN OUT                local format conversion
+    ada convert IN OUT [--to F] [--from F]   local format conversion
     ada view IN [--renderer ...]      local web viewer
     ada build run|upload|run-and-upload
                                       build artefacts and push to viewer
@@ -20,12 +20,27 @@ Subcommand layout:
 This listing is the CLI's own claim about its surface, so it is checked against
 the parser in tests/core/test_cli_surface_docs.py — as are the README table and
 the docs page (docs/documents/cli.rst).
+
+Exit codes: 0 success; 2 for anything wrong with the invocation — an argparse
+error, a ``CliUsageError`` raised by an implementation, or a bare command with
+nothing to act on; 1 (via an uncaught exception) when the work itself failed.
+A bare ``ada`` or ``ada <group>`` prints that parser's *full* help rather than a
+one-line usage, but it prints it to stderr and still exits 2, because a wrong
+invocation must not look like success to a script.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+
+from ada_cli.formats import (
+    DEFAULT_WRITE_BY_EXT,
+    READ_FORMATS,
+    SHARED_WRITE_EXT,
+    WRITE_FORMATS,
+    format_table_text,
+)
 
 
 def _cmd_convert(args: argparse.Namespace) -> int:
@@ -98,18 +113,97 @@ def _cmd_serve_worker(_args: argparse.Namespace) -> int:
     return 0
 
 
+class _ListFormatsAction(argparse.Action):
+    """``--list-formats``: print the format tables, then exit 0.
+
+    Built like ``--version`` rather than as a flag ``_cmd_convert`` would inspect, for one
+    reason: ``convert`` has two *required* positionals, so a plain flag could never be reached
+    without the user also naming an input and an output they do not have yet. ``nargs=0`` plus
+    ``parser.exit`` short-circuits the parse instead.
+    """
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        # stdout, unlike parser.exit()'s own message argument: this is the answer that was asked
+        # for, the exit is 0, and it is meant to be piped.
+        sys.stdout.write(format_table_text())
+        parser.exit(0)
+
+
+def _format_spec(formats: dict[str, tuple[str, ...]]) -> str:
+    """``name (.ext/.ext)`` for each format, in table order."""
+    return ", ".join(f"{name} ({'/'.join('.' + e for e in exts)})" for name, exts in formats.items())
+
+
+def _shared_ext_sentence() -> str:
+    """How each extension that more than one FEM format claims is resolved without a flag."""
+    parts = []
+    for ext, owners in SHARED_WRITE_EXT.items():
+        default = DEFAULT_WRITE_BY_EXT[ext]
+        others = " or --to ".join(o for o in owners if o != default)
+        parts.append(f".{ext} means {default} unless you pass --to {others}")
+    return "; ".join(parts)
+
+
+def _convert_description() -> str:
+    """The ``ada convert --help`` blurb, generated from the format tables so it cannot drift."""
+    return (
+        "Convert an input model to another format. "
+        f"Reads: {_format_spec(READ_FORMATS)}. "
+        f"Writes: {_format_spec(WRITE_FORMATS)}. "
+        "The extension decides the format unless --from/--to overrides it. Two extensions are "
+        f"claimed by more than one FEM format, and each has one default owner: {_shared_ext_sentence()}. "
+        "OUT always names one file, the chosen format's primary deck, and that exact path is what "
+        "you get; extra files the format needs are written beside it under the writer's own "
+        "names, and every path written is printed. See --list-formats for the tables laid out."
+    )
+
+
 def _add_convert(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "convert",
         help="Convert between supported CAD/FEM formats (local).",
-        description=(
-            "Convert an input model to another format. "
-            "Input: ifc/step/stp/xml/inp/fem/sat/acis. "
-            "Output: ifc/step/stp/gltf/glb/xml/inp."
-        ),
+        description=_convert_description(),
     )
     p.add_argument("input", help="Input file path.")
-    p.add_argument("output", help="Output file path (format inferred from extension).")
+    p.add_argument(
+        "output",
+        help=(
+            "Output file path. This exact path is the primary file written; any sidecars the "
+            "format needs land beside it."
+        ),
+    )
+    p.add_argument(
+        "-f",
+        "--from",
+        dest="from_format",
+        default=None,
+        choices=tuple(READ_FORMATS),
+        metavar="FORMAT",
+        help=(
+            "Read the input as this format instead of inferring it from the extension. "
+            f"One of: {', '.join(READ_FORMATS)}."
+        ),
+    )
+    p.add_argument(
+        "-t",
+        "--to",
+        dest="to_format",
+        default=None,
+        choices=tuple(WRITE_FORMATS),
+        metavar="FORMAT",
+        help=(
+            "Write this format instead of inferring it from the output extension. "
+            f"One of: {', '.join(WRITE_FORMATS)}."
+        ),
+    )
+    p.add_argument(
+        "--list-formats",
+        action=_ListFormatsAction,
+        help="Print the read/write format tables and exit.",
+    )
     p.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
     p.add_argument("--limit", type=int, default=None, help="Limit number of geometries (debugging).")
     p.set_defaults(func=_cmd_convert, needs_ada_logging=True)
@@ -121,6 +215,14 @@ def _add_view(sub: argparse._SubParsersAction) -> None:
         help="Open the built-in web viewer on the given file (local).",
     )
     p.add_argument("input", help="Input file path.")
+    p.add_argument(
+        "-f",
+        "--from",
+        dest="from_format",
+        choices=tuple(READ_FORMATS),
+        metavar="FORMAT",
+        help="Read the input as this format instead of inferring it from the extension.",
+    )
     p.add_argument("--renderer", default="react", choices=["react", "pygfx", "trimesh"])
     p.add_argument("--host", default="localhost")
     p.add_argument("--ws-port", type=int, default=8765)
@@ -254,15 +356,60 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    """The parser's subcommand action, if it has one."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _bare_invocation_parser(parser: argparse.ArgumentParser, argv: list[str]) -> argparse.ArgumentParser | None:
+    """The parser whose full help answers a bare ``ada ...``, or ``None`` if this is not one.
+
+    ``ada`` and ``ada convert`` are invocations that named a command but gave it nothing to do,
+    and argparse answers them with a one-line usage — the least useful moment to be terse. So
+    walk exactly the subcommand chain the user typed; if every token was a subcommand and the
+    parser we landed on still wants something (a nested subcommand, or a required positional),
+    that parser's help is the answer.
+
+    Anything else is left to argparse on purpose: a token that is not a subcommand (an option,
+    a typo, a half-given positional list) is a genuine mistake, and a specific error about it
+    beats a screen of help.
+    """
+    current = parser
+    for token in argv:
+        sub = _subparsers_action(current)
+        if sub is None or token not in sub.choices:
+            return None
+        current = sub.choices[token]
+
+    if _subparsers_action(current) is not None:
+        return current
+    if any(action.required and not action.option_strings for action in current._actions):
+        return current
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     # Pick up a .env in the CWD so remote commands (files/audit/build) find
     # their URL/token without the caller having to export them first. Real
     # environment variables always win.
-    from ada_cli import load_dotenv_cwd
+    from ada_cli import CliUsageError, load_dotenv_cwd
 
     load_dotenv_cwd()
 
+    argv = list(sys.argv[1:] if argv is None else argv)
     parser = _build_parser()
+
+    bare = _bare_invocation_parser(parser, argv)
+    if bare is not None:
+        # stderr, and 2: this is a missing required argument, the same class of mistake argparse
+        # already exits 2 for. Full help is the improvement, not a different exit code — and it
+        # must not reach a script reading stdout.
+        bare.print_help(sys.stderr)
+        return 2
+
     args = parser.parse_args(argv)
 
     if getattr(args, "needs_ada_logging", False):
@@ -271,7 +418,11 @@ def main(argv: list[str] | None = None) -> int:
         ada.logger.setLevel(args.log_level)
         ada.logger.propagate = False
 
-    rc = args.func(args)
+    try:
+        rc = args.func(args)
+    except CliUsageError as exc:
+        print(f"ada {args.command}: error: {exc}", file=sys.stderr)
+        return 2
     return rc if isinstance(rc, int) else 0
 
 

@@ -6,6 +6,21 @@ import os
 import pathlib
 
 
+class CliUsageError(Exception):
+    """The command was invoked wrongly — not a failure while doing the work.
+
+    Lives here rather than in ``ada`` because both sides need it: ``ada.api.cli`` raises it
+    (a missing input file, an extension no format claims, a ``--to`` that cannot write where it
+    was pointed) and :func:`ada_cli.main.main` catches it, prints
+    ``ada <command>: error: <message>`` to stderr and returns 2 — the exit code argparse itself
+    uses for a bad invocation, so a caller cannot tell the two apart and does not have to.
+
+    Message only, and it should read like an argparse error: lowercase, no trailing period, and
+    it should say what to pass instead. Anything that is *not* a usage mistake must not be
+    wrapped in this; those keep propagating as a traceback, which is exit 1.
+    """
+
+
 def load_dotenv_cwd(path: str | os.PathLike | None = None) -> bool:
     """Load ``KEY=VALUE`` pairs from a ``.env`` in the current directory.
 
