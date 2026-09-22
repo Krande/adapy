@@ -253,6 +253,17 @@ class ArrayElements(FemElements):
         # Connector). Few in number, kept as objects; the millions of structural
         # elements live in the store's blocks.
         self._overflow: list = []
+        # Special elements whose element row *did* get packed into a block, because
+        # ``MeshArrays.from_fem`` groups by ``Elem.type`` and a Mass/Spring/Connector has
+        # a MassTypes/SpringTypes/ConnectorTypes type like any other. An
+        # ``ElemArrayBlock`` holds connectivity + ids and has nowhere to keep a mass
+        # value, a spring stiffness or a connector section/csys, so the object is
+        # retained here beside its packed row rather than dropped: ``masses`` /
+        # ``springs`` / ``connectors`` read both lists (see ``_iter_specials``). The row
+        # itself stays in the block, so iteration, ``len()``, connectivity and every
+        # consumer that walks the blocks are byte-for-byte unaffected.
+        self._packed_specials: list = []
+        self._warned_lost_specials = False
 
     @property
     def store(self) -> MeshArrays:
@@ -346,17 +357,60 @@ class ArrayElements(FemElements):
             if self._fem_obj is not None:
                 self._fem_obj.sets.add(FemSet(name, ids, "elset", parent=self._fem_obj))
 
+    # ── the special (Mass / Spring / Connector) elements ─────────────────
+    def _iter_specials(self):
+        """Every special element this container holds, wherever it lives.
+
+        Two homes, both legitimate: ``_overflow`` (anything handed to ``add()`` — what
+        the readers do) and ``_packed_specials`` (a row packed into a block by
+        ``to_array_backed``, with the object kept alongside). Reading only ``_overflow``
+        is what made a converted model's masses vanish from ``fem.elements.masses``, and
+        with them the whole BNMASS / ``*Mass`` / NODEMASS block of the exported deck.
+        """
+        yield from self._overflow
+        yield from self._packed_specials
+
+    def _warn_on_unbacked_special_blocks(self) -> None:
+        """Warn once if the store holds mass/spring/connector rows that no object backs.
+
+        Such a row is an id, a type and a node reference — the value that makes it a mass
+        (or a stiffness, or a connector section) is not in the array store and cannot be
+        recovered from it, so every writer that emits those records has to skip it. Say so
+        rather than exporting a deck that quietly dropped them. ``to_array_backed`` keeps
+        the objects, so this only fires for a store assembled some other way (e.g.
+        ``ada.fem.concat``, which merges blocks and does not carry the objects across).
+        """
+        if self._warned_lost_specials:
+            return
+        self._warned_lost_specials = True
+
+        from ada.fem.shapes.definitions import ConnectorTypes, MassTypes, SpringTypes
+
+        backed = {e.id for e in self._iter_specials()}
+        lost = 0
+        for ctype, blk in self._store.blocks.items():
+            if not isinstance(ctype, (MassTypes, SpringTypes, ConnectorTypes)):
+                continue
+            lost += sum(1 for eid in blk.el_ids.tolist() if int(eid) not in backed)
+        if lost:
+            logger.warning(
+                f"{lost} packed mass/spring/connector element(s) carry no Mass/Spring/Connector object: "
+                "their values (mass, stiffness, connector section) are not held by the array store and "
+                "will be missing from any exported deck."
+            )
+
     @property
     def masses(self):
         from ada.fem.elements import Mass
 
-        return LazyElemSeq(lambda: (e for e in self._overflow if isinstance(e, Mass)))
+        self._warn_on_unbacked_special_blocks()
+        return LazyElemSeq(lambda: (e for e in self._iter_specials() if isinstance(e, Mass)))
 
     @property
     def connectors(self):
         from ada.fem.elements import Connector
 
-        return LazyElemSeq(lambda: (e for e in self._overflow if isinstance(e, Connector)))
+        return LazyElemSeq(lambda: (e for e in self._iter_specials() if isinstance(e, Connector)))
 
     @property
     def elements(self) -> list:
@@ -406,7 +460,7 @@ class ArrayElements(FemElements):
     def springs(self):
         from ada.fem.shapes.definitions import ElemShapeTypes
 
-        return LazyElemSeq(lambda: (e for e in self._overflow if e.type in ElemShapeTypes.springs))
+        return LazyElemSeq(lambda: (e for e in self._iter_specials() if e.type in ElemShapeTypes.springs))
 
     @property
     def stru_elements(self):
@@ -421,7 +475,22 @@ class ArrayElements(FemElements):
     def renumber(self, start_id=1, renumber_map: dict = None):
         from ada.fem.elements import Mass
 
+        # A retained special element (``_packed_specials``) carries its own ``_el_id``
+        # beside the packed row the store is about to renumber. Note where each one sits
+        # first, then copy the row's new id back onto the object, so the two
+        # representations of one element cannot drift apart.
+        packed_locs = []
+        for el in self._packed_specials:
+            try:
+                ctype, row = self._store.elem_loc(el.id)
+            except ValueError:
+                continue
+            packed_locs.append((el, ctype, row))
+
         self._store.renumber_elems(start_id=start_id, renumber_map=renumber_map)
+
+        for el, ctype, row in packed_locs:
+            el._el_id = int(self._store.blocks[ctype].el_ids[row])
         # The store only knows about its blocks, so the overflow elements (Mass, Spring,
         # Connector) have to be renumbered alongside them or they keep pre-renumber ids
         # while every set member around them moves on. Mass is excluded for the same
@@ -452,19 +521,73 @@ class ArrayElements(FemElements):
         return out
 
 
+def _rebind_special_to_store(elem, store: MeshArrays) -> None:
+    """Re-point a retained special element's node references at the substrate.
+
+    It was built against the object ``Node`` instances this conversion drops. Leaving them
+    in place would defeat the conversion twice over: a ``Node`` holds the elements that
+    reference it in ``Node.refs``, so one retained mass transitively pins the *entire*
+    object mesh in memory; and the coordinates would freeze, because ``ArrayNodes.move`` /
+    ``rounding_node_points`` write the arrays, not those objects. Anything that is not a
+    node the store knows (a bare int id, a node that was not packed) is left untouched.
+    """
+
+    def resolved(node):
+        nid = getattr(node, "id", None)
+        if nid is None or not store.has_node(int(nid)):
+            return node
+        return store.node_proxy_by_id(int(nid))
+
+    # Mass keeps its nodes on ``_members`` (``Mass.fem_set``'s setter fills that in and
+    # leaves ``_nodes`` alone); Spring/Connector additionally cache their ends on _n1/_n2.
+    for attr in ("_nodes", "_members"):
+        seq = getattr(elem, attr, None)
+        if seq:
+            setattr(elem, attr, [resolved(n) for n in seq])
+    for attr in ("_n1", "_n2"):
+        node = getattr(elem, attr, None)
+        if node is not None:
+            setattr(elem, attr, resolved(node))
+
+
 def to_array_backed(fem):
     """Swap a FEM's object-model ``nodes``/``elements`` for substrate-backed facades
     sharing one ``MeshArrays``. The proxies are transient, so after this the mesh is
     held as packed arrays. Returns the same FEM for chaining.
 
     Any FemSet that still holds object members is flipped to id-backed first, so the
-    object Node/Elem become unreferenced and are reclaimed."""
+    object Node/Elem become unreferenced and are reclaimed.
+
+    The special elements (Mass / Spring / Connector) are kept as objects. They are packed
+    into blocks like anything else — ``MeshArrays.from_fem`` groups by ``Elem.type`` — but
+    a block stores connectivity and ids only, so a mass value, a spring stiffness or a
+    connector section has nowhere to go and was being dropped here. Nothing complained:
+    ``fem.elements.masses`` simply went empty and the Sesam writer emitted no BNMASS at
+    all for the converted model. The rows stay in their blocks (every consumer that walks
+    the store is unchanged); the objects are handed to
+    :attr:`ArrayElements._packed_specials` so ``masses``/``springs``/``connectors`` still
+    find them."""
+    from ada.fem.elements import Connector, Mass, Spring
+
     # Flip sets to id-backed BEFORE building the store / dropping object containers,
     # otherwise the sets keep the object mesh alive.
     for fs in list(fem.sets):
         fs.to_id_backed()
 
+    # Collect before the object containers go — these are the only copies of their values.
+    specials = [el for el in fem.elements if isinstance(el, (Mass, Connector, Spring))]
+
     store = MeshArrays.from_fem(fem)
     fem.nodes = ArrayNodes(store, parent=fem)
-    fem.elements = ArrayElements(store, fem_obj=fem)
+    elements = ArrayElements(store, fem_obj=fem)
+    for el in specials:
+        _rebind_special_to_store(el, store)
+        try:
+            store.elem_loc(el.id)
+        except ValueError:
+            # Not packed (ragged group, or already an overflow element on a re-conversion).
+            elements._overflow.append(el)
+        else:
+            elements._packed_specials.append(el)
+    fem.elements = elements
     return fem
