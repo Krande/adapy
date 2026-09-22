@@ -2,6 +2,16 @@
 
 
 
+## v0.81.3 (2026-09-22)
+
+### Fix
+
+* fix(mesh): keep masses, eccentricities and hinges when a mesh is packed or merged (#376)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`c306466`](https://github.com/Krande/adapy/commit/c30646611d9ba13ea64581fa245d92954987384e))
+
+
 ## v0.81.2 (2026-09-22)
 
 ### Fix
