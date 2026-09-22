@@ -2,6 +2,15 @@
 
 
 
+## v0.82.0 (2026-09-22)
+
+### Feature
+
+* feat: asset delivery kinds, on-demand builds and the core IFC provider (#378)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3d295e6`](https://github.com/Krande/adapy/commit/3d295e60d06b9598cff36b72e46337a28d565637))
+
+
 ## v0.81.3 (2026-09-22)
 
 ### Fix
