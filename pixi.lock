@@ -1,9 +1,25 @@
 version: 7
 platforms:
 - name: linux-64
+  virtual-packages:
+  - __unix=0=0
+  - __linux=4.18
+  - __glibc=2.28
+  - __archspec=0=x86_64
 - name: osx-64
+  virtual-packages:
+  - __unix=0=0
+  - __osx=13.0
+  - __archspec=0=x86_64
 - name: osx-arm64
+  virtual-packages:
+  - __unix=0=0
+  - __osx=13.0
+  - __archspec=0=m1
 - name: win-64
+  virtual-packages:
+  - __win=10.0
+  - __archspec=0=x86_64
 environments:
   default:
     channels:
@@ -4983,7 +4999,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -5572,7 +5588,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -5934,7 +5950,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -6310,7 +6326,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -6513,7 +6529,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -7147,7 +7163,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -7534,7 +7550,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -7934,7 +7950,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -8142,7 +8158,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -8719,7 +8735,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -9074,7 +9090,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -9443,7 +9459,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -9644,7 +9660,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -10238,7 +10254,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -10602,7 +10618,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -10979,7 +10995,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -11244,7 +11260,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -11879,7 +11895,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -12269,7 +12285,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -12672,7 +12688,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -12887,7 +12903,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -13521,7 +13537,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -13910,7 +13926,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -14313,7 +14329,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -14528,7 +14544,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -15162,7 +15178,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -15551,7 +15567,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -15954,7 +15970,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -16530,7 +16546,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -16974,7 +16990,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -17262,7 +17278,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -17564,7 +17580,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -18156,7 +18172,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -18648,7 +18664,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -18963,7 +18979,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -19294,7 +19310,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -19499,7 +19515,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.14.3-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ann-1.1.3-hd2095e1_1.conda
@@ -19992,7 +20008,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.14.3-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ann-1.1.3-h6e061ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.14.1-pl5321hf898372_2.conda
@@ -20308,7 +20324,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ann-1.1.3-h6111c0a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aom-3.14.1-pl5321hf79ea98_2.conda
@@ -20639,7 +20655,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wslink-2.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.14.3-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ann-1.1.3-hac47afa_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.14.1-pl5321h06fc181_2.conda
@@ -20869,28 +20885,28 @@ packages:
   purls: []
   size: 8244
   timestamp: 1764092331208
-- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.1-py312h336860b_0.conda
-  sha256: 496d827f04211b43d45f714b745c158b7b2de199f9be1c9ba413097d045ef826
-  md5: fc1e37a6040fb2473fd0c41c652a7ba3
+- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.25.3-py312h336860b_0.conda
+  sha256: e4c7b9aa76bf6da883efd332d91a60c7ca1370786e6636eb004bb30a8b9a55dc
+  md5: 0f67ef18a81b46d13d63b0528bb45da5
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - libstdcxx >=15
   - libgcc >=15
   - __glibc >=2.17,<3.0.a0
-  - python_abi 3.12.* *_cp312
-  - libzlib >=1.3.2,<2.0a0
+  - libstdcxx >=15
   - occt >=8.0.1,<8.0.2.0a0
-  - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
+  - libzlib >=1.3.2,<2.0a0
+  - python_abi 3.12.* *_cp312
+  - ifcopenshell >=0.8.5,<0.8.6.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
   run_exports:
     weak:
-    - ada-cpp >=0.25.1,<0.25.2.0a0
-  size: 15606769
-  timestamp: 1790001456218
+    - ada-cpp >=0.25.3,<0.25.4.0a0
+  size: 10862101
+  timestamp: 1790071386893
 - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
   sha256: 52f4d07b10fe4a1ded570b0708594d2d9075223e1dd94d0c5988eb71f724a5f2
   md5: 68edaee7692efb8bbef5e95375090189
@@ -22149,7 +22165,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/frozenlist?source=compressed-mapping
+  - pkg:pypi/frozenlist?source=hash-mapping
   run_exports: {}
   size: 55016
   timestamp: 1779999817627
@@ -27608,7 +27624,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/propcache?source=compressed-mapping
+  - pkg:pypi/propcache?source=hash-mapping
   run_exports: {}
   size: 51586
   timestamp: 1780037816755
@@ -35079,27 +35095,27 @@ packages:
     - _openmp_mutex >=4.5
   size: 8328
   timestamp: 1764092562779
-- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.1-py312haf00779_0.conda
-  sha256: d94118e901fb8fef3a7319511b576c9a625a6d0ff7768cd7bae084943d5bcec0
-  md5: ae06ee5ef88ff4bfd5eaa2535b98efbf
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.25.3-py312haf00779_0.conda
+  sha256: 87d6a2a45e21c5d8b88cd8b0d8bc72e045d1e1e8f703207adab249605ac06746
+  md5: 53864a49de6a27a30814e9b0f2ce922d
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - __osx >=11.0
   - libcxx >=21
-  - occt >=8.0.1,<8.0.2.0a0
-  - rocksdb >=10.6.2,<10.7.0a0
+  - __osx >=11.0
   - python_abi 3.12.* *_cp312
-  - libzlib >=1.3.2,<2.0a0
   - ifcopenshell >=0.8.5,<0.8.6.0a0
+  - rocksdb >=10.6.2,<10.7.0a0
+  - libzlib >=1.3.2,<2.0a0
+  - occt >=8.0.1,<8.0.2.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
   run_exports:
     weak:
-    - ada-cpp >=0.25.1,<0.25.2.0a0
-  size: 13409828
-  timestamp: 1790001637003
+    - ada-cpp >=0.25.3,<0.25.4.0a0
+  size: 8303384
+  timestamp: 1790071422922
 - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
   sha256: feec9338ff6d56c28c06ec8176b90019d545d902c45132a218ca2320133f5538
   md5: 88eef704008ae051b5a8c54119eab94e
@@ -39709,7 +39725,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/propcache?source=compressed-mapping
+  - pkg:pypi/propcache?source=hash-mapping
   run_exports: {}
   size: 49489
   timestamp: 1780038241106
@@ -41129,27 +41145,27 @@ packages:
     - _openmp_mutex >=4.5
   size: 8016
   timestamp: 1788046437162
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.1-py312ha2326bd_0.conda
-  sha256: b3e7ecdc8e7fe62a6592506c4a25b7d5b05e432b60ddf3bf5db30ab4243a091c
-  md5: a71e6efced4c93628ea128cd99d43ba9
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/ada-cpp-0.25.3-py312ha2326bd_0.conda
+  sha256: c1c66ae11c90c853d6e3669c807bba1e96f5c108e676bd439f47ec83933956c0
+  md5: 0e88c340ac234631b6367dbd5866070f
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
   - libcxx >=21
   - __osx >=11.0
+  - python_abi 3.12.* *_cp312
   - occt >=8.0.1,<8.0.2.0a0
   - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
   - libzlib >=1.3.2,<2.0a0
-  - python_abi 3.12.* *_cp312
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
   run_exports:
     weak:
-    - ada-cpp >=0.25.1,<0.25.2.0a0
-  size: 12193849
-  timestamp: 1790001474973
+    - ada-cpp >=0.25.3,<0.25.4.0a0
+  size: 7460813
+  timestamp: 1790071368864
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.14.3-py312h9f8c436_0.conda
   sha256: c2bdebc0598fcb10c5d701bcfde27e56ba3328a5508413112f7125e411054991
   md5: bd889ec1d08985ef9bc619ca4149f564
@@ -42312,7 +42328,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/h5py?source=compressed-mapping
+  - pkg:pypi/h5py?source=hash-mapping
   run_exports: {}
   size: 1140532
   timestamp: 1787108753682
@@ -44438,7 +44454,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/numpy?source=compressed-mapping
+  - pkg:pypi/numpy?source=hash-mapping
   run_exports:
     weak:
     - numpy >=1.25,<3
@@ -45134,7 +45150,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pyobjc-framework-cocoa?source=compressed-mapping
+  - pkg:pypi/pyobjc-framework-cocoa?source=hash-mapping
   run_exports: {}
   size: 385117
   timestamp: 1786682054070
@@ -46397,28 +46413,28 @@ packages:
     - _openmp_mutex >=4.5
   size: 52252
   timestamp: 1770943776666
-- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.1-py312hd741bf9_0.conda
-  sha256: 0485bf81f3ea60efc153416684183d9fe8c97ebc4922b52033f18c99c8d8cb89
-  md5: 09e91ac585da1054534c08a17ed412e4
+- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.25.3-py312hd741bf9_0.conda
+  sha256: 7c4ebcf375d3de96a89543757574d01f0a71eff075907a79aba10d7ca22864d3
+  md5: f8ed185c95ee1c53277a0a942d3a0ff5
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
   - vc >=14.3,<15
   - vc14_runtime >=14.44.35208
   - ucrt >=10.0.20348.0
-  - libzlib >=1.3.2,<2.0a0
   - occt >=8.0.1,<8.0.2.0a0
-  - ifcopenshell >=0.8.5,<0.8.6.0a0
-  - rocksdb >=10.6.2,<10.7.0a0
   - python_abi 3.12.* *_cp312
+  - libzlib >=1.3.2,<2.0a0
+  - rocksdb >=10.6.2,<10.7.0a0
+  - ifcopenshell >=0.8.5,<0.8.6.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
   run_exports:
     weak:
-    - ada-cpp >=0.25.1,<0.25.2.0a0
-  size: 9770317
-  timestamp: 1790001440092
+    - ada-cpp >=0.25.3,<0.25.4.0a0
+  size: 9770504
+  timestamp: 1790071362172
 - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
   sha256: 539e8fba2b4835ee4437fa8b51056be2cf033ac4155f64a19e87855c2ae2af94
   md5: f5474e6e952ff964319851b1c68b7301
@@ -50982,7 +50998,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/propcache?source=compressed-mapping
+  - pkg:pypi/propcache?source=hash-mapping
   run_exports: {}
   size: 49101
   timestamp: 1780037831647

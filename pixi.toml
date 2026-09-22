@@ -240,7 +240,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
 # first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.25.1.*"
+ada-cpp = "0.25.3.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -278,7 +278,7 @@ ada-cpp = "0.25.1.*"
 # 0.24 adds `stream_ifc_to_glb(include_guids=...)`. REQUIRED for the same reason: the native IFC
 # subset tests probe the binding via `native_ifc_subset_available()` and SKIP on an older build,
 # so a lower pin leaves them silently vacuous instead of exercising the filter.
-ada-cpp = "0.25.1.*"
+ada-cpp = "0.25.3.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
