@@ -27,6 +27,7 @@ from ada.comms.rest.worker import _process_one
 # (kind, dispatched before any source download) — the old chain's branches, in order.
 CHAIN_KINDS = [
     ("component_build", True),
+    ("asset_build", True),
     ("procedural_build", True),
     ("plugin_job", True),
     ("procedural_detail", True),

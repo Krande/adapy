@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 #: distinction: ``plugin_jobs`` is the one kind of work the API process can do
 #: itself (:mod:`local_jobs`).
 TransportFeature = Literal[
+    "asset_build",
     "bake",
     "bbox_inference",
     "component_build",
@@ -84,6 +85,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "component_build": "component build disabled (no NATS configured)",
     "conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
+    "asset_build": "asset builds disabled (no NATS configured)",
     "plugin_jobs": "plugin jobs disabled (no NATS configured)",
     "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
@@ -97,7 +99,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: What :class:`LocalJobTransport` can run. Everything else it reports as
 #: unavailable — see the module docstring on why that is a statement rather
 #: than an omission.
-LOCAL_FEATURES: frozenset[str] = frozenset({"plugin_jobs"})
+LOCAL_FEATURES: frozenset[str] = frozenset({"asset_build", "plugin_jobs"})
 
 
 @dataclass(frozen=True)
@@ -362,6 +364,8 @@ class LocalJobTransport(_BaseTransport):
         # `before_dispatch` is deliberately never called -- see the Protocol.
         if not self.supports(req.feature):
             self.unavailable(req.feature)
+        if req.feature == "asset_build":
+            return self._submit_asset_build(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -387,6 +391,49 @@ class LocalJobTransport(_BaseTransport):
             progress=job.progress,
             target_capability=None,
             payload=payload,
+        )
+
+    def _submit_asset_build(self, req: JobRequest) -> SubmittedJob:
+        """The build kind's local engine. Its identity travels in
+        ``conversion_options`` (core composed it), not in ``options``, which stay the
+        provider's opaque dict."""
+        from ada.assets.builders import BuildRequest
+
+        opts = req.conversion_options or {}
+        try:
+            request = BuildRequest(
+                provider=opts["provider"],
+                collection=opts["collection"],
+                subject=opts["subject"],
+                revision=opts["revision"],
+                node=opts.get("node"),
+                fingerprint=opts["fingerprint"],
+                hierarchy_source=opts["hierarchy_source"],
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=500, detail=f"asset build is missing {exc} in conversion_options") from exc
+        try:
+            job = local_jobs.start_asset_build(
+                request=request,
+                capability=opts.get("capability") or "",
+                options=opts.get("options") or {},
+                derived_prefix=opts.get("derived_prefix") or "",
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except LookupError as exc:
+            # No builder HERE for that capability: 501 (this process cannot), not 503 (this
+            # deployment cannot) — the message names the capability to install or route to.
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
         )
 
     def inprocess(self, job_id: str) -> JobSnapshot | None:

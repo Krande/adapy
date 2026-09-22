@@ -37,6 +37,16 @@ from ada.comms.rest.queue import (  # noqa: E402
 )
 from ada.comms.rest.worker import _pool_capabilities  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _no_asset_builders(monkeypatch):
+    """These tests are about pool ARITHMETIC -- normalisation, de-duplication, subtraction -- and
+    a real asset builder in the environment would add its capability to every `base` worker's
+    pools and change every expected list here. Stubbed empty so the arithmetic is what is
+    asserted; the derivation itself is covered by test_asset_build_pools.py."""
+    monkeypatch.setattr("ada.assets.builders.available_build_capabilities", lambda: [])
+
+
 # --- the token -------------------------------------------------------------
 
 

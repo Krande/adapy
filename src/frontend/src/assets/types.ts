@@ -123,3 +123,67 @@ export type ResolutionMode =
   | { readonly kind: "latest" }
   | { readonly kind: "as-of"; readonly revision: string }
   | { readonly kind: "run"; readonly revision: string };
+
+// --- delivery claims -------------------------------------------------------------
+//
+// `GET /assets/delivery/{provider}/{collection}/{node}` answers one of these two
+// shapes (Decision 1's two delivery kinds). `./delivery` is the only module that
+// reads a claim and turns it into scene content; every other module only ever
+// sees `DeliveryKind` on a node/badge, never the claim itself.
+
+export interface WireMeshDelivery {
+  readonly kind: "mesh";
+  /** For the built-in `published` provider this is a storage KEY, not an
+   *  absolute URL -- `./delivery` resolves it through the blob route. A live
+   *  provider's own claim (e.g. a presigned URL) is already absolute. */
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly source_up_axis: "z" | "y";
+  readonly revision: string;
+  readonly provider: string;
+}
+
+export interface WireBuildDelivery {
+  readonly kind: "build";
+  readonly capability: string;
+  readonly options: Readonly<Record<string, unknown>>;
+  readonly fingerprint_inputs: readonly string[];
+  readonly revision: string;
+  readonly provider: string;
+}
+
+export type WireDeliveryClaim = WireMeshDelivery | WireBuildDelivery;
+
+export interface MeshDelivery {
+  readonly kind: "mesh";
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly sourceUpAxis: "z" | "y";
+  readonly revision: string;
+  readonly provider: string;
+}
+
+export interface BuildDelivery {
+  readonly kind: "build";
+  readonly capability: string;
+  readonly options: Readonly<Record<string, unknown>>;
+  readonly fingerprintInputs: readonly string[];
+  readonly revision: string;
+  readonly provider: string;
+}
+
+export type DeliveryClaim = MeshDelivery | BuildDelivery;
+
+/** `POST /assets/build`'s reply. `job_id: null` with `cached: true` means the
+ *  summary already sits at `derived_key` -- nothing was enqueued. */
+export interface WireBuildAssetResponse {
+  readonly derived_key: string;
+  readonly capability: string;
+  readonly provider: string;
+  readonly subject: string;
+  readonly revision: string;
+  readonly node: string;
+  readonly fingerprint: string;
+  readonly job_id: string | null;
+  readonly cached: boolean;
+}

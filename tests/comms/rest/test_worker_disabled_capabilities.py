@@ -20,6 +20,15 @@ from ada.comms.rest import worker
 
 
 @pytest.fixture(autouse=True)
+def _no_asset_builders(monkeypatch):
+    """These tests are about pool ARITHMETIC -- normalisation, de-duplication, subtraction -- and
+    a real asset builder in the environment would add its capability to every `base` worker's
+    pools and change every expected list here. Stubbed empty so the arithmetic is what is
+    asserted; the derivation itself is covered by test_asset_build_pools.py."""
+    monkeypatch.setattr("ada.assets.builders.available_build_capabilities", lambda: [])
+
+
+@pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     monkeypatch.delenv("ADA_WORKER_CAPABILITIES", raising=False)
     monkeypatch.delenv("ADA_WORKER_DISABLED_CAPABILITIES", raising=False)

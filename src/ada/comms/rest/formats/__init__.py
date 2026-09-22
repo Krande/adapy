@@ -7,6 +7,7 @@ tested them) plus the registry-backed converter fallback. See :mod:`.registry` f
 from __future__ import annotations
 
 from . import (
+    asset_build,
     component,
     convert,
     engine_build,
@@ -34,6 +35,7 @@ from .registry import (
 
 # Synthetic (sourceless) kinds — dispatched before any source download.
 register(component.ComponentBuildHandler())
+register(asset_build.AssetBuildHandler())
 register(procedural_build.ProceduralBuildHandler())
 register(plugin.PluginJobHandler())
 register(procedural_detail.ProceduralDetailHandler())
