@@ -1,7 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ada import FEM
 from ada.fem.shapes.definitions import MassTypes
 
 from .write_utils import write_ff
+
+if TYPE_CHECKING:
+    from .writer import NodeDofs
 
 
 def _bnmass_components(mass, n_members: int) -> list[float]:
@@ -32,14 +39,40 @@ def _bnmass_components(mass, n_members: int) -> list[float]:
     return comps
 
 
-def mass_str(fem: FEM) -> str:
+def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
+    """The BNMASS block.
+
+    BNMASS declares an NDOF of its own and then lists exactly that many mass components,
+    so it has to agree with what GNODE says about the node (:class:`writer.NodeDofs`): a
+    node touched only by solid elements is 3-dof and gets ``3`` plus its three
+    translational components. A rotary inertia on such a node is a contradiction — the
+    node has no rotational dofs to carry it — and raises, rather than being quietly
+    dropped or written as a record the GNODE block disagrees with.
+
+    A purely translational mass never promotes a node to 6 dofs; see
+    ``writer._carries_rotational_stiffness``. Left at ``None``, the dof counts are derived
+    from ``fem``.
+    """
+    from .writer import node_dofs
+
+    if ndofs is None:
+        ndofs = node_dofs(fem)
+
     out_str = ""
 
     for mass in fem.elements.masses:
         members = list(mass.members)
         comps = _bnmass_components(mass, max(1, len(members)))
         for m in members:
-            data = (tuple([m.id, 6] + comps[:2]), tuple(comps[2:]))
+            ndof = ndofs.ndof(m.id)
+            rotational = [dof for dof in (4, 5, 6) if dof > ndof and comps[dof - 1] != 0.0]
+            if rotational:
+                raise ValueError(
+                    f'sesam writer: mass "{mass.name}" puts rotary inertia on dof(s) {rotational} of '
+                    f"node {m.id}, which has {ndof} dofs (NDOF={ndof}). A node attached only to solid "
+                    "elements has no rotational dofs to carry it."
+                )
+            data = (tuple([m.id, ndof] + comps[:2]), tuple(comps[2:ndof]))
             out_str += write_ff("BNMASS", data)
     return out_str
 

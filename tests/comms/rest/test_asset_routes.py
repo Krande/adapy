@@ -94,6 +94,42 @@ def test_index_folds_without_listing_the_whole_scope(client_and_revision):
     assert {"pump-a", "pump-b", "tank-c", "unit-1", "unit-2", "site", COLLECTION} == subjects
     pump = next(s for s in body["collections"][COLLECTION] if s["subject"] == "pump-a")
     assert pump["revisions"][0]["revision"] == revision
+    # Opt-in: without it the index is the plain fold, byte for byte as before.
+    assert "manifest" not in pump["revisions"][0]
+
+
+def test_index_folds_manifest_summaries_per_revision(client_and_revision):
+    """The tab badges from delivery + hierarchy_revision without one fetch per subject."""
+    client, revision = client_and_revision
+    r = client.get(_scope_url("index"), params={"collection": COLLECTION, "manifests": "true"})
+    assert r.status_code == 200, r.text
+    by_subject = {s["subject"]: s["revisions"][0] for s in r.json()["collections"][COLLECTION]}
+    assert by_subject["pump-a"]["manifest"] == {
+        "provider": "fixture-lines",
+        "node": "pump-a",
+        "delivery": "mesh",
+        "produced_at": "2026-09-21T14:30:01Z",
+    }
+    assert by_subject["pump-b"]["manifest"]["delivery"] == "build"
+    assert by_subject["unit-1"]["manifest"]["delivery"] == "none"
+    # Opaque provider data stays out of the index.
+    assert "build" not in by_subject["pump-b"]["manifest"]
+
+
+def test_index_reports_an_unreadable_manifest_on_its_revision(client_and_revision, tmp_path):
+    client, revision = client_and_revision
+    bad = tmp_path / "users" / "local-dev" / "assets" / COLLECTION / "tank-c" / revision / "asset.json"
+    bad.write_bytes(b'{"schema": "someone-else/manifest@9"}')
+    r = client.get(_scope_url("index"), params={"collection": COLLECTION, "manifests": "true"})
+    tank = next(s for s in r.json()["collections"][COLLECTION] if s["subject"] == "tank-c")
+    assert "manifest" not in tank["revisions"][0]
+    assert "unknown manifest schema" in tank["revisions"][0]["manifest_error"]
+
+
+def test_index_manifests_needs_a_collection(client_and_revision):
+    client, _ = client_and_revision
+    r = client.get(_scope_url("index"), params={"manifests": "true"})
+    assert r.status_code == 400
 
 
 def test_tree_returns_the_slice_in_cores_vocabulary(client_and_revision):
