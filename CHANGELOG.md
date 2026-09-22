@@ -2,6 +2,15 @@
 
 
 
+## v0.81.0 (2026-09-22)
+
+### Feature
+
+* feat: asset browser tab shell and Assets tab on the published provider (#377)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3f8084c`](https://github.com/Krande/adapy/commit/3f8084c7f8f81dad02dea1585e1e4d27a8de6875))
+
+
 ## v0.80.1 (2026-09-22)
 
 ### Fix
