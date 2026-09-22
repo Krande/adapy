@@ -29,6 +29,7 @@ from ada.assets.manifest import (
     HIERARCHY_FILENAME,
     MANIFEST_FILENAME,
     ManifestError,
+    manifest_summary,
     parse_manifest,
 )
 from ada.assets.projection import HierarchyError, parse_hierarchy
@@ -82,6 +83,7 @@ async def api_asset_providers(scope_obj: Scope = Depends(scope_from_path)) -> JS
 @router.get("/scopes/{scope}/assets/index")
 async def api_asset_index(
     collection: str | None = None,
+    manifests: bool = False,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
@@ -89,10 +91,21 @@ async def api_asset_index(
 
     One bounded ``list_prefix`` -- scoped to a collection when one is named, so browsing a
     collection costs its own keys rather than a walk of every asset in the scope.
+
+    ``manifests=true`` (collection required) also folds in, per revision, the few manifest fields
+    the browser's badges are derived from -- the delivery claim, the producing provider and the
+    ``hierarchy_revision`` a leaf was published against. Read here rather than by the browser
+    because the alternative is one fetch per subject-revision from the tab, and a manifest is
+    immutable at its key (barring ``replace``), so the server read is the cheap one.
     """
+    if manifests and not collection:
+        raise HTTPException(status_code=400, detail="manifests=true needs a collection")
     prefix = f"{ASSET_PREFIX}/{collection}/" if collection else f"{ASSET_PREFIX}/"
     index = fold_listing(await _list_asset_keys(ctx, scope_obj, prefix))
-    return JSONResponse(index.to_dict())
+    body = index.to_dict()
+    if manifests:
+        await _fold_manifest_summaries(ctx, scope_obj, collection, body)
+    return JSONResponse(body)
 
 
 @router.get("/scopes/{scope}/assets/tree/{provider}/{collection}")
@@ -211,6 +224,41 @@ async def api_asset_delivery(
 
 
 # --- helpers -------------------------------------------------------------------------------------
+
+# Bounded fan-out for the manifest fold: enough to hide per-object latency, few enough that one
+# index request cannot monopolise the storage client.
+_MANIFEST_READ_CONCURRENCY = 16
+
+
+async def _fold_manifest_summaries(ctx: RestContext, scope: Scope, collection: str, body: dict) -> None:
+    """Attach ``manifest`` (or ``manifest_error``) to every revision entry that has one.
+
+    A manifest that cannot be read is reported on its revision, never dropped: the revision is
+    still listed, and the tab has to be able to say why it cannot badge it.
+    """
+    gate = asyncio.Semaphore(_MANIFEST_READ_CONCURRENCY)
+
+    async def one(subject: str, rev: dict) -> None:
+        key = asset_key(collection, subject, rev["revision"], MANIFEST_FILENAME)
+        async with gate:
+            try:
+                raw = await ctx.storage.get_bytes(scope, key)
+            except (FileNotFoundError, KeyError):
+                rev["manifest_error"] = f"listed but not readable: {key}"
+                return
+        try:
+            rev["manifest"] = manifest_summary(parse_manifest(raw))
+        except ManifestError as exc:
+            rev["manifest_error"] = str(exc)
+
+    await asyncio.gather(
+        *(
+            one(entry["subject"], rev)
+            for entry in body["collections"].get(collection, [])
+            for rev in entry["revisions"]
+            if MANIFEST_FILENAME in rev["files"]
+        )
+    )
 
 
 async def _latest_complete_revision(ctx: RestContext, scope: Scope, collection: str, subject: str) -> str | None:
