@@ -17,6 +17,7 @@ def elements_str(fem_elements: FemElements) -> str:
 
     el_str = ""
     skipped: dict[str, int] = {}
+    unsectioned = 0
     for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
         if shape_def.is_structural(el_type) is False:
             # Connectors, masses and springs have no *ELEMENT row in a Calculix deck and
@@ -24,6 +25,15 @@ def elements_str(fem_elements: FemElements) -> str:
             # and raises AttributeError on all three. Only connectors were skipped
             # before, so a mass read off a Sesam deck took the writer down with it.
             skipped[str(el_type)] = skipped.get(str(el_type), 0) + sum(1 for _ in elements)
+            continue
+        if fem_sec is None:
+            # A mesh-only deck -- an Abaqus .inp whose elements carry no *SOLID SECTION,
+            # say -- reads into elements with no FemSection at all. Calculix takes its
+            # element type from the section (``el_type_sub`` reads
+            # ``fem_sec.parent.options``), so there is nothing to write one from, and
+            # dereferencing None here produced a bare "AttributeError: 'NoneType' object
+            # has no attribute 'parent'". Skipped like the rest, and named.
+            unsectioned += sum(1 for _ in elements)
             continue
         el_str += elwriter(el_type, fem_sec, elements)
 
@@ -33,6 +43,29 @@ def elements_str(fem_elements: FemElements) -> str:
             "The rest of the deck is unaffected.",
             sum(skipped.values()),
             ", ".join(f"{k}={v}" for k, v in sorted(skipped.items())),
+        )
+    if unsectioned:
+        logger.warning(
+            "calculix writer: skipping %d element(s) with no FemSection -- Calculix takes its "
+            "element type from the section, so an unsectioned element cannot be written. Note "
+            "the deck keeps any *ELSET / section references to them, so a partial deck needs "
+            "checking before it will solve. Bind them to a FemSection on the ada side to avoid "
+            "the question.",
+            unsectioned,
+        )
+
+    if unsectioned and el_str == "":
+        # Every structural element lacked a section. Returning "** No elements" here would hand
+        # back a deck that reads like a successful conversion of an empty model, which is worse
+        # than an error: the model had elements and none of them reached the file.
+        #
+        # Deliberately scoped to the unsectioned case. A model of only masses / springs /
+        # connectors also writes no elements, but that predates this guard and stays as it was:
+        # an elementless deck plus the warning above.
+        raise IncompatibleElements(
+            f"calculix writer: none of the {len(fem_elements)} element(s) could be written -- "
+            f"{unsectioned} of them have no FemSection, and Calculix takes its element type from "
+            f"the section, so the deck would hold no elements at all."
         )
 
     return el_str

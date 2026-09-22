@@ -2,6 +2,55 @@
 
 
 
+## v0.83.0 (2026-09-22)
+
+### Feature
+
+* feat(cli): ada convert reaches every format adapy can write (#379)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`987d5e5`](https://github.com/Krande/adapy/commit/987d5e5b0438c0d730168ca7e494a1ea424a77c9))
+
+
+## v0.82.0 (2026-09-22)
+
+### Feature
+
+* feat: asset delivery kinds, on-demand builds and the core IFC provider (#378)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3d295e6`](https://github.com/Krande/adapy/commit/3d295e60d06b9598cff36b72e46337a28d565637))
+
+
+## v0.81.3 (2026-09-22)
+
+### Fix
+
+* fix(mesh): keep masses, eccentricities and hinges when a mesh is packed or merged (#376)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`c306466`](https://github.com/Krande/adapy/commit/c30646611d9ba13ea64581fa245d92954987384e))
+
+
+## v0.81.2 (2026-09-22)
+
+### Fix
+
+* fix(fem): resolve an element surface to the face it names, not every node (#375)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`b752a72`](https://github.com/Krande/adapy/commit/b752a726115c5b7265701e2cb24d55c6dffc0b24))
+
+
+## v0.81.1 (2026-09-22)
+
+### Fix
+
+* fix(fem): write a Sesam superelement Presel and Sestra accept (#374)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`02d7440`](https://github.com/Krande/adapy/commit/02d74400a309dc5ecc1ad886d762dbddc163887d))
+
+
 ## v0.81.0 (2026-09-22)
 
 ### Feature

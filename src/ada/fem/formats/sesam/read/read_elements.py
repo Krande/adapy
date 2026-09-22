@@ -124,14 +124,11 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
         d = match.groupdict()
 
         nodeno = str_to_int(d["nodeno"])
-        mass_in = [
-            roundoff(d["m1"]),
-            roundoff(d["m2"]),
-            roundoff(d["m3"]),
-            roundoff(d["m4"]),
-            roundoff(d["m5"]),
-            roundoff(d["m6"]),
-        ]
+        # NDOF components, padded to six: a solid-type node has NDOF=3 and carries only
+        # the translational masses (see cards.re_bnmass).
+        ndof = str_to_int(d["ndof"])
+        vals = [roundoff(x) for x in d["content"].split()][:ndof]
+        mass_in = (vals + [0.0] * 6)[:6]
         masses = [m for m in mass_in if m != 0.0]
         if checkEqual2(masses):
             mass_type = Mass.PTYPES.ISOTROPIC
