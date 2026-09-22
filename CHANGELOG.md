@@ -2,6 +2,16 @@
 
 
 
+## v0.80.1 (2026-09-22)
+
+### Fix
+
+* fix(viewer): take the adacpp wasm base that ships adacpp_extrude, and fail the image build without it (#373)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`4ebc87b`](https://github.com/Krande/adapy/commit/4ebc87b986788cd0f21f832dc0f5c0359cf43154))
+
+
 ## v0.80.0 (2026-09-22)
 
 ### Chore
