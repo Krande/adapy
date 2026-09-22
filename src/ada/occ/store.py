@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Callable, Iterable
 import ada
 from ada import Units
 from ada.base.types import GeomRepr
-from ada.config import Config, logger
-from ada.occ.exceptions import (
+from ada.cad.exceptions import (
     UnableToCreateSolidOCCGeom,
     UnableToCreateSurfaceOCCGeom,
     UnableToTransformOCCShape,
 )
+from ada.config import Config, logger
 from ada.visit.colors import Color
 
 if TYPE_CHECKING:

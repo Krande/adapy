@@ -49,15 +49,15 @@ from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shape, TopoDS_Shell
 
+from ada.cad.exceptions import (  # noqa: F401 — used by lockstep wire build
+    UnableToCreateCurveOCCGeom,
+    UnableToCreateTesselationFromSolidOCCGeom,
+)
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.curves import PolyLoop
 from ada.geom.surfaces import FaceBasedSurfaceModel
-from ada.occ.exceptions import (  # noqa: F401 — used by lockstep wire build
-    UnableToCreateCurveOCCGeom,
-    UnableToCreateTesselationFromSolidOCCGeom,
-)
 from ada.occ.geom.curves import (
     make_edge_from_edge,
     make_wire_from_circle,

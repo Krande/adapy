@@ -230,7 +230,7 @@ def test_flat_sat_plate_renders_via_wire_fill(example_files):
 
     import ada
     from ada.cad import active_backend
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     backend = active_backend()
     if backend.name == "adacpp" and not hasattr(getattr(backend, "_cad", None), "build_advanced_face_planar"):

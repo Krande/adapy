@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
     # OCC builders imported lazily so importing this package (e.g. its sibling
-    # ada.occ.geom.cache, which routes through active_backend().build) does not
+    # ada.cad.shape_cache, which routes through active_backend().build) does not
     # require pythonocc. geom_to_occ_geom is OccBackend's builder and naturally
     # needs OCC only when actually called. See the internal design notes Phase 2.
     import ada.occ.geom.solids as geo_so

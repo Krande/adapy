@@ -10,9 +10,9 @@ from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 from OCC.Core.TopAbs import TopAbs_FORWARD
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
+from ada.cad.exceptions import UnableToCreateCurveOCCGeom
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
-from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
 
 OCC_RADIUS_TOL = 1e-9  # geometric tolerance in model units

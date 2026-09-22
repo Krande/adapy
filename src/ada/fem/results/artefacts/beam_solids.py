@@ -102,8 +102,8 @@ def tessellate_beams_to_solid_mesh(
     """
 
     from ada.config import get_logger
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.rendering.femviz import ElementRange
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
 

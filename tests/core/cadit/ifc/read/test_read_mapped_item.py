@@ -26,7 +26,7 @@ def _enable_geom():
 
 
 def _tris(objs):
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     return sum(len(ms.indices) // 3 for o in objs for ms in bt.batch_tessellate([o]))
@@ -64,7 +64,7 @@ def test_reinforcing_assembly_matches_oracle(example_files):
     a = ada.from_ifc(example_files / "ifc_files/reinforcing-assembly.ifc")
     objs = list(a.get_all_physical_objects())
 
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     pts = [np.asarray(ms.position, float).reshape(-1, 3) for o in objs for ms in bt.batch_tessellate([o])]

@@ -242,7 +242,7 @@ def get_three_sweeps_mesh_data():
 
     Returns: List of dicts with keys: vertices (Nx3 float list), faces (Mx3 int list).
     """
-    from ada.occ.tessellating import shape_to_tri_mesh
+    from ada.visit.tessellate import shape_to_tri_mesh
 
     shapes_ = build_three_sweeps()
     data = []
@@ -259,9 +259,9 @@ def adapy_viewer(shapes_):
     import trimesh
 
     from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC
-    from ada.occ.tessellating import shape_to_tri_mesh
     from ada.visit.render_params import RenderParams
     from ada.visit.renderer_manager import RendererManager
+    from ada.visit.tessellate import shape_to_tri_mesh
 
     scene = trimesh.Scene()
     for shp in shapes_:

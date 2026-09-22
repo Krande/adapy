@@ -29,7 +29,7 @@ def _unit_ms():
 
 
 def test_no_transforms_passthrough():
-    from ada.occ.tessellating import _emit_with_geom_transforms
+    from ada.visit.tessellate import _emit_with_geom_transforms
 
     ms = _unit_ms()
     out = list(_emit_with_geom_transforms(ms, _Obj(None)))
@@ -37,7 +37,7 @@ def test_no_transforms_passthrough():
 
 
 def test_nonuniform_scale_baked_into_positions():
-    from ada.occ.tessellating import _emit_with_geom_transforms
+    from ada.visit.tessellate import _emit_with_geom_transforms
 
     m = np.diag([2.0, 3.0, 1.0, 1.0])  # non-uniform scale
     out = list(_emit_with_geom_transforms(_unit_ms(), _Obj([m])))
@@ -47,7 +47,7 @@ def test_nonuniform_scale_baked_into_positions():
 
 
 def test_multiple_transforms_emit_one_meshstore_each():
-    from ada.occ.tessellating import _emit_with_geom_transforms
+    from ada.visit.tessellate import _emit_with_geom_transforms
 
     t1 = np.eye(4)
     t2 = np.eye(4)

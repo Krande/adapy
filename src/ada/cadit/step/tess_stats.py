@@ -2,7 +2,7 @@
 run-to-run change in tessellation output (a regression, a density-toggle drift, a
 silently-dropped solid) is visible without re-downloading and re-parsing the artefact.
 
-Same mechanism as the OCC mesh-health / tess-fallback tallies (``ada.occ.tessellating``):
+Same mechanism as the OCC mesh-health / tess-fallback tallies (``ada.visit.tessellate``):
 the conversion records a compact stats dict here; ``subprocess_convert`` consumes it at
 job completion and emits a ``[TRISTATS-JSON]`` marker line the worker parent folds into
 ``audit_log.convert_meta["tri_stats"]``.

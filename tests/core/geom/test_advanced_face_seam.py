@@ -164,7 +164,7 @@ def test_runaway_triangles_dropped_from_tessellation():
     pytest.importorskip("OCC", reason="unit test of the pythonocc tessellation filter internals")
     from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 
-    from ada.occ.tessellating import _drop_runaway_triangles
+    from ada.visit.tessellate import _drop_runaway_triangles
 
     shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
     good = [0, 0, 0, 1, 0, 0, 0, 1, 0]

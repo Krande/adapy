@@ -123,19 +123,19 @@ pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling_tests.html -
 pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [environments]
-prod = { features = ["prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+prod = { features = ["prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
-profile = { features = ["profile", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+profile = { features = ["profile", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 ifc-validation = { features = ["ifc-validation"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
-tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
-# Same as `tests` but swaps the pythonocc CAD backend (`pyocc`) for the
-# native ada-cpp backend (`adacpp`), which sets ADAPY_CAD_BACKEND=adacpp.
-# Own solve-group: ada-cpp's occt closure must not be forced onto the
-# pythonocc-pinned `prod` group. Run with: pixi run -e tests-adacpp test
+tests = { features = ["tests", "tests-core", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
+# Historically `tests` with the pythonocc backend swapped for ada-cpp. Since `tests` moved
+# to ada-cpp too (2026-09-21) the two differ only in that this one sets
+# ADAPY_CAD_BACKEND=adacpp explicitly rather than relying on auto-detect. Kept because CI
+# names it; collapsing them is a separate cleanup. Run with: pixi run -e tests-adacpp test
 tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
 # Same as tests-adacpp but bridges a bleeding-edge adacpp via PYTHONPATH (../adacpp/build/dist)
 # instead of the conda-installed ada-cpp — see [feature.adacpp-dev.activation.env]. Assemble the
@@ -148,29 +148,23 @@ fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-
 # only under tests/full/frontend and need the `tests` feature's playwright).
 fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-# `pyocc` DROPPED and moved off the `prod` solve-group (2026-09-21). conda-forge
-# migrated ada-cpp to occt 8.0.1 (ada-cpp-feedstock#65) while pythonocc-core has
-# no occt 8 build at all — every published build pins `occt <8`, and
-# pythonocc-core-feedstock#57 is still open — so the two can no longer co-solve.
-# Staying put would have frozen the production conversion worker on ada-cpp
-# 0.20.0 for good. The worker runs the AdacppBackend, which reached geometry
-# parity; with no pythonocc present `select_backend()` auto-detects it (adacpp is
-# tried first, and `OccBackend()` raises ImportError only on instantiation), the
-# same way `viewer-api-slim` has always run. The `prod` group stays exactly as it
-# was and is now the pyocc/occt-7.9.3 compatibility group.
+# pythonocc-core is being wound down (2026-09-21): conda-forge builds ada-cpp against occt 8
+# while pythonocc-core has no occt 8 build at all, so keeping it meant holding environments on
+# occt 7.9.3. Every environment runs the adacpp backend -- which implements all 54 CadBackend
+# verbs and is what select_backend() auto-detects with no pythonocc present -- EXCEPT the three
+# code-aster environments, for the hdf5 reason given at the `pyocc` feature. `ada.occ` stays
+# importable, and lazily reachable from ada.cadit.step, for anyone who installs pythonocc.
 viewer-api = { features = ["viewer-api", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
-# occt/pythonocc/numpy closure stays out.
+# occt/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
-viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
-# Same as viewer-api-tests but adds ada-cpp (adacpp-runtime) so the REST streaming-path tests run
-# against the AdacppBackend (tessellate_stream / NGEOM libtess2) instead of the OCC object-path
-# fallback. Its whole point is to mirror the production `viewer-api` env's closure, so it follows
-# viewer-api off pyocc and onto the `viewer` solve-group (see the note there). `viewer-api-tests`
-# above keeps pyocc on the `prod` group, so the OCC REST path is still covered.
+viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
+# Mirrors the production `viewer-api` env's closure (same `viewer` solve-group), so the REST
+# streaming-path tests run against exactly what ships. `viewer-api-tests` above is on ada-cpp
+# too; the distinction is now solve-group, not backend.
 viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "adacpp-runtime"], solve-group = "viewer", no-default-feature = true }
-meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
-meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+meshio-bridge = { features = ["meshio-bridge", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
+meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
@@ -207,10 +201,29 @@ ifc-validate = { cmd = "python scripts/validate_ifc.py", env = { "PYTHONPATH" = 
 [feature.meshio-bridge.dependencies]
 meshio = "*"
 
-# pythonocc-core CAD backend (OccBackend). Factored out of `prod` so a
-# single environment can swap it for the `adacpp` feature — see
-# `tests-adacpp` below. Every environment that historically got the OCC
-# backend via `prod` now lists `pyocc` explicitly.
+# pythonocc-core CAD backend (OccBackend) -- being wound down (2026-09-21). It is carried
+# ONLY by the three environments that also carry code-aster (fem-deps, fem, docs); every
+# other environment runs the adacpp backend.
+#
+# Why those three cannot move yet: they carry code-aster, and on linux-64 (the only platform
+# it is carried for) no single hdf5 version satisfies code-aster, gmsh and ifcopenshell at
+# once. As published on conda-forge, checked 2026-09-21:
+#   ifcopenshell 0.8.5 (occt 8)     hdf5 1.14.6 or 2.2
+#   libmed 4.2 (nompi/openmpi/mpich) hdf5 1.14.6 or 2.1  -- no 2.2   <- the root blocker
+#   gmsh 4.15.2 (ada-cpp: >=4.15.2) follows libmed; pins only `libmed >=4.2,<4.3 nompi_*`,
+#                                   links only libmedC.so.11 (soname stable across hdf5),
+#                                   uses no hdf5 symbols itself -- needs no rebuild
+#   code-aster 18.1.6               hdf5 2.1
+#   code-aster 18.0.10              hdf5 1.14, but libboost 1.88, which the occt-8
+#                                   ifcopenshell (libboost 1.90) rules out
+# ada-cpp itself links no hdf5; its hdf5 comes only through gmsh (via libmed) and
+# ifcopenshell. Dropping pyocc here WITHOUT adding ada-cpp would solve, but leave FEM with no
+# CAD backend at all.
+#
+# Decision: align forward on hdf5 2.2 -- not pin 2.1, not fall back to 1.14. Unblocked when
+# libmed 4.2 ships an hdf5 2.2 build (a build-number bump; its recipe already builds the
+# hdf5-2 variant) AND code-aster is rebuilt on 2.2. Then swap `pyocc` for `adacpp-runtime`
+# in the three envs and delete this feature.
 # novtk: default occt builds link VTK + X libs we don't render through.
 # pythonocc-core's build string must match occt's or the solver picks the
 # vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
@@ -222,21 +235,16 @@ pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 occt = { version = "7.9.3.*", build = "novtk_*" }
 
 # ada-cpp with no ADAPY_CAD_BACKEND flip (unlike the `adacpp` feature), so the backend
-# is whatever `select_backend()` auto-detects. It was "runtime library *alongside pyocc*"
-# until 2026-09-21; since viewer-api dropped pyocc (see the env note) adacpp is the only
-# backend present there, so it now serves every path — IFC/XML/FEM as well as the
-# libtess2 STEP→GLB pipeline — not just the tessellation one.
+# is whatever `select_backend()` auto-detects -- adacpp, wherever pythonocc is not carried.
+# It serves every path: IFC/XML/FEM as well as the libtess2 STEP->GLB pipeline.
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
-# first release built against occt 8.0.1 (which is why this feature can no longer share a
-# solve-group with pyocc).
+# first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.25.1.*"
+ada-cpp = "0.25.3.*"
 
-# ada-cpp CAD backend (AdacppBackend) — native CPython build of the
-# wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
-# and deliberately does NOT pull pythonocc-core, so an environment with
-# `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
-# (no pythonocc fallback by design).
+# ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
+# native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
+# conda-forge migration) + gmsh + ifcopenshell, and never pulls pythonocc-core.
 [feature.adacpp.dependencies]
 # 0.10.x carries the NGEOM libtess2 tessellator + meshopt EXT-compression codecs
 # (cad.meshopt_encode_*) + ifc-taxonomy kernel; adapy's meshopt/NGEOM paths need it. 0.11 adds
@@ -270,7 +278,7 @@ ada-cpp = "0.25.1.*"
 # 0.24 adds `stream_ifc_to_glb(include_guids=...)`. REQUIRED for the same reason: the native IFC
 # subset tests probe the binding via `native_ifc_subset_available()` and SKIP on an older build,
 # so a lower pin leaves them silently vacuous instead of exercising the filter.
-ada-cpp = "0.25.1.*"
+ada-cpp = "0.25.3.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -359,16 +367,7 @@ calculix = "*"
 [feature.fem-deps.target.linux-64.dependencies]
 code-aster = ">=17.3.16"
 
-# Cross-backend CAD parity gate. Declared on `tests-core` rather than on either backend
-# feature because the check is only worth running where BOTH kernels import, and no
-# backend feature gives you that: `pyocc` and `adacpp` are alternatives by design.
-# `viewer-api-tests-adacpp` is the environment that carries both (pyocc + adacpp-runtime
-# on the same occt), so that is where CI runs this. Anywhere else the cross-backend
-# comparisons skip and only the single-backend invariants execute — which is exactly why
-# it is an explicit task in an explicit environment rather than something the ordinary
-# suite is trusted to cover.
 [feature.tests-core.tasks]
-test-cad-parity = { cmd = "pytest tests/core/cad/test_backend_parity.py --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.tests-core.dependencies]
 pytest = "*"

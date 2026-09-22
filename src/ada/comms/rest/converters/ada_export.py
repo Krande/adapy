@@ -364,7 +364,7 @@ def _via_ada(
                 # surfaces the OCC stream reader drops, at step2glb-parity geometry.
                 from ada.cadit.step.stream_to_glb import stream_step_to_glb
                 from ada.config import logger
-                from ada.occ.tessellating import TessellationFallbackError
+                from ada.visit.tessellate import TessellationFallbackError
 
                 # No geometry left behind: try the requested adacpp pipeline, then adacpp's own
                 # OCC kernel (adacpp:occ) — staying in the adacpp ecosystem so this also works on

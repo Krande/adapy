@@ -105,8 +105,8 @@ def assembly_element_count(assembly: "Assembly") -> int:
     placeholder) and zero-vertex stores (degenerate bodies render nothing)."""
     from itertools import chain
 
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.meshes import MeshType
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     # Mirror tessellate_part's object set: physical objects (pipes as

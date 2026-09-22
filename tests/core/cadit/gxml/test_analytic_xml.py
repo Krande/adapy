@@ -92,7 +92,7 @@ def test_analytic_xml_roundtrips_to_curved_plates(tmp_path):
 def test_roundtripped_cylinder_tessellates_curved(tmp_path):
     """The read-back curved shell tessellates to a real curved surface (its
     pcurves survive the round trip), not a degenerate flat sliver."""
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     out = _tube().to_genie_xml(tmp_path / "cyl.xml", streaming=True, merge_strategy="cylinder")
     curved = list(ada.from_genie_xml(out).get_all_physical_objects(by_type=PlateCurved))

@@ -27,7 +27,7 @@ def test_face_based_surface_model_native_and_placed(example_files):
     assert isinstance(o.geom.geometry, su.FaceBasedSurfaceModel)
     assert o._occ_cache is None  # not built via the IfcOpenShell kernel
 
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     pts = [np.asarray(ms.position, float).reshape(-1, 3) for ms in bt.batch_tessellate(objs)]

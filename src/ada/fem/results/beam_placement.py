@@ -71,7 +71,7 @@ class SectionCentroidCache:
     @staticmethod
     def _measure(section) -> tuple[float, float] | None:
         from ada import Beam
-        from ada.occ.tessellating import BatchTessellator
+        from ada.visit.tessellate import BatchTessellator
 
         try:
             # A canonical beam: along +X, up +Z, unit length, no eccentricity. Its

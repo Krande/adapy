@@ -22,7 +22,7 @@ Two separate things are pinned here:
 import ada
 from ada.cad import minimal_distance_between_shapes
 from ada.core.clash_check import are_plates_touching
-from ada.occ.occ_clash_check import plates_min_distance
+from ada.core.clash_distance import plates_min_distance
 
 _SQUARE = [(0, 0), (1, 0), (1, 1), (0, 1)]
 
