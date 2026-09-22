@@ -2,6 +2,22 @@
 
 
 
+## v0.80.0 (2026-09-22)
+
+### Chore
+
+* chore: move backend-agnostic modules out of ada.occ (#372)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`382ed72`](https://github.com/Krande/adapy/commit/382ed7276a1e1017f7e115750e004744ec186e6f))
+
+### Feature
+
+* feat(fem): beam solids on one shared extrusion core (supersedes #365, #368) (#370)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`115b2c0`](https://github.com/Krande/adapy/commit/115b2c0984b82a4f17f0de509d1bd1a4d7eda0a2))
+
+
 ## v0.79.0 (2026-09-21)
 
 ### Feature
