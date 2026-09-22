@@ -44,6 +44,7 @@ __all__ = [
     "ChangeRecord",
     "ManifestError",
     "CORE_ARTEFACT_ROLES",
+    "manifest_summary",
     "parse_manifest",
 ]
 
@@ -327,4 +328,21 @@ def parse_manifest(doc: bytes | str) -> AssetManifest:
         build=build,
         artefacts=tuple(artefacts),
         counts=dict(raw.get("counts") or {}),
+    )
+
+
+def manifest_summary(m: AssetManifest) -> dict:
+    """The few fields the browser derives its badges from, for the index route to fold in.
+
+    Deliberately NOT the whole manifest: ``build.options`` is opaque provider data, and the index
+    is fetched on every refresh. A field lands here only when a badge or a flag reads it.
+    """
+    return _drop_none(
+        {
+            "provider": m.provider,
+            "node": m.node,
+            "delivery": m.delivery,
+            "produced_at": m.produced_at,
+            "hierarchy_revision": m.hierarchy_revision,
+        }
     )
