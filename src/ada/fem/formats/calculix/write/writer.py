@@ -64,7 +64,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # Assembly Level information
         f.write("\n".join([material_str(mat) for mat in p.materials]) + "\n")
         f.write("\n".join([bc_str(x) for x in p.fem.bcs + assembly.fem.bcs]) + "\n")
-        f.write(step_str(assembly.fem.steps[0]))
+        # A model with no analysis step is still a deck worth writing -- it simply has no
+        # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
+        # carries geometry and mesh, not an analysis), and the abaqus writer already guards
+        # the same way; indexing ``steps[0]`` unconditionally raised IndexError.
+        if len(assembly.fem.steps) > 0:
+            f.write(step_str(assembly.fem.steps[0]))
+        else:
+            f.write("** No steps\n")
 
         # f.write(mass_str)
         # f.write(surfaces_str)
