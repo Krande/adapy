@@ -2,6 +2,16 @@
 
 
 
+## v0.81.1 (2026-09-22)
+
+### Fix
+
+* fix(fem): write a Sesam superelement Presel and Sestra accept (#374)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`02d7440`](https://github.com/Krande/adapy/commit/02d74400a309dc5ecc1ad886d762dbddc163887d))
+
+
 ## v0.81.0 (2026-09-22)
 
 ### Feature
