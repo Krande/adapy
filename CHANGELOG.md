@@ -2,6 +2,16 @@
 
 
 
+## v0.83.0 (2026-09-22)
+
+### Feature
+
+* feat(cli): ada convert reaches every format adapy can write (#379)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`987d5e5`](https://github.com/Krande/adapy/commit/987d5e5b0438c0d730168ca7e494a1ea424a77c9))
+
+
 ## v0.82.0 (2026-09-22)
 
 ### Feature
