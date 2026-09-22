@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable
 
+from .beam_compact import (
+    BEAM_SOLID_FORMATS,
+    BeamSolidInstances,
+    write_beam_solids_compact,
+)
 from .beam_solids import (
     write_beam_solids_elements,
     write_beam_solids_glb,
@@ -27,6 +32,57 @@ from .readers import make_stream_reader
 from .specs import ElementFieldArtefactMeta, FieldArtefactMeta
 
 
+def _try_solid_beams(reader: FEAStreamReader, method: str, fmt: str = "mesh"):
+    """Ask a reader for beam solids, naming the extruder and the artefact
+    format only if it listens.
+
+    ``try_solid_beams`` is an optional part of the reader protocol and readers
+    live outside this package (a third-party one registered via
+    ``register_stream_reader``). Introspecting rather than passing blind keeps
+    a reader that predates ``method`` -- or ``format`` -- working on its own
+    default instead of failing the whole bake on an unexpected keyword.
+
+    A reader that ignores ``format`` hands back a
+    :class:`~.specs.SolidBeamMesh` whatever was asked for, so the caller
+    branches on what it GOT rather than on what it wanted; the warning here
+    is so the smaller artefact's absence is not a silent one.
+    """
+
+    import inspect
+
+    fn = reader.try_solid_beams
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # builtins / C callables have no signature
+        params = {}
+    var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    takes_method = "method" in params or var_kw
+    takes_format = "format" in params or var_kw
+
+    kwargs = {}
+    if takes_method:
+        kwargs["method"] = method
+    elif method != "procedural":
+        from ada.config import get_logger
+
+        get_logger().warning(
+            "beam-solid method %r ignored: %s.try_solid_beams takes no method",
+            method,
+            type(reader).__name__,
+        )
+    if takes_format:
+        kwargs["format"] = fmt
+    elif fmt != "mesh":
+        from ada.config import get_logger
+
+        get_logger().warning(
+            "beam-solid format %r ignored: %s.try_solid_beams takes no format; baking the mesh artefacts",
+            fmt,
+            type(reader).__name__,
+        )
+    return fn(**kwargs)
+
+
 def bake_fea_artefacts_from_source(
     src_path: os.PathLike,
     out_dir: os.PathLike,
@@ -35,6 +91,8 @@ def bake_fea_artefacts_from_source(
     source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
     include_beam_solids: bool = True,
+    beam_solid_method: str = "procedural",
+    beam_solid_format: str = "compact",
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -52,6 +110,8 @@ def bake_fea_artefacts_from_source(
             source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
             include_beam_solids=include_beam_solids,
+            beam_solid_method=beam_solid_method,
+            beam_solid_format=beam_solid_format,
         )
 
 
@@ -73,6 +133,8 @@ def bake_artefacts(
     nodal_only: bool = True,
     include_element_fields: bool = True,
     include_beam_solids: bool = True,
+    beam_solid_method: str = "procedural",
+    beam_solid_format: str = "compact",
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -93,6 +155,33 @@ def bake_artefacts(
     tessellation while retaining the line mesh and its result fields.
     This is useful for lightweight or headless bakes, and for native
     geometry environments where beam-solid generation is unavailable.
+
+    ``beam_solid_method`` picks how those solids are built:
+    ``"procedural"`` (default) sweeps the sampled section outline with
+    numpy — no CAD kernel, ~2 orders of magnitude faster per beam —
+    and falls back to OCC per beam for tapered / swept / revolved
+    beams, beams with booleans, and profiles it cannot sample.
+    ``"occ"`` puts every beam through the kernel. It is forwarded only
+    to readers whose ``try_solid_beams`` accepts it, so a third-party
+    reader that predates the kwarg keeps working on its own default.
+
+    ``beam_solid_format`` picks what is WRITTEN once they are built:
+
+    * ``"compact"`` (default) — one ``fea.beam_solids.compact.bin``
+      (AFBS): the per-section outline table plus 56 bytes per beam,
+      which the viewer expands in a worker into the same vertex,
+      index, draw-range and warp buffers the mesh artefacts carry. An
+      order of magnitude smaller, and the bake never builds the big
+      buffers at all. Beams the procedural extruder cannot take have
+      no generator to ship, so they are dropped (counted under
+      ``compact-unsupported[...]``) and render as lines.
+    * ``"mesh"`` — ``fea.beam_solids.glb`` + the AFBV warp and AFEM
+      element sidecars, the pre-AFBS output, with every beam in it
+      (tapered and boolean ones via the OCC fallback).
+
+    Like ``beam_solid_method`` it is forwarded only to readers that
+    accept it, and the bake branches on the object it gets back rather
+    than on what it asked for.
 
     ``on_artefact``: optional sink invoked with each artefact file's
     path *immediately after it is fully written* (the manifest last).
@@ -160,16 +249,27 @@ def bake_artefacts(
     # rendering when ``beam_solids_url`` is absent.
     beam_solids_glb_path: pathlib.Path | None = None
     beam_solids_elements_path: pathlib.Path | None = None
+    beam_solids_compact_path: pathlib.Path | None = None
     n_beam_solids = 0
     solid_beams = None
+    if beam_solid_format not in BEAM_SOLID_FORMATS:
+        raise ValueError(f"unknown beam-solid format {beam_solid_format!r}; expected one of {BEAM_SOLID_FORMATS}")
     if include_beam_solids:
         try:
-            solid_beams = reader.try_solid_beams()
+            solid_beams = _try_solid_beams(reader, beam_solid_method, beam_solid_format)
         except (AttributeError, NotImplementedError):
             pass
     beam_solids_warp_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
-    if solid_beams is not None and solid_beams.triangles.size:
+    if isinstance(solid_beams, BeamSolidInstances):
+        # AFBS — the outline table plus one 56-byte record per beam. The
+        # viewer's worker expands it into precisely the three buffers the
+        # branch below writes out in full, so there is nothing else to emit:
+        # the AFEM ranges and the AFBV triples both fall out of the expansion.
+        beam_solids_compact_path = out_dir / "fea.beam_solids.compact.bin"
+        n_beam_solids, n_beam_solid_verts = write_beam_solids_compact(solid_beams, beam_solids_compact_path)
+        emit(beam_solids_compact_path)
+    elif solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
         emit(beam_solids_glb_path)
@@ -291,6 +391,7 @@ def bake_artefacts(
         beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
         beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
         beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),
+        beam_solids_compact_filename=(beam_solids_compact_path.name if beam_solids_compact_path else None),
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
         n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),

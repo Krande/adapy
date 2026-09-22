@@ -152,7 +152,7 @@ class BackendGeom(Root):
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
-        from ada.occ.visit_utils import occ_geom_to_poly_mesh
+        from ada.visit.mesh_utils import occ_geom_to_poly_mesh
 
         if isinstance(geom_repr, str):
             geom_repr = GeomRepr.from_str(geom_repr)
@@ -160,7 +160,7 @@ class BackendGeom(Root):
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
     def to_trimesh(self) -> trimesh.Trimesh:
-        from ada.occ.tessellating import shape_to_tri_mesh
+        from ada.visit.tessellate import shape_to_tri_mesh
 
         return shape_to_tri_mesh(self.solid_occ())
 

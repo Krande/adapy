@@ -228,7 +228,7 @@ class Shape(BackendGeom):
         return self._bbox
 
     def solid_trimesh(self) -> trimesh.Trimesh:
-        from ada.occ.tessellating import shape_to_tri_mesh
+        from ada.visit.tessellate import shape_to_tri_mesh
 
         return shape_to_tri_mesh(self.solid_occ())
 
@@ -243,11 +243,11 @@ class Shape(BackendGeom):
         # Parametric path: delegate to the process-global guid-keyed
         # cache so repeated callers (tessellator, IFC writer, clash
         # check) share one OCC body per object. The cache lives in
-        # ``ada.occ.geom.cache`` — see the module docstring for the
+        # ``ada.cad.shape_cache`` — see the module docstring for the
         # serialisability rationale (adapy objects must stay
         # picklable, so OCC bodies live in a side cache, not on the
         # object).
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

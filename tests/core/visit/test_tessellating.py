@@ -3,10 +3,10 @@ from itertools import groupby
 
 import trimesh
 
-from ada.occ.tessellating import BatchTessellator
 from ada.param_models.primitives_generators import ShapeGenerator
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+from ada.visit.tessellate import BatchTessellator
 
 
 def test_shape_grid(tmp_path):
@@ -75,7 +75,7 @@ def test_batch_tessellate_solids_matches_per_object():
     import numpy as np
 
     import ada
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     objs = [ada.PrimBox(f"b{i}", (0, i, 0), (1, i + 1, 1)) for i in range(3)] + [
         ada.Beam(f"bm{i}", (0, i, 2), (1, i, 2), "IPE300") for i in range(2)
@@ -102,7 +102,7 @@ def test_tessellate_empty_shape_does_not_abort():
     itself → geometry-less shape) so it covers whichever backend is active."""
     from ada.cad import active_backend
     from ada.geom.booleans import BoolOpEnum
-    from ada.occ.tessellating import tessellate_shape
+    from ada.visit.tessellate import tessellate_shape
 
     be = active_backend()
     empty = be.boolean(BoolOpEnum.DIFFERENCE, be.make_box(1.0, 1.0, 1.0), be.make_box(1.0, 1.0, 1.0))

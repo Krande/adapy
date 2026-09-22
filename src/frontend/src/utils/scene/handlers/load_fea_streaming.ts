@@ -130,7 +130,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
         // new solid mesh.
         const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
         const beamSolid = await tryLoadBeamSolids(
-            fetcher, sourceName, manifest, beamSolidsVisible,
+            fetcher, sourceName, manifest, beamSolidsVisible, active.basePositions,
         );
         if (beamSolid) {
             mesh.add(beamSolid.mesh);
@@ -154,7 +154,12 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
             // sections switched off. The bake still writes beam_solids_edges_url;
             // it is simply no longer consumed.
 
-            const warp = await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
+            // The compact artefact expands into its own warp triple — same
+            // (node0, node1, t) AFBV carried, computed from the frames and
+            // the node positions instead of shipped per vertex. Only a
+            // manifest that still points at the GLB has a sidecar to fetch.
+            const warp = beamSolid.warp
+                ?? await fetchBeamSolidWarpSidecar(fetcher, manifest, beamSolid.basePositions);
             if (warp) active.beamSolidWarp = warp;
         }
 

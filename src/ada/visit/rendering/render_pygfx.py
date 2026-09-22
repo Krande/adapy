@@ -96,9 +96,9 @@ class RendererPyGFX:
             yield mesh
 
     def add_geom(self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None):
-        # Lazy import: ada.occ.tessellating pulls OCC, which need not be present
+        # Lazy import: ada.visit.tessellate pulls OCC, which need not be present
         # under a non-OCC CAD backend. See the internal design notes.
-        from ada.occ.tessellating import BatchTessellator
+        from ada.visit.tessellate import BatchTessellator
 
         bt = BatchTessellator()
 

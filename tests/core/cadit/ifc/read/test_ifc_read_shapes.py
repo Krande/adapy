@@ -21,7 +21,7 @@ def _assert_renders(shape, occ_only=False):
     if occ_only and backend.name == "adacpp" and not hasattr(getattr(backend, "_cad", None), "sew_faces"):
         pytest.skip("adacpp build in this env predates sew_faces / the p-curve tessellation retry")
 
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     ms = BatchTessellator().tessellate_occ_geom(shape.solid_occ(), shape.guid, shape.color)
     assert ms is not None and ms.position is not None and len(ms.position) > 0

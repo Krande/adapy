@@ -12,7 +12,6 @@ from ada.cadit.ifc.utils import add_colour, create_local_placement
 from ada.cadit.ifc.write.write_ifc import IfcWriter
 from ada.config import logger
 from ada.core.guid import create_guid
-from ada.occ.serializers import serialize_shape
 
 
 def default_callable(i, n):
@@ -26,6 +25,11 @@ def step_file_to_ifc_file(
     progress_callback: Callable[[int, int], None] = default_callable,
     include_colors=False,
 ) -> None:
+    # Deferred: serialize_shape is the OCC B-rep serializer, and this is the one path in the
+    # module that needs it. A module-level import made `import ada.cadit.step.stp_to_ifc` require
+    # pythonocc even for callers that never convert a file.
+    from ada.occ.serializers import serialize_shape
+
     if ifc_file_path is None:
         ifc_file_path = step_file.with_suffix(".ifc")
     else:

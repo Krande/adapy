@@ -379,8 +379,8 @@ class Mesh:
         if use_solid_beams and len(line_elems) > 0:
             from ada import Part
             from ada.fem.formats.utils import line_elem_to_beam
-            from ada.occ.tessellating import BatchTessellator
             from ada.visit.gltf.optimize import concatenate_stores
+            from ada.visit.tessellate import BatchTessellator
 
             dummy_part = Part(parent_name)
 

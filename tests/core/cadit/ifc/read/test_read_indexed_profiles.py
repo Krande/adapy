@@ -21,7 +21,7 @@ def _enable_geom():
 
 
 def _render_bbox(a):
-    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.tessellate import BatchTessellator
 
     objs = list(a.get_all_physical_objects())
     p = np.vstack(

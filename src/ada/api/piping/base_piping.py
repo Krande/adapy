@@ -177,12 +177,12 @@ class PipeSegStraight(BackendGeom):
         return make_edge(self.p1.p, self.p2.p)
 
     def shell_occ(self):
-        from ada.occ.geom.cache import get_shell_occ
+        from ada.cad.shape_cache import get_shell_occ
 
         return get_shell_occ(self)
 
     def solid_occ(self):
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 
@@ -300,12 +300,12 @@ class PipeSegElbow(BackendGeom):
         return edge
 
     def shell_occ(self):
-        from ada.occ.geom.cache import get_shell_occ
+        from ada.cad.shape_cache import get_shell_occ
 
         return get_shell_occ(self)
 
     def solid_occ(self):
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 

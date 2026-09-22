@@ -117,7 +117,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3) -> bool:
     bool has no such edge, and a caller reaching for the old ``.Value()`` gets a
     loud ``AttributeError`` rather than a silently wrong number.
     """
-    from ada.occ.occ_clash_check import plates_min_distance
+    from ada.core.clash_distance import plates_min_distance
 
     # `is not None`, not truthiness -- see the 0.0 note above.
     return plates_min_distance(pl1, pl2, tol) is not None
@@ -319,8 +319,8 @@ def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnec
     """Find all plates that are connected at an edge and are perpendicular to that edge."""
     # OCC-backend solid build/distance — imported lazily so this module stays
     # importable under a non-OCC CAD backend (e.g. adacpp). See the internal design notes.
-    from ada.occ.geom.cache import get_solid_occ
-    from ada.occ.occ_clash_check import plates_min_distance
+    from ada.cad.shape_cache import get_solid_occ
+    from ada.core.clash_distance import plates_min_distance
 
     # 1) Precompute every per‐plate bit once
     pdata: dict[str, dict] = {}

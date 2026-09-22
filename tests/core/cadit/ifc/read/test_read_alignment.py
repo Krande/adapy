@@ -115,8 +115,8 @@ def test_alignment_renders_as_lines(example_files):
     a = ada.from_ifc(example_files / FIXTURE)
     objs = list(a.get_all_physical_objects())
 
-    from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.meshes import MeshType
+    from ada.visit.tessellate import BatchTessellator
 
     bt = BatchTessellator()
     seg_total = 0

@@ -245,7 +245,7 @@ class Wall(BackendGeom):
         return poly.entity()
 
     def solid_occ(self):
-        from ada.occ.geom.cache import get_solid_occ
+        from ada.cad.shape_cache import get_solid_occ
 
         return get_solid_occ(self)
 
