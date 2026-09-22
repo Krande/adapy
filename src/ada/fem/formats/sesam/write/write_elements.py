@@ -51,6 +51,69 @@ def _is_writable_to_sesam(el: Elem) -> bool:
     return True
 
 
+#: How many of the missing internal element numbers the contiguity warning names before it
+#: stops; enough to locate the first hole in the deck without printing a second mesh.
+_N_GAPS_REPORTED = 5
+
+
+def _missing_ids(sorted_ids: List[int], limit: int) -> Tuple[List[int], int]:
+    """The first ``limit`` internal element numbers missing from ``sorted_ids``, and how
+    many are missing in total.
+
+    ``sorted_ids`` is sorted and duplicate-free (``elem_gen`` has just proved both), so
+    the total is ``max(ids) - len(ids)`` given the numbering is meant to run 1..N -- no
+    need to materialise the full expected range, which on a model whose ids start high
+    would be far larger than the mesh. The listed examples come from a single walk that
+    stops as soon as ``limit`` of them are known.
+    """
+    if not sorted_ids:
+        return [], 0
+    n_missing = sorted_ids[-1] - len(sorted_ids)
+    if n_missing <= 0:
+        return [], 0
+
+    examples: List[int] = []
+    expected = 1
+    for eid in sorted_ids:
+        while expected < eid and len(examples) < limit:
+            examples.append(expected)
+            expected += 1
+        if len(examples) >= limit:
+            break
+        expected = eid + 1
+    return examples, n_missing
+
+
+def _warn_if_not_contiguous(el_ids: List[int], n_skipped: int) -> None:
+    """Warn once when the emitted GELMNT1/GELREF1 ids are not contiguous from 1.
+
+    The writer uses the model's own element ids as Sesam internal element numbers so the
+    correspondence survives the conversion, and it must not renumber. But Sesam's internal
+    element numbering is expected to run 1..N without holes, and a reader that assumes it
+    -- associating the n-th result with the n-th element -- mis-associates results across a
+    gap. The skip warnings above each say what was dropped; this says what dropping it did
+    to the deck, in the same message, so the consequence can't be missed by someone who
+    only reads the last warning.
+    """
+    examples, n_missing = _missing_ids(el_ids, _N_GAPS_REPORTED)
+    if n_missing == 0:
+        return
+
+    shown = ", ".join(str(i) for i in examples)
+    if n_missing > len(examples):
+        shown += ", ..."
+    logger.warning(
+        "sesam writer: the deck's internal element numbering is not contiguous from 1 -- "
+        "%d element number(s) are missing (first: %s) because %d element(s) were skipped "
+        "(see the warnings above). The element ids are kept as the model's own rather than "
+        "renumbered, so a reader that assumes contiguous internal numbering will "
+        "mis-associate results.",
+        n_missing,
+        shown or "n/a",
+        n_skipped,
+    )
+
+
 def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     """
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
@@ -99,6 +162,23 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
             "FemSection on the ada side, or accept a partial deck.",
             skipped_unsectioned,
         )
+
+    # Presel requires GELMNT1/GELREF1 in internal element order (ELNO, manual printed
+    # 6-65 and 6-68); the array-backed container iterates block by block, so a mixed
+    # mesh interleaves the ids and Presel aborts with "ELEMENT n INTERNAL ALREADY
+    # EXISTS" the first time the sequence steps backwards. Sort rather than renumber —
+    # the ids the model carries are the ids the deck has to use — and note that sorting
+    # does not fill gaps left by the skipped elements above; see the contiguity check
+    # just below, which reports those gaps rather than renumbering around them.
+    el_ids = [el.id for el in writable]
+    order = sorted(range(len(writable)), key=el_ids.__getitem__)
+    writable = [writable[i] for i in order]
+    el_ids = [el_ids[i] for i in order]
+    dupes = [b for a, b in zip(el_ids, el_ids[1:]) if a == b]
+    if dupes:
+        raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
+
+    _warn_if_not_contiguous(el_ids, skipped_connector + skipped_unsectioned + n_springs)
 
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in
@@ -169,7 +249,16 @@ def write_elem(el: Elem, thick_map) -> str:
         raise ValueError(f'Unsupported elem type "{fem_sec.type}"')
 
     fixno = el.metadata.get("fixno", None)
+    # GUNIVEC references are handed over by ``univec_str`` for beams only (element
+    # types 2, 15 and 23 — manual printed 6-92). Everything else uses default element
+    # axes, which GELREF1 expresses as TRANSNO = 0 (manual printed 6-67); writing a
+    # GUNIVEC number on a shell produced Presel's "TRANSFORMATION NUMBER 1 DOES NOT
+    # EXSIST". A ``transno`` a caller placed here on a non-beam element is a BNTRCOS
+    # reference and is written as given; ada does not itself produce BNTRCOS records
+    # today, nor does its Abaqus reader carry a section ``orientation=`` through.
     transno = el.metadata.get("transno")
+    if transno is None:
+        transno = 0
     # ``eccno`` is left here by ``eccen_str`` once it has written the GECCEN records:
     # absent when the element has no offset, an int when both ends share one vector,
     # and a per-node list when they differ.
