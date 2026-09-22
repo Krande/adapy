@@ -10,7 +10,15 @@ each part is materialised as an array store (connectivity is node *row-index* ba
 part row offset is all the geometry needs), and node/element ids are offset by the running max
 so they stay globally unique. The same per-part id offsets are reused to re-key every dependent
 reference — node/element sets, section elsets, bc sets and masses — so the result is fully
-self-consistent. The earlier ``FEM.__add__`` path mis-renumbered nodes vs. element refs and
+self-consistent.
+
+"Store-level" means the WHOLE store: a merged ``ElemArrayBlock`` has to carry every one of
+its ``__slots__``, not just connectivity and ids, and the Mass/Spring/Connector objects the
+array container holds beside their packed rows have to come with it. A merge that rebuilt
+blocks from ``conn``/``el_ids``/``fem_secs``/``elsets`` alone dropped beam end
+eccentricities, hinges, per-element metadata and every point mass — silently, and only on
+the multi-part path, since this is what stands between a multi-part model and the
+single-part writers. The earlier ``FEM.__add__`` path mis-renumbered nodes vs. element refs and
 parked the folded-in instance's elements in an ``_overflow`` list that the array readers skip,
 which silently distorted or dropped merged-in instances.
 """
@@ -25,8 +33,107 @@ import numpy as np
 from ada.config import logger
 
 if TYPE_CHECKING:
+    from ada.api.mesh.store import MeshArrays
     from ada.api.spatial import Assembly, Part
     from ada.fem.results.common import Mesh
+
+
+def _merged_node(node, store: "MeshArrays", node_off: int):
+    """The merged store's stand-in for a source part's node reference.
+
+    A node reference held on a *side* object — an ``EccPoint``, a ``Hinge``, a ``Mass``'s
+    member list — is not connectivity, so the block merge does not touch it: it still names
+    the source part's node by that part's own id. The merge shifts node ids by ``node_off``,
+    so the reference has to be shifted with them or it names a different node (or none) in
+    the merged numbering — which is exactly what ``eccen_str`` reports as "carries an
+    eccentricity on node N, which is not one of its own nodes" before dropping the offset.
+
+    Resolved to the merged store's proxy (not the source object ``Node``/proxy) for the
+    reason ``ArrayElements._rebind_special_to_store`` gives: an object ``Node`` holds every
+    element that references it in ``Node.refs``, so one retained reference pins a whole
+    part's object mesh, and its coordinates would no longer follow ``ArrayNodes.move``.
+    Anything the merged store doesn't know (a bare int, an unpacked node) is left alone.
+    """
+    nid = getattr(node, "id", None)
+    if nid is None:
+        return node
+    nid = int(nid) + node_off
+    if not store.has_node(nid):
+        return node
+    return store.node_proxy_by_id(nid)
+
+
+def _merged_ecc(ecc, store: "MeshArrays", node_off: int):
+    """A copy of ``Eccentricity`` whose ends name the merged store's nodes.
+
+    Copied rather than re-pointed in place: the source part keeps its own FEM in the
+    assembly tree, and an eccentricity re-keyed onto the merged numbering would be wrong
+    there (``concatenate_fem_to_single_part`` is non-destructive by contract)."""
+    from ada.fem.elements import EccPoint
+
+    new = copy.copy(ecc)
+    for attr in ("end1", "end2"):
+        end = getattr(ecc, attr, None)
+        if end is None:
+            continue
+        # EccPoint keeps an array-backed node as (store, id) rather than as a proxy, so
+        # going through its own setter is what keeps that indirection intact.
+        ne = EccPoint(None, end.ecc_vector)
+        node = end.node
+        if node is not None:
+            ne.node = _merged_node(node, store, node_off)
+        setattr(new, attr, ne)
+    return new
+
+
+def _merged_hinge(hinge, store: "MeshArrays", node_off: int):
+    """A copy of ``HingeProp`` whose ends' ``fem_node`` names the merged store's nodes.
+
+    ``Hinge.concept_node`` is deliberately left alone: it is a node of the *concept* beam
+    (``ada.Beam.n1``/``n2``), not a member of the FEM numbering this merge offsets."""
+    new = copy.copy(hinge)
+    for attr in ("end1", "end2"):
+        end = getattr(hinge, attr, None)
+        if end is None:
+            continue
+        ne = copy.copy(end)
+        if getattr(ne, "fem_node", None) is not None:
+            ne.fem_node = _merged_node(ne.fem_node, store, node_off)
+        setattr(new, attr, ne)
+    return new
+
+
+def _retained_elems(fem) -> "list[tuple[object, bool]]":
+    """The element *objects* an array-backed container holds, as ``(elem, is_packed)``.
+
+    Two homes, matching ``ArrayElements._iter_specials``: ``_packed_specials`` (a
+    Mass/Spring/Connector whose row *is* in a block — the object is kept because a block has
+    nowhere to put a mass value, a spring stiffness or a connector section) and ``_overflow``
+    (anything handed to ``add()``, which is where the readers put masses; those have no block
+    row at all). A block-only merge carries neither, so ``fem.elements.masses`` came out empty
+    and every writer that iterates it — Sesam BNMASS, Abaqus ``*Mass``, Usfos NODEMASS —
+    emitted nothing."""
+    els = fem.elements
+    return [(e, True) for e in getattr(els, "_packed_specials", ())] + [
+        (e, False) for e in getattr(els, "_overflow", ())
+    ]
+
+
+def _rebind_special(elem, store: "MeshArrays", node_off: int) -> None:
+    """``ArrayElements._rebind_special_to_store`` with the merge's node-id offset applied.
+
+    Same attributes for the same reasons (``Mass`` keeps its nodes on ``_members``,
+    ``Spring``/``Connector`` also cache their ends on ``_n1``/``_n2``); the difference is
+    that here the node the reference names is the *source* part's id, so it is resolved
+    through ``_merged_node`` instead of straight through the store."""
+    for attr in ("_nodes", "_members"):
+        seq = getattr(elem, attr, None)
+        if seq:
+            setattr(elem, attr, [_merged_node(n, store, node_off) for n in seq])
+    for attr in ("_n1", "_n2"):
+        node = getattr(elem, attr, None)
+        if node is not None:
+            setattr(elem, attr, _merged_node(node, store, node_off))
 
 
 def concatenate_fem_meshes(parts: "list[Part]") -> "tuple[Mesh, list[tuple[int, int]]]":
@@ -137,7 +244,13 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
 
     coords_list: list[np.ndarray] = []
     nid_list: list[np.ndarray] = []
-    merged_blocks: dict = {}  # ctype -> {conn, el_ids, fem_secs, elsets}
+    # ctype -> {conn, el_ids, fem_secs, elsets, sparse, rows}. An ElemArrayBlock's payload is
+    # all of __slots__, not just conn/el_ids: ``fem_secs``/``elsets`` are per-row *lists* and
+    # concatenate row-wise, while ``ecc``/``hinge``/``metadata`` are sparse dicts keyed by the
+    # row INSIDE the block. Carrying the first two and dropping the last three is what made a
+    # multi-part export lose every beam end eccentricity (GECCEN), hinge (BELFIX via the
+    # ``h1``/``h2`` metadata) and per-element metadata the single-part path writes.
+    merged_blocks: dict = {}
     row_off = node_off = el_off = 0
     node_off_of: dict[int, int] = {}
     el_off_of: dict[int, int] = {}
@@ -150,14 +263,26 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         p_nmax = int(st.node_ids.max()) if st.n_nodes else 0
         p_emax = 0
         for ctype, blk in st.blocks.items():
-            entry = merged_blocks.setdefault(ctype, {"conn": [], "el_ids": [], "fem_secs": [], "elsets": []})
+            entry = merged_blocks.setdefault(
+                ctype, {"conn": [], "el_ids": [], "fem_secs": [], "elsets": [], "sparse": [], "rows": 0}
+            )
             entry["conn"].append(blk.conn.astype(np.int64) + row_off)
             entry["el_ids"].append(blk.el_ids + el_off)
             n = len(blk.el_ids)
             entry["fem_secs"].append(list(blk.fem_secs) if blk.fem_secs else [None] * n)
             entry["elsets"].append(list(blk.elsets) if blk.elsets else [None] * n)
+            # The row-keyed side tables are merged once the store exists, since their node
+            # references resolve against it. Note the three distinct offsets: ``row_off`` is a
+            # NODE row (connectivity), ``entry["rows"]`` an ELEMENT row inside this block, and
+            # ``node_off``/``el_off`` are id offsets.
+            entry["sparse"].append((entry["rows"], node_off, blk))
+            entry["rows"] += n
             if n:
                 p_emax = max(p_emax, int(blk.el_ids.max()))
+        # The special elements sitting in ``_overflow`` have no block row, so their ids are
+        # invisible to the loop above; they still have to be covered by the offset or a mass
+        # on one part collides with an element on the next.
+        p_emax = max(p_emax, max((int(e.id) for e, _ in _retained_elems(p.fem) if e.id is not None), default=0))
         row_off += st.coords.shape[0]
         node_off += p_nmax
         el_off += p_emax
@@ -176,6 +301,18 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             elsets=elsets if any(s is not None for s in elsets) else None,
         )
     store = MeshArrays(np.vstack(coords_list), np.concatenate(nid_list), blocks)
+
+    for ctype, entry in merged_blocks.items():
+        mblk = blocks[ctype]
+        for brow, nd_off, src in entry["sparse"]:
+            for row, ecc in src.ecc.items():
+                mblk.ecc[brow + row] = _merged_ecc(ecc, store, nd_off)
+            for row, hinge in src.hinge.items():
+                mblk.hinge[brow + row] = _merged_hinge(hinge, store, nd_off)
+            for row, md in src.metadata.items():
+                # Copied, not shared: the writers mutate an element's metadata in place
+                # (``el.metadata["transno"] = ...``), and the source part is not ours to edit.
+                mblk.metadata[brow + row] = dict(md)
 
     # Build a STANDALONE merged part — never mutate the source assembly (the parts keep their
     # FEMs in the tree, so writing to a single-part format doesn't collapse the model). Every
@@ -214,6 +351,40 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     for p in parts:
         for s in p.fem.sets:
             _remap_set(p, s)
+
+    # Special element OBJECTS (Mass / Spring / Connector). Their rows travel with the blocks
+    # above, but the values that make them what they are live only on the object, so without
+    # this the merged part keeps the rows and loses every mass, stiffness and connector
+    # section — ``ArrayElements._warn_on_unbacked_special_blocks`` names this merge as the
+    # case it exists to catch. Each object is copied (the source part keeps its own), moved
+    # onto its row's merged element id and re-pointed at the merged store.
+    #
+    # Before ``FemSets`` is built, not after: that constructor resolves every set member
+    # eagerly, and an ``_overflow`` special has no block row to be found by — its own elset
+    # ("<mass name>_set", written by ``FEM.add_mass``) can only resolve once the object is
+    # in the merged container.
+    for p in parts:
+        nd_off, e_off = node_off_of[id(p)], el_off_of[id(p)]
+        for el, is_packed in _retained_elems(p.fem):
+            ns = copy.copy(el)
+            if el.id is not None:
+                # The same ``el_off`` the block's el_ids got, so the object and the row it
+                # stands for keep naming one element (cf. ArrayElements.renumber).
+                ns._el_id = int(el.id) + e_off
+            _rebind_special(ns, store, nd_off)
+            md = getattr(el, "_metadata", None)
+            if isinstance(md, dict):
+                ns._metadata = dict(md)
+            # Assigned to the private attributes: ``Mass.fem_set``'s setter rebuilds
+            # ``_members`` from the set, which would undo the rebinding just done above.
+            for attr in ("_fem_set", "_elset"):
+                fs = getattr(el, attr, None)
+                if fs is not None:
+                    setattr(ns, attr, _remap_set(p, fs))
+            ns.parent = merged
+            target = merged.elements._packed_specials if is_packed else merged.elements._overflow
+            target.append(ns)
+
     merged.sets = FemSets(merged_sets, parent=merged)
 
     # Sections: shallow copy, re-point the copy's elset to the merged set + carry the material
