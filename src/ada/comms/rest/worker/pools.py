@@ -233,6 +233,26 @@ def _pool_capabilities(capabilities: list[str]) -> list[str]:
     is subscribed to and sits in the stream looking merely slow.
     """
     pools = [t for t in (capability_token(c) for c in capabilities) if t]
+    # THE DEFAULT POOL also serves every ASSET BUILD capability whose builder is importable here
+    # (`ada.assets.builders.available_build_capabilities`). Derived rather than configured,
+    # because the two ways of getting it wrong are both silent: a pool that advertises a builder
+    # it cannot import takes the job and times out, and one that serves the builder without
+    # advertising it leaves the job queued for ever. Availability is the builder's own probe, so
+    # the slim image -- which has no ifcopenshell -- simply does not claim the IFC build.
+    #
+    # ONLY FOR A WORKER THAT SERVES `base`, which is the narrow reading on purpose. A worker
+    # declared for one capability is a worker an operator pointed at one kind of work -- a
+    # licensed host, a GPU box, an off-cluster machine -- and having it quietly acquire asset
+    # builds because its image happens to import ifcopenshell is exactly the surprise
+    # ADA_WORKER_BASE_CONVERSIONS exists to prevent. A dedicated build pool is still reachable:
+    # name the capability in ADA_WORKER_CAPABILITIES and it is declared like any other.
+    if any(p == "base" for p in pools):
+        try:
+            from ada.assets.builders import available_build_capabilities
+
+            pools.extend(t for t in (capability_token(c) for c in available_build_capabilities()) if t)
+        except Exception as exc:  # noqa: BLE001 - a builder that will not import is not a pool
+            logger.warning("worker: asset build capabilities unavailable: %s", exc)
     return list(dict.fromkeys(pools)) or ["base"]
 
 

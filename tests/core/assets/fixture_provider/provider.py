@@ -38,10 +38,63 @@ FIXTURE_SOURCE_LINES: tuple[dict, ...] = (
 # A minimal but REAL glTF binary: 'glTF', version 2, total length, one JSON chunk. Enough that the
 # mesh delivery path has a byte-exact artefact to serve rather than a placeholder.
 def _tiny_glb() -> bytes:
-    body = json.dumps({"asset": {"version": "2.0", "generator": "fixture-lines"}}, separators=(",", ":")).encode()
-    body += b" " * (-len(body) % 4)
-    header = b"glTF" + (2).to_bytes(4, "little") + (12 + 8 + len(body)).to_bytes(4, "little")
-    return header + len(body).to_bytes(4, "little") + b"JSON" + body
+    """A minimal but LOADABLE glTF binary: one scene, one node, one triangle.
+
+    Loadable is the point, and it was learned the hard way. A JSON-only GLB (no scene, no mesh,
+    no BIN chunk) satisfies every schema check core makes and every byte-level assertion a test
+    can write -- and then fails in the viewer, because a delivery is only delivered once
+    something is on screen. This fixture is the `mesh` kind's only witness in CI, so it has to be
+    a file the real loader can actually put in a scene.
+    """
+    import struct
+
+    # One triangle: three vec3 positions, little-endian float32, plus an index buffer.
+    #
+    # INDEXED on purpose. Everything the viewer loads in practice comes out of a converter that
+    # emits indexed geometry, and parts of the scene pipeline read `geometry.index` without
+    # asking whether it is there. A non-indexed fixture therefore fails deep in the viewer for a
+    # reason that has nothing to do with asset delivery -- so the witness matches what a real
+    # delivery looks like.
+    positions = struct.pack("<9f", 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    indices = struct.pack("<3H", 0, 1, 2)
+    idx_offset = len(positions)
+    bin_chunk = positions + indices
+    bin_chunk += b"\x00" * (-len(bin_chunk) % 4)
+    # `id_hierarchy` is what turns a loaded model into ROWS in the Files tab: core's model-cache
+    # worker builds the tree from it, and a GLB without one loads into the scene and contributes
+    # no tree at all. The mesh witness carries a one-node hierarchy (parent `"*"` marks the root)
+    # so the `mesh` delivery kind is exercised all the way to "visible in Files", which is what
+    # Phase 3's acceptance actually asks of it.
+    doc = {
+        "asset": {"version": "2.0", "generator": "fixture-lines"},
+        "scene": 0,
+        "scenes": [{"nodes": [0], "extras": {"id_hierarchy": {"0": ["Fixture mesh", "*"]}}}],
+        "nodes": [{"mesh": 0, "name": "fixture-triangle"}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+        "accessors": [
+            {
+                "bufferView": 0,
+                "componentType": 5126,  # FLOAT
+                "count": 3,
+                "type": "VEC3",
+                "min": [0.0, 0.0, 0.0],
+                "max": [1.0, 1.0, 0.0],
+            },
+            {"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"},  # UNSIGNED_SHORT
+        ],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(positions), "target": 34962},
+            {"buffer": 0, "byteOffset": idx_offset, "byteLength": len(indices), "target": 34963},
+        ],
+        "buffers": [{"byteLength": len(bin_chunk)}],
+    }
+    body = json.dumps(doc, separators=(",", ":")).encode()
+    body += b" " * (-len(body) % 4)  # JSON chunks pad with spaces, binary chunks with zeros
+    total = 12 + 8 + len(body) + 8 + len(bin_chunk)
+    out = b"glTF" + (2).to_bytes(4, "little") + total.to_bytes(4, "little")
+    out += len(body).to_bytes(4, "little") + b"JSON" + body
+    out += len(bin_chunk).to_bytes(4, "little") + b"BIN\x00" + bin_chunk
+    return out
 
 
 def _sha(data: bytes) -> str:
@@ -65,6 +118,13 @@ class FakeStore:
 
     def put(self, key: str, data: bytes) -> None:
         self.blobs[key] = data
+
+    def put_bytes(self, key: str, data: bytes, content_encoding: str | None = None) -> None:
+        """Same shape as the sync storage facade a builder is actually handed
+        (``ada.comms.rest.worker.source_nodes._SyncStorageFacade.put_bytes``) -- ``content_encoding``
+        is accepted and ignored, since this in-memory store has no transport encoding to apply."""
+        del content_encoding
+        self.put(key, data)
 
     def list_prefix(self, prefix: str) -> Iterable[str]:
         return [k for k in sorted(self.blobs) if k.startswith(prefix)]

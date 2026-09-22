@@ -218,7 +218,12 @@ re_belfix = get_ff_regex(
     "a6|",
 )
 re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
-re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "m1", "m2", "m3", "m4", "m5", "m6")
+# BNMASS carries NDOF mass components, which is not always six: a solid-type node has
+# NDOF=3 and three translational components (GNODE's NDOF, manual printed 5-91; the writer
+# now emits that -- see ``sesam/write/writer.NodeDofs``). Named fields m1..m6 made a
+# 3-component record unmatchable, so the components come back as one lazy blob the reader
+# splits, the same shape as re_bnbcd's ``content`` and re_mgsprng's ``bulk``.
+re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "content")
 re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
 re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")

@@ -2,6 +2,64 @@
 
 
 
+## v0.82.0 (2026-09-22)
+
+### Feature
+
+* feat: asset delivery kinds, on-demand builds and the core IFC provider (#378)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3d295e6`](https://github.com/Krande/adapy/commit/3d295e60d06b9598cff36b72e46337a28d565637))
+
+
+## v0.81.3 (2026-09-22)
+
+### Fix
+
+* fix(mesh): keep masses, eccentricities and hinges when a mesh is packed or merged (#376)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`c306466`](https://github.com/Krande/adapy/commit/c30646611d9ba13ea64581fa245d92954987384e))
+
+
+## v0.81.2 (2026-09-22)
+
+### Fix
+
+* fix(fem): resolve an element surface to the face it names, not every node (#375)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`b752a72`](https://github.com/Krande/adapy/commit/b752a726115c5b7265701e2cb24d55c6dffc0b24))
+
+
+## v0.81.1 (2026-09-22)
+
+### Fix
+
+* fix(fem): write a Sesam superelement Presel and Sestra accept (#374)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`02d7440`](https://github.com/Krande/adapy/commit/02d74400a309dc5ecc1ad886d762dbddc163887d))
+
+
+## v0.81.0 (2026-09-22)
+
+### Feature
+
+* feat: asset browser tab shell and Assets tab on the published provider (#377)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`3f8084c`](https://github.com/Krande/adapy/commit/3f8084c7f8f81dad02dea1585e1e4d27a8de6875))
+
+
+## v0.80.1 (2026-09-22)
+
+### Fix
+
+* fix(viewer): take the adacpp wasm base that ships adacpp_extrude, and fail the image build without it (#373)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`4ebc87b`](https://github.com/Krande/adapy/commit/4ebc87b986788cd0f21f832dc0f5c0359cf43154))
+
+
 ## v0.80.0 (2026-09-22)
 
 ### Chore

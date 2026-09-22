@@ -44,6 +44,7 @@ import {
 } from "./viewerRuntime"
 
 import { useAnimationStore as g_useAnimationStore } from "./animationStore"
+import { useAssetBrowserStore as g_useAssetBrowserStore } from "./assetBrowserStore"
 import { useAuditFilterStore as g_useAuditFilterStore } from "./auditFilterStore"
 import { useAuditToastStore as g_useAuditToastStore } from "./auditToastStore"
 import { useCellBuilderStore as g_useCellBuilderStore } from "./cellBuilderStore"
@@ -103,7 +104,7 @@ export type AdaViewerRefs = ViewerRuntime
  * (`useModelState`, not `useModel`) so a consumer migrating off a direct import
  * does not have to rename call sites.
  *
- * 44 of the viewer's 46 stores are here. The two that are not, and why:
+ * 45 of the viewer's 47 stores are here. The two that are not, and why:
  *
  *   `useThemeStore`      A process singleton by intent. The theme is persisted
  *                        per browser and applied to `document.documentElement`,
@@ -127,6 +128,7 @@ export type AdaViewerRefs = ViewerRuntime
  */
 export interface AdaViewerStores {
     useAnimationStore: typeof g_useAnimationStore
+    useAssetBrowserStore: typeof g_useAssetBrowserStore
     useAuditFilterStore: typeof g_useAuditFilterStore
     useAuditToastStore: typeof g_useAuditToastStore
     useCellBuilderStore: typeof g_useCellBuilderStore
@@ -192,6 +194,7 @@ const AdaViewerContext = createContext<AdaViewerCtx | null>(null)
  */
 export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
     useAnimationStore: g_useAnimationStore,
+    useAssetBrowserStore: g_useAssetBrowserStore,
     useAuditFilterStore: g_useAuditFilterStore,
     useAuditToastStore: g_useAuditToastStore,
     useCellBuilderStore: g_useCellBuilderStore,
