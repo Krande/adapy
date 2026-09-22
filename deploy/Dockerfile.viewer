@@ -23,7 +23,15 @@
 # MUST stay >=0.9.0 — older bases ship an emscripten 3.1.58 wheel that micropip
 # refuses against pyodide 0.29.4 ("Wheel was built with Emscripten v3.1.58 but
 # Pyodide was built with v4.0.9").
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.22.0
+#
+# MUST also stay >=0.25.0 — that is where adacpp started shipping the
+# adacpp_extrude embind module, which the frontend fetches at runtime to expand
+# compact beam solids in the browser. A base without it builds perfectly green
+# and ships a viewer that draws every beam as a line; the guard after the /wasm/
+# promotion below turns that into a build failure instead. 0.25.3 is also what
+# `ada-cpp` is pinned to in pixi.toml, so the wheel running in the browser and
+# the package in the conda envs are the same adacpp release.
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.25.3
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -92,15 +100,32 @@ RUN npm run build:serve
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
 COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 
-# The no-pyodide embind modules (adacpp_step_glb / adacpp_ifc_glb / adacpp_brep_writer / adacpp_glb_diff
-# .js + .wasm) ship in the same adacpp base image under /out/wasm/, so the copy above lands them at
-# dist/wheels/wasm/. Promote the whole dir to /wasm/ — where the in-browser converters (cadGlbConverter
-# / brepWriterConverter workers) and the diff utility fetch them. Guarded + globbed so the build works
-# against older base images that predate any given module.
+# The no-pyodide embind modules (adacpp_step_glb / adacpp_ifc_glb / adacpp_brep_writer /
+# adacpp_glb_diff / adacpp_extrude .js + .wasm) ship in the same adacpp base image under /out/wasm/,
+# so the copy above lands them at dist/wheels/wasm/. Promote the whole dir to /wasm/ — where the
+# in-browser converters (cadGlbConverter / brepWriterConverter workers), the diff utility and the
+# compact beam-solid expander fetch them. Globbed, so a base that ships extra modules needs no edit.
 RUN mkdir -p /build/dist/wasm && \
     if [ -d /build/dist/wheels/wasm ]; then \
         mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \
     fi
+
+# ...and then fail the build if any module the frontend fetches is missing. These are loaded at
+# RUNTIME from /wasm/<name>.js and never bundled, so the SPA build above cannot notice their absence:
+# an ADACPP_BASE_IMAGE that predates one of them builds green all the way to a pushed image, and the
+# browser merely console.warns and degrades in silence. That is how the pin sat at a base without
+# adacpp_extrude while the viewer drew every compact-baked beam as a line.
+# Keep the list in step with `grep -rn '/wasm/adacpp_' src/frontend/src`.
+RUN set -eu; \
+    for m in adacpp_step_glb adacpp_ifc_glb adacpp_brep_writer adacpp_glb_diff adacpp_extrude; do \
+        for f in "/build/dist/wasm/$m.js" "/build/dist/wasm/$m.wasm"; do \
+            [ -f "$f" ] && continue; \
+            echo "ERROR: $f is missing — the adacpp wasm base image (ADACPP_BASE_IMAGE, see the" >&2; \
+            echo "       pin at the top of this file) does not ship $m, which the frontend fetches" >&2; \
+            echo "       from /wasm/ at runtime. Bump the pin to an adacpp release that has it." >&2; \
+            exit 1; \
+        done; \
+    done
 
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment
 # from pixi.toml/pixi.lock so the runtime stack stays in lockstep with

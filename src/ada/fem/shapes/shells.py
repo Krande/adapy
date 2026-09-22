@@ -64,3 +64,47 @@ shell_faces = {
     ShellShapes.QUAD8: _QUAD_CORNER_FACES,
     ShellShapes.QUAD9: _QUAD_CORNER_FACES,
 }
+
+
+# ---------------------------------------------------------------------------
+# Abaqus shell edges, mid-side nodes included.
+#
+# ``shell_edges`` above is visualization topology (corner-to-corner only, and
+# the same list reused for the second-order shapes). A ``*Surface,
+# type=ELEMENT`` row naming ``E2`` needs exactly the nodes lying on that edge,
+# which for a second-order shell includes the edge's mid-side node.
+#
+# Ordering authority: Abaqus Analysis User's Guide, "Shell elements" ->
+# "Defining edge loads and surfaces on shells", where edge ``En`` runs between
+# corner nodes ``n`` and ``n+1`` (wrapping), read against the shell node
+# numbering in the same library section: the mid-side node of edge ``En`` is
+# node ``3+n`` on a 6-node triangle and ``4+n`` on an 8-node quadrilateral.
+# adapy's native ordering is Abaqus' here (see
+# ``node_order.NATIVE_MIDSIDE_EDGES``), so the 1-based numbers translate by
+# subtracting one.
+#
+# Indexed 0-based: entry ``i`` is Abaqus edge ``E(i+1)``.
+#
+# Note that ``SPOS`` / ``SNEG`` are *not* in these tables: they name a face of
+# the shell, i.e. the whole element, and every node of the element lies on it.
+# Callers handle those separately.
+
+_TRI_ABAQUS_EDGES = ((0, 1), (1, 2), (2, 0))
+_QUAD_ABAQUS_EDGES = ((0, 1), (1, 2), (2, 3), (3, 0))
+# 6-node triangle: node 4 on edge 1-2, 5 on 2-3, 6 on 3-1 (slots 3..5).
+_TRI6_ABAQUS_EDGES = ((0, 1, 3), (1, 2, 4), (2, 0, 5))
+# 8-node quadrilateral: node 5 on edge 1-2, 6 on 2-3, 7 on 3-4, 8 on 4-1
+# (slots 4..7). TRI7 / QUAD9 carry an extra *centre* node, which lies on no
+# edge, so they reuse the TRI6 / QUAD8 tables unchanged.
+_QUAD8_ABAQUS_EDGES = ((0, 1, 4), (1, 2, 5), (2, 3, 6), (3, 0, 7))
+
+#: ``{shape: (edge E1 slots, edge E2 slots, ...)}`` -- Abaqus shell edge
+#: numbering, mid-side nodes included.
+shell_abaqus_edges = {
+    ShellShapes.TRI: _TRI_ABAQUS_EDGES,
+    ShellShapes.TRI6: _TRI6_ABAQUS_EDGES,
+    ShellShapes.TRI7: _TRI6_ABAQUS_EDGES,
+    ShellShapes.QUAD: _QUAD_ABAQUS_EDGES,
+    ShellShapes.QUAD8: _QUAD8_ABAQUS_EDGES,
+    ShellShapes.QUAD9: _QUAD8_ABAQUS_EDGES,
+}
