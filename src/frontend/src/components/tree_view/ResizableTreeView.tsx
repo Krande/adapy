@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import TreeViewComponent from './TreeViewComponent';
+import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from '@/components/asset_browser/AssetBrowser';
 import { useViewerStores } from "@/state/AdaViewerContext";
 
 // Floating left drawer that holds the selection tree. Toggled from the
@@ -42,7 +42,9 @@ const ResizableTreeView: React.FC = () => {
                 gives mobile users an obvious way back to the viewer when
                 the drawer covers most of the screen. */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 text-white text-sm shrink-0">
-                <span className="font-semibold">Selection</span>
+                {/* With a server the title slot carries the Files | Assets tabs;
+                    without one (notebook, websocket) the drawer is unchanged. */}
+                {assetsTabAvailable() ? <AssetBrowserTabs /> : <span className="font-semibold">Selection</span>}
                 <button
                     type="button"
                     onClick={() => setIsTreeCollapsed(true)}
@@ -53,9 +55,7 @@ const ResizableTreeView: React.FC = () => {
                     ×
                 </button>
             </div>
-            <div className="flex-1 overflow-auto">
-                <TreeViewComponent />
-            </div>
+            <AssetBrowser />
             {/* Resize handle — desktop only, no value on touch. */}
             <div
                 className="absolute top-0 right-0 w-2 h-full cursor-ew-resize bg-gray-600 hidden md:block"
