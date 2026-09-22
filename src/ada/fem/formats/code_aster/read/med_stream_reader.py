@@ -215,7 +215,7 @@ class RmedStreamReader:
 
         return try_load_fem_concepts(self._path)
 
-    def try_solid_beams(self):
+    def try_solid_beams(self, *, method: str = "procedural", format: str = "mesh"):
         # Code Aster's .med output has no section / orientation info
         # of its own — that lives in the .comm deck. adapy's MED
         # writer emits a <name>.adapy_fem.json sidecar at write
@@ -224,15 +224,29 @@ class RmedStreamReader:
         # isn't there (third-party .rmed, manual rename, ...) the
         # bake gracefully falls back to line-only beam rendering.
         from ada.fem.formats.code_aster.read.beams_sidecar import try_load_beams_sidecar
-        from ada.fem.results.artefacts import tessellate_beams_to_solid_mesh
+        from ada.fem.results.artefacts import (
+            collect_beam_solid_instances,
+            tessellate_beams_to_solid_mesh,
+        )
 
         beams, extra_skip = try_load_beams_sidecar(self._path, self._nmap_for_beams())
         if not beams and not extra_skip:
             return None
+        total_beams = len(beams) + sum(extra_skip.values())
+        if format == "compact":
+            # The compact artefact the viewer expands itself; see
+            # ``beam_compact``. Same beams, same eccentric placement — only
+            # the shape of what is written out differs.
+            return collect_beam_solid_instances(
+                beams,
+                extra_skip_reasons=extra_skip,
+                total_beams=total_beams,
+            )
         return tessellate_beams_to_solid_mesh(
             beams,
             extra_skip_reasons=extra_skip,
-            total_beams=len(beams) + sum(extra_skip.values()),
+            total_beams=total_beams,
+            method=method,
         )
 
     def _nmap_for_beams(self) -> dict[int, int]:

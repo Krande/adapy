@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Iterator, Protocol
 
+from .beam_compact import BeamSolidInstances
 from .history import HistoryRecords
 from .specs import (
     ElementFieldSpec,
@@ -39,7 +40,12 @@ class FEAStreamReader(Protocol):
 
     def iter_element_field_steps(self, spec: ElementFieldSpec) -> Iterator[ElementStepValues]: ...
 
-    def try_solid_beams(self) -> "SolidBeamMesh | None":
+    def try_solid_beams(
+        self,
+        *,
+        method: str = "procedural",
+        format: str = "mesh",
+    ) -> SolidBeamMesh | BeamSolidInstances | None:
         """Optional: tessellate beam elements as 3D extruded solids.
 
         Readers that have section + axis info per beam element (SIF
@@ -47,6 +53,15 @@ class FEAStreamReader(Protocol):
         metadata) return a :class:`SolidBeamMesh`. Readers without it
         (native RMED, FRD) return ``None`` — the bake then skips beam-
         solid emission and the manifest carries no ``beam_solids_url``.
+
+        ``method`` selects the extruder (``"procedural"`` / ``"occ"``).
+        ``format`` selects what comes back: ``"mesh"`` the tessellated
+        :class:`SolidBeamMesh`, ``"compact"`` a
+        :class:`~.beam_compact.BeamSolidInstances` — the same beams as
+        an outline table plus one frame each, for the viewer to expand.
+        Both are passed only when the reader accepts them, so a
+        third-party reader predating either kwarg keeps working; the
+        bake branches on the type it gets back.
         """
         ...
 

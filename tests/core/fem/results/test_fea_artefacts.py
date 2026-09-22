@@ -10,6 +10,7 @@ public :class:`FEAStreamReader` protocol.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import struct
 
@@ -1236,6 +1237,9 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     AFEM-format per-beam draw-range sidecar. The manifest mesh meta
     must point at both files and every line element should appear in
     the elements sidecar.
+
+    ``beam_solid_format="mesh"`` is named explicitly: the bake's default is
+    the compact artefact now, and this test is about the mesh one.
     """
 
     from ada.fem.results.artefacts import ELEM_HEADER_BYTES, ELEM_MAGIC
@@ -1244,7 +1248,7 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     if not sif.exists():
         pytest.skip(f"fixture not present: {sif}")
 
-    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem, beam_solid_format="mesh")
     manifest = json.loads(bake.manifest_path.read_text())
 
     mesh_meta = manifest["mesh"]
@@ -1364,7 +1368,7 @@ def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
     if not sif.exists():
         pytest.skip(f"fixture not present: {sif}")
 
-    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem, beam_solid_format="mesh")
     manifest = json.loads(bake.manifest_path.read_text())
 
     mesh_meta = manifest["mesh"]
@@ -1417,6 +1421,162 @@ def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
     assert seen_pairs <= line_pairs, "AFBV pair not found among source line elements"
 
 
+def test_bake_beam_solid_methods_produce_the_same_artefact_set(fem_files, tmp_path):
+    """The extruder replaced a CAD-kernel round trip per beam; it did not
+    change what the bake emits. Both methods must cover the same beams and
+    write the same three artefacts, with the AFBV row count still matching the
+    GLB's vertex count on each.
+    """
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    trimesh = pytest.importorskip("trimesh")
+    metas = {}
+    for method in ("procedural", "occ"):
+        bake = bake_fea_artefacts_from_source(
+            sif,
+            tmp_path / method,
+            src_key=sif.stem,
+            beam_solid_method=method,
+            beam_solid_format="mesh",
+        )
+        mesh_meta = json.loads(bake.manifest_path.read_text())["mesh"]
+        assert mesh_meta.get("beam_solids_url") == "fea.beam_solids.glb"
+        assert mesh_meta.get("beam_solids_elements_url") == "fea.beam_solids.elements.bin"
+        assert mesh_meta.get("beam_solids_warp_url") == "fea.beam_solids.warp.bin"
+
+        # AFBV carries one record per beam-solid vertex, so its count has to be
+        # the GLB's vertex count — the frontend indexes them in lockstep.
+        scene = trimesh.load(bake.out_dir / "fea.beam_solids.glb", force="scene")
+        n_glb_verts = sum(int(g.vertices.shape[0]) for g in scene.geometry.values())
+        assert mesh_meta["n_beam_solid_verts"] == n_glb_verts
+
+        metas[method] = mesh_meta
+
+    assert metas["procedural"]["n_beam_solids"] == metas["occ"]["n_beam_solids"]
+
+
+# The compact beam-solid format is written from adacpp-meshed sections, so
+# without adacpp the bake has no instances to write and emits no compact
+# artefact at all -- correctly, and the mesh path still covers the beams.
+# These two assert the compact output specifically.
+needs_adacpp = pytest.mark.skipif(importlib.util.find_spec("adacpp") is None, reason="compact beam solids need adacpp")
+
+
+@needs_adacpp
+def test_bake_writes_one_compact_beam_solid_artefact_by_default(fem_files, tmp_path):
+    """The default bake emits AFBS and nothing else for beam solids: no GLB,
+    no AFBV, no AFEM, and a manifest key an older viewer does not know (so it
+    falls back to line rendering rather than mis-reading the new bytes).
+
+    The counts it advertises have to be the counts the expansion produces —
+    the frontend checks the buffers it built against them.
+    """
+
+    from ada.fem.results.artefacts import (
+        BEAM_COMPACT_MAGIC,
+        expand_beam_solid_instances,
+        read_beam_solids_compact,
+    )
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    mesh_meta = json.loads(bake.manifest_path.read_text())["mesh"]
+
+    assert mesh_meta.get("beam_solids_compact_url") == "fea.beam_solids.compact.bin"
+    for absent in ("beam_solids_url", "beam_solids_elements_url", "beam_solids_warp_url"):
+        assert absent not in mesh_meta, absent
+    assert not (bake.out_dir / "fea.beam_solids.glb").exists()
+    assert not (bake.out_dir / "fea.beam_solids.warp.bin").exists()
+    assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
+
+    path = bake.out_dir / "fea.beam_solids.compact.bin"
+    assert path.read_bytes()[:4] == BEAM_COMPACT_MAGIC
+
+    inst = read_beam_solids_compact(path)
+    assert inst.n_beams == mesh_meta["n_beam_solids"] > 0
+    assert inst.n_verts == mesh_meta["n_beam_solid_verts"] > 0
+
+    # And it really does expand against this bake's own point buffer.
+    from ada.fem.results.artefacts import make_stream_reader
+
+    with make_stream_reader(sif) as reader:
+        points = reader.read_mesh_geometry().points
+    expanded = expand_beam_solid_instances(inst, points)
+    assert expanded.points.shape[0] == inst.n_verts
+    assert int(np.asarray(inst.node0).max()) < points.shape[0]
+    assert int(np.asarray(inst.node1).max()) < points.shape[0]
+    assert float(expanded.vertex_t.min()) >= 0.0
+    assert float(expanded.vertex_t.max()) <= 1.0
+
+
+@needs_adacpp
+def test_bake_compact_and_mesh_formats_draw_the_same_beams(fem_files, tmp_path):
+    """The two artefacts are two encodings of one mesh, and the compact one is
+    an order of magnitude smaller. Both claims are asserted here: same beam
+    labels, same triangle counts, same vertex count — and a file that is a
+    fraction of the trio it replaces."""
+
+    from ada.fem.results.artefacts import (
+        ELEM_HEADER_BYTES,
+        expand_beam_solid_instances,
+        make_stream_reader,
+        read_beam_solids_compact,
+    )
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    compact_bake = bake_fea_artefacts_from_source(
+        sif, tmp_path / "compact", src_key=sif.stem, beam_solid_format="compact"
+    )
+    mesh_bake = bake_fea_artefacts_from_source(sif, tmp_path / "mesh", src_key=sif.stem, beam_solid_format="mesh")
+    compact_meta = json.loads(compact_bake.manifest_path.read_text())["mesh"]
+    mesh_meta = json.loads(mesh_bake.manifest_path.read_text())["mesh"]
+
+    assert compact_meta["n_beam_solids"] == mesh_meta["n_beam_solids"]
+    assert compact_meta["n_beam_solid_verts"] == mesh_meta["n_beam_solid_verts"]
+
+    with make_stream_reader(sif) as reader:
+        points = reader.read_mesh_geometry().points
+    compact_path = compact_bake.out_dir / "fea.beam_solids.compact.bin"
+    expanded = expand_beam_solid_instances(read_beam_solids_compact(compact_path), points)
+
+    afem = (mesh_bake.out_dir / "fea.beam_solids.elements.bin").read_bytes()
+    rows = np.frombuffer(afem[ELEM_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 3)
+    assert [(int(r.label), int(r.tri_start), int(r.tri_count)) for r in expanded.element_ranges] == [
+        (int(a), int(b), int(c)) for a, b, c in rows
+    ]
+
+    trio = sum(
+        (mesh_bake.out_dir / name).stat().st_size
+        for name in (
+            "fea.beam_solids.glb",
+            "fea.beam_solids.warp.bin",
+            "fea.beam_solids.elements.bin",
+        )
+    )
+    assert compact_path.stat().st_size * 4 < trio, (
+        f"compact {compact_path.stat().st_size} B vs mesh trio {trio} B — "
+        "the format exists to be much smaller than this"
+    )
+
+
+def test_bake_rejects_an_unknown_beam_solid_format(fem_files, tmp_path):
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    with pytest.raises(ValueError, match="unknown beam-solid format"):
+        bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem, beam_solid_format="instanced")
+
+
 def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     """Shell-only fixtures have no line elements; the bake must skip
     the optional beam-solid emission entirely (no manifest key, no
@@ -1431,8 +1591,10 @@ def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
 
     assert "beam_solids_url" not in manifest["mesh"]
     assert "beam_solids_elements_url" not in manifest["mesh"]
+    assert "beam_solids_compact_url" not in manifest["mesh"]
     assert not (bake.out_dir / "fea.beam_solids.glb").exists()
     assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
+    assert not (bake.out_dir / "fea.beam_solids.compact.bin").exists()
 
 
 def test_bake_can_disable_beam_solid_tessellation(fem_files, tmp_path, monkeypatch):
