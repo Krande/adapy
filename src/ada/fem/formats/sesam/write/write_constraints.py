@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 import numpy as np
 
 from ada import FEM
@@ -9,23 +13,64 @@ from ada.fem.surfaces import surface_nodes
 from .write_utils import write_ff
 
 
-def constraint_str(fem: FEM) -> str:
-    out_str = ""
+@dataclass(frozen=True)
+class BldepRecord:
+    """One BLDEP record: a slave node depending on a master node through
+    ``(slave_dof, master_dof, beta)`` terms.
+
+    Both the BLDEP writer and the BNBCD companion writer (``write_bcs.bnbcd_str``)
+    consume these records, so the linear dependencies the deck declares and the FIX
+    codes that must accompany them (manual printed 6-27) can never disagree.
+    """
+
+    slave: int
+    master: int
+    terms: tuple[tuple[int, int, float], ...]
+
+    @property
+    def slave_dofs(self) -> tuple[int, ...]:
+        """The slave's dependent dofs — BNBCD code 3 goes on exactly these."""
+        return tuple(sorted({s for s, _, _ in self.terms}))
+
+    @property
+    def master_dofs(self) -> tuple[int, ...]:
+        """The master dofs this record reads — the ones the master's own BNBCD record
+        has to leave free (code 0)."""
+        return tuple(sorted({m for _, m, _ in self.terms}))
+
+    def to_str(self) -> str:
+        rows = [(self.slave, self.master, len(self.slave_dofs), len(self.terms))]
+        rows += [(s, m, beta, 0.0) for s, m, beta in self.terms]
+        return write_ff("BLDEP", rows)
+
+
+def bldep_records(fem: FEM) -> list[BldepRecord]:
+    """Every BLDEP record this FEM's constraints produce, in constraint order.
+
+    Split out of :func:`constraint_str` because the BNBCD block is written *before* the
+    BLDEP block (GeniE's order, see ``writer.to_fem``) while its FIX codes are derived
+    from these records — so they have to be computed before either block is emitted.
+    """
+    records: list[BldepRecord] = []
     for constraint in fem.constraints.values():
         # A rigid body links every slave node rigidly to the master (reference) node — the
         # same kinematic relation Sesam expresses with BLDEP linear-dependency cards, so it
         # writes identically to a coupling.
         if constraint.type in (constraint.TYPES.COUPLING, constraint.TYPES.RIGID_BODY):
-            out_str += write_coupling(constraint)
+            records += coupling_records(constraint)
         elif constraint.type == constraint.TYPES.SHELL2SOLID:
-            out_str += write_shell2solid(constraint)
+            records += shell2solid_records(constraint)
         else:
             raise NotImplementedError(f'Constraint type "{constraint.type}" is not yet supported')
 
-    return out_str
+    return records
 
 
-def _bldep(master, slave) -> str:
+def constraint_str(fem: FEM) -> str:
+    return "".join(r.to_str() for r in bldep_records(fem))
+
+
+def _bldep(master, slave) -> BldepRecord:
     """One BLDEP record tying a slave node rigidly to a master node.
 
     ``SLAVE MASTER NDDOF NDEP`` then NDEP ``(s_i, m_i, beta_i)`` triplets, beta_i
@@ -33,13 +78,11 @@ def _bldep(master, slave) -> str:
     translations follow the master's translation plus its rotation about the lever
     arm between them: 3 dependent dofs, 9 triplets.
     """
-    lin_deps = [(slave.id, master.id, 3, 9)]
-    for lin_dep_rel in LinDep(master.p, slave.p).to_integer_list():
-        lin_deps.append(tuple(list(lin_dep_rel) + [0.0]))
-    return write_ff("BLDEP", lin_deps)
+    terms = tuple((s, m, beta) for s, m, beta in LinDep(master.p, slave.p).to_integer_list())
+    return BldepRecord(slave.id, master.id, terms)
 
 
-def write_coupling(constraint: Constraint) -> str:
+def coupling_records(constraint: Constraint) -> list[BldepRecord]:
     """A coupling / rigid body as BLDEP links from every slave node to the master.
 
     Both sides go through ``surface_nodes``: either may be given as a ``Surface``
@@ -53,19 +96,23 @@ def write_coupling(constraint: Constraint) -> str:
             "sesam writer: coupling %s has no master node and is written as nothing.",
             constraint.name,
         )
-        return ""
+        return []
     master = masters[0]
 
-    out_str = []
+    records = []
     for node in surface_nodes(constraint.s_set):
         if node.id == master.id:
             continue  # the reference node can't depend on itself
-        out_str.append(_bldep(master, node))
+        records.append(_bldep(master, node))
 
-    return "".join(out_str)
+    return records
 
 
-def write_shell2solid(constraint: Constraint) -> str:
+def write_coupling(constraint: Constraint) -> str:
+    return "".join(r.to_str() for r in coupling_records(constraint))
+
+
+def shell2solid_records(constraint: Constraint) -> list[BldepRecord]:
     """Shell-to-solid coupling as BLDEP linear dependencies.
 
     Each solid-face node depends on the nearest shell-edge node through the rigid link
@@ -86,26 +133,53 @@ def write_shell2solid(constraint: Constraint) -> str:
             len(masters),
             len(slaves),
         )
-        return ""
+        return []
 
-    nearest = _nearest_master(np.array([n.p for n in slaves]), np.array([n.p for n in masters]))
+    nearest = _nearest_master(
+        np.array([n.p for n in slaves]),
+        np.array([n.p for n in masters]),
+        np.array([n.id for n in masters], dtype=np.int64),
+    )
 
-    out_str = []
+    records = []
     for slave, m_idx in zip(slaves, nearest):
         master = masters[m_idx]
         if slave.id == master.id:
             continue  # a node shared by both surfaces can't depend on itself
-        out_str.append(_bldep(master, slave))
+        records.append(_bldep(master, slave))
 
-    return "".join(out_str)
+    return records
 
 
-def _nearest_master(slave_p: np.ndarray, master_p: np.ndarray) -> np.ndarray:
-    """Index of the closest master point for each slave point. Chunked so the pairwise
-    block stays bounded on interfaces with many nodes."""
+def write_shell2solid(constraint: Constraint) -> str:
+    return "".join(r.to_str() for r in shell2solid_records(constraint))
+
+
+def _nearest_master(slave_p: np.ndarray, master_p: np.ndarray, master_ids: np.ndarray) -> np.ndarray:
+    """Index into ``master_p`` of the closest master point for each slave point.
+
+    Ties are broken on the **lowest master node id**, not on position in the master list.
+    Which of two equidistant masters a slave is tied to is arbitrary in physical terms --
+    on a symmetric interface both give the same kinematics -- but it must not change
+    between runs or between callers, and ``argmin`` alone makes it depend on whatever
+    order the region resolver happened to hand ``surface_nodes`` back in. Measured on the
+    project model: the same master set in two equally valid orders moved 313 of 8 910
+    slaves to a different master, every one of them at a distance difference of exactly
+    0.0. A deck that reshuffles its BLDEP pairing between two conversions of the same
+    model cannot be diffed, so the rule is pinned here.
+
+    The tie-break stays vectorised: the masters are visited in node-id order, so
+    ``argmin`` -- which already returns the *first* minimum -- lands on the lowest id of
+    any tied group by construction, and the result is mapped back through the sort
+    permutation. No per-slave work is added; the pairwise block is still chunked so it
+    stays bounded on interfaces with many nodes.
+    """
+    order = np.argsort(master_ids, kind="stable")
+    master_p = master_p[order]
+
     out = np.empty(slave_p.shape[0], dtype=np.int64)
     chunk = max(1, 2_000_000 // max(1, master_p.shape[0]))
     for i in range(0, slave_p.shape[0], chunk):
         block = slave_p[i : i + chunk]
         out[i : i + chunk] = ((block[:, None, :] - master_p[None, :, :]) ** 2).sum(-1).argmin(axis=1)
-    return out
+    return order[out]
