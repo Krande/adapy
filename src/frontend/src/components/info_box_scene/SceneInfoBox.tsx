@@ -194,11 +194,16 @@ const SceneInfoBox = () => {
                     <>
                         <FacePickingToggle />
                         <FaceSearchSection />
-                        <CollapsibleSection title="Stats" defaultOpen>
-                            <StatsSection />
-                        </CollapsibleSection>
+                        {/* ONE section, not two. `Stats` and `Take-off` were answering the same
+                            question from different places -- what a GLB carried baked in, and the
+                            take-off the conversion wrote beside it -- and for an ordinary
+                            converted model that is the same document twice. The take-off leads;
+                            baked per-model stats (an FEA simulation's element counts, a CAD
+                            model's volume COG) follow underneath when a GLB has them, because
+                            those say something the roll-up above has no shape for. */}
                         <CollapsibleSection title="Take-off" defaultOpen>
                             <ModelStatsSection />
+                            <StatsSection />
                         </CollapsibleSection>
                         <CollapsibleSection title="Groups" defaultOpen={!isMobile}>
                             <GroupsSection />
