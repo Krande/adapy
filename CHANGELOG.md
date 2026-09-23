@@ -2,6 +2,15 @@
 
 
 
+## v0.84.3 (2026-09-23)
+
+### Fix
+
+* fix: per-worker result pipes so a killed pool worker can&#39;t wedge the rest (#387)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`a2492c5`](https://github.com/Krande/adapy/commit/a2492c5fbec81eb23c07bf5f6d3b5fa8cde26748))
+
+
 ## v0.84.2 (2026-09-23)
 
 ### Fix
