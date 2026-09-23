@@ -82,6 +82,33 @@ def _make_loft(be):
     return loft_profiles(LOFT_PROFILES, ruled=True, is_solid=True, backend=be)
 
 
+# A unit square in z=0, and the same outline with an interior hole: the two profiles
+# behind the prisms below. A prism is the shape that separates a placement-aware edge
+# identity from a placement-blind one, because MakePrism builds its top face as the
+# base face instanced at another Location.
+_SQUARE = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+_HOLE = [[0.25, 0.25, 0.0], [0.75, 0.25, 0.0], [0.75, 0.75, 0.0], [0.25, 0.75, 0.0]]
+
+
+def _make_holed_face(be):
+    cut = be.boolean(
+        BoolOpEnum.DIFFERENCE,
+        be.polygon_face(_SQUARE),
+        be.extrude_face_along_normal(be.polygon_face(_HOLE), -1.0),
+    )
+    holed = [f for f in be.faces(cut) if len(be.wires(f)) == 2]
+    assert len(holed) == 1, "expected the cut to leave exactly one face with a hole"
+    return holed[0]
+
+
+def _make_prism(be):
+    return be.extrude_face_along_normal(be.polygon_face(_SQUARE), 0.5)
+
+
+def _make_holed_prism(be):
+    return be.extrude_face_along_normal(_make_holed_face(be), 0.5)
+
+
 # Every construction is a callable rather than a shape: a shape belongs to the kernel
 # that built it and cannot be handed to the other one, so each backend must build its
 # own copy from the same recipe.
@@ -159,6 +186,25 @@ def test_every_edge_is_reported_once(backend, construction, expected_edges):
     building a wire frame, doubles its answer on a backend that leaks those incidences.
     """
     assert len(backend.edges(CONSTRUCTIONS[construction](backend))) == expected_edges
+
+
+@pytest.mark.parametrize(
+    ("construction", "expected_edges"),
+    [(_make_holed_face, 8), (_make_prism, 12), (_make_holed_prism, 24)],
+    ids=["holed_face", "prism", "holed_prism"],
+)
+def test_a_located_copy_is_its_own_edge(backend, construction, expected_edges):
+    """An extrusion's top rail is its base rail at another placement, not the same edge.
+
+    ``BRepPrimAPI_MakePrism`` instances the base face at the extrusion height rather
+    than building fresh geometry, so base and top share a TShape and differ only in
+    Location. Any identity that ignores Location merges them and reports 8 edges for
+    a square prism instead of 12, 16 instead of 24 with a hole -- silently, and only
+    on the shapes a wire frame, an edge overlay or a boundary export is built from.
+    The holed face (8, no extrusion involved) is the control: it pins the count that
+    a placement-blind identity gets right, so a failure here localises to the rails.
+    """
+    assert len(backend.edges(construction(backend))) == expected_edges
 
 
 def test_box_diagnostics_match_the_closed_form(backend):
@@ -361,26 +407,18 @@ def test_to_occ_shape_carries_an_adacpp_handle_into_pythonocc(both_backends):
 
 
 # --------------------------------------------------------------------------------
-# The edge de-duplication itself, without needing the native build installed.
+# Edge identity, without needing the native build installed.
 # --------------------------------------------------------------------------------
 
 
 class _StubCad:
-    """Stands in for ``adacpp.cad``, returning each edge once per incident face.
+    """Stands in for ``adacpp.cad``."""
 
-    This base has no ``face_id``, standing in for a build that exposes no sub-shape
-    identity at all.
-    """
-
-    def __init__(self, incidences):
-        self._incidences = incidences
+    def __init__(self, edges):
+        self._edges = edges
 
     def edges(self, shape):
-        return list(self._incidences)
-
-
-class _StubCadWithIdentity(_StubCad):
-    """As above, plus the sub-shape identity the de-duplication collapses on."""
+        return list(self._edges)
 
     def face_id(self, edge):
         return hash(edge)
@@ -392,13 +430,22 @@ def _stub_backend(stub) -> AdacppBackend:
     return be
 
 
-def test_edges_collapses_repeated_incidences():
-    be = _stub_backend(_StubCadWithIdentity(["e1", "e2", "e1", "e3", "e2"]))
-    # First-seen order preserved, so the sequence still starts where the walk starts.
-    assert be.edges("shape") == ["e1", "e2", "e3"]
+def test_edges_passes_the_native_list_through_untouched():
+    """The kernel owns edge identity; this side must not second-guess it.
+
+    AdacppBackend.edges used to collapse repeats on ``face_id``, back when the native
+    walk reported an edge once per incident face. ``face_id`` is a bare TShape pointer,
+    which cannot tell a located copy from the sub-shape it was instanced from, so that
+    de-duplication silently dropped a prism's top rails. ada-cpp 0.25.4 reports each
+    edge once and keeps located copies distinct, so anything filtered here now is a
+    real edge being thrown away -- including when two entries hash equal under
+    ``face_id``, which is exactly the located-copy case.
+    """
+    be = _stub_backend(_StubCad(["e1", "e2", "e1", "e3", "e2"]))
+    assert be.edges("shape") == ["e1", "e2", "e1", "e3", "e2"]
 
 
-def test_edges_passes_through_when_the_build_cannot_identify_sub_shapes():
-    """No identity to collapse on means passing the walk through, not guessing."""
-    be = _stub_backend(_StubCad(["e1", "e2", "e1"]))
-    assert be.edges("shape") == ["e1", "e2", "e1"]
+def test_edges_reports_the_missing_binding_rather_than_an_empty_list():
+    be = _stub_backend(object())
+    with pytest.raises(NotImplementedError, match="adacpp.cad.edges"):
+        be.edges("shape")
