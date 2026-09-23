@@ -33,10 +33,12 @@ which is the thing this stands in for rather than replaces.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import inspect
 import json
 import logging
+import pathlib
 import threading
 import time
 import traceback
@@ -514,4 +516,260 @@ def start_asset_publish(
             logger.debug("local asset publish traceback:\n%s", traceback.format_exc())
 
     threading.Thread(target=_run, name=f"local-asset-publish-{provider_id}", daemon=True).start()
+    return job
+
+
+def start_clash_check(
+    *,
+    source_key: str,
+    options: dict[str, Any],
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run a ``clash_check`` in a thread -- the queue-less half of Decision 10's identification
+    surface. Same argument as ``start_asset_build``: a single-node viewer with a model open in its
+    own scope should be able to check it for joints without a cluster, and it needs no capability
+    pool to do that -- identifying and typing joints wants no kernel this process does not already
+    have (the worker-side handler's own comment: "nothing here needs a capability pool")."""
+    from ada.clash import ClashOptions, run_clash_check
+    from ada.clash.builtin_specs import register_builtin_specs
+    from ada.comms.rest.converters.ada_load import _load_with_ada
+    from ada.core.file_system import new_temp_path
+
+    loop = asyncio.get_running_loop()
+
+    from ada.comms.rest.worker import _SyncStorageFacade
+
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="clash_check",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        tmp = new_temp_path(suffix=pathlib.PurePosixPath(source_key).suffix or None)
+        try:
+            job.stage, job.progress = "loading", 0.15
+            sync_storage.fetch_to_path(source_key, tmp)
+            model = _load_with_ada(tmp, tmp.suffix.lower())
+            source_sha256 = hashlib.sha256(tmp.read_bytes()).hexdigest()
+            register_builtin_specs()
+            clash_options = ClashOptions(
+                out_of_plane_tol=float(options.get("out_of_plane_tol", 0.1)),
+                point_tol=float(options.get("point_tol", 1e-5)),
+                root=options.get("root") or None,
+                include_plate_joints=bool(options.get("include_plate_joints", True)),
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "clash", 0.55
+            # No live pool exists behind this transport (`advertised_specs` always answers
+            # {} -- see LocalJobTransport below), so `capability_of` is left at its default:
+            # every non-builtin spec that happens to be registered here reports capability
+            # None, which the panel already reads as "registered, served by nobody right
+            # now" -- the honest answer for a queue-less viewer.
+            result = run_clash_check(
+                model,
+                source_key=source_key,
+                options=clash_options,
+                source_sha256=source_sha256,
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "upload", 0.95
+            payload = result.to_dict()
+            sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            job.result = payload
+            job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+        except Exception as exc:  # noqa: BLE001 — the check's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+                return
+            logger.exception("local clash_check %s failed", job.job_id)
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.stage = "error"
+            logger.debug("local clash_check traceback:\n%s", traceback.format_exc())
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    threading.Thread(target=_run, name="local-clash-check", daemon=True).start()
+    return job
+
+
+def start_clash_detail(
+    *,
+    result_key: str,
+    joint_ids: list[str],
+    spec_name: str,
+    options: dict[str, Any],
+    glb_key: "str | None",
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run a ``clash_detail`` in a thread. Same argument as ``start_clash_check``: a queue-less
+    viewer must be able to hand a group of joints to a BUILT-IN generator without a cluster.
+
+    An out-of-tree spec is never reachable here: ``get_registered`` raises before a job (and its
+    thread) is even started when this process never imported it, which on a single-node viewer
+    means it was never registered at all -- the caller gets a 501 naming the spec rather than a
+    job id that errors two polls later.
+    """
+    from ada.api.connections.spec import get_registered
+
+    try:
+        registered = get_registered(spec_name)
+    except KeyError as exc:
+        raise LookupError(
+            f"spec {spec_name!r} is not registered in this process -- a queue-less viewer can "
+            "only detail a joint with a spec it has itself imported (the built-ins always are)"
+        ) from exc
+
+    from ada.clash import (
+        ClashOptions,
+        ClashResultError,
+        describe_member,
+        identify_joints,
+        parse_clash_result,
+    )
+    from ada.clash.builtin_specs import register_builtin_specs
+    from ada.clash.match import detail_pairs
+    from ada.comms.rest.converters.ada_load import _load_with_ada
+    from ada.core.file_system import new_temp_path
+
+    def _found_id(found) -> str:
+        # See formats/clash_detail.py's `_found_id` — the same documented, deterministic
+        # formula, duplicated rather than imported for the same reason: it is a public
+        # contract of `run_clash_check`, not a private helper of one module.
+        names = sorted(describe_member(m).name for m in found.members)
+        return hashlib.sha256("|".join([found.origin, *names]).encode("utf-8")).hexdigest()[:12]
+
+    loop = asyncio.get_running_loop()
+
+    from ada.comms.rest.worker import _SyncStorageFacade
+
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=spec_name,
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        try:
+            job.stage, job.progress = "fetch", 0.10
+            raw = sync_storage.get_bytes(result_key)
+            cached = parse_clash_result(raw)
+            if not cached.source_key:
+                raise ClashResultError(f"{result_key}: clash result carries no source_key")
+            clash_options = ClashOptions(
+                out_of_plane_tol=float(cached.options.get("out_of_plane_tol", 0.1)),
+                point_tol=float(cached.options.get("point_tol", 1e-5)),
+                root=cached.options.get("root") or None,
+                include_plate_joints=bool(cached.options.get("include_plate_joints", True)),
+            )
+            job.stage, job.progress = "loading", 0.25
+            tmp = new_temp_path(suffix=pathlib.PurePosixPath(cached.source_key).suffix or None)
+            try:
+                sync_storage.fetch_to_path(cached.source_key, tmp)
+                model = _load_with_ada(tmp, tmp.suffix.lower())
+            finally:
+                tmp.unlink(missing_ok=True)
+            register_builtin_specs()
+            outcome = identify_joints(model, clash_options)
+            by_id = {_found_id(f): f for f in outcome.joints}
+            absent = [jid for jid in joint_ids if jid not in by_id]
+            if absent:
+                raise ValueError(
+                    "joint id(s) not reproducible from this source at these options: "
+                    f"{', '.join(absent)} -- the cached result and the source may have drifted apart"
+                )
+            if job.status != STATUS_RUNNING:
+                return
+
+            job.stage, job.progress = "detail", 0.55
+            from ada import Part
+            from ada.topo_model.takeoff import _joints_takeoff
+
+            joints_part = Part("Joints")
+            skipped: list[str] = []
+            for jid in joint_ids:
+                found = by_id[jid]
+                # Which two members of this contact the spec is about is the SPEC's answer, not a
+                # property of the joint -- see `ada.clash.match.detail_pairs`. Requiring the joint
+                # itself to have exactly two members refused every column head where three or four
+                # members meet, which is the first thing a "detail everything" run hits.
+                try:
+                    pairs = detail_pairs(registered.spec, found)
+                except ValueError as exc:
+                    skipped.append(f"{jid}: {exc}")
+                    continue
+                for i, (landing, incoming) in enumerate(pairs):
+                    try:
+                        conn = registered.fn(
+                            landing=landing,
+                            incoming=incoming,
+                            centre=found.centre,
+                            name=f"{spec_name}_{jid}" if i == 0 else f"{spec_name}_{jid}_{i}",
+                            **options,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - one joint's refusal is not the run's
+                        # A builder can refuse a joint the spec claimed (its own prerequisites are
+                        # finer than a spec's criteria can express). Detailing the other eleven is
+                        # still the useful answer, so the refusal is reported and the run goes on;
+                        # only a run where NOTHING built is a failed job.
+                        skipped.append(f"{jid}: {type(exc).__name__}: {exc}")
+                        continue
+                    joints_part.add_part(conn)
+            if not joints_part.parts and skipped:
+                raise ValueError(
+                    f"{spec_name} detailed none of the {len(joint_ids)} joint(s) handed to it: "
+                    + "; ".join(skipped[:5])
+                )
+
+            glb_path = new_temp_path(suffix=".glb")
+            try:
+                joints_part.to_gltf(glb_path)
+                glb_bytes = glb_path.read_bytes()
+            finally:
+                glb_path.unlink(missing_ok=True)
+            stats = {"joints": _joints_takeoff(joints_part)}
+            if skipped:
+                stats["skipped"] = skipped
+
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "upload", 0.9
+            if glb_key:
+                sync_storage.put_bytes(glb_key, glb_bytes, content_encoding="gzip")
+            payload = stats
+            sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            job.result = payload
+            job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+        except Exception as exc:  # noqa: BLE001 — the detail's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+                return
+            logger.exception("local clash_detail %s (%s) failed", job.job_id, spec_name)
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.stage = "error"
+            logger.debug("local clash_detail traceback:\n%s", traceback.format_exc())
+
+    threading.Thread(target=_run, name=f"local-clash-detail-{spec_name}", daemon=True).start()
     return job

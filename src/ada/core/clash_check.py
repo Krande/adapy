@@ -180,24 +180,70 @@ def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
     return crossing_beams
 
 
-def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
-    """Return all beams with their midpoints inside a specified plate for a given list of beams"""
+def _beam_reach(bm: Beam) -> float:
+    """How far a beam's BODY can sit from its axis -- half its largest section dimension.
+
+    A beam attached to a plate is not required to have its axis in the plate: a girder carrying an
+    eccentricity of half its depth has an axis half a section below the plate it holds up, and the
+    same girder read back from IFC has that offset baked into the axis instead. Both are the same
+    steel touching the same plate, so the test has to be "does this beam's body reach the plate",
+    not "is this beam's axis inside it".
+    """
+    sec = getattr(bm, "section", None)
+    if sec is None:
+        return 0.0
+    dims = [getattr(sec, attr, None) for attr in ("h", "w_top", "w_btn", "r")]
+    sizes = [abs(float(d)) for d in dims if d is not None]
+    if not sizes:
+        return 0.0
+    return 0.5 * max(sizes)
+
+
+def find_beams_connected_to_plate(pl: Plate, beams: list[Beam], tol: float | None = None) -> list[Beam]:
+    """Beams whose mid-span reaches the plate: inside its bounding box, grown by the beam's own
+    half-section (see :func:`_beam_reach`) plus ``tol``, which defaults to the plate's thickness.
+
+    WHY IT IS NOT A PLAIN "is the midpoint inside the box" TEST. A plate's bounding box is a slab a
+    few millimetres thick, and the beams this is meant to find are precisely the ones lying ON one
+    of its faces -- so an untolerated test decides membership on the last bits of a float, and the
+    same structure answers differently depending on how its beam axes happen to be expressed.
+    Measured on one demo frame: adapy's own model found 16 beams per plate, the same model read
+    back from IFC (where a beam's eccentricity is baked into its axis rather than carried beside
+    it) found 0, and a clash check lost two thirds of its plate joints on a round trip.
+    """
     from ada import Node
     from ada.api.containers import Nodes
 
     nid = Counter(1)
-    nodes = Nodes(
-        [
-            Node((bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2), next(nid), refs=[bm])
-            for bm in beams
-        ]
-    )
+    mids = {}
+    for bm in beams:
+        mid = np.asarray(bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2, dtype=float)
+        mids[id(bm)] = mid
+    nodes = Nodes([Node(mids[id(bm)], next(nid), refs=[bm]) for bm in beams])
 
-    pmin = pl.bbox().p1
-    pmax = pl.bbox().p2
-    res = nodes.get_by_volume(pmin, pmax)
+    if tol is None:
+        tol = abs(float(pl.t))
+    reaches = {id(bm): _beam_reach(bm) for bm in beams}
+    widest = max(reaches.values(), default=0.0)
 
-    all_beams_within = list(chain.from_iterable([r.refs for r in res]))
+    bbox = pl.bbox()
+    pmin = np.asarray(bbox.p1, dtype=float)
+    pmax = np.asarray(bbox.p2, dtype=float)
+    # One coarse query with the WIDEST pad, then each candidate is re-tested against its own --
+    # a container query takes a single box, and padding every beam by the widest section in the
+    # model would pull in beams that only a deeper neighbour could have reached.
+    coarse = np.array([tol + widest] * 3, dtype=float)
+    res = nodes.get_by_volume(pmin - coarse, pmax + coarse)
+
+    all_beams_within = []
+    for node in res:
+        for bm in node.refs:
+            pad = tol + reaches.get(id(bm), 0.0)
+            mid = mids.get(id(bm))
+            if mid is None:
+                continue
+            if np.all(mid >= pmin - pad) and np.all(mid <= pmax + pad):
+                all_beams_within.append(bm)
     return all_beams_within
 
 

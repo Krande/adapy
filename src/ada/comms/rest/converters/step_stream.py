@@ -211,6 +211,8 @@ def _via_ifc_stream_to_glb(
     )
     from ada.config import logger
 
+    from .takeoff import record_takeoff_from_source
+
     if not force_python and native_ifc_glb_available():
         try:
             out_path = new_temp_path(suffix=".glb")
@@ -225,6 +227,11 @@ def _via_ifc_stream_to_glb(
             )
             if stats.get("solids", 0) > 0:
                 logger.info("native IFC->GLB: %s", stats)
+                # The native route never builds an ada model -- that is what makes it fast -- so
+                # the viewer's take-off has to come from a second, semantic read. Bounded by
+                # source size, and never a reason for the conversion to fail: see
+                # `converters/takeoff.record_takeoff_from_source`.
+                record_takeoff_from_source(src_path, ".ifc")
                 return out_path
             logger.info("native IFC->GLB produced 0 products; falling back to from_ifc")
         except Exception as exc:  # noqa: BLE001

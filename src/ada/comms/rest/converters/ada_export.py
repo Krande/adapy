@@ -31,6 +31,7 @@ from .pipelines import (
     _step_glb_fallback_chain,
 )
 from .registry import ProgressFn, UnsupportedFormat
+from .takeoff import record_takeoff
 
 if TYPE_CHECKING:
     pass
@@ -93,6 +94,11 @@ def _export_with_ada(
                     model, source_ext, "glb", out_path, on_progress, glb_tess_engine=glb_tess_engine
                 )
                 if native_out is not None:
+                    # Both GLB routes record the take-off: the native one returns here, so a
+                    # take-off taken only after the Python fall-through would exist for some
+                    # sources and not others, which is the kind of difference a user reads as
+                    # "the panel is broken for IFC".
+                    record_takeoff(model)
                     return native_out
             # FEM beam (line) elements render as line geometry by default; the solid (swept-
             # profile) representation is delivered as a separate beam_solids sidecar the viewer
@@ -141,6 +147,7 @@ def _export_with_ada(
                     _os.environ.pop("ADA_STREAM_TESS_STRICT", None)
                 else:
                     _os.environ["ADA_STREAM_TESS_STRICT"] = _prev_strict
+            record_takeoff(model)
             on_progress("ready", 1.0)
             return buf.getvalue()
         finally:

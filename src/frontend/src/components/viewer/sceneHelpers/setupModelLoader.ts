@@ -242,6 +242,14 @@ export async function setupModelLoaderAsync(
     // adaptive-clipping fit below is unaffected.
     modelStore.setBoundingBox(localBox.clone().translate(gltf_scene.position));
 
+    // THIS is the object that carries the source -> scene transform: the up-axis rotation applied
+    // by uprightSceneBox and the recentring offset applied just above. The object registered as
+    // the loaded source is the WRAPPER below, which has neither, so anything that has to place
+    // something in the model's own coordinates -- the clash-check joint markers draw a sphere at
+    // every joint centre the source reports -- would land it at the un-recentred position.
+    // Marked rather than left to be guessed at by walking the subtree: which level holds the
+    // transform is this function's business, not its callers'.
+    gltf_scene.userData.__sourceSpaceRoot = true;
 
     modelGroup.add(gltf_scene);
 
