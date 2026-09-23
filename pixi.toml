@@ -240,7 +240,9 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
 # first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.25.3.*"
+# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.25.4 for the
+# `edges` fix AdacppBackend.edges now depends on (adacpp#61).
+ada-cpp = "0.25.4.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -278,7 +280,14 @@ ada-cpp = "0.25.3.*"
 # 0.24 adds `stream_ifc_to_glb(include_guids=...)`. REQUIRED for the same reason: the native IFC
 # subset tests probe the binding via `native_ifc_subset_available()` and SKIP on an older build,
 # so a lower pin leaves them silently vacuous instead of exercising the filter.
-ada-cpp = "0.25.3.*"
+# 0.25.4 makes `edges` report each edge once AND keep located copies distinct
+# (adacpp#61: TopExp::MapShapes, keyed on TopoDS_Shape::IsSame, replacing a bare
+# TopExp_Explorer). REQUIRED, not merely nice, and in the strictest sense yet:
+# AdacppBackend.edges no longer de-duplicates the native list, because the identity
+# it collapsed on (`face_id`, a bare TShape pointer) is placement-blind and ate a
+# prism's located rails along with the incidences. Against an older ada-cpp those
+# incidences now reach callers unfiltered -- a box answers 24 edges, not 12.
+ada-cpp = "0.25.4.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
