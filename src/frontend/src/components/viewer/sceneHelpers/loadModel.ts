@@ -21,6 +21,7 @@ import {useModelState} from "@/state/modelState";
 import {directStoreReachable} from "@/utils/scene/directStoreProbe";
 import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {useStatsStore} from "@/state/statsStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
 import {setupModelLoaderAsync, type SetupModelPrepareHook} from "./setupModelLoader";
 
@@ -204,5 +205,17 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
     const ms = useModelState.getState();
     if (placement === "replace" && sourceName) ms.setLoadedSourceName(sourceName);
     if (group && sourceName) ms.registerLoadedSource(sourceName, group);
+    // The take-off the conversion wrote beside this model's GLB, for the model that is now the
+    // ACTIVE one -- which is the question the Stats and Take-off panels answer. Keyed on that
+    // rather than on `placement`: the storage browser loads every file as an "overlay" (it keeps
+    // what is already in the scene), so a replace-only rule fetched a take-off for almost
+    // nothing. Fire-and-forget: statistics never hold up a load, and a model with no sidecar
+    // (an FEA result, a big source the conversion did not take off) simply has none.
+    if (stored && sourceName && useModelState.getState().loadedSourceName === sourceName) {
+        void useStatsStore
+            .getState()
+            .fetchModelStats(bytes.scope, "", bytes.glbKey)
+            .catch(() => undefined);
+    }
     return group;
 }

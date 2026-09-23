@@ -15,7 +15,7 @@ from ada.config import logger
 from ..converter import ConverterRegistry
 from ..plugin_registry import locally_registered_specs
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
-from ..queue import JobQueue
+from ..queue import JobQueue, capability_token
 from . import state
 from .advertise import (
     _advertised_specs,
@@ -38,6 +38,57 @@ class Registration:
     ext_allow_set: set[str] | None
     conversions: list[dict]
     publish: Callable[[], Awaitable[bool]]
+
+
+def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
+    """This worker's registered ``ConnectionSpec``s, in the heartbeat catalog shape Decision 10
+    item 4 asks for -- ``all_registered()`` is a process-global registry, so this is exactly what
+    a ``clash_check``/``clash_detail`` job running HERE could bind a joint against, told apart
+    from the package that registered it by CAPABILITY alone (never by name -- Decision 1's
+    convention, reused unchanged).
+
+    A built-in (``ada.clash.builtin_specs.BUILTIN_SPEC_NAMES``) always answers ``capability:
+    None``: it runs wherever core runs, no pool required, which is why ``register_builtin_specs``
+    is called on EVERY worker here rather than only inside the ``clash_check`` job -- a spec that
+    only appeared once a check had already run once would flicker on the panel's first load.
+    Anything else answers this worker's own single declared (non-``base``) capability, which is
+    the token a ``clash_detail`` job for it would have to be ROUTED to; a worker declaring more
+    than one such capability, or none beyond ``base``, cannot be attributed unambiguously and is
+    reported as ``None`` (registered here, but this worker cannot say which pool serves it) rather
+    than guessed at.
+    """
+    try:
+        from ada.api.connections.spec import all_registered, spec_to_form_schema
+        from ada.clash.builtin_specs import BUILTIN_SPEC_NAMES, register_builtin_specs
+    except Exception:
+        logger.exception("worker: ada.clash unavailable for the connection_specs heartbeat (non-fatal)")
+        return []
+
+    try:
+        # Tolerant of an already-registered name (see its own docstring) -- called on every
+        # heartbeat tick, not once at import time, because a fresh worker process starts with an
+        # empty registry and nothing else guarantees the built-ins are in it before this runs.
+        register_builtin_specs()
+    except Exception:
+        logger.exception("worker: register_builtin_specs failed (non-fatal)")
+
+    own = sorted({t for c in capabilities if (t := capability_token(c)) and t != "base"})
+    own_capability = own[0] if len(own) == 1 else None
+
+    out: list[dict] = []
+    for reg in all_registered():
+        spec = reg.spec
+        out.append(
+            {
+                "slug": spec.name,
+                "name": spec.name,
+                "tags": sorted(spec.tags),
+                "priority": spec.priority,
+                "roles": spec_to_form_schema(spec),
+                "capability": None if spec.name in BUILTIN_SPEC_NAMES else own_capability,
+            }
+        )
+    return out
 
 
 async def build_registration(queue: JobQueue) -> Registration:
@@ -235,6 +286,12 @@ async def build_registration(queue: JobQueue) -> Registration:
     }
     reported_packages = [p for p in worker_packages if str(p.get("name") or "").lower() in _named]
 
+    # Connection specs (Decision 10 item 4): a third self-describing advertisement beside
+    # `plugin_specs` and the detailing engines above, so a `clash_detail` job's capability
+    # routing and the Clashes panel's "which generators exist" listing both come from the same
+    # live union — no hardcoded joint-type provider anywhere in core.
+    connection_specs = _connection_specs_for_heartbeat(capabilities)
+
     async def _publish_registration() -> bool:
         """Publish the registration; return whether it reached the bus.
 
@@ -270,6 +327,7 @@ async def build_registration(queue: JobQueue) -> Registration:
                     "procedural_engine_specs": procedural_engines,
                     "procedural_detailing_engine_specs": procedural_detailing_engines,
                     "plugin_specs": plugin_specs,
+                    "connection_specs": connection_specs,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },
