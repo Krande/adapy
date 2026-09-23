@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 
@@ -379,6 +379,13 @@ class StepReader(str, Enum):
     NATIVE = "native"
 
 
+def _default_tess_path() -> TessellationPath:
+    """libtess2 when adacpp is installed (OCC-free, step2glb parity), else OCC."""
+    if TessellationPath.ADACPP_LIBTESS2 in available_paths():
+        return TessellationPath.ADACPP_LIBTESS2
+    return TessellationPath.OCC
+
+
 @dataclass
 class CadConfig:
     """Selects the CAD read path + tessellation path + tolerances. Attach to ``Assembly.cad_config``
@@ -388,7 +395,9 @@ class CadConfig:
     # Either a legacy TessellationPath member or any discovered track name (see
     # available_tess_tracks). The enum cannot name a track added after it was written, so a plain
     # string is the forward-compatible spelling: CadConfig(path="adacpp:cdt").
-    path: TessellationPath | str = TessellationPath.OCC
+    # Not a literal OCC: every shipped env carries adacpp alone, where OCC names a backend that
+    # isn't installed, and with both kernels present adacpp is the one select_backend picks.
+    path: TessellationPath | str = field(default_factory=lambda: _default_tess_path())
     deflection: float = DEFAULT_STREAM_TESS_DEFLECTION
     angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
@@ -406,10 +415,7 @@ class CadConfig:
     @classmethod
     def default(cls) -> "CadConfig":
         """Prefer libtess2 when adacpp is installed (OCC-free, step2glb parity), else OCC."""
-        paths = available_paths()
-        if TessellationPath.ADACPP_LIBTESS2 in paths:
-            return cls(path=TessellationPath.ADACPP_LIBTESS2)
-        return cls(path=TessellationPath.OCC)
+        return cls()
 
     def validate(self) -> None:
         # Discovered tracks are the authority; the legacy enum list is only a fallback for members

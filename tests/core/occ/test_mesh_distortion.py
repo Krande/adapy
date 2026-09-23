@@ -6,11 +6,19 @@ test over-flags. Mirrors the frontend meshStats spike metric behind the "distort
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from ada.visit.tessellate import (
     accumulate_mesh_distortion,
     consume_mesh_distortion_stats,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tally():
+    """The tally is process-wide and every tessellation adds to it (the REST worker consumes it
+    per conversion); start each test from zero rather than from whatever ran before."""
+    consume_mesh_distortion_stats()
 
 
 def _grid(n: int = 11):

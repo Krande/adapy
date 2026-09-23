@@ -318,12 +318,18 @@ def test_stream_reader_applies_known_assembly_transform(tmp_path):
     assert not np.allclose(expected, np.eye(4))
 
 
-def test_stream_world_bbox_matches_occ(tmp_path):
+def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch):
     # The reader's transformed world bbox must match OpenCascade's STEPControl_Reader
     # bbox for the same file (both in metres) to ~1e-6.
     pytest.importorskip("OCC.Core.Bnd")
     from OCC.Core.Bnd import Bnd_Box
     from OCC.Core.BRepBndLib import brepbndlib
+
+    # The reference is pythonocc's reader, measured with pythonocc's Bnd_Box. With adacpp
+    # installed too, the auto-selected document backend is adacpp's and hands back adacpp
+    # shapes that pythonocc cannot read -- so ask for the pythonocc one by name.
+    monkeypatch.setenv("ADAPY_DOC_BACKEND", "occ")
+    monkeypatch.setattr("ada.cad.doc._ACTIVE_DOC_BACKEND", None)
 
     child = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
     parent = ((3.0, 5.0, 7.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0))  # +90 about X
