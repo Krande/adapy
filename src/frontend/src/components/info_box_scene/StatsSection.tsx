@@ -1,6 +1,8 @@
 import React from "react";
 import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
+import {useStatsStore} from "@/state/statsStore";
+import {countSummary, type ModelStats as TakeoffStats} from "@/utils/stats/modelStats";
 
 // Per-model aggregate baked into ``DesignDataExtension.stats`` and
 // ``SimulationDataExtensionMetadata.stats`` at GLB time. The schema
@@ -14,6 +16,10 @@ interface Cog {
     z: number;
     total_mass?: number;
     total_volume?: number;
+    /** Unit for the mass line. Baked GLB stats carry no unit (they are whatever the exporter
+     *  used); the take-off states its own, and a tonnage printed as a bare number next to a
+     *  kilogram one would be the kind of number nobody can check. */
+    mass_unit?: string;
 }
 
 interface ModelStats {
@@ -73,6 +79,35 @@ function statsFromExtension(ext: any): ModelStats[] {
     return items;
 }
 
+/** The conversion's take-off, in this section's shape: one CAD row, its mass-COG, and the object
+ *  counts the take-off already rolls up (`countSummary`, the same numbers the Take-off card
+ *  prints -- derived once, so the two cannot disagree). */
+function modelStatsFromTakeoff(stats: TakeoffStats, sourceName: string | null): ModelStats {
+    const [x, y, z] = stats.total_cog ?? [0, 0, 0];
+    const counts = countSummary(stats);
+    return {
+        key: `takeoff::${stats.source_name ?? sourceName ?? ""}`,
+        name: stats.source_name || sourceName || "Model",
+        kind: "CAD",
+        primaryCog: {
+            label: "COG (mass)",
+            x,
+            y,
+            z,
+            total_mass: stats.total_mass,
+            mass_unit: stats.units?.mass,
+        },
+        counts: {
+            Objects: stats.objects,
+            Beams: counts.beams,
+            Plates: counts.plates,
+            "Pipe segments": counts.pipeSeg,
+            "Duct segments": counts.ductSeg,
+            "Tray segments": counts.traySeg,
+        },
+    };
+}
+
 // Per loaded source file. The loader stashes each model's ADA
 // extension on its scene group (userData.__adaExt), so multi-model
 // overlays keep one extension per source — the old single
@@ -83,6 +118,8 @@ function statsFromExtension(ext: any): ModelStats[] {
 const StatsSection = () => {
     const {adaExtension: adaExtensionRef} = useViewerRefs();
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
+    const activeSource = useModelState((s) => s.loadedSourceName);
+    const takeoff = useStatsStore((s) => s.stats);
 
     const sources: SourceStats[] = [];
     for (const name of loadedSourceNames) {
@@ -94,6 +131,16 @@ const StatsSection = () => {
         const models = statsFromExtension(ext);
         if (models.length > 0) sources.push({source: name, models});
     }
+    // Nothing was BAKED into any loaded GLB. That is the normal case for an ordinary converted
+    // file: the native writers emit geometry and no extension, so this section sat empty while
+    // the take-off below it had the same facts. Same document, then -- the one the conversion
+    // wrote beside the GLB (`converters/takeoff`), which the store already holds for the active
+    // model. Baked stats still win where they exist: they are per-MODEL and describe FEA
+    // simulations this summary has no shape for.
+    if (sources.length === 0 && takeoff && loadedSourceNames.size > 0) {
+        sources.push({source: activeSource ?? "", models: [modelStatsFromTakeoff(takeoff, activeSource)]});
+    }
+
     // The single active-extension ref keeps the LAST model's data even
     // after everything is unloaded — only consult it while something is
     // actually loaded (the streaming/replace path), never for an empty
@@ -159,7 +206,11 @@ const CogRows: React.FC<{cog: {label: string} & Cog; muted?: boolean}> = ({cog, 
             muted={muted}
         />
         {cog.total_mass != null && (
-            <StatRow label="Total mass" value={fmt(cog.total_mass)} muted={muted}/>
+            <StatRow
+                label="Total mass"
+                value={cog.mass_unit ? `${fmt(cog.total_mass)} ${cog.mass_unit}` : fmt(cog.total_mass)}
+                muted={muted}
+            />
         )}
         {cog.total_volume != null && (
             <StatRow label="Total volume" value={fmt(cog.total_volume)} muted={muted}/>
