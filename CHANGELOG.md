@@ -2,6 +2,16 @@
 
 
 
+## v0.84.2 (2026-09-23)
+
+### Fix
+
+* fix(abaqus): stop a section-name capture from swallowing the rest of the deck (#383)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`7fec628`](https://github.com/Krande/adapy/commit/7fec6280f134e45a92b83dcefe07e9186c0dfa41))
+
+
 ## v0.84.1 (2026-09-23)
 
 ### Fix
