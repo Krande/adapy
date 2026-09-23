@@ -63,6 +63,8 @@ TransportFeature = Literal[
     "asset_publish",
     "bake",
     "bbox_inference",
+    "clash_check",
+    "clash_detail",
     "component_build",
     "conversion",
     "job_status_report",
@@ -88,6 +90,8 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "job_status_report": "no job queue configured",
     "asset_build": "asset builds disabled (no NATS configured)",
     "asset_publish": "asset publishing disabled (no NATS configured)",
+    "clash_check": "clash check disabled (no NATS configured)",
+    "clash_detail": "clash detail disabled (no NATS configured)",
     "plugin_jobs": "plugin jobs disabled (no NATS configured)",
     "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
@@ -100,8 +104,13 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 
 #: What :class:`LocalJobTransport` can run. Everything else it reports as
 #: unavailable — see the module docstring on why that is a statement rather
-#: than an omission.
-LOCAL_FEATURES: frozenset[str] = frozenset({"asset_build", "asset_publish", "plugin_jobs"})
+#: than an omission. ``clash_check``/``clash_detail`` joined for the same
+#: reason ``asset_build`` did: identifying and typing joints (and detailing a
+#: BUILT-IN spec) wants no kernel this process does not already have, so a 503
+#: there would make Decision 10's Clashes tab a cluster-only feature.
+LOCAL_FEATURES: frozenset[str] = frozenset(
+    {"asset_build", "asset_publish", "clash_check", "clash_detail", "plugin_jobs"}
+)
 
 
 @dataclass(frozen=True)
@@ -370,6 +379,10 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_asset_build(req)
         if req.feature == "asset_publish":
             return self._submit_asset_publish(req)
+        if req.feature == "clash_check":
+            return self._submit_clash_check(req)
+        if req.feature == "clash_detail":
+            return self._submit_clash_detail(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -429,6 +442,59 @@ class LocalJobTransport(_BaseTransport):
         except LookupError as exc:
             # No builder HERE for that capability: 501 (this process cannot), not 503 (this
             # deployment cannot) — the message names the capability to install or route to.
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_clash_check(self, req: JobRequest) -> SubmittedJob:
+        """The check kind's local engine. Its identity travels in ``conversion_options`` (the
+        route composed it), matching ``_submit_asset_build``'s argument for why."""
+        opts = req.conversion_options or {}
+        source_key = str(opts.get("source_key") or req.source_key)
+        job = local_jobs.start_clash_check(
+            source_key=source_key,
+            options=dict(opts.get("options") or {}),
+            derived_key=req.derived_key or "",
+            storage=self._storage,
+            scope=req.scope,
+        )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_clash_detail(self, req: JobRequest) -> SubmittedJob:
+        """The detail kind's local engine -- only a BUILT-IN spec can ever be served here (see
+        ``local_jobs.start_clash_detail``); an out-of-tree spec has no pool in a queue-less
+        deployment for a route to route it to, and ``LookupError`` from the engine becomes the
+        501 naming that."""
+        opts = req.conversion_options or {}
+        try:
+            job = local_jobs.start_clash_detail(
+                result_key=str(opts["result_key"]),
+                joint_ids=[str(j) for j in (opts.get("joint_ids") or [])],
+                spec_name=str(opts["spec"]),
+                options=dict(opts.get("options") or {}),
+                glb_key=opts.get("glb_key"),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=500, detail=f"clash_detail is missing {exc} in conversion_options") from exc
+        except LookupError as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
         return SubmittedJob(
             job_id=job.job_id,

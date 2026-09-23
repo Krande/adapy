@@ -2,6 +2,30 @@
 channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
+# ---------------------------------------------------------------------------
+# The local stack: the viewer, one worker and a queue, BUILT FROM THIS CHECKOUT.
+#
+# The two images differ in what they can do -- the viewer image is slim by design (no reader, no
+# CAD backend), the worker image is fat -- and that difference is where a change breaks: a branch
+# that is green in a developer environment can still crashloop the API on a missing module, or
+# queue a job no pool can serve. Neither shows up until the images are built and run, so this
+# builds and runs them. See deploy/docker-compose.dev.yml.
+#
+# Requires docker; nothing here is pulled from a registry except the queue's own public image.
+# ---------------------------------------------------------------------------
+[tasks]
+# `mkdir -p adacpp-src` because the worker image COPYs that directory: CI stages a clone of the
+# native backend there when a branch overlay is wanted, and an empty directory when it is not.
+# Locally it is always the second case, and docker fails the build outright on a missing context
+# path rather than treating it as empty.
+up = { cmd = "mkdir -p adacpp-src && docker compose -f deploy/docker-compose.dev.yml up --build -d --wait", description = "Build both images from this checkout and start the stack" }
+down = { cmd = "docker compose -f deploy/docker-compose.dev.yml down", description = "Stop the stack; uploaded files survive" }
+# Deleting the volume is a separate task rather than a flag: "stop this" and "throw away
+# everything it stored" are different intentions, and only one of them is recoverable.
+reset = { cmd = "docker compose -f deploy/docker-compose.dev.yml down --volumes", description = "Stop the stack and delete its data" }
+logs = { cmd = "docker compose -f deploy/docker-compose.dev.yml logs -f api worker", description = "Follow the api + worker logs" }
+status = { cmd = "docker compose -f deploy/docker-compose.dev.yml ps", description = "What is running" }
+
 [feature.lint.tasks]
 # Local dev: rewrite the tree in place. Exclusions are config-driven (pyproject's [tool.black] via
 # .gitignore, [tool.ruff] exclude, [tool.isort] skip), so these are safe to point at ".".

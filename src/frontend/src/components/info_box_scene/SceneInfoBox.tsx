@@ -12,11 +12,13 @@ import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import FemConceptsPanel from "./FemConceptsPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
+import ClashesPanel from "./ClashesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
+import {useClashCheckStore} from "@/state/clashCheckStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
 
 // The Scene panel groups everything that talks about the loaded scene (rather
@@ -38,14 +40,20 @@ const CHROME =
     "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
     "text-[var(--ada-panel-text)] shadow-lg";
 
-type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "joints";
+type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joints";
 
+// "Clashes" sits immediately before "Joints", on purpose: identifying joints and reviewing them
+// are two ends of one workflow (`notes_core_asset_browser.md` §Decision 10's naming paragraph),
+// never a second joints table under a different tab. "Clashes" is NOT contextual -- unlike FEM
+// and Joints it needs no baked concepts to be worth showing: it runs against whatever source is
+// loaded and says plainly when that source has no members to check.
 const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
     {id: "model", label: "Model"},
     {id: "tools", label: "Tools"},
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
     {id: "fem", label: "FEM", ctx: true},
+    {id: "clashes", label: "Clashes"},
     {id: "joints", label: "Joints", ctx: true},
 ];
 
@@ -56,6 +64,7 @@ const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     section: "clip",
     mesh: "mesh",
     fem: "fem",
+    clashes: "clashes",
     joints: "joints",
 };
 
@@ -65,6 +74,7 @@ const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     clip: "section",
     mesh: "mesh",
     fem: "fem",
+    clashes: "clashes",
     joints: "joints",
 };
 
@@ -84,10 +94,18 @@ const SceneInfoBox = () => {
     );
     const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
     const femTabAvailable = femHasConcepts || feaSessionActive;
-    // Joints is the other contextual tab: it appears only when the loaded model's
-    // take-off carries fabrication-detail joints (a model compiled with a
-    // detailing engine).
-    const hasJoints = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
+    // Joints is the other contextual tab. It used to appear only when the loaded model's
+    // take-off carried fabrication-detail joints (a model compiled with a detailing engine) --
+    // "PRODUCED" joints. It now ALSO appears when a `Clashes` run has IDENTIFIED joints in the
+    // loaded source, even before anything has been detailed: identification and review are two
+    // ends of one workflow (§Decision 10), so the tab that reviews joints must exist as soon as
+    // either half has something to show, not only after the second half runs.
+    const hasProducedJoints = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
+    // Joints generated in THIS session count as produced too: they arrive as an overlay, which has
+    // no stats of its own, so the compiled model's take-off above never sees them.
+    const hasGeneratedJoints = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
+    const hasIdentifiedJoints = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
+    const hasJoints = hasProducedJoints || hasGeneratedJoints || hasIdentifiedJoints;
 
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setShow(false));
 
@@ -135,9 +153,13 @@ const SceneInfoBox = () => {
                 </CollapsibleSection>
             </div>
 
-            {/* ── adaptive tab strip ── */}
+            {/* ── adaptive tab strip ──
+                `overflow-y-hidden` is not decoration: CSS computes the OTHER axis to `auto` as
+                soon as one is set, so `overflow-x-auto` alone gave the strip a vertical
+                scrollbar of its own -- the tabs' `-mb-px` makes their content one pixel taller
+                than the strip, which is all it takes. */}
             <div
-                className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/15 overflow-x-auto"
+                className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/15 overflow-x-auto overflow-y-hidden"
                 role="tablist"
                 aria-label="Scene panel section"
             >
@@ -191,6 +213,8 @@ const SceneInfoBox = () => {
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
                     <MeshDistortionSection />
+                ) : tab === "clashes" ? (
+                    <ClashesPanel />
                 ) : tab === "joints" ? (
                     <JointsOverviewPanel />
                 ) : (

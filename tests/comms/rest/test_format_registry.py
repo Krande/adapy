@@ -42,6 +42,8 @@ CHAIN_KINDS = [
     ("fea_artefacts", False),
     ("fea_meta", False),
     ("parity", False),
+    ("clash_check", False),
+    ("clash_detail", False),
 ]
 
 
