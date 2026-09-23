@@ -161,6 +161,57 @@ def _convert_description() -> str:
     )
 
 
+def _add_log_file(p: argparse.ArgumentParser) -> None:
+    """``--log-file``, on every subcommand that initialises ``ada`` and so produces log records.
+
+    Per-subcommand rather than next to the global ``--log-level``, because argparse only accepts a
+    parser-level option *before* the subcommand, and ``ada convert in out --log-file x`` is how it
+    gets typed.
+    """
+    p.add_argument(
+        "--log-file",
+        dest="log_file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write adapy's log records to this file (truncating it) and leave only warnings and "
+            "errors on the console. Without it, everything at --log-level goes to stderr."
+        ),
+    )
+
+
+def _configure_ada_logging(level: str, log_file: str | None) -> None:
+    """Apply ``--log-level``/``--log-file`` to the ``ada`` logger.
+
+    With a log file, the console handler is raised to WARNING: the point of asking for a file is
+    that the INFO stream is too big to read on a terminal (a 463k-element deck can emit hundreds of
+    thousands of lines), while a warning is still something you want to see as it happens.
+    """
+    import logging
+    import pathlib
+
+    import ada
+
+    ada.logger.setLevel(level)
+    ada.logger.propagate = False
+
+    if log_file is None:
+        return
+
+    path = pathlib.Path(log_file).expanduser()
+    if path.parent != pathlib.Path("."):
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("[%(asctime)s: %(levelname)s/%(name)s] | %(message)s"))
+    ada.logger.addHandler(handler)
+
+    for existing in ada.logger.handlers:
+        # FileHandler subclasses StreamHandler, so exclude it (and the one just added) explicitly.
+        if isinstance(existing, logging.StreamHandler) and not isinstance(existing, logging.FileHandler):
+            existing.setLevel(logging.WARNING)
+
+
 def _add_convert(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "convert",
@@ -206,6 +257,7 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
     p.add_argument("--limit", type=int, default=None, help="Limit number of geometries (debugging).")
+    _add_log_file(p)
     p.set_defaults(func=_cmd_convert, needs_ada_logging=True)
 
 
@@ -228,6 +280,7 @@ def _add_view(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--ws-port", type=int, default=8765)
     p.add_argument("--split", action="store_true")
     p.add_argument("--limit", type=int, default=None)
+    _add_log_file(p)
     p.set_defaults(func=_cmd_view, needs_ada_logging=True)
 
 
@@ -413,10 +466,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if getattr(args, "needs_ada_logging", False):
-        import ada
-
-        ada.logger.setLevel(args.log_level)
-        ada.logger.propagate = False
+        _configure_ada_logging(args.log_level, getattr(args, "log_file", None))
 
     try:
         rc = args.func(args)
