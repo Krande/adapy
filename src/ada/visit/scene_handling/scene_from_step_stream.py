@@ -302,16 +302,20 @@ def _tessellate_geom_worker(geom):
         del occ, mesh
 
 
-def _pool_worker_loop(worker_id, task_q, result_q, stream_index) -> None:
+def _pool_worker_loop(task_q, result_conn, stream_index) -> None:
     """Long-lived pool worker: open the per-process pread pool ONCE from the shared
     (pickled) ``StreamIndex``, then for each ``(seq, rid)`` build the solid's ada.geom AND
     tessellate it — the parse+build now happens HERE, in parallel, not serially in the
-    parent. Puts ``(worker_id, result)`` back. ``None`` is the shutdown sentinel.
+    parent. Sends each result back on ``result_conn``. ``None`` is the shutdown sentinel.
 
     A ``"__drop__"`` status means the reader couldn't build that root; the parent keeps it
-    out of the stats, exactly as the serial reader silently drops it. The worker_id lets
-    the parent free the right slot and — crucially — terminate THIS worker if it overruns
-    the per-solid timeout (a tessellation can hang in an uninterruptible C call)."""
+    out of the stats, exactly as the serial reader silently drops it.
+
+    ``result_conn`` is this worker's OWN pipe, not a queue shared by the pool: the parent
+    kills workers (soft/hard memory cap, per-solid timeout), and a shared
+    ``multiprocessing.Queue`` guards its pipe with a cross-process write lock that a
+    worker killed mid-send leaves held forever — every other worker's result then blocks
+    and each remaining solid times out. A private pipe dies with its worker."""
     import collections
 
     from ada.cadit.step.read.stream_reader import build_one_solid
@@ -327,12 +331,13 @@ def _pool_worker_loop(worker_id, task_q, result_q, stream_index) -> None:
                 return
             seq, rid = task
             geom = build_one_solid(stream_index, pool, resolver, rid, seq, skipped=skipped)
-            result_q.put((worker_id, _DROP if geom is None else _tessellate_geom_worker(geom)))
+            result_conn.send(_DROP if geom is None else _tessellate_geom_worker(geom))
             n += 1
             if n % _TRIM_EVERY == 0:  # return the per-solid build+tess heap to the OS periodically
                 _maybe_trim()
     finally:
         pool.close()
+        result_conn.close()
 
 
 def _rss_mb(pid: int | None = None) -> float:
@@ -729,22 +734,27 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         # is killed, its solid skipped, and a fresh worker spawned in its place. Without
         # this a single bad solid hangs the whole conversion forever.
         import multiprocessing as _mp
-        import queue as _queue
         import time as _time
+        from multiprocessing.connection import wait as _wait_conns
 
         ctx = _mp.get_context("spawn")
         timeout_s = _per_solid_timeout_s()
         soft_mb, hard_mb = _worker_mem_caps()
 
-        def _spawn(wid, result_q):
+        def _spawn():
             task_q = ctx.Queue(maxsize=1)
+            # One result pipe PER worker (see _pool_worker_loop): killing a worker can
+            # then never wedge the others' results behind a lock it died holding.
+            conn, child_conn = ctx.Pipe(duplex=False)
             # The StreamIndex (maps + spilled-index paths) is pickled to the worker ONCE
             # here at spawn; per-solid dispatch then ships only a (seq, rid) int pair.
-            proc = ctx.Process(target=_pool_worker_loop, args=(wid, task_q, result_q, idx), daemon=True)
+            proc = ctx.Process(target=_pool_worker_loop, args=(task_q, child_conn, idx), daemon=True)
             proc.start()
+            child_conn.close()  # only the worker holds the write end -> its death reads as EOF
             return {
                 "proc": proc,
                 "task_q": task_q,
+                "conn": conn,
                 "busy": False,
                 "gid": None,
                 "since": None,
@@ -752,9 +762,14 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                 "mem_retried": False,
             }
 
+        def _respawn(i):
+            if slots[i]["conn"] is not None:
+                slots[i]["conn"].close()
+            slots[i] = _spawn()
+            return slots[i]
+
         try:
-            result_q = ctx.Queue()
-            slots = [_spawn(i, result_q) for i in range(n_workers)]
+            slots = [_spawn() for _ in range(n_workers)]
         except Exception:  # noqa: BLE001 - pool start failure -> sequential fallback
             slots = None
 
@@ -802,8 +817,8 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             # Roots requeued by the hard memory cap / crash retry: (seq, rid, is_retry).
             requeue: list = []
             # Parent-loop profiling (ADA_STEP_STREAM_PROFILE=1): split the loop's wall time
-            # into result_q.get (idle-wait + IPC/unpickle) vs _handle (transform + per-
-            # material spill write = the serial funnel), + the result-queue backlog. avg
+            # into the result wait (idle-wait + IPC/unpickle) vs _handle (transform + per-
+            # material spill write = the serial funnel), + the result backlog. avg
             # backlog > ~1 ⇒ results pile up ⇒ the parent can't keep up (A/B would help);
             # backlog ~0 + many idle timeouts ⇒ parent is starved (tail/prep-bound).
             _prof_on = bool(_os.environ.get("ADA_STEP_STREAM_PROFILE"))
@@ -826,7 +841,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         # Replace a worker that died while idle (crash between
                         # dispatches) before handing it work.
                         if not slot["proc"].is_alive():
-                            slots[i] = slot = _spawn(i, result_q)
+                            slot = _respawn(i)
                         slot["busy"] = True
                         # The product name (for logs / skip ids) without building the geom.
                         slot["gid"] = idx.prod_names.get(_rid)
@@ -837,20 +852,30 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         slot["task_q"].put((_seq, _rid))
                     if exhausted and busy == 0 and not requeue:
                         break
-                    # Collect one result; the 1 s poll bounds how often we re-check timeouts.
+                    # Collect every ready result; the 1 s poll bounds how often we re-check timeouts.
                     _t_get = _time.monotonic()
-                    try:
-                        wid, result = result_q.get(timeout=1.0)
+                    ready = _wait_conns([s["conn"] for s in slots if s["conn"] is not None], timeout=1.0)
+                    if _prof_on and not ready:
+                        _prof["get_s"] += _time.monotonic() - _t_get
+                        _prof["empty"] += 1
+                    for conn in ready:
+                        wid = next(k for k, s in enumerate(slots) if s["conn"] is conn)
+                        slot = slots[wid]
+                        try:
+                            result = conn.recv()
+                        except (EOFError, OSError):
+                            # The worker exited: stop polling its pipe (an EOF reads as
+                            # ready forever); the liveness sweep below / the next dispatch
+                            # replaces the worker and retries any solid it had in flight.
+                            conn.close()
+                            slot["conn"] = None
+                            continue
                         if _prof_on:
                             _prof["get_s"] += _time.monotonic() - _t_get
                             _prof["results"] += 1
-                            try:
-                                _q = result_q.qsize()
-                            except (NotImplementedError, OSError):
-                                _q = 0
-                            _prof["qmax"] = max(_prof["qmax"], _q)
-                            _prof["backlog_sum"] += _q
-                        slot = slots[wid]
+                            _prof["qmax"] = max(_prof["qmax"], len(ready) - 1)
+                            _prof["backlog_sum"] += len(ready) - 1
+                            _t_get = _time.monotonic()
                         if slot["busy"]:
                             slot["busy"] = False
                             slot["gid"] = None
@@ -866,6 +891,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                                     _t_h = _time.monotonic()
                                     _handle(result)
                                     _prof["handle_s"] += _time.monotonic() - _t_h
+                                    _t_get = _time.monotonic()
                                 else:
                                     _handle(result)
                             # Soft memory cap: the worker just went idle (its result is
@@ -876,12 +902,8 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             if soft_mb and _rss_mb(slot["proc"].pid) > soft_mb:
                                 slot["proc"].kill()
                                 slot["proc"].join(timeout=2)
-                                slots[wid] = _spawn(wid, result_q)
+                                _respawn(wid)
                                 pool_events["worker_recycles"] += 1
-                    except _queue.Empty:
-                        if _prof_on:
-                            _prof["get_s"] += _time.monotonic() - _t_get
-                            _prof["empty"] += 1
                     now = _time.monotonic()
                     for i, slot in enumerate(slots):  # replace dead or over-budget workers
                         if not slot["busy"]:
@@ -896,7 +918,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             was_retry = slot["mem_retried"]
                             slot["proc"].join(timeout=2)
                             busy -= 1
-                            slots[i] = _spawn(i, result_q)
+                            _respawn(i)
                             # One retry on a fresh worker: covers both the soft-cap
                             # recycle race (worker exited between delivering its result
                             # and the parent's next dispatch — the root is perfectly
@@ -931,7 +953,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
-                            slots[i] = _spawn(i, result_q)
+                            _respawn(i)
                             pool_events["mem_kills"] += 1
                             if was_retry or task_inflight is None:
                                 _handle(
@@ -960,7 +982,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
-                            slots[i] = _spawn(i, result_q)
+                            _respawn(i)
                             _handle(
                                 (
                                     f"timeout (>{timeout_s:.0f}s; OCC hang, killed)",
@@ -979,7 +1001,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                     _wall = _time.monotonic() - _t_loop0
                     _avg_bl = _prof["backlog_sum"] / max(_prof["results"], 1)
                     logger.warning(
-                        "[POOLPROF] loop_wall=%.0fs  result_q.get(wait+unpickle)=%.0fs  "
+                        "[POOLPROF] loop_wall=%.0fs  result wait+recv(unpickle)=%.0fs  "
                         "_handle(xform+spill)=%.0fs  idle_timeouts=%d(~%ds idle)  results=%d  "
                         "avg_backlog=%.2f  qmax=%d  →  %s",
                         _wall,
@@ -1001,6 +1023,8 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         slot["proc"].kill()
                     except Exception:  # noqa: BLE001
                         pass
+                    if slot["conn"] is not None:
+                        slot["conn"].close()
                 idx.close()
 
     n_skipped = sum(reasons.values())
