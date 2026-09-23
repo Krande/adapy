@@ -7,26 +7,30 @@ An Abaqus deck has exactly three kinds of line, and every keyword in the format 
   parameters, each either ``NAME=VALUE`` or a bare flag;
 * a **data line**: anything else, belonging to the keyword line above it.
 
+A keyword line together with the data lines under it is a :class:`KeywordBlock` -- the unit the
+readers consume. (The guide calls this an *option*; that word is taken in this package by
+``AbaqusOptions``, the writer's settings, and in Python it reads as ``Optional``.)
+
 Everything the reader needs follows from those three rules, so they are implemented here once
-rather than re-encoded in a regex per card. That is the point of this module. A regex that
-spells out one card's parameters *in order* also silently decides that no other parameter may
-appear, and Abaqus does not work that way -- parameters are order-free and most keywords
+rather than re-encoded in a regex per keyword. That is the point of this module. A regex that
+spells out one keyword's parameters *in order* also silently decides that no other parameter
+may appear, and Abaqus does not work that way -- parameters are order-free and most keywords
 accept a dozen optional ones. A pattern like ``elset=(.*?)\\s*,\\s*material=(.*?)`` does not
 reject ``*Solid Section, elset=s, orientation=O, material=M``; it captures
 ``elset='s, orientation=O'`` and builds a section against a set that does not exist. Reading
-parameters by name from a parsed card cannot do that.
+parameters by name off a parsed block cannot do that.
 
-**Cost.** Card boundaries are found by a single compiled scan for lines beginning with ``*``,
-which runs in C over the whole buffer. Only keyword lines are then parsed in Python, and a
-card's data block is kept as a ``(start, end)`` span into the source: no per-line work and no
-copying happens for data unless a reader asks for it, and :attr:`Card.data_text` is then a
-plain slice. One pass replaces the two dozen separate ``DOTALL`` scans the card regexes used
-to make over the same buffer.
+**Cost.** Block boundaries are found by a single compiled scan for lines beginning with ``*``,
+which runs in C over the whole buffer. Only keyword lines are then parsed in Python, and each
+block's data is kept as a ``(start, end)`` span into the source: no per-line work and no
+copying happens for data unless a reader asks for it, and :attr:`KeywordBlock.data_text` is
+then a plain slice. One pass replaces the two dozen separate ``DOTALL`` scans that the
+per-keyword regexes each used to make over the same buffer.
 
-**Streaming.** :func:`stream_cards` is the same grammar driven from a line iterator, for
+**Streaming.** :func:`stream_keywords` is the same grammar driven from a line iterator, for
 callers that must not hold the deck in memory (see :func:`stream_file`). It yields the same
-:class:`Card`, with data lines materialized per card rather than spanned, so peak memory is
-one card rather than one file.
+:class:`KeywordBlock`, with data lines materialized per block rather than spanned, so peak
+memory is one block rather than one file.
 """
 
 from __future__ import annotations
@@ -35,22 +39,22 @@ import re
 from typing import Iterable, Iterator, Mapping
 
 __all__ = [
-    "Card",
+    "KeywordBlock",
     "Params",
     "tokenize",
-    "stream_cards",
+    "stream_keywords",
     "stream_file",
-    "iter_cards",
-    "iter_blocks",
+    "iter_keywords",
+    "iter_enclosed",
     "comment_property",
     "normalize",
 ]
 
 _COMMENT_PREFIX = "**"
 _WS = re.compile(r"\s+")
-# Every card boundary: a line whose first non-blank character is '*'. A comment line starts
+# Every keyword block boundary: a line whose first non-blank character is '*'. A comment line starts
 # with '*' too, and ends a data block exactly as the previous regexes' ``(?=\*|\Z)`` did.
-_CARD_START = re.compile(r"^[ \t]*\*", re.M)
+_KEYWORD_START = re.compile(r"^[ \t]*\*", re.M)
 
 
 def normalize(name: str) -> str:
@@ -137,7 +141,7 @@ class Params(Mapping):
         return f"Params({self._d!r})"
 
 
-class Card:
+class KeywordBlock:
     """One keyword line with the data lines that belong to it.
 
     Two views of the data, and the difference matters:
@@ -170,10 +174,10 @@ class Card:
         self.comments = comments
         """The unbroken run of comment lines directly above the keyword line, ``**`` stripped.
 
-        Abaqus/CAE writes a card's name there and nowhere else -- ``** Section: Cast node``
+        Abaqus/CAE writes a keyword block's name there and nowhere else -- ``** Section: Cast node``
         above a ``*Solid Section``, ``** Name: BC-1  Type: Displacement/Rotation`` above a
-        ``*Boundary``. Binding those to the card they sit on, rather than searching the deck
-        for them, is what makes it impossible for one card to pick up another card's name.
+        ``*Boundary``. Binding those to the block they sit on, rather than searching the deck
+        for them, is what makes it impossible for one keyword block to pick up another block's name.
         """
         self.lineno = lineno
         self.start = start
@@ -184,17 +188,17 @@ class Card:
 
     @property
     def data_start(self) -> int:
-        """Offset just past this card's keyword line (in-memory tokenization only)."""
+        """Offset just past this block's keyword line (in-memory tokenization only)."""
         return self._span[0]
 
     @property
     def data_end(self) -> int:
-        """Offset where this card's data block ends (in-memory tokenization only)."""
+        """Offset where this block's data ends (in-memory tokenization only)."""
         return self._span[1]
 
     @property
     def keyword_line(self) -> str:
-        """The card's keyword line as written, continuations included."""
+        """The block's keyword line as written, continuations included."""
         if self._src is None:
             return f"*{self.keyword}"
         return self._src[self.start : self._span[0]].rstrip("\n")
@@ -219,7 +223,7 @@ class Card:
         return self._lines
 
     def __repr__(self) -> str:  # pragma: no cover - diagnostics
-        return f"Card(*{self.keyword}, line {self.lineno}, params={dict(self.params)!r})"
+        return f"KeywordBlock(*{self.keyword}, line {self.lineno}, params={dict(self.params)!r})"
 
 
 def _parse_keyword_line(line: str) -> tuple[str, list[tuple[str, str | None]]]:
@@ -236,7 +240,7 @@ def _parse_keyword_line(line: str) -> tuple[str, list[tuple[str, str | None]]]:
 
 
 def _is_parameter_continuation(keyword: str, next_line: str) -> bool:
-    """Is ``next_line`` more parameters for this keyword, or the card's first data line?
+    """Is ``next_line`` more parameters for this keyword, or the block's first data line?
 
     A keyword line ending in a comma is *usually* continued, but a deck may also write a
     redundant trailing comma before its data. The registered parameter names settle it: a
@@ -253,8 +257,8 @@ def _is_parameter_continuation(keyword: str, next_line: str) -> bool:
     return spec.accepts(normalize(token.partition("=")[0]))
 
 
-def tokenize(bulk_str: str) -> tuple[Card, ...]:
-    """Every card in ``bulk_str``, in the order it appears.
+def tokenize(bulk_str: str) -> tuple[KeywordBlock, ...]:
+    """Every keyword block in ``bulk_str``, in the order it appears.
 
     Keyword-line continuation is applied; data-line continuation deliberately is not. A
     keyword line ending in a comma unambiguously continues, because the next line cannot
@@ -264,21 +268,21 @@ def tokenize(bulk_str: str) -> tuple[Card, ...]:
     following line. Readers with genuinely multi-line data flatten the whole block instead,
     which is correct either way.
     """
-    cards: list[Card] = []
+    blocks: list[KeywordBlock] = []
     n = len(bulk_str)
 
-    pending: Card | None = None
+    pending: KeywordBlock | None = None
     comments: list[str] = []
     comments_end = -1
 
     # Line numbers, tracked incrementally: positions only move forward, so the newline
-    # counting is linear over the whole buffer rather than per card.
+    # counting is linear over the whole buffer rather than per block.
     counted_to = 0
     counted_lines = 1
 
     pos = 0
     while pos < n:
-        match = _CARD_START.search(bulk_str, pos)
+        match = _KEYWORD_START.search(bulk_str, pos)
         if match is None:
             break
         start = match.start()
@@ -288,7 +292,7 @@ def tokenize(bulk_str: str) -> tuple[Card, ...]:
 
         if pending is not None:
             pending._span = (pending._span[0], start)
-            cards.append(pending)
+            blocks.append(pending)
             pending = None
 
         line = bulk_str[start:eol].strip()
@@ -321,7 +325,7 @@ def tokenize(bulk_str: str) -> tuple[Card, ...]:
         attached = tuple(comments) if comments_end == start else ()
         comments.clear()
         comments_end = -1
-        pending = Card(
+        pending = KeywordBlock(
             keyword=keyword,
             params=Params(params),
             comments=attached,
@@ -333,15 +337,15 @@ def tokenize(bulk_str: str) -> tuple[Card, ...]:
 
     if pending is not None:
         pending._span = (pending._span[0], n)
-        cards.append(pending)
+        blocks.append(pending)
 
-    return tuple(cards)
+    return tuple(blocks)
 
 
-def stream_cards(lines: Iterable[str]) -> Iterator[Card]:
+def stream_keywords(lines: Iterable[str]) -> Iterator[KeywordBlock]:
     """The same grammar, driven from a line iterator instead of a whole buffer.
 
-    Peak memory is one card's data block rather than the file. Cards are yielded as each is
+    Peak memory is one keyword block's data rather than the file. Blocks are yielded as each is
     completed -- that is, when the next keyword or comment line is reached -- so a consumer
     that discards what it has read never holds more than that.
     """
@@ -356,8 +360,8 @@ def stream_cards(lines: Iterable[str]) -> Iterator[Card]:
     continuing = False
     keyword_line = ""
 
-    def build() -> Card:
-        return Card(
+    def build() -> KeywordBlock:
+        return KeywordBlock(
             keyword=pending_keyword,
             params=Params(pending_params),
             comments=pending_comments,
@@ -376,13 +380,13 @@ def stream_cards(lines: Iterable[str]) -> Iterator[Card]:
                 if keyword_line.rstrip().endswith(","):
                     continue
                 # The continuation ended: re-parse the joined line so the parameters it
-                # carried are on the card. Falling through without this dropped them.
+                # carried are on the block. Falling through without this dropped them.
                 pending_keyword, pending_params = _parse_keyword_line(keyword_line)
                 continuing = False
                 continue
             pending_keyword, pending_params = _parse_keyword_line(keyword_line)
             continuing = False
-            # fall through: this line is the card's first data/comment/keyword line
+            # fall through: this line is the block's first data/comment/keyword line
 
         if not stripped:
             continue
@@ -416,16 +420,16 @@ def stream_cards(lines: Iterable[str]) -> Iterator[Card]:
         yield build()
 
 
-def stream_file(path, encoding: str = "utf-8") -> Iterator[Card]:
-    """Stream the cards of a deck straight off disk, never holding it as one string."""
+def stream_file(path, encoding: str = "utf-8") -> Iterator[KeywordBlock]:
+    """Stream the blocks of a deck straight off disk, never holding it as one string."""
     with open(path, "r", encoding=encoding) as fh:
-        yield from stream_cards(fh)
+        yield from stream_keywords(fh)
 
 
-_TOKEN_CACHE: dict[int, tuple[str, tuple[Card, ...]]] = {}
+_TOKEN_CACHE: dict[int, tuple[str, tuple[KeywordBlock, ...]]] = {}
 
 
-def _tokenize_cached(bulk_str: str) -> tuple[Card, ...]:
+def _tokenize_cached(bulk_str: str) -> tuple[KeywordBlock, ...]:
     """Tokenize ``bulk_str``, reusing the result across the reader's many passes.
 
     The reader calls a dozen ``get_*_from_bulk`` functions on the same few strings (the whole
@@ -437,24 +441,24 @@ def _tokenize_cached(bulk_str: str) -> tuple[Card, ...]:
     hit = _TOKEN_CACHE.get(key)
     if hit is not None and hit[0] is bulk_str:
         return hit[1]
-    cards = tokenize(bulk_str)
+    blocks = tokenize(bulk_str)
     if len(_TOKEN_CACHE) > 16:
         _TOKEN_CACHE.clear()
-    _TOKEN_CACHE[key] = (bulk_str, cards)
-    return cards
+    _TOKEN_CACHE[key] = (bulk_str, blocks)
+    return blocks
 
 
-def iter_cards(bulk_str: str, *keywords: str) -> Iterator[Card]:
-    """Cards whose keyword is one of ``keywords`` (all of them when none is given)."""
-    cards = _tokenize_cached(bulk_str)
+def iter_keywords(bulk_str: str, *keywords: str) -> Iterator[KeywordBlock]:
+    """Keyword blocks whose keyword is one of ``keywords`` (all of them when none is given)."""
+    blocks = _tokenize_cached(bulk_str)
     if not keywords:
-        return iter(cards)
+        return iter(blocks)
     wanted = {normalize(k) for k in keywords}
-    return (card for card in cards if card.keyword in wanted)
+    return (block for block in blocks if block.keyword in wanted)
 
 
-def iter_blocks(bulk_str: str, keyword: str, end: str) -> Iterator[tuple[Card, str]]:
-    """``(opening card, the text between it and its ``end`` keyword)``.
+def iter_enclosed(bulk_str: str, keyword: str, end: str) -> Iterator[tuple[KeywordBlock, str]]:
+    """``(opening block, the text between it and its ``end`` keyword)``.
 
     For the container keywords -- ``*Part``/``*End Part``, ``*Instance``/``*End Instance`` --
     whose body is another whole deck and is handed on to the readers as a string. Nesting is
@@ -463,32 +467,32 @@ def iter_blocks(bulk_str: str, keyword: str, end: str) -> Iterator[tuple[Card, s
     open_kw, end_kw = normalize(keyword), normalize(end)
     depth = 0
     body_start = 0
-    start_card: Card | None = None
-    for card in _tokenize_cached(bulk_str):
-        if card.keyword == open_kw:
+    start_block: KeywordBlock | None = None
+    for block in _tokenize_cached(bulk_str):
+        if block.keyword == open_kw:
             if depth == 0:
-                start_card = card
-                body_start = card._span[0]
+                start_block = block
+                body_start = block._span[0]
             depth += 1
-        elif card.keyword == end_kw and depth:
+        elif block.keyword == end_kw and depth:
             depth -= 1
-            if depth == 0 and start_card is not None:
-                yield start_card, bulk_str[body_start : card.start]
-                start_card = None
+            if depth == 0 and start_block is not None:
+                yield start_block, bulk_str[body_start : block.start]
+                start_block = None
 
 
 _COMMENT_PROP: dict[tuple[str, ...], re.Pattern] = {}
 
 
-def comment_property(card: Card, *names: str) -> dict[str, str]:
-    """Named properties out of a card's own comment lines.
+def comment_property(block: KeywordBlock, *names: str) -> dict[str, str]:
+    """Named properties out of a keyword block's own comment lines.
 
     ``** Name: BC-1  Type: Displacement/Rotation`` yields
-    ``{"Name": "BC-1", "Type": "Displacement/Rotation"}``. Only this card's comments are read,
+    ``{"Name": "BC-1", "Type": "Displacement/Rotation"}``. Only this block's comments are read,
     so a value can never run past the line it was written on.
     """
     out: dict[str, str] = {}
-    if not card.comments:
+    if not block.comments:
         return out
     key = tuple(names)
     pattern = _COMMENT_PROP.get(key)
@@ -496,7 +500,7 @@ def comment_property(card: Card, *names: str) -> dict[str, str]:
         alternatives = "|".join(re.escape(n) for n in names)
         pattern = re.compile(rf"({alternatives})\s*:\s*(.*?)(?=\s+(?:{alternatives})\s*:|$)", re.IGNORECASE)
         _COMMENT_PROP[key] = pattern
-    for comment in card.comments:
+    for comment in block.comments:
         for match in pattern.finditer(comment):
             name = next(n for n in names if n.lower() == match.group(1).lower())
             value = match.group(2).strip()

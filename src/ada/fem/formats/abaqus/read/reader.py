@@ -31,7 +31,13 @@ from ada.fem.shapes import ElemType
 
 from .helper_utils import get_set_from_assembly, list_cleanup
 from .keywords import validate
-from .lexer import Card, comment_property, iter_blocks, iter_cards, tokenize
+from .lexer import (
+    KeywordBlock,
+    comment_property,
+    iter_enclosed,
+    iter_keywords,
+    tokenize,
+)
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
 from .read_materials import get_materials_from_bulk
@@ -130,14 +136,14 @@ def read_bulk_w_includes(inp_path) -> str:
     bulk_repl = dict()
     with open(inp_path, "r") as inpDeck:
         bulk_str = inpDeck.read()
-        for card in iter_cards(bulk_str, "INCLUDE"):
-            validate(card)
-            included = card.params.get("INPUT")
+        for block in iter_keywords(bulk_str, "INCLUDE"):
+            validate(block)
+            included = block.params.get("INPUT")
             if included is None:
                 continue
             # The keyword line as written is the text to splice the file in for -- a quoted
             # path with a comma in it parses correctly here and would not have before.
-            search_key = card.keyword_line
+            search_key = block.keyword_line
             filepath = (inp_path.parent / included.replace("\\", "/")).resolve()
             with open(filepath, "r") as d:
                 bulk_repl[search_key] = d.read()
@@ -160,10 +166,10 @@ def import_bulk2(file_path, buffer_function):
 
 def extract_instance_data(assembly_bulk) -> dict[str, List[InstanceData]]:
     ass_data = {}
-    for card, body in iter_blocks(assembly_bulk, "INSTANCE", "END INSTANCE"):
-        validate(card)
-        inst_name, part_name = card.params.get("NAME"), card.params.get("PART")
-        inst_data = get_instance_data(inst_name, part_name, body, card)
+    for block, body in iter_enclosed(assembly_bulk, "INSTANCE", "END INSTANCE"):
+        validate(block)
+        inst_name, part_name = block.params.get("NAME"), block.params.get("PART")
+        inst_data = get_instance_data(inst_name, part_name, body, block)
         if inst_data.part_ref not in ass_data.keys():
             ass_data[inst_data.part_ref] = []
         ass_data[inst_data.part_ref].append(inst_data)
@@ -174,9 +180,9 @@ def extract_instance_data(assembly_bulk) -> dict[str, List[InstanceData]]:
 def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembly: Assembly) -> List[Part]:
     part_list = []
 
-    for card, part_bulk_str in iter_blocks(bulk_str, "PART", "END PART"):
-        validate(card)
-        name = card.params.get("NAME")
+    for block, part_bulk_str in iter_enclosed(bulk_str, "PART", "END PART"):
+        validate(block)
+        name = block.params.get("NAME")
 
         for i in instance_data[name]:
             p_bulk_str = i.instance_bulk if part_bulk_str == "" and i.instance_bulk != "" else part_bulk_str
@@ -187,19 +193,19 @@ def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembl
 
 def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
     # ``** PART INSTANCE: <name>`` is a comment, and the deck below it is that part. Reading
-    # it off the card it annotates means the name is whatever is on that one line.
+    # it off the block it annotates means the name is whatever is on that one line.
     tagged = [
-        (props["PART INSTANCE"], card)
-        for card in tokenize(bulk_str)
-        if (props := comment_property(card, "PART INSTANCE"))
+        (props["PART INSTANCE"], block)
+        for block in tokenize(bulk_str)
+        if (props := comment_property(block, "PART INSTANCE"))
     ]
 
     if len(tagged) != 1:
         p_bulk = bulk_str
         p_name = None
     else:
-        p_name, tag_card = tagged[0]
-        p_bulk = bulk_str[tag_card.start :]
+        p_name, tag_block = tagged[0]
+        p_bulk = bulk_str[tag_block.start :]
 
     p_name = next(part_name_counter) if p_name is None else p_name
     inst = InstanceData("", p_name, "")
@@ -288,9 +294,9 @@ def get_nodes_from_inp_arrays(bulk_str):
     ids: list[int] = []
     xyz: list = []
     nsets: list = []
-    for card in iter_cards(bulk_str, "NODE"):
-        validate(card)
-        res = np.fromstring(list_cleanup("\n".join(card.data_lines)), sep=",", dtype=np.float64)
+    for block in iter_keywords(bulk_str, "NODE"):
+        validate(block)
+        res = np.fromstring(list_cleanup("\n".join(block.data_lines)), sep=",", dtype=np.float64)
         if res.size == 0:
             continue
         if res.size % 4 == 0:
@@ -304,8 +310,8 @@ def get_nodes_from_inp_arrays(bulk_str):
         block_ids = [int(x) for x in res_[:, 0]]
         ids.extend(block_ids)
         xyz.extend(block_xyz.tolist())
-        if card.params.get("NSET") is not None:
-            nsets.append((card.params.get("NSET"), block_ids))
+        if block.params.get("NSET") is not None:
+            nsets.append((block.params.get("NSET"), block_ids))
 
     coords = np.array(xyz, dtype=np.float64) if xyz else np.zeros((0, 3))
     node_ids = np.array(ids, dtype=np.int64) if ids else np.zeros((0,), dtype=np.int64)
@@ -338,14 +344,14 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
             magn = None
         return set_name, dofs, magn
 
-    def grab_init_props(card: Card):
-        comment = comment_property(card, "Name", "Type")
+    def grab_init_props(block: KeywordBlock):
+        comment = comment_property(block, "Name", "Type")
         bc_name = comment.get("Name")
-        # TYPE is the card's own required parameter. The ``** Name: ... Type: ...`` comment
+        # TYPE is the block's own required parameter. The ``** Name: ... Type: ...`` comment
         # above it is CAE's label for the same thing, spelled for a reader ("Geostatic
         # stress") rather than for the solver, so the parameter is the one to believe.
-        bc_type = card.params.get("TYPE")
-        props = [sort_props(line) for line in card.data_lines]
+        bc_type = block.params.get("TYPE")
+        props = [sort_props(line) for line in block.data_lines]
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
         set_name_up = set_name[0]
@@ -371,20 +377,20 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
 
         return PredefinedField(bc_name, bc_type, fem_set, dofs, magn, parent=assembly.fem)
 
-    for card in iter_cards(bulk_str, "INITIAL CONDITIONS"):
-        validate(card)
-        field_type = card.params.get("TYPE")
+    for block in iter_keywords(bulk_str, "INITIAL CONDITIONS"):
+        validate(block)
+        field_type = block.params.get("TYPE")
         if field_type is None or field_type.upper() not in PreDefTypes.all:
             # adapy models VELOCITY and INITIAL STATE; a deck's geostatic stress, void ratio
             # or pore pressure is read past rather than aborting the import — the same policy
             # the element reader applies to element types it has no mapping for.
             logger.warning(
                 "abaqus read: *Initial Conditions (line %d) type %r is not supported — skipping",
-                card.lineno,
+                block.lineno,
                 field_type,
             )
             continue
-        assembly.fem.add_predefined_field(grab_init_props(card))
+        assembly.fem.add_predefined_field(grab_init_props(block))
 
 
 def get_intprop_from_lines(assembly: Assembly, bulk_str):
@@ -395,28 +401,28 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
     *Surface Behavior, pressure-overclosure=HARD
     """
     assembly.fem.metadata["surf_smoothing"] = []
-    for card in iter_cards(bulk_str, "SURFACE SMOOTHING"):
-        validate(card)
-        assembly.fem.metadata["surf_smoothing"].append(dict(name=card.params.get("NAME"), bulk=card.data_text))
+    for block in iter_keywords(bulk_str, "SURFACE SMOOTHING"):
+        validate(block)
+        assembly.fem.metadata["surf_smoothing"].append(dict(name=block.params.get("NAME"), bulk=block.data_text))
 
-    all_cards = tokenize(bulk_str)
-    for i, card in enumerate(all_cards):
-        if card.keyword != "SURFACE INTERACTION":
+    all_blocks = tokenize(bulk_str)
+    for i, block in enumerate(all_blocks):
+        if block.keyword != "SURFACE INTERACTION":
             continue
-        validate(card)
-        props = dict(name=card.params.get("NAME"), friction=None)
+        validate(block)
+        props = dict(name=block.params.get("NAME"), friction=None)
         # *Friction and *Surface Behavior belong to the interaction above them; the run ends
-        # at the first card that is neither.
-        for sub_card in all_cards[i + 1 :]:
-            if sub_card.keyword == "FRICTION":
-                validate(sub_card)
-                if sub_card.data_lines:
-                    props["friction"] = sub_card.data_lines[0].split(",")[0]
-            elif sub_card.keyword == "SURFACE BEHAVIOR":
-                validate(sub_card)
-                behave = _surface_behaviour(sub_card)
-                if sub_card.data_lines:
-                    tabular = [tuple(np.fromstring(line, dtype=float, sep=",")) for line in sub_card.data_lines]
+        # at the first block that is neither.
+        for sub_block in all_blocks[i + 1 :]:
+            if sub_block.keyword == "FRICTION":
+                validate(sub_block)
+                if sub_block.data_lines:
+                    props["friction"] = sub_block.data_lines[0].split(",")[0]
+            elif sub_block.keyword == "SURFACE BEHAVIOR":
+                validate(sub_block)
+                behave = _surface_behaviour(sub_block)
+                if sub_block.data_lines:
+                    tabular = [tuple(np.fromstring(line, dtype=float, sep=",")) for line in sub_block.data_lines]
                     props["tabular"] = tabular
                 if behave is not None and behave.upper() in IntPropTypes.all:
                     props["pressure_overclosure"] = behave
@@ -428,7 +434,7 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
                     logger.warning(
                         "abaqus read: *Surface Behavior (line %d) relationship %r is not supported — "
                         "keeping interaction property %r with the default",
-                        sub_card.lineno,
+                        sub_block.lineno,
                         behave,
                         props["name"],
                     )
@@ -437,69 +443,69 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
         assembly.fem.add_interaction_property(InteractionProperty(**props))
 
 
-def _surface_behaviour(card: Card) -> str | None:
-    """The pressure-overclosure relationship on a ``*Surface Behavior`` card.
+def _surface_behaviour(block: KeywordBlock) -> str | None:
+    """The pressure-overclosure relationship on a ``*Surface Behavior`` block.
 
     Written either as a value (``pressure-overclosure=HARD``) or as a bare flag
     (``, penalty``), so the flag's own name is the answer when it carries no value.
     """
-    for name, value in card.params.items():
+    for name, value in block.params.items():
         return value if value is not None else name
     return None
 
 
-def _two_surfaces(card: Card) -> tuple[str, str] | None:
-    """The master/slave surface pair on a card's single data line.
+def _two_surfaces(block: KeywordBlock) -> tuple[str, str] | None:
+    """The master/slave surface pair on a keyword block's single data line.
 
     ``*Tie``, ``*Contact Pair`` and ``*Shell to Solid Coupling`` all name their two surfaces
-    this way. A card without them is reported and skipped rather than aborting the import.
+    this way. A block without them is reported and skipped rather than aborting the import.
     """
-    if not card.data_lines:
-        logger.warning("abaqus read: *%s (line %d) has no surface data line", card.keyword, card.lineno)
+    if not block.data_lines:
+        logger.warning("abaqus read: *%s (line %d) has no surface data line", block.keyword, block.lineno)
         return None
-    fields = [x.strip() for x in card.data_lines[0].split(",") if x.strip() != ""]
+    fields = [x.strip() for x in block.data_lines[0].split(",") if x.strip() != ""]
     if len(fields) < 2:
         logger.warning(
-            "abaqus read: *%s (line %d) names %d surface(s), expected 2", card.keyword, card.lineno, len(fields)
+            "abaqus read: *%s (line %d) names %d surface(s), expected 2", block.keyword, block.lineno, len(fields)
         )
         return None
     return fields[0], fields[1]
 
 
-def _general_contact_interaction(bulk_str: str, contact_card: Card) -> str | None:
+def _general_contact_interaction(bulk_str: str, contact_block: KeywordBlock) -> str | None:
     """The interaction property assigned by a general ``*Contact`` block.
 
     ``*Contact Property Assignment`` names it on a data line whose last field is the
-    property; the cards in between belong to the same block.
+    property; the blocks in between belong to the same block.
     """
     seen = False
-    for card in tokenize(bulk_str):
-        if card is contact_card:
+    for block in tokenize(bulk_str):
+        if block is contact_block:
             seen = True
             continue
         if not seen:
             continue
-        if card.keyword == "CONTACT PROPERTY ASSIGNMENT":
-            for line in card.data_lines:
+        if block.keyword == "CONTACT PROPERTY ASSIGNMENT":
+            for line in block.data_lines:
                 fields = [x.strip() for x in line.split(",") if x.strip() != ""]
                 if fields:
                     return fields[-1]
-        elif not card.keyword.startswith("CONTACT") and card.keyword != "SURFACE PROPERTY ASSIGNMENT":
+        elif not block.keyword.startswith("CONTACT") and block.keyword != "SURFACE PROPERTY ASSIGNMENT":
             return None
     return None
 
 
-def get_instance_data(inst_name, p_ref, inst_bulk, card: Card | None = None) -> InstanceData:
+def get_instance_data(inst_name, p_ref, inst_bulk, block: KeywordBlock | None = None) -> InstanceData:
     """Move/rotate data lines are specified here:
 
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-instance.htm
 
-    They are the ``*Instance`` card's own data lines: the first is a translation, the second
-    a rotation. Taking them from the card rather than scanning the instance body means a
+    They are the ``*Instance`` block's own data lines: the first is a translation, the second
+    a rotation. Taking them from the block rather than scanning the instance body means a
     node or element line inside the body can never be mistaken for a placement.
     """
     transform: Union[Transform, None] = Transform()
-    data_lines = card.data_lines[:2] if card is not None else ()
+    data_lines = block.data_lines[:2] if block is not None else ()
 
     for j, line in enumerate(data_lines):
         values = [x.strip() for x in line.split(",") if x.strip() != ""]
@@ -545,13 +551,13 @@ def import_multiple_inps(input_files_dir):
 def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
     """Extract node information from abaqus input file string"""
 
-    def getnodes(card: Card):
-        validate(card)
-        # ``card.data_lines`` has already dropped the ``**`` comment lines that can sit
+    def getnodes(block: KeywordBlock):
+        validate(block)
+        # ``block.data_lines`` has already dropped the ``**`` comment lines that can sit
         # between the last numeric row and the next keyword (ada's own writer emits a
         # ``** No Nodes`` placeholder in the assembly-level node section when every node
         # lives at part level), so ``np.fromstring`` never sees a non-numeric token.
-        res = np.fromstring(list_cleanup("\n".join(card.data_lines)), sep=",", dtype=np.float64)
+        res = np.fromstring(list_cleanup("\n".join(block.data_lines)), sep=",", dtype=np.float64)
         # 3D nodes are ``id, x, y, z``; 2D models (plane-stress /
         # plane-strain / axisymmetric / membrane decks) drop the z
         # column so each row is ``id, x, y``. Pick the layout that
@@ -567,12 +573,12 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
             raise ValueError(
                 f"Abaqus *Node block has {res.size} values; " f"not divisible by 4 (3D) or 3 (2D) — malformed?"
             )
-        nset = card.params.get("NSET")
+        nset = block.params.get("NSET")
         if nset is not None:
             parent.sets.add(FemSet(nset, members, "nset", parent=parent))
         return members
 
-    nodes = list(chain.from_iterable(map(getnodes, iter_cards(bulk_str, "NODE"))))
+    nodes = list(chain.from_iterable(map(getnodes, iter_keywords(bulk_str, "NODE"))))
 
     return Nodes(nodes, parent=parent)
 
@@ -615,17 +621,17 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
     # resolve string references through it.
     parsed: dict[tuple[str, str], "FemSet"] = {}
 
-    def get_set(card: Card):
-        validate(card)
-        set_type = card.keyword.lower()
+    def get_set(block: KeywordBlock):
+        validate(block)
+        set_type = block.keyword.lower()
         set_type_l = set_type
         # The set's name is the value of the parameter that shares the keyword's name:
         # ``*Elset, elset=...`` / ``*Nset, nset=...``.
-        name = card.params.get(card.keyword)
-        internal = "INTERNAL" in card.params
-        instance = card.params.get("INSTANCE")
-        generate = "GENERATE" in card.params
-        members_str = card.data_text
+        name = block.params.get(block.keyword)
+        internal = "INTERNAL" in block.params
+        instance = block.params.get("INSTANCE")
+        generate = "GENERATE" in block.params
+        members_str = block.data_text
         gen_mem = str_to_ints(members_str) if generate is True else []
         raw_members = [] if generate is True else str_to_ints(members_str)
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
@@ -681,7 +687,7 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
 
         return fem_set
 
-    return FemSets([get_set(c) for c in iter_cards(bulk_str, "ELSET", "NSET")], parent=fem)
+    return FemSets([get_set(c) for c in iter_keywords(bulk_str, "ELSET", "NSET")], parent=fem)
 
     # import concurrent.futures
     # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -762,11 +768,11 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
             if p.fem.instance_name == part_instance_name:
                 return p.fem.sets.get_nset_from_name(set_name)
 
-    def get_bc(card: Card, data_lines: tuple[str, ...]):
+    def get_bc(block: KeywordBlock, data_lines: tuple[str, ...]):
         # Abaqus/CAE writes ``** Name: BC-1  Type: Displacement/Rotation`` directly above the
-        # card. Reading it from this card's own comments is what stops a load's or an
+        # block. Reading it from this block's own comments is what stops a load's or an
         # interaction's identically-shaped comment from being taken as this BC's name.
-        props = comment_property(card, "Name", "Type")
+        props = comment_property(block, "Name", "Type")
         bc_name = props.get("Name") or next(bc_counter)
         bc_type = props.get("Type")
         set_name, dofs, magn = get_dofs(data_lines)
@@ -797,18 +803,18 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
         return Bc(bc_name, fem_set, dofs, parent=fem, **props)
 
     bcs: List[Bc] = []
-    for card in iter_cards(bulk_str, "BOUNDARY"):
-        validate(card)
-        # Each data line names its own set or node, and a card may mix them — the deck
+    for block in iter_keywords(bulk_str, "BOUNDARY"):
+        validate(block)
+        # Each data line names its own set or node, and a keyword block may mix them — the deck
         # written by a solver rather than by CAE gives one line per constrained node. Group
-        # by the name so each becomes its own Bc; the usual single-set card is one group and
+        # by the name so each becomes its own Bc; the usual single-set block is one group and
         # so is unchanged.
         by_set: Dict[str, List[str]] = {}
-        for line in card.data_lines:
+        for line in block.data_lines:
             name = line.split(",")[0].strip()
             by_set.setdefault(name, []).append(line)
         for lines in by_set.values():
-            bcs.append(get_bc(card, tuple(lines)))
+            bcs.append(get_bc(block, tuple(lines)))
     return bcs
 
 
@@ -828,13 +834,13 @@ def get_surfaces_from_bulk(bulk_str, parent):
 
     surf_d = dict()
 
-    for card in iter_cards(bulk_str, "SURFACE"):
-        validate(card)
-        name = (card.params.get("NAME") or "").strip()
+    for block in iter_keywords(bulk_str, "SURFACE"):
+        validate(block)
+        name = (block.params.get("NAME") or "").strip()
         # TYPE is optional and defaults to ELEMENT -- the guide's default, and previously
         # unreachable because the pattern required TYPE to be present and to come first.
-        surf_type = card.params.get("TYPE", "ELEMENT").upper()
-        members_str: str = "\n".join(card.data_lines)
+        surf_type = block.params.get("TYPE", "ELEMENT").upper()
+        members_str: str = "\n".join(block.data_lines)
         if members_str.count("\n") >= 1:
             id_refs = [interpret_member(m) for m in members_str.splitlines()]
             set_ref, set_id_ref = None, None
@@ -914,9 +920,9 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     rbnames = Counter(1, "rgb")
     conames = Counter(1, "co")
 
-    for card in iter_cards(bulk_str, "TIE"):
-        validate(card)
-        surfaces = _two_surfaces(card)
+    for block in iter_keywords(bulk_str, "TIE"):
+        validate(block)
+        surfaces = _two_surfaces(block)
         if surfaces is None:
             continue
         # ADJUST is optional per the guide; a *Tie without it is legal and used to not match.
@@ -924,30 +930,30 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         ssurf = get_set_from_assembly(surfaces[1], fem, "surface")
         constraints.append(
             Constraint(
-                card.params.get("NAME"),
+                block.params.get("NAME"),
                 Constraint.TYPES.TIE,
                 msurf,
                 ssurf,
-                metadata=dict(adjust=card.params.get("ADJUST")),
+                metadata=dict(adjust=block.params.get("ADJUST")),
             )
         )
 
-    for card in iter_cards(bulk_str, "RIGID BODY"):
-        validate(card)
+    for block in iter_keywords(bulk_str, "RIGID BODY"):
+        validate(block)
         name = next(rbnames)
-        ref_node = get_set_from_assembly(card.params.get("REF NODE"), fem, FemSet.TYPES.NSET)
-        elset = get_set_from_assembly(card.params.get("ELSET"), fem, FemSet.TYPES.ELSET)
+        ref_node = get_set_from_assembly(block.params.get("REF NODE"), fem, FemSet.TYPES.NSET)
+        elset = get_set_from_assembly(block.params.get("ELSET"), fem, FemSet.TYPES.ELSET)
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
-    all_cards = tokenize(bulk_str)
-    for i, card in enumerate(all_cards):
-        if card.keyword != "COUPLING":
+    all_blocks = tokenize(bulk_str)
+    for i, block in enumerate(all_blocks):
+        if block.keyword != "COUPLING":
             continue
-        validate(card)
-        name = card.params.get("CONSTRAINT NAME")
-        rn = (card.params.get("REF NODE") or "").strip()
-        sf = (card.params.get("SURFACE") or "").strip()
+        validate(block)
+        name = block.params.get("CONSTRAINT NAME")
+        rn = (block.params.get("REF NODE") or "").strip()
+        sf = (block.params.get("SURFACE") or "").strip()
         if rn.isnumeric():
             ref_set = FemSet(next(conames), [fem.nodes.from_id(int(rn))], FemSet.TYPES.NSET, parent=fem)
             fem.sets.add(ref_set)
@@ -956,10 +962,10 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
         surf = fem.surfaces[sf]
 
-        # The DOF table belongs to the *Kinematic card that follows the *Coupling.
-        kinematic = next((c for c in all_cards[i + 1 :][:1] if c.keyword == "KINEMATIC"), None)
+        # The DOF table belongs to the *Kinematic block that follows the *Coupling.
+        kinematic = next((c for c in all_blocks[i + 1 :][:1] if c.keyword == "KINEMATIC"), None)
         if kinematic is None:
-            logger.warning("abaqus read: *Coupling %r (line %d) has no *Kinematic card", name, card.lineno)
+            logger.warning("abaqus read: *Coupling %r (line %d) has no *Kinematic block", name, block.lineno)
             continue
         res = np.fromstring(list_cleanup(kinematic.data_text), sep=",", dtype=int)
         size = res.size
@@ -967,7 +973,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         rows = int(size / cols)
         dofs = res.reshape(rows, cols)
 
-        csys_name = card.params.get("ORIENTATION")
+        csys_name = block.params.get("ORIENTATION")
         if csys_name is not None:
             if csys_name not in fem.lcsys.keys():
                 raise ValueError(f'Csys "{csys_name}" was not found on part {fem}')
@@ -979,14 +985,14 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
     # Shell to Solid Couplings
     sh2solids = []
-    for card in iter_cards(bulk_str, "SHELL TO SOLID COUPLING"):
-        validate(card)
-        surfaces = _two_surfaces(card)
+    for block in iter_keywords(bulk_str, "SHELL TO SOLID COUPLING"):
+        validate(block)
+        surfaces = _two_surfaces(block)
         if surfaces is None:
             continue
-        name = (card.params.get("CONSTRAINT NAME") or "").strip()
-        influence = card.params.get("INFLUENCE DISTANCE")
-        pos_tol = card.params.get("POSITION TOLERANCE")
+        name = (block.params.get("CONSTRAINT NAME") or "").strip()
+        influence = block.params.get("INFLUENCE DISTANCE")
+        pos_tol = block.params.get("POSITION TOLERANCE")
         surf1 = get_set_from_assembly(surfaces[0], fem, "surface")
         surf2 = get_set_from_assembly(surfaces[1], fem, "surface")
         sh2solids.append(
@@ -1003,12 +1009,12 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
     # MPC's
     mpc_dict = dict()
-    for card in iter_cards(bulk_str, "MPC"):
-        validate(card)
-        for line in card.data_lines:
+    for block in iter_keywords(bulk_str, "MPC"):
+        validate(block)
+        for line in block.data_lines:
             fields = [x.strip() for x in line.split(",")]
             if len(fields) < 3:
-                logger.warning("abaqus read: *MPC (line %d) data line %r needs three fields", card.lineno, line)
+                logger.warning("abaqus read: *MPC (line %d) data line %r needs three fields", block.lineno, line)
                 continue
             mpc_type, m, s = fields[0], fields[1], fields[2]
             if mpc_type not in mpc_dict.keys():
@@ -1059,26 +1065,26 @@ def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
 
         return surf
 
-    for card in iter_cards(bulk_str, "CONTACT PAIR"):
-        validate(card)
-        surfaces = _two_surfaces(card)
+    for block in iter_keywords(bulk_str, "CONTACT PAIR"):
+        validate(block)
+        surfaces = _two_surfaces(block)
         if surfaces is None:
             continue
-        d = dict(card.params)
-        d["name"] = comment_property(card, "Interaction").get("Interaction")
+        d = dict(block.params)
+        d["name"] = comment_property(block, "Interaction").get("Interaction")
         d["surf1"], d["surf2"] = surfaces
-        intprop = assembly.fem.intprops[card.params.get("INTERACTION")]
+        intprop = assembly.fem.intprops[block.params.get("INTERACTION")]
         surf1 = resolve_surface_ref(surfaces[0])
         surf2 = resolve_surface_ref(surfaces[1])
 
         assembly.fem.add_interaction(Interaction(d["name"], ContactTypes.SURFACE, surf1, surf2, intprop, metadata=d))
 
-    for card in iter_cards(bulk_str, "CONTACT"):
-        validate(card)
-        interact_str = bulk_str[card.start :]
-        intprop_name = _general_contact_interaction(bulk_str, card)
+    for block in iter_keywords(bulk_str, "CONTACT"):
+        validate(block)
+        interact_str = bulk_str[block.start :]
+        intprop_name = _general_contact_interaction(bulk_str, block)
         if intprop_name is None:
-            logger.warning("abaqus read: *Contact (line %d) has no property assignment", card.lineno)
+            logger.warning("abaqus read: *Contact (line %d) has no property assignment", block.lineno)
             continue
         intprop = assembly.fem.intprops[intprop_name]
         # surf1 = resolve_surface_ref(d["surf1"])

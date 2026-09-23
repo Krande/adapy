@@ -1,6 +1,6 @@
 """What each keyword adapy reads accepts, per the Abaqus Keywords Guide.
 
-Hand-curated, and deliberately only the keywords this reader acts on -- a card with no entry
+Hand-curated, and deliberately only the keywords this reader acts on -- a keyword block with no entry
 here still parses, it just isn't validated. The table exists so the reader can say something
 useful when a deck is wrong (a required parameter missing, a parameter misspelled) instead of
 mis-parsing it quietly, and so the lexer can tell a continued keyword line from a data line.
@@ -50,21 +50,21 @@ class KeywordSpec:
     def canonical(self, name: str) -> str:
         return self.aliases.get(name, name)
 
-    def validate(self, card) -> None:
-        """Log what is wrong with ``card``; never raise.
+    def validate(self, block) -> None:
+        """Log what is wrong with ``block``; never raise.
 
         A deck that trips these is still read as far as it can be. The reader's job is to
         import what is there, and an operator would rather have the model plus a warning
         than a traceback.
         """
-        present = set(card.params)
+        present = set(block.params)
 
         missing = self.required - present
         if missing:
             logger.warning(
                 "abaqus read: *%s (line %d) is missing required parameter(s) %s",
-                card.keyword,
-                card.lineno,
+                block.keyword,
+                block.lineno,
                 ", ".join(sorted(missing)),
             )
 
@@ -73,15 +73,15 @@ class KeywordSpec:
             if not found:
                 logger.warning(
                     "abaqus read: *%s (line %d) needs one of %s",
-                    card.keyword,
-                    card.lineno,
+                    block.keyword,
+                    block.lineno,
                     " / ".join(sorted(group)),
                 )
             elif len(found) > 1:
                 logger.warning(
                     "abaqus read: *%s (line %d) sets mutually exclusive %s",
-                    card.keyword,
-                    card.lineno,
+                    block.keyword,
+                    block.lineno,
                     " and ".join(sorted(found)),
                 )
 
@@ -93,8 +93,8 @@ class KeywordSpec:
             # since the regex reader used to absorb it into the previous parameter's value.
             logger.debug(
                 "abaqus read: *%s (line %d) has unrecognised parameter(s) %s -- ignored",
-                card.keyword,
-                card.lineno,
+                block.keyword,
+                block.lineno,
                 ", ".join(sorted(unknown)),
             )
 
@@ -341,8 +341,8 @@ def lookup(keyword: str) -> KeywordSpec | None:
     return KEYWORDS.get(keyword)
 
 
-def validate(card) -> None:
-    """Validate ``card`` against its spec, if it has one."""
-    spec = KEYWORDS.get(card.keyword)
+def validate(block) -> None:
+    """Validate ``block`` against its spec, if it has one."""
+    spec = KEYWORDS.get(block.keyword)
     if spec is not None:
-        spec.validate(card)
+        spec.validate(block)

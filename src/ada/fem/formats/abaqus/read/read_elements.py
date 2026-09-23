@@ -20,7 +20,7 @@ from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from .keywords import validate
-from .lexer import Card, iter_cards
+from .lexer import KeywordBlock, iter_keywords
 
 if TYPE_CHECKING:
     from ada.fem import FEM
@@ -43,7 +43,7 @@ def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
     """Read and import all *Element flags"""
     elements = FemElements(
         chain.from_iterable(
-            filter(lambda x: x is not None, (grab_elements(c, fem) for c in iter_cards(bulk_str, "ELEMENT")))
+            filter(lambda x: x is not None, (grab_elements(c, fem) for c in iter_keywords(bulk_str, "ELEMENT")))
         ),
         fem_obj=fem,
     )
@@ -51,9 +51,9 @@ def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
     return elements
 
 
-def grab_elements(card: Card, fem: "FEM"):
-    validate(card)
-    eltype = card.params.get("TYPE")
+def grab_elements(block: KeywordBlock, fem: "FEM"):
+    validate(block)
+    eltype = block.params.get("TYPE")
 
     if eltype in ("CONN3D2",):
         logger.info(f'Importing Connector type "{eltype}"')
@@ -72,8 +72,8 @@ def grab_elements(card: Card, fem: "FEM"):
         # ``get_elem_from_bulk_str`` so no half-built elements leak.
         logger.warning("abaqus read: skipping element block — %s", exc)
         return None
-    elset = card.params.get("ELSET")
-    el_type_members_str = card.data_text
+    elset = block.params.get("ELSET")
+    el_type_members_str = block.data_text
     res = re.search("[a-zA-Z]", el_type_members_str)
     is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
     if is_cubic or res is None:
@@ -103,21 +103,21 @@ def get_elem_arrays(bulk_str: str):
     by_type: dict = defaultdict(lambda: ([], [], []))  # ctype -> (el_ids, conns, elsets)
     overflow: list = []
 
-    for card in iter_cards(bulk_str, "ELEMENT"):
-        validate(card)
-        eltype = card.params.get("TYPE")
+    for block in iter_keywords(bulk_str, "ELEMENT"):
+        validate(block)
+        eltype = block.params.get("TYPE")
         try:
             ada_el_type = abaqus_el_type_to_ada(eltype)
         except UnsupportedAbaqusElementType as exc:
             logger.warning("abaqus read: skipping element block — %s", exc)
             continue
 
-        members = card.data_text
-        elset = card.params.get("ELSET")
+        members = block.data_text
+        elset = block.params.get("ELSET")
         is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
         has_letters = re.search("[a-zA-Z]", members) is not None
         if eltype in ("MASS", "ROTARYI", "CONN3D2") or (has_letters and not is_cubic):
-            overflow.append(card)  # special / cross-instance -> object path
+            overflow.append(block)  # special / cross-instance -> object path
             continue
 
         res = _parse_int_grid(members)
@@ -199,20 +199,20 @@ def update_connector_data(bulk_str: str, fem: FEM):
     """Extract connector elements from bulk string"""
 
     nsuffix = Counter(1, "_")
-    for card in iter_cards(bulk_str, "CONNECTOR SECTION"):
-        validate(card)
-        if len(card.data_lines) < 2:
-            logger.warning("abaqus read: *Connector Section (line %d) needs two data lines - skipping", card.lineno)
+    for block in iter_keywords(bulk_str, "CONNECTOR SECTION"):
+        validate(block)
+        if len(block.data_lines) < 2:
+            logger.warning("abaqus read: *Connector Section (line %d) needs two data lines - skipping", block.lineno)
             continue
-        behavior = card.params.first("BEHAVIOR", "BEHAVIOUR")
-        csys_ref = card.data_lines[1].replace('"', "")
+        behavior = block.params.first("BEHAVIOR", "BEHAVIOUR")
+        csys_ref = block.data_lines[1].replace('"', "")
         name = behavior + next(nsuffix)
-        elset = fem.elsets[card.params.get("ELSET")]
+        elset = fem.elsets[block.params.get("ELSET")]
         connector: Connector = elset.members[0]
         con_sec = fem.connector_sections[behavior]
         csys_ref = csys_ref[:-1] if csys_ref[-1] == "," else csys_ref
         csys = fem.lcsys[csys_ref]
-        con_type = card.data_lines[0]
+        con_type = block.data_lines[0]
         if con_type[-1] == ",":
             con_type = con_type[:-1]
 

@@ -6,13 +6,13 @@ from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
 
 from .keywords import validate
-from .lexer import Card, tokenize
+from .lexer import KeywordBlock, tokenize
 
 if TYPE_CHECKING:
     from ada import Assembly
 
-# The property cards a *Material owns. Abaqus nests by adjacency: the material's definition
-# runs until the next card that is not one of these.
+# The property blocks a *Material owns. Abaqus nests by adjacency: the material's definition
+# runs until the next block that is not one of these.
 _MATERIAL_PROPERTIES = (
     "DENSITY",
     "ELASTIC",
@@ -28,59 +28,59 @@ _MATERIAL_PROPERTIES = (
 
 
 def get_materials_from_bulk(assembly: "Assembly", bulk_str):
-    cards = tokenize(bulk_str)
-    for i, card in enumerate(cards):
-        if card.keyword != "MATERIAL":
+    blocks = tokenize(bulk_str)
+    for i, block in enumerate(blocks):
+        if block.keyword != "MATERIAL":
             continue
-        validate(card)
-        properties: dict[str, Card] = {}
-        for sub in cards[i + 1 :]:
+        validate(block)
+        properties: dict[str, KeywordBlock] = {}
+        for sub in blocks[i + 1 :]:
             if sub.keyword not in _MATERIAL_PROPERTIES:
                 break
-            # First wins: a repeated property card is a temperature/field table continuation
+            # First wins: a repeated property block is a temperature/field table continuation
             # rather than a replacement, and only the first block carries the base values.
             properties.setdefault(sub.keyword, sub)
-        assembly.add_material(_build_material(card, properties))
+        assembly.add_material(_build_material(block, properties))
 
 
-def _first_value(card: Card | None, column: int = 0):
-    if card is None or not card.data_lines:
+def _first_value(block: KeywordBlock | None, column: int = 0):
+    if block is None or not block.data_lines:
         return None
-    values = [x.strip() for x in card.data_lines[0].split(",")]
+    values = [x.strip() for x in block.data_lines[0].split(",")]
     if column >= len(values) or values[column] == "":
         return None
     return values[column]
 
 
-def _build_material(card: Card, properties: dict[str, Card]) -> Material:
+def _build_material(block: KeywordBlock, properties: dict[str, KeywordBlock]) -> Material:
     rd = roundoff
-    name = card.params.get("NAME")
+    name = block.params.get("NAME")
 
-    density_card = properties.get("DENSITY")
-    if density_card is not None and _first_value(density_card) is not None:
-        density = rd(_first_value(density_card), 10)
+    density_block = properties.get("DENSITY")
+    if density_block is not None and _first_value(density_block) is not None:
+        density = rd(_first_value(density_block), 10)
     else:
         logger.warning('No density flag found for material "{}"'.format(name))
         density = None
 
-    elastic_card = properties.get("ELASTIC")
+    elastic_block = properties.get("ELASTIC")
     young = poisson = None
-    if elastic_card is not None and elastic_card.data_lines:
-        young, poisson = _first_value(elastic_card), _first_value(elastic_card, 1)
+    if elastic_block is not None and elastic_block.data_lines:
+        young, poisson = _first_value(elastic_block), _first_value(elastic_block, 1)
         young = rd(young) if young is not None else None
         poisson = rd(poisson) if poisson is not None else None
     if young is None and poisson is None:
         logger.warning('No Elastic properties found for material "{name}"'.format(name=name))
 
-    plastic_card = properties.get("PLASTIC")
+    plastic_block = properties.get("PLASTIC")
     eps_p = sig_p = None
-    if plastic_card is not None and plastic_card.data_lines:
-        rows = [tuple(x.split(",")) for x in plastic_card.data_lines]
+    if plastic_block is not None and plastic_block.data_lines:
+        rows = [tuple(x.split(",")) for x in plastic_block.data_lines]
         sig_p = [rd(x[0]) for x in rows]
         eps_p = [rd(x[1]) for x in rows]
 
-    expansion_card = properties.get("EXPANSION")
-    zeta_value = _first_value(expansion_card)
+    expansion_block = properties.get("EXPANSION")
+    zeta_value = _first_value(expansion_block)
     zeta = float(zeta_value) if zeta_value is not None else 0.0
 
     # Return material object. Only pass mechanical properties that the deck actually

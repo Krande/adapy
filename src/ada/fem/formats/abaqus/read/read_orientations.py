@@ -3,18 +3,18 @@ from ada.fem import FEM, Csys
 
 from .helper_utils import get_set_from_assembly
 from .keywords import validate
-from .lexer import Card, iter_cards
+from .lexer import KeywordBlock, iter_keywords
 
 
-def _points(card: Card) -> list[str]:
+def _points(block: KeywordBlock) -> list[str]:
     """The a/b/c point values of an ``*Orientation``'s first data line.
 
     Six values give points a and b; nine add point c. Abaqus permits either, so the reader
     takes what is there rather than requiring a fixed count.
     """
-    if not card.data_lines:
+    if not block.data_lines:
         return []
-    return [x.strip() for x in card.data_lines[0].split(",") if x.strip() != ""]
+    return [x.strip() for x in block.data_lines[0].split(",") if x.strip() != ""]
 
 
 def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
@@ -23,12 +23,12 @@ def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
 
     """
     lcsysd = dict()
-    for card in iter_cards(bulk_str, "ORIENTATION"):
-        validate(card)
-        name = (card.params.get("NAME") or "").replace('"', "")
-        defi = card.params.get("DEFINITION") or "COORDINATES"
-        system = card.params.get("SYSTEM") or "RECTANGULAR"
-        values = _points(card)
+    for block in iter_keywords(bulk_str, "ORIENTATION"):
+        validate(block)
+        name = (block.params.get("NAME") or "").replace('"', "")
+        defi = block.params.get("DEFINITION") or "COORDINATES"
+        system = block.params.get("SYSTEM") or "RECTANGULAR"
+        values = _points(block)
         # COORDINATES gives points a and b as x,y,z each (optionally c as well); NODES gives
         # the three node references themselves. So the two spellings need different counts.
         required = 3 if defi.upper() == "NODES" else 6
@@ -36,7 +36,7 @@ def get_lcsys_from_bulk(bulk_str: str, parent: FEM) -> dict[str, Csys]:
             logger.warning(
                 "abaqus read: *Orientation %r (line %d) needs at least %d values on its data line — skipping",
                 name,
-                card.lineno,
+                block.lineno,
                 required,
             )
             continue

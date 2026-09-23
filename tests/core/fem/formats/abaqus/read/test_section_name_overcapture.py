@@ -1,6 +1,6 @@
-"""A card's name comes from its own comment line, and cannot come from anywhere else.
+"""A block's name comes from its own comment line, and cannot come from anywhere else.
 
-Abaqus/CAE writes a card's name in the comment directly above it -- ``** Section: Cast node``,
+Abaqus/CAE writes a keyword block's name in the comment directly above it -- ``** Section: Cast node``,
 ``** Name: BC-1  Type: Displacement/Rotation``, ``** Interaction: Real-1``. The regex reader
 matched that prefix with a pattern under ``re.DOTALL``, where ``.`` matches a newline and a
 non-greedy ``.*?`` expands until the *rest* of the pattern matches rather than stopping at the
@@ -9,10 +9,10 @@ next ``*Solid Section`` -- on a 463k-element deck, 1.18M lines later. That name 
 ``make_name_fem_ready``, which strips ``=`` (hence a deck echoed back with every equals sign
 gone) and logged the whole megabyte: one record, 1,178,653 lines of stderr.
 
-The lexer removes the class of bug rather than the instance. A card's ``comments`` are the
+The lexer removes the class of bug rather than the instance. A block's ``comments`` are the
 unbroken run of comment lines immediately above its keyword line, captured while tokenizing, so
 there is no pattern that could reach past them and nothing for a distance to affect. Each test
-below still states the distance between a decoy comment and the real card, because that is what
+below still states the distance between a decoy comment and the real block, because that is what
 used to decide the outcome.
 """
 
@@ -24,11 +24,11 @@ import pytest
 
 import ada
 from ada.core.utils import make_name_fem_ready
-from ada.fem.formats.abaqus.read.lexer import comment_property, iter_cards
+from ada.fem.formats.abaqus.read.lexer import comment_property, iter_keywords
 
 
 def _filler(lines: int) -> str:
-    """Keyword blocks between the decoy comment and the card we want."""
+    """Keyword blocks between the decoy comment and the block we want."""
     return "".join(f"*Elset, elset=junk{i}\n 1, 2, 3\n" for i in range(lines))
 
 
@@ -42,32 +42,32 @@ def test_solid_section_name_comes_from_its_own_comment(distance):
         + "** Section: Cast node\n*Solid Section, elset=solids, material=Steel\n"
     )
 
-    card = next(iter_cards(bulk, "SOLID SECTION"))
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
 
-    assert comment_property(card, "Section") == {"Section": "Cast node"}
-    assert card.params["ELSET"] == "solids"
-    assert card.params["MATERIAL"] == "Steel"
+    assert comment_property(block, "Section") == {"Section": "Cast node"}
+    assert block.params["ELSET"] == "solids"
+    assert block.params["MATERIAL"] == "Steel"
 
 
 def test_solid_section_without_a_name_comment_still_parses():
     """The comment is optional, and stays optional -- the reader falls back to a generated name."""
     bulk = "*Solid Section, elset=solids, material=Steel\n, \n"
 
-    card = next(iter_cards(bulk, "SOLID SECTION"))
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
 
-    assert comment_property(card, "Section") == {}
-    assert card.params["ELSET"] == "solids"
-    assert card.params["MATERIAL"] == "Steel"
+    assert comment_property(block, "Section") == {}
+    assert block.params["ELSET"] == "solids"
+    assert block.params["MATERIAL"] == "Steel"
 
 
 def test_a_comment_separated_from_its_card_is_not_attached():
     """Only the *unbroken* run directly above the keyword line counts. A comment with a data
-    line or a blank line after it annotates whatever it was written about, not the next card."""
+    line or a blank line after it annotates whatever it was written about, not the next block."""
     bulk = "** Section: Not mine\n*Elset, elset=junk\n1, 2, 3\n*Solid Section, elset=solids, material=Steel\n"
 
-    card = next(iter_cards(bulk, "SOLID SECTION"))
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
 
-    assert comment_property(card, "Section") == {}
+    assert comment_property(block, "Section") == {}
 
 
 def test_boundary_condition_name_comes_from_its_own_comment():
@@ -79,13 +79,13 @@ def test_boundary_condition_name_comes_from_its_own_comment():
         + "** Name: BC-1 Type: Displacement/Rotation\n*Boundary\nfixed, 1, 6\n*Step\n"
     )
 
-    card = next(iter_cards(bulk, "BOUNDARY"))
+    block = next(iter_keywords(bulk, "BOUNDARY"))
 
-    assert comment_property(card, "Name", "Type") == {"Name": "BC-1", "Type": "Displacement/Rotation"}
+    assert comment_property(block, "Name", "Type") == {"Name": "BC-1", "Type": "Displacement/Rotation"}
 
 
 def test_contact_pair_name_comes_from_its_own_comment():
-    """The same shape again, on the card that ``AbaFF``'s ``nameprop`` used to build a pattern
+    """The same shape again, on the block that ``AbaFF``'s ``nameprop`` used to build a pattern
     for: its ``\\n`` looked like a bound, but the ``\\*<flag>`` after it was the real terminator."""
     bulk = (
         "** Interaction: Decoy\n*Surface Interaction, name=IntProp-1\n1.,\n"
@@ -94,10 +94,10 @@ def test_contact_pair_name_comes_from_its_own_comment():
         "surf_a, surf_b\n"
     )
 
-    card = next(iter_cards(bulk, "CONTACT PAIR"))
+    block = next(iter_keywords(bulk, "CONTACT PAIR"))
 
-    assert comment_property(card, "Interaction") == {"Interaction": "Real-1"}
-    assert card.params["INTERACTION"] == "IntProp-1"
+    assert comment_property(block, "Interaction") == {"Interaction": "Real-1"}
+    assert block.params["INTERACTION"] == "IntProp-1"
 
 
 def test_no_fem_section_name_in_a_real_deck_spans_a_line(example_files):

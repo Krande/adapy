@@ -9,11 +9,11 @@ import pytest
 
 from ada.fem.formats.abaqus.read.keywords import KEYWORDS, lookup
 from ada.fem.formats.abaqus.read.lexer import (
-    iter_blocks,
-    iter_cards,
+    iter_enclosed,
+    iter_keywords,
     normalize,
-    stream_cards,
     stream_file,
+    stream_keywords,
     tokenize,
 )
 
@@ -55,39 +55,39 @@ def test_line_numbers_point_at_the_keyword_line():
     assert by_kw["SHELL SECTION"] == 4
     assert by_kw["PART"] == 6
     # The *Element keyword line starts on line 10 and is continued onto line 11; the number
-    # reported is where the card starts, not where its continuation ends.
+    # reported is where the block starts, not where its continuation ends.
     assert by_kw["ELEMENT"] == 10
     assert by_kw["BOUNDARY"] == 15
 
 
 def test_flag_parameters_are_present_with_a_none_value():
-    card = next(iter_cards("*Elset, elset=e1, generate\n1, 10, 1\n", "ELSET"))
-    assert "GENERATE" in card.params
-    assert card.params["GENERATE"] is None
-    assert card.params["ELSET"] == "e1"
+    block = next(iter_keywords("*Elset, elset=e1, generate\n1, 10, 1\n", "ELSET"))
+    assert "GENERATE" in block.params
+    assert block.params["GENERATE"] is None
+    assert block.params["ELSET"] == "e1"
 
 
 def test_parameter_lookup_ignores_case_and_inner_spacing():
-    card = next(iter_cards("*Coupling, constraint name=c1, ref node=rp, surface=s1\n", "COUPLING"))
-    assert card.params["CONSTRAINT NAME"] == "c1"
-    assert card.params["constraint name"] == "c1"
-    assert card.params["Constraint  Name"] == "c1"
+    block = next(iter_keywords("*Coupling, constraint name=c1, ref node=rp, surface=s1\n", "COUPLING"))
+    assert block.params["CONSTRAINT NAME"] == "c1"
+    assert block.params["constraint name"] == "c1"
+    assert block.params["Constraint  Name"] == "c1"
 
 
 def test_data_text_and_data_lines_are_two_views_of_one_block():
-    card = next(iter_cards("*Elset, elset=e1\n 1, 2\n** note\n", "ELSET"))
+    block = next(iter_keywords("*Elset, elset=e1\n 1, 2\n** note\n", "ELSET"))
     # data_text is the block as written -- free, because it is a slice of the source.
-    assert card.data_text == " 1, 2\n"
+    assert block.data_text == " 1, 2\n"
     # data_lines is the same block, stripped and without comments or blanks.
-    assert card.data_lines == ("1, 2",)
+    assert block.data_lines == ("1, 2",)
 
 
 def test_blocks_are_nesting_aware():
     bulk = "*Part, name=outer\n*Part, name=inner\n*End Part\n*Node\n1, 0., 0., 0.\n*End Part\n"
-    blocks = list(iter_blocks(bulk, "PART", "END PART"))
+    blocks = list(iter_enclosed(bulk, "PART", "END PART"))
     assert len(blocks) == 1
-    card, body = blocks[0]
-    assert card.params["NAME"] == "outer"
+    block, body = blocks[0]
+    assert block.params["NAME"] == "outer"
     assert "inner" in body and "*Node" in body
 
 
@@ -100,7 +100,7 @@ def test_normalize_collapses_case_and_spacing():
 
 def test_streaming_produces_the_same_cards_as_tokenizing():
     from_memory = tokenize(DECK)
-    streamed = list(stream_cards(io.StringIO(DECK)))
+    streamed = list(stream_keywords(io.StringIO(DECK)))
 
     assert len(streamed) == len(from_memory)
     for a, b in zip(from_memory, streamed):
@@ -128,8 +128,8 @@ def test_streaming_matches_tokenizing_on_the_example_decks(example_files, name):
 
 def test_stream_file_reads_without_holding_the_deck(example_files):
     """The streaming entry point yields as it goes rather than returning a list."""
-    cards = stream_file(example_files / "fem_files/abaqus/box.inp")
-    assert next(iter(cards)).keyword == "HEADING"
+    blocks = stream_file(example_files / "fem_files/abaqus/box.inp")
+    assert next(iter(blocks)).keyword == "HEADING"
 
 
 # ── keyword table ──────────────────────────────────────────────────────────────────
@@ -152,9 +152,9 @@ def test_keyword_names_are_normalized():
 def test_an_unregistered_keyword_still_parses():
     """The table gates validation, never parsing -- a deck may use any keyword Abaqus has."""
     assert lookup("BUCKLING ENVELOPE") is None
-    card = next(iter_cards("*Buckling Envelope, name=be1\n1., 2.\n", "BUCKLING ENVELOPE"))
-    assert card.params["NAME"] == "be1"
-    assert card.data_lines == ("1., 2.",)
+    block = next(iter_keywords("*Buckling Envelope, name=be1\n1., 2.\n", "BUCKLING ENVELOPE"))
+    assert block.params["NAME"] == "be1"
+    assert block.data_lines == ("1., 2.",)
 
 
 # ── cost ───────────────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ def test_an_unregistered_keyword_still_parses():
 
 def test_tokenizing_is_linear_in_deck_size():
     """A guard against a quadratic regression (the line-number counting and the data spans are
-    both easy to make per-card rather than per-buffer). Ten times the deck, not a hundred times
+    both easy to make per-block rather than per-buffer). Ten times the deck, not a hundred times
     the time -- the bound is loose because it is a CI machine."""
 
     def deck(n):
