@@ -754,6 +754,8 @@ class FemSets:
                 raise ValueError(f"Elref type '{type(elref)}' is not recognized")
 
         def eval_set(fset):
+            if fset._member_ids is not None:
+                return  # ids resolve to proxies of the set's own type; nothing to coerce
             if fset.type == SetTypes.ELSET:
                 el_type = Elem
                 get_func = get_elset
@@ -782,6 +784,12 @@ class FemSets:
                 return fem_set
 
         eval_set(fem_set)
+        if fem_set._member_ids is not None and fem_set.parent is not self._fem_obj:
+            # Id-backed members resolve through ``parent``; an instance-scoped set
+            # (``*Elset, instance=...``) is about to be re-parented to a FEM that doesn't
+            # hold those ids, so pin the resolved proxies first.
+            fem_set._members = fem_set.members
+            fem_set._member_ids = None
         fem_set.parent = self._fem_obj
         return fem_set
 
