@@ -32,9 +32,15 @@ class AbaFF:
         self._args = args
 
     def _create_regex(self, flag, nameprop, args):
+        # Value groups are ``[^\n]*?``, never ``.*?``: the regex is compiled with DOTALL, where a
+        # non-greedy ``.*?`` keeps expanding across newlines until whatever follows it turns up --
+        # the far end of the deck, if the keyword or the ``\n\*<flag>`` it is looking for is missing
+        # from its own line. Every flag here is one keyword line plus, per args tuple, one data
+        # line, so a line bound is the correct bound. ``bulk>`` fields are the exception and stay
+        # multi-line via ``(?:(?!\*).)*``, which is explicitly bounded by the next keyword.
         regstr = ""
         if nameprop is not None:
-            regstr += rf"\*\*\s*{nameprop[0]}:\s*(?P<{nameprop[1]}>.*?)\n"
+            regstr += rf"\*\*\s*{nameprop[0]}:\s*(?P<{nameprop[1]}>[^\n]*?)\n"
         regstr += rf"\*{flag}"
         for i, arg in enumerate(args):
             for j, fl in enumerate(arg):
@@ -66,7 +72,7 @@ class AbaFF:
                     if exact is True:
                         regstr += subfl
                     else:
-                        regstr += ".*?"
+                        regstr += r"[^\n]*?"
                 regstr += ")"
 
                 if j + 1 == len(arg):

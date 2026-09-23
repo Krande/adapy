@@ -2,6 +2,12 @@ import React from "react";
 import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 
+
+// The per-model aggregate a GLB carries BAKED IN, shown beneath the take-off (one "Take-off"
+// section; see `SceneInfoBox`). It is not the same fact: the take-off is one roll-up of the
+// source model, while this is per simulation / design object, and carries element counts and a
+// volume COG the roll-up has no shape for. A GLB without it renders nothing here.
+//
 // Per-model aggregate baked into ``DesignDataExtension.stats`` and
 // ``SimulationDataExtensionMetadata.stats`` at GLB time. The schema
 // also tolerates `total_mass` / `total_volume` as optional, so we
@@ -110,13 +116,11 @@ const StatsSection = () => {
         }
     }
 
-    if (sources.length === 0) {
-        return (
-            <div className="text-xs italic opacity-70">
-                No stats baked into the loaded model(s).
-            </div>
-        );
-    }
+    // Nothing to add. This section now sits UNDER the take-off inside one "Take-off" section
+    // (`SceneInfoBox`), so an ordinary converted model -- whose GLB carries no baked stats at all,
+    // the native writers emitting geometry only -- is already fully described above. Saying "no
+    // stats baked" beneath a populated take-off would read as a gap where there is none.
+    if (sources.length === 0) return null;
 
     const showSourceHeaders = sources.length > 1;
 

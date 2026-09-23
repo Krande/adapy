@@ -193,6 +193,14 @@ COPY src/ada/cad/ /app/src/ada/cad/
 # core owns the schema for and never opens a provider's source artefact, so nothing native or
 # format-specific is dragged in.
 COPY src/ada/assets/ /app/src/ada/assets/
+# ada.clash -- the Clashes surface's schema half. ada.comms.rest.app includes routes/clash_check.py
+# at MODULE level like every other router, so leaving it out crashloops the slim API on
+# `No module named 'ada.clash'` exactly as ada.cad and ada.assets did above. Safe on the same
+# test, and deliberately built to pass it: the package's __init__ resolves names LAZILY, and the
+# two modules the API actually touches (`options`, `result`, `builtin_names`) are stdlib-only.
+# Identification itself -- ada.api beams/plates, numpy, a reader -- is imported only by
+# `identify`/`classify`/`match`/`builtin_specs`, which run on a WORKER and are never imported here.
+COPY src/ada/clash/ /app/src/ada/clash/
 # ada.core.file_system — ada.comms.rest.{app,converter} import new_temp_path at MODULE level, so
 # without this the API crashloops on `No module named 'ada.core'` exactly the way it did on
 # `ada.cad` above. Only the one module ships, not the package: the rest of ada/core is numpy-bound

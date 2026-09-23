@@ -344,43 +344,52 @@ class IndexedPolyCurve:
         return unique_pts, indices
 
     def to_points2d(self):
-        local_points = []
-        segments_in = self.segments
-        segments = segments_in[1:]
-        for i, seg in enumerate(segments):
-            if i == 0:
-                pseg = segments[-1]
-            else:
-                pseg = segments[i - 1]
+        """The outline's CORNERS, in adapy's ``(x, y)`` / ``(x, y, radius)`` convention.
 
-            if i == len(segments) - 1:
-                nseg = segments[0]
-            else:
-                nseg = segments[i + 1]
+        One point per segment, taken at the segment's start -- which for a closed loop of N
+        segments is N corners, each named exactly once. An ``ArcLine`` is a FILLET: the corner it
+        stands for is where the two adjacent lines would have met, so it contributes that
+        intersection plus the arc's radius, and the neighbouring lines do not also emit their
+        (tangent) endpoints.
+
+        This used to walk ``segments[1:]`` and emit both endpoints of every line, which named the
+        first corner not at all and every other one twice. A plate read back from IFC therefore
+        came out with a polygon of zero-length segments: it still rendered (the duplicates are
+        collinear), but anything reasoning about the OUTLINE -- clash detection's plate passes
+        above all, which look for beams along an edge and for edge-connected plates -- saw
+        degenerate edges and silently found less. Round-tripping a model through IFC dropped a
+        third of its joints.
+        """
+        segments = self.segments
+        n = len(segments)
+        if n == 0:
+            return []
+
+        local_points = []
+        for i, seg in enumerate(segments):
+            pseg = segments[(i - 1) % n]
+            nseg = segments[(i + 1) % n]
 
             if isinstance(seg, Edge):
-                if i == 0:
+                # A line's start point is a corner unless the arc before it already stood in for
+                # that corner -- there, the line starts at the arc's tangent point, not at a
+                # vertex of the outline.
+                if not isinstance(pseg, ArcLine):
                     local_points.append(seg.start)
-                else:
-                    if type(segments[i - 1]) is Edge:
-                        local_points.append(seg.start)
-                if i < len(segments) - 1:
-                    if type(segments[i + 1]) is Edge:
-                        local_points.append(seg.end)
-                else:
-                    local_points.append(seg.end)
-            else:
-                center, radius = calc_arc_radius_center_from_3points(seg.start, seg.midpoint, seg.end)
-                v1_ = seg.start - pseg.start
-                v2_ = nseg.end - seg.end
-                # ed = np.cross(v1_, v2_)
-                # if ed < 0:
-                #     local_points.append(seg.start)
+                continue
 
-                s, t = intersect_calc(seg.start, nseg.end, v1_, v2_)
-                ip = seg.start + s * v1_
-                # ip = intersection_point(v1_, v2_)
-                local_points.append((ip[0], ip[1], radius))
+            if not isinstance(seg, ArcLine):
+                raise NotImplementedError(
+                    f"IndexedPolyCurve.to_points2d: unsupported segment {type(seg).__name__}. Only "
+                    f"lines and arcs have a corner-and-radius form; sample the curve instead."
+                )
+
+            _, radius = calc_arc_radius_center_from_3points(seg.start, seg.midpoint, seg.end)
+            v1_ = seg.start - pseg.start
+            v2_ = nseg.end - seg.end
+            s, _t = intersect_calc(seg.start, nseg.end, v1_, v2_)
+            ip = seg.start + s * v1_
+            local_points.append((ip[0], ip[1], radius))
 
         return local_points
 

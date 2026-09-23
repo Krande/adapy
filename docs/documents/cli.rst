@@ -20,6 +20,11 @@ One global option applies to all of them:
     Logging level for the commands that initialise the ``ada`` package
     (``convert``, ``view``, ``audit repro``, ``audit parity``). Default ``INFO``.
 
+``convert`` and ``view`` take ``--log-file PATH`` as well -- a per-command option
+rather than a global one, because argparse only accepts the global ones *before*
+the subcommand and ``ada convert in out --log-file run.log`` is how it gets
+typed.
+
 Every command exits ``0`` on success. An argparse error exits ``2``, and so does
 a bare command with nothing to act on — a bare invocation prints that parser's
 *full* help rather than a one-line usage, but to stderr, and still exits ``2``,
@@ -182,6 +187,12 @@ surprise.
     Split ACIS/SAT bodies into individual faces.
 ``--limit``
     Stop after this many geometries. Debugging aid; unset by default.
+``--log-file``
+    Write adapy's log records to this file, truncating it first, and leave only
+    warnings and errors on the console. Useful on large FEM decks, where the
+    ``INFO`` stream is worth keeping but not worth reading as it scrolls past.
+    Without the flag nothing changes: every record at ``--log-level`` goes to
+    stderr.
 
 ``ada view``
 ------------
@@ -203,7 +214,7 @@ Open the built-in web viewer on a file.
     Host to bind the viewer websocket to. Default ``localhost``.
 ``--ws-port``
     Websocket port. Default ``8765``.
-``--split``, ``--limit``
+``--split``, ``--limit``, ``--log-file``
     As for ``ada convert``.
 
 ``ada build``

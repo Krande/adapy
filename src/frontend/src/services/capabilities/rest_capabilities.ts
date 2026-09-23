@@ -92,12 +92,41 @@ async function api(): Promise<ViewerApiModule> {
   return await import("@/services/viewerApi");
 }
 
+/** `<derived>.glb` -> `<derived>.stats.json`: the take-off a conversion writes beside its GLB.
+ *  The same rule the worker applies (`converters/keys.stats_sidecar_key`), so the two cannot
+ *  drift; stated in both places because neither side can import the other's. */
+export function statsSidecarKey(glbKey: string): string {
+  return glbKey.endsWith(".glb") ? `${glbKey.slice(0, -".glb".length)}.stats.json` : `${glbKey}.stats.json`;
+}
+
+/** Read that sibling. A model with no take-off (a streamed STEP, an FEA result, anything whose
+ *  conversion yields no Part) simply has no such blob, which is a 404 and an unavailable
+ *  take-off -- never an error the panel has to render. */
+async function fetchStatsSidecar(scope: string, derivedKey: string): Promise<ModelStatsResult> {
+  try {
+    const { filesApi } = await import("@/services/api/files");
+    const { authedFetch } = await import("@/services/api/client");
+    const r = await authedFetch(filesApi.blobUrl(scope as never, statsSidecarKey(derivedKey)));
+    if (!r.ok) return { available: false };
+    const stats = (await r.json()) as ModelStats;
+    return { available: true, stats };
+  } catch {
+    return { available: false };
+  }
+}
+
 export class RESTModelStatsCapability implements ModelStatsCapability {
   readonly transport: CapabilityTransport = "rest";
 
   async fetchStats(source: ModelStatsSource): Promise<ModelStatsResult> {
     const { scope, modelId, derivedKey } = source;
-    if (!scope || !modelId || !derivedKey) return { available: false };
+    if (!scope || !derivedKey) return { available: false };
+    // A PROCEDURAL model answers through its own route, which knows the model id and can also
+    // export. An ordinary uploaded file has no model id and used to get no take-off at all --
+    // `Stats` and `Take-off` sat empty for every IFC anyone loaded, although the conversion had
+    // the structured model in its hands. It now writes the same document beside the GLB
+    // (`stats_sidecar_key`), so the answer here is to read that sibling.
+    if (!modelId) return await fetchStatsSidecar(scope, derivedKey);
     const { viewerApi } = await api();
     return await viewerApi.fetchModelStats(scope, modelId, derivedKey);
   }

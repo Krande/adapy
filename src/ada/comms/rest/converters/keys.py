@@ -369,3 +369,18 @@ def _target_formats() -> frozenset[str]:
     from ..converter import TARGET_FORMATS
 
     return TARGET_FORMATS
+
+
+def stats_sidecar_key(glb_key: str) -> str:
+    """The quantity take-off written ALONGSIDE a converted GLB.
+
+    A sibling of the GLB's own key -- the same path with ``.stats.json`` in place of ``.glb`` --
+    so one rule covers every variant a conversion can produce and the two keys cannot drift
+    apart. Deliberately the same rule ``procedural_stats_key`` uses for a compiled model: the
+    viewer's Stats panel asks the same question of both, and an ordinary uploaded file had no
+    answer at all before this (the take-off existed only for models compiled by the procedural
+    engine, so `Stats` and `Take-off` sat empty for every IFC anyone loaded).
+    """
+    if glb_key.endswith(".glb"):
+        return f"{glb_key[: -len('.glb')]}.stats.json"
+    return f"{glb_key}.stats.json"

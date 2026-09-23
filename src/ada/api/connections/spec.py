@@ -43,6 +43,13 @@ class MemberCriteria:
     role: MemberRole
     kind: MemberKind | None = None
     section_in: frozenset[str] | None = None
+    #: ``Column`` / ``Girder`` / ``Brace`` -- the member's own axis classification, which a spec
+    #: needs when its BUILDER does. A gusset between two girders is not a thing you can make
+    #: between a column and a girder, and both are I-family, so ``section_in`` cannot tell them
+    #: apart: a spec that declared only the family claimed every column head in the frame and the
+    #: builder then refused the joint, which surfaces as a failed job rather than as a detail
+    #: nobody was offered. A plate has no axis classification and so matches no such criterion.
+    member_types: frozenset[str] | None = None
     angle_to_role: MemberRole | None = None
     angle_range: AngleRange | None = None
     predicate: Callable[[dict[MemberRole, Any]], bool] | None = None
@@ -61,6 +68,14 @@ class MemberCriteria:
             elif isinstance(member, Plate):
                 if "PLATE" not in allowed:
                     return False
+        if self.member_types is not None:
+            wanted = {t.upper() for t in self.member_types}
+            try:
+                member_type = member.member_type
+            except Exception:  # noqa: BLE001 - a member whose axis cannot be classified matches no type
+                return False
+            if member_type is None or str(member_type).upper() not in wanted:
+                return False
         return True
 
 

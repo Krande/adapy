@@ -53,6 +53,7 @@ from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.assets import router as assets_router
+from .routes.clash_check import router as clash_check_router
 from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/importers of the old name
     CAPABILITY_REQUIREMENTS_SETTING,
     RestContext,
@@ -1415,6 +1416,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after
     # ``assets``, so there is no fixed/parameterised sibling to collide with.
     api.include_router(assets_router)
+
+    # Clashes: joint identification + the hand-off to a generator (routes/clash_check.py,
+    # Decision 10 / Phase 6). Every path is ``/scopes/{scope}/clash-check...`` or
+    # ``/scopes/{scope}/clash-detail``, neither colliding with any fixed/parameterised sibling.
+    api.include_router(clash_check_router)
 
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
