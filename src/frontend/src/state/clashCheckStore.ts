@@ -665,7 +665,11 @@ interface ClashCheckState {
   selectedJoint: string | null;
   /** What happens to the members that are NOT part of what the cursor is on: nothing (`off`),
    *  faded to a translucent ghost, or hidden outright. A joint is a few members inside thousands
-   *  and is usually behind something, so this is how it gets looked at. */
+   *  and is usually behind something, so this is how it gets looked at.
+   *
+   *  Defaults to `ghost`, not `off`: a joint picked out of a frame is nearly always occluded, and
+   *  the fade is the reading that keeps the rest of the model as context rather than removing it.
+   *  It costs nothing when nothing is selected -- with no cursor there is nothing to isolate. */
   isolate: "off" | "ghost" | "hidden";
   /** How faint the ghost is, 0-1. Adjustable because a fixed value is wrong at both ends:
    *  unusable on a dense deck, pointless on a bare frame. */
@@ -748,7 +752,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   selectedGroup: null,
   selectedJoints: [],
   selectedJoint: null,
-  isolate: "off",
+  isolate: "ghost",
   isolateOpacity: 0.15,
   showMarkers: true,
 

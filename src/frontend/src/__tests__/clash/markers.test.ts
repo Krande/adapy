@@ -120,7 +120,7 @@ test("before a check has run, the loaded model is the only answer there is", () 
 
 // --- what stays visible when the rest is faded or hidden --------------------------------------
 
-const { isolationMembers } = await import("@/state/clashCheckStore");
+const { isolationMembers, useClashCheckStore } = await import("@/state/clashCheckStore");
 
 test("isolation keeps the focused joint's members", () => {
   const result = parseClashResult(fixtureDoc());
@@ -147,4 +147,12 @@ test("nothing focused keeps nothing -- which means no isolation, not an empty mo
 test("a joint id the result does not carry falls back to the group rather than isolating nothing", () => {
   const result = parseClashResult(fixtureDoc());
   assert.deepEqual(isolationMembers(result, "not-a-joint", "a"), ["bmj1", "bmj2"]);
+});
+
+test("isolation defaults to the fade, at 15%", () => {
+  // A joint picked out of a frame is nearly always occluded, so the useful default is the one
+  // that shows it -- and with no cursor set there is nothing to isolate, so it costs nothing.
+  const s = useClashCheckStore.getState();
+  assert.equal(s.isolate, "ghost");
+  assert.equal(s.isolateOpacity, 0.15);
 });
