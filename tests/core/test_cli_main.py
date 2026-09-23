@@ -345,3 +345,71 @@ def test_end_to_end_inp_to_sesam_through_main(tmp_path, example_files, capsys):
     assert not leftovers, f"scratch directories left behind: {leftovers}"
     # Every path written is reported, primary first.
     assert capsys.readouterr().out.splitlines()[0].strip() == str(out)
+
+
+# ── --log-file ────────────────────────────────────────────────────────────
+
+
+def _cli_env() -> dict[str, str]:
+    """Environment for a subprocess ``ada`` run: this interpreter's import path, nothing else."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+    env.pop("PYTHONSTARTUP", None)
+    return env
+
+
+def _run_convert(src, out, tmp_path, *extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "ada_cli.main", "convert", str(src), str(out), *extra],
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+        cwd=tmp_path,
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["convert", "in.inp", "out.FEM", "--log-file", "run.log"],
+        ["view", "in.inp", "--log-file", "run.log"],
+    ],
+    ids=["convert", "view"],
+)
+def test_log_file_is_accepted_after_the_positionals(argv):
+    """It is a per-subcommand option, not a global one: argparse only takes the global ones
+    before the subcommand, and this is the order it gets typed in."""
+    args = ada_cli.main._build_parser().parse_args(argv)
+
+    assert args.log_file == "run.log"
+
+
+def test_log_file_takes_the_records_and_leaves_the_console_quiet(tmp_path, example_files):
+    """The flag exists because of a 463k-element deck whose INFO stream was 1.18M lines: the
+    records are worth keeping, just not on the terminal. A subprocess, because the console
+    handler ``ada`` installs at import time holds the real ``sys.stderr`` and capsys never
+    sees it."""
+    src = example_files / "fem_files" / "abaqus" / "box.inp"
+    out = tmp_path / "box.FEM"
+    log = tmp_path / "convert.log"
+
+    proc = _run_convert(src, out, tmp_path, "--log-file", str(log))
+
+    assert proc.returncode == 0, proc.stderr
+    assert out.is_file()
+    text = log.read_text(encoding="utf-8")
+    assert "INFO/ada" in text, f"the log file got no INFO records:\n{text[:500]}"
+    assert "INFO" not in proc.stderr, f"INFO still reached the console:\n{proc.stderr[:500]}"
+
+
+def test_without_log_file_the_console_still_gets_everything(tmp_path, example_files):
+    """The other half of the promise: no flag, no change. Resolving the shared ``.fem``
+    extension is logged at INFO, so there is always at least one record to see."""
+    src = example_files / "fem_files" / "abaqus" / "box.inp"
+    out = tmp_path / "box.FEM"
+
+    proc = _run_convert(src, out, tmp_path)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "INFO/ada" in proc.stderr, f"INFO records stopped reaching the console:\n{proc.stderr[:500]}"
+    assert not list(tmp_path.glob("*.log"))
