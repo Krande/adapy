@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import ada.clash
 from ada.api.connections.spec import MemberKind
 from ada.clash import ClashOptions, run_clash_check
 from ada.clash.classify import ANGLE_BUCKETS
@@ -18,6 +19,12 @@ from ada.sections.categories import BaseTypes
 from ada.topo_model import build_topo_model
 
 REPO = Path(__file__).resolve().parents[3]
+#: The clash package as IMPORTED, not as a path under this checkout. The per-module gate below
+#: reads these files, and the conda recipe runs this suite against the INSTALLED package with no
+#: `src/` tree beside it -- reading `REPO/src/ada/clash/result.py` there is a FileNotFoundError,
+#: which is a gate that fails for the wrong reason. Asking the import system also means the gate
+#: checks the code that actually ships.
+CLASH_PKG = Path(ada.clash.__file__).resolve().parent
 
 # "the two job formats, the route and the panel must not contain the tokens weld, tekla, e3d,
 # csg" (Decision 10, "Layering, operationalised"; the literal command is §Verification's
@@ -104,12 +111,12 @@ def test_core_asset_style_gate_also_covers_the_result_and_match_modules():
     # no exceptions: the gate is blunt on purpose, so it is checked line by
     # line rather than as a whole file.
     for module in ("result.py", "classify.py", "match.py", "identify.py", "__init__.py"):
-        path = REPO / "src" / "ada" / "clash" / module
+        path = CLASH_PKG / module
         text = path.read_text(encoding="utf-8")
         for token in FORBIDDEN:
             assert not re.search(token, text, re.IGNORECASE), f"{module} names {token!r}"
 
-    builtin_specs = (REPO / "src" / "ada" / "clash" / "builtin_specs.py").read_text(encoding="utf-8")
+    builtin_specs = (CLASH_PKG / "builtin_specs.py").read_text(encoding="utf-8")
     offending_lines = [
         f"src/ada/clash/builtin_specs.py:{i}:{line}"
         for i, line in enumerate(builtin_specs.splitlines(), start=1)
