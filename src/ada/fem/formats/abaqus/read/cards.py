@@ -4,51 +4,63 @@ from .helper_utils import AbaFF
 
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
+# Every keyword value and every data value in an Abaqus deck lives on a single line, so those
+# groups are spelled ``[^\n]*?`` and not ``.*?``. Under the DOTALL above, ``.*?`` matches newlines
+# too, and "non-greedy" only means "expand as little as possible *until the rest of the pattern
+# matches*" -- so a group whose terminator is missing on its own line keeps expanding until the
+# terminator turns up, which can be the far end of the file. That is how a ``** Section:`` comment
+# on a shell section came to capture 1.18M lines as a solid section's name. Groups that are
+# genuinely multi-line (element/set member blocks, part and instance bodies) stay ``.*?``, bounded
+# by a lookahead for the next keyword instead.
+
 # Elements
 re_el = re.compile(
-    r"^\*Element,\s*type=(?P<eltype>.*?)(?:\n|,\s*elset=(?P<elset>.*?)\s*\n)(?<=)(?P<members>(?:.*?)(?=\*|\Z))",
+    r"^\*Element,\s*type=(?P<eltype>[^\n]*?)(?:\n|,\s*elset=(?P<elset>[^\n]*?)\s*\n)"
+    r"(?<=)(?P<members>(?:.*?)(?=\*|\Z))",
     _re_in,
 )
 
 re_sets = re.compile(
-    r"(?:\*(nset|elset),\s*(?:nset|elset))=(.*?)(?:,\s*(internal\s*)|(?:))"
-    r"(?:,\s*instance=(.*?)|(?:))(?:,\s*(generate)|(?:))\s*\n(?<=)((?:.*?)(?=\*|\Z))",
+    r"(?:\*(nset|elset),\s*(?:nset|elset))=([^\n]*?)(?:,\s*(internal\s*)|(?:))"
+    r"(?:,\s*instance=([^\n]*?)|(?:))(?:,\s*(generate)|(?:))\s*\n(?<=)((?:.*?)(?=\*|\Z))",
     _re_in,
 )
 # Boundary Conditions
 re_bcs = re.compile(
-    r"(?:\*\*\s*Name:\s*(?P<name>.*?)\s*Type:\s*(?P<type>.*?)\n|)" r"\*Boundary\n(?<=)(?P<content>(?:.*?)(?=\*|\Z))",
+    r"(?:\*\*\s*Name:\s*(?P<name>[^\n]*?)\s*Type:\s*(?P<type>[^\n]*?)\n|)"
+    r"\*Boundary\n(?<=)(?P<content>(?:.*?)(?=\*|\Z))",
     _re_in,
 )
 
 # Parts
-parts_matches = re.compile(r"\*Part, name=(?P<name>.*?)\n(?P<bulk_str>.*?)\*End Part", _re_in)
-part_names = re.compile(r"\*\*\s*PART INSTANCE:\s*(.*?)\n(.*)", _re_in)
+parts_matches = re.compile(r"\*Part, name=(?P<name>[^\n]*?)\n(?P<bulk_str>.*?)\*End Part", _re_in)
+part_names = re.compile(r"\*\*\s*PART INSTANCE:\s*([^\n]*?)\n(.*)", _re_in)
 
 # Instances
 inst_matches = re.compile(
-    r"\*Instance, name=(?P<inst_name>.*?), part=(?P<part_name>.*?)\n(?P<bulk_str>.*?)\*End Instance", _re_in
+    r"\*Instance, name=(?P<inst_name>[^\n]*?), part=(?P<part_name>[^\n]*?)\n(?P<bulk_str>.*?)\*End Instance", _re_in
 )
 
 # Sections
-_re_offset = r"(?:, offset=(?P<offset>.*?)|)"
-_re_controls = r"(?:, controls=(?P<controls>.*?)|)"
+_re_offset = r"(?:, offset=(?P<offset>[^\n]*?)|)"
+_re_controls = r"(?:, controls=(?P<controls>[^\n]*?)|)"
 re_shell = re.compile(
-    r"\*\Shell Section, elset"
-    rf"=(?P<elset>.*?)\s*, material=(?P<material>.*?){_re_offset}{_re_controls}\s*\n(?P<t>.*?),"
-    rf"(?P<int_points>.*?)$",
+    r"\*Shell Section, elset"
+    rf"=(?P<elset>[^\n]*?)\s*, material=(?P<material>[^\n]*?){_re_offset}{_re_controls}\s*\n(?P<t>[^\n]*?),"
+    rf"(?P<int_points>[^\n]*?)$",
     _re_in,
 )
 
 re_beam = re.compile(
-    r"\*Beam Section,\s*elset=(?P<elset>.*?)\s*,\s*material=(?P<material>.*?)\s*,\s*"
-    r"(?:temperature=(?P<temperature>.*?),|)\s*(?:section=|sect=)(?P<sec_type>.*?)\n"
-    r"(?P<line1>.*?)\n(?P<line2>.*?)$",
+    r"\*Beam Section,\s*elset=(?P<elset>[^\n]*?)\s*,\s*material=(?P<material>[^\n]*?)\s*,\s*"
+    r"(?:temperature=(?P<temperature>[^\n]*?),|)\s*(?:section=|sect=)(?P<sec_type>[^\n]*?)\n"
+    r"(?P<line1>[^\n]*?)\n(?P<line2>[^\n]*?)$",
     _re_in,
 )
 
 re_solid = re.compile(
-    r"(?:\*\s*Section:\s*(.*?)\n|)\*\Solid Section,\s*elset=(.*?)\s*,\s*material=(.*?)\s*$",
+    r"(?:\*\s*Section:\s*(?P<name>[^\n]*?)\n|)"
+    r"\*Solid Section,\s*elset=(?P<elset>[^\n]*?)\s*,\s*material=(?P<material>[^\n]*?)\s*$",
     _re_in,
 )
 
