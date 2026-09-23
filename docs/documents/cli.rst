@@ -193,6 +193,43 @@ surprise.
     ``INFO`` stream is worth keeping but not worth reading as it scrolls past.
     Without the flag nothing changes: every record at ``--log-level`` goes to
     stderr.
+``--strict``
+    Exit ``3`` if anything in the input could not be written to the output, or if
+    the input itself looks wrong. Approximations on their own do not fail -- a tie
+    resolved to the nearest node is always one. The deck and the conversion report
+    are written either way; ``--strict`` reports, it does not withhold.
+
+What a conversion could not carry across
+''''''''''''''''''''''''''''''''''''''''
+
+Every format lacks something another can say, so a conversion can be complete,
+approximate, or incomplete. ``ada convert`` says which, in three places:
+
+* a short summary on **stderr** at the end -- the status, then one line per
+  finding. It is printed rather than logged, so ``--log-file`` cannot hide it,
+  and it is on stderr so ``ada convert in out > paths.txt`` still captures
+  nothing but paths;
+* ``<OUT stem>_conversion_report.json`` beside the output, listing every finding
+  with counts and measurements, and named among the written paths on stdout. It
+  is written **only when there is something to report**: a clean conversion
+  leaves the output file alone;
+* the exit code, under ``--strict``.
+
+A finding is one of four kinds. ``omitted`` means the construct produced nothing
+in the output -- an unsupported constraint type, a keyword the reader has no
+handler for. ``suspect`` means the output is faithful and valid but the *input*
+looks like a modelling error, so the result is faithful to a wrong model: two
+constraints making one node's degree of freedom dependent is the case it exists
+for, because Sesam sums linear dependencies and would quietly add them together.
+``approximated`` means something was written with different physics, and carries a
+measure of the difference (a pairing distance, a dropped weight). ``note`` means
+it was written faithfully and is worth a human's attention, or is plain inventory.
+
+Omissions and suspect input fail ``--strict``; approximations and notes do not.
+
+Findings are counted per construct, not per node: a deck that drops ten thousand
+springs reports one line saying ten thousand, because a log nobody can scroll
+hides an omission just as well as no log at all.
 
 ``ada view``
 ------------

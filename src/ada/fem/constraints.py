@@ -40,6 +40,62 @@ class ConstraintTypes:
     RIGID_BODY = "rigid body"
     MPC = "mpc"
     SHELL2SOLID = "shell2solid"
+    EQUATION = "equation"
+
+
+ALL_DOFS = (1, 2, 3, 4, 5, 6)
+
+
+def expand_dofs(dofs) -> tuple[int, ...]:
+    """Normalise the several shapes a DOF specification arrives in into sorted unique ints.
+
+    Constraints collect their DOFs from wherever they were read, and the shapes genuinely differ:
+    the Abaqus reader hands over an ``(n, 2)`` numpy array of ``(first, last)`` ranges straight
+    from a ``*Kinematic`` block, hand-built models pass ``[1, 2, 3]``, and a single DOF is
+    sometimes just ``4``.
+
+    The one ambiguity worth spelling out: a *flat* sequence is a list of DOFs, while a *nested*
+    one is a list of ranges. So ``[1, 3]`` means DOFs 1 and 3, and ``[[1, 3]]`` means 1 through 3.
+    Anything outside 1-6, and anything that is not an integer, raises ``ValueError``: that is
+    caller error rather than a lossy conversion, and quietly dropping it would write a model
+    nobody asked for.
+
+    ``None`` means "not declared", which for every constraint type in ada means all six.
+    """
+    if dofs is None:
+        return ALL_DOFS
+
+    if isinstance(dofs, np.ndarray):
+        dofs = dofs.tolist()
+    elif isinstance(dofs, (int, np.integer)) and not isinstance(dofs, bool):
+        dofs = [int(dofs)]
+
+    if not isinstance(dofs, (list, tuple, set, frozenset)):
+        raise ValueError(f"cannot read a DOF specification from {dofs!r}")
+
+    def as_dof(value) -> int:
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise ValueError(f"DOF {value!r} is not an integer")
+        value = int(value)
+        if not 1 <= value <= 6:
+            raise ValueError(f"DOF {value} is outside 1-6")
+        return value
+
+    found: set[int] = set()
+    for entry in dofs:
+        if isinstance(entry, np.ndarray):
+            entry = entry.tolist()
+        if isinstance(entry, (list, tuple)):
+            if len(entry) != 2:
+                raise ValueError(f"a DOF range must be (first, last), got {entry!r}")
+            first, last = as_dof(entry[0]), as_dof(entry[1])
+            if last < first:
+                raise ValueError(f"a DOF range must not run backwards, got {entry!r}")
+            found.update(range(first, last + 1))
+        else:
+            found.add(as_dof(entry))
+
+    return tuple(sorted(found))
 
 
 class Bc(FemBase):
@@ -120,6 +176,7 @@ class Constraint(FemBase):
         parent=None,
         metadata=None,
         influence_distance: float = None,
+        equation_terms=None,
     ):
         super().__init__(name, metadata, parent)
         m_set.refs.append(self)
@@ -127,11 +184,13 @@ class Constraint(FemBase):
         self._con_type = con_type
         self._m_set = m_set
         self._s_set = s_set
+        self._dofs_declared = dofs is not None
         self._dofs = [1, 2, 3, 4, 5, 6] if dofs is None else dofs
         self._pos_tol = pos_tol
         self._mpc_type = mpc_type
         self._csys = csys
         self._influence_distance = influence_distance
+        self._equation_terms = None if equation_terms is None else tuple(tuple(t) for t in equation_terms)
 
     def switch_master_slave(self):
         from ada.fem import Surface
@@ -183,6 +242,24 @@ class Constraint(FemBase):
         return self._dofs
 
     @property
+    def dofs_declared(self) -> bool:
+        """Whether the caller (or the deck) actually said which DOFs this constraint holds.
+
+        ``dofs`` cannot answer this on its own: ``_dofs`` has stored ``[1, 2, 3, 4, 5, 6]`` for
+        an omitted specification since long before any writer looked at it, so "all six" and
+        "unstated" are the same value there — and that storage is relied on elsewhere, so it is
+        left alone.
+
+        The distinction matters to a writer that honours ``dofs``. An *explicit* all-six is a
+        statement: Abaqus' ``*Kinematic`` with no data lines means every DOF, and the Abaqus
+        reader hands that over as ``[[1, 6]]``. An *omitted* one is merely the default of an
+        argument, and taking it literally would silently change what every hand-built
+        ``Constraint`` in existing code writes. See
+        ``ada.fem.formats.sesam.write.write_constraints._constraint_dofs``.
+        """
+        return self._dofs_declared
+
+    @property
     def pos_tol(self):
         return self._pos_tol
 
@@ -197,6 +274,19 @@ class Constraint(FemBase):
     @property
     def influence_distance(self):
         return self._influence_distance
+
+    @property
+    def equation_terms(self):
+        """For ``EQUATION`` constraints: the terms of a linear multi-point constraint.
+
+        A tuple of ``(node, dof, coefficient)``, in the order the deck declared them. Abaqus'
+        convention is that the **first** term is the one eliminated, so it names the dependent
+        DOF and every later term is an independent contribution; the writers rely on that order,
+        so it is preserved rather than sorted.
+
+        ``None`` for every other constraint type.
+        """
+        return self._equation_terms
 
     def __repr__(self):
         return f'Constraint("{self.type}", m: "{self.m_set.name}", s: "{self.s_set.name}", dofs: "{self.dofs}")'
