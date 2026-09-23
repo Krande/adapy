@@ -57,7 +57,7 @@ def test_bake_is_idempotent_and_non_mutating():
 def test_baked_geometry_renders_placed_via_stream_and_occ():
     """The baked ``solid_geom()`` tessellates to WORLD coordinates on both the libtess2 stream
     kernel and OCC — the actual bug the baker fixes (a rotated shape rendered unplaced)."""
-    import pytest
+    from ada.cad import active_backend
 
     place = Placement.from_axis_angle([0, 0, 1], 90, origin=(5, 2, 0))
     sh = _box_shape(place)
@@ -68,15 +68,19 @@ def test_baked_geometry_renders_placed_via_stream_and_occ():
         assert 3.9 < mn[0] and mx[0] < 5.1, (mn, mx)
         assert 1.9 < mn[1] and mx[1] < 4.1, (mn, mx)
 
-    # OCC path (solid_occ builds from the baked solid_geom)
-    occ = pytest.importorskip("OCC")  # noqa: F841
-    from OCC.Core.Bnd import Bnd_Box
-    from OCC.Core.BRepBndLib import brepbndlib
-
-    bb = Bnd_Box()
-    brepbndlib.Add(sh.solid_occ(), bb)
-    xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
+    # solid_occ path: it builds from the baked solid_geom on the active backend, so that backend
+    # is the one that can measure it.
+    xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(sh.solid_occ())
     _check_bbox((xmin, ymin, zmin), (xmax, ymax, zmax))
+
+
+def test_baked_geometry_builds_placed_on_each_kernel(backend):
+    """The same baked solid, built and measured by each installed kernel by name."""
+    place = Placement.from_axis_angle([0, 0, 1], 90, origin=(5, 2, 0))
+    sh = _box_shape(place)
+    xmin, ymin, zmin, xmax, ymax, zmax = backend.bbox(backend.build(sh.solid_geom()))
+    assert 3.9 < xmin and xmax < 5.1, (xmin, xmax)
+    assert 1.9 < ymin and ymax < 4.1, (ymin, ymax)
 
 
 def test_baked_geometry_renders_placed_via_libtess2():

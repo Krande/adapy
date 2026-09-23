@@ -318,18 +318,21 @@ def test_stream_reader_applies_known_assembly_transform(tmp_path):
     assert not np.allclose(expected, np.eye(4))
 
 
-def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch):
-    # The reader's transformed world bbox must match OpenCascade's STEPControl_Reader
-    # bbox for the same file (both in metres) to ~1e-6.
-    pytest.importorskip("OCC.Core.Bnd")
-    from OCC.Core.Bnd import Bnd_Box
-    from OCC.Core.BRepBndLib import brepbndlib
+@pytest.mark.parametrize("kernel", ["occ", "adacpp"])
+def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch, kernel):
+    # The reader's transformed world bbox must match OpenCascade's whole-file OCAF reader
+    # (STEPCAFControl_Reader) bbox for the same file (both in metres) to ~1e-6 -- on each
+    # kernel that carries one. The kernel reads the file AND measures what it read: a shape is
+    # only readable by its own kernel.
+    from ada.cad import CadBackendName, backend_available, select_backend
 
-    # The reference is pythonocc's reader, measured with pythonocc's Bnd_Box. With adacpp
-    # installed too, the auto-selected document backend is adacpp's and hands back adacpp
-    # shapes that pythonocc cannot read -- so ask for the pythonocc one by name.
-    monkeypatch.setenv("ADAPY_DOC_BACKEND", "occ")
+    if not backend_available(CadBackendName(kernel)):
+        pytest.skip(f"{kernel} backend not installed")
+    monkeypatch.setenv("ADAPY_CAD_BACKEND", kernel)
+    monkeypatch.setenv("ADAPY_DOC_BACKEND", kernel)
+    monkeypatch.setattr("ada.cad._ACTIVE_BACKEND", None)
     monkeypatch.setattr("ada.cad.doc._ACTIVE_DOC_BACKEND", None)
+    be = select_backend(prefer=kernel)
 
     child = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
     parent = ((3.0, 5.0, 7.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0))  # +90 about X
@@ -342,19 +345,17 @@ def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch):
     smin, smax = stream_pts.min(0), stream_pts.max(0)
 
     a = ada.from_step(path, reader="occ")
-    bb = Bnd_Box()
-    n = 0
+    boxes = []
     for o in a.get_all_physical_objects():
         try:
             shp = o.solid_occ()
         except Exception:  # noqa: BLE001
             continue
-        brepbndlib.Add(shp, bb)
-        n += 1
-    assert n >= 1
-    xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
-    assert np.allclose(smin, [xmin, ymin, zmin], atol=1e-6)
-    assert np.allclose(smax, [xmax, ymax, zmax], atol=1e-6)
+        boxes.append(be.bbox(shp))
+    assert boxes
+    bb = np.asarray(boxes, dtype=float)
+    assert np.allclose(smin, bb[:, :3].min(0), atol=1e-6)
+    assert np.allclose(smax, bb[:, 3:].max(0), atol=1e-6)
 
 
 def test_stream_reader_multi_instance_two_placements(tmp_path):

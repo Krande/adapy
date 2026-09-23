@@ -1,8 +1,10 @@
+import os
 import pathlib
 
 import pytest
 
 import ada
+from ada.cad import CadBackendName, backend_available, select_backend
 from ada.config import Config
 
 is_printed = False
@@ -90,3 +92,40 @@ def mixed_model(pipe_w_multiple_bends, basic_2d_plate):
     mix2 = [bm2, basic_2d_plate]
 
     return ada.Assembly() / [(ada.Part("P1") / mix1), (ada.Part("P2") / mix2), (ada.Part("P3") / bm3)]
+
+
+# --- CAD backend fixtures ----------------------------------------------------------------------
+# Tests reach a kernel only through the CadBackend API, and measure a shape with the backend that
+# built it: a shape is only readable by its own kernel. ``select_backend`` tries adacpp before
+# pythonocc, so every backend handed out here is pinned by name rather than auto-selected.
+
+BACKEND_NAMES = ("occ", "adacpp")
+
+
+@pytest.fixture(params=BACKEND_NAMES)
+def backend(request):
+    """One installed backend, pinned by name — never the ``select_backend`` default."""
+    if not backend_available(CadBackendName(request.param)):
+        pytest.skip(f"{request.param} backend not installed")
+    return select_backend(prefer=request.param)
+
+
+@pytest.fixture
+def occ_backend():
+    """The pythonocc backend, for tests whose subject IS that kernel; a skip where it's absent."""
+    if not backend_available(CadBackendName.OCC):
+        pytest.skip("occ backend not installed")
+    return select_backend(prefer="occ")
+
+
+@pytest.fixture
+def both_backends():
+    """``(occ, adacpp)``, or a skip when this environment carries only one kernel."""
+    missing = [n for n in BACKEND_NAMES if not backend_available(CadBackendName(n))]
+    if missing and os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS"):
+        # tests-xkernel exists to run these; a kernel that fails to import there must not
+        # turn the whole job into a green run of skips.
+        pytest.fail(f"ADAPY_REQUIRE_BOTH_KERNELS is set but a kernel is missing: {', '.join(missing)}")
+    if missing:
+        pytest.skip(f"cross-backend comparison needs both kernels; missing: {', '.join(missing)}")
+    return select_backend(prefer="occ"), select_backend(prefer="adacpp")

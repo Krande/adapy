@@ -7,6 +7,8 @@ seam through the poles. Building a face from that degenerate wire yields 0 trian
 
 from __future__ import annotations
 
+import numpy as np
+
 import ada.geom.curves as gc
 import ada.geom.surfaces as gs
 from ada.geom.placement import Axis2Placement3D
@@ -27,14 +29,17 @@ def _full_sphere_face(radius=1.0, center=(0.0, 0.0, 0.0)) -> gs.AdvancedFace:
     return gs.AdvancedFace(bounds=[gs.FaceBound(bound=loop, orientation=True)], face_surface=sphere, same_sense=True)
 
 
-def _ntris(face) -> int:
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-    from OCC.Core.TopLoc import TopLoc_Location
+def _occ():
+    # make_face_from_geom is the OCC builder, so its faces are meshed on that backend.
+    from ada.cad import select_backend
 
-    BRepMesh_IncrementalMesh(face, 0.05, False, 0.5, False)
-    tri = BRep_Tool.Triangulation(face, TopLoc_Location())
-    return 0 if tri is None else tri.NbTriangles()
+    return select_backend(prefer="occ")
+
+
+def _ntris(face) -> int:
+    # The render path: OccBackend.tessellate. (Its TriangleMesh names the index buffer
+    # ``faces``, not the Mesh protocol's ``indices``.)
+    return len(np.asarray(_occ().tessellate(face, 0.05).faces).reshape(-1, 3))
 
 
 def test_full_sphere_seam_detected():
@@ -66,5 +71,5 @@ def test_full_sphere_tessellates():
     from ada.occ.geom.surfaces import make_face_from_geom
 
     face = make_face_from_geom(_full_sphere_face(radius=2.0))
-    assert face is not None and not face.IsNull()
+    assert face is not None and _occ().shape_type(face) == "face"
     assert _ntris(face) > 0, "full sphere must tessellate, not render blank"
