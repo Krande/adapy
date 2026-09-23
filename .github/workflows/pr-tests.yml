@@ -59,6 +59,27 @@ jobs:
         - name: Runs Tests
           run: pixi run -e tests test-quick
 
+    # Every other env carries one CAD kernel, so the parity suites' `both_backends` cases skip
+    # everywhere else and a divergence between ada-cpp and pythonocc can land unseen. This env
+    # carries both on one occt 8.0.1. Linux only: the kernels are compared on the same inputs, so
+    # a second OS would repeat the comparison rather than extend it.
+    test-xkernel:
+        name: Cross-kernel CAD parity (ada-cpp vs pythonocc)
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.10.2
+          with:
+            pixi-version: v0.68.0
+            environments: tests-xkernel
+            cache: true
+
+        - name: Run parity suites with both kernels
+          run: pixi run -e tests-xkernel test-xkernel
+
     # tests/comms/rest is excluded from the `test` task above (it needs the viewer-api stack, which
     # the `tests` env does not carry), so before this job the entire REST/viewer-API suite — the
     # largest single test directory in the repo — had NO presence in the pull_request workflow.

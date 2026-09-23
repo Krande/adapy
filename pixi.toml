@@ -166,6 +166,10 @@ tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"]
 # bridge first with `pixi run build-dist` in the adacpp repo. The adacpp-dev feature adds no
 # dependencies, so this reuses the adacpp solve-group (no extra solve).
 tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
+# Both CAD kernels side by side (ada-cpp + pythonocc-core, one occt 8.0.1) for cross-kernel
+# parity. Its own solve: pythonocc-core must not leak into the `prod` group every shipped env
+# shares. Run with: pixi run -e tests-xkernel test-xkernel
+tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
@@ -257,6 +261,17 @@ meshio = "*"
 [feature.pyocc.dependencies]
 pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 occt = { version = "7.9.3.*", build = "novtk_*" }
+
+# pythonocc-core on occt 8.0.1 -- the same occt ada-cpp links -- so both kernels load in one
+# process. Used only by `tests-xkernel`, where the parity suites' `both_backends` fixture stops
+# skipping and every kernel-against-kernel case actually runs. novtk on both: the `all` build
+# wins the solve by build number and drags in ~140 VTK/Qt packages nothing here uses.
+[feature.pyocc8.dependencies]
+pythonocc-core = { version = "8.0.1.*", build = "novtk_*" }
+occt = { version = "8.0.1.*", build = "novtk_*" }
+
+[feature.pyocc8.tasks]
+test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
 
 # ada-cpp with no ADAPY_CAD_BACKEND flip (unlike the `adacpp` feature), so the backend
 # is whatever `select_backend()` auto-detects -- adacpp, wherever pythonocc is not carried.

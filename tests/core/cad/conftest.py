@@ -9,6 +9,8 @@ name, and nothing calls ``active_backend()``.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from ada.cad import CadBackendName, backend_available, select_backend
@@ -28,6 +30,10 @@ def backend(request):
 def both_backends():
     """``(occ, adacpp)``, or a skip when this environment carries only one kernel."""
     missing = [n for n in BACKEND_NAMES if not backend_available(CadBackendName(n))]
+    if missing and os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS"):
+        # tests-xkernel exists to run these; a kernel that fails to import there must not
+        # turn the whole job into a green run of skips.
+        pytest.fail(f"ADAPY_REQUIRE_BOTH_KERNELS is set but a kernel is missing: {', '.join(missing)}")
     if missing:
         pytest.skip(f"cross-backend comparison needs both kernels; missing: {', '.join(missing)}")
     return select_backend(prefer="occ"), select_backend(prefer="adacpp")
