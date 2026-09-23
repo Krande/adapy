@@ -11,6 +11,7 @@ handler: an unknown ``target_format`` fails inside ``convert()`` with the same
 from __future__ import annotations
 
 import os
+import pathlib
 import time
 import traceback as tb_module
 from concurrent.futures import (  # noqa: F401 — kept for the legacy _process_one signature
@@ -31,6 +32,35 @@ from ..worker.audit import _attach_cpp_profiles, _audit_done, _convert_meta_for
 from ..worker.blobs import _ensure_sif_index
 from ..worker.state import _touch_liveness
 from .registry import JobContext, SourceFormatHandler
+
+
+async def _upload_takeoff_sidecar(storage, scope, job, out_path) -> None:
+    """Store the quantity take-off the conversion wrote beside its GLB, if it wrote one.
+
+    The take-off can only be computed where the structured model is, which is inside the forked
+    conversion (`converters/ada_export._write_takeoff_sidecar`); the parent's part is to notice
+    the file and put it at the GLB key's `.stats.json` sibling, which is where the viewer's Stats
+    panel looks -- the same convention a compiled procedural model already uses.
+
+    Absent for every source that yields no Part (a streamed STEP, an FEA result) and for a
+    take-off that raised. That is not an error: the panel then says the take-off is unavailable,
+    which is the truth. A failure to upload is not one either -- the conversion itself succeeded,
+    and refusing to hand over a converted model because its statistics did not upload would be a
+    nicety breaking the thing it decorates.
+    """
+    if job.target_format != "glb" or not out_path:
+        return
+    from ..converters.keys import stats_sidecar_key
+
+    local = pathlib.Path(stats_sidecar_key(str(out_path)))
+    if not local.is_file():
+        return
+    try:
+        await storage.put_bytes(scope, stats_sidecar_key(job.derived_key), local.read_bytes(), content_encoding="gzip")
+    except Exception:  # noqa: BLE001 - see the docstring
+        logger.warning("worker: take-off sidecar upload failed for %s", job.derived_key, exc_info=True)
+    finally:
+        local.unlink(missing_ok=True)
 
 
 async def _run_convert(*, job: Job, ctx: JobContext) -> None:
@@ -326,6 +356,7 @@ async def _run_convert(*, job: Job, ctx: JobContext) -> None:
             convert_meta["gzip_ms"] = put_timing.get("compress_ms")
             convert_meta["upload_ms"] = put_timing.get("upload_ms")
             convert_meta["stored_bytes"] = put_timing.get("stored_bytes")
+        await _upload_takeoff_sidecar(storage, scope, job, iresult.out_path)
     except Exception as exc:
         logger.exception("worker: upload failed for %s", job.derived_key)
         trace = tb_module.format_exc()

@@ -752,6 +752,61 @@ export class CustomBatchedMesh extends THREE.Mesh {
         return this.hiddenRanges;
     }
 
+    /**
+     * Hide everything EXCEPT ``keep`` -- the isolation the clash panels ask for when a joint is
+     * focused ("show me this joint, not the frame around it").
+     *
+     * Expressed as one call rather than "collect every other id, then hideBatchDrawRange" because
+     * the complement is this mesh's own knowledge (``drawRanges`` holds every id it owns) and the
+     * caller would otherwise have to materialise a set of tens of thousands of strings to say
+     * "the rest". Replaces the hidden set rather than adding to it, so isolating twice in a row
+     * is idempotent and moving the cursor to the next joint does not accumulate.
+     */
+    public isolateDrawRanges(keep: ReadonlySet<string>): void {
+        this.hiddenRanges.clear();
+        for (const id of this.drawRanges.keys()) {
+            if (!keep.has(id)) this.hiddenRanges.add(id);
+        }
+        this.hiddenChangeCounter++;
+        this.updateGroups();
+        if (this.edgeMaterial && this.rangeIdToIndex) {
+            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            const data = tex.image.data as Uint8Array;
+            for (const [id, idx] of this.rangeIdToIndex) {
+                data[idx] = this.hiddenRanges.has(id) ? 0 : 255;
+            }
+            tex.needsUpdate = true;
+        }
+    }
+
+    /**
+     * What a HIDDEN range looks like: gone, or a translucent ghost of itself.
+     *
+     * Hidden ranges already route to material slot 2 (see ``updateGroups``), so "hide" and
+     * "fade the rest" are the same mechanism with a different material -- which is why this
+     * reconfigures the cached instance instead of introducing a fourth slot and a second set of
+     * per-range bookkeeping that could disagree with the first.
+     *
+     * ``depthWrite: false`` on the ghost: a translucent member that still wrote depth would
+     * occlude the joint it is meant to be showing THROUGH it.
+     */
+    public setHiddenAppearance(mode: "invisible" | "ghost", opacity = 0.15): void {
+        const mat = this._matInvisible as THREE.MeshBasicMaterial;
+        if (mode === "invisible") {
+            mat.visible = false;
+            mat.transparent = false;
+            mat.opacity = 1;
+            mat.depthWrite = true;
+        } else {
+            mat.visible = true;
+            mat.transparent = true;
+            mat.opacity = Math.max(0.01, Math.min(1, opacity));
+            mat.depthWrite = false;
+            mat.color.set(0x8a8f98);
+        }
+        mat.needsUpdate = true;
+    }
+
     public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
         this.hiddenChangeCounter++;

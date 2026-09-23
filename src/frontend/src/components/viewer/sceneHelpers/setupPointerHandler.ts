@@ -8,6 +8,8 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // from the GPU mesh picker; the raycast fallback still passes only
 // the intersection.
 import {useOptionsStore} from "@/state/optionsStore";
+import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
+import {focusJoint} from "@/utils/scene/clashJointFocus";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -81,6 +83,16 @@ export function setupPointerHandler(
         }
         lastTapTime = now;
         lastTapPos = {x: e.clientX, y: e.clientY};
+
+        // 0) A clash-check joint marker, if one is under the cursor. Asked FIRST because the
+        //    markers are annotations drawn ON the geometry they describe: resolved after the mesh
+        //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
+        //    hundred instances, so the cost of asking on every click is nil.
+        const jointId = pickJointMarker(e, camera, renderer);
+        if (jointId) {
+            await focusJoint(jointId, {revealPanel: true});
+            return;
+        }
 
         // 1) Try GPU point picking first so points in front of meshes are prioritized
         if (useOptionsStore.getState().useGpuPointPicking) {

@@ -9,6 +9,8 @@ from __future__ import annotations
 from . import (
     asset_build,
     asset_publish,
+    clash_check,
+    clash_detail,
     component,
     convert,
     engine_build,
@@ -52,6 +54,8 @@ register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())
 register(fea.FeaMetaHandler())
 register(parity.ParityHandler())
+register(clash_check.ClashCheckHandler())
+register(clash_detail.ClashDetailHandler())
 # Everything else: the ConverterRegistry-backed convert() path.
 register(convert.ConvertHandler(), fallback=True)
 

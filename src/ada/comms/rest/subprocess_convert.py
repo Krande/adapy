@@ -478,6 +478,16 @@ async def run_isolated_convert(
                     _move_into_result(os.fspath(out), result_path)
                 else:
                     raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
+                # The quantity take-off the exporter computed while the structured model was
+                # still alive (`converters/takeoff`). Written HERE because this is where the
+                # result file's path is known -- the exporter hands its output back as bytes and
+                # never learns where they land. The parent uploads it beside the GLB.
+                try:
+                    from ada.comms.rest.converters.takeoff import write_takeoff_sidecar
+
+                    write_takeoff_sidecar(result_path)
+                except Exception:
+                    pass
                 # Emit per-conversion quality tallies for the parent to fold into convert_meta
                 # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
                 # a tally failure must never fail an otherwise-successful conversion.

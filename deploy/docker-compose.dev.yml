@@ -1,0 +1,86 @@
+# The viewer, a worker and a queue, on this machine, built from THIS checkout.
+#
+# WHY IT EXISTS. The two images differ in what they can do, and that difference is where a change
+# breaks: the viewer image is SLIM on purpose (no reader, no CAD backend, no numpy) and the worker
+# image is fat. A branch that runs green in a developer environment -- where everything is
+# installed -- can still crashloop the API on `No module named ...`, or queue a job no pool can
+# serve. Those are build-and-run facts, so the only way to see them is to build and run.
+#
+#   pixi run up        build both images from this checkout, start, wait until ready
+#   pixi run status    what is running, and which pools the worker advertises
+#   pixi run logs      follow the api + worker logs
+#   pixi run down      stop; the uploaded files survive
+#   pixi run reset     stop and delete the volume with them
+#
+# BUILT, NEVER PULLED. Both services build from the Dockerfiles in this directory -- the same ones
+# CI publishes -- so what runs here is this working tree, not a released image that happens to
+# have a similar name.
+#
+# No database: DATABASE_URL is optional and only the audit trail needs it. Storage is a shared
+# volume rather than an object store, because "does this run" does not depend on which blob
+# backend is underneath, and a one-command stack should not need four services to answer it.
+
+name: adapy-dev
+
+volumes:
+  # Shared by both services: the API writes an upload here and the worker reads it back, which is
+  # the same handover the object store performs in a deployment.
+  adapy-data:
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    # `-m 8222` turns on the monitoring listener the healthcheck below reads. Without it the
+    # endpoint simply does not exist and the container is "unhealthy" for ever, which stops the
+    # two services that depend on it from starting at all.
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+    healthcheck:
+      # `wget` rather than the nats CLI: the alpine image has one and not the other.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8222/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.viewer
+    image: adapy-viewer:dev
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      ADA_VIEWER_HOST: "0.0.0.0"
+      ADA_VIEWER_PORT: "8080"
+      ADA_VIEWER_STORAGE_KIND: "local"
+      ADA_VIEWER_LOCAL_PATH: "/data"
+      ADA_VIEWER_NATS_URL: "nats://nats:4222"
+      # Auth off: this stack is a local fixture, and a login screen in front of it would only be
+      # a second thing to get working before the change under test can be seen.
+      ADA_VIEWER_AUTH_ENABLED: "false"
+    volumes:
+      - adapy-data:/data
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    image: adapy-worker:dev
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      ADA_VIEWER_STORAGE_KIND: "local"
+      ADA_VIEWER_LOCAL_PATH: "/data"
+      ADA_VIEWER_NATS_URL: "nats://nats:4222"
+      # `base` is the default pool. Capabilities a builder registers for itself (an asset build,
+      # for instance) are DERIVED from what this image can actually import, so they are not
+      # listed here -- see ada/comms/rest/worker/pools.py.
+      ADA_WORKER_CAPABILITIES: "base"
+      ADA_WORKER_BASE_CONVERSIONS: "true"
+    volumes:
+      - adapy-data:/data
