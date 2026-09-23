@@ -34,7 +34,7 @@ from ada_cli import CliUsageError
 from ada_cli.formats import FEM_WRITE_PRIMARY
 
 
-def _ns(input_file, output_file, to_format=None, from_format=None) -> argparse.Namespace:
+def _ns(input_file, output_file, to_format=None, from_format=None, strict=False) -> argparse.Namespace:
     """The namespace ``ada_cli.main``'s convert subparser hands the implementation."""
     return argparse.Namespace(
         input=str(input_file),
@@ -43,6 +43,7 @@ def _ns(input_file, output_file, to_format=None, from_format=None) -> argparse.N
         to_format=to_format,
         split=False,
         limit=None,
+        strict=strict,
     )
 
 
@@ -458,3 +459,157 @@ def test_a_dot_in_the_output_name_still_lands_where_it_was_named(src_inp, tmp_pa
     assert out.is_file(), f"{out_name} was not delivered"
     assert out.stat().st_size > 0
     assert not list(tmp_path.glob("out/.ada-convert-*")), "temp directory left behind"
+
+
+# --------------------------------------------------------------------------------------
+# The conversion report: what did not survive the trip
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def omitting_load(monkeypatch):
+    """Make the next conversion report one omission and one approximation.
+
+    Nothing in the writers reports anything yet -- the constraint work that does is the point of
+    the change this substrate is for -- so the findings are injected around the real loader. That
+    keeps these tests about the CLI's contract (file, summary, exit code) rather than about any
+    one writer's behaviour.
+    """
+    from ada.api import cli as cli_module
+    from ada.fem.formats import conversion_report
+
+    real_load = cli_module._load
+
+    def _load_and_report(*args, **kwargs):
+        model = real_load(*args, **kwargs)
+        conversion_report.current().omitted("abaqus reader", "*CLOAD", "", "not read by the Abaqus reader", count=2)
+        conversion_report.current().approximated(
+            "sesam writer", "*TIE", "t1", "nearest-node rigid arm", max_distance=0.25
+        )
+        return model
+
+    monkeypatch.setattr(cli_module, "_load", _load_and_report)
+
+
+@pytest.fixture
+def noting_load(monkeypatch):
+    """Record a note and nothing else.
+
+    The rule under test -- a note must not bring the report file into being -- has to be pinned
+    without depending on any particular reader recording one, so the note is injected here.
+    """
+    from ada.api import cli as cli_module
+    from ada.fem.formats import conversion_report
+
+    real_load = cli_module._load
+
+    def _load_and_report(*args, **kwargs):
+        model = real_load(*args, **kwargs)
+        conversion_report.current().note("abaqus reader", "keyword inventory", "", "keywords found")
+        return model
+
+    monkeypatch.setattr(cli_module, "_load", _load_and_report)
+
+
+@pytest.fixture
+def approximating_load(monkeypatch):
+    """Report an approximation and nothing else -- ``--strict`` must not fail on these."""
+    from ada.api import cli as cli_module
+    from ada.fem.formats import conversion_report
+
+    real_load = cli_module._load
+
+    def _load_and_report(*args, **kwargs):
+        model = real_load(*args, **kwargs)
+        conversion_report.current().approximated("sesam writer", "*TIE", "t1", "nearest-node rigid arm")
+        return model
+
+    monkeypatch.setattr(cli_module, "_load", _load_and_report)
+
+
+def test_a_clean_conversion_writes_no_report_file(src_inp, tmp_path, capsys, noting_load):
+    """A file that appears on every run is furniture; one that appears only when something needs
+    attention is a signal. It is also what keeps OUT the only file a clean conversion leaves.
+
+    The rule is *actionable* findings, not any finding: a note must not bring the file into
+    being. The summary is read here to prove the note really was recorded -- otherwise this would
+    pass for the uninteresting reason that nothing was reported at all. (``_cmd_convert`` opens its
+    own collector, and collectors nest by isolating, so the report itself is not observable from
+    here, which is why the note is asserted through the summary rather than the object.)
+    """
+    out = tmp_path / "model.FEM"
+    assert _cmd_convert(_ns(src_inp, out)) == 0
+
+    assert _leftovers(tmp_path) == ["model.FEM"]
+    err = capsys.readouterr().err
+    assert "nothing was omitted or approximated" in err
+    assert "note(s) recorded" in err, f"expected a keyword inventory note; summary was: {err!r}"
+
+
+def test_an_omission_writes_a_json_report_beside_the_output(src_inp, tmp_path, omitting_load):
+    import json
+
+    out = tmp_path / "model.FEM"
+    assert _cmd_convert(_ns(src_inp, out)) == 0
+
+    report = tmp_path / "model_conversion_report.json"
+    assert report.is_file()
+    payload = json.loads(report.read_text())
+
+    assert payload["status"] == "COMPLETED_WITH_OMISSIONS"
+    # Notes are whatever the reader's keyword census found for this deck; the actionable counts
+    # are the contract, and notes alone would not have created this file at all.
+    assert payload["counts"]["omitted"] == 2
+    assert payload["counts"]["approximated"] == 1
+    assert payload["from_format"] == "abaqus"
+    assert payload["to_format"] == "sesam"
+    assert payload["output"] == str(out.resolve())
+    keywords = {f["keyword"]: f for f in payload["findings"]}
+    assert keywords["*CLOAD"]["count"] == 2
+    assert keywords["*TIE"]["details"]["max_distance"] == pytest.approx(0.25)
+
+
+def test_the_summary_goes_to_stderr_and_stdout_stays_paths_only(src_inp, tmp_path, capsys, omitting_load):
+    """``ada convert in out > written.txt`` must still yield nothing but paths."""
+    out = tmp_path / "model.FEM"
+    _cmd_convert(_ns(src_inp, out))
+
+    captured = capsys.readouterr()
+    stdout_lines = [ln for ln in captured.out.splitlines() if ln.strip()]
+    assert all(pathlib.Path(ln).exists() for ln in stdout_lines), stdout_lines
+    assert str(out) in stdout_lines
+    assert str(tmp_path / "model_conversion_report.json") in stdout_lines
+
+    assert "COMPLETED_WITH_OMISSIONS" in captured.err
+    assert "*CLOAD" in captured.err
+    assert "COMPLETED_WITH_OMISSIONS" not in captured.out
+
+
+def test_a_clean_conversion_still_says_so_on_stderr(src_inp, tmp_path, capsys):
+    out = tmp_path / "model.FEM"
+    _cmd_convert(_ns(src_inp, out))
+
+    assert "nothing was omitted or approximated" in capsys.readouterr().err
+
+
+def test_strict_exits_3_when_something_was_omitted(src_inp, tmp_path, omitting_load):
+    """3, not 2: 2 is argparse's usage exit and belongs to CliUsageError."""
+    out = tmp_path / "model.FEM"
+
+    assert _cmd_convert(_ns(src_inp, out, strict=True)) == 3
+    # The deck and the report are still written -- strict reports, it does not withhold.
+    assert out.is_file()
+    assert (tmp_path / "model_conversion_report.json").is_file()
+
+
+def test_strict_exits_0_when_only_approximations_were_reported(src_inp, tmp_path, approximating_load):
+    """Every tie is an approximation; failing on those would make --strict useless."""
+    out = tmp_path / "model.FEM"
+
+    assert _cmd_convert(_ns(src_inp, out, strict=True)) == 0
+    assert (tmp_path / "model_conversion_report.json").is_file()
+
+
+def test_without_strict_an_omission_still_exits_0(src_inp, tmp_path, omitting_load):
+    out = tmp_path / "model.FEM"
+    assert _cmd_convert(_ns(src_inp, out)) == 0
