@@ -19,8 +19,10 @@ part of what is compared, not only shape: a caller rebuilding an outline from
 way round, so the loops are compared as sequences, and the winding that separates a
 boundary from a hole is checked by sign rather than assumed.
 
-One case does NOT agree, and is carried as a strict xfail rather than a loosened
-assertion: an extruded prism's edges. See ``EDGE_IDENTITY_DIVERGENCE``.
+The extrusion cases below were the one disagreement when this suite was written: an
+extruded prism's edges, and the identity behind them. Both are fixed at the source
+(adacpp#61 and #62, ada-cpp 0.25.5) rather than loosened here, so every case is a
+real assertion on both kernels.
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ import numpy as np
 import pytest
 
 from ada.api.primitives.box import PrimBox
-from ada.cad import CadBackendName, backend_available, select_backend
 from ada.geom.booleans import BoolOpEnum
 
 # --------------------------------------------------------------------------------
@@ -118,18 +119,8 @@ POLYLINE = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0))
 # hole in the profile the bore contributes the same three groups again.
 EXTRUDED_SQUARE_EDGES = 4 + 4 + 4
 EXTRUDED_HOLED_EDGES = 2 * EXTRUDED_SQUARE_EDGES
-
-# The one place the two kernels part company here — see the two tests below, which
-# carry it as a strict xfail rather than as a loosened assertion.
-EDGE_IDENTITY_DIVERGENCE = (
-    "adacpp's face_id ignores a sub-shape's Location, so a prism's base and its top — "
-    "one TShape sitting at two places — come back with the SAME identity. "
-    "AdacppBackend.edges() de-duplicates on that identity, so every located copy is "
-    "dropped: an extruded square reports 8 edges where it has 12, and an extruded face "
-    "with a hole 16 where it has 24. OccBackend.face_id hashes (TShape, Location) and "
-    "keeps them apart. make_box is unaffected, which is why the sibling module's "
-    "twelve-edge box passes on both."
-)
+# The flat profile it is extruded from: outer loop plus the bore's, no located copies.
+HOLED_FACE_EDGES = 4 + 4
 
 
 def _face(be, points):
@@ -415,32 +406,23 @@ def test_extruding_a_holed_face_keeps_the_hole(backend):
 
 
 # --------------------------------------------------------------------------------
-# The divergence. Parametrised over the backend NAME rather than taking the fixture,
-# so the xfail lands on the kernel that has it and the other side stays a real
-# assertion — a strict xfail would otherwise be an XPASS wherever the bug is absent.
+# Edge identity. These two were the suite's one cross-kernel disagreement, carried as
+# strict xfails on adacpp until the kernel answered them: `edges` walked the shape face
+# by face and a consumer de-duplicated the incidences on `face_id`, which keyed on the
+# bare TShape pointer and so merged a prism's base with its top. Fixed in ada-cpp
+# 0.25.5 (adacpp#61 and #62); they are ordinary assertions on both kernels now, and the
+# holed face is the control that a placement-blind identity got right.
 # --------------------------------------------------------------------------------
 
-DIVERGING_BACKENDS = [
-    "occ",
-    pytest.param("adacpp", marks=pytest.mark.xfail(strict=True, reason=EDGE_IDENTITY_DIVERGENCE)),
-]
 
-
-def _pinned(name: str):
-    if not backend_available(CadBackendName(name)):
-        pytest.skip(f"{name} backend not installed")
-    return select_backend(prefer=name)
-
-
-@pytest.mark.parametrize("backend_name", DIVERGING_BACKENDS)
-def test_extruded_prism_reports_every_edge(backend_name):
+def test_extruded_prism_reports_every_edge(backend):
     """An extruded face is a prism, and a prism has a top as well as a bottom.
 
     The edge count is the topology answer a caller building a wire frame, an edge
     overlay or an export of the boundary depends on. The faces and the volume come
     back right on both kernels; it is only the ordered edge list that loses the top.
     """
-    be = _pinned(backend_name)
+    be = backend
     prism = be.extrude_face_along_normal(_square_face(be), EXTRUDE_T)
     holed_prism = _extruded_holed_face(be)
 
@@ -448,12 +430,15 @@ def test_extruded_prism_reports_every_edge(backend_name):
     assert len(be.faces(prism)) == 6
     assert len(be.vertex_points(prism)) == 8
 
+    # The control: a flat holed face has no located copies, so its edge count came
+    # back right even when the prisms' did not.
+    assert len(be.edges(_holed_face(be))) == HOLED_FACE_EDGES
+
     assert len(be.edges(prism)) == EXTRUDED_SQUARE_EDGES
     assert len(be.edges(holed_prism)) == EXTRUDED_HOLED_EDGES
 
 
-@pytest.mark.parametrize("backend_name", DIVERGING_BACKENDS)
-def test_face_id_separates_a_prisms_base_from_its_top(backend_name):
+def test_face_id_separates_a_prisms_base_from_its_top(backend):
     """The root of it: identity that ignores Location is not identity.
 
     ``face_id`` is documented as an orientation-independent TOPOLOGICAL identity, which
@@ -461,7 +446,7 @@ def test_face_id_separates_a_prisms_base_from_its_top(backend_name):
     collapses on it — the edge de-duplication here, a cell graph matching shared faces —
     reads a located copy as the original.
     """
-    be = _pinned(backend_name)
+    be = backend
     prism = be.extrude_face_along_normal(_square_face(be), EXTRUDE_T)
     faces = be.faces(prism)
 
@@ -537,21 +522,7 @@ def test_wire_points_reports_one_point_per_edge(backend):
 # --------------------------------------------------------------------------------
 
 
-# The two constructions the edge-identity divergence reaches. Everything else in
-# CONSTRUCTIONS agrees key for key; these two differ in the edge count alone, and the
-# fingerprint says so rather than quietly leaving edges out of the comparison.
-EXTRUSIONS = ("extruded_holed_face", "extruded_square")
-
-CONSTRUCTION_PARAMS = [
-    pytest.param(
-        name,
-        marks=[pytest.mark.xfail(strict=True, reason=EDGE_IDENTITY_DIVERGENCE)] if name in EXTRUSIONS else [],
-    )
-    for name in sorted(CONSTRUCTIONS)
-]
-
-
-@pytest.mark.parametrize("construction", CONSTRUCTION_PARAMS)
+@pytest.mark.parametrize("construction", sorted(CONSTRUCTIONS))
 def test_constructions_agree(both_backends, construction):
     """The same recipe, built twice: same topology, same measurements, same loops."""
     occ, adacpp = both_backends
