@@ -19,6 +19,7 @@ blob route; exposing it as an asset would make a derived thing look restorable.
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -30,7 +31,7 @@ from ada.assets.build import (
     derived_asset_prefix,
 )
 from ada.assets.index import fold_listing
-from ada.assets.keys import ASSET_PREFIX, AssetKeyError, asset_key
+from ada.assets.keys import ASSET_PREFIX, STAGING_SEGMENT, AssetKeyError, asset_key
 from ada.assets.manifest import (
     HIERARCHY_FILENAME,
     MANIFEST_FILENAME,
@@ -40,12 +41,14 @@ from ada.assets.manifest import (
 )
 from ada.assets.projection import HierarchyError, parse_hierarchy
 from ada.assets.provider import BuildDelivery, MeshDelivery
+from ada.assets.publish import staged_prefix
 from ada.assets.registry import (
     AssetProviderError,
     asset_provider,
     asset_providers,
     registered_provider_ids,
 )
+from ada.assets.unpublish import plan_unpublish
 
 from .. import auth as auth_module
 from ..auth import User
@@ -370,6 +373,195 @@ async def api_asset_build(
         ),
     )
     return JSONResponse({**answer, "job_id": submitted.job_id, "cached": False})
+
+
+@router.post("/scopes/{scope}/assets/publish")
+async def api_asset_publish(
+    body: dict,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Publish staged blobs. Body: ``{provider, staging_id | staged, collection?, options?,
+    dry_run?, replace?}``.
+
+    The provider DERIVES and core WRITES (``ada.assets.publish``), which is what makes the owner
+    gate and the manifests-last ordering properties of the store rather than habits of each
+    provider. Authorship is stamped HERE, from the same authenticated caller the audit row uses:
+    a provider that returned ``change.published_by`` is refused by name.
+
+    ``staging_id`` is the ordinary case -- everything under ``assets/_staging/<id>/`` is handed
+    to the provider by role (its filename), which is why staging survives a reload: the keys are
+    in the store, not in a browser's memory (see ``GET /assets/staging``).
+    """
+    provider = str(body.get("provider") or "")
+    if not provider:
+        raise HTTPException(
+            status_code=400, detail="'provider' is required: it names whose format the staged bytes are in"
+        )
+    ctx.jobs.require("asset_publish")
+
+    staged: dict[str, str] = {}
+    staging_id = body.get("staging_id")
+    if staging_id:
+        prefix = staged_prefix(str(staging_id))
+        entries = await ctx.storage.list_prefix(scope_obj, prefix)
+        for entry in entries:
+            staged[entry.key[len(prefix) :]] = entry.key
+        if not staged:
+            raise HTTPException(status_code=404, detail=f"nothing staged under {prefix}")
+    else:
+        raw = body.get("staged") or {}
+        if not isinstance(raw, dict) or not raw:
+            raise HTTPException(status_code=400, detail="one of 'staging_id' or a non-empty 'staged' map is required")
+        for role, key in raw.items():
+            key = str(key)
+            # A staged key must BE staged: publishing "from" an arbitrary key in the scope would
+            # let a caller re-derive over blobs it never uploaded, and the grammar reserves
+            # `_staging/` for exactly this handover.
+            if not key.startswith(f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"staged key {key!r} is outside {ASSET_PREFIX}/{STAGING_SEGMENT}/",
+                )
+            staged[str(role)] = key
+
+    dry_run = bool(body.get("dry_run"))
+    derived_key = f"_derived/assets/_publish/{provider}/{uuid.uuid4().hex[:16]}/summary.json"
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=f"_synthetic/asset_publish/{provider}/{sorted(staged.values())[0]}",
+            target_format="asset_publish",
+            scope=scope_obj,
+            feature="asset_publish",
+            derived_key=derived_key,
+            conversion_options={
+                "provider": provider,
+                "staged": staged,
+                "collection": body.get("collection"),
+                "options": body.get("options") or {},
+                "dry_run": dry_run,
+                "replace": bool(body.get("replace")),
+                # Decision 6's three trust levels: this is the CORE-STAMPED one, taken from the
+                # authenticated caller and never from the request body.
+                "published_by_id": getattr(user, "sub", None) or getattr(user, "id", None) or "unknown",
+                "published_by_display": getattr(user, "display_name", None) or getattr(user, "email", None),
+                "published_via": _published_via(user),
+            },
+        ),
+        before_dispatch=lambda submitted: ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "asset_publish",
+            key=derived_key,
+            target_format="asset_publish",
+            status="queued",
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "dry_run": dry_run})
+
+
+@router.get("/scopes/{scope}/assets/staging")
+async def api_asset_staging(
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """What is staged and not yet published, grouped by staging id.
+
+    STAGING RECOVERY IS A LISTING, not a session. An upload that finished and a publish that was
+    never started leave bytes in the scope with nobody's browser remembering them; without this
+    the only trace is a prefix nothing lists, and the user re-uploads a file that is already
+    there. The store is the memory.
+    """
+    prefix = f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"
+    entries = await ctx.storage.list_prefix(scope_obj, prefix)
+    staged: dict[str, dict] = {}
+    for entry in entries:
+        rest = entry.key[len(prefix) :]
+        staging_id, _, filename = rest.partition("/")
+        if not staging_id or not filename:
+            continue
+        group = staged.setdefault(staging_id, {"staging_id": staging_id, "files": [], "size": 0})
+        group["files"].append({"file": filename, "key": entry.key, "size": getattr(entry, "size", None)})
+        group["size"] += getattr(entry, "size", 0) or 0
+    return JSONResponse({"staged": [staged[k] for k in sorted(staged)]})
+
+
+@router.delete("/scopes/{scope}/assets/{collection}/{subject}/{revision}")
+async def api_asset_unpublish(
+    collection: str,
+    subject: str,
+    revision: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Unpublish one subject-revision, refusing while another manifest still names its blobs.
+
+    The refcount check the prior art left as "the publisher's obligation" (Decision 3), moved to
+    the route: an obligation every publisher must remember is one that will eventually be
+    forgotten, and what it costs is a manifest pointing at a deleted blob -- an asset that lists,
+    resolves and badges like a working one and fails only at load.
+
+    Answers ``{deleted, kept, reason}``: a refusal is a 409 whose reason names who is holding it.
+    """
+    try:
+        keys = await _list_asset_keys(ctx, scope_obj, f"{ASSET_PREFIX}/{collection}/")
+    except (FileNotFoundError, KeyError):
+        keys = []
+    manifests: dict[str, bytes] = {}
+    for key in keys:
+        if key.rsplit("/", 1)[-1] != MANIFEST_FILENAME:
+            continue
+        try:
+            manifests[key] = await ctx.storage.get_bytes(scope_obj, key)
+        except (FileNotFoundError, KeyError):
+            continue
+
+    plan = plan_unpublish(
+        collection=collection,
+        subject=subject,
+        revision=revision,
+        collection_keys=keys,
+        manifest_bytes=manifests,
+    )
+    if plan.refused:
+        status = 404 if not plan.kept and not plan.held_by else 409
+        return JSONResponse({**plan.to_dict(), "ok": False}, status_code=status)
+
+    deleted: list[str] = []
+    errors: dict[str, str] = {}
+    for key in plan.deleted:
+        try:
+            await ctx.storage.delete(scope_obj, key)
+            deleted.append(key)
+        except Exception as exc:  # noqa: BLE001 - one key's failure is not the others'
+            errors[key] = str(exc)
+    await ctx.audit(
+        request,
+        user,
+        scope_obj,
+        "asset_unpublish",
+        key=f"{ASSET_PREFIX}/{collection}/{subject}/{revision}/",
+        status="error" if errors else "done",
+    )
+    return JSONResponse({**plan.to_dict(), "deleted": deleted, "errors": errors, "ok": not errors})
+
+
+def _published_via(user: object) -> str:
+    """``user`` or ``service`` -- Decision 6's first two trust levels, told apart by WHO CALLED.
+
+    A scheduled firing, a mirror and a worker with no human in the path all arrive as the
+    deployment's own identity (``SystemUser``, ``sub == "system"``), and recording those as a
+    user publish would put a person's name on a revision nobody pushed. The distinction is read
+    from the authenticated principal rather than from anything in the request body, for the same
+    reason ``published_by`` is: a caller that could state it could also misstate it.
+    """
+    return "service" if getattr(user, "sub", None) == "system" else "user"
 
 
 # --- helpers -------------------------------------------------------------------------------------

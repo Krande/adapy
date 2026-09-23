@@ -23,6 +23,11 @@ class SourceNode:
     last_changed_at: datetime.datetime
     last_changed_by: Optional[str]
     observed_at: datetime.datetime
+    # What the writer's sweep found for this node -- 'added' | 'modified' | 'deleted', or None for
+    # a writer that has no opinion (migration 030; every row written before it exists reads back
+    # with action=None, which is a complete row, not a degraded one -- same discipline as
+    # ChangeRecord.action on a manifest).
+    action: Optional[str] = None
 
 
 def _source_node_row(r) -> SourceNode:
@@ -33,6 +38,7 @@ def _source_node_row(r) -> SourceNode:
         last_changed_at=r["last_changed_at"],
         last_changed_by=r["last_changed_by"],
         observed_at=r["observed_at"],
+        action=r["action"],
     )
 
 
@@ -46,7 +52,10 @@ async def record_source_nodes(
     """Upsert observed nodes. Returns how many rows were written.
 
     ``nodes`` is a list of dicts with ``node_ref`` and ``last_changed_at``
-    required, and ``parent_ref`` / ``name`` / ``last_changed_by`` optional.
+    required, and ``parent_ref`` / ``name`` / ``last_changed_by`` / ``action``
+    optional. ``action`` is per-node change evidence -- ``'added' | 'modified' |
+    'deleted'`` -- borrowed from ``IfcChangeActionEnum`` (migration 030); a
+    writer with no opinion simply omits it and the column stays NULL.
 
     LAST_CHANGED_AT ONLY EVER MOVES FORWARD. A writer re-observing a node it has
     seen before may hold an older cursor than the row does -- a backfill, a
@@ -54,6 +63,9 @@ async def record_source_nodes(
     that overwrite a newer timestamp would mark current assets stale-free when
     they are not. `observed_at` is always taken from the new write, because "when
     was this last confirmed" is precisely the thing that must not be sticky.
+    ``action`` follows the same rule as ``last_changed_by``: it only moves when
+    the incoming observation is at least as new as what is already recorded, so
+    a stale re-run cannot overwrite fresher evidence with older evidence.
 
     Written as one executemany inside a transaction: an hourly sweep stamps a
     changed leaf and every node above it, so the natural batch is thousands of
@@ -70,6 +82,7 @@ async def record_source_nodes(
             n.get("name"),
             n["last_changed_at"],
             n.get("last_changed_by"),
+            n.get("action"),
         )
         for n in nodes
     ]
@@ -78,8 +91,8 @@ async def record_source_nodes(
             await conn.executemany(
                 """
                 INSERT INTO source_nodes
-                    (scope, source, node_ref, parent_ref, name, last_changed_at, last_changed_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    (scope, source, node_ref, parent_ref, name, last_changed_at, last_changed_by, action)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (scope, source, node_ref) DO UPDATE SET
                     parent_ref      = COALESCE(EXCLUDED.parent_ref, source_nodes.parent_ref),
                     name            = COALESCE(EXCLUDED.name, source_nodes.name),
@@ -87,6 +100,9 @@ async def record_source_nodes(
                     last_changed_by = CASE
                         WHEN EXCLUDED.last_changed_at >= source_nodes.last_changed_at
                         THEN EXCLUDED.last_changed_by ELSE source_nodes.last_changed_by END,
+                    action          = CASE
+                        WHEN EXCLUDED.last_changed_at >= source_nodes.last_changed_at
+                        THEN COALESCE(EXCLUDED.action, source_nodes.action) ELSE source_nodes.action END,
                     observed_at     = NOW()
                 """,
                 rows,
@@ -98,7 +114,7 @@ async def get_source_node(pool: asyncpg.Pool, *, scope: str, source: str, node_r
     """One node, or None. The staleness check: compare `last_changed_at` against
     whatever timestamp the caller's copy was made at."""
     r = await pool.fetchrow(
-        "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at "
+        "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at, action "
         "FROM source_nodes WHERE scope = $1 AND source = $2 AND node_ref = $3",
         scope,
         source,
@@ -117,7 +133,7 @@ async def get_source_nodes(pool: asyncpg.Pool, *, scope: str, source: str, node_
     if not node_refs:
         return []
     rows = await pool.fetch(
-        "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at "
+        "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at, action "
         "FROM source_nodes WHERE scope = $1 AND source = $2 AND node_ref = ANY($3::text[])",
         scope,
         source,
@@ -142,7 +158,7 @@ async def list_source_nodes_changed_since(
     """
     if since is None:
         rows = await pool.fetch(
-            "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at "
+            "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at, action "
             "FROM source_nodes WHERE scope = $1 AND source = $2 "
             "ORDER BY last_changed_at DESC LIMIT $3",
             scope,
@@ -151,7 +167,7 @@ async def list_source_nodes_changed_since(
         )
     else:
         rows = await pool.fetch(
-            "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at "
+            "SELECT node_ref, parent_ref, name, last_changed_at, last_changed_by, observed_at, action "
             "FROM source_nodes WHERE scope = $1 AND source = $2 AND last_changed_at > $3 "
             "ORDER BY last_changed_at DESC LIMIT $4",
             scope,

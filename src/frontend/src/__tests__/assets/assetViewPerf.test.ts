@@ -27,8 +27,8 @@ test("a ~41k-row spine parses, merges, builds and flattens within a generous bou
   const synthetic = buildSyntheticSpine();
 
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/${COLL}/${REVISION}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: REVISION, hierarchyRevision: null }],
-    [`${COLL}/${SYNTHETIC_ROOT}/${REVISION}`, { provider: "fixture-lines", node: SYNTHETIC_ROOT, delivery: "none", producedAt: REVISION, hierarchyRevision: null }],
+    [`${COLL}/${COLL}/${REVISION}`, { provider: "fixture-lines", node: null, delivery: "none", producedAt: REVISION, hierarchyRevision: null, change: null }],
+    [`${COLL}/${SYNTHETIC_ROOT}/${REVISION}`, { provider: "fixture-lines", node: SYNTHETIC_ROOT, delivery: "none", producedAt: REVISION, hierarchyRevision: null, change: null }],
   ]);
   const keys = [
     K(COLL, REVISION, MANIFEST_FILENAME),
@@ -44,6 +44,7 @@ test("a ~41k-row spine parses, merges, builds and flattens within a generous bou
       delivery: "mesh",
       producedAt: REVISION,
       hierarchyRevision: null,
+      change: null,
     });
   }
   const index = foldListing(keys, manifests);

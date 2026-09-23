@@ -54,10 +54,13 @@ class _SyncSourceNodesFacade:
         """Upsert observed nodes for one source. Returns rows written.
 
         Each node is a dict: ``node_ref`` and ``last_changed_at`` required,
-        ``parent_ref`` / ``name`` / ``last_changed_by`` optional. A writer that
-        observes a leaf change is expected to stamp every node ABOVE it too --
-        the roll-up is the writer's job, so that a consumer asking about a branch
-        reads one row rather than walking a hierarchy this table does not model.
+        ``parent_ref`` / ``name`` / ``last_changed_by`` / ``action`` optional.
+        ``action`` is per-node change evidence (``'added' | 'modified' |
+        'deleted'``, migration 030) -- a writer with no opinion simply omits
+        it. A writer that observes a leaf change is expected to stamp every
+        node ABOVE it too -- the roll-up is the writer's job, so that a
+        consumer asking about a branch reads one row rather than walking a
+        hierarchy this table does not model.
         """
         from .. import db as db_module
 
@@ -211,7 +214,7 @@ class _RestSourceNodesRecorder:
                 )
             changed = changed.isoformat()
         out = {"node_ref": node.get("node_ref"), "last_changed_at": changed}
-        for field in ("parent_ref", "name", "last_changed_by"):
+        for field in ("parent_ref", "name", "last_changed_by", "action"):
             if node.get(field) is not None:
                 out[field] = node[field]
         return out
@@ -301,6 +304,7 @@ class _RestSourceNodesRecorder:
             last_changed_at=_dt(raw.get("last_changed_at")),
             last_changed_by=raw.get("last_changed_by"),
             observed_at=_dt(raw.get("observed_at")),
+            action=raw.get("action"),
         )
 
 

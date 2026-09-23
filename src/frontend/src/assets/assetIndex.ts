@@ -15,12 +15,16 @@
 
 import { ASSET_PREFIX, STAGING_SEGMENT, parseAssetKey } from "./keys";
 import type {
+  Actor,
   AssetIndex,
   AssetRevision,
   AssetSubject,
+  ChangeRecord,
   ManifestSummary,
   ResolutionMode,
+  WireActor,
   WireAssetIndex,
+  WireChangeRecord,
   WireManifestSummary,
 } from "./types";
 
@@ -31,6 +35,26 @@ export function compareRevisions(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+function actorFromWire(a: WireActor | null | undefined): Actor | null {
+  if (!a) return null;
+  return { id: a.id, display: a.display ?? null, application: a.application ?? null };
+}
+
+/** §Decision 6: absent is normal, not degraded -- a provider whose source
+ *  carries no authorship omits the field entirely, and this returns `null`
+ *  rather than an object of nulls, so a row detail can tell "no change record"
+ *  apart from "a change record that happens to say nothing" with one check. */
+function changeFromWire(c: WireChangeRecord | null | undefined): ChangeRecord | null {
+  if (!c) return null;
+  return {
+    publishedBy: actorFromWire(c.published_by),
+    publishedVia: c.published_via ?? null,
+    sourceActor: actorFromWire(c.source_actor),
+    action: c.action ?? null,
+    sourceInstant: c.source_instant ?? null,
+  };
+}
+
 function summaryFromWire(m: WireManifestSummary | undefined): ManifestSummary | null {
   if (!m) return null;
   return {
@@ -39,6 +63,7 @@ function summaryFromWire(m: WireManifestSummary | undefined): ManifestSummary | 
     delivery: m.delivery,
     producedAt: m.produced_at,
     hierarchyRevision: m.hierarchy_revision ?? null,
+    change: changeFromWire(m.change),
   };
 }
 

@@ -28,6 +28,31 @@ export interface WireHierarchySlice {
   readonly rows: readonly (readonly unknown[])[];
 }
 
+/** Whoever made a change, on the wire -- adopted under core's own names
+ *  (§Decision 7); nothing here is format-specific. */
+export interface WireActor {
+  readonly id: string;
+  readonly display?: string | null;
+  readonly application?: string | null;
+}
+
+/** Authorship recorded on ONE publish (§Decision 6). Every field optional, and
+ *  an absent `WireChangeRecord` -- the field missing from `WireManifestSummary`
+ *  entirely -- is a complete manifest, not a degraded one: a provider whose
+ *  source carries no authorship leaves it out and the tab shows nothing, never
+ *  a gap or an "unknown". `published_by`/`published_via` are core-stamped and
+ *  trustworthy; `source_actor` is merely RELAYED by the provider from its own
+ *  source and rendered "source says", never presented as the publisher --
+ *  that split is the whole point of the field, see `./changes` and
+ *  `AssetsTab`'s `Detail`. */
+export interface WireChangeRecord {
+  readonly published_by?: WireActor | null;
+  readonly published_via?: "user" | "service" | null;
+  readonly source_actor?: WireActor | null;
+  readonly action?: "added" | "modified" | "deleted" | null;
+  readonly source_instant?: string | null;
+}
+
 /** The per-revision manifest fields the index route folds in with `manifests=true`. */
 export interface WireManifestSummary {
   readonly provider: string;
@@ -35,6 +60,7 @@ export interface WireManifestSummary {
   readonly delivery: DeliveryKind;
   readonly produced_at: string;
   readonly hierarchy_revision?: string | null;
+  readonly change?: WireChangeRecord | null;
 }
 
 export interface WireRevision {
@@ -88,12 +114,29 @@ export interface HierarchySlice {
   readonly nodes: readonly AssetNode[];
 }
 
+export interface Actor {
+  readonly id: string;
+  readonly display: string | null;
+  readonly application: string | null;
+}
+
+export interface ChangeRecord {
+  readonly publishedBy: Actor | null;
+  readonly publishedVia: "user" | "service" | null;
+  readonly sourceActor: Actor | null;
+  readonly action: "added" | "modified" | "deleted" | null;
+  readonly sourceInstant: string | null;
+}
+
 export interface ManifestSummary {
   readonly provider: string;
   readonly node: string | null;
   readonly delivery: DeliveryKind;
   readonly producedAt: string;
   readonly hierarchyRevision: string | null;
+  /** Present only when the manifest carries one -- §Decision 6, absent is
+   *  normal and must render as nothing (no badge, no dimming, no "unknown"). */
+  readonly change: ChangeRecord | null;
 }
 
 export interface AssetRevision {
@@ -186,4 +229,36 @@ export interface WireBuildAssetResponse {
   readonly fingerprint: string;
   readonly job_id: string | null;
   readonly cached: boolean;
+}
+
+// --- the change feed (`GET /scopes/{scope}/source-nodes`) ----------------------
+//
+// A different backend subsystem from the asset store above (`routes/source_nodes.py`,
+// not `routes/assets.py`) -- kept in this file anyway so `./changes` and
+// `services/api/sourceNodes` have exactly one place to import wire shapes from,
+// the same discipline every other module in this directory already keeps.
+
+export interface WireSourceNodeRow {
+  readonly node_ref: string;
+  readonly parent_ref: string | null;
+  readonly name: string | null;
+  readonly last_changed_at: string;
+  readonly last_changed_by: string | null;
+  readonly observed_at: string;
+  /** Nullable, and absent entirely on a deployment that has not migrated the
+   *  column in yet (additive, migration 030): only a node the sweep found
+   *  added/modified/deleted carries one -- a pure roll-up ancestor row does
+   *  not, and NOCHANGE is never a value this column holds (§Decision 7). */
+  readonly action?: "added" | "modified" | "deleted" | null;
+}
+
+/** `GET .../source-nodes?source=&refs=a,b,c`'s reply. `unknown` names refs the
+ *  feed has never recorded a row for, so a caller does not have to infer that
+ *  from absence in `nodes` -- though `./changes` treats the two identically,
+ *  since both mean "nobody looked". */
+export interface WireSourceNodesRefsResponse {
+  readonly scope: string;
+  readonly source: string;
+  readonly nodes: readonly WireSourceNodeRow[];
+  readonly unknown: readonly string[];
 }

@@ -9,6 +9,7 @@
 
 import { create } from "zustand";
 
+import type { SourceNodeRow, SourceNodesAnswer } from "@/assets/changes";
 import type { LoadedAsset } from "@/assets/delivery";
 import { EMPTY_FOREST, mergeSpine, type Forest, type SpineMerge } from "@/assets/merge";
 import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
@@ -19,6 +20,8 @@ const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
 const EMPTY_LOADED: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_LOADED_ASSETS: readonly LoadedAsset[] = Object.freeze([]);
+const EMPTY_SOURCE_ANSWERS: ReadonlyMap<string, SourceNodesAnswer | null> = Object.freeze(new Map());
+const EMPTY_CHANGED_ROWS: ReadonlyMap<string, SourceNodeRow> = Object.freeze(new Map());
 
 export interface AssetBrowserState {
   tab: AssetBrowserTab;
@@ -47,6 +50,26 @@ export interface AssetBrowserState {
   spineLoaded: ReadonlyMap<string, string>;
   spineLoading: ReadonlySet<string>;
   spineErrors: ReadonlyMap<string, string>;
+
+  /** PROVIDER id -> the change feed's last answer for that provider, or
+   *  `null` for that provider's own no-feed (§Decision 4's four states,
+   *  `@/assets/changes`). Keyed by provider, not flattened, because a mixed
+   *  collection can straddle providers with different feed availability --
+   *  see `mergeSourceAnswer`. */
+  sourceAnswer: ReadonlyMap<string, SourceNodesAnswer | null>;
+  /** Every row across every provider whose `action` is non-null, flattened --
+   *  the per-node evidence marks a row paints, kept pre-flattened so a render
+   *  never re-scans every provider's answer. Recomputed by `mergeSourceAnswer`
+   *  whenever a new answer comes in, from `sourceAnswer` in full (cheap: a
+   *  sweep's rows are the changed nodes plus their ancestors, never the whole
+   *  tree -- §Decision 4 -- so this map stays small regardless of forest size). */
+  changedRows: ReadonlyMap<string, SourceNodeRow>;
+  /** Every node ref (a root's own subject id, or any descendant) the tab has
+   *  asked the feed about, across every provider -- the global dedup gate
+   *  `assetBrowserLoader`'s evidence fetch reads before firing a request, and
+   *  what tells `buildAssetView` "not yet asked" apart from "asked and got
+   *  nothing back" (`not-recorded`). */
+  evidenceAsked: ReadonlySet<string>;
 
   expanded: ReadonlySet<string>;
   /** The focused row. One field on purpose: the tree is virtualised over ~41k
@@ -83,6 +106,18 @@ export interface AssetBrowserState {
   beginSpine: (root: string) => void;
   endSpine: (root: string, revision: string) => void;
   failSpine: (root: string, error: string) => void;
+  /** Fold one provider's answer to a batch of refs into the running picture.
+   *  `askedRefs` is recorded in `evidenceAsked` REGARDLESS of whether `answer`
+   *  is a real answer or `null` -- asking and being told no-feed is still
+   *  having asked, and is exactly what must stop `not-recorded` (a claim
+   *  about the feed) from being confused with "nobody has asked yet" (a fact
+   *  about this browser tab). `answer: null` replaces this provider's slot in
+   *  `sourceAnswer` with `null` outright rather than merging into whatever
+   *  rows it may have held before: a provider that has just told us it has no
+   *  database cannot simultaneously be trusted for rows fetched a moment
+   *  earlier, and keeping them would let a `current` badge outlive the
+   *  answer that justified it. */
+  mergeSourceAnswer: (source: string, answer: SourceNodesAnswer | null, askedRefs: readonly string[]) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, on: boolean) => void;
   select: (id: string | null) => void;
@@ -115,6 +150,12 @@ const FOREST_RESET = {
   spineLoaded: EMPTY_LOADED,
   spineLoading: EMPTY_SET,
   spineErrors: EMPTY_ERRORS,
+  // The change feed is asked about refs from THIS forest; a different
+  // collection or a rebuilt forest has different refs to ask about, so
+  // nothing here would still mean anything -- reset with the rest.
+  sourceAnswer: EMPTY_SOURCE_ANSWERS,
+  changedRows: EMPTY_CHANGED_ROWS,
+  evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
 };
@@ -134,6 +175,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   spineLoaded: EMPTY_LOADED,
   spineLoading: EMPTY_SET,
   spineErrors: EMPTY_ERRORS,
+  sourceAnswer: EMPTY_SOURCE_ANSWERS,
+  changedRows: EMPTY_CHANGED_ROWS,
+  evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
   searchTerm: "",
@@ -185,6 +229,26 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       const errors = new Map(s.spineErrors);
       errors.set(root, error);
       return { spineLoading: loading, spineErrors: errors };
+    }),
+
+  mergeSourceAnswer: (source, answer, askedRefs) =>
+    set((s) => {
+      const asked = new Set(s.evidenceAsked);
+      for (const ref of askedRefs) asked.add(ref);
+      const bySource = new Map(s.sourceAnswer);
+      bySource.set(source, answer);
+      // Re-flattened from every provider's answer rather than patched
+      // incrementally: a provider going from a real answer to `null` (its
+      // own no-feed) must make ITS rows disappear from `changedRows` too, and
+      // patching would have to special-case that removal every call for a
+      // map that stays small regardless (§Decision 4's roll-up keeps the
+      // feed to changed nodes and their ancestors, never the whole tree).
+      const changedRows = new Map<string, SourceNodeRow>();
+      for (const a of bySource.values()) {
+        if (!a) continue;
+        for (const [ref, row] of a.rows) if (row.action) changedRows.set(ref, row);
+      }
+      return { evidenceAsked: asked, sourceAnswer: bySource, changedRows };
     }),
 
   toggleExpanded: (id) =>

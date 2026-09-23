@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 #: itself (:mod:`local_jobs`).
 TransportFeature = Literal[
     "asset_build",
+    "asset_publish",
     "bake",
     "bbox_inference",
     "component_build",
@@ -86,6 +87,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
     "asset_build": "asset builds disabled (no NATS configured)",
+    "asset_publish": "asset publishing disabled (no NATS configured)",
     "plugin_jobs": "plugin jobs disabled (no NATS configured)",
     "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
@@ -99,7 +101,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: What :class:`LocalJobTransport` can run. Everything else it reports as
 #: unavailable — see the module docstring on why that is a statement rather
 #: than an omission.
-LOCAL_FEATURES: frozenset[str] = frozenset({"asset_build", "plugin_jobs"})
+LOCAL_FEATURES: frozenset[str] = frozenset({"asset_build", "asset_publish", "plugin_jobs"})
 
 
 @dataclass(frozen=True)
@@ -366,6 +368,8 @@ class LocalJobTransport(_BaseTransport):
             self.unavailable(req.feature)
         if req.feature == "asset_build":
             return self._submit_asset_build(req)
+        if req.feature == "asset_publish":
+            return self._submit_asset_publish(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -425,6 +429,38 @@ class LocalJobTransport(_BaseTransport):
         except LookupError as exc:
             # No builder HERE for that capability: 501 (this process cannot), not 503 (this
             # deployment cannot) — the message names the capability to install or route to.
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_asset_publish(self, req: JobRequest) -> SubmittedJob:
+        """The publish kind's local engine -- same argument as the build's: a single-node viewer
+        that can stage a file into its own scope must be able to publish it, or `publish` is a
+        verb that only exists in a cluster."""
+        opts = req.conversion_options or {}
+        try:
+            job = local_jobs.start_asset_publish(
+                provider_id=str(opts.get("provider") or ""),
+                staged=dict(opts.get("staged") or {}),
+                collection=opts.get("collection"),
+                options=dict(opts.get("options") or {}),
+                published_by=str(opts.get("published_by_id") or "unknown"),
+                published_by_display=opts.get("published_by_display"),
+                published_via=str(opts.get("published_via") or "user"),
+                dry_run=bool(opts.get("dry_run")),
+                replace_existing=bool(opts.get("replace")),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except LookupError as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
         return SubmittedJob(
             job_id=job.job_id,

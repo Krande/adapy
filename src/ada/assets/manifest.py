@@ -337,7 +337,7 @@ def manifest_summary(m: AssetManifest) -> dict:
     Deliberately NOT the whole manifest: ``build.options`` is opaque provider data, and the index
     is fetched on every refresh. A field lands here only when a badge or a flag reads it.
     """
-    return _drop_none(
+    out = _drop_none(
         {
             "provider": m.provider,
             "node": m.node,
@@ -346,3 +346,21 @@ def manifest_summary(m: AssetManifest) -> dict:
             "hierarchy_revision": m.hierarchy_revision,
         }
     )
+    # `change` rides along because the alternative is N browser fetches for a "changed by"
+    # filter (Decision 6): manifests are immutable at their key barring `replace`, so reading
+    # them server-side is the cheap side. ABSENT stays absent -- a provider whose source carries
+    # no authorship is first class, and an empty object here would make the tab offer a filter
+    # over nothing.
+    if m.change is not None:
+        change = _drop_none(
+            {
+                "published_by": _actor_to_dict(m.change.published_by),
+                "published_via": m.change.published_via,
+                "source_actor": _actor_to_dict(m.change.source_actor),
+                "action": m.change.action,
+                "source_instant": m.change.source_instant,
+            }
+        )
+        if change:
+            out["change"] = change
+    return out

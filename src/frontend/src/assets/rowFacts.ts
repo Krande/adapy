@@ -8,9 +8,10 @@
 
 import type { AssetView } from "./assetView";
 import { ROLE_CONTENT } from "./assetView";
+import type { ChangeAction, ChangeState } from "./changes";
 import type { HierarchyDrift, NodeFreshness } from "./freshness";
 import { ancestorsOf, type Hierarchy } from "./hierarchy";
-import type { AssetNode, DeliveryKind } from "./types";
+import type { AssetNode, ChangeRecord, DeliveryKind } from "./types";
 
 export type BadgeWeight = "solid" | "ghost" | "below";
 
@@ -42,6 +43,19 @@ export interface RowFacts {
   readonly drift: HierarchyDrift | null;
   /** The revision this row's own subject resolved to, if it is one. */
   readonly resolvedRevision: string | null;
+  /** Behind-upstream, ONLY when this row is itself an export root the feed
+   *  has been asked about (`view.changes.byRoot`). `null` for every other
+   *  row -- including an unasked root -- never a guessed `not-recorded`.
+   *  A DIFFERENT fact from `freshness` above; see `./changes`'s module
+   *  comment for why the two must never share a mark. */
+  readonly changeState: ChangeState | null;
+  /** What the sweep found AT this node (`added`/`modified`/`deleted`),
+   *  independent of `changeState` -- a node deep under a `behind` root that
+   *  the sweep did not itself touch has no mark here, only its root does. */
+  readonly evidenceMark: ChangeAction | null;
+  /** This row's own subject's `change` record (§Decision 6), when its
+   *  resolved manifest carries one. `null` is the normal case. */
+  readonly changeRecord: ChangeRecord | null;
 }
 
 function deliveryOf(view: AssetView, subject: string): { delivery: DeliveryKind; revision: string } | null {
@@ -79,7 +93,46 @@ export function rowFacts(view: AssetView, id: string): RowFacts | null {
     freshness: view.freshness.get(id) ?? null,
     drift: view.drift.get(id) ?? null,
     resolvedRevision: view.resolution.subjects.get(id)?.revision.revision ?? null,
+    changeState: view.changes.byRoot.get(id)?.state ?? null,
+    evidenceMark: view.evidenceMarks.get(id) ?? null,
+    changeRecord: view.resolution.subjects.get(id)?.revision.manifest?.change ?? null,
   };
+}
+
+export interface ChangeOwner {
+  readonly id: string;
+  readonly display: string | null;
+}
+
+/** Distinct actors across every resolved subject's `change` record in this
+ *  view -- both `publishedBy` (core-verified) and `sourceActor` (merely
+ *  relayed) -- deduped by id. What the "changed by" filter offers; empty
+ *  exactly when `view.hasChangeOwners` is false, which is the gate that
+ *  decides whether the filter is shown at all: §Decision 6 says a manifest
+ *  with no actor is the NORMAL case, and a filter over zero owners is worse
+ *  than no filter -- it invites a click that can only ever find nothing. */
+export function changeOwners(view: AssetView): readonly ChangeOwner[] {
+  const seen = new Map<string, ChangeOwner>();
+  for (const resolved of view.resolution.subjects.values()) {
+    const c = resolved.revision.manifest?.change;
+    if (!c) continue;
+    for (const a of [c.publishedBy, c.sourceActor]) {
+      if (a && !seen.has(a.id)) seen.set(a.id, { id: a.id, display: a.display });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Every subject whose OWN `change` record names `actorId`, as either the
+ *  verified publisher or the relayed source actor -- what the filter narrows
+ *  the tree to once an owner is chosen. */
+export function subjectsByOwner(view: AssetView, actorId: string): readonly string[] {
+  const out: string[] = [];
+  for (const [subject, resolved] of view.resolution.subjects) {
+    const c = resolved.revision.manifest?.change;
+    if (c && (c.publishedBy?.id === actorId || c.sourceActor?.id === actorId)) out.push(subject);
+  }
+  return out;
 }
 
 /** The rows a search keeps: every match and every ancestor of one, so the set
