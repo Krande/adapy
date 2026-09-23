@@ -1565,33 +1565,23 @@ class AdacppBackend:
         return list(fn(shape))
 
     def edges(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        # Passed through as the kernel reports it. adacpp.cad.edges used to walk the
+        # shape face by face, so an edge shared by N faces came back N times (a box:
+        # 24 entries for 12 edges), and this de-duplicated the incidences here to match
+        # OccBackend's TopologyExplorer.edges() — an edge count is a topology answer,
+        # and the two backends must agree on it. It collapsed them on `face_id`, whose
+        # comment here called it a TShape+Location hash. It is not: the binding documents
+        # and returns a bare TShape pointer, which is placement-BLIND — and a prism's top
+        # rail IS its base rail instanced at another Location. So the de-duplication also
+        # ate every located copy, turning 12 real edges into 8 and 24 into 16, silently,
+        # on exactly the shapes a wire frame or a boundary export is built from.
+        # ada-cpp 0.25.4 answers both halves at the source with TopExp::MapShapes, which
+        # keys on TopoDS_Shape::IsSame (TShape AND Location, orientation-insensitive), so
+        # there is nothing left to correct on this side.
         fn = getattr(self._cad, "edges", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.edges is not available in this build")
-        edges = list(fn(shape))
-        # adacpp.cad.edges walks the shape face by face, so an edge shared by N faces
-        # comes back N times — a box reports 24 entries for its 12 edges, a cylinder 6
-        # for 3. OccBackend's TopologyExplorer.edges() yields each edge exactly once,
-        # and the two backends must agree: an edge count is a topology answer, and any
-        # caller that counts edges or walks a wire frame doubles every result on this
-        # backend alone. Collapse the incidences on the same orientation-independent
-        # topological identity `face_id` uses (a TShape+Location hash, defined for every
-        # sub-shape type, so two incidences of one edge hash equal), keeping first-seen
-        # order so the sequence still starts where the native walk starts. A build
-        # without `face_id` has no identity to collapse on, so it passes through
-        # unfiltered rather than guessing.
-        ident = getattr(self._cad, "face_id", None)
-        if ident is None:
-            return edges
-        seen = set()
-        unique = []
-        for edge in edges:
-            key = ident(edge)
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(edge)
-        return unique
+        return list(fn(shape))
 
     def to_topods_pointer(self, shape: ShapeHandle) -> int:
         fn = getattr(self._cad, "to_topods_pointer", None)
