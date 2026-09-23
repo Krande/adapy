@@ -23,7 +23,7 @@ import re
 
 import pytest
 
-from ada_cli.main import _build_parser
+from ada_cli.main import _build_parser, _subparsers_action
 
 _REPO = pathlib.Path(__file__).parents[2]
 _PYPROJECT = _REPO / "pyproject.toml"
@@ -131,6 +131,33 @@ def test_readme_lists_every_top_level_command():
     documented = {c.split(" ", 1)[1] for c in _MD_COMMAND.findall(body)}
     real = _real_top_level()
     assert documented == real, _diff(documented, real, "README.md")
+
+
+def _long_options(parser: argparse.ArgumentParser) -> set[str]:
+    """Every ``--long`` option the parser accepts, minus the one argparse adds for free."""
+    return {
+        opt for action in parser._actions for opt in action.option_strings if opt.startswith("--") and opt != "--help"
+    }
+
+
+def _subparser(name: str) -> argparse.ArgumentParser:
+    action = _subparsers_action(_build_parser())
+    assert action is not None
+    return action.choices[name]
+
+
+@_needs_repo
+@pytest.mark.parametrize("command", ["convert", "view"])
+def test_docs_page_documents_every_flag_of_the_local_commands(command):
+    """``convert`` and ``view`` are the commands the docs page documents flag by flag, so a new
+    flag on either has to turn up there. Commands are checked above; a flag is just as invisible
+    when it is undocumented, and ``--log-file`` was added long after this page was written."""
+    page = _DOCS_PAGE.read_text(encoding="utf-8")
+    documented = set(re.findall(r"``(--[a-z0-9][a-z0-9-]*)", page))
+    real = _long_options(_subparser(command))
+    assert not (
+        real - documented
+    ), f"ada {command} flags missing from docs/documents/cli.rst: {sorted(real - documented)}"
 
 
 def test_cli_module_docstring_lists_every_top_level_command():
