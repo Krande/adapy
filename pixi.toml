@@ -281,8 +281,8 @@ test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PR
 [feature.adacpp-runtime.dependencies]
 # Tracks the [feature.adacpp] pin -- see the rationale log there. 0.25.4 for the
 # `edges` fix AdacppBackend.edges now depends on (adacpp#61); 0.25.5 for the
-# placement-aware `face_id` (adacpp#62).
-ada-cpp = "0.25.5.*"
+# placement-aware `face_id` (adacpp#62); 0.28.0 for `read_step_shapes(matrix=)` (adacpp#65).
+ada-cpp = "0.28.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -331,7 +331,11 @@ ada-cpp = "0.25.5.*"
 # (adacpp#62), so a prism's base and top -- one TShape at two Locations -- get two
 # ids and its six faces six. REQUIRED: the construction-verb parity suite asserts
 # exactly that on this leg, with no xfail to fall back on.
-ada-cpp = "0.25.5.*"
+# 0.28.0 applies an import-time transform inside `read_step_shapes` (adacpp#65) and
+# rejects a non-uniform matrix in it and in `transform`, where gp_Trsf.SetValues used to
+# make a stretch uniform without a word. REQUIRED: Part.read_step_file's scale/transform/
+# rotate now go through that reader on this backend, with no pythonocc path left to take.
+ada-cpp = "0.28.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

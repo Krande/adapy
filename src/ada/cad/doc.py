@@ -42,7 +42,7 @@ class DocBackend(Protocol):
     capabilities: frozenset[str]
 
     def step_writer(self) -> "StepWriter": ...
-    def step_reader(self, filepath: Any) -> "StepStore": ...
+    def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore": ...
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
@@ -71,10 +71,10 @@ class AdacppDocBackend:
 
         return AdacppStepWriter("AdaStep")
 
-    def step_reader(self, filepath: Any) -> "StepStore":
+    def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore":
         from ada.cadit.step.read.adacpp_store import AdacppStepStore
 
-        return AdacppStepStore(filepath)
+        return AdacppStepStore(filepath, matrix=matrix)
 
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError(

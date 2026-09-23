@@ -49,6 +49,42 @@ class Rotation:
         return res
 
 
+def import_transform_matrix(scale=None, transform=None, rotate: Rotation | None = None) -> np.ndarray | None:
+    """One 4x4 matrix for an import's ``scale`` / ``transform`` / ``rotate``, or None if all unset.
+
+    Applied in that order to each point: scale about the world origin, then rotate by
+    ``rotate.angle`` degrees about the axis through ``rotate.origin`` along ``rotate.vector``,
+    then translate by ``transform`` (a ``Placement``'s origin, or an (x, y, z)).
+
+    The order is stated because it was never defined before: the OCC-only import set each
+    one on the same gp_Trsf, and every gp_Trsf setter REPLACES the transform -- so passing
+    more than one kept only the last and dropped the others without a word.
+    """
+    if scale is None and transform is None and rotate is None:
+        return None
+    m = np.eye(4)
+    if scale is not None:
+        m = np.diag([float(scale)] * 3 + [1.0]) @ m
+    if rotate is not None:
+        r = np.asarray(rotate.to_rot_matrix(), dtype=float)
+        o = np.asarray(rotate.origin, dtype=float)
+        rot = np.eye(4)
+        rot[:3, :3] = r
+        rot[:3, 3] = o - r @ o
+        m = rot @ m
+    if transform is not None:
+        if isinstance(transform, Placement):
+            t = np.asarray(transform.origin, dtype=float)
+        elif isinstance(transform, (tuple, list, np.ndarray)):
+            t = np.asarray(transform, dtype=float)
+        else:
+            raise ValueError(f'Unrecognized transform input type "{type(transform)}"')
+        tr = np.eye(4)
+        tr[:3, 3] = t
+        m = tr @ m
+    return m
+
+
 def _fingerprints_match(a: tuple, b: tuple) -> bool:
     """Identity-compare two ancestry fingerprints.
 
