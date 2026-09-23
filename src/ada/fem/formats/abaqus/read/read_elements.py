@@ -19,7 +19,8 @@ from ada.fem.formats.abaqus.elem_shapes import (
 from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
-from . import cards
+from .keywords import validate
+from .lexer import Card, iter_cards
 
 if TYPE_CHECKING:
     from ada.fem import FEM
@@ -42,7 +43,7 @@ def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
     """Read and import all *Element flags"""
     elements = FemElements(
         chain.from_iterable(
-            filter(lambda x: x is not None, (grab_elements(m, fem) for m in cards.re_el.finditer(bulk_str)))
+            filter(lambda x: x is not None, (grab_elements(c, fem) for c in iter_cards(bulk_str, "ELEMENT")))
         ),
         fem_obj=fem,
     )
@@ -50,9 +51,9 @@ def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
     return elements
 
 
-def grab_elements(match, fem: "FEM"):
-    d = match.groupdict()
-    eltype = d["eltype"]
+def grab_elements(card: Card, fem: "FEM"):
+    validate(card)
+    eltype = card.params.get("TYPE")
 
     if eltype in ("CONN3D2",):
         logger.info(f'Importing Connector type "{eltype}"')
@@ -71,19 +72,15 @@ def grab_elements(match, fem: "FEM"):
         # ``get_elem_from_bulk_str`` so no half-built elements leak.
         logger.warning("abaqus read: skipping element block — %s", exc)
         return None
-    elset = d["elset"]
-    el_type_members_str = d["members"]
+    elset = card.params.get("ELSET")
+    el_type_members_str = card.data_text
     res = re.search("[a-zA-Z]", el_type_members_str)
     is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
     if is_cubic or res is None:
-        if is_cubic is True:
-            elem_nodes_str = el_type_members_str.splitlines()
-            ntext = "".join(
-                [l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(elem_nodes_str[:-1:2], elem_nodes_str[1::2])]
-            )
-        else:
-            ntext = d["members"]
-        res = _parse_int_grid(ntext)
+        # A HEX20/27 connectivity spans two lines. There is no need to pair them up first:
+        # _parse_int_grid flattens the whole block and the reshape below re-groups it by node
+        # count, so the token order — and therefore the result — is the same either way.
+        res = _parse_int_grid(el_type_members_str)
         n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         return numpy_array_to_list_of_elements(res.reshape(int(res.size / n), n), eltype, elset, ada_el_type, fem)
     else:
@@ -106,31 +103,24 @@ def get_elem_arrays(bulk_str: str):
     by_type: dict = defaultdict(lambda: ([], [], []))  # ctype -> (el_ids, conns, elsets)
     overflow: list = []
 
-    for match in cards.re_el.finditer(bulk_str):
-        d = match.groupdict()
-        eltype = d["eltype"]
+    for card in iter_cards(bulk_str, "ELEMENT"):
+        validate(card)
+        eltype = card.params.get("TYPE")
         try:
             ada_el_type = abaqus_el_type_to_ada(eltype)
         except UnsupportedAbaqusElementType as exc:
             logger.warning("abaqus read: skipping element block — %s", exc)
             continue
 
-        members = d["members"]
-        elset = d["elset"]
+        members = card.data_text
+        elset = card.params.get("ELSET")
         is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
         has_letters = re.search("[a-zA-Z]", members) is not None
         if eltype in ("MASS", "ROTARYI", "CONN3D2") or (has_letters and not is_cubic):
-            overflow.append(match)  # special / cross-instance -> object path
+            overflow.append(card)  # special / cross-instance -> object path
             continue
 
-        if is_cubic:
-            elem_nodes_str = members.splitlines()
-            ntext = "".join(
-                [l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(elem_nodes_str[:-1:2], elem_nodes_str[1::2])]
-            )
-        else:
-            ntext = members
-        res = _parse_int_grid(ntext)
+        res = _parse_int_grid(members)
         n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         res2d = res.reshape(int(res.size / n), n)
         ids, conns, elsets = by_type[ada_el_type]
@@ -209,16 +199,20 @@ def update_connector_data(bulk_str: str, fem: FEM):
     """Extract connector elements from bulk string"""
 
     nsuffix = Counter(1, "_")
-    for m in cards.connector_section.regex.finditer(bulk_str):
-        d = m.groupdict()
-        csys_ref = d["csys"].replace('"', "")
-        name = d["behavior"] + next(nsuffix)
-        elset = fem.elsets[d["elset"]]
+    for card in iter_cards(bulk_str, "CONNECTOR SECTION"):
+        validate(card)
+        if len(card.data_lines) < 2:
+            logger.warning("abaqus read: *Connector Section (line %d) needs two data lines - skipping", card.lineno)
+            continue
+        behavior = card.params.first("BEHAVIOR", "BEHAVIOUR")
+        csys_ref = card.data_lines[1].replace('"', "")
+        name = behavior + next(nsuffix)
+        elset = fem.elsets[card.params.get("ELSET")]
         connector: Connector = elset.members[0]
-        con_sec = fem.connector_sections[d["behavior"]]
+        con_sec = fem.connector_sections[behavior]
         csys_ref = csys_ref[:-1] if csys_ref[-1] == "," else csys_ref
         csys = fem.lcsys[csys_ref]
-        con_type = d["contype"]
+        con_type = card.data_lines[0]
         if con_type[-1] == ",":
             con_type = con_type[:-1]
 

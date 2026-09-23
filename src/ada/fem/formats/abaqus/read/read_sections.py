@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
@@ -13,11 +12,11 @@ from ada.fem.containers import FemSections
 from ada.fem.elements import Eccentricity
 from ada.fem.shapes import ElemType
 
-from . import cards
 from .helper_utils import list_cleanup
+from .keywords import validate
+from .lexer import Card, comment_property, iter_cards, tokenize
 
 part_name_counter = Counter(1, "Part")
-_re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
@@ -38,8 +37,6 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
     from ada.sections import GeneralProperties
 
     ass = fem.parent.get_assembly()
-    if bulk_str.lower().find("*beam section") == -1:
-        return []
 
     def interpret_section(profile_name, sec_type, props):
         props_clean = [roundoff(x) for x in filter(lambda x: x.strip() != "", props.split(","))]
@@ -119,9 +116,12 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             logger.error(f'Currently unsupported section type "{sec_type}". Will return None')
             return None
 
-    def grab_beam(match):
-        d = match.groupdict()
-        elset_name = d["elset"]
+    def grab_beam(card: Card):
+        validate(card)
+        if len(card.data_lines) < 2:
+            logger.warning("abaqus read: *Beam Section (line %d) needs two data lines — skipping", card.lineno)
+            return None
+        elset_name = card.params.get("ELSET")
         elset = fem.elsets.get(elset_name)
         if elset is None:
             # The section references an elset that was never created — typically because all
@@ -132,15 +132,15 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             return None
         name = elset.name
         profile_name = elset.name
-        material = ass.materials.get_by_name(d["material"])
-        # material = parent.parent.materials.get_by_name(d['material'])
-        temperature = d["temperature"]
-        section_type = d["sec_type"]
-        geo_props = d["line1"]
+        material = ass.materials.get_by_name(card.params.get("MATERIAL"))
+        temperature = card.params.get("TEMPERATURE")
+        # The guide's own abbreviation: *Beam Section accepts SECTION= and SECT=.
+        section_type = card.params.first("SECTION", "SECT")
+        geo_props = card.data_lines[0]
         sec = interpret_section(profile_name, section_type, geo_props)
         if sec is None:
             return None
-        beam_y = [float(x.strip()) for x in d["line2"].split(",") if x.strip() != ""]
+        beam_y = [float(x.strip()) for x in card.data_lines[1].split(",") if x.strip() != ""]
         metadata = dict(
             temperature=temperature,
             profile=profile_name.strip(),
@@ -161,22 +161,21 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             parent=fem,
         )
 
-    return filter(lambda x: x is not None, map(grab_beam, cards.re_beam.finditer(bulk_str)))
+    return filter(lambda x: x is not None, map(grab_beam, iter_cards(bulk_str, "BEAM SECTION")))
 
 
 def get_solid_sections_from_inp(bulk_str, fem: FEM):
     secnames = Counter(1, "solidsec")
     a = fem.parent.get_assembly()
-    if bulk_str.lower().find("*solid section") == -1:
-        return []
 
-    solid_iter = cards.re_solid.finditer(bulk_str)
-
-    def grab_solid(m_in):
-        name = m_in.group(1) if m_in.group(1) is not None else next(secnames)
-        elset = m_in.group(2)
-        material = m_in.group(3)
-        mat = a.materials.get_by_name(material)
+    def grab_solid(card: Card):
+        validate(card)
+        # Abaqus/CAE writes the section's name in the comment directly above the card and
+        # nowhere else. Reading it from this card's own comments is what keeps one section
+        # from inheriting another's name.
+        name = comment_property(card, "Section").get("Section") or next(secnames)
+        elset = card.params.get("ELSET")
+        mat = a.materials.get_by_name(card.params.get("MATERIAL"))
         return FemSection(
             name=name,
             sec_type=ElemType.SOLID,
@@ -185,34 +184,39 @@ def get_solid_sections_from_inp(bulk_str, fem: FEM):
             parent=fem,
         )
 
-    return map(grab_solid, solid_iter)
+    return map(grab_solid, iter_cards(bulk_str, "SOLID SECTION"))
 
 
 def get_shell_sections_from_inp(bulk_str, fem: FEM) -> Iterable[FemSection]:
-    if bulk_str.lower().find("*shell section") == -1:
-        return []
-
     a = fem.parent.get_assembly()
     sh_name = Counter(1, "sh")
-    return (get_shell_section(m, sh_name, fem, a) for m in cards.re_shell.finditer(bulk_str))
+    return filter(
+        lambda x: x is not None,
+        (get_shell_section(card, sh_name, fem, a) for card in iter_cards(bulk_str, "SHELL SECTION")),
+    )
 
 
-def get_shell_section(m, sh_name, fem: "FEM", a: "Assembly"):
-    d = m.groupdict()
+def get_shell_section(card: Card, sh_name, fem: "FEM", a: "Assembly"):
+    validate(card)
+    if not card.data_lines:
+        logger.warning("abaqus read: *Shell Section (line %d) has no data line — skipping", card.lineno)
+        return None
     name = next(sh_name)
-    elset = fem.sets.get_elset_from_name(d["elset"])
+    elset = fem.sets.get_elset_from_name(card.params.get("ELSET"))
 
-    material = d["material"]
-    mat = a.materials.get_by_name(material)
-    thickness = float(d["t"])
-    offset = d["offset"]
+    mat = a.materials.get_by_name(card.params.get("MATERIAL"))
+    # Data line: thickness, number of integration points.
+    values = [x.strip() for x in card.data_lines[0].split(",")]
+    thickness = float(values[0])
+    int_points = values[1] if len(values) > 1 else None
+
+    offset = card.params.get("OFFSET")
     if offset is not None:
         # TODO: update this with the latest eccentricity class
         logger.warning("Offset for Shell elements is not yet evaluated")
         for el in elset.members:
             el.eccentricity = Eccentricity(sh_ecc_vector=offset)
-    int_points = d["int_points"]
-    metadata = dict(controls=d["controls"])
+    metadata = dict(controls=card.params.get("CONTROLS"))
 
     return FemSection(
         name=name,
@@ -243,9 +247,29 @@ def conn_from_groupdict(d: dict, parent):
 
 
 def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
-    consecsd = dict()
+    """``*Connector Behavior`` plus the ``*Connector Elasticity`` cards that follow it.
 
-    for m in cards.connector_behaviour.regex.finditer(bulk_str):
-        d = m.groupdict()
-        consecsd[d["name"]] = conn_from_groupdict(d, parent)
+    Abaqus nests these by adjacency rather than with an end keyword, so the behaviour owns
+    every elasticity card up to the next card that is not one.
+    """
+    consecsd: dict[str, ConnectorSection] = {}
+    cards = tokenize(bulk_str)
+
+    for i, card in enumerate(cards):
+        if card.keyword != "CONNECTOR BEHAVIOR":
+            continue
+        validate(card)
+        name = card.params.get("NAME")
+        for sub in cards[i + 1 :]:
+            if sub.keyword != "CONNECTOR ELASTICITY":
+                break
+            validate(sub)
+            d = dict(
+                name=name,
+                nonlinear="NONLINEAR" if "NONLINEAR" in sub.params else None,
+                component=sub.params.get("COMPONENT"),
+                dependencies=sub.params.get("DEPENDENCIES"),
+                bulk=sub.data_text,
+            )
+            consecsd[name] = conn_from_groupdict(d, parent)
     return consecsd
