@@ -18,11 +18,15 @@ Two layers, because no single environment is guaranteed to carry both kernels:
   volume 24). Those run, and can fail, in a single-backend environment.
 * the ``both_backends`` fixture skips unless both import, and compares the two answers
   directly. That is the only check that can catch drift, so it needs an environment
-  carrying both kernels to be worth anything — see the ``test-cad-parity`` task.
+  carrying both kernels to be worth anything — and since the pythonocc wind-down
+  (2026-09-21) no shipped environment carries both, because ada-cpp is built against
+  occt 8 and pythonocc-core has no occt 8 build. Until one does, this layer skips
+  everywhere and the closed-form layer above is what actually runs.
 
-``select_backend`` tries adacpp before pythonocc, so merely having adacpp installed
-moves the process onto it. Every backend here is therefore pinned explicitly; nothing
-trusts the default, and nothing calls ``active_backend()``.
+Both fixtures live in ``conftest.py``, shared with the construction-verb module next
+door. ``select_backend`` tries adacpp before pythonocc, so merely having adacpp
+installed moves the process onto it. Every backend here is therefore pinned
+explicitly; nothing trusts the default, and nothing calls ``active_backend()``.
 """
 
 from __future__ import annotations
@@ -43,8 +47,6 @@ from ada.cad import (
 from ada.geom.booleans import BoolOpEnum
 from ada.geom.curves import PolyLoop
 from ada.geom.points import Point
-
-BACKEND_NAMES = ("occ", "adacpp")
 
 # The cylinder is r=0.5, h=10 rising from z=0; the box spans z=-2..2, so exactly 2 of
 # the cylinder's height is inside it. What DIFFERENCE removes is therefore an analytic
@@ -119,23 +121,6 @@ CONSTRUCTIONS = {
     "box_cut_by_cylinder": _make_cut,
     "loft": _make_loft,
 }
-
-
-@pytest.fixture(params=BACKEND_NAMES)
-def backend(request):
-    """One installed backend, pinned by name — never the ``select_backend`` default."""
-    if not backend_available(CadBackendName(request.param)):
-        pytest.skip(f"{request.param} backend not installed")
-    return select_backend(prefer=request.param)
-
-
-@pytest.fixture
-def both_backends():
-    """``(occ, adacpp)``, or a skip when this environment carries only one kernel."""
-    missing = [n for n in BACKEND_NAMES if not backend_available(CadBackendName(n))]
-    if missing:
-        pytest.skip(f"cross-backend comparison needs both kernels; missing: {', '.join(missing)}")
-    return select_backend(prefer="occ"), select_backend(prefer="adacpp")
 
 
 def _topology_counts(be, shape) -> dict[str, int]:
