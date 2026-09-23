@@ -19,6 +19,7 @@ import React, { useEffect, useMemo } from "react";
 
 import { revisionsOf } from "@/assets/assetIndex";
 import { buildAssetHierarchy, buildAssetView, type AssetView } from "@/assets/assetView";
+import type { ChangeState } from "@/assets/changes";
 import {
     assetSourceName,
     loadNode,
@@ -27,7 +28,7 @@ import {
     type NodeRef,
 } from "@/assets/delivery";
 import { orphanHeading, orphanSentence, type OrphanEntry } from "@/assets/orphans";
-import { rowFacts, type RowBadge } from "@/assets/rowFacts";
+import { changeOwners, rowFacts, subjectsByOwner, type RowBadge } from "@/assets/rowFacts";
 import { canFetchSpine } from "@/assets/spines";
 import type { ResolutionMode } from "@/assets/types";
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
@@ -35,6 +36,7 @@ import { makePluginContextStandalone } from "@/plugins";
 import { assetsApi } from "@/services/api/assets";
 import { conversionApi } from "@/services/api/conversion";
 import { filesApi } from "@/services/api/files";
+import { sourceNodesApi } from "@/services/api/sourceNodes";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { loaderFor } from "@/state/assetBrowserLoader";
 import { useModelSessionStore } from "@/state/modelSession";
@@ -124,6 +126,16 @@ function loadedTreeRoot(treeData: TreeNodeData | null, sourceName: string): Tree
     const candidates = treeData.id === ROOTS_CONTAINER_ID ? treeData.children : [treeData];
     return candidates.find((c) => c.model_key === modelKey) ?? null;
 }
+
+// Row-detail wording for the three non-`behind` states (`behind` gets its own
+// sentence above, with the change itself). Kept as data so the four states'
+// words are declared once rather than re-typed at each render.
+const CHANGE_STATE_LABEL: Record<ChangeState, string> = {
+    behind: "behind — see the line above",
+    current: "up to date — the change feed covered this root and found nothing newer",
+    "not-recorded": "not recorded — the change feed has never covered this root",
+    "no-feed": "unknown — this deployment has no change-feed database",
+};
 
 const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactNode; title?: string }> = ({
     tone,
@@ -378,6 +390,31 @@ const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view
     if (facts?.drift) {
         lines.push(["Tree", `published against ${formatRevision(facts.drift.publishedAgainst)}; shown from ${formatRevision(facts.drift.shownFrom)}`]);
     }
+    // Behind-upstream is its OWN line, never merged into "Drawn from" above:
+    // that line is about OUR spine lagging OUR resolution (fixed by Refresh),
+    // this one is about the SOURCE moving past what was published (fixed only
+    // by a new export). Same sentence for both would say the wrong fix.
+    const change = view.changes.byRoot.get(id);
+    if (change && change.state === "behind") {
+        lines.push([
+            "Behind source",
+            `changed ${change.lastChangedAt ?? "—"}${change.lastChangedBy ? ` by ${change.lastChangedBy}` : ""} — after this was published; re-export to catch up`,
+        ]);
+    } else if (change) {
+        lines.push(["Source", CHANGE_STATE_LABEL[change.state]]);
+    }
+    // §Decision 6: two separately-labelled facts, never merged into one
+    // "author" -- `publishedBy` is core-stamped and trustworthy, `sourceActor`
+    // is merely relayed by the provider from its own source. Absent is the
+    // normal case and renders nothing at all, not a placeholder.
+    if (facts?.changeRecord?.publishedBy) {
+        const a = facts.changeRecord.publishedBy;
+        lines.push(["Published by", a.display ? `${a.display} (${a.id})` : a.id]);
+    }
+    if (facts?.changeRecord?.sourceActor) {
+        const a = facts.changeRecord.sourceActor;
+        lines.push(["Source says", a.display ? `${a.display} (${a.id})` : a.id]);
+    }
     if (orphan) lines.push(["Not in tree", orphanSentence(orphan, formatRevision)]);
     const err = view.manifestErrors.get(id);
     if (err) lines.push(["Manifest", err]);
@@ -397,10 +434,61 @@ const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view
     );
 };
 
+/** §Decision 6's "changed by" filter -- offered ONLY when `view.hasChangeOwners`
+ *  (at least one loaded manifest carries a `publishedBy` or `sourceActor`);
+ *  otherwise this renders nothing, not a disabled control, because a filter
+ *  over zero owners is a dead end dressed up as an affordance. Narrows to a
+ *  flat clickable list rather than pruning the tree itself -- the same choice
+ *  `Orphans` below makes for the same reason: an owner is a property of a
+ *  SUBJECT, not a shape the hierarchy needs to know about, and jumping
+ *  `select()` to a match is enough to act on it. */
+const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSelect: (id: string) => void }> = ({
+    view,
+    selected,
+    onSelect,
+}) => {
+    const [owner, setOwner] = React.useState<string>("");
+    if (!view.hasChangeOwners) return null;
+    const owners = changeOwners(view);
+    const matches = owner ? subjectsByOwner(view, owner) : [];
+    return (
+        <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
+            <select
+                aria-label="Changed by"
+                className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 max-w-[55%] truncate"
+                value={owner}
+                onChange={(e) => setOwner(e.target.value)}
+            >
+                <option value="">Changed by: anyone</option>
+                {owners.map((o) => (
+                    <option key={o.id} value={o.id}>
+                        {o.display ? `${o.display} (${o.id})` : o.id}
+                    </option>
+                ))}
+            </select>
+            {owner && (
+                <span className="text-[10px] text-gray-400 truncate">
+                    {matches.length} subject(s)
+                    {matches.map((id) => (
+                        <button
+                            key={id}
+                            type="button"
+                            className={`ml-1 rounded-sm px-1 ${selected === id ? "bg-blue-700 text-white" : "bg-gray-700 hover:text-white"}`}
+                            onClick={() => onSelect(id)}
+                        >
+                            {id}
+                        </button>
+                    ))}
+                </span>
+            )}
+        </div>
+    );
+};
+
 const AssetsTab: React.FC = () => {
     const { useAssetBrowserStore, useScopeStore } = useViewerStores();
     const scope = scopeUrlPart(useScopeStore((s) => s.current));
-    const loader = loaderFor(useAssetBrowserStore, assetsApi);
+    const loader = loaderFor(useAssetBrowserStore, assetsApi, sourceNodesApi);
 
     const storeScope = useAssetBrowserStore((s) => s.scope);
     const collections = useAssetBrowserStore((s) => s.collections);
@@ -416,6 +504,9 @@ const AssetsTab: React.FC = () => {
     const spineLoaded = useAssetBrowserStore((s) => s.spineLoaded);
     const spineLoading = useAssetBrowserStore((s) => s.spineLoading);
     const spineErrors = useAssetBrowserStore((s) => s.spineErrors);
+    const sourceAnswer = useAssetBrowserStore((s) => s.sourceAnswer);
+    const changedRows = useAssetBrowserStore((s) => s.changedRows);
+    const evidenceAsked = useAssetBrowserStore((s) => s.evidenceAsked);
     const selected = useAssetBrowserStore((s) => s.selected);
     const searchTerm = useAssetBrowserStore((s) => s.searchTerm);
     const { setMode, select, setSearchTerm } = useAssetBrowserStore.getState();
@@ -441,11 +532,22 @@ const AssetsTab: React.FC = () => {
     const view = useMemo(
         () =>
             index && collection
-                ? buildAssetView({ forest, index, collection, mode, indexRevisions: merged, hierarchy, spineLoaded })
+                ? buildAssetView({
+                      forest,
+                      index,
+                      collection,
+                      mode,
+                      indexRevisions: merged,
+                      hierarchy,
+                      spineLoaded,
+                      sourceAnswer,
+                      changedRows,
+                      evidenceAsked,
+                  })
                 : null,
         // `forest` changes exactly when `hierarchy` does.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hierarchy, index, collection, mode, merged, spineLoaded],
+        [hierarchy, index, collection, mode, merged, spineLoaded, sourceAnswer, changedRows, evidenceAsked],
     );
 
     // Lazy spines: an expanded row whose covering spine is not in (at the
@@ -512,6 +614,7 @@ const AssetsTab: React.FC = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
             </div>
+            {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
 
             <div className="shrink-0">
                 {indexError && <Banner tone="error">{indexError}</Banner>}
@@ -531,6 +634,17 @@ const AssetsTab: React.FC = () => {
                 {view && view.staleCount > 0 && (
                     <Banner tone="warn">
                         {view.staleCount} row(s) are drawn from a hierarchy the resolution has moved past. Refresh to rebuild.
+                    </Banner>
+                )}
+                {/* BEHIND is not STALE: stale says our own tree lags the resolution
+                    (fixed by Refresh); behind says the SOURCE moved after a root was
+                    published (fixed only by a new export). Different tone ("error", not
+                    "warn"), different verb, so the two are never mistaken for one banner
+                    said twice -- see `@/assets/changes`'s module comment. */}
+                {view && view.changes.behind > 0 && (
+                    <Banner tone="error">
+                        {view.changes.behind} published root(s) are behind their source — it changed after this was
+                        published. Re-export to catch up; Refresh will not fix this.
                     </Banner>
                 )}
                 {view && view.drift.size > 0 && (

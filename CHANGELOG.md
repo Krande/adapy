@@ -2,6 +2,15 @@
 
 
 
+## v0.84.0 (2026-09-23)
+
+### Feature
+
+* feat: asset publish/unpublish surface, change feed and the IFC sweep (#380)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`19ffc9a`](https://github.com/Krande/adapy/commit/19ffc9ae13b22230f8eef598f2a4e2363297a2ca))
+
+
 ## v0.83.0 (2026-09-22)
 
 ### Feature

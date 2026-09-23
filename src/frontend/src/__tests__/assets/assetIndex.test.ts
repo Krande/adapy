@@ -83,7 +83,7 @@ function equivalentKeysAndManifests(): { keys: string[]; manifests: Map<string, 
   const manifests = new Map<string, ManifestSummary>([
     [
       `${COLL}/area-1/${R_A}`,
-      { provider: "fixture-lines", node: "area-1", delivery: "mesh", producedAt: R_A, hierarchyRevision: R_A },
+      { provider: "fixture-lines", node: "area-1", delivery: "mesh", producedAt: R_A, hierarchyRevision: R_A, change: null },
     ],
   ]);
   return { keys, manifests };
@@ -158,6 +158,7 @@ test("the wire's snake_case manifest fields map to camelCase", () => {
     delivery: "mesh",
     producedAt: R_A,
     hierarchyRevision: R_A,
+    change: null,
   });
 });
 

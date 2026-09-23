@@ -34,7 +34,7 @@ function fixture() {
     root: null,
   });
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/member-3/${R1}`, { provider: "fixture-lines", node: "member-3", delivery: "mesh", producedAt: R1, hierarchyRevision: null }],
+    [`${COLL}/member-3/${R1}`, { provider: "fixture-lines", node: "member-3", delivery: "mesh", producedAt: R1, hierarchyRevision: null, change: null }],
   ]);
   const index = foldListing(
     [K(COLL, R1, MANIFEST_FILENAME), K(COLL, R1, HIERARCHY_FILENAME), K("member-3", R1, MANIFEST_FILENAME)],
@@ -77,7 +77,7 @@ test("dimmed is suppressed for an unexplored branch — absence there is not yet
   // omits it, so `unexplored` covers level-2 and its ancestors.
   const forest = mergeSpine(EMPTY_FOREST, [an("area-1", null, "area", false)], { subject: COLL, revision: R1, root: null });
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/area-1/${R1}`, { provider: "fixture-lines", node: "area-1", delivery: "none", producedAt: R1, hierarchyRevision: null }],
+    [`${COLL}/area-1/${R1}`, { provider: "fixture-lines", node: "area-1", delivery: "none", producedAt: R1, hierarchyRevision: null, change: null }],
   ]);
   const index = foldListing(
     [K(COLL, R1, MANIFEST_FILENAME), K(COLL, R1, HIERARCHY_FILENAME), K("area-1", R1, MANIFEST_FILENAME), K("area-1", R1, HIERARCHY_FILENAME)],

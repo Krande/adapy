@@ -424,3 +424,94 @@ def start_asset_build(
 
     threading.Thread(target=_run, name=f"local-asset-build-{capability}", daemon=True).start()
     return job
+
+
+def start_asset_publish(
+    *,
+    provider_id: str,
+    staged: dict[str, str],
+    collection: "str | None",
+    options: dict[str, Any],
+    published_by: str,
+    published_by_display: "str | None",
+    published_via: str,
+    dry_run: bool,
+    replace_existing: bool,
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run an ``asset_publish`` in a thread. The queue-less half of the publish surface.
+
+    The provider PLANS and core writes here too (``apply_publish_plan``), so the owner gate and
+    the manifests-last ordering hold identically on a laptop and on a cluster -- a publish is the
+    one operation where "it behaved differently in the small deployment" would mean a store whose
+    records cannot be trusted.
+    """
+    from ada.assets.manifest import Actor
+    from ada.assets.publish import apply_publish_plan
+    from ada.assets.publishers import asset_publisher
+
+    publisher = asset_publisher(provider_id)  # LookupError if this process cannot publish it
+    loop = asyncio.get_running_loop()
+
+    from ada.comms.rest.worker import _SyncStorageFacade
+
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=provider_id,
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        try:
+            job.stage = "derive"
+            job.progress = 0.1
+            plan = publisher.derive(
+                scope,
+                dict(staged),
+                storage=sync_storage,
+                collection=collection,
+                options=dict(options),
+                dry_run=dry_run,
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            occupied: set[str] = set()
+            for prefix in sorted({w.key.rsplit("/", 1)[0] for w in plan.writes}):
+                occupied.update(sync_storage.list_keys(f"{prefix}/"))
+            job.stage = "publish"
+            job.progress = 0.6
+            outcome = apply_publish_plan(
+                plan,
+                published_by=Actor(id=published_by, display=published_by_display),
+                published_via=published_via,
+                dry_run=dry_run,
+                replace_existing=replace_existing,
+                occupied=occupied,
+                write=lambda key, data: sync_storage.put_bytes(key, data),
+            )
+            payload = outcome.to_dict()
+            job.stage = "upload"
+            job.progress = 0.95
+            sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            job.result = payload
+            job.status = STATUS_DONE
+            job.stage = "done"
+            job.progress = 1.0
+        except Exception as exc:  # noqa: BLE001 — the publish's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            logger.exception("local asset publish %s (%s) failed", job.job_id, provider_id)
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.stage = "error"
+            logger.debug("local asset publish traceback:\n%s", traceback.format_exc())
+
+    threading.Thread(target=_run, name=f"local-asset-publish-{provider_id}", daemon=True).start()
+    return job

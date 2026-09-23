@@ -86,13 +86,31 @@ class AssetTreeProvider(Protocol):
 class AssetPublisher(Protocol):
     """Optional: providers that accept a publish INTO this scope.
 
-    ``derive`` receives the staged blob keys and returns a plan. It must NOT set
-    ``change.published_by`` -- that is core's to stamp from the authenticated caller, and a
-    provider that tries is refused by name at the publish job.
+    ``derive`` PLANS; core writes (``ada.assets.publish``). It receives the staged blob keys, a
+    read-only view of the scope's storage (the staged bytes are IN the store -- an upload that
+    survives a reload is the point of staging, so a plan is derived by READING them, not by being
+    handed a file), the caller's opaque publish options, and returns a ``PublishPlan``: every blob
+    this publish would write, in order, with each manifest's artefacts and counts filled in.
+
+    ``storage`` is the same synchronous facade a builder gets (``get_bytes`` / ``put_bytes`` /
+    ``list_keys``). A publisher uses the READ half; writing is core's, and a publisher that wrote
+    through it would bypass both the owner gate and the manifests-last ordering.
+
+    It must NOT set ``change.published_by`` or ``change.published_via`` -- those record who called
+    CORE, which no provider can observe, and one that tries is refused by name at the publish job
+    (Decision 6's owner gate). Relaying what the SOURCE says about authorship is the provider's to
+    do, in ``change.source_actor`` / ``action`` / ``source_instant``.
     """
 
     def derive(
-        self, scope: Any, staged: Mapping[str, str], *, collection: str | None = None, dry_run: bool = False
+        self,
+        scope: Any,
+        staged: Mapping[str, str],
+        *,
+        storage: Any,
+        collection: str | None = None,
+        options: Mapping[str, Any] | None = None,
+        dry_run: bool = False,
     ) -> Any: ...
 
 

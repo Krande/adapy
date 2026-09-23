@@ -58,8 +58,8 @@ function orphanFixture(): { forest: Forest; index: ReturnType<typeof foldListing
   });
 
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/member-9/${R1}`, { provider: "p", node: "member-9", delivery: "mesh", producedAt: R1, hierarchyRevision: null }],
-    [`${COLL}/member-20/${R3}`, { provider: "p", node: "member-20", delivery: "mesh", producedAt: R3, hierarchyRevision: null }],
+    [`${COLL}/member-9/${R1}`, { provider: "p", node: "member-9", delivery: "mesh", producedAt: R1, hierarchyRevision: null, change: null }],
+    [`${COLL}/member-20/${R3}`, { provider: "p", node: "member-20", delivery: "mesh", producedAt: R3, hierarchyRevision: null, change: null }],
   ]);
   const index = foldListing(
     [
@@ -116,9 +116,9 @@ function driftFixture(): { forest: Forest; index: ReturnType<typeof foldListing>
   forest = mergeSpine(forest, [an("member-4", "area-1", "member", true)], { subject: "member-4", revision: R1, root: null });
 
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/member-3/${R1}`, { provider: "p", node: "member-3", delivery: "mesh", producedAt: R1, hierarchyRevision: R1 }],
+    [`${COLL}/member-3/${R1}`, { provider: "p", node: "member-3", delivery: "mesh", producedAt: R1, hierarchyRevision: R1, change: null }],
     // member-4 recorded the CURRENT collection revision — no drift.
-    [`${COLL}/member-4/${R1}`, { provider: "p", node: "member-4", delivery: "mesh", producedAt: R1, hierarchyRevision: R2 }],
+    [`${COLL}/member-4/${R1}`, { provider: "p", node: "member-4", delivery: "mesh", producedAt: R1, hierarchyRevision: R2, change: null }],
   ]);
   const index = foldListing(
     [
@@ -211,7 +211,7 @@ test("a row drawn from a subtree spine is stale once its subject resolves to a n
     root: "level-2",
   });
   const manifests = new Map<string, ManifestSummary>([
-    [`${COLL}/level-2/${R2}`, { provider: "p", node: "level-2", delivery: "none", producedAt: R2, hierarchyRevision: null }],
+    [`${COLL}/level-2/${R2}`, { provider: "p", node: "level-2", delivery: "none", producedAt: R2, hierarchyRevision: null, change: null }],
   ]);
   const index = foldListing(
     [
