@@ -2,6 +2,15 @@
 
 
 
+## v0.84.1 (2026-09-23)
+
+### Fix
+
+* fix(cad): stop de-duplicating adacpp edges on a placement-blind identity (#382)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b9a3b42`](https://github.com/Krande/adapy/commit/b9a3b42678da3fb13ae4a75505b1b95e11c15d58))
+
+
 ## v0.84.0 (2026-09-23)
 
 ### Feature
