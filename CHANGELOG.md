@@ -2,6 +2,15 @@
 
 
 
+## v0.85.0 (2026-09-23)
+
+### Feature
+
+* feat: Scene &gt; Clashes tab — identify, type and group a model&#39;s joints (#384)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`ba99196`](https://github.com/Krande/adapy/commit/ba991962bb291b86df734446dc5c52c9ef183b82))
+
+
 ## v0.84.3 (2026-09-23)
 
 ### Fix
