@@ -14,8 +14,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
+import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import {
   detailBatches,
@@ -151,8 +153,11 @@ const JointRow: React.FC<{ joint: ClashJoint; scope: string; sourceName: string 
       className="text-blue-300 hover:text-white hover:underline truncate flex-1 min-w-0 text-left"
       title={`Select ${joint.members.map((m) => m.name).join(", ")}`}
       onClick={() => {
-        if (!sourceName) return;
-        void selectInOtherModel({ file: sourceName, nodeNames: joint.members.map((m) => m.name) });
+        // The shared focus action, not a bare selection: clicking a joint here has to mean the
+        // same thing as clicking its marker or arrowing onto it in the Joints tree, or the
+        // cursor-driven views (the marker emphasis, isolation) would follow only two of the
+        // three ways a user can point at a joint.
+        void focusJointEverywhere(joint.id);
       }}
     >
       {joint.members.map((m) => m.name).join(" + ")}
@@ -415,6 +420,7 @@ const ClashesPanel: React.FC = () => {
               show in 3D
             </label>
           </div>
+          <IsolationControls />
           <FilterBar result={result} filters={filters} onChange={setFilters} />
           <GenerateDetailButton
             result={result}

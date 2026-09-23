@@ -391,6 +391,26 @@ export function detailBatches(
   return [...bySpec.values()].sort((a, b) => b.spec.priority - a.spec.priority || a.spec.spec.localeCompare(b.spec.spec));
 }
 
+/** What "isolate" leaves visible: the focused joint's members, else the open group's, else
+ *  nothing -- and nothing means no isolation at all, not an empty model.
+ *
+ *  The focused joint wins over its group on purpose: arrowing down the list is a walk through
+ *  individual joints, and isolating the whole group while the cursor is on one of its joints
+ *  would make every step look the same. */
+export function isolationMembers(
+  result: ClashResult | null,
+  selectedJoint: string | null,
+  selectedGroup: string | null,
+): readonly string[] {
+  if (!result) return [];
+  if (selectedJoint) {
+    const joint = result.jointsById.get(selectedJoint);
+    if (joint) return joint.members.map((m) => m.name);
+  }
+  if (selectedGroup) return memberNamesForGroup(result, selectedGroup);
+  return [];
+}
+
 /** The loaded source a result's members live in -- the model the CHECK ran against, never
  *  whatever was loaded last.
  *
@@ -643,6 +663,13 @@ interface ClashCheckState {
    *  row, and by arrowing through the list. Its group is opened with it, because a cursor on a
    *  joint inside a collapsed group would be a selection with nothing on screen to show it. */
   selectedJoint: string | null;
+  /** What happens to the members that are NOT part of what the cursor is on: nothing (`off`),
+   *  faded to a translucent ghost, or hidden outright. A joint is a few members inside thousands
+   *  and is usually behind something, so this is how it gets looked at. */
+  isolate: "off" | "ghost" | "hidden";
+  /** How faint the ghost is, 0-1. Adjustable because a fixed value is wrong at both ends:
+   *  unusable on a dense deck, pointless on a bare frame. */
+  isolateOpacity: number;
   /** Whether the joint markers are drawn in the 3D scene. Held here rather than in the panel so
    *  the overlay survives a tab switch -- the markers are a view of the RESULT, not of the panel
    *  being mounted. */
@@ -678,6 +705,8 @@ interface ClashCheckState {
   selectGroup: (typeKey: string | null) => void;
   selectJoints: (ids: readonly string[]) => void;
   focusJoint: (id: string | null) => void;
+  setIsolate: (mode: "off" | "ghost" | "hidden") => void;
+  setIsolateOpacity: (v: number) => void;
   setShowMarkers: (v: boolean) => void;
   runCheck: (scope: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
@@ -719,6 +748,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   selectedGroup: null,
   selectedJoints: [],
   selectedJoint: null,
+  isolate: "off",
+  isolateOpacity: 0.15,
   showMarkers: true,
 
   jobId: null,
@@ -775,6 +806,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     const typeKey = get().result?.jointsById.get(id)?.typeKey ?? null;
     set({ selectedJoint: id, selectedGroup: typeKey ?? get().selectedGroup });
   },
+  setIsolate: (mode) => set({ isolate: mode }),
+  setIsolateOpacity: (v) => set({ isolateOpacity: Math.max(0.02, Math.min(1, v)) }),
   setShowMarkers: (v) => set({ showMarkers: v }),
 
   runCheck: async (scope) => {

@@ -27,6 +27,7 @@ import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
+import IsolationControls from "./IsolationControls";
 import JointDetail from "./JointDetail";
 import { cursorIndex, groupRowFor, step, visibleRows, type JointRow } from "./rows";
 
@@ -166,6 +167,8 @@ const IdentifiedJoints: React.FC = () => {
             : `generate detail model (${withGenerator})`}
         </button>
       </div>
+
+      <IsolationControls />
 
       <div
         ref={listRef}

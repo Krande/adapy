@@ -117,3 +117,34 @@ test("before a check has run, the loaded model is the only answer there is", () 
   assert.equal(checkedSourceName(null, "steel-demo.ifc"), "steel-demo.ifc");
   assert.equal(checkedSourceName(null, null), null);
 });
+
+// --- what stays visible when the rest is faded or hidden --------------------------------------
+
+const { isolationMembers } = await import("@/state/clashCheckStore");
+
+test("isolation keeps the focused joint's members", () => {
+  const result = parseClashResult(fixtureDoc());
+  assert.deepEqual(isolationMembers(result, "j3", "b"), ["bmj3"]);
+});
+
+test("the focused joint wins over its group, so each step of a walk looks different", () => {
+  const result = parseClashResult(fixtureDoc());
+  // Group "a" holds j1 and j2; with j1 focused, only j1's members stay.
+  assert.deepEqual(isolationMembers(result, "j1", "a"), ["bmj1"]);
+});
+
+test("with a group open and no joint focused, the group's members stay", () => {
+  const result = parseClashResult(fixtureDoc());
+  assert.deepEqual(isolationMembers(result, null, "a"), ["bmj1", "bmj2"]);
+});
+
+test("nothing focused keeps nothing -- which means no isolation, not an empty model", () => {
+  const result = parseClashResult(fixtureDoc());
+  assert.deepEqual(isolationMembers(result, null, null), []);
+  assert.deepEqual(isolationMembers(null, "j1", "a"), []);
+});
+
+test("a joint id the result does not carry falls back to the group rather than isolating nothing", () => {
+  const result = parseClashResult(fixtureDoc());
+  assert.deepEqual(isolationMembers(result, "not-a-joint", "a"), ["bmj1", "bmj2"]);
+});

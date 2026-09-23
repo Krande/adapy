@@ -24,7 +24,15 @@ import * as THREE from "three";
 
 import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
-import { filteredGroups, jointMarkers, useClashCheckStore, type JointMarker } from "@/state/clashCheckStore";
+import {
+  checkedSourceName,
+  filteredGroups,
+  isolationMembers,
+  jointMarkers,
+  useClashCheckStore,
+  type JointMarker,
+} from "@/state/clashCheckStore";
+import { clearJointIsolation, isolateJointMembers } from "@/utils/scene/clashIsolation";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 
 /** Marker radius as a fraction of the model's bounding-box diagonal. A joint is a point, so the
@@ -190,12 +198,14 @@ export function startClashMarkerSync(): void {
     // The markers belong to the model the CHECK ran against, not to whatever was loaded last:
     // overlaying this run's produced joints adds a second source, and drawing the centres in that
     // overlay's space would move every sphere by its own centring offset.
-    const file = state.sourceName ?? useModelState.getState().loadedSourceName;
+    const file = checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
     const signature = JSON.stringify([
       file,
       state.showMarkers,
       state.selectedGroup,
       state.selectedJoint,
+      state.isolate,
+      state.isolateOpacity,
       state.filters,
       state.derivedKey,
       state.result?.joints.length ?? 0,
@@ -203,13 +213,25 @@ export function startClashMarkerSync(): void {
     if (!force && signature === last) return;
     last = signature;
     renderJointMarkers(file, markersForState(state));
+    // Isolation follows the same cursor the markers do, from the same subscription: two
+    // subscriptions could show a joint whose neighbours had been faded for a different one.
+    void isolateJointMembers(
+      file,
+      isolationMembers(state.result, state.selectedJoint, state.selectedGroup),
+      state.isolate,
+      state.isolateOpacity,
+    );
   };
 
   useClashCheckStore.subscribe(() => redraw());
   // Unloading (or switching) the model takes the markers down with it: they are drawn in that
   // model's space, and a result outlives the load it was run against only as stale numbers.
   useModelState.subscribe((s, prev) => {
-    if (s.loadedSourceName !== prev.loadedSourceName) redraw();
+    if (s.loadedSourceName === prev.loadedSourceName) return;
+    // A model change takes the isolation down with the markers: hidden ranges belong to the mesh
+    // that was isolated, and leaving them set would hide most of a model nobody isolated.
+    clearJointIsolation();
+    redraw();
   });
   redraw(true);
 }
