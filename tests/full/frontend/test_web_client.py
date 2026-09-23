@@ -51,7 +51,20 @@ async def test_frontend_ws_client_connection(http_server, ws_server):
         assert response.status == 200
 
         async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-            assert await ws_client.check_target_liveness() is True
+            # POLL, don't ask once. `goto` resolves when the DOCUMENT has loaded; the viewer then
+            # has to boot, open its websocket and register as a WEB target, and only then is
+            # there anything for a liveness PING to answer. `check_target_liveness` waits one
+            # second for a PONG and returns False otherwise -- so a single call asserts that the
+            # whole client came up inside that one second, which on a loaded CI runner it does
+            # not. That is what `assert False is True` was reporting, and it is a race in this
+            # test, not in the websocket: `test_front_multiple_connections` below already polls
+            # for exactly this reason ("Wait until the viewer has actually connected").
+            for _ in range(100):  # up to ~10s, each check waiting up to 1s internally
+                if await ws_client.check_target_liveness():
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                assert False, "the viewer never became live on the websocket"
 
         await browser.close()
 
