@@ -66,3 +66,22 @@ def test_instance_scoped_elset_resolves_against_the_instance(tmp_path, keyword):
 
     corner = a.fem.nsets["CORNER"]
     assert [n.id for n in corner.members] == [1]
+
+
+def test_id_backed_set_keeps_resolving_after_moving_to_the_assembly(tmp_path):
+    """The reader now builds these sets from objects, so pin the container behaviour directly:
+    an id-backed elset owned by an instance still resolves once added to the assembly's sets."""
+    from ada.fem import FemSet
+
+    inp = tmp_path / "instance_sets.inp"
+    inp.write_text(_DECK.format(keyword="*Elset"))
+    a = ada.from_fem(inp, "abaqus")
+    part_fem = a.parts["PART-1"].fem
+
+    fs = FemSet("MOVED", [part_fem.elements.from_id(1)], "elset", parent=part_fem)
+    assert fs._member_ids == [1]  # the id-backed path, which is what this test is about
+
+    a.fem.sets.add(fs)
+    a.fem.sets.link_data()
+
+    assert [el.id for el in a.fem.elsets["MOVED"].members] == [1]

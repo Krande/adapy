@@ -676,12 +676,16 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                     exc,
                 )
 
+        # Object members, not ids: these sets are read once and walked many times (set
+        # composition, instance re-parenting, export), and re-resolving every id on each
+        # walk doubled the read time of a CAE deck while saving no memory.
         fem_set = FemSet(
             name,
             resolved,
             set_type=set_type,
             metadata=metadata,
             parent=parent_instance,
+            id_backed=False,
         )
         parsed[(set_type_l, name)] = fem_set
 
