@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Bc
 
+from ..grammar import format_number
 from ..mapping import bc_types
 from .helper_utils import get_instance_name
 
@@ -33,7 +34,7 @@ def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
     for dof, magn in zip(bc.dofs, bc.magnitudes):
         if dof is None:
             continue
-        magn_str = f", {magn:.6E}" if magn is not None else ""
+        magn_str = f", {format_number(magn)}" if magn is not None else ""
         if bc.type in [Bc.TYPES.CONN_DISPL, Bc.TYPES.CONN_VEL] or isinstance(dof, str):
             dofs_str += f" {inst_name}, {dof}{magn_str}\n"
         else:

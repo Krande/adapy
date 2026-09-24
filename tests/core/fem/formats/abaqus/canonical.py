@@ -47,7 +47,8 @@ R11 Connectors are compared assembly-wide, keyed by element id, with their end n
     ``(part, node id)``: the writer writes every connector at assembly level (it may join
     instances), so a connector defined in a part reads back on the assembly. The connector's own
     element set and orientation are its attributes, compared on it -- not as separate entries
-    of whichever FEM happens to hold them.
+    of whichever FEM happens to hold them. A BC on a set of connectors only is keyed on the
+    assembly, where that set is written.
 R12 A constraint's DOFs are compared expanded (``ada.fem.constraints.expand_dofs``): ``[1, 2, 3]``
     and the reader's ``(first, last)`` ranges ``[[1, 1], [2, 2], [3, 3]]`` are one DOF list. An
     operand is compared by its nodes/elements, and by name -- except where Abaqus has no name for
@@ -81,6 +82,8 @@ R18 A point load is compared by its effective components (``forces``: each DOF's
 R19 A step whose text is supplied verbatim (metadata ``aba_inp``) is written as that text and
     nothing else, so it is compared as that text reads -- parsed by the reader's step parser
     against the same model -- not as the step object that carried it.
+R20 An interaction's ``aba_bulk`` is the text written in its place, and the reader keeps no copy
+    of it: as with R16, the typed interaction is compared, and the text has to say what it says.
 """
 
 from __future__ import annotations
@@ -155,7 +158,6 @@ def _meta(obj) -> dict:
 #: is adapy-internal and has no Abaqus form.
 _WRITTEN_METADATA = {
     "aba_inp",
-    "aba_bulk",
     "no_compression",
     "rotary_inertia",
 }  # not section_type / line1 / temperature: R9
@@ -448,7 +450,9 @@ def _bc_type(t) -> str:
 def _bc(bc) -> dict:
     owner = bc.fem_set.parent
     part = getattr(owner, "parent", None)
-    if part is not None and getattr(part, "fem", None) is owner:  # R6
+    if _is_connector_set(bc.fem_set):  # R11: written, and so read, beside its connectors
+        owner_name = "<assembly>"
+    elif part is not None and getattr(part, "fem", None) is owner:  # R6
         owner_name = _part_key(part)
     else:
         owner_name = (

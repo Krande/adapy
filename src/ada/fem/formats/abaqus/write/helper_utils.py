@@ -10,8 +10,24 @@ def set_name(fem_set) -> str:
     return fem_set if isinstance(fem_set, str) else fem_set.name
 
 
+def is_connector_set(obj) -> bool:
+    """A set of connector elements only. Connectors are written at assembly level (they may join
+    instances), so such a set is too -- a part-level one would name elements the part does not
+    define."""
+    from ada.fem import Connector, FemSet
+
+    if not isinstance(obj, FemSet):
+        return False
+    members = obj.members
+    return bool(members) and all(isinstance(m, Connector) for m in members)
+
+
 def get_instance_name(obj, written_on_assembly_level: bool) -> str:
     from ada import FEM, Assembly, Node, Part
+
+    if is_connector_set(obj):
+        # Written beside its connectors, at assembly level (writer.py), under its own name.
+        return obj.name
 
     parent: Union[FEM, Part] = obj.parent
     p = parent.parent if type(parent) is FEM else parent

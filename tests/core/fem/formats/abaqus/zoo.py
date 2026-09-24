@@ -600,7 +600,19 @@ def interactions() -> ada.Assembly:
     a.fem.add_interaction(Interaction("general", ContactTypes.GENERAL, None, None, tab))
     a.fem.add_interaction(Interaction("penalty", ContactTypes.SURFACE, s2, s1, hard, constraint="PENALTY"))
     a.fem.add_interaction(
-        Interaction("raw", ContactTypes.SURFACE, s1, s2, hard, metadata=dict(aba_bulk="** raw interaction text"))
+        # Verbatim text written in the interaction's place: it has to say what the typed fields
+        # say, or the model contradicts itself (canonical R20).
+        Interaction(
+            "raw",
+            ContactTypes.SURFACE,
+            s1,
+            s2,
+            hard,
+            metadata=dict(
+                aba_bulk="** Interaction: raw\n*Contact Pair, interaction=hard, type=SURFACE TO SURFACE\n"
+                "P1-1.contact_bot, P1-1.contact_top\n"
+            ),
+        )
     )
     return a
 

@@ -7,7 +7,7 @@ from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
-from .write_connectors import connector_section_str, connector_str
+from .write_connectors import connector_section_str, connector_sets_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_interactions import eval_interactions, int_prop_str
@@ -76,6 +76,7 @@ def to_fem(
         if len(all_connectors) > 0:
             for con in all_connectors:
                 d.write(connector_str(con, True))
+            d.write(connector_sets_str(all_fem_parts))
             # d.write(connectors_str(afem))
         else:
             d.write("** No Connectors")

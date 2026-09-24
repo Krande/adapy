@@ -122,6 +122,8 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
 
     get_materials_from_bulk(assembly, props_str)
     get_intprop_from_lines(assembly, props_str)
+    # Before anything that names one: a BC's AMPLITUDE= is resolved as the BC is read.
+    read_amplitudes(props_str, assembly.fem)
 
     ass_data = extract_instance_data(assembly_str[:inst_end])
 
@@ -155,7 +157,6 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_str(assembly, props_str)
-    read_amplitudes(props_str, assembly.fem)
     read_transforms(assembly_str, assembly.fem)
     read_steps(bulk_str[step_start:], assembly)
     assembly.fem.metadata.pop("_abaqus_transforms", None)
@@ -1003,7 +1004,55 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
             props["bc_type"] = table.from_abaqus(bc_type) if table.knows(bc_type) else bc_type
         if magn is not None:
             props["magnitudes"] = magn
+        amplitude = _bc_amplitude(block, bc_name)
+        if amplitude is not None:
+            props["amplitude"] = amplitude
 
+        return Bc(bc_name, fem_set, dofs, parent=fem, **props)
+
+    def _bc_amplitude(block: KeywordBlock, bc_name: str):
+        name = block.params.get("AMPLITUDE")
+        if name is None:
+            return None
+        owner = fem.parent.get_assembly() if fem.parent is not None else None
+        amplitude = by_name(owner.fem.amplitudes, name) if owner is not None else None
+        if amplitude is None:
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                READER_STAGE, f"*{block.keyword}", bc_name, "names an amplitude that is not defined", missing=name
+            )
+        return amplitude
+
+    def get_connector_motion(block: KeywordBlock) -> Bc:
+        """``*Connector Motion``: ``connector set, component, magnitude`` lines, the TYPE parameter
+        saying whether the magnitude is a displacement or a velocity."""
+        props = comment_property(block, "Name", "Type")
+        bc_name = props.get("Name") or next(bc_counter)
+        kind = (block.params.get("TYPE") or "DISPLACEMENT").upper()
+        bc_type = Bc.TYPES.CONN_VEL if kind == "VELOCITY" else Bc.TYPES.CONN_DISPL
+        by_dof: dict[int, float | None] = {}
+        set_name = None
+        for line in block.data_lines:
+            ev = [x.strip() for x in line.split(",")]
+            set_name = ev[0]
+            by_dof[int(ev[1])] = float(ev[2]) if len(ev) > 2 and ev[2] else None
+        if "." in set_name:
+            inst, local = set_name.split(".", 1)
+            owner = next(p.fem for p in fem.parent.get_all_parts_in_assembly() if p.fem.instance_name == inst)
+        else:
+            owner, local = fem, set_name
+        fem_set = by_name(owner.elsets, local)
+        if fem_set is None:
+            raise ValueError(f'abaqus read: *Connector Motion names element set "{set_name}", which is not defined')
+        dofs = [x if x in by_dof else None for x in range(1, 7)]
+        magn = [by_dof.get(x) for x in range(1, 7)]
+        props = dict(bc_type=bc_type)
+        if any(m is not None for m in magn):
+            props["magnitudes"] = magn
+        amplitude = _bc_amplitude(block, bc_name)
+        if amplitude is not None:
+            props["amplitude"] = amplitude
         return Bc(bc_name, fem_set, dofs, parent=fem, **props)
 
     bcs: List[Bc] = []
@@ -1019,6 +1068,9 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
             by_set.setdefault(name, []).append(line)
         for lines in by_set.values():
             bcs.append(get_bc(block, tuple(lines)))
+    for block in iter_keywords(bulk_str, "CONNECTOR MOTION"):
+        validate(block)
+        bcs.append(get_connector_motion(block))
     return bcs
 
 

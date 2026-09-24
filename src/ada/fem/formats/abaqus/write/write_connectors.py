@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from ..grammar import format_number, render_keyword
-from .helper_utils import get_instance_name
+from .helper_utils import get_instance_name, is_connector_set
 from .write_orientations import csys_str
 
 if TYPE_CHECKING:
@@ -14,6 +14,22 @@ if TYPE_CHECKING:
 
 def connectors_str(fem: FEM) -> str:
     return "\n".join([connector_str(con, True) for con in fem.elements.connectors])
+
+
+def connector_sets_str(fems) -> str:
+    """The parts' connector-only element sets, at assembly level where their connectors are.
+    The set named after a connector is written with it (connector_str); any other -- a set a BC
+    or history output names -- was not written at all, so what referred to it named nothing."""
+    out = ""
+    for fem in fems:
+        own = {con.name for con in fem.elements.connectors}
+        for fem_set in fem.sets:
+            if fem_set.type != "elset" or fem_set.name in own or not is_connector_set(fem_set):
+                continue
+            ids = [str(m.id) for m in fem_set.members]
+            rows = [", ".join(ids[i : i + 16]) for i in range(0, len(ids), 16)]
+            out += "\n" + render_keyword("Elset", [("elset", fem_set.name)], rows)
+    return out
 
 
 def connector_sections_str(fem: FEM) -> str:

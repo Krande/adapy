@@ -29,9 +29,6 @@ from .canonical import canonical, diff_paths
 from .zoo import ZOO
 
 FULL_ROUND_TRIP_GAPS = {
-    "boundary_conditions": (AssertionError, "connector-motion BCs are not read; a BC's amplitude is not read"),
-    "interactions": (AssertionError, "a raw interaction (aba_bulk text) does not read back"),
-    "outputs": (AssertionError, "the connector elset a history output names is not written"),
     "sections_zero_thickness": (
         AssertionError,
         "a zero-thickness shell section has no Abaqus form: left out, reported as omitted",
