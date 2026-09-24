@@ -13,12 +13,66 @@ from . import cards
 
 def get_constraints(bulk_str, fem: FEM) -> Dict[str, Constraint]:
     con_map = [m.groupdict() for m in cards.re_bldep.finditer(bulk_str)]
-    con_map.sort(key=lambda x: x["master"])
+    rigid = [d for d in con_map if _is_rigid_link(d, fem)]
     constraints: Dict[str, Constraint] = {}
-    for m, d in groupby(con_map, key=lambda x: x["master"]):
+    for c in equations_from_bldep([d for d in con_map if not _is_rigid_link(d, fem)], fem):
+        constraints[c.name] = c
+    rigid.sort(key=lambda x: x["master"])
+    for m, d in groupby(rigid, key=lambda x: x["master"]):
         c = grab_constraint(m, d, fem)
         constraints[c.name] = c
     return constraints
+
+
+def _bldep_terms(d: dict) -> list[tuple[int, int, float]]:
+    """A BLDEP record's ``(slave dof, master dof, beta)`` triplets."""
+    vals = [float(x) for x in d["bulk"].split()]
+    n = str_to_int(d["ndep"])
+    return [(int(vals[4 * i]), int(vals[4 * i + 1]), vals[4 * i + 2]) for i in range(n)]
+
+
+def _is_rigid_link(d: dict, fem: FEM) -> bool:
+    """Whether a BLDEP record is the rigid arm a coupling writes (``write_constraints._bldep``):
+    the slave's three translations following the master's translation plus its rotation
+    about the lever arm between them. Anything else is a general linear dependency, which is
+    what an ``*Equation`` is."""
+    from ada.fem.common import LinDep
+
+    slave = fem.nodes.from_id(str_to_int(d["slave"]))
+    master = fem.nodes.from_id(str_to_int(d["master"]))
+    got = {(s, m): b for s, m, b in _bldep_terms(d)}
+    want = {(s, m): b for s, m, b in LinDep(master.p, slave.p).to_integer_list()}
+    if got.keys() != want.keys():
+        return False
+    # GCOORD holds nine significant digits, so the lever arm read back is the written one
+    # to about that; the betas are compared no closer.
+    scale = max(1.0, *(abs(b) for b in want.values()))
+    return all(abs(got[k] - want[k]) <= 1e-7 * scale for k in want)
+
+
+def equations_from_bldep(records: list[dict], fem: FEM) -> list[Constraint]:
+    """General BLDEP records back as ``*Equation`` constraints, one per dependent dof.
+
+    ``u(s, d) = sum_i beta_i u(m_i, d_i)`` is the equation ``1 u(s, d) - sum_i beta_i u(m_i,
+    d_i) = 0`` with the dependent term first, which is the term Abaqus eliminates. The terms
+    of one dependent dof are gathered over every record naming it, in file order.
+    """
+    eqs: dict[tuple[int, int], list] = {}
+    for d in records:
+        slave = fem.nodes.from_id(str_to_int(d["slave"]))
+        master = fem.nodes.from_id(str_to_int(d["master"]))
+        for s_dof, m_dof, beta in _bldep_terms(d):
+            terms = eqs.setdefault((slave.id, s_dof), [(slave, s_dof, 1.0)])
+            terms.append((master, m_dof, -beta))
+    out = []
+    for (sid, s_dof), terms in eqs.items():
+        s_set = FemSet(f"eq{sid}_{s_dof}_s", [terms[0][0]], "nset")
+        # The operands an Abaqus-read equation carries: the eliminated node and the next one.
+        m_set = FemSet(f"eq{sid}_{s_dof}_m", [terms[1][0]], "nset")
+        out.append(
+            Constraint(f"eq{sid}_{s_dof}", Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem)
+        )
+    return out
 
 
 def grab_constraint(master, data, fem: FEM) -> Constraint:

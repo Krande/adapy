@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada import FEM
 from ada.fem.shapes.definitions import MassTypes
 
+from .not_held import STAGE, report
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -58,10 +59,27 @@ def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     if ndofs is None:
         ndofs = node_dofs(fem)
 
+    rep = report()
     out_str = ""
 
     for mass in fem.elements.masses:
         members = list(mass.members)
+        if mass.type == MassTypes.NONSTRUCTURAL:
+            if any(getattr(m, "nodes", None) is not None for m in members):
+                # An element region: its members are elements, whose ids this loop used to
+                # write into BNMASS's *node* field, and the value is a mass per length/area/
+                # volume, not a total. BNMASS has no distributed form.
+                rep.omitted(STAGE, "Mass", mass.name, "a non-structural mass over elements has no nodal BNMASS form")
+                continue
+            rep.approximated(
+                STAGE, "Mass", mass.name, "a non-structural mass is lumped equally onto its nodes", n_nodes=len(members)
+            )
+        elif mass.type == MassTypes.ROTARYI:
+            raw = mass._mass
+            if isinstance(raw, (list, tuple)) and any(float(x) != 0.0 for x in raw[3:]):
+                rep.approximated(
+                    STAGE, "Mass", mass.name, "BNMASS has no products of inertia; only I11, I22, I33 are written"
+                )
         comps = _bnmass_components(mass, max(1, len(members)))
         for m in members:
             ndof = ndofs.ndof(m.id)

@@ -1,12 +1,18 @@
-from typing import Iterator, List, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 from ada import FEM
 from ada.config import logger
 from ada.fem import Elem
-from ada.fem.shapes.definitions import ConnectorTypes
+from ada.fem.shapes.definitions import (
+    ConnectorTypes,
+    ElemShapeTypes,
+    MassTypes,
+    SpringTypes,
+)
 
 from ..common import sesam_el_map
 from ..node_order import SESAM_ORDER
+from .not_held import STAGE, report
 from .write_utils import write_ff
 
 # Reverse of ``sesam_el_map``, built once rather than re-scanned per element. Several
@@ -20,35 +26,6 @@ def eltype_2_sesam(eltyp) -> int:
     if ses is None:
         raise Exception("Currently unsupported eltype", eltyp)
     return ses
-
-
-def _is_writable_to_sesam(el: Elem) -> bool:
-    """Skip-list gate for elements the Sesam writer can't faithfully
-    emit yet. Two reasons land an element here:
-
-    * **CONNECTOR**: ada represents it as a topology-only 2-noded
-      element with no stiffness matrix. Sesam's nearest match
-      (GLSH, element type 40) requires a 12×12 stiffness via an
-      MSHGLSP record that we don't have data for. Emitting a
-      GELMNT1 with eltyp=40 without the matching MSHGLSP would
-      produce a Sestra-incomplete deck — skipping is the honest
-      choice. Cross-format roundtrip uses an MPC / kinematic-
-      coupling representation instead (see the internal notes).
-
-    * **Unsectioned elements** (``fem_sec is None``): the Sesam
-      writer's GELREF1 emitter needs a section / material binding
-      to produce a valid record. Cross-format sources (Abaqus
-      ``.inp`` with mesh-only sections, Code_Aster MED mesh
-      without analysis spec) sometimes ship elements that haven't
-      been bound to a FemSection at all. Emit nothing for those —
-      the user gets a clear warning and a partial deck rather
-      than a writer crash.
-    """
-    if isinstance(el.type, ConnectorTypes):
-        return False
-    if el.fem_sec is None:
-        return False
-    return True
 
 
 #: How many of the missing internal element numbers the contiguity warning names before it
@@ -114,6 +91,75 @@ def _warn_if_not_contiguous(el_ids: List[int], n_skipped: int) -> None:
     )
 
 
+def is_spring(el) -> bool:
+    return el.type in ElemShapeTypes.springs
+
+
+def partition_elements(fem: FEM) -> Tuple[List[Elem], Dict[str, List[Elem]]]:
+    """Split ``fem``'s structural elements into the ones the deck writes and the ones it
+    cannot, the latter keyed by why.
+
+    Shared by :func:`elem_gen`, which writes the first and reports the second, and by
+    ``writer.to_fem``, which keeps the set block from naming an element that is not in
+    the deck (a GSETMEMB member with no GELMNT1 is an id the reader cannot resolve).
+
+    * ``"connector"``: ada represents a connector as a topology-only 2-noded element with
+      no stiffness matrix. Sesam's nearest match (GLSH, element type 40) requires a 12×12
+      stiffness via an MSHGLSP record that we don't have data for, and a GELMNT1 without
+      it would be a Sestra-incomplete deck.
+    * ``"unsectioned"``: GELREF1 needs a section / material binding to produce a valid
+      record. Cross-format sources (Abaqus mesh-only decks, Code_Aster MED meshes)
+      sometimes ship elements that were never bound to a FemSection.
+    * ``"unsupported"``: a shape with no Sesam element type (section 5, table 5.1), e.g.
+      the 7-node triangle and the 5-node pyramid.
+    """
+    writable: List[Elem] = []
+    # ``stru_elements`` holds ``Connector`` objects back; they are left out all the same,
+    # and a connector set must not name them.
+    skipped: Dict[str, List[Elem]] = {"connector": list(fem.elements.connectors), "unsectioned": [], "unsupported": []}
+    for el in fem.elements.stru_elements:
+        if isinstance(el.type, (MassTypes, SpringTypes)):
+            # A packed mass or spring row seen through its block rather than as its object
+            # (a merged multi-part model has these): BNMASS writes the mass, and the spring
+            # is reported with the others.
+            continue
+        if isinstance(el.type, ConnectorTypes):
+            skipped["connector"].append(el)
+        elif el.type not in _gen_2_sesam:
+            skipped["unsupported"].append(el)
+        elif el.fem_sec is None:
+            skipped["unsectioned"].append(el)
+        else:
+            writable.append(el)
+    return writable, skipped
+
+
+def unwritten_element_ids(fem: FEM) -> set:
+    """Ids of the elements :func:`elem_gen` leaves out of the deck."""
+    _, skipped = partition_elements(fem)
+    return {el.id for els in skipped.values() for el in els}
+
+
+def _report_skipped(fem: FEM, skipped: Dict[str, List[Elem]]) -> int:
+    """Name every element the deck leaves out; return how many that is."""
+    rep = report()
+    # stru_elements already holds springs back, so nothing below would ever mention
+    # them. Say so rather than let them vanish: the reader builds Spring objects off
+    # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
+    # with springs loses them here, and silence makes that look like the deck never
+    # had any.
+    springs = list(fem.elements.springs)
+    for sp in springs:
+        rep.omitted(STAGE, "Spring", sp.name, "the writer emits no GELMNT1 + MGSPRNG pair for a spring yet")
+    for el in skipped["connector"]:
+        rep.omitted(STAGE, "Connector", el.name, "a connector has no Sesam element (GLSH needs a stiffness matrix)")
+    for el in skipped["unsectioned"]:
+        rep.omitted(STAGE, "Element", str(el.id), "no section: GELREF1 needs a material and section binding")
+    for el in skipped["unsupported"]:
+        rep.omitted(STAGE, "Element", str(el.id), f"{el.type} has no Sesam element type", type=str(el.type))
+    return len(springs) + sum(len(els) for els in skipped.values())
+
+
 def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     """
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
@@ -122,46 +168,8 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     'GELMNT1', 'elnox', 'elno', 'eltyp', 'eltyad', 'nids'
     """
 
-    writable: list[Elem] = []
-    skipped_connector = 0
-    skipped_unsectioned = 0
-    # stru_elements already holds springs back, so nothing below would ever mention
-    # them. Say so rather than let them vanish: the reader builds Spring objects off
-    # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
-    # with springs loses them here, and silence makes that look like the deck never
-    # had any.
-    n_springs = sum(1 for _ in fem.elements.springs)
-    if n_springs > 0:
-        logger.warning(
-            "sesam writer: skipping %d spring element(s) — writing them back needs a "
-            "GELMNT1 + MGSPRNG pair the writer does not emit yet. Output deck will be "
-            "missing these elements.",
-            n_springs,
-        )
-    for el in fem.elements.stru_elements:
-        if isinstance(el.type, ConnectorTypes):
-            skipped_connector += 1
-            continue
-        if el.fem_sec is None:
-            skipped_unsectioned += 1
-            continue
-        writable.append(el)
-    if skipped_connector > 0:
-        logger.warning(
-            "sesam writer: skipping %d CONNECTOR element(s) — Sesam GLSH "
-            "needs a stiffness matrix that ada doesn't carry on the "
-            "topology-only Elem instance. Output deck will be missing "
-            "these elements.",
-            skipped_connector,
-        )
-    if skipped_unsectioned > 0:
-        logger.warning(
-            "sesam writer: skipping %d unsectioned element(s) — "
-            "GELREF1 needs a FemSection binding (material / section "
-            "id) to write a valid record. Bind the elements to a "
-            "FemSection on the ada side, or accept a partial deck.",
-            skipped_unsectioned,
-        )
+    writable, skipped = partition_elements(fem)
+    n_skipped = _report_skipped(fem, skipped)
 
     # Presel requires GELMNT1/GELREF1 in internal element order (ELNO, manual printed
     # 6-65 and 6-68); the array-backed container iterates block by block, so a mixed
@@ -178,7 +186,7 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     if dupes:
         raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
 
-    _warn_if_not_contiguous(el_ids, skipped_connector + skipped_unsectioned + n_springs)
+    _warn_if_not_contiguous(el_ids, n_skipped)
 
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in

@@ -116,10 +116,15 @@ def test_calculix_reports_the_spring_it_drops(tmp_path, warnings_visible):
 def test_sesam_reports_the_springs_it_drops(tmp_path, warnings_visible):
     """The Sesam reader builds springs off GELMNT1 eltyp 18/40, but the writer emits no
     GELMNT1+MGSPRNG pair for them — so a Sesam round trip loses them. Known gap; the
-    point of the test is that it is a loud one."""
-    _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
+    point of the test is that it is a loud one: named in the conversion report, and logged."""
+    from ada.fem.formats import conversion_report
 
-    assert "skipping 1 spring element(s)" in warnings_visible.text
+    with conversion_report.collect() as report:
+        _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
+
+    (finding,) = [f for f in report.findings if f.keyword == "Spring"]
+    assert (finding.kind, finding.stage, finding.subject) == ("omitted", "sesam writer", "spr1")
+    assert "Spring: spr1" in warnings_visible.text
 
 
 def test_usfos_reports_the_springs_it_drops(tmp_path, warnings_visible):
