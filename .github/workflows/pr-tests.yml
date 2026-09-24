@@ -297,37 +297,22 @@ jobs:
             BASE_SHA: ${{ github.event.pull_request.base.sha }}
           run: |
             CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
-            if echo "$CHANGED" | grep -qE '^(pyproject\.toml$|src/ada/.*\.(sql|json|xml|zip)$|tests/|files/|scripts/|tools/localise_feedstock_recipe\.py$|\.github/workflows/pr-tests\.yml$)'; then
+            if echo "$CHANGED" | grep -qE '^(pyproject\.toml$|src/ada/.*\.(sql|json|xml|zip)$|tests/|files/|scripts/|tools/localise_feedstock_recipe\.py$|tools/feedstock_build\.sh$|\.github/workflows/pr-tests\.yml$)'; then
               echo "run=true" >> "$GITHUB_OUTPUT"
             else
               echo "run=false" >> "$GITHUB_OUTPUT"
               echo "Nothing here changes what is packaged or what the packaged tests assume."
             fi
 
-        - uses: prefix-dev/setup-pixi@v0.10.2
+        # The feedstock's OWN build-locally.py, not rattler-build on this runner: conda-forge's
+        # image (linux-anvil), its mounts, and its layout -- the packaged tests run inside the
+        # feedstock's git checkout, as on conda-forge. The bare-runner build ran them outside any
+        # repo, where two `git grep` gates skipped and went green while conda-forge failed them
+        # (conda-forge/ada-py-feedstock#221). tools/feedstock_build.sh says why in full, and is
+        # the same command to run locally.
+        - name: Build and test the package the way conda-forge does
           if: steps.scope.outputs.run == 'true'
-          with:
-            pixi-version: v0.68.0
-            environments: tests
-            cache: true
-
-        - name: Clone the feedstock
-          if: steps.scope.outputs.run == 'true'
-          run: git clone --depth 1 https://github.com/conda-forge/ada-py-feedstock.git "$RUNNER_TEMP/feedstock"
-
-        - name: Point its recipe at this checkout
-          if: steps.scope.outputs.run == 'true'
-          run: |
-            pixi run -e tests python tools/localise_feedstock_recipe.py               "$RUNNER_TEMP/feedstock/recipe/recipe.yaml"               --checkout "$GITHUB_WORKSPACE" --pyproject pyproject.toml
-            sed -n '1,25p' "$RUNNER_TEMP/feedstock/recipe/recipe.yaml"
-
-        # The recipe's own variant config and channels; passing -c as well is rejected
-        # ("channel_sources and channels cannot both be set").
-        - name: Build and run the recipe's tests
-          if: steps.scope.outputs.run == 'true'
-          run: |
-            cd "$RUNNER_TEMP/feedstock"
-            pixi exec -s rattler-build rattler-build build               -r recipe/recipe.yaml -m .ci_support/linux_64_.yaml               --output-dir "$RUNNER_TEMP/out"
+          run: tools/feedstock_build.sh "$RUNNER_TEMP/feedstock-build"
 
     # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
     # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the
