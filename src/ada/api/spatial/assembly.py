@@ -135,8 +135,21 @@ class Assembly(Part):
         fem_format: FEATypes | str = None,
         name: str = None,
         fem_converter: FemConverters | str = "default",
+        report_file: str | os.PathLike | None = None,
     ):
-        """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
+        """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix
+
+        :param report_file: Write what the reader could not carry into the model to this path as
+            a JSON conversion report (``ada.fem.formats.conversion_report``). Always written.
+        """
+        from ada.fem.formats import conversion_report
+
+        with conversion_report.to_file(
+            report_file, input=str(pathlib.Path(fem_file).resolve()), from_format=_format_name(fem_format)
+        ):
+            self._read_fem(fem_file, fem_format, name, fem_converter)
+
+    def _read_fem(self, fem_file, fem_format, name, fem_converter) -> None:
         from ada.fem.formats.general import get_fem_converters
 
         fem_file = pathlib.Path(fem_file)
@@ -169,6 +182,7 @@ class Assembly(Part):
         return_fea_results=True,
         model_data_only=False,
         write_input_files_only=False,
+        report_file: str | os.PathLike | None = None,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -204,6 +218,10 @@ class Assembly(Part):
         :param return_fea_results: Automatically import the result mesh into
         :param model_data_only: Only write the model data (nodes, elements, etc.) to the FEM file
         :param write_input_files_only: Only write the input files, do not execute the analysis
+        :param report_file: Write what the writer could not carry into the input deck -- constructs
+            the format has no form for, and what it approximated -- to this path as a JSON
+            conversion report (``ada.fem.formats.conversion_report``). Always written, also when
+            nothing was lost.
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -234,9 +252,14 @@ class Assembly(Part):
             logger.info(f"FEM result file already exists: {res_path}")
             return postprocess(res_path, fem_format=fem_format)
 
-        write_to_fem(
-            self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
-        )
+        from ada.fem.formats import conversion_report
+
+        with conversion_report.to_file(
+            report_file, output=str(scratch_dir / name), name=name, to_format=_format_name(fem_format)
+        ):
+            write_to_fem(
+                self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
+            )
 
         if write_input_files_only:
             return None
@@ -581,3 +604,8 @@ class Assembly(Part):
             f'Assembly("{self.name}": Beams: {nbms}, Plates: {npls}, Pipes: {npipes}, '
             f"Shapes: {nshps}, Elements: {nels}, Nodes: {nns})"
         )
+
+
+def _format_name(fem_format) -> str | None:
+    """A format for a report header: the enum's value, the string as given, or None."""
+    return getattr(fem_format, "value", fem_format)
