@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from itertools import chain
 from typing import TYPE_CHECKING
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
@@ -18,12 +18,15 @@ def orientations_str(fem: FEM, written_on_assembly_level: bool) -> str:
             if load.csys is None:
                 continue
             cstr += "\n"
-            coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
+            # The two points the Keywords Guide's *Transform takes -- a on the local x-axis, b in
+            # the local x-y plane -- exactly. This wrote all nine coordinates as text and cut the
+            # last CHARACTER off, and then the same system again as an *Orientation.
+            a, b = load.csys.coords[0], load.csys.coords[1]
+            coord_str = ", ".join(format_number(x) for x in (*a, *b))
             name = load.fem_set.name.upper()
             inst_name = get_instance_name(load.fem_set, written_on_assembly_level)
             cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
-            cstr += f"*Transform, nset=_T-{name}\n{coord_str}\n"
-            cstr += csys_str(load.csys, written_on_assembly_level)
+            cstr += f"** Transform: {load.csys.name}\n*Transform, nset=_T-{name}\n{coord_str}"
 
     return cstr.strip()
 
