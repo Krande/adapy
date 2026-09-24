@@ -93,3 +93,17 @@ def test_the_formulation_survives_the_array_store(tmp_path):
 def _write_s4r_deck(tmp_path):
     written, _ = _written_type(_model(formulation(ABAQUS, "S4R")), tmp_path / "src")
     return next((tmp_path / "src").rglob("m.inp"))
+
+
+def test_calculix_writes_the_abaqus_formulation_it_implements_and_reports_one_it_does_not(tmp_path):
+    """Calculix shares Abaqus's names: S4R is written as S4R (it was written as the default S4);
+    CPE4P (pore-pressure plane strain), which Calculix lacks, falls back and says so."""
+    a = _model(formulation(ABAQUS, "S4R"))
+    a.to_fem("c", "calculix", scratch_dir=tmp_path / "c", overwrite=True, write_input_files_only=True)
+    assert "*ELEMENT, type=S4R" in (tmp_path / "c" / "c" / "c.inp").read_text()
+
+    b = _model(formulation(ABAQUS, "CPE4P"))  # pore-pressure plane strain: Abaqus only
+    with conversion_report.collect() as report:
+        b.to_fem("d", "calculix", scratch_dir=tmp_path / "d", overwrite=True, write_input_files_only=True)
+    assert "*ELEMENT, type=S4," in (tmp_path / "d" / "d" / "d.inp").read_text()
+    assert [f.subject for f in report.findings if f.keyword == "Formulation"] == ["abaqus:CPE4P -> S4"]
