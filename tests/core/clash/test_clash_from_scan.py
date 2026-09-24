@@ -30,6 +30,28 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _jsonl_writer_available() -> bool:
+    """Whether the installed adacpp can WRITE a scan to a file.
+
+    Separate from `native_members_available`: the binding scan (`IfcMemberScan`) shipped first and
+    `scan_ifc_members_to_jsonl` came later, so a released adacpp answers yes to one and no to the
+    other. Guarding both on the same probe is how these tests failed on CI while passing against
+    a locally built adacpp.
+    """
+    try:
+        import adacpp.cad
+
+        return hasattr(adacpp.cad, "scan_ifc_members_to_jsonl")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+needs_jsonl = pytest.mark.skipif(
+    not _jsonl_writer_available(),
+    reason="ada-cpp without scan_ifc_members_to_jsonl (needs >= 0.30)",
+)
+
+
 @pytest.fixture(scope="module")
 def frame_ifc(tmp_path_factory):
     pl = ada.Plate("pl", [(0, 0), (5, 0), (5, 5), (0, 5)], 0.01)
@@ -71,6 +93,7 @@ def test_the_joint_ids_are_the_same_ones_a_detail_job_would_re_derive(frame_ifc)
         assert set(joint["id"]) <= set("0123456789abcdef")
 
 
+@needs_jsonl
 def test_a_scan_written_as_jsonl_is_the_same_scan(frame_ifc, tmp_path):
     """The file is what actually crosses out of wasm and into pyodide."""
     import adacpp.cad as cad
@@ -97,6 +120,7 @@ def test_a_file_that_is_not_a_scan_is_refused_rather_than_half_read(tmp_path):
         list(members_from_jsonl(bogus))
 
 
+@needs_jsonl
 def test_the_header_line_is_not_mistaken_for_a_member(frame_ifc, tmp_path):
     import adacpp.cad as cad
 
