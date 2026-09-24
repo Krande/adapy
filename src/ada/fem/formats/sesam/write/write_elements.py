@@ -120,26 +120,13 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     from . import write_point_elements as points
 
     writable: list[Elem] = []
-    # stru_elements already holds springs back, so nothing below would ever mention
-    # them. Say so rather than let them vanish: the reader builds Spring objects off
-    # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
-    # with springs loses them here, and silence makes that look like the deck never
-    # had any.
-    n_springs = sum(1 for _ in fem.elements.springs)
-    if n_springs > 0:
-        logger.warning(
-            "sesam writer: skipping %d spring element(s) — writing them back needs a "
-            "GELMNT1 + MGSPRNG pair the writer does not emit yet. Output deck will be "
-            "missing these elements.",
-            n_springs,
-        )
     # A Connector object is not in stru_elements at all, so counting only the rows skipped
     # below said "0 element(s) were skipped" for every connector.
     skipped_ids = {c.id for c in fem.elements.connectors}
     for el in fem.elements.stru_elements:
         if isinstance(el.type, (MassTypes, SpringTypes)):
             # The packed row of a mass or spring the array store holds beside its object
-            # (a merged or converted FEM): a mass object is written, as a point element, below.
+            # (a merged or converted FEM): the object is written, as a point element, below.
             continue
         if not _is_writable_to_sesam(el):
             skipped_ids.add(el.id)
@@ -170,7 +157,8 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     # the ids the model carries are the ids the deck has to use — and note that sorting
     # does not fill gaps left by the skipped elements above; see the contiguity check
     # just below, which reports those gaps rather than renumbering around them.
-    # Point masses are elements too (see write_point_elements), in the same internal order.
+    # Point masses and springs are elements too (see write_point_elements), in the same
+    # internal order.
     special = points.point_elements(fem)
     matnos = points.matnos(fem, points.first_free_matno(fem))
     writable += special
@@ -183,7 +171,7 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     if dupes:
         raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
 
-    _warn_if_not_contiguous(el_ids, skipped_connector + n_springs)
+    _warn_if_not_contiguous(el_ids, skipped_connector)
 
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in

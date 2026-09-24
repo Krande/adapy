@@ -2,6 +2,7 @@ from itertools import count
 
 import numpy as np
 
+from ada.config import logger
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
@@ -229,14 +230,24 @@ def point_mass_from_matrix(matrix: np.ndarray):
 
 
 def attach_named_sets(fem: FEM) -> None:
-    """Point a mass element at the deck's own element set for it, the one holding just it,
-    once the sets are read."""
+    """Point a mass element or spring at the deck's own set for it, once the sets are read.
+
+    A mass element's element set is the set holding just it; a spring's node set the one
+    holding exactly its nodes (the first of ``fem.sets`` if several do). Only where the deck has no such set does
+    a spring keep the ``<name>_set`` it was built with, which is not in ``fem.sets``.
+    """
     elsets = {}
-    for fs in fem.sets.elements.values():
-        elsets.setdefault(frozenset(m.id for m in fs.members), fs)
+    nsets = {}
+    for fs in fem.sets.sets:
+        ids = frozenset(m.id for m in fs.members)
+        (elsets if fs.type == "elset" else nsets).setdefault(ids, fs)
     for mass in fem.elements.masses:
         if mass.elset is None and mass.id is not None:
             mass.elset = elsets.get(frozenset([mass.id]))
+    for spring in fem.elements.springs:
+        fs = nsets.get(frozenset(n.id for n in spring.nodes))
+        if fs is not None:
+            spring._fem_set = fs
 
 
 def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
@@ -245,48 +256,65 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
     Returns a list, not the name-keyed dict it used to: ``FEM.springs`` is now a view
     derived from ``FEM.elements``, so the caller adds these through ``add_spring`` and
     there is no dict for anyone to assign over.
+
+    One spring per spring element, with the matrix its GELREF1 MATNO names: an MGSPRNG for a
+    grounded spring (GSPR), an MSHGLSP for a two-node one (GLSH). It used to be one spring
+    per MGSPRNG record, so two elements sharing a matrix came back as one, and a two-node
+    spring not at all.
     """
+    tdelem = element_names(bulk_str)
+    mgsprng = {matno: k for matno, k in (lower_matrix(x) for x in cards.re_mgsprng.finditer(bulk_str))}
+    mshglsp = {matno: k for matno, k in (_mshglsp(x) for x in cards.re_mshglsp.finditer(bulk_str))}
 
-    matno_map = {str_to_int(sp["section_data"]["matno"]): sp for sp in spring_elem.values()}
+    springs = []
+    for elid, res in sorted(spring_elem.items()):
+        if "section_data" not in res:
+            continue
+        matno = str_to_int(res["section_data"]["matno"])
+        node_ids = gelmnt_node_ids(res["gelmnt"]["nids"])
+        nodes = [fem.nodes.from_id(n) for n in node_ids]
+        if len(nodes) == 1:
+            if matno not in mgsprng:
+                raise ValueError(f"Spring element {elid} refers to MGSPRNG {matno}, which the deck does not have")
+            stiff, spr_type = mgsprng[matno], "SPRING1"
+        else:
+            if matno not in mshglsp:
+                raise ValueError(f"Spring element {elid} refers to MSHGLSP {matno}, which the deck does not have")
+            stiff, spr_type = _two_node_stiffness(elid, *mshglsp[matno]), "SPRING2"
+        spr_name = tdelem.get(elid, f"spr{elid}")
+        fs = FemSet(f"{spr_name}_set", nodes, FemSet.TYPES.NSET, parent=fem)
+        springs.append(Spring(spr_name, elid, spr_type, fem_set=fs, stiff=stiff, parent=fem))
+    return springs
 
-    def find_mgspring(m):
-        nonlocal matno_map
-        d = m.groupdict()
-        matno = str_to_int(d["matno"])
-        ndof = str_to_int(d["ndof"])
-        res: dict = matno_map.get(matno, None)
-        if res is None:
-            raise ValueError()
 
-        elid = str_to_int(res["section_data"]["elno"])
-        # MGSPRNG carries the lower triangle of an ndof x ndof stiffness matrix, so how
-        # many values belong to it follows from ndof alone. Sesam pads a record out to a
-        # whole number of slots, and re-exporting a .SIN through its input deck carries
-        # that padding into the deck: a 6-DOF spring arrives with 22 values, not 21.
-        # Consuming the extra one opened a seventh row, and the symmetric assembly below
-        # then failed on `operands could not be broadcast together with shapes (7,6) (6,7)`.
-        bulk = d["bulk"].split()[: ndof * (ndof + 1) // 2]
+def _mshglsp(match) -> tuple[int, tuple]:
+    d = match.groupdict()
+    nd1, nd2 = str_to_int(d["ndof1"]), str_to_int(d["ndof2"])
+    n = nd1 + nd2
+    values = [float(x) for x in d["bulk"].split()][: n * (n + 1) // 2]
+    return str_to_int(d["matno"]), (nd1, nd2, _symmetric_from_lower_columns(values, n))
 
-        spr_name = f"spr{elid}"
-        n1 = fem.nodes.from_id(gelmnt_point_node_id(res["gelmnt"]))
-        a = 1
-        row = 0
-        spring = []
-        subspring = []
-        for dof in bulk:
-            subspring.append(float(dof.strip()))
-            a += 1
-            if a > ndof - row:
-                spring.append(subspring)
-                subspring = []
-                a = 1
-                row += 1
-        # Left-pad each triangle row back out to the full ndof width. Was hardcoded to
-        # 6, which only ever agreed with the rows for a 6-DOF spring.
-        new_s = [[0.0] * (ndof - len(row)) + row for row in spring]
-        spring_matrix = np.array(new_s)
-        spring_matrix = spring_matrix + spring_matrix.T - np.diag(np.diag(spring_matrix))
-        fs = FemSet(f"{spr_name}_set", [n1], FemSet.TYPES.NSET, parent=fem)
-        return Spring(spr_name, elid, "SPRING1", fem_set=fs, stiff=spring_matrix, parent=fem)
 
-    return list(map(find_mgspring, cards.re_mgsprng.finditer(bulk_str)))
+def _two_node_stiffness(elid: int, nd1: int, nd2: int, full: np.ndarray) -> np.ndarray:
+    """adapy's 6x6 SPRING2 stiffness from a GLSH element matrix: minus its coupling block.
+
+    See ``write_point_elements._mshglsp``: a spring ``K[i, j]`` between dof i of the first node
+    and dof j of the second puts ``-K[i, j]`` in the coupling block. A matrix whose node
+    blocks do not follow from that coupling is not a set of such springs, and only the
+    coupling is kept -- which is said, not done quietly."""
+    k = np.zeros((6, 6))
+    k[:nd1, :nd2] = -full[:nd1, nd1:]
+    rebuilt = np.zeros((12, 12))
+    for i, j in zip(*np.nonzero(k)):
+        rebuilt[i, i] += k[i, j]
+        rebuilt[6 + j, 6 + j] += k[i, j]
+        rebuilt[i, 6 + j] -= k[i, j]
+        rebuilt[6 + j, i] -= k[i, j]
+    keep = list(range(nd1)) + list(range(6, 6 + nd2))
+    if not np.allclose(rebuilt[np.ix_(keep, keep)], full, rtol=1e-12, atol=0.0):
+        logger.warning(
+            "sesam reader: the MSHGLSP matrix of spring element %s is not a set of dof-to-dof springs; "
+            "only its coupling terms are kept.",
+            elid,
+        )
+    return k

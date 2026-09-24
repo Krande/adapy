@@ -1,14 +1,17 @@
-"""Point masses as the Sesam elements they are.
+"""Point masses and springs as the Sesam elements they are.
 
 A point mass on one node is a 1-noded mass element (GELMNT1 ELTYP 11) whose GELREF1 MATNO
-refers to an MGMASS mass matrix (manual 7.4.7), named by a TDELEM record (manual 4.2.1).
+refers to an MGMASS mass matrix; a grounded spring is a GSPR (ELTYP 18) with an MGSPRNG
+stiffness matrix; a two-node spring is a GLSH (ELTYP 40) with an MSHGLSP one (manual 5.13,
+5.32, 7.4.7, 7.4.8, 7.4.21). Each is named by a TDELEM record (manual 4.2.1).
 
 Masses used to go out as BNMASS only, which is nodal: the element a mass is in adapy (its
 id, and the element set naming it) was not in the file, so a set naming it could not be read
-back. BNMASS is still what a mass spread over several nodes -- a nonstructural mass -- is
-written as (``write_masses.mass_str``): it has no one node to be an element on.
+back. Springs were not written at all. BNMASS is still what a mass spread over several nodes
+-- a nonstructural mass -- is written as (``write_masses.mass_str``): it has no one node to
+be an element on.
 
-The MGMASS matrices take material numbers after the model's own materials.
+The MG*/MSHGLSP matrices take material numbers after the model's own materials.
 """
 
 from __future__ import annotations
@@ -17,17 +20,22 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.fem.shapes.definitions import MassTypes
+from ada.fem.shapes.definitions import MassTypes, SpringTypes
 
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
     from ada import FEM
-    from ada.fem import Elem, Mass
+    from ada.fem import Elem, Mass, Spring
 
     from .writer import NodeDofs
 
 MASS_ELTYP = 11
+GSPR_ELTYP = 18
+GLSH_ELTYP = 40
+
+#: MSHGLSP's MATKND for a general spring (1 is a shim).
+_GENERAL_SPRING = 2
 
 
 def is_mass_element(mass: Mass) -> bool:
@@ -36,8 +44,9 @@ def is_mass_element(mass: Mass) -> bool:
 
 
 def point_elements(fem: FEM) -> list[Elem]:
-    """The masses written as elements, in element id order."""
-    return sorted((m for m in fem.elements.masses if is_mass_element(m)), key=lambda el: el.id)
+    """The masses and springs written as elements, in element id order."""
+    masses = [m for m in fem.elements.masses if is_mass_element(m)]
+    return sorted(masses + list(fem.elements.springs), key=lambda el: el.id)
 
 
 def _nodes(el) -> list:
@@ -49,6 +58,10 @@ def _nodes(el) -> list:
 
 
 def eltyp(el) -> int:
+    if el.type == SpringTypes.SPRING1:
+        return GSPR_ELTYP
+    if el.type == SpringTypes.SPRING2:
+        return GLSH_ELTYP
     return MASS_ELTYP
 
 
@@ -74,7 +87,7 @@ def gelref_str(el, matno: int) -> str:
 
 
 def point_elements_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
-    """The TDELEM names and the MGMASS matrices of :func:`point_elements`."""
+    """The TDELEM names and the MGMASS / MGSPRNG / MSHGLSP matrices of :func:`point_elements`."""
     from .writer import ALL_SIX_DOF
 
     if ndofs is None:
@@ -84,7 +97,12 @@ def point_elements_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     for el in point_elements(fem):
         if el.name:
             out += write_ff("TDELEM", [(4, el.id, 100 + len(el.name), 0), (el.name,)])
-        out += _matrix_card("MGMASS", numbers[el.id], mass_matrix(el), ndofs.ndof(node_ids(el)[0]), el)
+        if el.type in (MassTypes.MASS, MassTypes.ROTARYI):
+            out += _matrix_card("MGMASS", numbers[el.id], mass_matrix(el), ndofs.ndof(node_ids(el)[0]), el)
+        elif el.type == SpringTypes.SPRING1:
+            out += _matrix_card("MGSPRNG", numbers[el.id], np.asarray(el.stiff, dtype=float), None, el, ndofs)
+        else:
+            out += _mshglsp(numbers[el.id], el, ndofs)
     return out
 
 
@@ -127,7 +145,31 @@ def _require_dofs(k: np.ndarray, keep: list[int], el, ndof_text: str) -> None:
         )
 
 
-def _matrix_card(card: str, matno: int, k: np.ndarray, ndof: int, el) -> str:
-    """MGMASS: NDOF must equal the node's GNODE NDOF (manual 7.4.7)."""
+def _matrix_card(card: str, matno: int, k: np.ndarray, ndof: int | None, el, ndofs=None) -> str:
+    """MGMASS / MGSPRNG: NDOF must equal the node's GNODE NDOF (manual 5.13, 7.4.7)."""
+    if ndof is None:
+        ndof = ndofs.ndof(node_ids(el)[0])
     _require_dofs(k, list(range(ndof)), el, f"NDOF={ndof}")
     return write_ff(card, _rows((matno, ndof), _lower_columns(k[:ndof, :ndof])))
+
+
+def _mshglsp(matno: int, spring: Spring, ndofs) -> str:
+    """A two-node spring's 12x12 matrix.
+
+    adapy's SPRING2 stiffness K is Abaqus's: ``K[i, j]`` is a spring between dof i+1 of the
+    first node and dof j+1 of the second (``abaqus/write/write_springs``). Each one adds
+    ``k`` to the two dofs' diagonal terms and ``-k`` to the pair, so the coupling block of
+    the element matrix is ``-K`` -- which is how the reader gets K back.
+    """
+    k = np.asarray(spring.stiff, dtype=float)
+    n1, n2 = node_ids(spring)
+    nd1, nd2 = ndofs.ndof(n1), ndofs.ndof(n2)
+    full = np.zeros((12, 12))
+    for i, j in zip(*np.nonzero(k)):
+        full[i, i] += k[i, j]
+        full[6 + j, 6 + j] += k[i, j]
+        full[i, 6 + j] -= k[i, j]
+        full[6 + j, i] -= k[i, j]
+    keep = list(range(nd1)) + list(range(6, 6 + nd2))
+    _require_dofs(full, keep, spring, f"NDOF={nd1}, {nd2}")
+    return write_ff("MSHGLSP", _rows((matno, _GENERAL_SPRING, nd1, nd2), _lower_columns(full[np.ix_(keep, keep)])))

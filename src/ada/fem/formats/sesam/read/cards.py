@@ -226,6 +226,7 @@ re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
 # splits, the same shape as re_bnbcd's ``content`` and re_mgsprng's ``bulk``.
 re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "content")
 re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
+re_mshglsp = get_ff_regex("MSHGLSP", "matno", "matknd", "ndof1", "ndof2", "bulk")
 TDELEM = DataCard("TDELEM", ("nfield", "elno", "codnam", "codtxt", "name"))
 re_tdelem = TDELEM.to_ff_re()
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
