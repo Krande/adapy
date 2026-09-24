@@ -76,7 +76,7 @@ SESAM_GAPS: dict = {
     "elements_line_profiles": (
         Exception,
         "writer: a solid round bar is written as a GPIPE with a 1% bore (the manual does not say a zero "
-        "inner diameter is valid), and reads back as a tube",
+        "inner diameter is valid), and reads back as a tube (reported, with the area change)",
     ),
     "elements_shell_tri7": (Exception, "writer: TRI7 has no Sesam element type (reported)"),
     "elements_solid_first_order": (Exception, "writer: PYRAMID5 has no Sesam element type (reported)"),

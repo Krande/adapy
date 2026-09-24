@@ -96,8 +96,18 @@ def circular(sec: Section, sec_id) -> str:
     record, which ``format_data`` rejects: a CIRCULAR section is defined by its radius
     alone and never has a wall thickness to read.
     """
+    from .not_held import STAGE, report
+
     p = sec.properties
     di = (sec.r - sec.r * 0.99) * 2
+    report().approximated(
+        STAGE,
+        "Section",
+        sec.name,
+        "a solid round bar has no Sesam card: written as a tube (GPIPE) with a bore of 1% of its diameter",
+        area_change=-((di / 2) ** 2) / sec.r**2,
+        second_moment_change=-((di / 2) ** 4) / sec.r**4,
+    )
     return write_ff(
         "GPIPE",
         [(sec_id, di, sec.r * 2, (sec.r * 2 - di) / 2), (p.Sfy, p.Sfz)],
