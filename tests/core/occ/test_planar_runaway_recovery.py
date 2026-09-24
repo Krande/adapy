@@ -65,5 +65,7 @@ def test_recovered_face_area_matches_polygon_regardless_of_winding():
     poly = _planar_boundary_polygon(af, pln)
     assert poly is not None
     face = _planar_face_from_polygon(poly[0], poly[1], poly[2])
-    assert face is not None and not face.IsNull()
+    from ada.cad import select_backend
+
+    assert face is not None and select_backend(prefer="occ").shape_type(face) == "face"
     assert abs(_face_area(face) - 100.0) < 1e-6

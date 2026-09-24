@@ -374,11 +374,11 @@ def test_open_channel_swept_run_builds_occ_solid():
 
     This is the OCC-fallback (no-adacpp) render path for routed cable trays; the
     NGEOM/libtess2 stream already renders it. Regression for that parity gap."""
-    pytest.importorskip("OCC")
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-    from OCC.Core.TopAbs import TopAbs_SOLID
-    from OCC.Core.TopExp import TopExp_Explorer
+    from ada.cad import CadBackendName, backend_available, select_backend
+
+    if not backend_available(CadBackendName.OCC):
+        pytest.skip("occ backend not installed")
+    occ = select_backend(prefer="occ")  # the swept solid comes from the OCC builder
 
     from ada.geom.curves import ArcLine
     from ada.occ.geom.solids import make_fixed_reference_swept_area_shape_from_geom
@@ -410,10 +410,8 @@ def test_open_channel_swept_run_builds_occ_solid():
 
     shape = make_fixed_reference_swept_area_shape_from_geom(run.solid_geom().geometry)
 
-    assert TopExp_Explorer(shape, TopAbs_SOLID).More(), "swept tray did not build a solid"
-    props = GProp_GProps()
-    brepgprop.VolumeProperties(shape, props)
-    assert abs(props.Mass()) > 1e-9, "swept tray solid is empty (zero volume)"
+    assert occ.solids(shape), "swept tray did not build a solid"
+    assert abs(occ.volume(shape)) > 1e-9, "swept tray solid is empty (zero volume)"
 
 
 def test_graceful_swept_run_collapses_microjog_no_inverted_fillet():

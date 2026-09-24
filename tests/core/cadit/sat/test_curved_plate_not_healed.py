@@ -17,11 +17,10 @@ import glob
 import numpy as np
 
 import ada
-from ada.cad import active_backend
 from ada.occ.geom.surfaces import consume_param_rebuild_stats
 
 
-def test_genie_curved_plates_build_without_healing(example_files, monkeypatch):
+def test_genie_curved_plates_build_without_healing(example_files, monkeypatch, occ_backend):
     # This regression guards the BARE-FACE path: authored p-curves on the modeled surface must not
     # be perturbed by the rational ShapeFix heal. The default thickened solid adds ruled side
     # ribbons whose (legitimately) healed p-curves are not what this test is about — pin the config
@@ -38,7 +37,10 @@ def test_genie_curved_plates_build_without_healing(example_files, monkeypatch):
         xml = hits[0]
 
     asm = ada.from_genie_xml(str(xml))
-    backend = active_backend()
+    # The heal this guards lives in the OCC builder (its stats come from ada.occ.geom.surfaces),
+    # so build on that kernel by name: with adacpp also installed, the active backend is adacpp's
+    # and would never reach it.
+    backend = occ_backend
     consume_param_rebuild_stats()  # reset
 
     n_plates = 0

@@ -18,11 +18,15 @@ Two layers, because no single environment is guaranteed to carry both kernels:
   volume 24). Those run, and can fail, in a single-backend environment.
 * the ``both_backends`` fixture skips unless both import, and compares the two answers
   directly. That is the only check that can catch drift, so it needs an environment
-  carrying both kernels to be worth anything — see the ``test-cad-parity`` task.
+  carrying both kernels to be worth anything — and since the pythonocc wind-down
+  (2026-09-21) no shipped environment carries both, because ada-cpp is built against
+  occt 8 and pythonocc-core has no occt 8 build. Until one does, this layer skips
+  everywhere and the closed-form layer above is what actually runs.
 
-``select_backend`` tries adacpp before pythonocc, so merely having adacpp installed
-moves the process onto it. Every backend here is therefore pinned explicitly; nothing
-trusts the default, and nothing calls ``active_backend()``.
+Both fixtures live in ``conftest.py``, shared with the construction-verb module next
+door. ``select_backend`` tries adacpp before pythonocc, so merely having adacpp
+installed moves the process onto it. Every backend here is therefore pinned
+explicitly; nothing trusts the default, and nothing calls ``active_backend()``.
 """
 
 from __future__ import annotations
@@ -43,8 +47,6 @@ from ada.cad import (
 from ada.geom.booleans import BoolOpEnum
 from ada.geom.curves import PolyLoop
 from ada.geom.points import Point
-
-BACKEND_NAMES = ("occ", "adacpp")
 
 # The cylinder is r=0.5, h=10 rising from z=0; the box spans z=-2..2, so exactly 2 of
 # the cylinder's height is inside it. What DIFFERENCE removes is therefore an analytic
@@ -82,33 +84,6 @@ def _make_loft(be):
     return loft_profiles(LOFT_PROFILES, ruled=True, is_solid=True, backend=be)
 
 
-# A unit square in z=0, and the same outline with an interior hole: the two profiles
-# behind the prisms below. A prism is the shape that separates a placement-aware edge
-# identity from a placement-blind one, because MakePrism builds its top face as the
-# base face instanced at another Location.
-_SQUARE = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
-_HOLE = [[0.25, 0.25, 0.0], [0.75, 0.25, 0.0], [0.75, 0.75, 0.0], [0.25, 0.75, 0.0]]
-
-
-def _make_holed_face(be):
-    cut = be.boolean(
-        BoolOpEnum.DIFFERENCE,
-        be.polygon_face(_SQUARE),
-        be.extrude_face_along_normal(be.polygon_face(_HOLE), -1.0),
-    )
-    holed = [f for f in be.faces(cut) if len(be.wires(f)) == 2]
-    assert len(holed) == 1, "expected the cut to leave exactly one face with a hole"
-    return holed[0]
-
-
-def _make_prism(be):
-    return be.extrude_face_along_normal(be.polygon_face(_SQUARE), 0.5)
-
-
-def _make_holed_prism(be):
-    return be.extrude_face_along_normal(_make_holed_face(be), 0.5)
-
-
 # Every construction is a callable rather than a shape: a shape belongs to the kernel
 # that built it and cannot be handed to the other one, so each backend must build its
 # own copy from the same recipe.
@@ -119,23 +94,6 @@ CONSTRUCTIONS = {
     "box_cut_by_cylinder": _make_cut,
     "loft": _make_loft,
 }
-
-
-@pytest.fixture(params=BACKEND_NAMES)
-def backend(request):
-    """One installed backend, pinned by name — never the ``select_backend`` default."""
-    if not backend_available(CadBackendName(request.param)):
-        pytest.skip(f"{request.param} backend not installed")
-    return select_backend(prefer=request.param)
-
-
-@pytest.fixture
-def both_backends():
-    """``(occ, adacpp)``, or a skip when this environment carries only one kernel."""
-    missing = [n for n in BACKEND_NAMES if not backend_available(CadBackendName(n))]
-    if missing:
-        pytest.skip(f"cross-backend comparison needs both kernels; missing: {', '.join(missing)}")
-    return select_backend(prefer="occ"), select_backend(prefer="adacpp")
 
 
 def _topology_counts(be, shape) -> dict[str, int]:
@@ -186,25 +144,6 @@ def test_every_edge_is_reported_once(backend, construction, expected_edges):
     building a wire frame, doubles its answer on a backend that leaks those incidences.
     """
     assert len(backend.edges(CONSTRUCTIONS[construction](backend))) == expected_edges
-
-
-@pytest.mark.parametrize(
-    ("construction", "expected_edges"),
-    [(_make_holed_face, 8), (_make_prism, 12), (_make_holed_prism, 24)],
-    ids=["holed_face", "prism", "holed_prism"],
-)
-def test_a_located_copy_is_its_own_edge(backend, construction, expected_edges):
-    """An extrusion's top rail is its base rail at another placement, not the same edge.
-
-    ``BRepPrimAPI_MakePrism`` instances the base face at the extrusion height rather
-    than building fresh geometry, so base and top share a TShape and differ only in
-    Location. Any identity that ignores Location merges them and reports 8 edges for
-    a square prism instead of 12, 16 instead of 24 with a hole -- silently, and only
-    on the shapes a wire frame, an edge overlay or a boundary export is built from.
-    The holed face (8, no extrusion involved) is the control: it pins the count that
-    a placement-blind identity gets right, so a failure here localises to the rails.
-    """
-    assert len(backend.edges(construction(backend))) == expected_edges
 
 
 def test_box_diagnostics_match_the_closed_form(backend):

@@ -12,7 +12,6 @@ test are pythonocc-specific."""
 import math
 
 import numpy as np
-import pytest
 
 from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge
 from ada.geom.direction import Direction
@@ -157,16 +156,16 @@ def test_circle_param_recovers_arc_angles():
     assert abs(_circle_param((0, R, 0), loc, axis, (0.0, 1.0, 0.0)) - 0.0) < 1e-9
 
 
-def test_runaway_triangles_dropped_from_tessellation():
+def test_runaway_triangles_dropped_from_tessellation(occ_backend):
     """The tessellation-level safety net: a triangle soup with vertices far outside
     the shape's edge hull (the signature of a face whose trim failed only after
-    sewing rebuilt its pcurves) must lose exactly those triangles."""
-    pytest.importorskip("OCC", reason="unit test of the pythonocc tessellation filter internals")
-    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+    sewing rebuilt its pcurves) must lose exactly those triangles.
 
+    A unit test of the pythonocc tessellation filter internals, so the box comes from the
+    OCC backend by name."""
     from ada.visit.tessellate import _drop_runaway_triangles
 
-    shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+    shape = occ_backend.make_box(10.0, 10.0, 10.0)
     good = [0, 0, 0, 1, 0, 0, 0, 1, 0]
     bad = [0, 0, 0, 1e9, 0, 0, 0, 1e9, 0]  # vertices ~1e8x the edge hull
     verts = np.array(good + bad, dtype="float32")
