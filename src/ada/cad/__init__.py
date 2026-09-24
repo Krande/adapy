@@ -196,6 +196,30 @@ class BatchMesh:
     # stream blob is one homogeneous root, so one mode covers the whole BatchMesh.
 
 
+def check_similarity_matrix(matrix, who: str = "transform"):
+    """Return ``matrix`` as a 4x4 float array if its 3x3 part is a rotation times ONE scale.
+
+    Both kernels store a transform as a gp_Trsf, which holds only that; and gp_Trsf.SetValues
+    does not check -- handed a stretch it quietly makes it uniform by the cube root of the
+    determinant (x2 in x alone comes back as x1.26 on every axis). adacpp (>=0.28) checks on
+    its side; this is the same check for the pythonocc side, so both kernels refuse the same
+    input instead of one of them building a different solid.
+    """
+    import numpy as np
+
+    m = np.asarray(matrix, dtype=float)
+    if m.shape == (3, 4):
+        m = np.vstack([m, [0.0, 0.0, 0.0, 1.0]])
+    if m.shape != (4, 4):
+        raise ValueError(f"{who}: expected a 4x4 (or 3x4) matrix, got shape {m.shape}")
+    a = m[:3, :3]
+    g = a.T @ a
+    s2 = np.trace(g) / 3.0
+    if not s2 > 1e-24 or not np.allclose(g, s2 * np.eye(3), rtol=0.0, atol=1e-9 * s2):
+        raise ValueError(f"{who}: matrix must be a rigid or uniform-scale transform")
+    return m
+
+
 def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) -> "BatchMesh":
     """Backend-neutral ``tessellate_batch`` fallback: tessellate each shape and
     concatenate into one combined :class:`BatchMesh`. Used by backends without a
@@ -275,7 +299,7 @@ class CadBackend(Protocol):
     ) -> tuple[float, float, float, float, float, float]: ...
     def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
-    def read_step_shapes(self, data: bytes, unit: str = "M") -> list: ...
+    def read_step_shapes(self, data: bytes, unit: str = "M", matrix: "np.ndarray | None" = None) -> list: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
     def step_bytes_to_glb_bytes(
         self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
@@ -1325,12 +1349,17 @@ class AdacppBackend:
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         return self._cad.read_step_bytes(data)
 
-    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+    def read_step_shapes(self, data: bytes, unit: str = "M", matrix: "np.ndarray | None" = None) -> list:
         # OCAF read — unlike read_step_bytes this resolves each shape's label name and
         # STEP presentation-style colour. Note it yields SUB-shapes too (a solid AND each
         # of its faces), so it is a metadata/introspection read, not a GLB source: use
         # step_bytes_to_glb_bytes for that, or the faces re-emit the solid's geometry.
-        return list(self._cad.read_step_shapes(data, unit))
+        # `matrix` (4x4) is applied natively to every shape after its assembly locations and
+        # the unit conversion, keeping names/colours (adacpp >= 0.28).
+        if matrix is None:
+            return list(self._cad.read_step_shapes(data, unit))
+        m = check_similarity_matrix(matrix, "read_step_shapes")
+        return list(self._cad.read_step_shapes(data, unit, matrix=[float(v) for v in m[:3, :].ravel()]))
 
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes:
         # adacpp returns nb::bytes; bytes(...) coerces it cleanly to a CPython
