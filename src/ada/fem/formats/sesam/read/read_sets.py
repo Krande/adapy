@@ -14,6 +14,21 @@ if TYPE_CHECKING:
     from ada import FEM
 
 
+def text_record(d: dict, text_key: str) -> tuple[str, list[str]]:
+    """The name and the comment lines of a TD* text record (TDSETNAM, TDSECT, ...).
+
+    CODNAM = NLNAM*100 + NCNAM and CODTXT = NLTXT*100 + NCTXT (manual 4.2.6): the name takes
+    NLNAM (0 or 1) lines and is followed by NLTXT comment lines. The regex captures all of
+    them as one blob, so a record with a comment used to come back with the comment glued onto
+    its name.
+    """
+    lines = [x.strip() for x in d[text_key].strip().splitlines()]
+    nlnam = str_to_int(d["codnam"]) // 100
+    nltxt = str_to_int(d["codtxt"]) // 100
+    name = lines[0] if nlnam and lines else ""
+    return name, lines[nlnam : nlnam + nltxt]
+
+
 def get_sets(bulk_str: str, parent: "FEM") -> FemSets:
     set_reader = SetReader(bulk_str, parent)
     return FemSets(set_reader.run(), parent=parent)
@@ -62,7 +77,7 @@ class SetReader:
     def get_femsets(self, m, set_map, parent) -> Iterable[FemSet]:
         d = m.groupdict()
         isref = str_to_int(d["isref"])
-        set_name = d["set_name"].strip()
+        set_name, _ = text_record(d, "set_name")
         for set_type in self._set_type_map.get(isref, []):
             try:
                 isref_set = set_map[tuple([isref, set_type])]

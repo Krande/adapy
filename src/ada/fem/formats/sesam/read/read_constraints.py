@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from itertools import groupby
-from typing import Dict, List, Union
+from typing import Dict, List
 
+from ada.api.nodes import Node
 from ada.config import logger
 from ada.fem import FEM, Bc, Constraint, FemSet
 from ada.fem.formats.utils import str_to_int
@@ -43,15 +44,70 @@ def get_bcs(bulk_str, fem: FEM) -> List[Bc]:
     :data:`~ada.fem.formats.sesam.write.write_bcs.SUPERNODE_SET_NAME`, which is exactly the
     name the writer's convention picks up: a Sesam -> ada -> Sesam round trip keeps the
     interface with no caller action. See :func:`add_supernode_set`.
+
+    BNBCD is per node, and a ``Bc`` is on a node set, so the nodes are grouped back: see
+    :func:`group_bcs`. ``fem.sets`` must already hold the deck's sets.
     """
     retained: dict[int, tuple[int, ...]] = {}
-    bcs = [bc for bc in (grab_bc(m, fem, retained) for m in cards.re_bnbcd.finditer(bulk_str)) if bc is not None]
+    fixed = [nd for nd in (grab_bc(m, fem, retained) for m in cards.re_bnbcd.finditer(bulk_str)) if nd is not None]
+    bcs = group_bcs(fem, fixed)
     add_supernode_set(fem, retained)
     return bcs
 
 
-def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None) -> Union[Bc, None]:
-    """One BNBCD record -> a ``Bc``, or ``None`` when the record declares no constraint.
+def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple[int, ...]]]) -> List[Bc]:
+    """``Bc`` objects for ``(node, constrained dofs)``, one per named node set where the deck has one.
+
+    Every BNBCD record used to become a ``Bc`` of its own on a generated one-node set
+    (``bc<id>_set``), so a boundary condition on a named set came back as one per node, on
+    sets nobody named. Now the nodes sharing a DOF pattern are covered by the deck's own node
+    sets: one set holding exactly those nodes if there is one, else the largest sets whose
+    members all carry that pattern and no node already covered (ties in file order). Only
+    the nodes no named set covers fall back to a ``Bc`` each, as before.
+    """
+    by_pattern: dict[tuple[int, ...], list[Node]] = {}
+    for node, dofs in fixed:
+        by_pattern.setdefault(dofs, []).append(node)
+    pattern_of = {node.id: dofs for node, dofs in fixed}
+
+    nsets = [fs for fs in fem.sets.sets if fs.type == "nset" and len(fs.members) > 0]
+    bcs = []
+    # Sesam has no name for a boundary condition, so it takes its set's name.
+    taken = {b.name for b in fem.bcs}
+    for dofs, nodes in by_pattern.items():
+        ids = {n.id for n in nodes}
+        candidates = [fs for fs in nsets if all(pattern_of.get(m.id) == dofs for m in fs.members)]
+        exact = [fs for fs in candidates if {m.id for m in fs.members} == ids]
+        chosen = exact[:1]
+        if not chosen:
+            covered: set[int] = set()
+            for fs in sorted(candidates, key=lambda x: -len(x.members)):
+                members = {m.id for m in fs.members}
+                if members & covered:
+                    continue
+                chosen.append(fs)
+                covered |= members
+        for fs in chosen:
+            name = fs.name if fs.name not in taken else f"{fs.name}_bc{len(taken)}"
+            taken.add(name)
+            bc = Bc(name, fs, list(dofs), parent=fem)
+            for m in fs.members:
+                m.bc = bc
+            bcs.append(bc)
+        covered = {m.id for fs in chosen for m in fs.members}
+        for node in nodes:
+            if node.id in covered:
+                continue
+            fem_set = fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
+            bc = Bc(f"bc{node.id}", fem_set, list(dofs), parent=fem)
+            node.bc = bc
+            bcs.append(bc)
+    return bcs
+
+
+def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None) -> tuple[Node, tuple[int, ...]] | None:
+    """One BNBCD record -> ``(node, constrained dofs)``, or ``None`` when the record declares
+    no constraint.
 
     ``retained``, when given, collects ``{node id: (dof, ...)}`` for the DOFs carrying FIX
     code 4. They are gathered before the constraint check below so that a constraint-attached
@@ -93,10 +149,7 @@ def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None)
     if not dofs:
         return None
 
-    fem_set = fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
-    bc = Bc(f"bc{node.id}", fem_set, dofs, parent=fem)
-    node.bc = bc
-    return bc
+    return node, tuple(dofs)
 
 
 def add_supernode_set(fem: FEM, retained: dict[int, tuple[int, ...]]) -> FemSet | None:

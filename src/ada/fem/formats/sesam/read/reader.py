@@ -9,7 +9,7 @@ from .read_constraints import get_bcs, get_constraints
 from .read_elements import get_elements, get_mass, get_springs
 from .read_materials import get_materials
 from .read_nodes import get_nodes, renumber_nodes
-from .read_sections import get_sections
+from .read_sections import get_elrefs, get_sections
 from .read_sets import get_sets
 
 
@@ -53,7 +53,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.elements = elements
     fem.elements.build_sets()
     part._materials = get_materials(bulk_str, part)
-    fem.sections = get_sections(bulk_str, fem, mass_elem, spring_elem)
+    elrefs = get_elrefs(bulk_str, mass_elem, spring_elem)
     # Springs go in before the masses. `+=` renumbers the incoming mass elements above
     # the container's current max, so a spring that is not in the container yet is a
     # spring whose id a mass is free to take -- and then a GSETMEMB naming that id
@@ -63,6 +63,8 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
         fem.add_spring(spring)
     fem.elements += get_mass(bulk_str, part.fem, mass_elem, el_id_map)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
+    # After the sets: a section is rebuilt on the set it was assigned to (see get_sections).
+    fem.sections = get_sections(bulk_str, fem, elrefs)
     fem.constraints.update(get_constraints(bulk_str, fem))
     fem.bcs += get_bcs(bulk_str, fem)
     renumber_nodes(bulk_str, fem)
@@ -96,7 +98,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     fem.elements = ArrayElements(store, fem_obj=fem)
 
     part._materials = get_materials(reader_text, part)
-    fem.sections = get_sections(reader_text, fem, mass_elem, spring_elem)
+    elrefs = get_elrefs(reader_text, mass_elem, spring_elem)
     # Springs go in before the masses. `+=` renumbers the incoming mass elements above
     # the container's current max, so a spring that is not in the container yet is a
     # spring whose id a mass is free to take -- and then a GSETMEMB naming that id
@@ -106,6 +108,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
         fem.add_spring(spring)
     fem.elements += get_mass(reader_text, part.fem, mass_elem, ext_map)
     fem.sets = part.fem.sets + get_sets(reader_text, fem)
+    fem.sections = get_sections(reader_text, fem, elrefs)
     fem.constraints.update(get_constraints(reader_text, fem))
     fem.bcs += get_bcs(reader_text, fem)
     node_map = renumber_nodes(reader_text, fem)

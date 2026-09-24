@@ -140,7 +140,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem, ndofs))
         d.write(mass_str(part.fem, ndofs))
-        d.write(sets_str(part.fem))
+        d.write(sets_str(part.fem, assembly.fem))
         d.write(bnbcd_str(fems, lin_deps, retained, ndofs))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
