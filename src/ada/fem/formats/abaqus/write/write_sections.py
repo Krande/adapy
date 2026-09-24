@@ -5,6 +5,9 @@ from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section
 
+from ..grammar import format_number
+from .helper_utils import render_block
+
 if TYPE_CHECKING:
     from ada import FEM
 
@@ -28,9 +31,8 @@ def sections_str(fem: "FEM"):
 
 
 def solid_section_str(fem_sec: FemSection):
-    return f"""** Section: {fem_sec.name}
-*Solid Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}
-,"""
+    params = [("elset", fem_sec.elset.name), ("material", fem_sec.material.name)]
+    return render_block("Solid Section", params, [","], [f"Section: {fem_sec.name}"])
 
 
 def shell_section_str(fem_sec: FemSection):
@@ -43,37 +45,37 @@ def shell_section_str(fem_sec: FemSection):
             "abaqus writer", "*SHELL SECTION", fem_sec.name, "a zero-thickness shell section has no Abaqus form"
         )
         return ""
-    return f"""** Section: {fem_sec.name}
-*Shell Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}
- {fem_sec.thickness}, {fem_sec.int_points}"""
+    params = [("elset", fem_sec.elset.name), ("material", fem_sec.material.name)]
+    data = [f" {fem_sec.thickness}, {fem_sec.int_points}"]
+    return render_block("Shell Section", params, data, [f"Section: {fem_sec.name}"])
 
 
 def line_section_str(fem_sec: FemSection):
     # The section's and the profile's own names (both were written as the elset's name, so a
     # section read back was renamed after its set).
     profile = fem_sec.section.name if fem_sec.section is not None else fem_sec.elset.name
-    top_line = f"** Section: {fem_sec.name}  Profile: {profile}"
+    top_line = [f"Section: {fem_sec.name}  Profile: {profile}"]
     density = fem_sec.material.model.rho if fem_sec.material.model.rho > 0.0 else 1e-4
     ass = fem_sec.parent.parent.get_assembly()
 
-    rotary_str = ""
+    rotary = []
     if len(ass.fem.steps) > 0:
         initial_step = ass.fem.steps[0]
         if type(initial_step) is StepExplicit:
-            rotary_str = ", ROTARY INERTIA=ISOTROPIC"
+            rotary = [("ROTARY INERTIA", "ISOTROPIC")]
     sec_data = line_cross_sec_type_str(fem_sec)
     sec_props = line_section_props(fem_sec)
     if sec_data != "GENERAL":
-        sec_str = (
-            f"{top_line}\n*Beam Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}, "
-            + f"temperature={line_temperature_str(fem_sec)}, section={sec_data}{rotary_str}\n{sec_props}"
-        )
-    else:
-        sec_str = f"""{top_line}
-*Beam General Section, elset={fem_sec.elset.name}, section=GENERAL{rotary_str}, density={density}
- {sec_props}"""
-
-    return sec_str
+        params = [
+            ("elset", fem_sec.elset.name),
+            ("material", fem_sec.material.name),
+            ("temperature", line_temperature_str(fem_sec)),
+            ("section", sec_data),
+            *rotary,
+        ]
+        return render_block("Beam Section", params, [sec_props], top_line)
+    params = [("elset", fem_sec.elset.name), ("section", "GENERAL"), *rotary, ("density", format_number(density))]
+    return render_block("Beam General Section", params, [f" {sec_props}"], top_line)
 
 
 def line_section_props(fem_sec: FemSection):
@@ -103,7 +105,7 @@ def line_section_props(fem_sec: FemSection):
     elif sec_data == "GENERAL":
         mat = fem_sec.material.model
         gp = eval_general_properties(sec)
-        return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {mat.E:.3E}, {mat.G},{mat.alpha:.2E}"
+        return f"{gp.Ax}, {gp.Iy}, {gp.Iyz}, {gp.Iz}, {gp.Ix}\n {n1}\n {format_number(mat.E)}, {mat.G},{format_number(mat.alpha)}"
     elif sec_data == "PIPE":
         return f"{sec.r}, {sec.wt}\n {n1}"
     elif sec_data == "L":

@@ -10,8 +10,7 @@ Before the change, abaqus, calculix, vtu and ifc each raised on a model with a s
 
 Abaqus and Sesam read their springs back (`test_abaqus_reads_the_spring_back`,
 `test_sesam_reads_the_spring_back`; the zoo's round trips cover the rest). The other formats
-cannot be round-tripped, so their assertions check each format's own output instead of a
-read-back.
+cannot be round-tripped, so their assertions check each format's own output instead.
 """
 
 from __future__ import annotations
@@ -114,15 +113,13 @@ def test_calculix_reports_the_spring_it_drops(tmp_path, warnings_visible):
 
 
 def test_sesam_reads_the_spring_back(tmp_path):
-    """A grounded spring is a GSPR element (GELMNT1 eltyp 18) with an MGSPRNG matrix, named
-    by TDELEM; the writer used to leave it out."""
+    """The writer used to emit no GELMNT1 + MGSPRNG pair, so the spring was lost. It is now a
+    GSPR element with its stiffness record and a TDELEM carrying its name and node set."""
     _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
-    fem = ada.from_fem(tmp_path / "se" / "seT1.FEM").get_by_name("T1").fem
-
-    spring = fem.springs["spr1"]
-    assert spring.id == SPRING_ID
-    assert [n.id for n in spring.nodes] == [1]
-    assert np.array_equal(spring.stiff, np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]))
+    back = ada.from_fem(next(tmp_path.rglob("seT1.FEM")), "sesam")
+    (spring,) = [s for p in back.get_all_parts_in_assembly() for s in p.fem.springs.values()]
+    assert (spring.name, spring.id, spring.fem_set.name) == ("spr1", SPRING_ID, "spr1_set")
+    np.testing.assert_array_equal(spring.stiff, np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]))
 
 
 def test_usfos_reports_the_springs_it_drops(tmp_path, warnings_visible):

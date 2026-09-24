@@ -12,14 +12,17 @@ file does, so Sesam -> Abaqus reports nothing omitted and changes nothing.
 The zoo is the Abaqus one, read from a written deck first, so the Sesam writer sees what a
 real Abaqus conversion hands it.
 
-On top of the canonical form's rules (R1-R20), the view has two of its own:
+On top of the canonical form's rules (R1-R20), the view has three of its own:
 
 S1  Numbers are compared to 9 significant digits. A Sesam file's data fields are FORTRAN
     ``E16.8`` (manual 2.1 and 9, "four 16character data fields (4E16.8)"): 9 significant
-    digits is all a value can carry, where the canonical form compares 12.
+    digits is all a value can carry, where the canonical form compares 12. That is the format,
+    not a defect; the writer records it as a note with the largest relative change.
 S2  ``ENCASTRE`` is compared as the displacement BC fixing all six DOFs, which is what it is:
     Abaqus's name for them. BNBCD holds fixed DOFs, not the name. (The Abaqus reader already
     reads the other named restraints, PINNED, XSYMM, ..., as the DOFs they fix.)
+S3  A node an equation term names is compared by its id alone, not as ``[part, id]`` (R11):
+    the parts are merged into the one superelement, which has no part to name.
 """
 
 from __future__ import annotations
@@ -54,39 +57,38 @@ NOT_HELD = {
 SESAM_WRITER = "sesam writer"
 
 #: Models whose Sesam conversion still loses something unreported, or changes it. Strict:
-#: fixing one makes its case fail until it is removed here.
+#: fixing one makes its case fail until it is removed here. "reader:" is what the Sesam reader
+#: changes on the way back; "writer:" is a loss the writer reports but that still changes the
+#: compared view, because Sesam has no form for it (or the writer none yet).
 SESAM_GAPS: dict = {
-    "amplitudes": (Exception, "amplitudes dropped unreported"),
     "boundary_conditions": (
         Exception,
-        "prescribed-displacement magnitudes written as fixed (no BNDISPL); velocity/connector BCs unreported",
+        "writer: a prescribed displacement is written fixed, without its value (no BNDISPL yet), and "
+        "velocity and connector BCs have no BNBCD form (all reported)",
     ),
-    "connectors": (Exception, "connectors dropped unreported"),
-    "constraints": (Exception, "writer raises on a tie"),
-    "constraints_equation": (Exception, "writer raises on an equation (BLDEP holds it)"),
-    "elements_line_explicit": (Exception, "writer raises on an explicit step"),
-    "elements_line_profiles": (Exception, "a solid round bar is written as a GPIPE with a 1% bore"),
-    "elements_shell_tri7": (Exception, "writer raises on TRI7 (no Sesam element)"),
-    "elements_solid_first_order": (Exception, "writer raises on PYRAMID5 (no Sesam element)"),
-    "initial_conditions": (Exception, "initial conditions dropped unreported"),
-    "interactions": (Exception, "surfaces and contact dropped unreported"),
-    "loads": (Exception, "writer raises on a load"),
-    "masses": (Exception, "nonstructural mass lumped onto nodes as BNMASS, and not reported"),
-    "materials": (Exception, "plasticity/damping dropped unreported"),
+    "constraints": (
+        Exception,
+        "writer: tie and MPC have no BLDEP form, a shell-to-solid coupling is written as rigid links, a "
+        "coupling's rotations and orientation are not written, and the rigid body shares its links with "
+        "a coupling on the same reference node, which BLDEP merges (all reported); a coupling on a "
+        "surface reads back on the surface's node set",
+    ),
+    "elements_line_profiles": (
+        Exception,
+        "writer: a solid round bar is written as a GPIPE with a 1% bore (the manual does not say a zero "
+        "inner diameter is valid), and reads back as a tube",
+    ),
+    "elements_shell_tri7": (Exception, "writer: TRI7 has no Sesam element type (reported)"),
+    "elements_solid_first_order": (Exception, "writer: PYRAMID5 has no Sesam element type (reported)"),
     "multi_part": (
         Exception,
-        "the parts number nodes and elements alike: one superelement renumbers them (so does the view's merge)",
+        "by design: both parts number nodes and elements from 1, and one superelement cannot hold both "
+        "under those ids; the merge renumbers the second part (reported)",
     ),
-    "outputs": (Exception, "steps, outputs and connectors dropped unreported"),
-    "reference_point_in_use": (Exception, "connectors dropped unreported"),
-    "steps_complex_eigen": (Exception, "steps dropped unreported"),
-    "steps_dynamic_implicit": (Exception, "writer raises on an implicit dynamic step"),
-    "steps_eigen": (Exception, "steps dropped unreported"),
-    "steps_explicit": (Exception, "writer raises on an explicit step"),
-    "steps_raw_input": (Exception, "steps dropped unreported"),
-    "steps_static": (Exception, "steps dropped unreported"),
-    "steps_steady_state": (Exception, "steps dropped unreported"),
-    "surfaces": (Exception, "surfaces dropped unreported"),
+    "reference_point_in_use": (
+        Exception,
+        "writer: the BC on the assembly-level reference point has no node in the deck (reported)",
+    ),
 }
 
 
@@ -98,9 +100,18 @@ def sesam_view(c: dict) -> dict:
     # The shape, not the Abaqus type: which formulation a Sesam element stands for is the
     # formulation mapping's business, compared by its own tests.
     model["elements"] = {k: {f: v for f, v in e.items() if f != "type"} for k, e in model["elements"].items()}
+    model["constraints"] = {k: _terms_by_node_id(con) for k, con in model["constraints"].items()}
     bcs = {k.split(".", 1)[-1]: _restraint_as_dofs(v) for k, v in c["bcs"].items()}
     materials = {k: {f: m[f] for f in MATERIAL_FIELDS} for k, m in c["materials"].items()}
-    return _nine_digits({"model": model, "materials": materials, "bcs": bcs})
+    return _e16_8({"model": model, "materials": materials, "bcs": bcs})
+
+
+def _terms_by_node_id(con: dict) -> dict:
+    """S3."""
+    terms = con.get("equation_terms")
+    if not terms:
+        return con
+    return {**con, "equation_terms": [[r[1] if isinstance(r, list) else r, dof, c] for r, dof, c in terms]}
 
 
 def _restraint_as_dofs(bc: dict) -> dict:
@@ -110,15 +121,15 @@ def _restraint_as_dofs(bc: dict) -> dict:
     return bc
 
 
-def _nine_digits(x):
-    """S1."""
-    if isinstance(x, float):
-        return float(f"{x:.9g}")
-    if isinstance(x, dict):
-        return {k: _nine_digits(v) for k, v in x.items()}
-    if isinstance(x, list):
-        return [_nine_digits(v) for v in x]
-    return x
+def _e16_8(value):
+    """S1: every float as a Sesam field holds it, nine significant digits."""
+    if isinstance(value, float):
+        return float(f"{value:.8E}")
+    if isinstance(value, dict):
+        return {k: _e16_8(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_e16_8(v) for v in value]
+    return value
 
 
 #: What MISOSEL holds of a material: the linear elastic isotropic constants.

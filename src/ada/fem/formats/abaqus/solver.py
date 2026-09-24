@@ -16,18 +16,19 @@ class Stabilize:
     damping: float = None
     stabilize_continue: bool = True
 
-    def to_input_str(self):
+    def to_params(self) -> list[tuple]:
+        """The ``*Static`` parameters, as ``(name, value)`` pairs (``None`` for a flag)."""
         st = StabilizeTypes
         stable_map = {
-            st.ENERGY: f"stabilize={self.factor}, allsdtol={self.allsdtol}",
-            st.DAMPING: f"stabilize, factor={self.factor}, allsdtol={self.allsdtol}",
-            st.CONTINUE: "stabilize, continue=ON",
+            st.ENERGY: [("stabilize", self.factor), ("allsdtol", self.allsdtol)],
+            st.DAMPING: [("stabilize", None), ("factor", self.factor), ("allsdtol", self.allsdtol)],
+            st.CONTINUE: [("stabilize", None), ("continue", "ON")],
         }
-        stabilize_str = stable_map.get(self.stabilize_type, None)
-        if stabilize_str is None:
+        params = stable_map.get(self.stabilize_type, None)
+        if params is None:
             raise ValueError(f'Unrecognized stabilization type "{self.stabilize_type}"')
 
-        return stabilize_str
+        return params
 
 
 @dataclass

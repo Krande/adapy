@@ -157,14 +157,21 @@ class ElementTypes:
         """Is ``abaqus_type`` a formulation of ``shape``?"""
         return isinstance(abaqus_type, str) and normalize(abaqus_type) in self.by_shape.get(shape, ())
 
-    def write_type(self, elem, defaults) -> str:
-        """The Abaqus type to write ``elem`` as: the formulation it was read as, when that is a
-        formulation of its shape; otherwise ``defaults`` (the writer's configurable
-        ``AbaqusDefaultElemTypes``) for its shape."""
-        form = elem.formulation_override
-        if self.accepts(elem.type, form):
-            return normalize(form)
-        return defaults.get_element_type(elem.type)
+    def write_type(self, elem, defaults, target: str = "abaqus") -> str:
+        """The Abaqus type to write ``elem`` as (``ada.fem.formulations.resolve``): the caller's
+        formulation rules, else the Abaqus type it was read as when that is a formulation of its
+        shape, else ``defaults`` (the writer's configurable ``AbaqusDefaultElemTypes``)."""
+        from ada.fem.formulations import resolve
+
+        return normalize(
+            resolve(
+                elem,
+                target,
+                default=defaults.get_element_type,
+                accepts=self.accepts,
+                stage=f"{target} writer",
+            )
+        )
 
 
 @functools.cache

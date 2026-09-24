@@ -2,6 +2,15 @@
 
 
 
+## v0.86.1 (2026-09-24)
+
+### Fix
+
+* fix(ci): test the conda package the way conda-forge does; gates read the installed package (#390)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`dcdacb1`](https://github.com/Krande/adapy/commit/dcdacb1c2579bf313c9d633283d8bf6a1d584dda))
+
+
 ## v0.86.0 (2026-09-23)
 
 ### Feature

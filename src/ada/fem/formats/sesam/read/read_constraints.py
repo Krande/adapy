@@ -13,7 +13,8 @@ from . import cards
 
 
 def get_constraints(bulk_str, fem: FEM) -> Dict[str, Constraint]:
-    """The BLDEP records -> one coupling per independent (master) node.
+    """The BLDEP records -> the equations (see :func:`equations_from_bldep`) and one coupling
+    per independent (master) node of the rigid links.
 
     A coupling is back on the deck's own node sets where it can be: the master on a node set
     holding just that node, the dependent nodes on the set whose TDSETNAM names the coupling
@@ -23,10 +24,24 @@ def get_constraints(bulk_str, fem: FEM) -> Dict[str, Constraint]:
     must already hold the deck's sets.
     """
     con_map = [m.groupdict() for m in cards.re_bldep.finditer(bulk_str)]
-    con_map.sort(key=lambda x: str_to_int(x["master"]))
     tagged = _constraint_sets(bulk_str, fem)
+    rigid = [d for d in con_map if _is_rigid_link(d, fem)]
     constraints: Dict[str, Constraint] = {}
-    for m, d in groupby(con_map, key=lambda x: str_to_int(x["master"])):
+    for c in equations_from_bldep([d for d in con_map if not _is_rigid_link(d, fem)], fem, tagged, bulk_str):
+        constraints[c.name] = c
+    # A coupling named on its dependent-node set takes the links into that set first: two
+    # couplings on one reference node write their links under the same master, and grouping
+    # by master alone merged them into one.
+    for name, fs in tagged:
+        nodes = _set_nodes(fs)
+        own = [d for d in rigid if str_to_int(d["slave"]) in nodes]
+        masters = {str_to_int(d["master"]) for d in own}
+        if name in constraints or len(masters) != 1 or len(own) != len(nodes - masters):
+            continue
+        constraints[name] = grab_constraint(masters.pop(), own, fem, [(name, fs)] + tagged)
+        rigid = [d for d in rigid if not any(d is o for o in own)]
+    rigid.sort(key=lambda x: str_to_int(x["master"]))
+    for m, d in groupby(rigid, key=lambda x: str_to_int(x["master"])):
         c = grab_constraint(m, list(d), fem, tagged)
         constraints[c.name] = c
     return constraints
@@ -54,11 +69,8 @@ def _set_nodes(fs: FemSet) -> set[int]:
 
 
 def _dependent_dofs(d: dict) -> list[int]:
-    """The s(i) of a BLDEP record's NDEP triplets, each padded to a line of four or not."""
-    values = d["bulk"].split()
-    ndep = str_to_int(d["ndep"])
-    stride = 4 if len(values) >= 4 * ndep else 3
-    return [str_to_int(x) for x in values[0 : stride * ndep : stride]]
+    """The s(i) of a BLDEP record's NDEP triplets."""
+    return [s for s, _, _ in _bldep_terms(d)]
 
 
 def grab_constraint(master: int, data: list[dict], fem: FEM, tagged: list[tuple[str, FemSet]] = ()) -> Constraint:
@@ -79,7 +91,9 @@ def grab_constraint(master: int, data: list[dict], fem: FEM, tagged: list[tuple[
         s_set = next((fs for fs in nsets if _set_nodes(fs) == {n.id for n in slaves}), None)
     if s_set is None:
         s_set = fem.add_set(FemSet(f"co{master}_s", slaves, "nset"))
-    m_set = next((fs for fs in nsets if _set_nodes(fs) == {master}), None)
+    # The reference-node set the writer named the coupling on, else the first holding just it.
+    own = [fs for n, fs in tagged if n == name and fs is not s_set and fs.type == "nset"]
+    m_set = next((fs for fs in own + nsets if _set_nodes(fs) == {master}), None)
     if m_set is None:
         m_set = fem.add_set(FemSet(f"co{master}_m", [m_node], "nset"))
 
@@ -87,6 +101,122 @@ def grab_constraint(master: int, data: list[dict], fem: FEM, tagged: list[tuple[
     # elements is what tells them apart (write_constraints.bldep_records).
     con_type = Constraint.TYPES.RIGID_BODY if s_set.type == "elset" else Constraint.TYPES.COUPLING
     return Constraint(name, con_type, m_set, s_set, dofs=dofs or None, parent=fem)
+
+
+def _bldep_terms(d: dict) -> list[tuple[int, int, float]]:
+    """A BLDEP record's ``(slave dof, master dof, beta)`` triplets, each padded to a line of
+    four (a "Not Used" field, manual 8.2.1) or not."""
+    vals = [float(x) for x in d["bulk"].split()]
+    n = str_to_int(d["ndep"])
+    k = 4 if len(vals) >= 4 * n else 3
+    return [(int(vals[k * i]), int(vals[k * i + 1]), vals[k * i + 2]) for i in range(n)]
+
+
+def _is_rigid_link(d: dict, fem: FEM) -> bool:
+    """Whether a BLDEP record is the rigid arm a coupling writes (``write_constraints._bldep``):
+    the slave's three translations following the master's translation plus its rotation
+    about the lever arm between them. Anything else is a general linear dependency, which is
+    what an ``*Equation`` is."""
+    from ada.fem.common import LinDep
+
+    slave = fem.nodes.from_id(str_to_int(d["slave"]))
+    master = fem.nodes.from_id(str_to_int(d["master"]))
+    got = {(s, m): b for s, m, b in _bldep_terms(d)}
+    want = {(s, m): b for s, m, b in LinDep(master.p, slave.p).to_integer_list()}
+    if got.keys() != want.keys():
+        return False
+    # GCOORD holds nine significant digits, so the lever arm read back is the written one
+    # to about that; the betas are compared no closer.
+    scale = max(1.0, *(abs(b) for b in want.values()))
+    return all(abs(got[k] - want[k]) <= 1e-7 * scale for k in want)
+
+
+def equations_from_bldep(
+    records: list[dict], fem: FEM, tagged: list[tuple[str, FemSet]] = (), bulk_str=""
+) -> list[Constraint]:
+    """General BLDEP records back as ``*Equation`` constraints.
+
+    ``u(s, d) = sum_i beta_i u(m_i, d_i)`` is the equation ``1 u(s, d) - sum_i beta_i u(m_i,
+    d_i) = 0`` with the dependent term first, which is the term Abaqus eliminates. The terms
+    of one dependent dof are gathered over every record naming it, in file order.
+
+    An equation named on its eliminated node's TDNODE (``write_sets.EQUATION_TAG``) comes back
+    as that equation: the dependent dofs carrying one name are one equation over node sets,
+    a term being the set named for it (``write_sets.CONSTRAINT_TAG``) whose nodes, in order,
+    are that term's nodes. Its operands are what an Abaqus-read equation's are: the first
+    two terms, a node term as the one-node set ``<name>_s`` / ``<name>_m``. Anything else
+    is one equation per dependent dof on node terms, named ``eq<node>_<dof>``.
+    """
+    eqs: dict[tuple[int, int], list] = {}
+    for d in records:
+        slave = fem.nodes.from_id(str_to_int(d["slave"]))
+        master = fem.nodes.from_id(str_to_int(d["master"]))
+        for s_dof, m_dof, beta in _bldep_terms(d):
+            terms = eqs.setdefault((slave.id, s_dof), [(slave, s_dof, 1.0)])
+            terms.append((master, m_dof, -beta))
+
+    by_name: dict[str, list[tuple[int, int]]] = {}
+    for key, name in _equation_names(bulk_str).items():
+        if key in eqs:
+            by_name.setdefault(name, []).append(key)
+    out = []
+    done: set = set()
+    for name, keys in by_name.items():
+        con = _named_equation(name, [eqs[k] for k in keys], [fs for n, fs in tagged if n == name], fem)
+        if con is not None:
+            out.append(con)
+            done.update(keys)
+    for (sid, s_dof), terms in eqs.items():
+        if (sid, s_dof) in done:
+            continue
+        s_set = FemSet(f"eq{sid}_{s_dof}_s", [terms[0][0]], "nset")
+        # The operands an Abaqus-read equation carries: the eliminated node and the next one.
+        m_set = FemSet(f"eq{sid}_{s_dof}_m", [terms[1][0]], "nset")
+        out.append(
+            Constraint(f"eq{sid}_{s_dof}", Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem)
+        )
+    return out
+
+
+def _equation_names(bulk_str: str) -> dict[tuple[int, int], str]:
+    """``{(node, dof): equation name}`` from the TDNODE comments the writer leaves."""
+    from ..write.write_sets import EQUATION_TAG
+    from .read_sets import text_record
+
+    out = {}
+    for m in cards.re_tdnode.finditer(bulk_str):
+        d = m.groupdict()
+        _, comments = text_record(d, "text")
+        for c in comments:
+            if c.startswith(EQUATION_TAG):
+                dof, _, name = c[len(EQUATION_TAG) :].strip().partition(" ")
+                out[(str_to_int(d["nodeno"]), int(dof))] = name.strip()
+    return out
+
+
+def _named_equation(name: str, groups: list[list], sets: list[FemSet], fem: FEM) -> Constraint | None:
+    """One equation from the dependent-dof ``groups`` it was written as (one per node of its
+    set terms), or ``None`` when they do not line up as one."""
+    shape = [(dof, coef) for _, dof, coef in groups[0]]
+    if any([(dof, coef) for _, dof, coef in g] != shape for g in groups):
+        return None
+    terms = []
+    for k, (dof, coef) in enumerate(shape):
+        column = [g[k][0].id for g in groups]
+        fs = next((s for s in sets if s.type == "nset" and [n.id for n in s.members] == column), None)
+        if fs is not None:
+            terms.append((fs, dof, coef))
+        elif len(set(column)) == 1:
+            terms.append((groups[0][k][0], dof, coef))
+        else:
+            return None
+
+    def operand(ref, suffix: str) -> FemSet:
+        return ref if isinstance(ref, FemSet) else FemSet(f"{name}_{suffix}", [ref], "nset", parent=fem)
+
+    s_set = operand(terms[0][0], "s")
+    m_set = operand(terms[1][0], "m") if len(terms) > 1 else s_set
+    return Constraint(name, Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem)
 
 
 def get_bcs(bulk_str, fem: FEM) -> List[Bc]:

@@ -1,5 +1,4 @@
 from ada import Section
-from ada.config import logger
 from ada.sections import SectionCat
 
 from .write_utils import write_ff
@@ -136,7 +135,15 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
         # can run; it just loses the outline. Saying so and carrying on is exactly what
         # the message promises. It used to say it and then call ``None`` anyway, turning
         # a section adapy understands perfectly well into a TypeError mid-deck.
-        logger.error(f'Unable to convert "{sec}". This will be exported as general section only')
+        from .not_held import STAGE, report
+
+        report().approximated(
+            STAGE,
+            "Section",
+            sec.name,
+            "no Sesam profile card for this section type; written as GBEAMG only",
+            type=sec.type,
+        )
         return sec_str
 
     sec_str += sec_str_writer(sec, sec_id)

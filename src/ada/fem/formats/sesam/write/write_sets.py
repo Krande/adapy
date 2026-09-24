@@ -20,26 +20,32 @@ if TYPE_CHECKING:
 #: (``read_sections``) rebuilds the section on that set.
 SECTION_TAG = "SECTION: "
 
-#: The TDSETNAM comment line naming the coupling (or rigid body) whose dependent nodes the set
-#: holds. BLDEP, which carries it, is per dependent node and has no name; see
-#: ``read_constraints``.
+#: The TDSETNAM comment line naming the constraint a set belongs to: the coupling (or rigid
+#: body) whose dependent nodes it holds, or an equation it is a term of. BLDEP, which carries
+#: them, is per dependent node and has no name; see ``read_constraints``.
 CONSTRAINT_TAG = "CONSTRAINT: "
+
+#: The TDNODE comment line (manual 4.2.4) naming the equation that makes one dof of the node
+#: dependent: ``EQUATION: <dof> <name>``. An equation on node terms has no set to carry its
+#: name, and one node may be the eliminated term of an equation per dof.
+EQUATION_TAG = "EQUATION: "
 
 #: NCTXT's legal range is [0, 64], NLTXT's [0, 5] (manual 4.2.6).
 MAX_TEXT = 64
 MAX_LINES = 5
 
 
-def sets_str(fem: FEM, *others: FEM) -> str:
+def sets_str(fem: FEM, *others: FEM, unwritten_elements: set | frozenset = frozenset()) -> str:
     """TDSETNAM + GSETMEMB for every set of ``fem`` and then of ``others``.
 
-    A Sesam file is one superelement, so the sets of the assembly (passed in ``others``) are
-    written into it too: they name the same nodes and elements. They used to be left out, which
-    also left out the node sets assembly-level boundary conditions stand on.
+    ``fem`` (and each of ``others``) is anything with ``.sets.sets``, and the ``sections`` and
+    ``constraints`` whose names go on their sets' comment lines: the writer passes the part's
+    sets together with the assembly's that stand on the part's mesh (``writer._SetsOf``).
 
-    A connector is not written (``write_elements._is_writable_to_sesam``), so it is left out of
-    the sets as well, and a set of connectors only is not written: a member that names an
-    element the file does not have is one no reader can resolve.
+    ``unwritten_elements`` are the ids of elements the deck leaves out
+    (``write_elements.unwritten_element_ids``). An element set never names one: a GSETMEMB
+    member with no GELMNT1 is an id a reader cannot resolve. A set left with no members by
+    that is not written at all -- all it held is gone, and the writer reports each element.
     """
     fems = [fem] + [f for f in others if f is not None and f is not fem]
     # Keyed by what the set is called, not by the object: a constraint may reach its set
@@ -47,34 +53,79 @@ def sets_str(fem: FEM, *others: FEM) -> str:
     # merged copy of the set.
     comments: dict[tuple, list[str]] = {}
     for f in fems:
-        for sec in f.sections:
+        for sec in getattr(f, "sections", ()):
             comments.setdefault((sec.elset.type, sec.elset.name), []).append(f"{SECTION_TAG}{sec.name}")
-        for con in f.constraints.values():
-            fs = _bldep_slave_set(con)
-            if fs is not None:
+        for con in getattr(f, "constraints", {}).values():
+            for fs in _constraint_sets(con):
                 comments.setdefault((fs.type, fs.name), []).append(f"{CONSTRAINT_TAG}{con.name}")
     out_str = ""
     i = 0
     for f in fems:
         for fs in f.sets.sets:
-            members = [m for m in fs.members if not isinstance(getattr(m, "type", None), ConnectorTypes)]
-            if fs.members and not members:
-                continue
+            members = fs.members
+            if fs.type == "elset":
+                members = [
+                    m
+                    for m in members
+                    if m.id not in unwritten_elements and not isinstance(getattr(m, "type", None), ConnectorTypes)
+                ]
+                if fs.members and not members:
+                    continue
             i += 1
             out_str += _set_str(fs, members, i, comments.get((fs.type, fs.name), []))
     return out_str
 
 
-def _bldep_slave_set(con) -> FemSet | None:
-    """The set a coupling or rigid body's dependent nodes are written from, if it is one set."""
+def _constraint_sets(con) -> list[FemSet]:
+    """The sets whose TDSETNAM names ``con``: a coupling or rigid body's dependent-node set and
+    reference-node set, each if it is one set; each node set an equation names as a term."""
     from ada.fem import FemSet
 
+    if con.type == con.TYPES.EQUATION:
+        return [ref for ref, _, _ in con.equation_terms or () if isinstance(ref, FemSet)]
     if con.type not in (con.TYPES.COUPLING, con.TYPES.RIGID_BODY):
-        return None
-    s_set = con.s_set
-    if not isinstance(s_set, FemSet):
-        s_set = getattr(s_set, "fem_set", None)
-    return s_set if isinstance(s_set, FemSet) else None
+        return []
+    out = []
+    for op in (con.s_set, con.m_set):
+        fs = op if isinstance(op, FemSet) else getattr(op, "fem_set", None)
+        if isinstance(fs, FemSet):
+            out.append(fs)
+    return out
+
+
+def equation_names_str(*fems) -> str:
+    """TDNODE records naming, on each eliminated node, the equations that eliminate its dofs
+    (:data:`EQUATION_TAG`). A node set term stands for each of its nodes in turn
+    (``write_constraints.equation_records``), so each of those nodes carries the name."""
+    from ada.fem import FemSet
+
+    names: dict[int, list[str]] = {}
+    for f in fems:
+        if f is None:
+            continue
+        for con in getattr(f, "constraints", {}).values():
+            if con.type != con.TYPES.EQUATION or not con.equation_terms:
+                continue
+            ref, dof, _ = con.equation_terms[0]
+            for node in ref.members if isinstance(ref, FemSet) else [ref]:
+                names.setdefault(node.id, []).append(f"{EQUATION_TAG}{int(dof)} {con.name}")
+    out = ""
+    for nid, lines in names.items():
+        kept = [c for c in lines if len(c) <= MAX_TEXT][:MAX_LINES]
+        if len(kept) < len(lines):
+            logger.warning(
+                "sesam writer: node %s is eliminated by %s, of which only %s fit TDNODE's comment lines; "
+                "the rest read back under generated names.",
+                nid,
+                lines,
+                kept,
+            )
+        if not kept:
+            continue
+        width = max(len(c) for c in kept)
+        # No name (NLNAM = 0), only the comment lines.
+        out += write_ff("TDNODE", [(4, nid, 0, 100 * len(kept) + width)] + [(c.ljust(width),) for c in kept])
+    return out
 
 
 def _set_str(fs: FemSet, members: list, i: int, comments: list[str]) -> str:

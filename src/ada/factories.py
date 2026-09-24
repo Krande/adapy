@@ -289,8 +289,45 @@ def from_fem(
     convert_skip_plates=False,
     convert_skip_beams=False,
     cad_config: "CadConfig | None" = None,
+    report_file: str | pathlib.Path | None = None,
 ) -> Assembly:
-    """Create an Assembly object from a FEM file."""
+    """Create an Assembly object from a FEM file.
+
+    :param report_file: Write what the reader could not carry into the model -- keywords it has
+        no reader for, references it could not resolve, constructs it left out -- to this path
+        as a JSON conversion report (``ada.fem.formats.conversion_report``). Always written,
+        also when nothing was lost.
+    """
+    from ada.fem.formats import conversion_report
+
+    files = fem_file if isinstance(fem_file, list) else [fem_file]
+    with conversion_report.to_file(
+        report_file, input=[str(pathlib.Path(f).resolve()) for f in files], from_format=fem_format
+    ):
+        return _from_fem(
+            fem_file,
+            fem_format,
+            name,
+            source_units,
+            fem_converter,
+            create_concept_objects,
+            convert_skip_plates,
+            convert_skip_beams,
+            cad_config,
+        )
+
+
+def _from_fem(
+    fem_file,
+    fem_format,
+    name,
+    source_units,
+    fem_converter,
+    create_concept_objects,
+    convert_skip_plates,
+    convert_skip_beams,
+    cad_config,
+) -> Assembly:
     a = Assembly(units=source_units, cad_config=cad_config)
     if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)

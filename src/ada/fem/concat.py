@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
+from ada.fem.formats import conversion_report
 
 if TYPE_CHECKING:
     from ada.api.mesh.store import MeshArrays
@@ -213,21 +214,8 @@ def concatenate_fem_meshes(parts: "list[Part]") -> "tuple[Mesh, list[tuple[int, 
     return mesh, part_offsets
 
 
-def _collide(id_lists: "list[list[int]]") -> bool:
-    """Whether any id occurs in more than one of ``id_lists``."""
-    seen: set = set()
-    for ids in id_lists:
-        ids = set(ids)
-        if ids & seen:
-            return True
-        seen |= ids
-    return False
-
-
-def _elem_ids(fem) -> "list[int]":
-    """Every element id of ``fem``: the block rows and the special elements outside them."""
-    ids = [int(i) for blk in fem.nodes.store.blocks.values() for i in blk.el_ids]
-    return ids + [int(e.id) for e, _ in _retained_elems(fem) if e.id is not None]
+#: The stage merge findings are recorded under (``conversion_report``).
+_STAGE = "fem merge"
 
 
 def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
@@ -247,27 +235,21 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
 
     # Disambiguate set names with the source instance name when those are all distinct
     # (Abaqus multi-instance decks); otherwise fall back to the always-unique part name.
+    # Only a name that more than one part uses is prefixed: the others are the model's own
+    # names, and prefixing them all renamed every set of a model whose sets never clashed.
     inames = [p.fem.instance_name for p in parts]
     use_instance = all(inames) and len(set(inames)) == len(inames)
     prefix_of = {id(p): (p.fem.instance_name if use_instance else p.name) for p in parts}
+    set_name_count: dict = {}
+    for p in parts:
+        for s in p.fem.sets:
+            set_name_count[s.name.lower()] = set_name_count.get(s.name.lower(), 0) + 1
 
     # Work on array-backed stores: a clean per-part store carries connectivity as row indices
     # plus the per-element section/elset reference lists.
     for p in parts:
         if not isinstance(p.fem.nodes, ArrayNodes):
             to_array_backed(p.fem)
-
-    # Renumber and rename only what would collide. A model whose parts already number their
-    # nodes and elements apart (an assembly-level reference node, a second part meshed from
-    # 100) keeps its ids, and a set name only one part uses keeps its name: renumbering them
-    # anyway changed every id and set name the merged model hands a writer, and broke the
-    # assembly-level constraints, which are carried over un-renumbered.
-    offset_nodes = _collide([p.fem.nodes.store.node_ids.tolist() for p in parts])
-    offset_elems = _collide([_elem_ids(p.fem) for p in parts])
-    name_count: dict[tuple, int] = {}
-    for p in parts:
-        for key in {(s.type, s.name) for s in p.fem.sets}:
-            name_count[key] = name_count.get(key, 0) + 1
 
     base = parts[0]
 
@@ -283,21 +265,44 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     row_off = node_off = el_off = 0
     node_off_of: dict[int, int] = {}
     el_off_of: dict[int, int] = {}
+    # A part is shifted only when its ids collide with a part already merged. The ids are the
+    # model's own, and a writer keeps them (a Sesam deck's node and element numbers are the
+    # adapy ids); shifting every part after the first renumbered models whose parts never
+    # overlapped -- an assembly-level reference node 900 beside part nodes 1..6 turned the
+    # part's nodes into 901..906.
+    used_nids: set = set()
+    used_eids: set = set()
     for p in parts:
         st = p.fem.nodes.store
-        node_off_of[id(p)] = node_off
-        el_off_of[id(p)] = el_off
+        p_nids = {int(i) for i in st.node_ids}
+        p_eids = {int(i) for blk in st.blocks.values() for i in blk.el_ids}
+        p_eids |= {int(e.id) for e, _ in _retained_elems(p.fem) if e.id is not None}
+        p_node_off = node_off if p_nids & used_nids else 0
+        p_el_off = el_off if p_eids & used_eids else 0
+        used_nids |= {i + p_node_off for i in p_nids}
+        used_eids |= {i + p_el_off for i in p_eids}
+        node_off_of[id(p)] = p_node_off
+        el_off_of[id(p)] = p_el_off
+        if p_node_off or p_el_off:
+            # The ids are what a single-part writer writes and what results are keyed by, so a
+            # changed one is said, not left to be found in the output.
+            conversion_report.current().approximated(
+                _STAGE,
+                "Part",
+                p.name,
+                "its node and element ids collide with another part's and are renumbered in the merged FEM",
+                node_offset=int(p_node_off),
+                element_offset=int(p_el_off),
+            )
         coords_list.append(st.coords)
-        nid_list.append(st.node_ids + node_off)
-        p_nmax = int(st.node_ids.max()) if st.n_nodes else 0
-        p_emax = 0
+        nid_list.append(st.node_ids + p_node_off)
         for ctype, blk in st.blocks.items():
             entry = merged_blocks.setdefault(
                 ctype,
                 {"conn": [], "el_ids": [], "fem_secs": [], "elsets": [], "formulations": [], "sparse": [], "rows": 0},
             )
             entry["conn"].append(blk.conn.astype(np.int64) + row_off)
-            entry["el_ids"].append(blk.el_ids + el_off)
+            entry["el_ids"].append(blk.el_ids + p_el_off)
             n = len(blk.el_ids)
             entry["fem_secs"].append(list(blk.fem_secs) if blk.fem_secs else [None] * n)
             entry["elsets"].append(list(blk.elsets) if blk.elsets else [None] * n)
@@ -306,19 +311,14 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             # references resolve against it. Note the three distinct offsets: ``row_off`` is a
             # NODE row (connectivity), ``entry["rows"]`` an ELEMENT row inside this block, and
             # ``node_off``/``el_off`` are id offsets.
-            entry["sparse"].append((entry["rows"], node_off, blk))
+            entry["sparse"].append((entry["rows"], p_node_off, blk))
             entry["rows"] += n
-            if n:
-                p_emax = max(p_emax, int(blk.el_ids.max()))
         # The special elements sitting in ``_overflow`` have no block row, so their ids are
-        # invisible to the loop above; they still have to be covered by the offset or a mass
-        # on one part collides with an element on the next.
-        p_emax = max(p_emax, max((int(e.id) for e, _ in _retained_elems(p.fem) if e.id is not None), default=0))
+        # invisible to the block loop; they are in ``p_eids`` all the same, or a mass on one
+        # part collides with an element on the next.
         row_off += st.coords.shape[0]
-        if offset_nodes:
-            node_off += p_nmax
-        if offset_elems:
-            el_off += p_emax
+        node_off = max(used_nids, default=0)
+        el_off = max(used_eids, default=0)
 
     blocks: dict = {}
     for ctype, entry in merged_blocks.items():
@@ -378,7 +378,15 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         if mids is None:
             mids = [m.id for m in s.members]
         member_ids = [int(m) + off for m in mids]
-        name = f"{prefix_of[id(p)]}_{s.name}" if name_count.get((s.type, s.name), 0) > 1 else s.name
+        name = s.name if set_name_count.get(s.name.lower(), 0) <= 1 else f"{prefix_of[id(p)]}_{s.name}"
+        if name != s.name:
+            conversion_report.current().approximated(
+                _STAGE,
+                "FemSet",
+                s.name,
+                "another part has a set of that name; renamed in the merged FEM",
+                new_name=name,
+            )
         ns = FemSet(name, member_ids, s.type, parent=merged)
         set_map[id(s)] = ns
         merged_sets.append(ns)
@@ -387,6 +395,12 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     for p in parts:
         for s in p.fem.sets:
             _remap_set(p, s)
+
+    part_of_fem = {id(p.fem): p for p in parts}
+
+    def _node_off_for(node) -> int:
+        owner = part_of_fem.get(id(getattr(node, "parent", None)))
+        return node_off_of[id(owner)] if owner is not None else 0
 
     # Special element OBJECTS (Mass / Spring / Connector). Their rows travel with the blocks
     # above, but the values that make them what they are live only on the object, so without
@@ -464,14 +478,24 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             merged.masses[name] = nm
         for name, con in p.fem.constraints.items():
             nc = copy.copy(con)
-            # Onto the merged copies of its sets (every set is in ``set_map`` by now, whichever
-            # part owns it: an assembly-level coupling names a part's nodes). Left on the
-            # source sets, it kept the source ids after a renumber and named sets the merged
-            # model does not have.
-            for attr in ("m_set", "s_set"):
-                fs = getattr(nc, attr, None)
-                if isinstance(fs, FemSet) and id(fs) in set_map:
-                    setattr(nc, attr, set_map[id(fs)])
+            # Re-pointed like a BC's set. A constraint kept on its source sets named the
+            # source ids, which the merge may have shifted -- a coupling at assembly level
+            # then wrote BLDEP records on nodes the deck does not have. A set is found in
+            # ``set_map`` whichever part owns it (every part's sets are mapped above); a
+            # node, named by an equation term, is shifted by its own part's offset.
+            for attr in ("_m_set", "_s_set"):
+                op = getattr(nc, attr, None)
+                if isinstance(op, FemSet):
+                    setattr(nc, attr, _remap_set(p, op))
+            if nc.equation_terms is not None:
+                nc._equation_terms = tuple(
+                    (
+                        _remap_set(p, ref) if isinstance(ref, FemSet) else _merged_node(ref, store, _node_off_for(ref)),
+                        dof,
+                        coef,
+                    )
+                    for ref, dof, coef in nc.equation_terms
+                )
             nc.parent = merged
             merged.constraints[name] = nc
         for name, csys in p.fem.lcsys.items():

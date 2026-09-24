@@ -222,6 +222,30 @@ class ConversionReport:
         self._log(finding)
         return finding
 
+    def absorb(self, other: ConversionReport) -> None:
+        """Take ``other``'s findings as this report's own, counted as :meth:`_add` counts them.
+
+        Not logged again: each was logged when ``other`` first recorded it.
+        """
+        for f in other.findings:
+            existing = self._by_key.get(f.key)
+            if existing is None:
+                copy = dataclasses.replace(f, details=dict(f.details), other_subjects=list(f.other_subjects))
+                self._findings.append(copy)
+                self._by_key[copy.key] = copy
+                continue
+            existing.count += f.count
+            for subject in [f.subject, *f.other_subjects]:
+                if (
+                    subject
+                    and subject != existing.subject
+                    and subject not in existing.other_subjects
+                    and len(existing.other_subjects) < MAX_OTHER_SUBJECTS
+                ):
+                    existing.other_subjects.append(subject)
+            for key, value in f.details.items():
+                existing.details.setdefault(key, value)
+
     @staticmethod
     def _log(finding: Finding) -> None:
         # Formatted eagerly, into one string. This matters: ``DuplicateFilter`` compares the
@@ -347,3 +371,35 @@ def collect() -> Iterator[ConversionReport]:
         yield report
     finally:
         _active.reset(token)
+
+
+@contextlib.contextmanager
+def to_file(path, **header) -> Iterator[ConversionReport]:
+    """Collect the findings of the block and write them to ``path`` as JSON when it ends.
+
+    What ``from_fem(..., report_file=...)`` and ``to_fem(..., report_file=...)`` use. Unlike
+    ``ada convert``, which writes a report only when a finding needs a decision, the file is
+    always written, so a clean conversion leaves a report saying so. It is written when the
+    block raises, too, with the error in the header: a conversion that died halfway has still
+    found things worth keeping. An enclosing collector (``ada convert``, or a caller's own
+    :func:`collect`) still receives every finding.
+
+    With ``path`` None this is just the enclosing collector, or the throwaway :func:`current` is.
+    """
+    if path is None:
+        yield current()
+        return
+    outer = _active.get()
+    with collect() as report:
+        error = None
+        try:
+            yield report
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if error is not None:
+                header = {**header, "error": error}
+            report.write_json(path, **header)
+            if outer is not None:
+                outer.absorb(report)

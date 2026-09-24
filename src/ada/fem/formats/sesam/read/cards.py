@@ -219,6 +219,7 @@ re_belfix = get_ff_regex(
     "a6|",
 )
 re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
+re_mshglsp = get_ff_regex("MSHGLSP", "matno", "matknd", "ndof1", "ndof2", "bulk")
 # BNMASS carries NDOF mass components, which is not always six: a solid-type node has
 # NDOF=3 and three translational components (GNODE's NDOF, manual printed 5-91; the writer
 # now emits that -- see ``sesam/write/writer.NodeDofs``). Named fields m1..m6 made a
@@ -226,9 +227,6 @@ re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
 # splits, the same shape as re_bnbcd's ``content`` and re_mgsprng's ``bulk``.
 re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "content")
 re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
-re_mshglsp = get_ff_regex("MSHGLSP", "matno", "matknd", "ndof1", "ndof2", "bulk")
-TDELEM = DataCard("TDELEM", ("nfield", "elno", "codnam", "codtxt", "name"))
-re_tdelem = TDELEM.to_ff_re()
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
 re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
 
@@ -239,6 +237,9 @@ re_setmemb_records = re.compile(r"^GSETMEMB[^\n]*(?:\n[ \t]+[^\n]*)*", re.MULTIL
 
 TDSETNAM = DataCard("TDSETNAM", ("nfield", "isref", "codnam", "codtxt", "set_name"))
 re_setnames = TDSETNAM.to_ff_re()
+
+TDNODE = DataCard("TDNODE", ("nfield", "nodeno", "codnam", "codtxt", "text"))
+re_tdnode = TDNODE.to_ff_re()
 
 # Materials
 

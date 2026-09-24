@@ -6,7 +6,13 @@ from ada.api.spatial import Assembly, Part
 from ada.config import logger
 
 from .read_constraints import get_bcs, get_constraints
-from .read_elements import attach_named_sets, get_elements, get_mass, get_springs
+from .read_elements import (
+    attach_named_sets,
+    get_elements,
+    get_mass,
+    get_springs,
+    link_spring_sets,
+)
 from .read_materials import get_materials
 from .read_nodes import get_nodes, renumber_nodes
 from .read_sections import get_elrefs, get_sections
@@ -63,6 +69,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
         fem.add_spring(spring)
     get_mass(bulk_str, part.fem, mass_elem, el_id_map)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
+    link_spring_sets(fem)
     attach_named_sets(fem)
     # After the sets: a section is rebuilt on the set it was assigned to (see get_sections).
     fem.sections = get_sections(bulk_str, fem, elrefs)
@@ -109,6 +116,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
         fem.add_spring(spring)
     get_mass(reader_text, part.fem, mass_elem, ext_map)
     fem.sets = part.fem.sets + get_sets(reader_text, fem)
+    link_spring_sets(fem)
     attach_named_sets(fem)
     fem.sections = get_sections(reader_text, fem, elrefs)
     fem.constraints.update(get_constraints(reader_text, fem))

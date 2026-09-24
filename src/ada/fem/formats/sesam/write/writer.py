@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
@@ -19,8 +20,8 @@ from ada.fem.shapes.definitions import (
 )
 
 from .templates import top_level_fem_str
-from .write_sets import sets_str
-from .write_utils import write_ff
+from .write_sets import equation_names_str, sets_str
+from .write_utils import SIGNIFICANT_DIGITS, track_rounding, write_ff
 
 if TYPE_CHECKING:
     from ada import Material
@@ -67,14 +68,17 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       retain only *some* of their DOFs comes back widened to all of them, with a warning
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
+    from .not_held import STAGE, bc_is_held, report, report_not_held
     from .write_bcs import bnbcd_str, retained_dofs
     from .write_constraints import bldep_records
-    from .write_elements import elem_gen
-    from .write_loads import loads_str
+    from .write_elements import elem_gen, unwritten_element_ids
+    from .write_loads import step_loads_str
     from .write_masses import mass_str
     from .write_point_elements import point_elements_str
     from .write_sections import sections_str
-    from .write_steps import write_sestra_inp
+    from .write_springs import property_records
+    from .write_springs import spring_matnos as spring_matnos_for
+    from .write_steps import report_steps, write_sestra_inp, written_step
 
     if metadata is None:
         metadata = dict()
@@ -95,9 +99,6 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
             f"Sesam writer currently only works for a single part. Currently found {len(parts)}"
         )
 
-    if len(assembly.fem.steps) > 1:
-        logger.error("Sesam writer currently only supports 1 step. Will only use 1st step")
-
     part = parts[0]
 
     thick_map = dict()
@@ -115,42 +116,101 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
 
     inp_file_path = (analysis_dir / f"{name}T1").with_suffix(".FEM")
 
-    if len(assembly.fem.steps) > 0:
-        step = assembly.fem.steps[0]
+    fems = [part.fem, assembly.fem]
+    # One step is written: the first, the assembly's before the part's. Its loads are the
+    # load case; its analysis goes to sestra.inp when Sestra has one for its type. Any other
+    # step used to be dropped with a log line, and an explicit or dynamic first step raised.
+    steps = list(assembly.fem.steps) + list(part.fem.steps)
+    step = written_step(steps)
+    sestra_inp = step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
+    if sestra_inp:
         with open(analysis_dir / "sestra.inp", "w") as f:
             f.write(write_sestra_inp(name, step))
+    report_steps(steps, sestra_inp)
+    report_not_held(fems, materials, written=part.fem)
 
-    # BNBCD is written before BLDEP (GeniE's own order) but its FIX codes are derived
-    # from the BLDEP records, so build the records first and share them with both blocks.
-    fems = [part.fem, assembly.fem]
-    lin_deps = [r for fem in fems for r in bldep_records(fem)]
     # One derivation of the per-node dof count, shared by every record that declares an
     # NDOF (GNODE, BNBCD, BNMASS, BNLOAD) so they cannot disagree. See NodeDofs.
     ndofs = node_dofs(part.fem)
+    # BNBCD is written before BLDEP (GeniE's own order) but its FIX codes are derived
+    # from the BLDEP records, so build the records first and share them with both blocks.
+    lin_deps = [r for fem in fems for r in bldep_records(fem, ndofs)]
     # Explicit metadata if given, else the SESAM_SUPERNODES convention. See to_fem's
     # docstring for the precedence rule. ``ndofs`` keeps the convention from retaining a
     # rotation on a solid-only node, which has none.
     retained = retained_dofs(fems, metadata, ndofs)
+    # Only the BCs BNBCD can hold reach it (see ``not_held.bc_is_held``); the rest are in the
+    # report. A velocity BC used to be written as a clamp, and a BC on an assembly-level
+    # reference point fixed whichever part node shared its id.
+    held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
 
-    with open(inp_file_path, "w") as d:
+    # A spring's stiffness record takes a MATNO, numbered on from the materials'.
+    spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
+
+    with open(inp_file_path, "w") as d, track_rounding() as rounding:
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
         d.write(units)
         d.write(materials_str(materials))
+        d.write("".join(property_records(sp, spring_matnos[sp.id]) for sp in part.fem.springs.values()))
         d.write(sections_str(part.fem, thick_map))
         d.write(univec_str(part.fem))
         d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem, ndofs))
         d.write(mass_str(part.fem, ndofs))
         d.write(point_elements_str(part.fem, ndofs))
-        d.write(sets_str(part.fem, assembly.fem))
-        d.write(bnbcd_str(fems, lin_deps, retained, ndofs))
+        d.write(sets_str(_SetsOf(part.fem, assembly.fem), unwritten_elements=unwritten_element_ids(part.fem)))
+        d.write(equation_names_str(part.fem, assembly.fem))
+        d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
-        d.writelines(elem_gen(part.fem, thick_map))
-        d.write(loads_str(assembly.fem, ndofs) + loads_str(part.fem, ndofs))
+        d.writelines(elem_gen(part.fem, thick_map, spring_matnos))
+        d.write(step_loads_str(step, ndofs))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
+    if rounding.count:
+        # A limit of the format, not of this writer: said once, with its size.
+        report().note(
+            STAGE,
+            "Number",
+            str(inp_file_path.name),
+            f"values rounded to the {SIGNIFICANT_DIGITS} significant digits of Sesam's E16.8 fields",
+            count=rounding.count,
+            max_relative_change=rounding.max_rel,
+        )
     logger.info(f'Created an Sesam input deck at "{analysis_dir}"')
+
+
+class _SetsOf:
+    """The part FEM's sets plus the assembly FEM's sets on the part's mesh, in the shape
+    ``write_sets.sets_str`` reads (``.sets.sets``).
+
+    A Sesam file is one superelement, so a set defined at assembly level over the part's
+    nodes or elements is as much the superelement's as the part's own; it used to be left
+    out without a word. One naming anything else (an assembly-level node the deck does not
+    hold), or clashing with a part set's name, is left out and reported.
+
+    The sections and constraints of both are carried too: ``sets_str`` names them on their
+    sets' comment lines.
+    """
+
+    def __init__(self, part_fem: FEM, asm_fem: FEM):
+        from .not_held import STAGE, report
+
+        sets = list(part_fem.sets.sets)
+        names = {fs.name.lower() for fs in sets}
+        for fs in asm_fem.sets.sets:
+            if asm_fem is part_fem:
+                break
+            if fs.name.lower() in names:
+                report().omitted(STAGE, "FemSet", fs.name, "an assembly set named like a part set")
+            elif any(getattr(m, "parent", None) is not part_fem for m in fs.members):
+                report().omitted(STAGE, "FemSet", fs.name, "an assembly set on members outside the part's mesh")
+            else:
+                sets.append(fs)
+                names.add(fs.name.lower())
+        self.sets = SimpleNamespace(sets=sets)
+        self.sections = list(part_fem.sections) + ([] if asm_fem is part_fem else list(asm_fem.sections))
+        self.constraints = {**asm_fem.constraints, **part_fem.constraints}
 
 
 def materials_str(materials: list[Material]):
@@ -608,11 +668,14 @@ def eccen_str(fem: FEM) -> str:
                 continue
             node_id = end.node.id
             if node_id not in node_ids:
-                logger.warning(
-                    "sesam writer: element %s carries an eccentricity on node %s, which is not "
-                    "one of its own nodes. Skipping that offset.",
-                    el.id,
-                    node_id,
+                from .not_held import STAGE, report
+
+                report().omitted(
+                    STAGE,
+                    "Element",
+                    str(el.id),
+                    "an eccentricity on a node that is not one of the element's own; that offset is not written",
+                    node=node_id,
                 )
                 continue
             per_node[node_ids.index(node_id)] = ecc_no

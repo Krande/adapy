@@ -2,7 +2,6 @@ from itertools import count
 
 import numpy as np
 
-from ada.config import logger
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
@@ -158,7 +157,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
             raise ValueError(f"Mass element {elno} refers to MGMASS {matno}, which the deck does not have")
         matrix = mgmass[matno]
         no = fem.nodes.from_id(gelmnt_point_node_id(mass_el["gelmnt"]))
-        name = tdelem.get(elno, f"m{no.id}")
+        name = tdelem.get(elno, (None, []))[0] or f"m{no.id}"
         value, mass_type, ptype = point_mass_from_matrix(matrix)
         mass = Mass(name, [no], value, mass_type, ptype=ptype, parent=fem, mass_id=elno)
         mass_el["el"] = mass
@@ -171,19 +170,6 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
     return list(map(find_bnmass, cards.re_bnmass.finditer(bulk_str))) + masses
 
 
-def element_names(bulk_str: str) -> dict[int, str]:
-    """``{elno: name}`` from TDELEM (manual 4.2.1)."""
-    from .read_sets import text_record
-
-    out = {}
-    for m in cards.re_tdelem.finditer(bulk_str):
-        d = m.groupdict()
-        name, _ = text_record(d, "name")
-        if name:
-            out[str_to_int(d["elno"])] = name
-    return out
-
-
 def lower_matrix(match) -> tuple[int, np.ndarray]:
     """``(matno, full symmetric matrix)`` of an MGMASS / MGSPRNG record.
 
@@ -194,16 +180,7 @@ def lower_matrix(match) -> tuple[int, np.ndarray]:
     d = match.groupdict()
     ndof = str_to_int(d["ndof"])
     values = [float(x) for x in d["bulk"].split()][: ndof * (ndof + 1) // 2]
-    return str_to_int(d["matno"]), _symmetric_from_lower_columns(values, ndof)
-
-
-def _symmetric_from_lower_columns(values: list[float], n: int) -> np.ndarray:
-    k = np.zeros((n, n))
-    it = iter(values)
-    for j in range(n):
-        for i in range(j, n):
-            k[i, j] = k[j, i] = next(it)
-    return k
+    return str_to_int(d["matno"]), _lower_by_columns(values, ndof)
 
 
 def point_mass_from_matrix(matrix: np.ndarray):
@@ -230,91 +207,117 @@ def point_mass_from_matrix(matrix: np.ndarray):
 
 
 def attach_named_sets(fem: FEM) -> None:
-    """Point a mass element or spring at the deck's own set for it, once the sets are read.
-
-    A mass element's element set is the set holding just it; a spring's node set the one
-    holding exactly its nodes (the first of ``fem.sets`` if several do). Only where the deck has no such set does
-    a spring keep the ``<name>_set`` it was built with, which is not in ``fem.sets``.
-    """
+    """Point a mass element at the deck's own element set for it, the one holding just it,
+    once the sets are read. (A spring's set is linked by :func:`link_spring_sets`.)"""
     elsets = {}
-    nsets = {}
-    for fs in fem.sets.sets:
-        ids = frozenset(m.id for m in fs.members)
-        (elsets if fs.type == "elset" else nsets).setdefault(ids, fs)
+    for fs in fem.sets.elements.values():
+        elsets.setdefault(frozenset(m.id for m in fs.members), fs)
     for mass in fem.elements.masses:
         if mass.elset is None and mass.id is not None:
             mass.elset = elsets.get(frozenset([mass.id]))
-    for spring in fem.elements.springs:
-        fs = nsets.get(frozenset(n.id for n in spring.nodes))
-        if fs is not None:
-            spring._fem_set = fs
+
+
+def _lower_by_columns(values: list[float], n: int) -> np.ndarray:
+    """A symmetric n x n matrix from its lower triangle stored column by column (MGSPRNG,
+    MSHGLSP: ``K(1,1), K(2,1) ... K(n,1), K(2,2) ...``)."""
+    k = np.zeros((n, n))
+    it = iter(values)
+    for j in range(n):
+        for i in range(j, n):
+            k[i, j] = next(it)
+    return k + k.T - np.diag(np.diag(k))
+
+
+def element_names(bulk_str: str) -> dict[int, tuple[str | None, list[str]]]:
+    """``{element number: (name, comment lines)}`` from TDELEM records (section 4.2.1)."""
+    out = {}
+    lines = bulk_str.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("TDELEM"):
+            continue
+        fields = [float(x) for x in line[8:].split()]
+        elno, codnam, codtxt = int(fields[1]), int(fields[2]), int(fields[3])
+        n_name, n_text = codnam // 100, codtxt // 100
+        text = [ln[8:].strip() for ln in lines[i + 1 : i + 1 + n_name + n_text]]
+        out[elno] = (text[0] if n_name else None, text[n_name:])
+    return out
 
 
 def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
-    """Build the deck's Spring elements.
+    """Build the deck's Spring elements: element type 18 (GSPR) with MGSPRNG, and type 40
+    (GLSH) with a general-spring MSHGLSP.
 
     Returns a list, not the name-keyed dict it used to: ``FEM.springs`` is now a view
     derived from ``FEM.elements``, so the caller adds these through ``add_spring`` and
     there is no dict for anyone to assign over.
 
-    One spring per spring element, with the matrix its GELREF1 MATNO names: an MGSPRNG for a
-    grounded spring (GSPR), an MSHGLSP for a two-node one (GLSH). It used to be one spring
-    per MGSPRNG record, so two elements sharing a matrix came back as one, and a two-node
-    spring not at all.
+    A TDELEM record gives a spring its name and, in a ``Nset: <set>`` comment, the node set
+    it was defined on (the writer's ``write_springs``). Without one a spring is named
+    ``spr<element number>`` on a set of its own. The node set is linked to the deck's set of
+    that name by :func:`link_spring_sets` once the sets are read.
     """
-    tdelem = element_names(bulk_str)
-    mgsprng = {matno: k for matno, k in (lower_matrix(x) for x in cards.re_mgsprng.finditer(bulk_str))}
-    mshglsp = {matno: k for matno, k in (_mshglsp(x) for x in cards.re_mshglsp.finditer(bulk_str))}
+    from ada.fem.formats import conversion_report
 
-    springs = []
-    for elid, res in sorted(spring_elem.items()):
-        if "section_data" not in res:
-            continue
-        matno = str_to_int(res["section_data"]["matno"])
+    from ..write.write_springs import NSET_COMMENT, two_node_matrix
+
+    matno_map = {str_to_int(sp["section_data"]["matno"]): sp for sp in spring_elem.values()}
+    names = element_names(bulk_str)
+
+    def build(matno: int, stiff: np.ndarray, two_node: bool) -> Spring | None:
+        res: dict = matno_map.get(matno, None)
+        if res is None:
+            raise ValueError(f"no spring element refers to stiffness record MATNO {matno}")
+        elid = str_to_int(res["section_data"]["elno"])
+        name, comments = names.get(elid, (None, []))
+        name = name or f"spr{elid}"
+        nset = next((c[len(NSET_COMMENT) :] for c in comments if c.startswith(NSET_COMMENT)), f"{name}_set")
         node_ids = gelmnt_node_ids(res["gelmnt"]["nids"])
-        nodes = [fem.nodes.from_id(n) for n in node_ids]
-        if len(nodes) == 1:
-            if matno not in mgsprng:
-                raise ValueError(f"Spring element {elid} refers to MGSPRNG {matno}, which the deck does not have")
-            stiff, spr_type = mgsprng[matno], "SPRING1"
+        nodes = [fem.nodes.from_id(n) for n in (node_ids if two_node else node_ids[:1])]
+        fs = FemSet(nset, nodes, FemSet.TYPES.NSET, parent=fem)
+        return Spring(name, elid, "SPRING2" if two_node else "SPRING1", fem_set=fs, stiff=stiff, parent=fem)
+
+    def find_mgspring(m):
+        d = m.groupdict()
+        ndof = str_to_int(d["ndof"])
+        # MGSPRNG carries the lower triangle of an ndof x ndof stiffness matrix, so how
+        # many values belong to it follows from ndof alone. Sesam pads a record out to a
+        # whole number of slots, and re-exporting a .SIN through its input deck carries
+        # that padding into the deck: a 6-DOF spring arrives with 22 values, not 21.
+        values = [float(x) for x in d["bulk"].split()[: ndof * (ndof + 1) // 2]]
+        return build(str_to_int(d["matno"]), _lower_by_columns(values, ndof), two_node=False)
+
+    def find_mshglsp(m):
+        d = m.groupdict()
+        matno = str_to_int(d["matno"])
+        n1, n2 = str_to_int(d["ndof1"]), str_to_int(d["ndof2"])
+        n = n1 + n2
+        values = [float(x) for x in d["bulk"].split()[: n * (n + 1) // 2]]
+        k = _lower_by_columns(values, n)
+        # adapy's two-node spring is a set of links, ``k`` at (i, j) between DOF i of the
+        # first node and DOF j of the second: the coupling block holds them, and the matrix
+        # is exactly theirs only if assembling them gives it back.
+        stiff = -k[:n1, n1:] if n1 == n2 else None
+        if stiff is None or not np.array_equal(two_node_matrix(stiff), k):
+            conversion_report.current().omitted(
+                "sesam reader",
+                "MSHGLSP",
+                str(matno),
+                "a general two-node spring matrix that is not a set of DOF-to-DOF springs has no adapy form",
+            )
+            return None
+        return build(matno, stiff + 0.0, two_node=True)
+
+    springs = [find_mgspring(m) for m in cards.re_mgsprng.finditer(bulk_str)]
+    springs += [find_mshglsp(m) for m in cards.re_mshglsp.finditer(bulk_str)]
+    return [sp for sp in springs if sp is not None]
+
+
+def link_spring_sets(fem: FEM) -> None:
+    """Point each spring at the deck's node set of its name, or register the set it was
+    built with when the deck has none."""
+    for spring in fem.springs.values():
+        existing = fem.sets.nodes.get(spring.fem_set.name)
+        if existing is None:
+            fem.sets.add(spring.fem_set)
         else:
-            if matno not in mshglsp:
-                raise ValueError(f"Spring element {elid} refers to MSHGLSP {matno}, which the deck does not have")
-            stiff, spr_type = _two_node_stiffness(elid, *mshglsp[matno]), "SPRING2"
-        spr_name = tdelem.get(elid, f"spr{elid}")
-        fs = FemSet(f"{spr_name}_set", nodes, FemSet.TYPES.NSET, parent=fem)
-        springs.append(Spring(spr_name, elid, spr_type, fem_set=fs, stiff=stiff, parent=fem))
-    return springs
-
-
-def _mshglsp(match) -> tuple[int, tuple]:
-    d = match.groupdict()
-    nd1, nd2 = str_to_int(d["ndof1"]), str_to_int(d["ndof2"])
-    n = nd1 + nd2
-    values = [float(x) for x in d["bulk"].split()][: n * (n + 1) // 2]
-    return str_to_int(d["matno"]), (nd1, nd2, _symmetric_from_lower_columns(values, n))
-
-
-def _two_node_stiffness(elid: int, nd1: int, nd2: int, full: np.ndarray) -> np.ndarray:
-    """adapy's 6x6 SPRING2 stiffness from a GLSH element matrix: minus its coupling block.
-
-    See ``write_point_elements._mshglsp``: a spring ``K[i, j]`` between dof i of the first node
-    and dof j of the second puts ``-K[i, j]`` in the coupling block. A matrix whose node
-    blocks do not follow from that coupling is not a set of such springs, and only the
-    coupling is kept -- which is said, not done quietly."""
-    k = np.zeros((6, 6))
-    k[:nd1, :nd2] = -full[:nd1, nd1:]
-    rebuilt = np.zeros((12, 12))
-    for i, j in zip(*np.nonzero(k)):
-        rebuilt[i, i] += k[i, j]
-        rebuilt[6 + j, 6 + j] += k[i, j]
-        rebuilt[i, 6 + j] -= k[i, j]
-        rebuilt[6 + j, i] -= k[i, j]
-    keep = list(range(nd1)) + list(range(6, 6 + nd2))
-    if not np.allclose(rebuilt[np.ix_(keep, keep)], full, rtol=1e-12, atol=0.0):
-        logger.warning(
-            "sesam reader: the MSHGLSP matrix of spring element %s is not a set of dof-to-dof springs; "
-            "only its coupling terms are kept.",
-            elid,
-        )
-    return k
+            spring._fem_set = existing

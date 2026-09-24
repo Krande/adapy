@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, Iterable
 from ada.core.utils import NewLine
 from ada.fem import Mass
 
-from ..grammar import format_number
-from .helper_utils import get_instance_name, set_name
+from ..grammar import Verbatim, format_number, render_keyword
+from .helper_utils import get_instance_name, render_block, set_name
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -23,7 +23,7 @@ def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
     # up in the map of MASS/ROTARY INERTIA/NONSTRUCTURAL MASS keywords, which has neither, so an
     # anisotropic mass could not be written at all.
     ptype = mass.point_mass_type
-    type_str = "" if ptype in (Mass.PTYPES.ISOTROPIC, None) else f", type={ptype}"
+    type_param = [] if ptype in (Mass.PTYPES.ISOTROPIC, None) else [("type", ptype)]
 
     values = mass.mass if isinstance(mass.mass, (list, tuple)) else [mass.mass]
     mstr = ", ".join(format_number(float(x)) for x in values)
@@ -40,22 +40,22 @@ def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
         raise ValueError("Unable to find proper reference to masses")
     set_name = get_instance_name(set_ref, written_on_assembly_level=written_on_assembly_level)
     if mass.type == Mass.TYPES.MASS:
-        return f"""*Mass, elset={set_name}{type_str}\n {mstr}"""
+        return render_block("Mass", [("elset", set_name), *type_param], [f" {mstr}"])
     elif mass.type == Mass.TYPES.NONSTRU:
-        return f"""*Nonstructural Mass, elset={set_name}, units={mass.units}\n  {mstr}"""
+        return render_block("Nonstructural Mass", [("elset", set_name), ("units", Verbatim(mass.units))], [f"  {mstr}"])
     elif mass.type == Mass.TYPES.ROT_INERTIA:
-        return f"""*Rotary Inertia, elset={set_name}\n  {mstr}"""
+        return render_block("Rotary Inertia", [("elset", set_name)], [f"  {mstr}"])
     else:
         raise ValueError(f'Mass type "{mass.type}" is not supported by Abaqus')
 
 
 def write_mass_elem(eltype: str, elset: "FemSet", fem: "FEM", elements: Iterable[Mass], alevel: bool) -> str:
     el_type = fem.options.ABAQUS.default_elements.get_element_type(eltype)
-    el_set_str = f", ELSET={set_name(elset)}" if elset is not None else ""
     if elset is None:
         return "** Masses not assigned to element sets\n"
-    el_str = "\n".join((write_mass(el, alevel) for el in elements))
-    return f"""*ELEMENT, type={el_type}{el_set_str}\n{el_str}\n"""
+    return render_keyword(
+        "ELEMENT", [("type", el_type), ("ELSET", set_name(elset))], [write_mass(el, alevel) for el in elements]
+    )
 
 
 def write_mass(el: "Mass", alevel: bool) -> str:

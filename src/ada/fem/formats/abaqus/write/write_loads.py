@@ -2,7 +2,7 @@ from ada.fem import Load, LoadPressure
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
 
 from ..grammar import format_number
-from .helper_utils import get_instance_name
+from .helper_utils import get_instance_name, render_block
 
 
 def load_str(load: Load) -> str:
@@ -27,7 +27,9 @@ def acceleration_field_str(load: Load) -> str:
     dof = [0, 0, 1] if load.dof is None else [dof if dof is not None else 0 for dof in load.dof]
     dof_str = ", ".join([format_number(x) for x in dof[:3]])
     kind = "Gravity" if load.type == Load.TYPES.GRAVITY else "Acceleration"
-    return f"""** Name: {load.name}   Type: {kind}\n*Dload\n, GRAV, {format_number(load.magnitude)}, {dof_str}"""
+    return render_block(
+        "Dload", (), [f", GRAV, {format_number(load.magnitude)}, {dof_str}"], [f"Name: {load.name}   Type: {kind}"]
+    )
 
 
 def force_load_str(load: Load) -> str:
@@ -39,16 +41,16 @@ def force_load_str(load: Load) -> str:
     """
     instance_name = get_instance_name(load.fem_set, True)
     forces = load.forces
-    follower_str = "" if load.follower_force is False else ", follower"
+    params = [] if load.follower_force is False else [("follower", None)]
     # the Amplitude by name (a bare string, as older models hold it, is already one)
     amplitude = getattr(load.amplitude, "name", load.amplitude)
-    follower_str += f", amplitude={amplitude}" if amplitude is not None else ""
+    params += [("amplitude", amplitude)] if amplitude is not None else []
 
     def block(name: str, kind: str, dofs: range) -> str:
         lines = [f" {instance_name}, {i + 1}, {format_number(forces[i])}" for i in dofs if forces[i] != 0.0]
         if not lines:
             return ""
-        return f"** Name: {name}   Type: {kind}\n*Cload{follower_str}\n" + "\n".join(lines)
+        return render_block("Cload", params, lines, [f"Name: {name}   Type: {kind}"])
 
     parts = [block(load.name + "_F", "Concentrated force", range(3)), block(load.name + "_M", "Moment", range(3, 6))]
     return "\n".join(p for p in parts if p)
@@ -58,6 +60,5 @@ def pressure_load_str(load: LoadPressure) -> str:
     instance_name = get_instance_name(load.surface, True)
     if load.distribution == LoadPressure.P_DIST_TYPES.TOTAL_FORCE:
         raise UnsupportedLoadType("Total Force calculation is not yet supported for Abaqus")
-    return f"""** Name: {load.name}   Type: Pressure
-*Dsload
-{instance_name}, P, {format_number(load.magnitude)}"""
+    data = [f"{instance_name}, P, {format_number(load.magnitude)}"]
+    return render_block("Dsload", (), data, [f"Name: {load.name}   Type: Pressure"])

@@ -11,6 +11,7 @@ import pytest
 
 from ada.fem.formats.abaqus.grammar import (
     MAX_LINE_LENGTH,
+    Verbatim,
     format_value,
     render_keyword,
     tokenize,
@@ -42,6 +43,11 @@ def test_a_name_the_reader_would_split_or_trim_is_quoted_and_comes_back_whole(na
     block = _one(render_keyword("Nset", [("nset", name)], ["1, 2"]))
     assert block.params["NSET"] == name
     assert format_value(name).startswith('"') == (name != "plain")
+
+
+def test_an_enumerated_value_is_written_unquoted_as_cae_writes_it():
+    text = render_keyword("Contact Pair", [("interaction", "hard"), ("type", Verbatim("SURFACE TO SURFACE"))])
+    assert text == "*Contact Pair, interaction=hard, type=SURFACE TO SURFACE\n"
 
 
 def test_the_comment_that_names_a_block_is_read_back_by_the_reader():
