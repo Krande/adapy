@@ -35,6 +35,8 @@ memory is one block rather than one file.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 from typing import Iterable, Iterator, Mapping
 
@@ -426,6 +428,35 @@ def stream_file(path, encoding: str = "utf-8") -> Iterator[KeywordBlock]:
         yield from stream_keywords(fh)
 
 
+# ── what the reader asked for ────────────────────────────────────────────────────────────────
+#
+# A deck may use any keyword Abaqus has; adapy reads ~40. To say which of a deck's keywords went
+# unread, the reader has to know which ones it READ -- and that answer is taken from what the
+# code actually asks for at runtime, not from a list kept by hand beside it. iter_keywords and
+# iter_enclosed register the names they are asked for; the few readers that walk tokenize() and
+# match keywords themselves (a material's property blocks, a coupling's *Kinematic) declare
+# theirs with mark_read(). A new handler written with iter_keywords is counted with no extra step.
+_READ: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("abaqus_keywords_read", default=None)
+
+
+def mark_read(*keywords: str) -> None:
+    """Record that the reader consumes these keywords (a no-op outside :func:`track_reads`)."""
+    seen = _READ.get()
+    if seen is not None:
+        seen.update(normalize(k) for k in keywords)
+
+
+@contextlib.contextmanager
+def track_reads() -> Iterator[set[str]]:
+    """Collect, into the yielded set, every keyword the reader asks for inside the block."""
+    seen: set[str] = set()
+    token = _READ.set(seen)
+    try:
+        yield seen
+    finally:
+        _READ.reset(token)
+
+
 _TOKEN_CACHE: dict[int, tuple[str, tuple[KeywordBlock, ...]]] = {}
 
 
@@ -453,6 +484,7 @@ def iter_keywords(bulk_str: str, *keywords: str) -> Iterator[KeywordBlock]:
     blocks = _tokenize_cached(bulk_str)
     if not keywords:
         return iter(blocks)
+    mark_read(*keywords)
     wanted = {normalize(k) for k in keywords}
     return (block for block in blocks if block.keyword in wanted)
 
@@ -465,6 +497,7 @@ def iter_enclosed(bulk_str: str, keyword: str, end: str) -> Iterator[tuple[Keywo
     counted, so an inner block never closes an outer one.
     """
     open_kw, end_kw = normalize(keyword), normalize(end)
+    mark_read(open_kw, end_kw)
     depth = 0
     body_start = 0
     start_block: KeywordBlock | None = None

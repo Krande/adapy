@@ -341,6 +341,64 @@ def lookup(keyword: str) -> KeywordSpec | None:
     return KEYWORDS.get(keyword)
 
 
+#: Keywords that change nothing in the model: the title, the preprocessor's own printout, and
+#: every output, print, file and restart request. When the reader meets one it does not read, it
+#: is reported as a ``note``, not an ``omitted`` -- nothing of the model is missing without it.
+#: Taken from the Abaqus Keywords Guide's output/print/file/restart keywords, names only.
+NO_MODEL_EFFECT = frozenset(
+    {
+        "HEADING",
+        "PREPRINT",
+        "PRINT",
+        "OUTPUT",
+        "POST OUTPUT",
+        "FILE FORMAT",
+        "FILE OUTPUT",
+        "RESTART",
+        "MONITOR",
+        "NODE OUTPUT",
+        "NODE PRINT",
+        "NODE FILE",
+        "ELEMENT OUTPUT",
+        "EL PRINT",
+        "EL FILE",
+        "CONTACT OUTPUT",
+        "CONTACT PRINT",
+        "CONTACT FILE",
+        "ENERGY OUTPUT",
+        "ENERGY PRINT",
+        "ENERGY FILE",
+        "MODAL OUTPUT",
+        "MODAL PRINT",
+        "MODAL FILE",
+        "RADIATION OUTPUT",
+        "RADIATION PRINT",
+        "RADIATION FILE",
+        "SECTION PRINT",
+        "SECTION FILE",
+        "TORQUE PRINT",
+        "INTEGRATED OUTPUT",
+        "INTEGRATED OUTPUT SECTION",
+        "INCREMENTATION OUTPUT",
+        "MATRIX OUTPUT",
+        "ELEMENT MATRIX OUTPUT",
+        "ELEMENT OPERATOR OUTPUT",
+        "OPERATOR OUTPUT",
+        "SUBSTRUCTURE MATRIX OUTPUT",
+        "SUBSTRUCTURE OUTPUT",
+        "VIEW FACTOR OUTPUT",
+        "USER OUTPUT VARIABLES",
+        "ELEMENT USER OUTPUT VARIABLES",
+    }
+)
+
+#: Solver and diagnostic settings: how Abaqus checks, adjusts or reports while it solves, with
+#: nothing of the model in them. Reported as a ``note`` for the same reason as the above.
+#: Deliberately NOT here: *Section Controls and *Damping Controls, which change how elements
+#: behave -- skipping those does lose something, so they stay ``omitted``.
+SOLVER_CONTROLS = frozenset({"CONSTRAINT CONTROLS", "CONTROLS", "SOLVER CONTROLS", "DIAGNOSTICS"})
+
+
 def validate(block) -> None:
     """Validate ``block`` against its spec, if it has one."""
     spec = KEYWORDS.get(block.keyword)

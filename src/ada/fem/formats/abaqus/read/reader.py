@@ -36,7 +36,9 @@ from .lexer import (
     comment_property,
     iter_enclosed,
     iter_keywords,
+    mark_read,
     tokenize,
+    track_reads,
 )
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
@@ -61,7 +63,18 @@ class InstanceData:
 
 
 def read_fem(fem_file, fem_name=None) -> Assembly:
-    """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file."""
+    """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file.
+
+    Every keyword in the deck that is not read is recorded in the active conversion report (see
+    :func:`report_unread_keywords`), so a caller can say exactly what did not come across.
+    """
+    with track_reads() as read:
+        assembly, bulk_str, history_start = _read_fem(fem_file, fem_name)
+    report_unread_keywords(bulk_str, read, history_start)
+    return assembly
+
+
+def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
     from ada import Assembly
 
     logger.info("Starting import of Abaqus input file")
@@ -126,7 +139,73 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_str(assembly, props_str)
-    return assembly
+    # The assembly and its end are found by string search above, not by asking for the keyword.
+    mark_read("ASSEMBLY", "END ASSEMBLY")
+    # Where history data starts, as far as this reader is concerned: an assembly deck's model
+    # data is cut off at the LAST *Step (props_str above), so nothing from there on is read.
+    history_start = step_start if (uses_assembly_parts and step_start != -1) else len(bulk_str)
+    return assembly, bulk_str, history_start
+
+
+#: The ``stage`` of every finding the reader records.
+READER_STAGE = "abaqus reader"
+
+
+def report_unread_keywords(bulk_str: str, read: set[str], history_start: int) -> None:
+    """Record every keyword in the deck that the reader did not read, one finding per keyword.
+
+    ``read`` is what the reader actually asked for while reading (see ``lexer.track_reads``), so
+    this cannot drift from the code the way a hand-kept list would. A keyword is reported:
+
+    * as a ``note`` when it changes nothing in the model -- a title, an output/print request, a
+      solver control (``keywords.NO_MODEL_EFFECT``, ``keywords.SOLVER_CONTROLS``);
+    * as ``omitted`` when it sits in history data the reader does not read (from the last
+      ``*Step`` of an assembly deck on), whatever the keyword;
+    * as ``omitted`` when no reader asked for it at all.
+
+    Counted per keyword, never per block: a deck with a thousand ``*Cload`` blocks is one line
+    saying a thousand. Line numbers are in the deck with its ``*Include`` files expanded.
+    """
+    from ada.fem.formats import conversion_report
+
+    from .keywords import NO_MODEL_EFFECT, SOLVER_CONTROLS
+
+    unread: dict[tuple[str, bool], list[int]] = {}
+    for block in tokenize(bulk_str):
+        in_history = block.start >= history_start
+        if not in_history and block.keyword in read:
+            continue
+        entry = unread.setdefault((block.keyword, in_history), [0, block.lineno])
+        entry[0] += 1
+
+    report = conversion_report.current()
+    for (keyword, in_history), (count, first_line) in sorted(unread.items()):
+        subject = f"{count} block{'s' if count != 1 else ''}, first at line {first_line}"
+        details = dict(blocks=count, first_line=first_line)
+        if keyword in NO_MODEL_EFFECT:
+            report.note(
+                READER_STAGE, f"*{keyword}", subject, "not read: no effect on the model", count=count, **details
+            )
+        elif keyword in SOLVER_CONTROLS:
+            report.note(
+                READER_STAGE,
+                f"*{keyword}",
+                subject,
+                "not read: a solver control, no model data",
+                count=count,
+                **details,
+            )
+        elif in_history:
+            report.omitted(
+                READER_STAGE,
+                f"*{keyword}",
+                subject,
+                "history data in the last *Step is not read",
+                count=count,
+                **details,
+            )
+        else:
+            report.omitted(READER_STAGE, f"*{keyword}", subject, "no reader for this keyword", count=count, **details)
 
 
 def read_bulk_w_includes(inp_path) -> str:
@@ -413,6 +492,7 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
         validate(block)
         assembly.fem.metadata["surf_smoothing"].append(dict(name=block.params.get("NAME"), bulk=block.data_text))
 
+    mark_read("SURFACE INTERACTION", "FRICTION", "SURFACE BEHAVIOR")
     all_blocks = tokenize(bulk_str)
     for i, block in enumerate(all_blocks):
         if block.keyword != "SURFACE INTERACTION":
@@ -486,6 +566,9 @@ def _general_contact_interaction(bulk_str: str, contact_block: KeywordBlock) -> 
     ``*Contact Property Assignment`` names it on a data line whose last field is the
     property; the blocks in between belong to the same block.
     """
+    # Only the assignment's property name is read; the other *Contact ... blocks this walks past
+    # (inclusions, formulation, initialisation) are not, and are reported as such.
+    mark_read("CONTACT PROPERTY ASSIGNMENT")
     seen = False
     for block in tokenize(bulk_str):
         if block is contact_block:
@@ -958,6 +1041,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
+    mark_read("COUPLING", "KINEMATIC")
     all_blocks = tokenize(bulk_str)
     for i, block in enumerate(all_blocks):
         if block.keyword != "COUPLING":

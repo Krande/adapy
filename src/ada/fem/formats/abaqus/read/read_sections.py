@@ -14,7 +14,7 @@ from ada.fem.shapes import ElemType
 
 from .helper_utils import list_cleanup
 from .keywords import validate
-from .lexer import KeywordBlock, comment_property, iter_keywords, tokenize
+from .lexer import KeywordBlock, comment_property, iter_keywords, mark_read, tokenize
 
 part_name_counter = Counter(1, "Part")
 
@@ -253,6 +253,7 @@ def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[
     every elasticity block up to the next block that is not one.
     """
     consecsd: dict[str, ConnectorSection] = {}
+    mark_read("CONNECTOR BEHAVIOR", "CONNECTOR ELASTICITY")
     blocks = tokenize(bulk_str)
 
     for i, block in enumerate(blocks):

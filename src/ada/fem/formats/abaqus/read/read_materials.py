@@ -6,7 +6,7 @@ from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
 
 from .keywords import validate
-from .lexer import KeywordBlock, tokenize
+from .lexer import KeywordBlock, mark_read, tokenize
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -28,6 +28,7 @@ _MATERIAL_PROPERTIES = (
 
 
 def get_materials_from_bulk(assembly: "Assembly", bulk_str):
+    mark_read("MATERIAL", *_MATERIAL_PROPERTIES)
     blocks = tokenize(bulk_str)
     for i, block in enumerate(blocks):
         if block.keyword != "MATERIAL":
