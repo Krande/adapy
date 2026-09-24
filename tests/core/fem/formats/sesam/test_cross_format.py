@@ -45,65 +45,101 @@ NOT_HELD = {
 SESAM_WRITER = "sesam writer"
 
 #: Models whose Sesam conversion still loses something unreported, or changes it. Strict:
-#: fixing one makes its case fail until it is removed here.
+#: fixing one makes its case fail until it is removed here. "reader:" is what the Sesam reader
+#: changes on the way back; "writer:" is a loss the writer reports but that still changes the
+#: compared view, because Sesam has no form for it (or the writer none yet).
 SESAM_GAPS: dict = {
-    "amplitudes": (Exception, "sections read back one per element; amplitudes dropped unreported"),
+    "amplitudes": (Exception, "reader: sections read back one per element"),
     "boundary_conditions": (
         Exception,
-        "sections read back one per element; BCs read back on per-node sets; velocity/connector BCs unreported",
+        "reader: sections read back one per element; reader: BCs read back on per-node sets; "
+        "writer: velocity and connector BCs have no BNBCD form (reported)",
     ),
-    "connectors": (Exception, "sections read back one per element; connectors dropped unreported"),
-    "constraints": (Exception, "writer raises on a tie"),
-    "constraints_assembly_level": (Exception, "reader: assembly-level node id not found"),
-    "constraints_equation": (Exception, "writer raises on an equation (BLDEP holds it)"),
-    "elements_line_explicit": (Exception, "writer raises on an explicit step"),
-    "elements_line_profiles": (Exception, "sections read back one per element; beam profiles"),
+    "connectors": (Exception, "reader: sections read back one per element"),
+    "constraints": (
+        Exception,
+        "reader: sections read back one per element; reader: couplings come back named per master node; "
+        "writer: tie and MPC have no BLDEP form (reported)",
+    ),
+    "constraints_assembly_level": (
+        Exception,
+        "reader: sections read back one per element; reader: the coupling comes back named per master node",
+    ),
+    "constraints_equation": (
+        Exception,
+        "reader: sections read back one per element; "
+        "reader: equations come back named per dependent dof, with node terms for set terms",
+    ),
+    "elements_line_explicit": (Exception, "reader: sections read back one per element"),
+    "elements_line_profiles": (
+        Exception,
+        "reader: sections read back one per element; beam profiles; the way back loses a general beam section",
+    ),
     "elements_line_second_order": (Exception, "reader raises on a second-order beam section"),
-    "elements_line_verbatim": (Exception, "sections read back one per element"),
-    "elements_shell": (Exception, "sections read back one per element"),
-    "elements_shell_second_order": (Exception, "sections read back one per element"),
-    "elements_shell_tri6": (Exception, "sections read back one per element"),
-    "elements_shell_tri7": (Exception, "writer raises on TRI7 (no Sesam element)"),
-    "elements_solid_first_order": (Exception, "writer raises on PYRAMID5 (no Sesam element)"),
-    "elements_solid_second_order": (Exception, "sections read back one per element"),
-    "elements_solid_wedge": (Exception, "sections read back one per element"),
-    "initial_conditions": (Exception, "sections read back one per element; initial conditions dropped unreported"),
-    "interactions": (Exception, "sections read back one per element; surfaces and contact dropped unreported"),
-    "loads": (Exception, "writer raises on a load"),
+    "elements_line_verbatim": (Exception, "reader: sections read back one per element"),
+    "elements_shell": (Exception, "reader: sections read back one per element"),
+    "elements_shell_second_order": (Exception, "reader: sections read back one per element"),
+    "elements_shell_tri6": (Exception, "reader: sections read back one per element"),
+    "elements_shell_tri7": (
+        Exception,
+        "writer: TRI7 has no Sesam element type (reported); GCOORD's 4E16.8 keeps nine significant digits",
+    ),
+    "elements_solid_first_order": (
+        Exception,
+        "reader: sections read back one per element; writer: PYRAMID5 has no Sesam element type (reported)",
+    ),
+    "elements_solid_second_order": (Exception, "reader: sections read back one per element"),
+    "elements_solid_wedge": (Exception, "reader: sections read back one per element"),
+    "initial_conditions": (Exception, "reader: sections read back one per element"),
+    "interactions": (Exception, "reader: sections read back one per element"),
+    "loads": (Exception, "reader: sections read back one per element"),
     "masses": (Exception, "reader: point-mass element id not found"),
     "masses_anisotropic": (Exception, "reader: point-mass element id not found"),
-    "materials": (Exception, "sections read back one per element; plasticity/damping dropped unreported"),
-    "multi_part": (Exception, "reader: element id not found after the part merge"),
-    "outputs": (Exception, "sections read back one per element; steps, outputs and connectors dropped unreported"),
-    "read_back_deck": (Exception, "elements change"),
-    "reference_point": (Exception, "sections read back one per element"),
+    "materials": (Exception, "reader: sections read back one per element"),
+    "multi_part": (Exception, "reader: point-mass element id not found"),
+    "outputs": (Exception, "reader: sections read back one per element"),
+    "read_back_deck": (Exception, "writer: the deck has no sections, and GELREF1 needs one (reported)"),
+    "reference_point": (Exception, "reader: sections read back one per element"),
     "reference_point_in_use": (
         Exception,
-        "sections read back one per element; BCs on per-node sets; connectors dropped unreported",
+        "reader: sections read back one per element; "
+        "writer: the BC on the assembly-level reference point has no node in the deck (reported)",
     ),
-    "sections_zero_thickness": (Exception, "reader: element id not found"),
-    "sets": (Exception, "sections read back one per element"),
+    "sections_zero_thickness": (Exception, "writer: the elements come without a section, GELREF1 needs one (reported)"),
+    "sets": (Exception, "reader: sections read back one per element"),
     "sets_empty": (Exception, "reader: element id not found"),
-    "springs": (Exception, "sections read back one per element; springs change"),
-    "springs_coupled": (Exception, "sections read back one per element; springs change"),
-    "springs_two_node": (Exception, "sections read back one per element; springs change"),
+    "springs": (
+        Exception,
+        "reader: sections read back one per element; writer: no GELMNT1 + MGSPRNG for springs yet (reported)",
+    ),
+    "springs_coupled": (
+        Exception,
+        "reader: sections read back one per element; writer: no GELMNT1 + MGSPRNG for springs yet (reported)",
+    ),
+    "springs_two_node": (
+        Exception,
+        "reader: sections read back one per element; writer: no GELMNT1 + MGSPRNG for springs yet (reported)",
+    ),
     "steps_complex_eigen": (
         Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
+        "reader: sections read back one per element; reader: BCs read back on per-node sets",
     ),
-    "steps_dynamic_implicit": (Exception, "writer raises on an implicit dynamic step"),
-    "steps_eigen": (Exception, "sections read back one per element; BCs on per-node sets; steps dropped unreported"),
-    "steps_explicit": (Exception, "writer raises on an explicit step"),
+    "steps_dynamic_implicit": (
+        Exception,
+        "reader: sections read back one per element; reader: BCs read back on per-node sets",
+    ),
+    "steps_eigen": (Exception, "reader: sections read back one per element; reader: BCs read back on per-node sets"),
+    "steps_explicit": (Exception, "reader: sections read back one per element"),
     "steps_raw_input": (
         Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
+        "reader: sections read back one per element; reader: BCs read back on per-node sets",
     ),
-    "steps_static": (Exception, "sections read back one per element; BCs on per-node sets; steps dropped unreported"),
+    "steps_static": (Exception, "reader: sections read back one per element; reader: BCs read back on per-node sets"),
     "steps_steady_state": (
         Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
+        "reader: sections read back one per element; reader: BCs read back on per-node sets",
     ),
-    "surfaces": (Exception, "sections read back one per element; surfaces dropped unreported"),
+    "surfaces": (Exception, "reader: sections read back one per element"),
 }
 
 

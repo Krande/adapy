@@ -8,13 +8,27 @@ if TYPE_CHECKING:
     from ada import FEM
 
 
-def sets_str(fem: FEM) -> str:
+def sets_str(fem: FEM, unwritten_elements: set | frozenset = frozenset()) -> str:
+    """The TDSETNAM + GSETMEMB records of ``fem``'s sets.
+
+    ``unwritten_elements`` are the ids of elements the deck leaves out
+    (``write_elements.unwritten_element_ids``). An element set never names one: a GSETMEMB
+    member with no GELMNT1 is an id a reader cannot resolve. A set left with no members by
+    that is not written at all -- all it held is gone, and the writer reports each element.
+    """
     out_str = ""
 
-    for i, fs in enumerate(fem.sets.sets, start=1):
+    i = 0
+    for fs in fem.sets.sets:
+        members = fs.members
+        if fs.type == "elset" and unwritten_elements:
+            members = [m for m in members if m.id not in unwritten_elements]
+            if fs.members and not members:
+                continue
+        i += 1
         out_str += write_ff("TDSETNAM", [(4, i, 100 + len(fs.name), 0), (fs.name,)])
-        nfield = len(fs.members) + 5
-        mem_ids = [mem.id for mem in fs.members]
+        nfield = len(members) + 5
+        mem_ids = [mem.id for mem in members]
         if fs.type == "elset":
             istype = 2
         else:
