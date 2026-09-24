@@ -43,6 +43,7 @@ from .lexer import (
 )
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
+from .read_springs import get_springs_from_bulk, link_spring_sets
 from .read_materials import get_materials_from_bulk
 from .read_orientations import get_lcsys_from_bulk
 from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
@@ -124,7 +125,9 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
         assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
         _add_keeping_ids(assembly.fem, get_elem_from_bulk_str(ass_sets, assembly.fem))
         assembly.fem.elements.build_sets()
+        _add_keeping_ids(assembly.fem, get_springs_from_bulk(ass_sets, assembly.fem))
         assembly.fem.sets += get_sets_from_bulk(ass_sets, assembly.fem)
+        link_spring_sets(assembly.fem)
         assembly.fem.sets.link_data()
 
         update_connector_data(ass_sets, assembly.fem)
@@ -358,6 +361,8 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
         fem.nodes = get_nodes_from_inp(bulk_str, fem)
         fem.elements = get_elem_from_bulk_str(bulk_str, fem)
     fem.elements.build_sets()
+    # Before the sets: a deck's *Elset may list spring elements.
+    _add_keeping_ids(fem, get_springs_from_bulk(bulk_str, fem))
 
     # Abaqus applies the instance translation first, then rotates about the axis (whose two
     # points are given in the already-translated/global frame — here point1 equals the
@@ -367,6 +372,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     if instance_data.transform.rotation is not None:
         fem.nodes.move(rotate=instance_data.transform.rotation)
     fem.sets += get_sets_from_bulk(bulk_str, fem)
+    link_spring_sets(fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
     _add_keeping_ids(fem, get_mass_from_bulk(bulk_str, fem))

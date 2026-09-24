@@ -22,6 +22,7 @@ from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from .keywords import validate
 from .lexer import KeywordBlock, iter_keywords
+from .read_springs import is_spring_block
 
 if TYPE_CHECKING:
     from ada.fem import FEM
@@ -55,6 +56,8 @@ def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
 def grab_elements(block: KeywordBlock, fem: "FEM"):
     validate(block)
     eltype = block.params.get("TYPE")
+    if is_spring_block(eltype):  # read_springs builds these, with their *Spring
+        return None
 
     if eltype in ("CONN3D2",):
         logger.info(f'Importing Connector type "{eltype}"')
@@ -117,6 +120,8 @@ def get_elem_arrays(bulk_str: str):
     for block in iter_keywords(bulk_str, "ELEMENT"):
         validate(block)
         eltype = block.params.get("TYPE")
+        if is_spring_block(eltype):  # read_springs builds these, with their *Spring
+            continue
         try:
             ada_el_type = abaqus_el_type_to_ada(eltype)
         except UnsupportedAbaqusElementType as exc:

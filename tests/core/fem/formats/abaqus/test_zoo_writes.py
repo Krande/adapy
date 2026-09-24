@@ -26,7 +26,6 @@ ABAQUS_GAPS = {
         NotImplementedError,
         "ada_to_aba_mass_map is keyed by MassTypes, so Mass.PTYPES.ANISOTROPIC never maps to type=ANISOTROPIC",
     ),
-    "springs_two_node": (ValueError, "spring_str writes SPRING1 only"),
     "constraints_equation": (NotImplementedError, "constraint_str has no branch for Constraint.TYPES.EQUATION"),
     "reference_point": (
         AttributeError,

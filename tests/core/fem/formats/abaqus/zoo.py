@@ -410,8 +410,21 @@ def springs() -> ada.Assembly:
     return a
 
 
+def springs_coupled() -> ada.Assembly:
+    """A grounded spring whose DOFs are coupled, as a Sesam MGSPRNG gives: no SPRING1 form."""
+    a, p, mat = _model()
+    fem = p.fem
+    _plate(fem, mat)
+    fs = _nset(fem, "sprc_set", [fem.nodes.from_id(3)])
+    stiff = np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]).astype(float)
+    stiff[0, 4] = stiff[4, 0] = 1234.5678901234567
+    stiff[2, 3] = stiff[3, 2] = -0.1
+    fem.add_spring(Spring("sprc", 9003, "SPRING1", fem_set=fs, stiff=stiff, parent=fem))
+    return a
+
+
 def springs_two_node() -> ada.Assembly:
-    """A SPRING2 (node-to-node) spring: the writer supports SPRING1 only."""
+    """A SPRING2 (node-to-node) spring."""
     a, p, mat = _model()
     fem = p.fem
     _plate(fem, mat)
@@ -820,6 +833,7 @@ ZOO: dict[str, Callable[[], ada.Assembly]] = {
         masses,
         masses_anisotropic,
         springs,
+        springs_coupled,
         springs_two_node,
         connectors,
         constraints,

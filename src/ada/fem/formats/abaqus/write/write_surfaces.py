@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Surface
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
@@ -43,7 +44,13 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
         set_ref = get_instance_name(fs, write_on_assembly_level)
 
         if surface.type == surface.TYPES.NODE:
-            fs_str += f"{set_ref}\n"
+            # ``set, weight`` -- the weight was never written, so every node surface read back
+            # with the default 1.0. Left out only where it IS the default.
+            weight = el_f_index
+            if weight is not None and float(weight) != 1.0:
+                fs_str += f"{set_ref}, {format_number(weight)}\n"
+            else:
+                fs_str += f"{set_ref}\n"
             continue
         el_type = find_element_type_from_list(fs.members)
         if el_type == ElemType.SOLID:

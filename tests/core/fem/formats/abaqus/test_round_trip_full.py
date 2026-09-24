@@ -31,29 +31,17 @@ from .zoo import ZOO
 FULL_ROUND_TRIP_GAPS = {
     "amplitudes": (AssertionError, "amplitudes (a)"),
     "boundary_conditions": (AssertionError, "connector placement: part-level connector reads back at assembly level"),
-    "connectors": (
-        AssertionError,
-        "connector placement: part-level connectors, sets and csys read back at assembly level",
-    ),
-    "constraints": (AssertionError, "coupling dofs/sets as surfaces (b); MPC and tie tolerance (b)"),
-    "constraints_assembly_level": (AssertionError, "assembly-level coupling dofs/sets (b)"),
     "constraints_equation": (NotImplementedError, "*Equation (c)"),
     "elements_line_explicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "initial_conditions": (AssertionError, "initial conditions (e)"),
     "interactions": (AssertionError, "interactions (e)"),
     "loads": (AssertionError, "amplitudes (a); load csys (*Transform) (a); steps (+ their loads, BCs, outputs) (a)"),
-    "masses": (AssertionError, "mass elements: read back as MASS element plus Mass (b)"),
     "masses_anisotropic": (NotImplementedError, "anisotropic mass (c)"),
-    "multi_part": (AssertionError, "multi-part (c)"),
     "outputs": (AssertionError, "steps and outputs (a); connector placement"),
     "reference_point": (AttributeError, "reference points (c)"),
     "sections_zero_thickness": (
         AssertionError,
         "a zero-thickness shell section has no Abaqus form (d): left out, reported as omitted",
     ),
-    "sets_empty": (AssertionError, "empty set (c)"),
-    "springs": (AssertionError, "springs (a)"),
-    "springs_two_node": (ValueError, "SPRING2 (c)"),
     "steps_complex_eigen": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
     "steps_dynamic_implicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
     "steps_eigen": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
@@ -61,7 +49,6 @@ FULL_ROUND_TRIP_GAPS = {
     "steps_raw_input": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
     "steps_static": (AssertionError, "step-level BC (b); steps (+ their loads, BCs, outputs) (a)"),
     "steps_steady_state": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "surfaces": (AssertionError, "node surface weight (c)"),
 }
 
 

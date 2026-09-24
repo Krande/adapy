@@ -35,10 +35,7 @@ R9  A beam section's ``section_type`` / ``line1`` / ``temperature`` metadata is 
     verbatim copy of the ``*Beam Section`` lines, holding what the typed profile holds; present on
     one side only, it is representation and is not compared. The typed profile is, so a profile
     that changes still shows. (Other verbatim text the writer emits in place of a construct IS
-    compared -- except R11.)
-R11 A material's ``aba_inp`` is the text written in its place; the reader rebuilds the typed
-    material from that text and keeps no copy. The typed values are compared, so the text has to
-    say what the typed model says (a zoo model that did not was a model contradicting itself).
+    compared -- except R16.)
 R10 A surface is compared as the list of ``(set, face label)`` data lines it stands for, with the
     labels Abaqus uses: ``S<n>`` on a solid face, ``SPOS``/``SNEG`` on a shell side. adapy's
     shell face index carries only the sign (the writer writes -1 as SNEG, any other value as
@@ -67,6 +64,15 @@ R15 A nonstructural mass has no Abaqus element: ``*Nonstructural Mass`` spreads 
     are not in the deck, so it is compared under ``nonstructural_masses``, keyed by the
     structural set it spreads over, by value and units. A point mass or rotary inertia IS an
     element (``*Element, type=MASS``) and is compared as one, values included.
+R16 A material's ``aba_inp`` is the text written in its place; the reader rebuilds the typed
+    material from that text and keeps no copy. The typed values are compared, so the text has to
+    say what the typed model says (a zoo model that did not was a model contradicting itself).
+R17 A connector section's properties are compared per component: a scalar is component 1, as
+    the writer writes it (``*Connector Elasticity, component=1``), so ``x`` and ``[x]`` are one
+    property. (Whether a scalar should instead mean every component, as ConnectorSection's
+    docstring says, is a question for the model, not the comparison.) A section with
+    ``str_override`` is the text written in its place; like R16, it is compared through the
+    typed section the reader rebuilds from that text.
 """
 
 from __future__ import annotations
@@ -210,7 +216,7 @@ def _material(mat) -> dict:
         "expansion": _v(m.zeta),
         "damping": [_v(m.rayleigh_damping.alpha), _v(m.rayleigh_damping.beta)],
         "plastic": None if pl is None or pl.eps_p is None else [_v(pl.sig_p), _v(pl.eps_p)],
-        "metadata": {k: v for k, v in _meta(mat).items() if k != "aba_inp"},  # R11
+        "metadata": {k: v for k, v in _meta(mat).items() if k != "aba_inp"},  # R16
     }
 
 
@@ -247,10 +253,24 @@ def _connector(con) -> dict:
     }
 
 
+def _per_component(comp):
+    """R17: a scalar is component 1."""
+    if isinstance(comp, (int, float, np.integer, np.floating)):
+        return [_v(comp)]
+    return _v(comp)
+
+
 def _con_section(cs) -> dict:
+    override = getattr(cs, "str_override", None)
+    if override:  # R17: the text written in its place, read back as the reader reads it
+        from ada.fem.formats.abaqus.read.read_sections import get_connector_sections_from_bulk
+
+        rebuilt = get_connector_sections_from_bulk(override, None)
+        if len(rebuilt) == 1:
+            cs = next(iter(rebuilt.values()))
     return {
-        "elastic": _v(cs.elastic_comp),
-        "damping": _v(cs.damping_comp),
+        "elastic": _per_component(cs.elastic_comp),
+        "damping": _per_component(cs.damping_comp),
         "plastic": _v(cs.plastic_comp),
         "rigid_dofs": _v(cs.rigid_dofs),
     }

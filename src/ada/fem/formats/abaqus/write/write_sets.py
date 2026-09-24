@@ -2,7 +2,6 @@ from itertools import groupby
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
-from ada.config import logger
 from ada.core.utils import NewLine
 from ada.fem import FemSet
 
@@ -50,13 +49,13 @@ def nsets_str(fem: "FEM", written_on_assembly_level: bool):
 def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_set=False):
     newline = NewLine(15)
 
-    if len(fem_set.members) == 0:
-        if "generate" in fem_set.metadata.keys():
-            if fem_set.metadata["generate"] is False:
-                raise ValueError(f'set "{fem_set.name}" is empty. Please check your input')
-        else:
-            logger.error(f"No members are found for FemSet '{fem_set.name}'")
-            return ""
+    if len(fem_set.members) == 0 and not fem_set.metadata.get("generate", False):
+        # An empty set is an Abaqus construct in its own right -- the guide sets parameters "equal
+        # to an empty element set" for Abaqus to fill (generated fastener connectors, explicit
+        # domain decomposition). Written as a keyword line with no data lines; it used to be
+        # dropped with an error, or refused outright for a set read from a deck.
+        kind = "*Elset, elset" if fem_set.type == FemSet.TYPES.ELSET else "*Nset, nset"
+        return f"{kind}={fem_set.name}"
 
     generate = fem_set.metadata.get("generate", False)
     internal = fem_set.metadata.get("internal", False)
