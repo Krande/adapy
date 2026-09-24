@@ -4,8 +4,8 @@ from ada.config import logger
 from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
 
-from .keywords import validate
 from ..write.write_materials import SPECIFIC_DAMPING
+from .keywords import validate
 from .lexer import KeywordBlock, comment_property, mark_read, tokenize
 
 if TYPE_CHECKING:
