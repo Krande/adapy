@@ -194,17 +194,25 @@ def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembl
 def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
     # ``** PART INSTANCE: <name>`` is a comment, and the deck below it is that part. Reading
     # it off the block it annotates means the name is whatever is on that one line.
-    tagged = [
-        (props["PART INSTANCE"], block)
-        for block in tokenize(bulk_str)
-        if (props := comment_property(block, "PART INSTANCE"))
-    ]
+    #
+    # The FIRST such comment names the part and starts its body, as it always has: a flat deck
+    # CAE writes for several instances carries one comment per instance, all read as one part
+    # here, and the regex reader this replaced took the first. Requiring exactly one would
+    # rename that part to a generated name -- same model, different name in every consumer.
+    tagged = next(
+        (
+            (props["PART INSTANCE"], block)
+            for block in tokenize(bulk_str)
+            if (props := comment_property(block, "PART INSTANCE"))
+        ),
+        None,
+    )
 
-    if len(tagged) != 1:
+    if tagged is None:
         p_bulk = bulk_str
         p_name = None
     else:
-        p_name, tag_block = tagged[0]
+        p_name, tag_block = tagged
         p_bulk = bulk_str[tag_block.start :]
 
     p_name = next(part_name_counter) if p_name is None else p_name
