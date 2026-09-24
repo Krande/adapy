@@ -264,9 +264,10 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
 # first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.28 for
-# `IfcMemberScan`, which the native IFC member reader needs (adacpp#63, #64).
-ada-cpp = "0.28.*"
+# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.29 for
+# `IfcMemberScan` with materials, which the native IFC member reader and the
+# unbounded take-off need (adacpp#63, #64, #66).
+ada-cpp = "0.29.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -318,7 +319,12 @@ ada-cpp = "0.28.*"
 # path untested here while looking green -- the failure mode these pins exist
 # to prevent. A plate needs the outline specifically: 0.26 alone reads members
 # and drops every plate, which is a worse answer than refusing to read at all.
-ada-cpp = "0.28.*"
+# 0.29 adds the MATERIAL each member is associated with (adacpp#66). Required
+# for the same reason again, and one step further: without it the take-off's
+# native route refuses every part (a mass needs a density it will not guess at)
+# and quietly falls back to the bounded ifcopenshell read, so the fast path
+# would be dead code here while every test still passed.
+ada-cpp = "0.29.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
