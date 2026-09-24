@@ -108,3 +108,105 @@ def test_an_ifc_the_scan_cannot_read_falls_back_rather_than_reporting_nothing(tm
     broken = tmp_path / "broken.ifc"
     broken.write_text("not an ifc at all")
     assert load_members_or_model(broken, ".ifc", lambda p, e: "full-model") == "full-model"
+
+
+# ── material: what the take-off needs and the clash check does not ───────────────────────────
+
+
+def _scan_reports_material(part) -> bool:
+    """Whether the installed adacpp is new enough to state materials (>= 0.29)."""
+    from ada.cadit.ifc.read.native_members import materials_are_complete
+
+    return materials_are_complete(part)
+
+
+def test_the_material_stated_per_member_is_the_one_the_member_gets(frame_ifc):
+    from ada.cadit.ifc.read.native_members import ifc_members_to_part
+
+    part = ifc_members_to_part(frame_ifc)
+    if not _scan_reports_material(part):
+        pytest.skip("ada-cpp without material in IfcMemberScan (needs >= 0.29)")
+    # Per MEMBER: the fixture's plate defaults to S420 while its beams are S355, so a reader that
+    # took one material for the whole file would be wrong about five objects out of six.
+    by_name = {obj.name: obj for obj in part.get_all_physical_objects()}
+    assert by_name["pl"].material.name == "S420"
+    assert {by_name[n].material.name for n in ("g0", "g1", "g2", "g3", "s0")} == {"S355"}
+
+
+def test_one_material_object_is_shared_by_every_member_that_names_it(frame_ifc):
+    part = ifc_members_to_part(frame_ifc)
+    if not _scan_reports_material(part):
+        pytest.skip("ada-cpp without material in IfcMemberScan (needs >= 0.29)")
+    # A model states a handful of materials and uses each on thousands of members; building one
+    # Material per member would put thousands of equal objects in a part that wants a handful.
+    girders = [obj for obj in part.get_all_physical_objects() if obj.name.startswith("g")]
+    assert len({id(bm.material) for bm in girders}) == 1
+
+
+def test_the_mass_matches_what_the_full_reader_computes(frame_ifc):
+    """The take-off's actual question, asked of both readers."""
+    from ada.cadit.ifc.read.native_members import ifc_members_to_part
+    from ada.topo_model.takeoff import model_takeoff
+
+    part = ifc_members_to_part(frame_ifc)
+    if not _scan_reports_material(part):
+        pytest.skip("ada-cpp without material in IfcMemberScan (needs >= 0.29)")
+    native = model_takeoff(part)
+    full = model_takeoff(ada.from_ifc(frame_ifc))
+    assert native["total_mass"] == pytest.approx(full["total_mass"], rel=0.02)
+
+
+def test_a_defaulted_material_disqualifies_the_native_take_off():
+    """Density is not a thing to guess at.
+
+    A member left on its default density still produces a mass -- a plausible one, and a wrong
+    one. The take-off would rather pay for the full reader than report that number, so a part
+    with any unstated material is refused even though every other question it answers is fine.
+    """
+    from ada.cadit.ifc.read.native_members import (
+        _UNSTATED_MATERIALS,
+        materials_are_complete,
+    )
+
+    part = ada.Part("p")
+    part.metadata[_UNSTATED_MATERIALS] = 0
+    assert materials_are_complete(part) is True
+    part.metadata[_UNSTATED_MATERIALS] = 3
+    assert materials_are_complete(part) is False
+
+
+@pytest.mark.parametrize("grade_prop", ["Grade", "StrengthGrade"])
+def test_either_spelling_of_the_grade_is_read(grade_prop):
+    """adapy writes "Grade"; the IFC material-properties convention is "StrengthGrade"."""
+    from ada.cadit.ifc.read.native_members import _material_for
+    from ada.materials.metals import CarbonSteel
+
+    mat = _material_for(
+        {"material": "S420", "material_props": {grade_prop: "S420", "MassDensity": 7850.0}},
+        {},
+    )
+    assert isinstance(mat.model, CarbonSteel)
+    assert mat.model.grade == "S420"
+
+
+def test_an_unlisted_grade_is_carried_rather_than_refused():
+    """S235 is a real grade and not one adapy tabulates.
+
+    `CarbonSteel` looks its yield stress up by name, so an unlisted grade raises -- on a file
+    that is perfectly valid and that states the yield stress itself two properties along.
+    """
+    from ada.cadit.ifc.read.native_members import _material_for
+
+    mat = _material_for(
+        {"material": "S235", "material_props": {"Grade": "S235", "MassDensity": 7850.0, "YieldStress": 235e6}},
+        {},
+    )
+    assert mat.name == "S235"
+    assert mat.model.sig_y == pytest.approx(235e6)
+
+
+def test_a_member_with_no_stated_material_gets_none_rather_than_a_guess():
+    from ada.cadit.ifc.read.native_members import _material_for
+
+    assert _material_for({"material": "", "material_props": {}}, {}) is None
+    assert _material_for({}, {}) is None

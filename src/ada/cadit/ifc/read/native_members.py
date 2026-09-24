@@ -18,9 +18,10 @@ chain -- in one streaming pass. This module turns that into the `Beam` and `Plat
 rest of adapy already knows how to reason about, so every pass downstream (`ada.clash`, the
 take-off, the connection specs) runs unchanged on top of it.
 
-WHAT IT IS NOT. Not a replacement for `from_ifc`: it carries no geometry, no materials, no
-property sets, no spatial hierarchy beyond one flat part, and no products that are neither beam
-nor plate. It is the cheap answer to one question, and a caller that needs a model should still
+WHAT IT IS NOT. Not a replacement for `from_ifc`: it carries no geometry, no property sets, no
+spatial hierarchy beyond one flat part, and no products that are neither beam nor plate. It does
+carry the MATERIAL each member is associated with, because mass is section x length x density and
+a take-off that had to guess at the density would not be a take-off. It is the cheap answer to one question, and a caller that needs a model should still
 read one.
 """
 
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
 __all__ = [
     "MEMBER_SCAN_MIN_ADACPP",
     "ifc_members_to_part",
+    "materials_are_complete",
     "native_members_available",
+    "native_takeoff_part",
     "scan_ifc_members",
 ]
 
@@ -50,6 +53,10 @@ MEMBER_SCAN_MIN_ADACPP = "0.27.0"
 #: railing or a piece of furniture would put objects into a clash check that no spec can detail.
 _BEAM_CLASSES = {"IFCBEAM", "IFCCOLUMN", "IFCMEMBER"}
 _PLATE_CLASSES = {"IFCPLATE", "IFCSLAB"}
+
+#: Set on the part by `ifc_members_to_part`: how many members the file associated with no
+#: material. Read by `materials_are_complete`, which the take-off asks before trusting a mass.
+_UNSTATED_MATERIALS = "native_members_unstated_materials"
 
 
 def native_members_available() -> bool:
@@ -168,6 +175,60 @@ def _plate_from(member: dict):
     )
 
 
+#: How a stated property name maps onto an ada material model. The same names, and the same
+#: defaults, as the ifcopenshell reader uses (`read_materials.MaterialImporter`) -- the two paths
+#: describe the same file and a take-off must not depend on which one read it.
+_MAT_PROPS = {
+    "YoungModulus": ("E", 210000e6),
+    "YieldStress": ("sig_y", 355e6),
+    "MassDensity": ("rho", 7850.0),
+    "PoissonRatio": ("v", 0.3),
+    "ThermalExpansionCoefficient": ("alpha", 1.2e-5),
+    "SpecificHeatCapacity": ("zeta", 1.15),
+}
+
+#: Which stated property carries the grade label. Exporters disagree -- adapy writes "Grade", the
+#: IFC material-properties convention is "StrengthGrade" -- so both are read.
+_GRADE_NAMES = ("StrengthGrade", "Grade")
+
+
+def _material_for(member: dict, cache: dict):
+    """The member's material, or None where the file associates it with none.
+
+    Shared, not copied: a model states a handful of materials and uses each on thousands of
+    members, so one `Material` per NAME is built and handed to every member that names it. Two
+    materials sharing a name but not their properties would be a contradiction in the file; the
+    first reading wins and the rest are the same object, which is also what `Part` would do with
+    them on the way in.
+    """
+    name = (member.get("material") or "").strip()
+    if not name:
+        return None
+    if name in cache:
+        return cache[name]
+
+    from ada import Material
+    from ada.materials.metals import CarbonSteel, Metal
+
+    stated = member.get("material_props") or {}
+    props = {}
+    for stated_name, (arg, default) in _MAT_PROPS.items():
+        value = stated.get(stated_name)
+        props[arg] = float(value) if isinstance(value, (int, float)) else default
+
+    grade = next((str(stated[n]) for n in _GRADE_NAMES if isinstance(stated.get(n), str)), None)
+    # Only a grade the catalogue KNOWS: `CarbonSteel` looks its yield and ultimate stress up by
+    # name, so an unlisted one (S235, a project label) would raise on a file that is perfectly
+    # valid. Its properties are stated anyway, and `Metal` carries them without the lookup.
+    if grade in CarbonSteel.GRADES:
+        model = CarbonSteel(grade=grade, **props)
+    else:
+        model = Metal(sig_u=None, **props)
+
+    cache[name] = Material(name=name, mat_model=model)
+    return cache[name]
+
+
 def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members"):
     """One flat `Part` of the beams and plates an IFC states, read natively.
 
@@ -178,6 +239,8 @@ def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members")
 
     part = Part(name)
     skipped: dict[str, int] = {}
+    materials: dict[str, object] = {}
+    unstated = 0
     for member in scan_ifc_members(ifc_file):
         cls = (member.get("ifc_class") or "").upper()
         obj = None
@@ -188,11 +251,23 @@ def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members")
         if obj is None:
             skipped[cls or "?"] = skipped.get(cls or "?", 0) + 1
             continue
+        mat = _material_for(member, materials)
+        if mat is None:
+            # Left on the object's own default rather than counted as a failure: a clash check
+            # never asks what a member is made of, so a file that states no material still
+            # answers every question THIS reader exists for. Only the take-off cares, and it
+            # checks `materials_are_complete` before trusting the mass it computes.
+            unstated += 1
+        else:
+            obj.material = mat
         part.add_object(obj)
     if skipped:
         # Counted per class rather than logged per product: a plant has thousands of products that
         # are neither beam nor plate, and one line per product would bury the run.
         logger.info(f"native members: skipped {sum(skipped.values())} product(s) by class {skipped}")
+    if unstated:
+        logger.info(f"native members: {unstated} member(s) state no material; each keeps its default")
+    part.metadata[_UNSTATED_MATERIALS] = unstated
     return part
 
 
@@ -232,3 +307,38 @@ def load_members_or_model(src_path: str | pathlib.Path, ext: str, fallback):
                 return part
             logger.info(f"native member read of {src_path} found no members; deferring to the full reader")
     return fallback(pathlib.Path(src_path), ext)
+
+
+def materials_are_complete(part) -> bool:
+    """Whether every member the native read produced carries a material the FILE stated.
+
+    A mass is a volume times a density, and a member left on its default density still produces
+    a number -- a plausible, confidently wrong one. So a take-off computed from a native read is
+    only trustworthy when nothing was defaulted, and this is the question it asks.
+    """
+    return not part.metadata.get(_UNSTATED_MATERIALS, 0)
+
+
+def native_takeoff_part(src_path: str | pathlib.Path, ext: str):
+    """A part to take off natively, or None to let the caller read the source the slow way.
+
+    The take-off's second read is the one place that must be stricter than the clash check. A
+    clash check asks where things are, which this reader answers for every member; a take-off
+    asks how much they weigh, which it can only answer where the file states materials and
+    sections it recognises. So: no members, or any member on a defaulted material, and the
+    answer is None -- the caller then falls back to the full reader under its size bound, exactly
+    as before this path existed.
+    """
+    if (ext or "").lower() not in (".ifc", ".ifcxml") or not native_members_available():
+        return None
+    try:
+        part = ifc_members_to_part(src_path, name=pathlib.Path(src_path).stem or "ifc_members")
+    except Exception as exc:  # noqa: BLE001 - a take-off is never a reason to fail a conversion
+        logger.info(f"native take-off read of {src_path} failed ({exc}); falling back")
+        return None
+    if not _has_members(part):
+        return None
+    if not materials_are_complete(part):
+        logger.info(f"native take-off of {src_path} skipped: the file states no material for some members")
+        return None
+    return part

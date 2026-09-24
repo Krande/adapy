@@ -98,7 +98,9 @@ def source_is_small_enough(src_path: "pathlib.Path | str") -> bool:
     The native IFC and STEP routes never build an ada model -- that is the point of them, and why
     they convert a plant in seconds. Taking one off therefore costs a full semantic read on top
     of a conversion that deliberately avoided one, which is minutes and gigabytes on the files
-    those routes exist for. So the second read is bounded by source size (25 MB by default,
+    those routes exist for. Only sources that need that read reach here: an IFC the native member
+    reader can take off is answered before this is asked. So the FULL read is bounded by source
+    size (25 MB by default,
     ``ADA_TAKEOFF_MAX_SOURCE_BYTES`` to change it, ``0`` to switch it off): ordinary models get
     their take-off, and a plant-scale conversion is not quietly doubled for a panel nobody may
     open.
@@ -119,11 +121,30 @@ def source_is_small_enough(src_path: "pathlib.Path | str") -> bool:
 
 
 def record_takeoff_from_source(src_path: "pathlib.Path | str", source_ext: str) -> None:
-    """Read ``src_path`` into ada purely to take it off -- the native routes' only option.
+    """Read ``src_path`` purely to take it off -- the native routes' only option.
 
-    Guarded by :func:`source_is_small_enough` and, like everything else here, best effort: a read
-    that fails leaves no take-off and the panel says so.
+    Two ways in. An IFC is read NATIVELY first (`native_takeoff_part`), which is the cheap one:
+    members, sections and materials straight out of the entities that state them, no
+    ifcopenshell and no geometry. It is also the unbounded one -- the read it replaces is the
+    reason the bound exists, so a source that answers natively is never measured against it, and
+    a plant-scale IFC gets the take-off it was previously too large for.
+
+    Everything else -- a STEP, or an IFC the native reader will not vouch for (see
+    `native_takeoff_part`) -- still pays for the full reader, and so is still bounded by
+    :func:`source_is_small_enough`. Best effort throughout: a read that fails leaves no take-off
+    and the panel says so.
     """
+    try:
+        from ada.cadit.ifc.read.native_members import native_takeoff_part
+
+        part = native_takeoff_part(src_path, source_ext)
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.info(f"native take-off of {src_path} unavailable ({exc}); falling back")
+        part = None
+    if part is not None:
+        record_takeoff(part)
+        return
+
     if not source_is_small_enough(src_path):
         logger.info(f"take-off skipped for {src_path}: source over {SOURCE_SIZE_LIMIT_ENV}")
         return

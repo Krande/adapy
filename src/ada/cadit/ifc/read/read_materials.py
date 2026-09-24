@@ -50,8 +50,14 @@ class MaterialImporter:
             units=self.ifc_store.assembly.units,
         )
 
-        if "StrengthGrade" in props:
-            mat_model = CarbonSteel(grade=props["StrengthGrade"], **mat_props)
+        # Both spellings: this writer emits "Grade" and the IFC material-properties convention is
+        # "StrengthGrade", so reading only the latter lost the grade on adapy's own round trip.
+        # And only a grade the catalogue tabulates -- `CarbonSteel` looks its yield and ultimate
+        # stress up by name, so an unlisted one (S235, a project label) raises on a file that is
+        # perfectly valid and that states the stresses itself.
+        grade = next((props[n] for n in ("StrengthGrade", "Grade") if isinstance(props.get(n), str)), None)
+        if grade in CarbonSteel.GRADES:
+            mat_model = CarbonSteel(grade=grade, **mat_props)
         else:
             mat_model = Metal(sig_u=None, **mat_props)
 
