@@ -2,6 +2,16 @@
 
 
 
+## v0.86.0 (2026-09-23)
+
+### Feature
+
+* feat(fem): report what a conversion could not carry across (#388)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`9edf48a`](https://github.com/Krande/adapy/commit/9edf48a5a406a673bf243243ab89f01ef11488a0))
+
+
 ## v0.85.0 (2026-09-23)
 
 ### Feature

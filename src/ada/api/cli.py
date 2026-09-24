@@ -25,6 +25,7 @@ import argparse
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
 
 from ada.config import logger
@@ -277,17 +278,64 @@ def _write(model, output_file, fmt: str) -> list[pathlib.Path]:
     return [out]
 
 
-def _cmd_convert(args: argparse.Namespace) -> None:
+def _report_path(out: pathlib.Path) -> pathlib.Path:
+    """Where the conversion report goes: ``<OUT stem>_conversion_report.json``, beside ``OUT``."""
+    return out.with_name(f"{out.stem}_conversion_report.json")
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    """Convert IN to OUT, and say what did not survive the trip.
+
+    Returns 0, or 3 under ``--strict`` when something was omitted or the input looks wrong. 2 is
+    argparse's usage exit and stays reserved for :class:`CliUsageError`. Approximations alone do
+    not fail ``--strict``: a tie resolved to the nearest node is always one.
+
+    A JSON report is written beside OUT **when anything needs a human's decision**, and its
+    path is printed with the others. A clean conversion leaves OUT alone: a file that appears on
+    every single run is furniture nobody reads, while one that appears only when something needs
+    attention is a signal. ``--strict`` and the exit code, not the file's presence, are how a
+    script asks whether the conversion was complete.
+
+    Notes alone do not bring the file into being: a note is context for the findings around it,
+    not news on its own. When the file *is* written, every note is in it.
+
+    A short summary always goes to **stderr** — after the paths, which go to stdout — so that
+    ``ada convert in out > written.txt`` still yields nothing but paths, and so the summary
+    survives ``--log-file`` raising the console log handler to WARNING.
+    """
+    from ada.fem.formats import conversion_report
+
     # Every usage error is raised before the input is touched: one must not cost the
     # multi-minute parse of a large deck first.
     in_fmt = _resolve_read_format(args.input, getattr(args, "from_format", None))
     out_fmt = _resolve_write_format(args.output, getattr(args, "to_format", None))
-    _validate_out(args.output)
+    out = _validate_out(args.output)
 
-    model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
+    with conversion_report.collect() as report:
+        model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
+        written = _write(model, args.output, out_fmt)
 
-    for path in _write(model, args.output, out_fmt):
+    for path in written:
         print(path)
+
+    if report.needs_a_decision:
+        print(
+            report.write_json(
+                _report_path(out),
+                input=str(pathlib.Path(args.input).resolve()),
+                output=str(out),
+                from_format=in_fmt,
+                to_format=out_fmt,
+            )
+        )
+
+    # stderr, not the log: the summary is the one thing the user should not have to open a file
+    # to read, and it must not land in a stdout someone is capturing for paths.
+    print(report.summary(), file=sys.stderr)
+
+    if getattr(args, "strict", False) and (report.has_omissions or report.has_suspects):
+        return 3
+    return 0
 
 
 def _cmd_view(args: argparse.Namespace) -> None:
