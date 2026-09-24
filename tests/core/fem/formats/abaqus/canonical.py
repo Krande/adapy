@@ -182,6 +182,7 @@ def _element(el, defaults) -> dict:
             etype = f"{_v(el.type)} (no Abaqus type)"
     out = {
         "type": etype,
+        "shape": _v(el.type),
         "nodes": [_v(n.id) for n in el.nodes],
         "elset": _name(el.elset),
         "section": _name(getattr(getattr(el, "fem_sec", None), "elset", None)),  # R8
@@ -223,7 +224,8 @@ def _material(mat) -> dict:
         "E": _v(m.E),
         "v": _v(m.v),
         "rho": _v(m.rho),
-        "expansion": _v(m.zeta),
+        "expansion": _v(m.alpha),
+        "specific_damping": _v(m.zeta),
         "damping": [_v(m.rayleigh_damping.alpha), _v(m.rayleigh_damping.beta)],
         "plastic": None if pl is None or pl.eps_p is None else [_v(pl.sig_p), _v(pl.eps_p)],
         "metadata": {k: v for k, v in _meta(mat).items() if k != "aba_inp"},  # R16

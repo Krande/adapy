@@ -5,7 +5,8 @@ from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
 
 from .keywords import validate
-from .lexer import KeywordBlock, mark_read, tokenize
+from ..write.write_materials import SPECIFIC_DAMPING
+from .lexer import KeywordBlock, comment_property, mark_read, tokenize
 
 if TYPE_CHECKING:
     from ada import Assembly
@@ -85,15 +86,20 @@ def _build_material(block: KeywordBlock, properties: dict[str, KeywordBlock]) ->
         sig_p = [float(x[0]) for x in rows]
         eps_p = [float(x[1]) for x in rows]
 
-    expansion_block = properties.get("EXPANSION")
-    zeta_value = _first_value(expansion_block)
-    zeta = float(zeta_value) if zeta_value is not None else 0.0
+    # *Expansion is thermal expansion (``alpha``); it was read into ``zeta``, the damping. A deck
+    # with no *Expansion expands by nothing -- not by CarbonSteel's default.
+    alpha_value = _first_value(properties.get("EXPANSION"))
+    alpha = float(alpha_value) if alpha_value is not None else 0.0
+    # Specific damping has no Abaqus keyword; adapy's writer carries it in a comment (see
+    # write_materials.SPECIFIC_DAMPING). A deck from anywhere else has none.
+    zeta_text = comment_property(elastic_block, SPECIFIC_DAMPING).get(SPECIFIC_DAMPING) if elastic_block else None
+    zeta = float(zeta_text) if zeta_text is not None else 0.0
 
     # Return material object. Only pass mechanical properties that the deck actually
     # specified — a material with no *Elastic / *Density (e.g. a user-material or a deck
     # that defines them elsewhere) then keeps CarbonSteel's defaults rather than carrying
     # None, which would crash every downstream writer (IFC/Sesam materials) on float(None).
-    mat_kwargs = dict(zeta=zeta, plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p))
+    mat_kwargs = dict(zeta=zeta, alpha=alpha, plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p))
     if density is not None:
         mat_kwargs["rho"] = density
     if young is not None:

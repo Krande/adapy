@@ -2,6 +2,9 @@ from typing import TYPE_CHECKING
 
 from ..grammar import format_number
 
+#: The comment above *Elastic that carries a material's specific damping (``zeta``).
+SPECIFIC_DAMPING = "Specific damping"
+
 if TYPE_CHECKING:
     from ada import Assembly, Material
 
@@ -35,9 +38,26 @@ def material_str(material: "Material") -> str:
     if alpha is not None and beta is not None:
         d_str = f"\n*Damping, alpha={format_number(alpha)}, beta={format_number(beta)}"
 
+    # *Expansion is the thermal expansion coefficient, ``alpha``. It used to be written from
+    # ``zeta`` -- the material's damping -- so a model's damping became its thermal expansion.
     exp_str = ""
+    if material.model.alpha is not None and material.model.alpha != 0.0:
+        exp_str = f"\n*Expansion\n {format_number(material.model.alpha)}"
+
+    # ``zeta`` is Sesam's "specific damping" (MISOSEL DAMP). Abaqus has no material property that
+    # means that -- *Damping's COMPOSITE is a fraction of critical damping, STRUCTURAL a loss
+    # factor -- so it is kept in a comment the reader reads, and not handed to the solver.
+    zeta_str = ""
     if material.model.zeta is not None and material.model.zeta != 0.0:
-        exp_str = f"\n*Expansion\n {format_number(material.model.zeta)}"
+        from ada.fem.formats import conversion_report
+
+        zeta_str = f"\n** {SPECIFIC_DAMPING}: {format_number(material.model.zeta)}"
+        conversion_report.current().note(
+            "abaqus writer",
+            "*MATERIAL",
+            material.name,
+            "specific damping (zeta) has no Abaqus material property; kept in a comment, not used by the solver",
+        )
 
     # A massless material has no *Density (Abaqus rejects a zero density). Writing 1e-6 in its
     # place gave it a mass it did not have, and it read back as that.
@@ -46,7 +66,7 @@ def material_str(material: "Material") -> str:
         density_str = f"\n*Density\n{format_number(material.model.rho)},"
 
     return (
-        f"*Material, name={material.name}\n*Elastic\n"
+        f"*Material, name={material.name}{zeta_str}\n*Elastic\n"
         f"{format_number(material.model.E)},  {format_number(material.model.v)}{compr_str}"
         f"{density_str}{exp_str}{d_str}{pl_str}"
     )

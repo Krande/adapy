@@ -363,7 +363,7 @@ def materials() -> ada.Assembly:
     verbatim = p.add_material(
         ada.Material(
             "verbatim",
-            CarbonSteel("S355", E=2.0e11, v=0.29, rho=7800.0, zeta=0.0),
+            CarbonSteel("S355", E=2.0e11, v=0.29, rho=7800.0, zeta=0.0, alpha=0.0),
             metadata=dict(aba_inp="*Material, name=verbatim\n*Elastic\n2.0e11, 0.29\n*Density\n7800.,"),
         )
     )

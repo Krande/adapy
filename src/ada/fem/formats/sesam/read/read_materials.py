@@ -70,8 +70,10 @@ def get_mat(match, mat_names, part) -> Material:
         rho=roundoff(d["rho"]),
         E=roundoff(d["young"]),
         v=roundoff(d["poiss"]),
-        alpha=roundoff(d["damp"]),
-        zeta=roundoff(d["alpha"]),
+        # DAMP is the specific damping (zeta), ALPHA the thermal expansion coefficient -- the
+        # two were read into each other's fields.
+        alpha=roundoff(d["alpha"]),
+        zeta=roundoff(d["damp"]),
         sig_y=roundoff(d["yield"]),
     )
     return Material(name=mat_names[matno], mat_id=matno, mat_model=mat_model, parent=part)
