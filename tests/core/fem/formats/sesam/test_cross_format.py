@@ -11,6 +11,15 @@ file does, so Sesam -> Abaqus reports nothing omitted and changes nothing.
 
 The zoo is the Abaqus one, read from a written deck first, so the Sesam writer sees what a
 real Abaqus conversion hands it.
+
+On top of the canonical form's rules (R1-R20), the view has two of its own:
+
+S1  Numbers are compared to 9 significant digits. A Sesam file's data fields are FORTRAN
+    ``E16.8`` (manual 2.1 and 9, "four 16character data fields (4E16.8)"): 9 significant
+    digits is all a value can carry, where the canonical form compares 12.
+S2  ``ENCASTRE`` is compared as the displacement BC fixing all six DOFs, which is what it is:
+    Abaqus's name for them. BNBCD holds fixed DOFs, not the name. (The Abaqus reader already
+    reads the other named restraints, PINNED, XSYMM, ..., as the DOFs they fix.)
 """
 
 from __future__ import annotations
@@ -47,54 +56,40 @@ SESAM_WRITER = "sesam writer"
 #: Models whose Sesam conversion still loses something unreported, or changes it. Strict:
 #: fixing one makes its case fail until it is removed here.
 SESAM_GAPS: dict = {
-    "amplitudes": (Exception, "sections read back one per element; amplitudes dropped unreported"),
+    "amplitudes": (Exception, "amplitudes dropped unreported"),
     "boundary_conditions": (
         Exception,
-        "sections read back one per element; BCs read back on per-node sets; velocity/connector BCs unreported",
+        "prescribed-displacement magnitudes written as fixed (no BNDISPL); velocity/connector BCs unreported",
     ),
-    "connectors": (Exception, "sections read back one per element; connectors dropped unreported"),
+    "connectors": (Exception, "connectors dropped unreported"),
     "constraints": (Exception, "writer raises on a tie"),
-    "constraints_assembly_level": (Exception, "reader: assembly-level node id not found"),
     "constraints_equation": (Exception, "writer raises on an equation (BLDEP holds it)"),
     "elements_line_explicit": (Exception, "writer raises on an explicit step"),
-    "elements_line_profiles": (Exception, "sections read back one per element; beam profiles"),
+    "elements_line_profiles": (Exception, "a solid round bar is written as a GPIPE with a 1% bore"),
     "elements_shell_tri7": (Exception, "writer raises on TRI7 (no Sesam element)"),
     "elements_solid_first_order": (Exception, "writer raises on PYRAMID5 (no Sesam element)"),
-    "initial_conditions": (Exception, "sections read back one per element; initial conditions dropped unreported"),
-    "interactions": (Exception, "sections read back one per element; surfaces and contact dropped unreported"),
+    "initial_conditions": (Exception, "initial conditions dropped unreported"),
+    "interactions": (Exception, "surfaces and contact dropped unreported"),
     "loads": (Exception, "writer raises on a load"),
-    "masses": (Exception, "reader: point-mass element id not found"),
-    "masses_anisotropic": (Exception, "reader: point-mass element id not found"),
-    "materials": (Exception, "sections read back one per element; plasticity/damping dropped unreported"),
-    "multi_part": (Exception, "reader: element id not found after the part merge"),
-    "outputs": (Exception, "sections read back one per element; steps, outputs and connectors dropped unreported"),
-    "read_back_deck": (Exception, "elements change"),
-    "reference_point_in_use": (
+    "masses": (Exception, "nonstructural mass lumped onto nodes as BNMASS, and not reported"),
+    "materials": (Exception, "plasticity/damping dropped unreported"),
+    "multi_part": (
         Exception,
-        "sections read back one per element; BCs on per-node sets; connectors dropped unreported",
+        "the parts number nodes and elements alike: one superelement renumbers them (so does the view's merge)",
     ),
-    "sections_zero_thickness": (Exception, "reader: element id not found"),
-    "sets_empty": (Exception, "reader: element id not found"),
-    "springs": (Exception, "sections read back one per element; springs change"),
-    "springs_coupled": (Exception, "sections read back one per element; springs change"),
-    "springs_two_node": (Exception, "sections read back one per element; springs change"),
-    "steps_complex_eigen": (
-        Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
-    ),
+    "outputs": (Exception, "steps, outputs and connectors dropped unreported"),
+    "reference_point_in_use": (Exception, "connectors dropped unreported"),
+    "springs": (Exception, "the writer drops springs"),
+    "springs_coupled": (Exception, "the writer drops springs"),
+    "springs_two_node": (Exception, "the writer drops springs"),
+    "steps_complex_eigen": (Exception, "steps dropped unreported"),
     "steps_dynamic_implicit": (Exception, "writer raises on an implicit dynamic step"),
-    "steps_eigen": (Exception, "sections read back one per element; BCs on per-node sets; steps dropped unreported"),
+    "steps_eigen": (Exception, "steps dropped unreported"),
     "steps_explicit": (Exception, "writer raises on an explicit step"),
-    "steps_raw_input": (
-        Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
-    ),
-    "steps_static": (Exception, "sections read back one per element; BCs on per-node sets; steps dropped unreported"),
-    "steps_steady_state": (
-        Exception,
-        "sections read back one per element; BCs on per-node sets; steps dropped unreported",
-    ),
-    "surfaces": (Exception, "sections read back one per element; surfaces dropped unreported"),
+    "steps_raw_input": (Exception, "steps dropped unreported"),
+    "steps_static": (Exception, "steps dropped unreported"),
+    "steps_steady_state": (Exception, "steps dropped unreported"),
+    "surfaces": (Exception, "surfaces dropped unreported"),
 }
 
 
@@ -106,9 +101,27 @@ def sesam_view(c: dict) -> dict:
     # The shape, not the Abaqus type: which formulation a Sesam element stands for is the
     # formulation mapping's business, compared by its own tests.
     model["elements"] = {k: {f: v for f, v in e.items() if f != "type"} for k, e in model["elements"].items()}
-    bcs = {k.split(".", 1)[-1]: v for k, v in c["bcs"].items()}
+    bcs = {k.split(".", 1)[-1]: _restraint_as_dofs(v) for k, v in c["bcs"].items()}
     materials = {k: {f: m[f] for f in MATERIAL_FIELDS} for k, m in c["materials"].items()}
-    return {"model": model, "materials": materials, "bcs": bcs}
+    return _nine_digits({"model": model, "materials": materials, "bcs": bcs})
+
+
+def _restraint_as_dofs(bc: dict) -> dict:
+    """S2."""
+    if bc["dofs"] == "encastre" or bc["dofs"] == {"encastre": None}:
+        return {**bc, "type": "displacement", "dofs": {str(d): None for d in range(1, 7)}}
+    return bc
+
+
+def _nine_digits(x):
+    """S1."""
+    if isinstance(x, float):
+        return float(f"{x:.9g}")
+    if isinstance(x, dict):
+        return {k: _nine_digits(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_nine_digits(v) for v in x]
+    return x
 
 
 #: What MISOSEL holds of a material: the linear elastic isotropic constants.

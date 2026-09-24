@@ -33,7 +33,9 @@ def get_elrefs(bulk_str, mass_elem: dict, spring_elem: dict) -> dict[int, dict]:
             spring_elem[elno]["section_data"] = d
         elif elno in mass_elem:
             mass_elem[elno]["section_data"] = d
-        else:
+        elif str_to_int(d["matno"]) != 0:
+            # MATNO = 0 is "no material data attached" (manual 8.3.4): the element has no
+            # section, and comes back without one.
             elrefs[elno] = d
     return elrefs
 
@@ -71,6 +73,7 @@ def get_sections(bulk_str, fem: FEM, elrefs: dict[int, dict]) -> FemSections:
         (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
         (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
         (get_angular_section(m, sect_names, fem) for m in cards.GLSEC.to_ff_re().finditer(bulk_str)),
+        (get_channel_section(m, sect_names, fem) for m in cards.GCHAN.to_ff_re().finditer(bulk_str)),
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )
 
@@ -265,12 +268,31 @@ def get_box_section(match, sect_names, fem) -> Section:
 
 
 def get_angular_section(match, sect_names, fem) -> Section:
+    """GLSEC: an L -- a web and one flange (manual 7.3.19). The flange is the bottom one, as
+    adapy's own L profile has it (``Section("L100x100x10")``); filling a top flange in as
+    well made an L read back as a different profile from the one written."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     return Section(
         name=sect_names[sec_id],
         sec_id=sec_id,
         sec_type=Section.TYPES.ANGULAR,
+        h=float(d["hz"]),
+        w_btn=float(d["by"]),
+        t_w=float(d["ty"]),
+        t_fbtn=float(d["tz"]),
+        parent=fem.parent,
+    )
+
+
+def get_channel_section(match, sect_names, fem) -> Section:
+    """GCHAN: one width and one thickness for both flanges (manual 7.3.4)."""
+    d = match.groupdict()
+    sec_id = str_to_int(d["geono"])
+    return Section(
+        name=sect_names[sec_id],
+        sec_id=sec_id,
+        sec_type=Section.TYPES.CHANNEL,
         h=float(d["hz"]),
         w_top=float(d["by"]),
         w_btn=float(d["by"]),

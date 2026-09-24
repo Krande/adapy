@@ -43,7 +43,7 @@ class SetReader:
 
     def iter_sets(self) -> Iterable[FemSet]:
         set_map = dict()
-        set_groups = (self.get_setmap(m, self.parent) for m in cards.re_setmembs.finditer(self.bulk_str))
+        set_groups = (self.get_setmap(m, self.parent) for m in cards.re_setmemb_records.finditer(self.bulk_str))
 
         for setid_el_type, content in groupby(sorted(set_groups, key=itemgetter(0, 1)), key=itemgetter(0, 1)):
             setid = setid_el_type[0]
@@ -65,14 +65,18 @@ class SetReader:
 
     @staticmethod
     def get_setmap(m, parent):
-        d = m.groupdict()
-        set_type = "nset" if str_to_int(d["istype"]) == 1 else "elset"
-        mem_list = d["members"].split()
+        # The record by position: NFIELD, ISREF, INDEX, ISTYPE, ISORIG, then the members
+        # (manual 4.2.6, GSETMEMB). The field regex could not read a record with no members
+        # (an empty set): with nothing to put in ``members`` its lazy fields ran on into the
+        # next card. Zeros are line padding, never a node or element number.
+        values = m.group(0).split()[1:]
+        set_type = "nset" if str_to_int(values[3]) == 1 else "elset"
+        mem_list = [x for x in values[5:] if str_to_int(x) != 0]
         if set_type == "nset":
             members = [parent.nodes.from_id(str_to_int(x)) for x in mem_list]
         else:
             members = [parent.elements.from_id(str_to_int(x)) for x in mem_list]
-        return str_to_int(d["isref"]), set_type, members
+        return str_to_int(values[1]), set_type, members
 
     def get_femsets(self, m, set_map, parent) -> Iterable[FemSet]:
         d = m.groupdict()

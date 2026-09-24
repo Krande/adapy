@@ -72,6 +72,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     from .write_elements import elem_gen
     from .write_loads import loads_str
     from .write_masses import mass_str
+    from .write_point_elements import point_elements_str
     from .write_sections import sections_str
     from .write_steps import write_sestra_inp
 
@@ -140,6 +141,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem, ndofs))
         d.write(mass_str(part.fem, ndofs))
+        d.write(point_elements_str(part.fem, ndofs))
         d.write(sets_str(part.fem, assembly.fem))
         d.write(bnbcd_str(fems, lin_deps, retained, ndofs))
         d.write("".join(r.to_str() for r in lin_deps))

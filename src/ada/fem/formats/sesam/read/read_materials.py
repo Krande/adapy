@@ -1,7 +1,6 @@
 from itertools import chain
 
 from ada.api.containers import Materials
-from ada.core.utils import roundoff
 from ada.fem.formats.utils import str_to_int
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
@@ -52,11 +51,11 @@ def get_morsmel(m, mat_names, part) -> Material:
     matno = str_to_int(d["matno"])
 
     mat_model = CarbonSteel(
-        rho=roundoff(d["rho"]),
-        E=roundoff(d["d11"]),
-        v=roundoff(d["ps1"]),
-        alpha=roundoff(d["alpha1"]),
-        zeta=roundoff(d["damp1"]),
+        rho=float(d["rho"]),
+        E=float(d["d11"]),
+        v=float(d["ps1"]),
+        alpha=float(d["alpha1"]),
+        zeta=float(d["damp1"]),
         sig_y=5e6,
     )
 
@@ -64,16 +63,18 @@ def get_morsmel(m, mat_names, part) -> Material:
 
 
 def get_mat(match, mat_names, part) -> Material:
+    # Values as written, not rounded to 6 decimals: that turned a thermal expansion of
+    # 1.17e-05 into 1.2e-05, and rounds any small constant away.
     d = match.groupdict()
     matno = str_to_int(d["matno"])
     mat_model = CarbonSteel(
-        rho=roundoff(d["rho"]),
-        E=roundoff(d["young"]),
-        v=roundoff(d["poiss"]),
+        rho=float(d["rho"]),
+        E=float(d["young"]),
+        v=float(d["poiss"]),
         # DAMP is the specific damping (zeta), ALPHA the thermal expansion coefficient -- the
         # two were read into each other's fields.
-        alpha=roundoff(d["alpha"]),
-        zeta=roundoff(d["damp"]),
-        sig_y=roundoff(d["yield"]),
+        alpha=float(d["alpha"]),
+        zeta=float(d["damp"]),
+        sig_y=float(d["yield"]),
     )
     return Material(name=mat_names[matno], mat_id=matno, mat_model=mat_model, parent=part)

@@ -13,26 +13,80 @@ from . import cards
 
 
 def get_constraints(bulk_str, fem: FEM) -> Dict[str, Constraint]:
+    """The BLDEP records -> one coupling per independent (master) node.
+
+    A coupling is back on the deck's own node sets where it can be: the master on a node set
+    holding just that node, the dependent nodes on the set whose TDSETNAM names the coupling
+    (``write_sets.CONSTRAINT_TAG``, what adapy's writer puts on it), else on a set holding
+    exactly them. Only what no set matches gets a generated ``co<master>_m`` / ``_s`` set.
+    The coupling takes its name from that comment too, else ``co<master>``. ``fem.sets``
+    must already hold the deck's sets.
+    """
     con_map = [m.groupdict() for m in cards.re_bldep.finditer(bulk_str)]
-    con_map.sort(key=lambda x: x["master"])
+    con_map.sort(key=lambda x: str_to_int(x["master"]))
+    tagged = _constraint_sets(bulk_str, fem)
     constraints: Dict[str, Constraint] = {}
-    for m, d in groupby(con_map, key=lambda x: x["master"]):
-        c = grab_constraint(m, d, fem)
+    for m, d in groupby(con_map, key=lambda x: str_to_int(x["master"])):
+        c = grab_constraint(m, list(d), fem, tagged)
         constraints[c.name] = c
     return constraints
 
 
-def grab_constraint(master, data, fem: FEM) -> Constraint:
-    m = str_to_int(master)
-    m_set = FemSet(f"co{m}_m", [fem.nodes.from_id(m)], "nset")
-    slaves = []
-    for d in data:
-        s = str_to_int(d["slave"])
-        slaves.append(fem.nodes.from_id(s))
-    s_set = FemSet(f"co{m}_s", slaves, "nset")
-    fem.add_set(m_set)
-    fem.add_set(s_set)
-    return Constraint(f"co{m}", Constraint.TYPES.COUPLING, m_set, s_set, parent=fem)
+def _constraint_sets(bulk_str, fem: FEM) -> list[tuple[str, FemSet]]:
+    """``(constraint name, set)`` for every TDSETNAM carrying a constraint comment."""
+    from ..write.write_sets import CONSTRAINT_TAG
+    from .read_sets import text_record
+
+    out = []
+    for m in cards.re_setnames.finditer(bulk_str):
+        set_name, comments = text_record(m.groupdict(), "set_name")
+        names = [c[len(CONSTRAINT_TAG) :].strip() for c in comments if c.startswith(CONSTRAINT_TAG)]
+        if not names:
+            continue
+        out += [(name, fs) for name in names for fs in fem.sets.sets if fs.name == set_name]
+    return out
+
+
+def _set_nodes(fs: FemSet) -> set[int]:
+    if fs.type == "nset":
+        return {n.id for n in fs.members}
+    return {n.id for el in fs.members for n in el.nodes}
+
+
+def _dependent_dofs(d: dict) -> list[int]:
+    """The s(i) of a BLDEP record's NDEP triplets, each padded to a line of four or not."""
+    values = d["bulk"].split()
+    ndep = str_to_int(d["ndep"])
+    stride = 4 if len(values) >= 4 * ndep else 3
+    return [str_to_int(x) for x in values[0 : stride * ndep : stride]]
+
+
+def grab_constraint(master: int, data: list[dict], fem: FEM, tagged: list[tuple[str, FemSet]] = ()) -> Constraint:
+    m_node = fem.nodes.from_id(master)
+    slaves = [fem.nodes.from_id(str_to_int(d["slave"])) for d in data]
+    slave_ids = {n.id for n in slaves} | {master}
+    dofs = sorted({s for d in data for s in _dependent_dofs(d)})
+
+    name, s_set = f"co{master}", None
+    for con_name, fs in tagged:
+        # The set may hold the master too: a coupling's reference node can't depend on itself,
+        # so the writer leaves it out of BLDEP (write_constraints.coupling_records).
+        if _set_nodes(fs) | {master} == slave_ids:
+            name, s_set = con_name, fs
+            break
+    nsets = [fs for fs in fem.sets.sets if fs.type == "nset"]
+    if s_set is None:
+        s_set = next((fs for fs in nsets if _set_nodes(fs) == {n.id for n in slaves}), None)
+    if s_set is None:
+        s_set = fem.add_set(FemSet(f"co{master}_s", slaves, "nset"))
+    m_set = next((fs for fs in nsets if _set_nodes(fs) == {master}), None)
+    if m_set is None:
+        m_set = fem.add_set(FemSet(f"co{master}_m", [m_node], "nset"))
+
+    # BLDEP writes a rigid body over an element region exactly as a coupling; the region being
+    # elements is what tells them apart (write_constraints.bldep_records).
+    con_type = Constraint.TYPES.RIGID_BODY if s_set.type == "elset" else Constraint.TYPES.COUPLING
+    return Constraint(name, con_type, m_set, s_set, dofs=dofs or None, parent=fem)
 
 
 def get_bcs(bulk_str, fem: FEM) -> List[Bc]:

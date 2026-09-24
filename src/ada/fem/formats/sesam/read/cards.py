@@ -162,6 +162,7 @@ GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
 GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
 GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "NLOBY|", "NLOBZ|"))
+GCHAN = DataCard("GCHAN", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "unused|", "k|", "NLOBY|", "NLOBZ|"))
 # Generic beam properties — area + moments of inertia only, no
 # profile geometry. The streaming bake uses these to synthesise a
 # tubular approximation for elements that reference a sec_id with
@@ -225,11 +226,15 @@ re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
 # splits, the same shape as re_bnbcd's ``content`` and re_mgsprng's ``bulk``.
 re_bnmass = get_ff_regex("BNMASS", "nodeno", "ndof", "content")
 re_mgmass = get_ff_regex("MGMASS", "matno", "ndof", "bulk")
+TDELEM = DataCard("TDELEM", ("nfield", "elno", "codnam", "codtxt", "name"))
+re_tdelem = TDELEM.to_ff_re()
 re_geccen = get_ff_regex("GECCEN", "eccno", "ex", "ey", "ez")
 re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
 
 GSETMEMB = DataCard("GSETMEMB", ("nfield", "isref", "index", "istype", "isorig", "members"))
 re_setmembs = GSETMEMB.to_ff_re()
+#: A whole GSETMEMB record: its first line and the indented continuation lines after it.
+re_setmemb_records = re.compile(r"^GSETMEMB[^\n]*(?:\n[ \t]+[^\n]*)*", re.MULTILINE)
 
 TDSETNAM = DataCard("TDSETNAM", ("nfield", "isref", "codnam", "codtxt", "set_name"))
 re_setnames = TDSETNAM.to_ff_re()

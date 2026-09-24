@@ -40,7 +40,8 @@ def _bnmass_components(mass, n_members: int) -> list[float]:
 
 
 def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
-    """The BNMASS block.
+    """The BNMASS block: the masses that are not a mass element on one node
+    (``write_point_elements.is_mass_element``) -- a nonstructural mass lumped onto its nodes.
 
     BNMASS declares an NDOF of its own and then lists exactly that many mass components,
     so it has to agree with what GNODE says about the node (:class:`writer.NodeDofs`): a
@@ -60,7 +61,11 @@ def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
 
     out_str = ""
 
+    from .write_point_elements import is_mass_element
+
     for mass in fem.elements.masses:
+        if is_mass_element(mass):
+            continue  # a mass element: write_point_elements
         members = list(mass.members)
         comps = _bnmass_components(mass, max(1, len(members)))
         for m in members:

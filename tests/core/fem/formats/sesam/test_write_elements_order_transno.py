@@ -333,7 +333,7 @@ def warnings_visible(monkeypatch, caplog):
 
 def _quad_fem(ids, unsectioned=()):
     """Object-path FEM of one quad per id; those in ``unsectioned`` get no FemSection
-    and are therefore skipped by ``elem_gen``."""
+    (written with MATNO = GEONO = 0)."""
     from ada.api.containers import Nodes
     from ada.fem import Elem
     from ada.fem.containers import FemElements
@@ -367,8 +367,15 @@ def test_missing_ids_counts_every_gap_and_lists_the_first_few():
 
 
 def test_skipping_an_element_warns_that_internal_numbering_has_a_gap(warnings_visible):
-    """One message carries both facts: N skipped, and the numbering is no longer 1..N."""
-    fem = _quad_fem((1, 2, 3, 4), unsectioned=(3,))
+    """One message carries both facts: N skipped, and the numbering is no longer 1..N.
+
+    A connector is what the writer skips (an unsectioned element used to be skipped too, and
+    is now written with no material or geometry -- see the next test)."""
+    from ada.fem import Connector, ConnectorSection
+
+    fem = _quad_fem((1, 2, 4))
+    n = fem.nodes.from_id
+    fem.elements.add(Connector("con", 3, n(1), n(2), "BUSHING", ConnectorSection("csec", parent=fem), parent=fem))
     text = elem_str(fem, THICK_MAP)
     assert _gelmnt1_ids(text) == [1, 2, 4]  # the skipped id is simply absent
 
@@ -378,6 +385,15 @@ def test_skipping_an_element_warns_that_internal_numbering_has_a_gap(warnings_vi
     assert "1 element number(s) are missing" in msg
     assert "first: 3" in msg
     assert "1 element(s) were skipped" in msg
+
+
+def test_an_unsectioned_element_is_written_with_no_material_or_geometry():
+    fem = _quad_fem((1, 2, 3), unsectioned=(2,))
+    text = elem_str(fem, THICK_MAP)
+    assert _gelmnt1_ids(text) == [1, 2, 3]
+    refs = {int(float(m["elno"])): m for m in (x.groupdict() for x in cards.GELREF1.to_ff_re().finditer(text))}
+    assert (int(float(refs[2]["matno"])), int(float(refs[2]["geono"]))) == (0, 0)
+    assert int(float(refs[1]["matno"])) == 1
 
 
 def test_a_contiguous_deck_does_not_warn(warnings_visible):

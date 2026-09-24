@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.config import logger
 from ada.fem.formats.sesam.write.write_utils import write_ff
+from ada.fem.shapes.definitions import ConnectorTypes
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -19,13 +20,14 @@ if TYPE_CHECKING:
 #: (``read_sections``) rebuilds the section on that set.
 SECTION_TAG = "SECTION: "
 
-#: NCTXT's legal range is [0, 64] (manual 4.2.6).
+#: The TDSETNAM comment line naming the coupling (or rigid body) whose dependent nodes the set
+#: holds. BLDEP, which carries it, is per dependent node and has no name; see
+#: ``read_constraints``.
+CONSTRAINT_TAG = "CONSTRAINT: "
+
+#: NCTXT's legal range is [0, 64], NLTXT's [0, 5] (manual 4.2.6).
 MAX_TEXT = 64
-
-
-def section_comment(name: str) -> str | None:
-    text = f"{SECTION_TAG}{name}"
-    return text if len(text) <= MAX_TEXT else None
+MAX_LINES = 5
 
 
 def sets_str(fem: FEM, *others: FEM) -> str:
@@ -34,35 +36,69 @@ def sets_str(fem: FEM, *others: FEM) -> str:
     A Sesam file is one superelement, so the sets of the assembly (passed in ``others``) are
     written into it too: they name the same nodes and elements. They used to be left out, which
     also left out the node sets assembly-level boundary conditions stand on.
+
+    A connector is not written (``write_elements._is_writable_to_sesam``), so it is left out of
+    the sets as well, and a set of connectors only is not written: a member that names an
+    element the file does not have is one no reader can resolve.
     """
     fems = [fem] + [f for f in others if f is not None and f is not fem]
-    section_names = {id(sec.elset): sec.name for f in fems for sec in f.sections}
+    # Keyed by what the set is called, not by the object: a constraint may reach its set
+    # through a surface, which a multi-part merge carries over without re-pointing it at the
+    # merged copy of the set.
+    comments: dict[tuple, list[str]] = {}
+    for f in fems:
+        for sec in f.sections:
+            comments.setdefault((sec.elset.type, sec.elset.name), []).append(f"{SECTION_TAG}{sec.name}")
+        for con in f.constraints.values():
+            fs = _bldep_slave_set(con)
+            if fs is not None:
+                comments.setdefault((fs.type, fs.name), []).append(f"{CONSTRAINT_TAG}{con.name}")
     out_str = ""
     i = 0
     for f in fems:
         for fs in f.sets.sets:
+            members = [m for m in fs.members if not isinstance(getattr(m, "type", None), ConnectorTypes)]
+            if fs.members and not members:
+                continue
             i += 1
-            out_str += _set_str(fs, i, section_names.get(id(fs)))
+            out_str += _set_str(fs, members, i, comments.get((fs.type, fs.name), []))
     return out_str
 
 
-def _set_str(fs: FemSet, i: int, section_name: str | None) -> str:
+def _bldep_slave_set(con) -> FemSet | None:
+    """The set a coupling or rigid body's dependent nodes are written from, if it is one set."""
+    from ada.fem import FemSet
+
+    if con.type not in (con.TYPES.COUPLING, con.TYPES.RIGID_BODY):
+        return None
+    s_set = con.s_set
+    if not isinstance(s_set, FemSet):
+        s_set = getattr(s_set, "fem_set", None)
+    return s_set if isinstance(s_set, FemSet) else None
+
+
+def _set_str(fs: FemSet, members: list, i: int, comments: list[str]) -> str:
     out_str = ""
+    kept = [c for c in comments if len(c) <= MAX_TEXT][:MAX_LINES]
+    if len(kept) < len(comments):
+        logger.warning(
+            "sesam writer: set %s carries %s, of which only %s fit TDSETNAM's comment lines "
+            "(at most %s lines of %s characters); the rest read back under generated names.",
+            fs.name,
+            comments,
+            kept,
+            MAX_LINES,
+            MAX_TEXT,
+        )
     rows = [(4, i, 100 + len(fs.name), 0), (fs.name,)]
-    if section_name is not None:
-        text = section_comment(section_name)
-        if text is None:
-            logger.warning(
-                "sesam writer: the name of section %s is too long for a TDSETNAM comment (%s characters); "
-                "it reads back under a generated name.",
-                section_name,
-                MAX_TEXT,
-            )
-        else:
-            rows = [(4, i, 100 + len(fs.name), 100 + len(text)), (fs.name,), (text,)]
+    if kept:
+        # Every comment line of a record has the same length (NCTXT), so the shorter are padded.
+        width = max(len(c) for c in kept)
+        rows = [(4, i, 100 + len(fs.name), 100 * len(kept) + width), (fs.name,)]
+        rows += [(c.ljust(width),) for c in kept]
     out_str += write_ff("TDSETNAM", rows)
-    nfield = len(fs.members) + 5
-    mem_ids = [mem.id for mem in fs.members]
+    nfield = len(members) + 5
+    mem_ids = [mem.id for mem in members]
     if fs.type == "elset":
         istype = 2
     else:

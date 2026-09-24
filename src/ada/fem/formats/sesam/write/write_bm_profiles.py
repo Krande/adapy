@@ -41,6 +41,22 @@ def angular(sec: Section, sec_id) -> str:
     )
 
 
+def channel(sec: Section, sec_id) -> str:
+    """GCHAN: HZ, TY, BY, TZ -- one width and one thickness for both flanges -- then SFY,
+    SFZ, a field not used, and K = 0 (web on the negative local y side; manual 7.3.4)."""
+    p = sec.properties
+    width = sec.w_top if sec.w_top is not None else sec.w_btn
+    thickness = sec.t_ftop if sec.t_ftop is not None else sec.t_fbtn
+    return write_ff(
+        "GCHAN",
+        [
+            (sec_id, sec.h, sec.t_w, width),
+            (thickness, p.Sfy, p.Sfz, 0),
+            (0,),
+        ],
+    )
+
+
 def box(sec: Section, sec_id) -> str:
     p = sec.properties
     return write_ff(
@@ -100,6 +116,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
     sec_map = {
         bt.ANGULAR: angular,
         bt.BOX: box,
+        bt.CHANNEL: channel,
         bt.IPROFILE: iprofile,
         bt.TPROFILE: iprofile,
         bt.TUBULAR: tubular,
@@ -115,8 +132,7 @@ def write_bm_section(sec: Section, sec_id: int) -> str:
 
     if sec_str_writer is None:
         # The GBEAMG record written above already carries the section's stiffness, so a
-        # type with no profile card of its own — CHANNEL (Sesam's GCHAN, which adapy
-        # neither reads nor writes) and POLY — still yields a deck an analysis program
+        # type with no profile card of its own — POLY — still yields a deck an analysis program
         # can run; it just loses the outline. Saying so and carrying on is exactly what
         # the message promises. It used to say it and then call ``None`` anyway, turning
         # a section adapy understands perfectly well into a TypeError mid-deck.

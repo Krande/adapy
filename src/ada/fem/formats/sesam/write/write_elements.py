@@ -3,7 +3,7 @@ from typing import Iterator, List, Tuple
 from ada import FEM
 from ada.config import logger
 from ada.fem import Elem
-from ada.fem.shapes.definitions import ConnectorTypes
+from ada.fem.shapes.definitions import ConnectorTypes, MassTypes, SpringTypes
 
 from ..common import sesam_el_map
 from ..node_order import SESAM_ORDER
@@ -24,7 +24,7 @@ def eltype_2_sesam(eltyp) -> int:
 
 def _is_writable_to_sesam(el: Elem) -> bool:
     """Skip-list gate for elements the Sesam writer can't faithfully
-    emit yet. Two reasons land an element here:
+    emit yet:
 
     * **CONNECTOR**: ada represents it as a topology-only 2-noded
       element with no stiffness matrix. Sesam's nearest match
@@ -35,18 +35,13 @@ def _is_writable_to_sesam(el: Elem) -> bool:
       choice. Cross-format roundtrip uses an MPC / kinematic-
       coupling representation instead (see the internal notes).
 
-    * **Unsectioned elements** (``fem_sec is None``): the Sesam
-      writer's GELREF1 emitter needs a section / material binding
-      to produce a valid record. Cross-format sources (Abaqus
-      ``.inp`` with mesh-only sections, Code_Aster MED mesh
-      without analysis spec) sometimes ship elements that haven't
-      been bound to a FemSection at all. Emit nothing for those —
-      the user gets a clear warning and a partial deck rather
-      than a writer crash.
+    An unsectioned element (``fem_sec is None``) used to be skipped too. GELREF1 has a
+    form for it -- MATNO = 0 "no material data attached", GEONO = 0 "no geometry data"
+    (manual 8.3.4) -- so it is written that way: an analysis program still refuses the
+    element, as it should, but the mesh is the model's own, not a model missing its
+    unsectioned part.
     """
     if isinstance(el.type, ConnectorTypes):
-        return False
-    if el.fem_sec is None:
         return False
     return True
 
@@ -122,9 +117,9 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     'GELMNT1', 'elnox', 'elno', 'eltyp', 'eltyad', 'nids'
     """
 
+    from . import write_point_elements as points
+
     writable: list[Elem] = []
-    skipped_connector = 0
-    skipped_unsectioned = 0
     # stru_elements already holds springs back, so nothing below would ever mention
     # them. Say so rather than let them vanish: the reader builds Spring objects off
     # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
@@ -138,14 +133,19 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
             "missing these elements.",
             n_springs,
         )
+    # A Connector object is not in stru_elements at all, so counting only the rows skipped
+    # below said "0 element(s) were skipped" for every connector.
+    skipped_ids = {c.id for c in fem.elements.connectors}
     for el in fem.elements.stru_elements:
-        if isinstance(el.type, ConnectorTypes):
-            skipped_connector += 1
+        if isinstance(el.type, (MassTypes, SpringTypes)):
+            # The packed row of a mass or spring the array store holds beside its object
+            # (a merged or converted FEM): a mass object is written, as a point element, below.
             continue
-        if el.fem_sec is None:
-            skipped_unsectioned += 1
+        if not _is_writable_to_sesam(el):
+            skipped_ids.add(el.id)
             continue
         writable.append(el)
+    skipped_connector = len(skipped_ids)
     if skipped_connector > 0:
         logger.warning(
             "sesam writer: skipping %d CONNECTOR element(s) — Sesam GLSH "
@@ -154,13 +154,13 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
             "these elements.",
             skipped_connector,
         )
-    if skipped_unsectioned > 0:
+    n_unsectioned = sum(1 for el in writable if el.fem_sec is None)
+    if n_unsectioned > 0:
         logger.warning(
-            "sesam writer: skipping %d unsectioned element(s) — "
-            "GELREF1 needs a FemSection binding (material / section "
-            "id) to write a valid record. Bind the elements to a "
-            "FemSection on the ada side, or accept a partial deck.",
-            skipped_unsectioned,
+            "sesam writer: %d element(s) have no FemSection and are written with no material "
+            "or geometry (GELREF1 MATNO = GEONO = 0). The file holds the mesh, but an "
+            "analysis program will not accept those elements until they are given a section.",
+            n_unsectioned,
         )
 
     # Presel requires GELMNT1/GELREF1 in internal element order (ELNO, manual printed
@@ -170,6 +170,11 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     # the ids the model carries are the ids the deck has to use — and note that sorting
     # does not fill gaps left by the skipped elements above; see the contiguity check
     # just below, which reports those gaps rather than renumbering around them.
+    # Point masses are elements too (see write_point_elements), in the same internal order.
+    special = points.point_elements(fem)
+    matnos = points.matnos(fem, points.first_free_matno(fem))
+    writable += special
+    special_ids = {el.id for el in special}
     el_ids = [el.id for el in writable]
     order = sorted(range(len(writable)), key=el_ids.__getitem__)
     writable = [writable[i] for i in order]
@@ -178,13 +183,16 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     if dupes:
         raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
 
-    _warn_if_not_contiguous(el_ids, skipped_connector + skipped_unsectioned + n_springs)
+    _warn_if_not_contiguous(el_ids, skipped_connector + n_springs)
 
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in
     # memory on top of the mesh.
     by_block = _sesam_ordered_ids(fem)
     for el in writable:
+        if el.id in special_ids:
+            yield write_ff("GELMNT1", [(el.id, el.id, points.eltyp(el), 0)] + _chunk_nodal_data(points.node_ids(el)))
+            continue
         ids = by_block.get(el.type)
         row = getattr(el, "_row", None)
         if ids is not None and row is not None:
@@ -193,7 +201,7 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
             nids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
         yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
     for el in writable:
-        yield write_elem(el, thick_map)
+        yield points.gelref_str(el, matnos[el.id]) if el.id in special_ids else write_elem(el, thick_map)
 
 
 def _sesam_ordered_ids(fem: FEM) -> dict:
@@ -230,6 +238,8 @@ def write_elem(el: Elem, thick_map) -> str:
     from ada.fem.elements import ElemType
 
     fem_sec = el.fem_sec
+    if fem_sec is None:  # see _is_writable_to_sesam
+        return write_ff("GELREF1", [(el.id, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
     if fem_sec.type == ElemType.LINE:
         sec_id = fem_sec.section.id
     elif fem_sec.type == ElemType.SHELL:
