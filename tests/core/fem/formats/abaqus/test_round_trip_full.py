@@ -29,7 +29,7 @@ from .canonical import canonical, diff_paths
 from .zoo import ZOO
 
 FULL_ROUND_TRIP_GAPS = {
-    "amplitudes": (AssertionError, "amplitudes (a); section int_points (b); section names (c)"),
+    "amplitudes": (AssertionError, "section int_points (b); section names (c)"),
     "boundary_conditions": (
         AssertionError,
         "connector placement: part-level connector reads back at assembly level; section names (c)",
@@ -41,7 +41,7 @@ FULL_ROUND_TRIP_GAPS = {
     "constraints": (AssertionError, "coupling dofs/sets as surfaces (b); MPC and tie tolerance (b); section names (c)"),
     "constraints_assembly_level": (AssertionError, "assembly-level coupling dofs/sets (b); section names (c)"),
     "constraints_equation": (NotImplementedError, "*Equation (c)"),
-    "elements_line_explicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a); section names (c)"),
+    "elements_line_explicit": (AssertionError, "section names (c)"),
     "elements_line_profiles": (AssertionError, "beam section RECT (b); beam general section (a); section names (c)"),
     "elements_line_second_order": (AssertionError, "section names (c)"),
     "elements_line_verbatim": (AssertionError, "section names (c); verbatim beam section (d)"),
@@ -51,10 +51,7 @@ FULL_ROUND_TRIP_GAPS = {
     "elements_shell_tri7": (AssertionError, "node coordinates (c); section int_points (b); section names (c)"),
     "initial_conditions": (AssertionError, "initial conditions (e); section int_points (b); section names (c)"),
     "interactions": (AssertionError, "interactions (e); section int_points (b); section names (c)"),
-    "loads": (
-        AssertionError,
-        "amplitudes (a); load csys (*Transform) (a); steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
-    ),
+    "loads": (AssertionError, "section int_points (b); section names (c)"),
     "masses": (AssertionError, "mass elements: read back as MASS element plus Mass (b); section names (c)"),
     "masses_anisotropic": (NotImplementedError, "anisotropic mass (c)"),
     "materials": (
@@ -62,7 +59,10 @@ FULL_ROUND_TRIP_GAPS = {
         "material density (c); material damping (a); material expansion (b); material no-compression (a); material plasticity (c)",
     ),
     "multi_part": (AssertionError, "multi-part (c); node coordinates (c)"),
-    "outputs": (AssertionError, "steps and outputs (a); connector placement; section names (c)"),
+    "outputs": (
+        AssertionError,
+        "connector placement; the connector elset a history output names is not written (c); section names (c)",
+    ),
     "read_back_deck": (AssertionError, "node coordinates (c)"),
     "reference_point": (AttributeError, "reference points (c)"),
     "sections_zero_thickness": (AssertionError, "zero-thickness section (c)"),
@@ -72,31 +72,31 @@ FULL_ROUND_TRIP_GAPS = {
     "springs_two_node": (ValueError, "SPRING2 (c)"),
     "steps_complex_eigen": (
         AssertionError,
-        "steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_dynamic_implicit": (
         AssertionError,
-        "steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_eigen": (
         AssertionError,
-        "steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_explicit": (
         AssertionError,
-        "interactions (e); steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_raw_input": (
         AssertionError,
-        "steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_static": (
         AssertionError,
-        "step-level BC (b); steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "steps_steady_state": (
         AssertionError,
-        "steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
+        "section int_points (b); section names (c)",
     ),
     "surfaces": (AssertionError, "section int_points (b); section names (c); node surface weight (c)"),
 }
