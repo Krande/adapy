@@ -161,6 +161,14 @@ def _beam_beam_pass(part, options: ClashOptions, *, beams, plates) -> list[_Foun
             members = [beams[i] for i in joint["members"]]
             if len(members) < 2:
                 continue
+            # BY NAME, not in the order the backend returned them. A joint of three or more
+            # members has no single angle and the classifier takes the one between its FIRST TWO,
+            # so member order decides the angle bucket and with it the type key. Sorting here
+            # means the key does not depend on which backend produced the joint, nor on which
+            # release of it -- a dependence that is invisible until a backend changes its walk
+            # order and a group silently re-types. The compiled pass sorts too; this is not
+            # trusting it to.
+            members.sort(key=lambda m: str(getattr(m, "name", "") or ""))
             out.append(
                 _Found(
                     members=members,

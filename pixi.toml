@@ -264,10 +264,11 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
 # first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.29 for
-# `IfcMemberScan` with materials, which the native IFC member reader and the
-# unbounded take-off need (adacpp#63, #64, #66).
-ada-cpp = "0.29.*"
+# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.30 for the
+# compiled beam-to-beam clash pass and the member scan as JSONL (adacpp#63, #64,
+# #66, #67). KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer:
+# the browser runs the same release's wasm build of this same code.
+ada-cpp = "0.30.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -324,7 +325,15 @@ ada-cpp = "0.29.*"
 # native route refuses every part (a mass needs a density it will not guess at)
 # and quietly falls back to the bounded ifcopenshell read, so the fast path
 # would be dead code here while every test still passed.
-ada-cpp = "0.29.*"
+# 0.30 adds `find_beam_joints` -- the compiled beam-to-beam clash pass -- and
+# `scan_ifc_members_to_jsonl` (adacpp#67). Required for the strongest version of
+# the same reason: `ada.clash.identify` calls the compiled pass wherever it is
+# available and keeps the Python one otherwise, so a lower pin here does not
+# fail, it silently tests the FALLBACK while the default that ships to users
+# goes unexercised. It is also the release the browser's wasm module is built
+# from, so this pin and ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer move
+# together or the two runtimes stop running the same code.
+ada-cpp = "0.30.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
