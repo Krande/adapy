@@ -39,6 +39,8 @@ __all__ = [
     "MEMBER_SCAN_MIN_ADACPP",
     "ifc_members_to_part",
     "materials_are_complete",
+    "members_from_jsonl",
+    "members_to_part",
     "native_members_available",
     "native_takeoff_part",
     "scan_ifc_members",
@@ -229,11 +231,41 @@ def _material_for(member: dict, cache: dict):
     return cache[name]
 
 
-def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members"):
-    """One flat `Part` of the beams and plates an IFC states, read natively.
+def members_from_jsonl(jsonl: str | pathlib.Path) -> Iterator[dict]:
+    """Stream member records out of a scan written as JSONL (`adacpp.ifc_members/1`).
 
-    Consumed as a STREAM: each product is turned into its object and the record dropped, so a
-    plant-sized file is never held as a list of members on either side of the boundary.
+    THE BROWSER'S ROUTE IN. embind has no cheap way to hand JS one dict per member, so the wasm
+    build writes the scan to a file instead (adacpp `scanMembers`) -- and a file is also what
+    crosses into pyodide, where this module runs unchanged. The header line is skipped rather
+    than returned: it says what the file is, and every caller here already knows.
+
+    Line by line, never `read()`: a plant's scan is the one artifact in this path big enough to
+    matter, and holding it whole would give back exactly what streaming the scan bought.
+    """
+    import json
+
+    with open(jsonl, encoding="utf-8") as fh:
+        first = fh.readline()
+        if first:
+            header = json.loads(first)
+            # A header is how a scan says what it is. A file whose first line is a MEMBER is a
+            # different format that happens to parse, so it is refused rather than half-read.
+            if "schema" not in header:
+                raise ValueError(f"{jsonl} is not a member scan: no schema header")
+        for line in fh:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
+
+def members_to_part(members: Iterable[dict], name: str = "ifc_members"):
+    """One flat `Part` from member RECORDS, whatever produced them.
+
+    Split from `ifc_members_to_part` so the mapping has exactly one implementation across the
+    three ways a scan arrives: the adacpp binding on a worker, a JSONL file written by the wasm
+    build in a browser, and a scan handed over from somewhere else entirely. The records are the
+    same shape in all three by construction (adacpp holds its two builds to it), and a second
+    mapping here would be the place that quietly stopped being true.
     """
     from ada import Part
 
@@ -241,7 +273,7 @@ def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members")
     skipped: dict[str, int] = {}
     materials: dict[str, object] = {}
     unstated = 0
-    for member in scan_ifc_members(ifc_file):
+    for member in members:
         cls = (member.get("ifc_class") or "").upper()
         obj = None
         if cls in _BEAM_CLASSES:
@@ -307,6 +339,15 @@ def load_members_or_model(src_path: str | pathlib.Path, ext: str, fallback):
                 return part
             logger.info(f"native member read of {src_path} found no members; deferring to the full reader")
     return fallback(pathlib.Path(src_path), ext)
+
+
+def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members"):
+    """One flat `Part` of the beams and plates an IFC states, read natively.
+
+    Consumed as a STREAM: each product is turned into its object and the record dropped, so a
+    plant-sized file is never held as a list of members on either side of the boundary.
+    """
+    return members_to_part(scan_ifc_members(ifc_file), name=name)
 
 
 def materials_are_complete(part) -> bool:

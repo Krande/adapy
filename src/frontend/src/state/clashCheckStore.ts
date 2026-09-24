@@ -18,6 +18,10 @@
 import { create } from "zustand";
 
 import {
+  browserClashCheckSupports,
+  runBrowserClashCheck,
+} from "@/services/clash/browserClashCheck";
+import {
   clashCheckApi,
   type ClashCheckOptions,
   type ClashCheckResponse,
@@ -685,6 +689,14 @@ interface ClashCheckState {
   result: ClashResult | null;
   busy: boolean;
   error: string | null;
+  /** Run the check IN THE BROWSER (adacpp wasm member scan + ada.clash in pyodide) instead of
+   *  enqueuing a worker job. Same rules, same document, no upload and no round trip -- see
+   *  `services/clash/browserClashCheck.ts`. Off by default: the server route is the one that
+   *  works for every source, and this one costs a pyodide boot the first time. */
+  inBrowser: boolean;
+  /** What the browser run is doing, while it does it -- a pyodide boot is slow enough that a bare
+   *  spinner is not an honest answer. `null` when no browser run is in flight. */
+  browserStage: string | null;
 
   detailBusy: boolean;
   detailError: string | null;
@@ -712,6 +724,7 @@ interface ClashCheckState {
   setIsolate: (mode: "off" | "ghost" | "hidden") => void;
   setIsolateOpacity: (v: number) => void;
   setShowMarkers: (v: boolean) => void;
+  setInBrowser: (v: boolean) => void;
   runCheck: (scope: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
   /** Detail every joint that has a matching generator, one job per spec. */
@@ -755,6 +768,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   isolate: "ghost",
   isolateOpacity: 0.15,
   showMarkers: true,
+  inBrowser: false,
+  browserStage: null,
 
   jobId: null,
   derivedKey: null,
@@ -813,16 +828,40 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setIsolate: (mode) => set({ isolate: mode }),
   setIsolateOpacity: (v) => set({ isolateOpacity: Math.max(0.02, Math.min(1, v)) }),
   setShowMarkers: (v) => set({ showMarkers: v }),
+  setInBrowser: (v) => set({ inBrowser: v }),
 
   runCheck: async (scope) => {
-    const { sourceKey, options } = get();
+    const { sourceKey, options, inBrowser } = get();
     if (!sourceKey || get().busy) return;
-    set({ busy: true, error: null });
+    set({ busy: true, error: null, browserStage: null });
     try {
+      if (inBrowser && browserClashCheckSupports(sourceKey)) {
+        // No job, no upload: the file is fetched once for the scan and everything else happens
+        // here. `derivedKey` stays null on purpose -- there IS no server-side document to point a
+        // detail hand-off at, and a key that resolved to nothing would fail later and further away
+        // than an honest null does. The joint IDS are identical either way, so a user who wants to
+        // DETAIL a joint re-runs on the server and picks the same joint.
+        const bytes = await clashCheckApi.getSourceBytes(scope, sourceKey);
+        const { result, beams } = await runBrowserClashCheck(sourceKey, bytes, options, (stage, detail) =>
+          set({ browserStage: detail ? `${stage} (${detail})` : stage }),
+        );
+        set({
+          result,
+          derivedKey: null,
+          cached: false,
+          busy: false,
+          browserStage: null,
+          selectedGroup: null,
+          selectedJoints: [],
+          selectedJoint: null,
+          error: beams === 0 ? "This IFC states no beams, so there is nothing to check." : null,
+        });
+        return;
+      }
       const { result, derivedKey, cached } = await runClashCheckFlow(realFlowDeps(scope), scope, sourceKey, options);
       set({ result, derivedKey, cached, busy: false, selectedGroup: null, selectedJoints: [], selectedJoint: null });
     } catch (e) {
-      set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+      set({ busy: false, browserStage: null, error: e instanceof Error ? e.message : String(e) });
     }
   },
 

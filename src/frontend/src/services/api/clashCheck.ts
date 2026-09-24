@@ -151,6 +151,17 @@ export const clashCheckApi = {
     return jsonOrThrow<unknown>(r, `getClashResult(${key})`);
   },
 
+  /** The SOURCE file's bytes, for a check that runs in the browser.
+   *
+   *  Bytes rather than a URL handed to the worker: the blob route is authed, and a wasm worker
+   *  streaming a URL directly carries no credentials. Where a presigned URL exists the scan can
+   *  stream it through OPFS instead (`nativeIfcMemberScanStreaming`) and never materialise this. */
+  async getSourceBytes(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
+    const r = await authedFetch(filesApi.blobUrl(scope, key));
+    if (!r.ok) throw new Error(`getSourceBytes(${key}) failed: ${r.status}`);
+    return r.arrayBuffer();
+  },
+
   /** A detail run's take-off (`…/result.stats.json`): `{joints: {count, by_type, items}, skipped?}`.
    *  The same blob fetch as the result document -- what differs is which document it is, and that
    *  is the caller's business, not the transport's. */

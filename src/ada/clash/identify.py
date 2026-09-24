@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
 from ada.api.connections.spec import RegisteredConnection
+from ada.clash import native_joints
 from ada.clash.classify import describe_member, type_key_for, type_label_for
 from ada.clash.match import _angle_between, applicable_specs
 from ada.clash.options import ClashOptions
@@ -91,7 +92,32 @@ def identify_joints(model, options: ClashOptions | None = None) -> IdentifyOutco
         )
         return outcome
 
-    if beams:
+    if beams and native_joints.available():
+        # The compiled pass (adacpp), which is also the one the BROWSER runs -- see
+        # `clash/native_joints.py` for why that matters and why this is not merely an optimisation.
+        try:
+            found = native_joints.find_beam_joints(beams, options.out_of_plane_tol, options.point_tol)
+        except Exception as exc:  # noqa: BLE001 - a pass that cannot run must say so, not vanish
+            logger.exception("clash: the native beam-to-beam pass failed")
+            outcome.warnings.append(f"beam-to-beam pass failed: {exc}")
+        else:
+            for joint in found:
+                members = [beams[i] for i in joint["members"]]
+                if len(members) < 2:
+                    continue
+                outcome.joints.append(
+                    _Found(
+                        members=members,
+                        centre=tuple(float(v) for v in joint["centre"]),
+                        # `main_mem` is the Python pass's notion of which member the others land
+                        # ON. The compiled pass does not rank them, and a spec that needs a landing
+                        # resolves one itself (`match.bindings_for_spec`), so this stays None
+                        # rather than guessing at an order the geometry does not state.
+                        landing=None,
+                        origin="beam-beam",
+                    )
+                )
+    elif beams:
         connections = Connections(parent=part)
         try:
             connections.find(out_of_plane_tol=options.out_of_plane_tol, point_tol=options.point_tol)

@@ -5,6 +5,8 @@
 // embind surface (see adacpp/src/cad/{cad_wasm,ifc_glb_wasm}.cpp):
 //   stepToGlb / ifcToGlb(inPath, outPath, spillDir, deflection, angularDeg, meshopt) -> product count
 //                                                                                        (<0 on error)
+//   scanMembers(inPath, outPath) -> member count (<0 on error)         [IFC module only]
+//   clashJoints(inPath, outPath, outOfPlaneTol, pointTol) -> joints    [IFC module only]
 //   mountOpfs(mountPoint) -> 0 ok
 // IO goes through the emscripten FS. Buffered path uses in-heap MEMFS; the OPFS-streaming path mounts
 // OPFS via WASMFS so a multi-GB source reads off-disk via `pread` (bounded RSS), never the wasm heap.
@@ -57,6 +59,26 @@ function getModule(kind: CadKind): Promise<EmModule> {
 }
 function convertVerb(Module: EmModule, kind: CadKind): ConvertVerb {
     return Module[MODULES[kind].verb] as ConvertVerb;
+}
+
+/** The IFC module's SEMANTIC verbs: what the file says its members ARE, and which of them meet.
+ *  Neither tessellates anything -- that is the half a clash check and a take-off throw away. */
+type ScanVerb = (inPath: string, outPath: string) => number;
+type ClashVerb = (inPath: string, outPath: string, outOfPlaneTol: number, pointTol: number) => number;
+
+export interface NativeMemberScanResult {
+    /** The whole JSONL document (`adacpp.ifc_members/1`), header line included. */
+    jsonl: string;
+    /** Members written -- the header line is not counted. */
+    members: number;
+    ms: number;
+}
+
+export interface NativeClashResult {
+    /** `adacpp.clash_joints/1` -- the beams scanned, and the joints found among them. */
+    json: string;
+    joints: number;
+    ms: number;
 }
 
 export interface NativeCadGlbResult {
@@ -118,6 +140,69 @@ const api = {
         cleanup();
         const result: NativeCadGlbResult = {glb, products, ms: performance.now() - t0};
         return Comlink.transfer(result, [glb]);
+    },
+
+    // What an IFC says its MEMBERS are -- sections, axes, outlines, placements, materials -- read
+    // in the browser with no server and no tessellation. Returned as text: unlike a GLB this is the
+    // SMALL artifact (a few hundred bytes per member against a triangle mesh).
+    async scanMembers(srcBytes: ArrayBuffer): Promise<NativeMemberScanResult> {
+        const Module = await getModule("ifc");
+        const inPath = "/scan_in.ifc";
+        const outPath = "/scan_out.jsonl";
+        const t0 = performance.now();
+        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        const members = (Module.scanMembers as ScanVerb)(inPath, outPath);
+        if (members < 0) {
+            unlinkAll(Module, [inPath, outPath]);
+            throw new Error("native IFC member scan failed (I/O error in the wasm module)");
+        }
+        const jsonl = new TextDecoder().decode(Module.FS.readFile(outPath));
+        unlinkAll(Module, [inPath, outPath]);
+        return {jsonl, members, ms: performance.now() - t0};
+    },
+
+    // The same scan, streaming a (presigned) URL through OPFS so a plant-scale IFC never has to fit
+    // the wasm heap -- which is the case the scan is most wanted for.
+    async scanMembersStreaming(sourceUrl: string): Promise<NativeMemberScanResult> {
+        const Module = await getModule("ifc");
+        if (!ensureOpfsMounted(Module)) {
+            throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
+        }
+        const t0 = performance.now();
+        const inPath = opfsInPath("ifc");
+        const outPath = `${OPFS_MOUNT}/adacpp_ifc_members.jsonl`;
+        await streamUrlToOpfs(Module, inPath, sourceUrl);
+        const members = (Module.scanMembers as ScanVerb)(inPath, outPath);
+        if (members < 0) {
+            unlinkAll(Module, [inPath, outPath]);
+            throw new Error("native streaming IFC member scan failed (I/O error in the wasm module)");
+        }
+        const jsonl = new TextDecoder().decode(Module.FS.readFile(outPath));
+        unlinkAll(Module, [inPath, outPath]);
+        return {jsonl, members, ms: performance.now() - t0};
+    },
+
+    // A whole beam-to-beam clash check, in C++, from the IFC bytes. One pass: the members never
+    // materialise as JSON on the way, because the reader and the joint finder are the same module.
+    // This is the SAME compiled pass a worker runs through adapy, so a joint found here is the same
+    // joint -- and the same id -- as one found there.
+    async clashJoints(
+        srcBytes: ArrayBuffer,
+        opts: {outOfPlaneTol: number; pointTol: number},
+    ): Promise<NativeClashResult> {
+        const Module = await getModule("ifc");
+        const inPath = "/clash_in.ifc";
+        const outPath = "/clash_out.json";
+        const t0 = performance.now();
+        Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
+        const joints = (Module.clashJoints as ClashVerb)(inPath, outPath, opts.outOfPlaneTol, opts.pointTol);
+        if (joints < 0) {
+            unlinkAll(Module, [inPath, outPath]);
+            throw new Error("native IFC clash check failed (I/O error in the wasm module)");
+        }
+        const json = new TextDecoder().decode(Module.FS.readFile(outPath));
+        unlinkAll(Module, [inPath, outPath]);
+        return {json, joints, ms: performance.now() - t0};
     },
 
     // Buffered path: source bytes -> MEMFS (in-heap) -> GLB. Simplest; fine below the OPFS threshold.

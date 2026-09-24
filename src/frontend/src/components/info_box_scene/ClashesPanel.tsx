@@ -11,6 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
@@ -73,6 +74,12 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
   const busy = useClashCheckStore((s) => s.busy);
   const setOptions = useClashCheckStore((s) => s.setOptions);
   const runCheck = useClashCheckStore((s) => s.runCheck);
+  const inBrowser = useClashCheckStore((s) => s.inBrowser);
+  const setInBrowser = useClashCheckStore((s) => s.setInBrowser);
+  const browserStage = useClashCheckStore((s) => s.browserStage);
+  // Only IFC: the member scan is an IFC reader, so for anything else the option would be a
+  // checkbox that silently did nothing.
+  const browserPossible = browserClashCheckSupports(sourceKey ?? "");
 
   return (
     <div className="flex flex-col gap-1 pb-1 border-b border-gray-700">
@@ -95,6 +102,15 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
           />
           plate joints
         </label>
+        {browserPossible && (
+          <label
+            className="flex items-center gap-1 text-[11px] text-gray-300"
+            title="Read the members with the wasm IFC scan and run the same ada.clash rules in the browser — no upload, no worker job. Costs a one-time pyodide load; produces no server-side result, so detailing a joint still needs a server run."
+          >
+            <input type="checkbox" checked={inBrowser} onChange={(e) => setInBrowser(e.target.checked)} />
+            in browser
+          </label>
+        )}
       </div>
       <button
         type="button"
@@ -102,7 +118,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
         className="rounded-sm px-2 py-1 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-gray-100 text-xs"
         onClick={() => void runCheck(scope)}
       >
-        {busy ? "checking…" : "Run clash check"}
+        {busy ? (browserStage ? `${browserStage}…` : "checking…") : "Run clash check"}
       </button>
     </div>
   );
