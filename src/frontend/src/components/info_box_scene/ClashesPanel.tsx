@@ -16,6 +16,7 @@ import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
 import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
+import { OriginFilter, PassSelector } from "@/components/info_box_scene/joints/PassControls";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
@@ -32,6 +33,7 @@ import {
   memberNamesForGroup,
   noMembersSentence,
   useClashCheckStore,
+  visibleResult,
   type ClashApplicableSpec,
   type ClashFilters,
   type ClashGroup,
@@ -92,6 +94,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
           title: "Coincidence tolerance for a shared node",
         })}
       </div>
+      <PassSelector />
       <div className="flex flex-wrap items-center gap-2">
         <ClashRootPicker value={options.root ?? null} onChange={(root) => setOptions({ root })} />
         <label className="flex items-center gap-1 text-[11px] text-gray-300">
@@ -345,7 +348,14 @@ const ClashesPanel: React.FC = () => {
   const sourceKey = useClashCheckStore((s) => s.sourceKey);
   const checkedSource = useClashCheckStore((s) => s.sourceName);
   const setSource = useClashCheckStore((s) => s.setSource);
-  const result = useClashCheckStore((s) => s.result);
+  // The FILTERED result -- see `visibleResult`. Every view reads the same derivation, so a
+  // hidden producer disappears from the rows, the markers and the counts together.
+  const rawResult = useClashCheckStore((s) => s.result);
+  const hiddenOrigins = useClashCheckStore((s) => s.hiddenOrigins);
+  const result = React.useMemo(
+    () => visibleResult({ result: rawResult, hiddenOrigins }),
+    [rawResult, hiddenOrigins],
+  );
   const error = useClashCheckStore((s) => s.error);
   const filters = useClashCheckStore((s) => s.filters);
   const setFilters = useClashCheckStore((s) => s.setFilters);
@@ -425,6 +435,7 @@ const ClashesPanel: React.FC = () => {
 
       {result && !sentence && (
         <>
+          <OriginFilter />
           <div className="flex items-center gap-2 text-[11px] text-gray-400">
             <span className="flex-1 min-w-0 truncate">
               {result.counts.joints ?? 0} joint{(result.counts.joints ?? 0) === 1 ? "" : "s"}

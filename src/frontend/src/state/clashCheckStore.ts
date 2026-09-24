@@ -26,6 +26,7 @@ import {
   type ClashCheckOptions,
   type ClashCheckResponse,
   type ClashDetailResponse,
+  type WireClashPass,
   type WireClashApplicableSpec,
   type WireClashGroup,
   type WireClashJoint,
@@ -66,6 +67,22 @@ export interface ClashJoint {
   readonly typeKey: string;
   readonly typeLabel: string;
   readonly applicable: readonly ClashApplicableSpec[];
+  /** WHICH PASS found this joint. Two passes over one model find overlapping but different
+   *  joints -- a shared node and a two-millimetre overlap are both true -- so a reader who cannot
+   *  tell them apart can neither judge a joint nor filter it out. */
+  readonly origin: string;
+  /** What a geometric pass measured at the contact (normal, penetration depth, patch area), or
+   *  null for a pass that works on axes. Carried, never interpreted here. */
+  readonly contact: Readonly<Record<string, unknown>> | null;
+}
+
+/** One pass the check knew about, and what became of it. */
+export interface ClashPassReport {
+  readonly name: string;
+  readonly ran: boolean;
+  readonly found: number | null;
+  readonly reason: string | null;
+  readonly capability: string | null;
 }
 
 export interface ClashGroup {
@@ -89,6 +106,8 @@ export interface ClashResult {
   readonly groups: readonly ClashGroup[];
   readonly provenance: Readonly<Record<string, unknown>>;
   readonly warnings: readonly string[];
+  /** Every pass the check knew about, run or not -- what the producer filter is built from. */
+  readonly passes: readonly ClashPassReport[];
   readonly jointsById: ReadonlyMap<string, ClashJoint>;
 }
 
@@ -137,6 +156,10 @@ export function parseClashResult(doc: unknown): ClashResult {
     typeKey: j.type_key,
     typeLabel: j.type_label,
     applicable: parseApplicable(j.applicable),
+    // Defaulted, not required: a document written before joints carried their producer still
+    // reads, and reads as what it was -- core's beam pass was the only one there.
+    origin: j.origin ?? "beam-beam",
+    contact: j.contact ?? null,
   }));
   const jointsById = new Map(joints.map((j) => [j.id, j] as const));
   const groups: ClashGroup[] = (raw.groups ?? []).map((g: WireClashGroup) => ({
@@ -156,6 +179,13 @@ export function parseClashResult(doc: unknown): ClashResult {
     groups,
     provenance: raw.provenance ?? {},
     warnings: raw.warnings ?? [],
+    passes: (raw.passes ?? []).map((p: WireClashPass) => ({
+      name: p.name,
+      ran: p.ran,
+      found: p.found ?? null,
+      reason: p.reason ?? null,
+      capability: p.capability ?? null,
+    })),
     jointsById,
   };
 }
@@ -165,6 +195,64 @@ export function parseClashResult(doc: unknown): ClashResult {
 // and returns an answer -- nothing here is stored, nothing here is recomputed differently by two
 // callers. Call these from a component's `useMemo`, the same way `AssetsTab` derives `view`.
 // ---------------------------------------------------------------------------------------------
+
+/** The result with every joint from a hidden PRODUCER removed -- joints, groups and counts
+ *  together.
+ *
+ *  Filtered as ONE derivation rather than at each reading site, because the rows, the 3D markers
+ *  and the group counts are all read from this and a filter applied to only some of them would
+ *  show a count that does not match what is listed. A group left with no visible joints is
+ *  dropped entirely: an empty row invites a click that can select nothing.
+ *
+ *  `hidden` empty is the identity, returned as the SAME object, so the common case allocates
+ *  nothing and a `useMemo` on it stays stable. */
+export function withoutHiddenOrigins(result: ClashResult, hidden: readonly string[]): ClashResult {
+  if (hidden.length === 0) return result;
+  const hiddenSet = new Set(hidden);
+  const joints = result.joints.filter((j) => !hiddenSet.has(j.origin));
+  if (joints.length === result.joints.length) return result;
+
+  const visible = new Set(joints.map((j) => j.id));
+  const groups = result.groups
+    .map((g) => {
+      const jointIds = g.jointIds.filter((id) => visible.has(id));
+      return { ...g, jointIds, count: jointIds.length };
+    })
+    .filter((g) => g.count > 0);
+
+  return {
+    ...result,
+    joints,
+    groups,
+    // The counts a reader compares against the rows. `members` is a fact about the SOURCE, not
+    // about which passes are shown, so it is left alone.
+    counts: { ...result.counts, joints: joints.length },
+    jointsById: new Map(joints.map((j) => [j.id, j] as const)),
+  };
+}
+
+/** The result every VIEW should read: the raw one with hidden producers removed.
+ *
+ *  One derivation, called from the rows, the markers and the panel alike. A filter applied by
+ *  some readers and not others is how a panel ends up showing eight joints under a heading that
+ *  says twelve. */
+export function visibleResult(state: {
+  result: ClashResult | null;
+  hiddenOrigins: readonly string[];
+}): ClashResult | null {
+  return state.result ? withoutHiddenOrigins(state.result, state.hiddenOrigins) : null;
+}
+
+/** Which producers this result actually contains, with how many joints each contributed -- what
+ *  the filter offers. Built from the JOINTS, not from `passes`, so a producer shows up exactly
+ *  when it has something to hide. */
+export function originsInResult(result: ClashResult): readonly { origin: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const j of result.joints) counts.set(j.origin, (counts.get(j.origin) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([origin, count]) => ({ origin, count }))
+    .sort((a, b) => b.count - a.count || a.origin.localeCompare(b.origin));
+}
 
 /** The joints belonging to one group, in the group's own order. Defensive against a joint id a
  *  group names but `joints[]` does not carry (a malformed document) -- filtered out rather than
@@ -694,6 +782,14 @@ interface ClashCheckState {
    *  `services/clash/browserClashCheck.ts`. Off by default: the server route is the one that
    *  works for every source, and this one costs a pyodide boot the first time. */
   inBrowser: boolean;
+  /** Which passes the NEXT run should use, by name. `null` = core's default set, which is what
+   *  omitting `passes` from the request means -- not the same as an empty selection, which is a
+   *  user asking for nothing. */
+  selectedPasses: readonly string[] | null;
+  /** Producers whose joints are hidden in the result view. A joint found by a hidden producer is
+   *  filtered out of the rows, the markers and the counts alike, so the view never shows a number
+   *  that does not match what is listed. */
+  hiddenOrigins: readonly string[];
   /** What the browser run is doing, while it does it -- a pyodide boot is slow enough that a bare
    *  spinner is not an honest answer. `null` when no browser run is in flight. */
   browserStage: string | null;
@@ -725,6 +821,8 @@ interface ClashCheckState {
   setIsolateOpacity: (v: number) => void;
   setShowMarkers: (v: boolean) => void;
   setInBrowser: (v: boolean) => void;
+  setSelectedPasses: (names: readonly string[] | null) => void;
+  toggleOriginHidden: (origin: string) => void;
   runCheck: (scope: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
   /** Detail every joint that has a matching generator, one job per spec. */
@@ -770,6 +868,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   showMarkers: true,
   inBrowser: false,
   browserStage: null,
+  selectedPasses: null,
+  hiddenOrigins: [],
 
   jobId: null,
   derivedKey: null,
@@ -829,6 +929,13 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setIsolateOpacity: (v) => set({ isolateOpacity: Math.max(0.02, Math.min(1, v)) }),
   setShowMarkers: (v) => set({ showMarkers: v }),
   setInBrowser: (v) => set({ inBrowser: v }),
+  setSelectedPasses: (names) => set({ selectedPasses: names }),
+  toggleOriginHidden: (origin) =>
+    set((s) => ({
+      hiddenOrigins: s.hiddenOrigins.includes(origin)
+        ? s.hiddenOrigins.filter((o) => o !== origin)
+        : [...s.hiddenOrigins, origin],
+    })),
 
   runCheck: async (scope) => {
     const { sourceKey, options, inBrowser } = get();
@@ -858,7 +965,14 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         });
         return;
       }
-      const { result, derivedKey, cached } = await runClashCheckFlow(realFlowDeps(scope), scope, sourceKey, options);
+      const { result, derivedKey, cached } = await runClashCheckFlow(
+        realFlowDeps(scope),
+        scope,
+        sourceKey,
+        // `null` selection means "core's default set", which the wire expresses by OMITTING the
+        // field -- sending an empty array would ask for no passes at all.
+        get().selectedPasses === null ? options : { ...options, passes: get().selectedPasses ?? [] },
+      );
       set({ result, derivedKey, cached, busy: false, selectedGroup: null, selectedJoints: [], selectedJoint: null });
     } catch (e) {
       set({ busy: false, browserStage: null, error: e instanceof Error ? e.message : String(e) });

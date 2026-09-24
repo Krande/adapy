@@ -30,6 +30,7 @@ import {
   isolationMembers,
   jointMarkers,
   useClashCheckStore,
+  visibleResult,
   type JointMarker,
 } from "@/state/clashCheckStore";
 import { clearJointIsolation, isolateJointMembers } from "@/utils/scene/clashIsolation";
@@ -167,16 +168,20 @@ export function pickJointMarker(
 export function markersForState(state: {
   result: ReturnType<typeof useClashCheckStore.getState>["result"];
   filters: ReturnType<typeof useClashCheckStore.getState>["filters"];
+  hiddenOrigins: readonly string[];
   selectedGroup: string | null;
   selectedJoint: string | null;
   showMarkers: boolean;
 }): readonly JointMarker[] {
-  if (!state.showMarkers || !state.result) return [];
-  const shown = filteredGroups(state.result, state.filters);
+  // The FILTERED result, like every other reader: a marker for a joint the list is hiding
+  // would be a sphere a user cannot click through to anything.
+  const result = visibleResult(state);
+  if (!state.showMarkers || !result) return [];
+  const shown = filteredGroups(result, state.filters);
   // An unfiltered result leaves every group on screen; passing `null` then skips building a set
   // per redraw for the common case.
-  const visible = shown.length === state.result.groups.length ? null : new Set(shown.map((g) => g.typeKey));
-  return jointMarkers(state.result, {
+  const visible = shown.length === result.groups.length ? null : new Set(shown.map((g) => g.typeKey));
+  return jointMarkers(result, {
     visibleTypeKeys: visible,
     highlight: state.selectedGroup,
     focus: state.selectedJoint,
@@ -207,6 +212,10 @@ export function startClashMarkerSync(): void {
       state.isolate,
       state.isolateOpacity,
       state.filters,
+      // Hiding a producer changes which spheres belong on screen, so it has to wake this
+      // subscription. Left out, the filter would edit the list and leave the 3D view showing
+      // joints the list no longer has.
+      state.hiddenOrigins,
       state.derivedKey,
       state.result?.joints.length ?? 0,
     ]);

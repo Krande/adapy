@@ -726,6 +726,12 @@ def start_clash_detail(
                             landing=landing,
                             incoming=incoming,
                             centre=found.centre,
+                            # What the PASS measured at this contact, where it measured anything.
+                            # None for an axis pass, which every builder tolerates; a geometric
+                            # pass's contact lets a builder size from the real overlap. The same
+                            # argument the worker route passes -- the two engines must not differ
+                            # in what a builder receives.
+                            clash=found.contact,
                             name=f"{spec_name}_{jid}" if i == 0 else f"{spec_name}_{jid}_{i}",
                             **options,
                         )

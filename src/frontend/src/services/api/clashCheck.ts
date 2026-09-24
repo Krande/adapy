@@ -47,6 +47,11 @@ export interface WireClashJointMember {
 export interface WireClashJoint {
   readonly id: string;
   readonly centre: readonly [number, number, number];
+  /** Which PASS found this joint (`ada/clash/passes.py`). Absent in a document written before
+   *  joints carried their producer, where core's beam pass was the only one there. */
+  readonly origin?: string;
+  /** What a geometric pass measured at the contact; absent for a pass that works on axes. */
+  readonly contact?: Readonly<Record<string, unknown>> | null;
   readonly members: readonly WireClashJointMember[];
   readonly type_key: string;
   readonly type_label: string;
@@ -77,6 +82,8 @@ export interface WireClashResult {
   readonly groups: readonly WireClashGroup[];
   readonly provenance: Readonly<Record<string, unknown>>;
   readonly warnings?: readonly string[];
+  /** Every pass the check knew about, run or not. What the producer filter is built from. */
+  readonly passes?: readonly WireClashPass[];
 }
 
 /** Core's own options -- tolerances and a subtree scope. No provider option ever rides in this
@@ -86,6 +93,27 @@ export interface ClashCheckOptions {
   readonly point_tol?: number;
   readonly root?: string | null;
   readonly include_plate_joints?: boolean;
+  /** Which registered PASSES to run, by name (`ada/clash/passes.py`). Omitted means every pass
+   *  core can run by itself; a capability-bearing pass -- one a plugin contributed, routed to the
+   *  pool that carries it -- is opt-in, because a pass routed to a pool that is not there would
+   *  make every default check report a failure nobody asked for.
+   *
+   *  Pass NAMES, never a provider id: core never learns which package contributed one, the same
+   *  convention `applicable`'s `capability` already follows. */
+  readonly passes?: readonly string[];
+}
+
+/** One pass the check knew about, and what became of it. Present for passes that were available
+ *  and NOT selected too: "not run" and "found nothing" are different answers, and the panel
+ *  offers the difference as a checkbox. */
+export interface WireClashPass {
+  readonly name: string;
+  readonly ran: boolean;
+  readonly found?: number;
+  readonly reason?: string;
+  /** The pool that can run it, or absent for one core runs anywhere. Lets the panel say WHY a
+   *  pass is unavailable rather than merely that it is. */
+  readonly capability?: string | null;
 }
 
 export interface ClashCheckResponse {
