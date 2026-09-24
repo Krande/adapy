@@ -6,53 +6,55 @@ core vocabulary only. Follows the shape of ``tests/core/assets/test_layering_gat
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
 
 import ada.clash
+import ada.topo_model
 from ada.api.connections.spec import MemberKind
 from ada.clash import ClashOptions, run_clash_check
 from ada.clash.classify import ANGLE_BUCKETS
 from ada.sections.categories import BaseTypes
 from ada.topo_model import build_topo_model
 
-REPO = Path(__file__).resolve().parents[3]
-#: The clash package as IMPORTED, not as a path under this checkout. The per-module gate below
-#: reads these files, and the conda recipe runs this suite against the INSTALLED package with no
-#: `src/` tree beside it -- reading `REPO/src/ada/clash/result.py` there is a FileNotFoundError,
-#: which is a gate that fails for the wrong reason. Asking the import system also means the gate
-#: checks the code that actually ships.
+#: The packages as IMPORTED, not as paths under a checkout. The conda recipe runs this suite
+#: against the INSTALLED package with no `src/` tree beside it, and no git repo of its own: a
+#: `git grep` there searched whatever checkout happened to enclose the test files (the
+#: feedstock's), found nothing, and so PASSED the gate below without reading a single clash file
+#: -- only the self-check noticed. Reading the imported package's own files checks the code that
+#: actually ships, in a checkout and in an install alike.
 CLASH_PKG = Path(ada.clash.__file__).resolve().parent
+TOPO_MODEL_PKG = Path(ada.topo_model.__file__).resolve().parent
 
 # "the two job formats, the route and the panel must not contain the tokens weld, tekla, e3d,
 # csg" (Decision 10, "Layering, operationalised"; the literal command is §Verification's
 # "Clash-check vocabulary gate"). This test covers the backend half that is core's to own:
 # src/ada/clash itself.
 FORBIDDEN = ("weld", "tekla", "e3d", "csg")
-CORE_PATHS = ("src/ada/clash",)
 
 
-def _git_grep(pattern: str, paths) -> list[str]:
-    # --untracked: the clash package may not be committed yet in this checkout, and a gate that
-    # only sees tracked files would pass by omission rather than by being clean.
-    proc = subprocess.run(
-        ["git", "grep", "-niE", "--untracked", pattern, "--", *paths],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode not in (0, 1):  # 1 == no match, which is what we want
-        pytest.skip(f"git grep unavailable here: {proc.stderr.strip()}")
-    return [line for line in proc.stdout.splitlines() if line.strip()]
+def _grep_package(pattern: str, pkg: Path) -> list[str]:
+    """``relpath:line: text`` for every case-insensitive match in the package's ``.py`` files.
+
+    Every file on disk counts, committed or not, so a gate cannot pass by omission. An empty
+    package is an error, not a clean result: a gate that read nothing proves nothing."""
+    files = sorted(pkg.rglob("*.py"))
+    assert files, f"no .py files under {pkg} -- the gate would pass without reading anything"
+    rx = re.compile(pattern, re.IGNORECASE)
+    return [
+        f"{f.relative_to(pkg.parent)}:{n}: {line.strip()}"
+        for f in files
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+        if rx.search(line)
+    ]
 
 
 def test_clash_vocabulary_gate_is_empty():
     pattern = "|".join(FORBIDDEN)
-    hits = _git_grep(pattern, CORE_PATHS)
+    hits = _grep_package(pattern, CLASH_PKG)
     assert not hits, (
-        f"src/ada/clash names a fabrication/vendor term ({FORBIDDEN}):\n  "
+        f"ada.clash names a fabrication/vendor term ({FORBIDDEN}):\n  "
         + "\n  ".join(hits)
         + "\n\nA `Weld` object may appear only in what a generator returns, never in "
         "identification/classification/matching (Decision 10)."
@@ -61,7 +63,7 @@ def test_clash_vocabulary_gate_is_empty():
 
 def test_the_gate_can_actually_fail():
     """A gate that cannot fail proves nothing -- these tokens ARE findable in the repo."""
-    hits = _git_grep("weld", ["src/ada/topo_model"])
+    hits = _grep_package("weld", TOPO_MODEL_PKG)
     assert hits, "expected 'weld' to be findable somewhere in core (topo_model's own detailing)"
 
 
