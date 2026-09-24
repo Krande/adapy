@@ -14,7 +14,7 @@ from .write_interactions import eval_interactions, int_prop_str
 from .write_main_inp import write_main_inp_str
 from .write_masses import masses_str
 from .write_materials import materials_str
-from .write_nodes import nodes_str
+from .write_nodes import nodes_str, rp_str
 from .write_orientations import orientations_str
 from .write_parts import write_all_parts
 from .write_predefined_state import predefined_fields_str
@@ -90,6 +90,8 @@ def to_fem(
         if len(afem.nodes) > 0:
             assembly_nodes_str = nodes_str(afem)
         d.write(f"{assembly_nodes_str}\n")
+        if len(afem.ref_points) > 0:
+            d.write(f"{rp_str(afem)}\n")
         d.write(f"{nsets_str(afem, True)}\n")
         d.write(f"{elsets_str(afem, True)}\n")
         d.write(f"{surfaces_str(afem, True)}\n")

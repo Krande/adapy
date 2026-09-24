@@ -22,6 +22,7 @@ from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from .keywords import validate
 from .lexer import KeywordBlock, iter_keywords
+from .read_ref_points import node_by_id
 from .read_springs import is_spring_block
 
 if TYPE_CHECKING:
@@ -164,12 +165,12 @@ def get_elem_nodes(elem_nodes_str, fem: "FEM"):
                     break
             if par_ is None:
                 raise ValueError(f'Unable to find parent for "{par}"')
-            r = par_.fem.nodes.from_id(str_to_int(setr))
+            r = node_by_id(par_.fem, str_to_int(setr))
             if not isinstance(r, Node):
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
         else:
-            r = fem.nodes.from_id(str_to_int(d))
+            r = node_by_id(fem, str_to_int(d))
             if not isinstance(r, Node):
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
@@ -186,7 +187,7 @@ def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: FEM) 
             if len(e) != 3:
                 raise ValueError()
             el_id = e[0]
-            n1, n2 = [fem.nodes.from_id(n) for n in e[1:]]
+            n1, n2 = [node_by_id(fem, n) for n in e[1:]]
             con = Connector(next(con_names), el_id, n1, n2, con_type=None, con_sec=None, parent=fem)
             connectors.append(con)
         return connectors
@@ -198,7 +199,7 @@ def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: FEM) 
         for e in res_:
             m = Mass(
                 elset or f"mass{int(e[0])}",
-                [fem.nodes.from_id(n) for n in e[1:]],
+                [node_by_id(fem, n) for n in e[1:]],
                 0.0,
                 mass_type=ada_el_type,
                 mass_id=int(e[0]),
@@ -213,7 +214,7 @@ def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: FEM) 
         return [
             Elem(
                 e[0],
-                [fem.nodes.from_id(n) for n in e[1:]],
+                [node_by_id(fem, n) for n in e[1:]],
                 ada_el_type,
                 elset,
                 el_formulation_override=eltype,

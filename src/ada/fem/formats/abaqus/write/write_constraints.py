@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Constraint, FemSet, Surface
 
-from ..grammar import format_value
+from ..grammar import format_number, format_value, render_keyword
 from .helper_utils import get_instance_name
 from .write_orientations import csys_str
 from .write_surfaces import surface_str
@@ -37,8 +37,22 @@ def constraint_str(constraint: Constraint, on_assembly_level: bool):
         return _mpc(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.SHELL2SOLID:
         return _shell2solid(constraint, on_assembly_level)
+    elif constraint.type == Constraint.TYPES.EQUATION:
+        return _equation(constraint, on_assembly_level)
     else:
         raise NotImplementedError(f"{constraint.type}")
+
+
+def _equation(constraint: Constraint, on_assembly_level: bool) -> str:
+    """``*Equation``: the number of terms, then ``node or set, dof, coefficient`` four terms to a
+    line, in the constraint's own order -- the first term is the DOF Abaqus eliminates."""
+    terms = constraint.equation_terms or ()
+    fields = [
+        f"{get_instance_name(ref, on_assembly_level)}, {int(dof)}, {format_number(float(coef))}"
+        for ref, dof, coef in terms
+    ]
+    lines = [str(len(terms))] + [", ".join(fields[i : i + 4]) for i in range(0, len(fields), 4)]
+    return render_keyword("Equation", (), lines, [f"Constraint: {constraint.name}"]).rstrip()
 
 
 def _coupling(constraint: Constraint, on_assembly_level: bool):

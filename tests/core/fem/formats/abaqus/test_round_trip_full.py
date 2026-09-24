@@ -31,13 +31,10 @@ from .zoo import ZOO
 FULL_ROUND_TRIP_GAPS = {
     "amplitudes": (AssertionError, "amplitudes (a)"),
     "boundary_conditions": (AssertionError, "connector placement: part-level connector reads back at assembly level"),
-    "constraints_equation": (NotImplementedError, "*Equation (c)"),
     "elements_line_explicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
     "interactions": (AssertionError, "interactions (e)"),
     "loads": (AssertionError, "amplitudes (a); load csys (*Transform) (a); steps (+ their loads, BCs, outputs) (a)"),
-    "masses_anisotropic": (NotImplementedError, "anisotropic mass (c)"),
     "outputs": (AssertionError, "steps and outputs (a); connector placement"),
-    "reference_point": (AttributeError, "reference points (c)"),
     "sections_zero_thickness": (
         AssertionError,
         "a zero-thickness shell section has no Abaqus form (d): left out, reported as omitted",

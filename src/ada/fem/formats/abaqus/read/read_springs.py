@@ -27,6 +27,7 @@ from ada.fem.formats.utils import str_to_int
 
 from .keywords import validate
 from .lexer import KeywordBlock, comment_property, iter_keywords
+from .read_ref_points import node_by_id
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -111,7 +112,7 @@ def get_springs_from_bulk(bulk_str: str, fem: FEM) -> list[Spring]:
         rows = []
         for line in block.data_lines:
             ids = [str_to_int(t) for t in line.split(",") if t.strip()]
-            rows.append((ids[0], [fem.nodes.from_id(n) for n in ids[1:]]))
+            rows.append((ids[0], [node_by_id(fem, n) for n in ids[1:]]))
         blocks.append((block, rows))
         rows_per_elset[(block.params.get("ELSET") or "").lower()] += len(rows)
 

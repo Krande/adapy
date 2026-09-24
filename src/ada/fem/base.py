@@ -92,6 +92,10 @@ class FEM:
         self.elements.parent = self
         self.sets.parent = self
         self.sections.parent = self
+        # The reference points' own sets: without their FEM, merging one FEM into another
+        # (``Assembly.read_fem``) could not add a single one of them.
+        self.ref_sets.parent = self
+        self.ref_points.parent = self
 
     def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
@@ -573,6 +577,7 @@ class FEM:
                 self.steps.append(step)
 
         for rp in other.ref_points:
+            rp.parent = self  # a node's parent is where the writer says it lives (instance=)
             self.ref_points.add(rp)
         self.ref_sets += other.ref_sets
 

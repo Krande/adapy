@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import mmap
 import os
 import pathlib
@@ -43,6 +44,7 @@ from .lexer import (
 )
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
+from .read_ref_points import add_ref_points_from_bulk, is_ref_point_block, node_by_id
 from .read_springs import get_springs_from_bulk, link_spring_sets
 from .read_materials import get_materials_from_bulk
 from .read_orientations import get_lcsys_from_bulk
@@ -121,6 +123,7 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
     if uses_assembly_parts is True:
         ass_sets = assembly_str[inst_end:]
         assembly.fem.nodes += get_nodes_from_inp(ass_sets, assembly.fem)
+        add_ref_points_from_bulk(ass_sets, assembly.fem)
         assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, assembly.fem))
         assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
         _add_keeping_ids(assembly.fem, get_elem_from_bulk_str(ass_sets, assembly.fem))
@@ -359,6 +362,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
         _build_array_nodes_elements(bulk_str, fem)
     else:
         fem.nodes = get_nodes_from_inp(bulk_str, fem)
+        add_ref_points_from_bulk(bulk_str, fem)
         fem.elements = get_elem_from_bulk_str(bulk_str, fem)
     fem.elements.build_sets()
     # Before the sets: a deck's *Elset may list spring elements.
@@ -409,6 +413,7 @@ def _build_array_nodes_elements(bulk_str, fem) -> None:
 
     fem.nodes = ArrayNodes(store, parent=fem)
     fem.elements = ArrayElements(store, fem_obj=fem)
+    add_ref_points_from_bulk(bulk_str, fem)  # before the overflow elements, which may name them
 
     # node sets declared inline on *Node blocks (id-backed)
     for set_name, ids in nsets:
@@ -431,6 +436,8 @@ def get_nodes_from_inp_arrays(bulk_str):
     xyz: list = []
     nsets: list = []
     for block in iter_keywords(bulk_str, "NODE"):
+        if is_ref_point_block(block):
+            continue
         validate(block)
         res = np.fromstring(list_cleanup("\n".join(block.data_lines)), sep=",", dtype=np.float64)
         if res.size == 0:
@@ -721,7 +728,8 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
             parent.sets.add(FemSet(nset, members, "nset", parent=parent))
         return members
 
-    nodes = list(chain.from_iterable(map(getnodes, iter_keywords(bulk_str, "NODE"))))
+    blocks = (b for b in iter_keywords(bulk_str, "NODE") if not is_ref_point_block(b))
+    nodes = list(chain.from_iterable(map(getnodes, blocks)))
 
     return Nodes(nodes, parent=parent)
 
@@ -780,7 +788,11 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
         parent_instance = get_parent_instance(instance)
 
-        from_id_fn = parent_instance.elements.from_id if set_type_l == "elset" else parent_instance.nodes.from_id
+        from_id_fn = (
+            parent_instance.elements.from_id
+            if set_type_l == "elset"
+            else functools.partial(node_by_id, parent_instance)
+        )
 
         resolved: list = []
         for ref in raw_members:
@@ -1248,7 +1260,51 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
     mpcs = [get_mpc(name, mpc_type, values) for (name, mpc_type), values in mpc_dict.items()]
 
-    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
+    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs, _equations(bulk_str, fem)])}
+
+
+def _equations(bulk_str: str, fem: FEM) -> list[Constraint]:
+    """``*Equation`` blocks, one constraint per equation. A block may hold several; the first
+    takes the block's ``** Constraint:`` name, the rest that name with ``_<n>``."""
+    eq_names = Counter(1, "eq")
+    parts = fem.parent.get_all_parts_in_assembly() if fem.parent is not None else []
+
+    def operand(ref: str):
+        inst, _, local = ref.rpartition(".")
+        owner = fem if not inst else next((p.fem for p in parts if p.fem.instance_name == inst), None)
+        if owner is None:
+            raise ValueError(f'abaqus read: *Equation names instance "{inst}", which is not in the assembly')
+        if local.isdigit():
+            return node_by_id(owner, int(local))
+        found = by_name(owner.nsets, local) or by_name(owner.ref_sets.nodes, local)
+        if found is None:
+            raise ValueError(f'abaqus read: *Equation names node set "{ref}", which is not defined')
+        return found
+
+    def as_set(ref, name: str) -> FemSet:
+        if isinstance(ref, FemSet):
+            return ref
+        return FemSet(name, [ref], FemSet.TYPES.NSET, parent=ref.parent)
+
+    out = []
+    for block in iter_keywords(bulk_str, "EQUATION"):
+        validate(block)
+        tokens = [t.strip() for line in block.data_lines for t in line.split(",") if t.strip()]
+        block_name = comment_property(block, "Constraint").get("Constraint") or next(eq_names)
+        i, n_eq = 0, 0
+        while i < len(tokens):
+            n = int(tokens[i])
+            raw = tokens[i + 1 : i + 1 + 3 * n]
+            i += 1 + 3 * n
+            terms = [(operand(raw[k]), int(raw[k + 1]), float(raw[k + 2])) for k in range(0, len(raw), 3)]
+            name = block_name if n_eq == 0 else f"{block_name}_{n_eq}"
+            n_eq += 1
+            s_set = as_set(terms[0][0], f"{name}_s")
+            m_set = as_set(terms[1][0], f"{name}_m") if len(terms) > 1 else s_set
+            out.append(
+                Constraint(name, Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem)
+            )
+    return out
 
 
 def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:

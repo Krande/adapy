@@ -24,7 +24,9 @@ R4  A BC's DOFs are compared as the set of constrained DOFs with the magnitude o
 R5  Floats are rounded to 12 significant digits: the text format is decimal, so a binary float
     may not survive exactly, but anything a writer truncates (e.g. ``.6E``) still shows.
 R6  Parts are keyed by their FEM's instance name when they have one, else the part name, lower
-    case: the writer names instances ``<part>-1`` and the reader keys the part by that.
+    case: the writer names instances ``<part>-1`` and the reader keys the part by that. The
+    assembly is ``<assembly>``: a deck's ``*Assembly, name=`` is CAE's ``Assembly`` whatever
+    the model was called, and ``from_fem`` names the assembly it reads into itself.
 R7  Object references (a section's material, a load's set, ...) are compared by name (R1), not by
     identity -- identity cannot survive a file.
 R8  Sections are keyed by their element set, and an element refers to its section the same way.
@@ -337,7 +339,17 @@ def _constraint(c) -> dict:
         "influence_distance": _v(c.influence_distance),
         "mpc_type": _v(c.mpc_type),
         "csys": _csys(c.csys),
+        "equation_terms": _equation_terms(c.equation_terms),
     }
+
+
+def _equation_terms(terms):
+    """In order: the first term is the one Abaqus eliminates. A term names a node (R11) or a set."""
+    from ada import Node
+
+    if terms is None:
+        return None
+    return [[_node_ref(r) if isinstance(r, Node) else _name(r), int(dof), _v(coef)] for r, dof, coef in terms]
 
 
 def _face_label(fs, index) -> str:
@@ -427,7 +439,11 @@ def _bc_type(t) -> str:
 
 def _bc(bc) -> dict:
     owner = bc.fem_set.parent
-    owner_name = getattr(owner, "instance_name", None) or getattr(owner, "name", None) if owner is not None else None
+    part = getattr(owner, "parent", None)
+    if part is not None and getattr(part, "fem", None) is owner:  # R6
+        owner_name = _part_key(part)
+    else:
+        owner_name = getattr(owner, "instance_name", None) or getattr(owner, "name", None) if owner is not None else None
     return {
         "key": f"{(owner_name or '').lower()}.{_name(bc.fem_set)}",  # R3
         "type": _bc_type(bc.type),
@@ -514,6 +530,10 @@ def _step(st) -> dict:
 
 def _part_key(part) -> str:
     """R6."""
+    from ada import Assembly
+
+    if isinstance(part, Assembly):
+        return "<assembly>"
     inst = getattr(part.fem, "instance_name", None)
     return (inst or part.name).lower()
 

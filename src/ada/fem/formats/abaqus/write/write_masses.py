@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Iterable
 from ada.core.utils import NewLine
 from ada.fem import Mass
 
-from ..read.read_masses import ada_to_aba_mass_map
+from ..grammar import format_number
 from .helper_utils import get_instance_name, set_name
 
 if TYPE_CHECKING:
@@ -19,15 +19,14 @@ def masses_str(fem: "FEM", written_on_assembly_level: bool):
 
 
 def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
-    if mass.point_mass_type in (Mass.PTYPES.ISOTROPIC, None):
-        type_str = ""
-    else:
-        aba_type = ada_to_aba_mass_map.get(mass.point_mass_type, None)
-        if aba_type is None:
-            raise NotImplementedError()
-        type_str = f", type={aba_type}"
+    # *Mass's TYPE is the point-mass type -- ISOTROPIC (the default) or ANISOTROPIC. It was looked
+    # up in the map of MASS/ROTARY INERTIA/NONSTRUCTURAL MASS keywords, which has neither, so an
+    # anisotropic mass could not be written at all.
+    ptype = mass.point_mass_type
+    type_str = "" if ptype in (Mass.PTYPES.ISOTROPIC, None) else f", type={ptype}"
 
-    mstr = ",".join([str(x) for x in mass.mass]) if isinstance(mass.mass, list) else str(mass.mass)
+    values = mass.mass if isinstance(mass.mass, (list, tuple)) else [mass.mass]
+    mstr = ", ".join(format_number(float(x)) for x in values)
 
     if mass.type == Mass.TYPES.NONSTRU and mass.fem_set is not None:
         # Spread over the STRUCTURAL elements it was defined on -- not over the one-member set

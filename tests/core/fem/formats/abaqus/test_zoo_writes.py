@@ -22,15 +22,6 @@ from .zoo import ZOO
 
 #: The Abaqus writer's own gaps.
 ABAQUS_GAPS = {
-    "masses_anisotropic": (
-        NotImplementedError,
-        "ada_to_aba_mass_map is keyed by MassTypes, so Mass.PTYPES.ANISOTROPIC never maps to type=ANISOTROPIC",
-    ),
-    "constraints_equation": (NotImplementedError, "constraint_str has no branch for Constraint.TYPES.EQUATION"),
-    "reference_point": (
-        AttributeError,
-        "rp_str writes FEM.ref_sets, whose sets have parent=None, and aba_set_str reads parent.options",
-    ),
 }
 
 #: What the Calculix writer cannot express, beyond the gaps it shares with Abaqus.

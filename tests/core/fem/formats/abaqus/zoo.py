@@ -390,7 +390,7 @@ def masses() -> ada.Assembly:
 
 
 def masses_anisotropic() -> ada.Assembly:
-    """*Mass, type=ANISOTROPIC -- which Abaqus has, and the writer cannot emit."""
+    """*Mass, type=ANISOTROPIC: three principal masses."""
     a, p, mat = _model()
     fem = p.fem
     _plate(fem, mat)
@@ -514,7 +514,7 @@ def constraints() -> ada.Assembly:
 
 
 def constraints_equation() -> ada.Assembly:
-    """An *Equation constraint (Constraint.TYPES.EQUATION): the writer has no branch for it."""
+    """*Equation constraints (Constraint.TYPES.EQUATION), on sets and on nodes."""
     a, p, mat = _model()
     fem = p.fem
     _plate(fem, mat)
@@ -531,6 +531,11 @@ def constraints_equation() -> ada.Assembly:
             parent=fem,
         )
     )
+    # Node terms, and more than the four a data line holds.
+    terms = [(n(3), 2, 1.0), (n(4), 2, -0.5), (n(5), 2, -0.25), (n(6), 2, -0.125), (n(1), 3, 1 / 3)]
+    s2 = FemSet("eq2_s", [n(3)], "nset", parent=fem)
+    m2 = FemSet("eq2_m", [n(4)], "nset", parent=fem)
+    fem.add_constraint(Constraint("eq2", Constraint.TYPES.EQUATION, m2, s2, equation_terms=terms, parent=fem))
     return a
 
 
@@ -807,6 +812,17 @@ def reference_point() -> ada.Assembly:
     return a
 
 
+def reference_point_in_use() -> ada.Assembly:
+    """Reference points as adapy makes them: ``convert_springs_to_connectors`` grounds each
+    spring through a connector to an assembly-level reference point, fixed by a BC on a set
+    that holds it."""
+    from ada.fem.conversion_utils import convert_springs_to_connectors
+
+    a = springs()
+    convert_springs_to_connectors(a)
+    return a
+
+
 def read_back_deck() -> ada.Assembly:
     """What the Abaqus READER hands the writer: a repo deck read with ``from_fem``."""
     return ada.from_fem(REPO_FILES / "fem_files" / "abaqus" / "box.inp", "abaqus")
@@ -855,6 +871,7 @@ ZOO: dict[str, Callable[[], ada.Assembly]] = {
         outputs,
         multi_part,
         reference_point,
+        reference_point_in_use,
         read_back_deck,
     )
 }
