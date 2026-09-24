@@ -213,6 +213,23 @@ def concatenate_fem_meshes(parts: "list[Part]") -> "tuple[Mesh, list[tuple[int, 
     return mesh, part_offsets
 
 
+def _collide(id_lists: "list[list[int]]") -> bool:
+    """Whether any id occurs in more than one of ``id_lists``."""
+    seen: set = set()
+    for ids in id_lists:
+        ids = set(ids)
+        if ids & seen:
+            return True
+        seen |= ids
+    return False
+
+
+def _elem_ids(fem) -> "list[int]":
+    """Every element id of ``fem``: the block rows and the special elements outside them."""
+    ids = [int(i) for blk in fem.nodes.store.blocks.values() for i in blk.el_ids]
+    return ids + [int(e.id) for e, _ in _retained_elems(fem) if e.id is not None]
+
+
 def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     """Fold all FEM-bearing parts of ``assembly`` into the first one's FEM, in place.
 
@@ -239,6 +256,18 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
     for p in parts:
         if not isinstance(p.fem.nodes, ArrayNodes):
             to_array_backed(p.fem)
+
+    # Renumber and rename only what would collide. A model whose parts already number their
+    # nodes and elements apart (an assembly-level reference node, a second part meshed from
+    # 100) keeps its ids, and a set name only one part uses keeps its name: renumbering them
+    # anyway changed every id and set name the merged model hands a writer, and broke the
+    # assembly-level constraints, which are carried over un-renumbered.
+    offset_nodes = _collide([p.fem.nodes.store.node_ids.tolist() for p in parts])
+    offset_elems = _collide([_elem_ids(p.fem) for p in parts])
+    name_count: dict[tuple, int] = {}
+    for p in parts:
+        for key in {(s.type, s.name) for s in p.fem.sets}:
+            name_count[key] = name_count.get(key, 0) + 1
 
     base = parts[0]
 
@@ -286,8 +315,10 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         # on one part collides with an element on the next.
         p_emax = max(p_emax, max((int(e.id) for e, _ in _retained_elems(p.fem) if e.id is not None), default=0))
         row_off += st.coords.shape[0]
-        node_off += p_nmax
-        el_off += p_emax
+        if offset_nodes:
+            node_off += p_nmax
+        if offset_elems:
+            el_off += p_emax
 
     blocks: dict = {}
     for ctype, entry in merged_blocks.items():
@@ -347,7 +378,8 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         if mids is None:
             mids = [m.id for m in s.members]
         member_ids = [int(m) + off for m in mids]
-        ns = FemSet(f"{prefix_of[id(p)]}_{s.name}", member_ids, s.type, parent=merged)
+        name = f"{prefix_of[id(p)]}_{s.name}" if name_count.get((s.type, s.name), 0) > 1 else s.name
+        ns = FemSet(name, member_ids, s.type, parent=merged)
         set_map[id(s)] = ns
         merged_sets.append(ns)
         return ns
@@ -432,6 +464,14 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             merged.masses[name] = nm
         for name, con in p.fem.constraints.items():
             nc = copy.copy(con)
+            # Onto the merged copies of its sets (every set is in ``set_map`` by now, whichever
+            # part owns it: an assembly-level coupling names a part's nodes). Left on the
+            # source sets, it kept the source ids after a renumber and named sets the merged
+            # model does not have.
+            for attr in ("m_set", "s_set"):
+                fs = getattr(nc, attr, None)
+                if isinstance(fs, FemSet) and id(fs) in set_map:
+                    setattr(nc, attr, set_map[id(fs)])
             nc.parent = merged
             merged.constraints[name] = nc
         for name, csys in p.fem.lcsys.items():
