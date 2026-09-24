@@ -30,6 +30,12 @@
 # and ships a viewer that draws every beam as a line; the guard after the /wasm/
 # promotion below turns that into a build failure instead.
 #
+# 0.30.1 carries the joint-member ordering fix (adacpp#68). The browser builds
+# its type KEYS inside the wasm module, and a joint of three or more members is
+# typed from the angle between its first two -- so a base without the fix types
+# such a joint differently from the worker, on the same model. A version pin is
+# the only thing standing between those two answers.
+#
 # MUST also stay >=0.30.0 — that is where adacpp_ifc_glb gained `scanMembers`
 # and `clashJoints`, the member scan and the in-browser clash check. Those are
 # VERBS INSIDE a module that has existed since 0.25, so the file-existence guard
@@ -42,7 +48,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.30.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.30.1
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
