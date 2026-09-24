@@ -34,8 +34,11 @@ R8  Sections are keyed by their element set, and an element refers to its sectio
 R9  A beam section's ``section_type`` / ``line1`` / ``temperature`` metadata is the reader's
     verbatim copy of the ``*Beam Section`` lines, holding what the typed profile holds; present on
     one side only, it is representation and is not compared. The typed profile is, so a profile
-    that changes still shows. (``aba_inp`` and other verbatim text the writer emits in place of
-    a construct IS compared.)
+    that changes still shows. (Other verbatim text the writer emits in place of a construct IS
+    compared -- except R11.)
+R11 A material's ``aba_inp`` is the text written in its place; the reader rebuilds the typed
+    material from that text and keeps no copy. The typed values are compared, so the text has to
+    say what the typed model says (a zoo model that did not was a model contradicting itself).
 R10 A surface is compared as the list of ``(set, face label)`` data lines it stands for, with the
     labels Abaqus uses: ``S<n>`` on a solid face, ``SPOS``/``SNEG`` on a shell side. adapy's
     shell face index carries only the sign (the writer writes -1 as SNEG, any other value as
@@ -179,7 +182,7 @@ def _material(mat) -> dict:
         "expansion": _v(m.zeta),
         "damping": [_v(m.rayleigh_damping.alpha), _v(m.rayleigh_damping.beta)],
         "plastic": None if pl is None or pl.eps_p is None else [_v(pl.sig_p), _v(pl.eps_p)],
-        "metadata": _meta(mat),
+        "metadata": {k: v for k, v in _meta(mat).items() if k != "aba_inp"},  # R11
     }
 
 

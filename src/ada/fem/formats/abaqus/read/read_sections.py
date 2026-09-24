@@ -79,6 +79,11 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
         elif sec_type.upper() == "PIPE":
             r, t = props_clean
             return Section(profile_name, "TUB", r=r, wt=t, parent=fem)
+        elif sec_type.upper() == "RECT":
+            # a: width (local 1), b: height (local 2) -- adapy's flat bar. It was not read at all,
+            # so a flat-bar section written by adapy came back as no section.
+            b, h = props_clean
+            return Section(profile_name, "FB", h=h, w_btn=b, w_top=b, parent=fem)
         elif sec_type.upper() == "TRAPEZOID":
             # Currently converts Trapezoid to general beam
             b, h, a, d = props_clean
@@ -127,17 +132,30 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
             # rather than KeyError-ing out of the whole import.
             logger.warning(f"Skipping beam section: elset {elset_name!r} not found (elements likely unsupported)")
             return None
-        name = elset.name
-        profile_name = elset.name
+        # Names from the ``** Section: <name>  Profile: <profile>`` comment above the block, the
+        # elset's name where there is none (CAE names the section after its set).
+        names = comment_property(block, "Section", "Profile")
+        name = names.get("Section") or elset.name
+        profile_name = names.get("Profile") or elset.name
         material = ass.materials.get_by_name(block.params.get("MATERIAL"))
         temperature = block.params.get("TEMPERATURE")
         # The guide's own abbreviation: *Beam Section accepts SECTION= and SECT=.
         section_type = block.params.first("SECTION", "SECT")
         geo_props = block.data_lines[0]
-        sec = interpret_section(profile_name, section_type, geo_props)
+        n1_line = block.data_lines[1]
+        if section_type.upper() == "ARBITRARY":
+            # One line per section point after the first: the direction-cosine line follows them.
+            n_segments = int(float(geo_props.split(",")[0]))
+            sec = channel_from_arbitrary(profile_name, block.data_lines[:n_segments], fem)
+            n1_line = block.data_lines[n_segments]
+            # The verbatim copy is every geometry line: the writer re-emits it as the section's
+            # data, and one line of an ARBITRARY section is a truncated section.
+            geo_props = "\n".join(block.data_lines[:n_segments])
+        else:
+            sec = interpret_section(profile_name, section_type, geo_props)
         if sec is None:
             return None
-        beam_y = [float(x.strip()) for x in block.data_lines[1].split(",") if x.strip() != ""]
+        beam_y = [float(x.strip()) for x in n1_line.split(",") if x.strip() != ""]
         metadata = dict(
             temperature=temperature,
             profile=profile_name.strip(),
@@ -159,6 +177,27 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
         )
 
     return filter(lambda x: x is not None, map(grab_beam, iter_keywords(bulk_str, "BEAM SECTION")))
+
+
+def channel_from_arbitrary(profile_name: str, lines, fem: FEM):
+    """A channel, from the three-segment ``SECTION=ARBITRARY`` shape adapy writes one as
+    (``write_sections.channel_arbitrary_lines``); None, with a warning, for any other shape --
+    adapy has no typed profile for an arbitrary section."""
+    from ada import Section
+
+    first = [float(x) for x in lines[0].split(",") if x.strip()]
+    rest = [[float(x) for x in line.split(",") if x.strip()] for line in lines[1:]]
+    if len(first) != 6 or first[0] != 3 or len(rest) != 2 or any(len(r) != 3 for r in rest):
+        logger.warning("abaqus read: an ARBITRARY beam section other than a channel is not supported")
+        return None
+    _, x1, y1, x2, y2, t_fbtn = first
+    (x3, y3, t_w), (x4, y4, t_ftop) = rest
+    if not (x2 == 0.0 and x3 == 0.0 and x1 == x4 and y1 == y2 and y3 == y4 and x1 > 0 and y3 > y1):
+        logger.warning("abaqus read: an ARBITRARY beam section other than a channel is not supported")
+        return None
+    w = x1 + t_w / 2
+    h = (y3 - y1) + (t_fbtn + t_ftop) / 2
+    return Section(profile_name, "UNP", h=h, w_top=w, w_btn=w, t_w=t_w, t_ftop=t_ftop, t_fbtn=t_fbtn, parent=fem)
 
 
 def get_solid_sections_from_inp(bulk_str, fem: FEM):
@@ -198,14 +237,16 @@ def get_shell_section(block: KeywordBlock, sh_name, fem: "FEM", a: "Assembly"):
     if not block.data_lines:
         logger.warning("abaqus read: *Shell Section (line %d) has no data line — skipping", block.lineno)
         return None
-    name = next(sh_name)
+    # The name CAE (and adapy's writer) puts in the comment above the block; a generated one only
+    # when there is none. It was always generated, so every shell section was renamed on read.
+    name = comment_property(block, "Section").get("Section") or next(sh_name)
     elset = fem.sets.get_elset_from_name(block.params.get("ELSET"))
 
     mat = a.materials.get_by_name(block.params.get("MATERIAL"))
     # Data line: thickness, number of integration points.
     values = [x.strip() for x in block.data_lines[0].split(",")]
     thickness = float(values[0])
-    int_points = values[1] if len(values) > 1 else None
+    int_points = int(values[1]) if len(values) > 1 and values[1] else None
 
     offset = block.params.get("OFFSET")
     if offset is not None:

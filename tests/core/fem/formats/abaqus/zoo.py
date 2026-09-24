@@ -270,10 +270,18 @@ def elements_line_profiles() -> ada.Assembly:
 def elements_line_verbatim() -> ada.Assembly:
     """A beam section carried verbatim, the way the Abaqus reader keeps one it read: the profile
     keyword in ``metadata['section_type']`` and its first data line in ``metadata['line1']``,
-    with a temperature parameter."""
+    with a temperature parameter.
+
+    The verbatim lines are what the writer emits, so they must describe the same profile as the
+    typed section -- as they do on anything the reader produced. (This model used to pair an
+    IPE300 with a BOX line, a model that contradicts itself: which profile it "has" depends on who
+    asks.)"""
     a, p, mat = _model()
     els, es = _line(p.fem, mat, "IPE300", node_start=1, el_start=1, y=0.0, name="verbatim")
     sec = next(s for s in p.fem.sections if s.name == "sec_verbatim")
+    sec.section = ada.Section(
+        "prof_verbatim", "BG", h=0.15, w_btn=0.15, w_top=0.15, t_w=0.008, t_ftop=0.008, t_fbtn=0.008
+    )
     sec.metadata.update(section_type="BOX", line1="0.15, 0.15, 0.008, 0.008, 0.008, 0.008", temperature="GRADIENTS")
     return a
 
@@ -340,7 +348,7 @@ def sets_empty() -> ada.Assembly:
 
 def materials() -> ada.Assembly:
     """Elastic + density + expansion, plus plasticity, Rayleigh damping, *No Compression, a zero
-    density (written as 1e-6) and a material carried verbatim (metadata ``aba_inp``)."""
+    density (a massless material: no *Density) and a material carried verbatim (``aba_inp``)."""
     a = ada.Assembly("Zoo")
     p = ada.Part("P1")
     a.add_part(p)
@@ -350,10 +358,12 @@ def materials() -> ada.Assembly:
     damped.model.rayleigh_damping.beta = 0.01
     nocomp = p.add_material(ada.Material("S355_nocomp", CarbonSteel("S355"), metadata=dict(no_compression=True)))
     massless = p.add_material(ada.Material("massless", CarbonSteel("S355", rho=0.0, zeta=0.0)))
+    # The verbatim text is what is written; the typed model says the same (see
+    # elements_line_verbatim for why a model must not contradict its own verbatim text).
     verbatim = p.add_material(
         ada.Material(
             "verbatim",
-            CarbonSteel("S355"),
+            CarbonSteel("S355", E=2.0e11, v=0.29, rho=7800.0, zeta=0.0),
             metadata=dict(aba_inp="*Material, name=verbatim\n*Elastic\n2.0e11, 0.29\n*Density\n7800.,"),
         )
     )
