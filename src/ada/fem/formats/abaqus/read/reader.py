@@ -29,6 +29,7 @@ from ada.fem.formats.utils import str_to_int
 from ada.fem.interactions import ContactTypes, IntPropTypes
 from ada.fem.shapes import ElemType
 
+from ..mapping import bc_types
 from .helper_utils import get_set_from_assembly, list_cleanup
 from .keywords import validate
 from .lexer import (
@@ -351,12 +352,13 @@ def _build_array_nodes_elements(bulk_str, fem) -> None:
     coords, node_ids, nsets = get_nodes_from_inp_arrays(bulk_str)
     store = MeshArrays(coords, node_ids)
     by_type, overflow = get_elem_arrays(bulk_str)
-    for ctype, (el_ids, conns, elsets) in by_type.items():
+    for ctype, (el_ids, conns, elsets, formulations) in by_type.items():
         blk = store.add_elem_block_from_id_conn(
             ctype, np.array(el_ids, dtype=np.int64), np.array(conns, dtype=np.int64)
         )
         if any(e is not None for e in elsets):
             blk.elsets = elsets
+        blk.formulations = formulations
 
     fem.nodes = ArrayNodes(store, parent=fem)
     fem.elements = ArrayElements(store, fem_obj=fem)
@@ -749,10 +751,19 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                             composed = fs
                             break
                 if composed is None:
-                    logger.warning(
-                        "abaqus read: set %r references unknown sub-set %r — skipping that member",
+                    # A set defined another way -- ``*Element, elset=right`` names a set
+                    # without an *Elset block -- is already on the FEM, not in ``parsed``.
+                    pool = parent_instance.elsets if set_type_l == "elset" else parent_instance.nsets
+                    composed = next((fs for nm, fs in pool.items() if nm.lower() == ref.lower()), None)
+                if composed is None:
+                    from ada.fem.formats import conversion_report
+
+                    conversion_report.current().omitted(
+                        READER_STAGE,
+                        f"*{set_type_l.upper()}",
                         name,
-                        ref,
+                        "references a set that is not defined",
+                        missing=ref,
                     )
                     continue
                 resolved.extend(composed.members)
@@ -842,20 +853,35 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
                 dof_end = str_to_int(last) if last else dof
                 dofs = [x if dof <= x <= dof_end else None for x in range(1, 7)]
                 if len(temp) > 3 and temp[3].strip():
-                    magn.append(temp[3].strip())
+                    # Bc.magnitudes pairs with Bc.dofs position by position: the line's one
+                    # magnitude applies to every DOF in its range, and to no other.
+                    value = float(temp[3])
+                    magn = [value if d is not None else None for d in dofs]
 
         else:
+            # One line per DOF (or DOF range), each ``node, first_dof, last_dof, magnitude``.
+            # Collected into the same six-slot form as the one-line case, so a BC reads as one
+            # shape whichever way the deck wrote it -- and writes back as that shape.
+            by_dof: dict[int, float | None] = {}
+            named: list[str] = []
             for line in data_lines:
                 ev = [x.strip() for x in line.split(",")]
                 set_name = ev[0]
                 try:
-                    dofs.append(int(ev[1]))
-                except BaseException as e:
-                    logger.debug(e)
-                    dofs.append(ev[1])
-                if len(ev) > 3:
-                    magn.append(ev[2])
-        magn = None if len(magn) == 0 else magn
+                    first = int(ev[1])
+                except ValueError:
+                    named.append(ev[1])  # a named restraint (ENCASTRE, XSYMM, ...) on this line
+                    continue
+                last = int(ev[2]) if len(ev) > 2 and ev[2] else first
+                value = float(ev[3]) if len(ev) > 3 and ev[3] else None
+                for d in range(first, last + 1):
+                    by_dof[d] = value
+            if named and not by_dof:
+                dofs = named if len(named) > 1 else named[0]
+            else:
+                dofs = [x if x in by_dof else None for x in range(1, 7)]
+                magn = [by_dof.get(x) if x in by_dof else None for x in range(1, 7)]
+        magn = None if all(m is None for m in magn) else magn
         return set_name, dofs, magn
 
     def get_nset(part_instance_name, set_name):
@@ -882,7 +908,9 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
                 val = str_to_int(set_name)
                 if val in fem.nodes.dmap.keys():
                     node = fem.nodes.from_id(val)
-                    fem_set = FemSet(bc_name + "_set", [node], "nset", parent=fem)
+                    # Registered with the FEM, not just held by the BC: a writer names the set
+                    # the BC points at, and a set nobody defines reads back as a missing one.
+                    fem_set = fem.sets.add(FemSet(bc_name + "_set", [node], "nset", parent=fem))
                 else:
                     raise ValueError(f'Unable to find set "{set_name}" in part {fem}')
 
@@ -891,7 +919,10 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
 
         props = dict()
         if bc_type is not None:
-            props["bc_type"] = bc_type
+            # CAE's name for the type, through the same table the writer writes it from. A type
+            # adapy has no row for keeps the deck's own text rather than failing the read.
+            table = bc_types()
+            props["bc_type"] = table.from_abaqus(bc_type) if table.knows(bc_type) else bc_type
         if magn is not None:
             props["magnitudes"] = magn
 

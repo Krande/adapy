@@ -2,25 +2,17 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Bc
 
+from ..mapping import bc_types
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
     from ada import Assembly
 
 
-aba_bc_map = {
-    Bc.TYPES.DISPL: "Displacement/Rotation",
-    Bc.TYPES.VELOCITY: "Velocity/Angular velocity",
-    Bc.TYPES.CONN_DISPL: "Connector displacement",
-    Bc.TYPES.CONN_VEL: "Connector velocity",
-}
-
-
-valid_aba_bcs = list(aba_bc_map.values()) + [
-    "symmetry/antisymmetry/encastre",
-    "displacement/rotation",
-    "velocity/angular velocity",
-]
+def abaqus_bc_type(bc_type: str) -> str:
+    """The name CAE gives ``bc_type`` in the comment above ``*Boundary`` -- from the one table the
+    reader also reads it back through (:func:`..mapping.bc_types`)."""
+    return bc_types().to_abaqus(bc_type)
 
 
 def boundary_conditions_str(assembly: "Assembly"):
@@ -35,10 +27,7 @@ def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
     fem_set = bc.fem_set
     inst_name = get_instance_name(fem_set, written_on_assembly_level)
 
-    if bc.type in valid_aba_bcs:
-        aba_type = bc.type
-    else:
-        aba_type = aba_bc_map[bc.type]
+    aba_type = abaqus_bc_type(bc.type)
 
     dofs_str = ""
     for dof, magn in zip(bc.dofs, bc.magnitudes):

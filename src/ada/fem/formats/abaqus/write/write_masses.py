@@ -4,7 +4,7 @@ from ada.core.utils import NewLine
 from ada.fem import Mass
 
 from ..read.read_masses import ada_to_aba_mass_map
-from .helper_utils import get_instance_name
+from .helper_utils import get_instance_name, set_name
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -48,7 +48,7 @@ def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
 
 def write_mass_elem(eltype: str, elset: "FemSet", fem: "FEM", elements: Iterable[Mass], alevel: bool) -> str:
     el_type = fem.options.ABAQUS.default_elements.get_element_type(eltype)
-    el_set_str = f", ELSET={elset.name}" if elset is not None else ""
+    el_set_str = f", ELSET={set_name(elset)}" if elset is not None else ""
     if elset is None:
         return "** Masses not assigned to element sets\n"
     el_str = "\n".join((write_mass(el, alevel) for el in elements))

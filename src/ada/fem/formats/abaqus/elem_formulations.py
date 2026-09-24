@@ -15,7 +15,9 @@ class AbaqusDefaultShellTypes:
         self.TRIANGLE6 = "STRI65"
         self.TRIANGLE7 = "S7"
         self.QUAD = "S4"
-        self.QUAD8 = "S8"
+        # Abaqus has no S8: its 8-node shells are S8R and S8R5, both reduced integration. S8
+        # made every QUAD8 unwritable (refused as "full integration" below).
+        self.QUAD8 = "S8R"
 
 
 @dataclass
@@ -28,6 +30,10 @@ class AbaqusDefaultSolidTypes:
     PYRAMID5 = "C3D5"
     PRISM6 = "C3D6"
     PRISM15 = "C3D15"
+    # SolidShapes calls these WEDGE / WEDGE15, and the lookup is by that value: without the
+    # aliases every wedge was "Unrecognized element type".
+    WEDGE = "C3D6"
+    WEDGE15 = "C3D15"
 
 
 @dataclass
@@ -43,6 +49,9 @@ class AbaqusDefaultElemTypes:
         self.SOLID = AbaqusDefaultSolidTypes()
         self.use_reduced_integration = False
         self.is_calculix_variant = is_calculix_variant
+        if is_calculix_variant:
+            # Calculix, unlike Abaqus, has a fully integrated 8-node shell.
+            self.SHELL.QUAD8 = "S8"
 
     def get_element_type(self, el_type: shape_def.LineShapes | shape_def.ShellShapes | shape_def.SolidShapes) -> str:
         from ada.fem.shapes import ElemType
@@ -76,12 +85,18 @@ class AbaqusDefaultElemTypes:
             if self.use_reduced_integration:
                 if res in (self.SOLID.TETRA10, self.SOLID.TETRA, self.SHELL.TRIANGLE6):
                     raise IncompatibleElements(f"Reduced integration is not supported for {res}")
-            else:
-                if res in (self.SHELL.TRIANGLE6, self.SHELL.QUAD8):
-                    raise IncompatibleElements(f"Full integration is not supported for {res}")
 
-        if self.use_reduced_integration:
-            res += "R"
+        if self.use_reduced_integration and not res.endswith("R"):
+            if self.is_calculix_variant:
+                res += "R"
+            else:
+                # Only where Abaqus has one: appending R blindly wrote S7R, C3D5R, C3D6R and C3D15R,
+                # element types that do not exist. The shape table the reader reads through is
+                # the authority on what does.
+                from .mapping import element_types
+
+                if element_types().accepts(el_type, res + "R"):
+                    res += "R"
 
         return res
 

@@ -9,7 +9,7 @@ from ada.api.containers import Nodes
 from ada.config import logger
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
-from ada.fem.formats.abaqus.write.write_bc import aba_bc_map, valid_aba_bcs
+from ada.fem.formats.abaqus.write.write_bc import abaqus_bc_type
 from ada.fem.formats.abaqus.write.write_sections import (
     eval_general_properties,
     shell_section_str,
@@ -248,10 +248,7 @@ def material_str(material):
 def bc_str(bc: Bc) -> str:
     ampl_ref_str = "" if bc.amplitude is None else ", amplitude=" + bc.amplitude.name
 
-    if bc.type in valid_aba_bcs:
-        aba_type = bc.type
-    else:
-        aba_type = aba_bc_map[bc.type]
+    aba_type = abaqus_bc_type(bc.type)
 
     dofs_str = ""
     for dof, magn in zip(bc.dofs, bc.magnitudes):

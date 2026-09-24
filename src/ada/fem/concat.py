@@ -264,13 +264,15 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         p_emax = 0
         for ctype, blk in st.blocks.items():
             entry = merged_blocks.setdefault(
-                ctype, {"conn": [], "el_ids": [], "fem_secs": [], "elsets": [], "sparse": [], "rows": 0}
+                ctype,
+                {"conn": [], "el_ids": [], "fem_secs": [], "elsets": [], "formulations": [], "sparse": [], "rows": 0},
             )
             entry["conn"].append(blk.conn.astype(np.int64) + row_off)
             entry["el_ids"].append(blk.el_ids + el_off)
             n = len(blk.el_ids)
             entry["fem_secs"].append(list(blk.fem_secs) if blk.fem_secs else [None] * n)
             entry["elsets"].append(list(blk.elsets) if blk.elsets else [None] * n)
+            entry["formulations"].append(list(blk.formulations) if blk.formulations else [None] * n)
             # The row-keyed side tables are merged once the store exists, since their node
             # references resolve against it. Note the three distinct offsets: ``row_off`` is a
             # NODE row (connectivity), ``entry["rows"]`` an ELEMENT row inside this block, and
@@ -293,12 +295,14 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         el_ids = np.concatenate(entry["el_ids"])
         fem_secs = [s for lst in entry["fem_secs"] for s in lst]
         elsets = [s for lst in entry["elsets"] for s in lst]
+        formulations = [f for lst in entry["formulations"] for f in lst]
         blocks[ctype] = ElemArrayBlock(
             ctype,
             conn,
             el_ids,
             fem_secs=fem_secs if any(s is not None for s in fem_secs) else None,
             elsets=elsets if any(s is not None for s in elsets) else None,
+            formulations=formulations if any(f is not None for f in formulations) else None,
         )
     store = MeshArrays(np.vstack(coords_list), np.concatenate(nid_list), blocks)
 

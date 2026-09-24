@@ -227,6 +227,13 @@ class ElemProxy(Elem):
         self._block.elsets[self._row] = value
 
     @property
+    def formulation_override(self):
+        """The solver element type this row was read as, else its shape (``Elem``'s contract)."""
+        forms = self._block.formulations
+        form = forms[self._row] if forms is not None else None
+        return form if form is not None else self.type
+
+    @property
     def eccentricity(self):
         return self._block.ecc.get(self._row)
 

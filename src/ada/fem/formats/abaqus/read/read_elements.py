@@ -100,7 +100,9 @@ def get_elem_arrays(bulk_str: str):
     mass/rotaryi/connector) are returned as raw matches for the object fallback."""
     from collections import defaultdict
 
-    by_type: dict = defaultdict(lambda: ([], [], []))  # ctype -> (el_ids, conns, elsets)
+    # ctype -> (el_ids, conns, elsets, formulations). The shape is the block; the Abaqus type
+    # each row was written as is kept per row, since several types share one shape.
+    by_type: dict = defaultdict(lambda: ([], [], [], []))
     overflow: list = []
 
     for block in iter_keywords(bulk_str, "ELEMENT"):
@@ -123,10 +125,11 @@ def get_elem_arrays(bulk_str: str):
         res = _parse_int_grid(members)
         n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         res2d = res.reshape(int(res.size / n), n)
-        ids, conns, elsets = by_type[ada_el_type]
+        ids, conns, elsets, formulations = by_type[ada_el_type]
         ids.extend(int(x) for x in res2d[:, 0])
         conns.extend(res2d[:, 1:].tolist())
         elsets.extend([elset] * res2d.shape[0])
+        formulations.extend([eltype] * res2d.shape[0])
 
     return by_type, overflow
 

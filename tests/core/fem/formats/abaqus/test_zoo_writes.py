@@ -22,14 +22,6 @@ from .zoo import ZOO
 
 #: The Abaqus writer's own gaps.
 ABAQUS_GAPS = {
-    "elements_shell_tri6": (
-        IncompatibleElements,
-        "TRIANGLE6 (STRI65) is refused at full integration and, separately, at reduced integration",
-    ),
-    "elements_solid_wedge": (
-        ValueError,
-        "no default element type for SolidShapes.WEDGE: the defaults name it PRISM6, the shape WEDGE",
-    ),
     "masses_anisotropic": (
         NotImplementedError,
         "ada_to_aba_mass_map is keyed by MassTypes, so Mass.PTYPES.ANISOTROPIC never maps to type=ANISOTROPIC",
@@ -44,7 +36,6 @@ ABAQUS_GAPS = {
 
 #: What the Calculix writer cannot express, beyond the gaps it shares with Abaqus.
 CALCULIX_GAPS = {
-    "elements_solid_wedge": (ValueError, "shares the Abaqus default element table (WEDGE vs PRISM6)"),
     "elements_line_profiles": (Exception, "the Calculix beam writer has no FLATBAR profile"),
     "elements_line_explicit": (ValueError, "Calculix has no explicit step"),
     "steps_explicit": (ValueError, "Calculix has no explicit step"),

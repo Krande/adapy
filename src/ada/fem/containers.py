@@ -882,28 +882,30 @@ class FemSets:
         # Against: This is a downstream object. FemSections would point to this set and remove during concatenation.
 
     def add(self, fe_set: FemSet, append_suffix_on_exist=False, merge_sets_if_duplicate=False) -> FemSet:
-        if fe_set.type == SetTypes.NSET:
-            if fe_set.name in self._nomap.keys():
-                fem_set = self._nomap[fe_set.name]
-                new_mem = [m for m in fe_set.members if m.id not in fem_set.members]
-                fem_set.add_members(new_mem)
-        else:
-            if fe_set.name in self._elmap.keys():
-                if append_suffix_on_exist is False and merge_sets_if_duplicate is False:
-                    raise FemSetNameExists(fe_set.name)
+        """Add ``fe_set``; what happens when a set of that name already exists:
 
-                if merge_sets_if_duplicate is True:
-                    o_set = self._elmap[fe_set.name]
-                    for mem in fe_set.members:
-                        if mem not in o_set.members:
-                            o_set.members.append(mem)
+        * node sets, and element sets with ``merge_sets_if_duplicate`` -- the new members are
+          added to the existing set, which is returned. That is Abaqus's own rule: a second
+          ``*Elset``/``*Nset`` of a name adds to the set rather than defining another one, and
+          adapy's writer relies on it (``*Element, elset=A`` then ``*Elset, elset=A``).
+        * element sets with ``append_suffix_on_exist`` -- the new set is kept as a separate set,
+          renamed ``<name>_<n>``;
+        * otherwise :class:`FemSetNameExists`.
 
-                if fe_set.name not in self._same_names.keys():
-                    self._same_names[fe_set.name] = 1
-                else:
-                    self._same_names[fe_set.name] += 1
-
-                fe_set.name = f"{fe_set.name}_{self._same_names[fe_set.name]}"
+        Merging used to add the members AND register the incoming set again under a suffixed
+        name, so a round trip grew a phantom set; for an id-backed set it appended to a list
+        rebuilt on every access, so the merge was lost as well.
+        """
+        existing = (self._nomap if fe_set.type == SetTypes.NSET else self._elmap).get(fe_set.name)
+        if existing is not None:
+            if fe_set.type == SetTypes.NSET or merge_sets_if_duplicate:
+                have = {m.id for m in existing.members}
+                existing.add_members([m for m in fe_set.members if m.id not in have])
+                return existing
+            if append_suffix_on_exist is False:
+                raise FemSetNameExists(fe_set.name)
+            self._same_names[fe_set.name] = self._same_names.get(fe_set.name, 0) + 1
+            fe_set.name = f"{fe_set.name}_{self._same_names[fe_set.name]}"
 
         self.sets.append(fe_set)
         if fe_set.type == SetTypes.ELSET:
