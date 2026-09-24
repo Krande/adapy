@@ -548,7 +548,7 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
             if sub_block.keyword == "FRICTION":
                 validate(sub_block)
                 if sub_block.data_lines:
-                    props["friction"] = sub_block.data_lines[0].split(",")[0]
+                    props["friction"] = float(sub_block.data_lines[0].split(",")[0])
             elif sub_block.keyword == "SURFACE BEHAVIOR":
                 validate(sub_block)
                 behave = _surface_behaviour(sub_block)
@@ -614,7 +614,10 @@ def _general_contact_interaction(bulk_str: str, contact_block: KeywordBlock) -> 
     mark_read("CONTACT PROPERTY ASSIGNMENT")
     seen = False
     for block in tokenize(bulk_str):
-        if block is contact_block:
+        # By position, not identity: iter_keywords' blocks come from the tokenizer cache, and a
+        # fresh tokenize() builds new objects, so ``is`` never matched and no general contact
+        # was ever read.
+        if block.start == contact_block.start:
             seen = True
             continue
         if not seen:
@@ -1255,26 +1258,57 @@ def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
         surfaces = _two_surfaces(block)
         if surfaces is None:
             continue
-        d = dict(block.params)
-        d["name"] = comment_property(block, "Interaction").get("Interaction")
-        d["surf1"], d["surf2"] = surfaces
-        intprop = assembly.fem.intprops[block.params.get("INTERACTION")]
+        name = comment_property(block, "Interaction").get("Interaction") or next(gen_name)
+        intprop = by_name(assembly.fem.intprops, block.params.get("INTERACTION"))
         surf1 = resolve_surface_ref(surfaces[0])
         surf2 = resolve_surface_ref(surfaces[1])
+        # The fields the writer writes, under the names it reads them from -- not the raw
+        # parameter dict, which the writer never looks at, so a round trip lost them.
+        metadata = {}
+        if "SMALL SLIDING" in block.params:
+            metadata["small_sliding"] = "small sliding"
+        if block.params.get("ADJUST") is not None:
+            adjust = block.params.get("ADJUST")
+            try:
+                metadata["adjust"] = float(adjust)
+            except ValueError:
+                metadata["adjust"] = adjust  # a node set name
+        if block.params.get("GEOMETRIC CORRECTION") is not None:
+            metadata["geometric_correction"] = block.params.get("GEOMETRIC CORRECTION")
+        kwargs = {}
+        if block.params.get("TYPE") is not None:
+            kwargs["surface_type"] = block.params.get("TYPE")
+        assembly.fem.add_interaction(
+            Interaction(
+                name,
+                ContactTypes.SURFACE,
+                surf1,
+                surf2,
+                intprop,
+                constraint=block.params.get("MECHANICAL CONSTRAINT"),
+                metadata=metadata,
+                **kwargs,
+            )
+        )
 
-        assembly.fem.add_interaction(Interaction(d["name"], ContactTypes.SURFACE, surf1, surf2, intprop, metadata=d))
-
+    mark_read("CONTACT INCLUSIONS")
+    blocks = tokenize(bulk_str)
     for block in iter_keywords(bulk_str, "CONTACT"):
         validate(block)
-        interact_str = bulk_str[block.start :]
         intprop_name = _general_contact_interaction(bulk_str, block)
         if intprop_name is None:
             logger.warning("abaqus read: *Contact (line %d) has no property assignment", block.lineno)
             continue
-        intprop = assembly.fem.intprops[intprop_name]
-        # surf1 = resolve_surface_ref(d["surf1"])
-        # surf2 = resolve_surface_ref(d["surf2"])
-
-        assembly.fem.add_interaction(
-            Interaction(next(gen_name), "general", None, None, intprop, metadata=dict(aba_bulk=interact_str))
-        )
+        intprop = by_name(assembly.fem.intprops, intprop_name)
+        name = comment_property(block, "Interaction").get("Interaction") or next(gen_name)
+        # Typed, from the blocks that make it up. This used to keep bulk_str[block.start:] --
+        # the WHOLE rest of the deck -- as verbatim text, which the writer then wrote back.
+        metadata = {"contact_mod": block.params.get("OP") or "NEW"}
+        at = next((k for k, b in enumerate(blocks) if b.start == block.start), None)
+        after = blocks[at + 1 :] if at is not None else []
+        inclusions = next((b for b in after[:3] if b.keyword == "CONTACT INCLUSIONS"), None)
+        if inclusions is not None:
+            flags = [k for k, v in inclusions.params.items() if v is None]
+            if flags:
+                metadata["contact_inclusions"] = ", ".join(flags)
+        assembly.fem.add_interaction(Interaction(name, ContactTypes.GENERAL, None, None, intprop, metadata=metadata))

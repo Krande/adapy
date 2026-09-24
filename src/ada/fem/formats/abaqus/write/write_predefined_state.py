@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import PredefinedField
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
@@ -18,12 +19,11 @@ def predefined_fields_str(fem: "FEM"):
 
 
 def predefined_field_str(pre_field: PredefinedField) -> str:
+    # Every DOF the field names, zeros included: a zero Abaqus would assume anyway, but leaving it
+    # out read back as a field on fewer DOFs than the one written.
     dofs_str = ""
     for dof, magn in zip(pre_field.dofs, pre_field.magnitude):
-        if float(magn) == 0.0:
-            continue
-        dofs_str += f"{get_instance_name(pre_field.fem_set, True)}, {dof}, {magn}\n"
-    dofs_str.rstrip()
+        dofs_str += f"{get_instance_name(pre_field.fem_set, True)}, {dof}, {format_number(magn)}\n"
     return f"""** PREDEFINED FIELDS
 **
 ** Name: {pre_field.name}   Type: {pre_field.type}

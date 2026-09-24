@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from ada.fem.interactions import ContactTypes
 from ada.fem.steps import Step, StepExplicit
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
@@ -67,7 +68,8 @@ def interaction_prop_str(int_prop: "InteractionProperty") -> str:
 
     # Behaviours
     tab_str = (
-        "\n" + "\n".join(["{:>12.3E},{:>12.3E}".format(d[0], d[1]) for d in int_prop.tabular])
+        # Exact: {:.3E} kept four significant digits of a pressure-overclosure table.
+        "\n" + "\n".join([f"{format_number(d[0])},{format_number(d[1])}" for d in int_prop.tabular])
         if int_prop.tabular is not None
         else ""
     )

@@ -548,6 +548,29 @@ class FEM:
             surface.parent = self
             self.surfaces[name] = surface
 
+        # Everything else a FEM holds. These were left behind, so a model merged through here --
+        # as every model ``ada.from_fem`` returns is -- lost its amplitudes, contact, initial
+        # conditions and analysis steps even when the reader had read them.
+        for store in ("amplitudes", "intprops", "interactions", "predefined_fields"):
+            for name, obj in getattr(other, store).items():
+                obj.parent = self
+                getattr(self, store)[name] = obj
+
+        own_steps = {step.name for step in self.steps}
+        for step in other.steps:
+            if step.name not in own_steps:
+                step.parent = self
+                self.steps.append(step)
+
+        for rp in other.ref_points:
+            self.ref_points.add(rp)
+        self.ref_sets += other.ref_sets
+
+        if self.initial_state is None and other.initial_state is not None:
+            self.initial_state = other.initial_state
+        if self.subroutine is None and other.subroutine is not None:
+            self.subroutine = other.subroutine
+
         if self.parent is None or other.parent is None:
             return self
 
