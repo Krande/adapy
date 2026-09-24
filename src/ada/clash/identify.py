@@ -248,6 +248,12 @@ def _plate_plate_pass(part, options: ClashOptions, *, beams, plates) -> list[_Fo
     return out
 
 
+#: Core's own passes, by name. The clash counterpart of ``BUILTIN_SPEC_NAMES``: these run
+#: wherever core runs and so always advertise ``capability: None``. Anything else in the registry
+#: was contributed, and is attributed to the pool that carries it.
+CORE_PASS_NAMES = frozenset({"beam-beam", "plate-beam", "plate-plate"})
+
+
 register_pass(
     ClashPass(
         name="beam-beam",

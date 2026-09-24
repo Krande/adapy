@@ -12,6 +12,7 @@
 
 import React from "react";
 
+import { type WireClashPassSpec } from "@/services/api/clashCheck";
 import { originsInResult, useClashCheckStore, type ClashPassReport } from "@/state/clashCheckStore";
 
 /** Core's own passes, which every deployment can run. A pass a plugin contributed appears here
@@ -23,10 +24,14 @@ const CORE_PASSES: readonly { name: string; label: string; hint: string }[] = [
   { name: "plate-plate", label: "plate ↔ plate", hint: "Plates meeting edge-on or mid-span. Needs a CAD backend." },
 ];
 
-function labelFor(name: string, reported: ClashPassReport | undefined): string {
+function labelFor(name: string, reported: ClashPassReport | undefined, advertised?: WireClashPassSpec): string {
   const core = CORE_PASSES.find((p) => p.name === name);
   if (core) return core.label;
-  return reported?.capability ? `${name} (${reported.capability})` : name;
+  // A contributed pass names itself; the capability is appended because it is the only thing
+  // core knows about where it came from, and a person choosing between two passes deserves it.
+  const label = advertised?.label || name;
+  const capability = advertised?.capability ?? reported?.capability;
+  return capability ? `${label} (${capability})` : label;
 }
 
 /** Checkboxes choosing which passes the next run performs. */
@@ -34,11 +39,16 @@ export const PassSelector: React.FC = () => {
   const selected = useClashCheckStore((s) => s.selectedPasses);
   const setSelectedPasses = useClashCheckStore((s) => s.setSelectedPasses);
   const result = useClashCheckStore((s) => s.result);
+  const available = useClashCheckStore((s) => s.availablePasses);
 
-  // Core's three, plus any pass a previous result mentioned -- which is how a plugin's pass
-  // becomes offerable without the panel having to know what is installed.
+  // What the DEPLOYMENT says it can run (core's own unioned with what a live pool advertises),
+  // falling back to core's three where that is not known. Plus anything a previous result
+  // mentioned, so a pass stays visible even if the pool that offered it has since gone away --
+  // otherwise a result's producer filter could name a pass its own checkbox had vanished.
   const reported = result?.passes ?? [];
-  const names = [...CORE_PASSES.map((p) => p.name)];
+  const names: string[] = [];
+  for (const p of available ?? []) if (!names.includes(p.name)) names.push(p.name);
+  if (names.length === 0) names.push(...CORE_PASSES.map((p) => p.name));
   for (const p of reported) if (!names.includes(p.name)) names.push(p.name);
 
   // `null` means "core's default set", which is what omitting the field on the wire means. It is
@@ -57,15 +67,21 @@ export const PassSelector: React.FC = () => {
       <span className="text-[11px] text-gray-400">look for</span>
       {names.map((name) => {
         const entry = reported.find((p) => p.name === name);
+        const advertised = (available ?? []).find((p) => p.name === name);
         const core = CORE_PASSES.find((p) => p.name === name);
         return (
           <label
             key={name}
             className="flex items-center gap-1 text-[11px] text-gray-300"
-            title={core?.hint ?? (entry?.capability ? `Runs on a worker advertising "${entry.capability}".` : name)}
+            title={
+              core?.hint ??
+              (advertised?.capability || entry?.capability
+                ? `Runs on a worker advertising "${advertised?.capability ?? entry?.capability}".`
+                : name)
+            }
           >
             <input type="checkbox" checked={isOn(name)} onChange={() => toggle(name)} />
-            {labelFor(name, entry)}
+            {labelFor(name, entry, advertised)}
           </label>
         );
       })}

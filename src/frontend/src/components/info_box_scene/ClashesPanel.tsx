@@ -132,11 +132,12 @@ const ApplicableBadge: React.FC<{ spec: ClashApplicableSpec; scope: string; join
   scope,
   jointIds,
 }) => {
-  // `liveCapabilities: null` -- see `isSpecAvailable`'s doc and the TODO in
-  // `services/api/clashCheck.ts`: the live `connection_specs` union route does not exist yet, so
-  // this fails OPEN (every capability-bearing spec is offered) rather than hiding one that may in
-  // fact work. Once that route lands, swap this `null` for the fetched set.
-  const available = isSpecAvailable(spec, null);
+  // The live `connection_specs` union, fetched when the panel opened. Still `null` until that
+  // answer arrives (or where the route is absent), and `isSpecAvailable` reads null as "offer
+  // everything" -- there is no way to tell "no live pool" from "nobody has checked yet", and
+  // hiding a spec that in fact works is the worse of the two mistakes.
+  const liveCapabilities = useClashCheckStore((s) => s.liveCapabilities);
+  const available = isSpecAvailable(spec, liveCapabilities);
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailSpec = useClashCheckStore((s) => s.detailSpec);
   const runDetail = useClashCheckStore((s) => s.runDetail);
@@ -344,6 +345,7 @@ const GenerateDetailButton: React.FC<{
 const ClashesPanel: React.FC = () => {
   const loadedSourceName = useModelState((s) => s.loadedSourceName);
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
+  const loadCapabilities = useClashCheckStore((s) => s.loadCapabilities);
 
   const sourceKey = useClashCheckStore((s) => s.sourceKey);
   const checkedSource = useClashCheckStore((s) => s.sourceName);
@@ -373,6 +375,14 @@ const ClashesPanel: React.FC = () => {
   useEffect(() => {
     startClashMarkerSync();
   }, []);
+
+  // What this deployment can run, asked once when the panel opens -- which is what lets a
+  // contributed pass be TICKED before the first run that uses it, and what turns the generator
+  // badges from "offer everything" into the live answer. Best effort by construction: a
+  // deployment whose routes predate these leaves both null and the panel behaves as it did.
+  useEffect(() => {
+    void loadCapabilities(scope);
+  }, [scope, loadCapabilities]);
 
   // The check runs against the loaded SOURCE, never the GLB (see the module doc). A different
   // model invalidates whatever result was showing -- see `setSource`'s own doc for why.

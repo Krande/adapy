@@ -198,12 +198,48 @@ export const clashCheckApi = {
     return jsonOrThrow<unknown>(r, `getDetailStats(${key})`);
   },
 
-  // TODO(clash-check hand-off, Phase 6 §Decision 10 item 4): core is meant to grow a live
-  // `connection_specs` union -- the heartbeat-derived list of capabilities a worker pool is
-  // CURRENTLY advertising (the same union `advertised_specs("connection_specs")` folds
-  // server-side). Once that route exists, add a `listLiveConnectionCapabilities(scope)` call
-  // here and wire it into `state/clashCheckStore.ts`'s `isSpecAvailable`. Until then there is no
-  // way to tell "this capability has no live pool" apart from "nobody has checked yet", so this
-  // client deliberately exposes nothing for it and the store treats every capability as
-  // available rather than hiding a spec that may in fact work (see `isSpecAvailable`'s doc).
+  /** Which SEARCHES a check could run: core's own passes, unioned with whatever a live pool
+   *  currently advertises on its heartbeat.
+   *
+   *  Read BEFORE the first run, which is the whole point of it. A pass contributed by a plugin
+   *  would otherwise be discoverable only by seeing one in a result -- a checkbox that appears
+   *  after you have already managed to do the thing it turns on.
+   *
+   *  A pass naming a `capability` runs only on a pool advertising it; core's answer `null` and
+   *  run anywhere. Which package contributed one is never reported -- the capability is the whole
+   *  of what core knows, the convention `applicable` already follows. */
+  async listPasses(scope: ScopeUrl): Promise<readonly WireClashPassSpec[]> {
+    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/passes`);
+    const body = await jsonOrThrow<{ passes?: readonly WireClashPassSpec[] }>(r, "listPasses");
+    return body.passes ?? [];
+  },
+
+  /** The capabilities a connection spec could be routed to right now -- the live union behind
+   *  `isSpecAvailable`. A capability absent from this set has no pool serving it. */
+  async listLiveConnectionCapabilities(scope: ScopeUrl): Promise<ReadonlySet<string>> {
+    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/connection-specs`);
+    const body = await jsonOrThrow<{ connection_specs?: readonly { capability?: string | null }[] }>(
+      r,
+      "listLiveConnectionCapabilities",
+    );
+    const out = new Set<string>();
+    for (const spec of body.connection_specs ?? []) {
+      if (typeof spec.capability === "string" && spec.capability.trim()) out.add(spec.capability);
+    }
+    return out;
+  },
 };
+
+/** One pass the deployment could run, as the listing route describes it. Distinct from
+ *  `WireClashPass`, which is what a RESULT says became of a pass on one particular run. */
+export interface WireClashPassSpec {
+  readonly slug: string;
+  readonly name: string;
+  readonly label?: string;
+  readonly needs_backend?: boolean;
+  readonly priority?: number;
+  readonly capability?: string | null;
+  /** `"code"` for one core carries, `"live"` for one a pool advertises -- `merge_catalog_specs`'
+   *  own vocabulary, surfaced so the panel can say where a pass came from. */
+  readonly origin?: string;
+}

@@ -253,6 +253,48 @@ def _builtin_connection_specs() -> list[dict]:
     ]
 
 
+def _core_clash_passes() -> list[dict]:
+    """Core's own passes, in the catalog shape ``merge_catalog_specs`` wants -- the ``code`` half
+    of the union, exactly as ``_builtin_connection_specs`` is for the specs."""
+    try:
+        # Importing `identify` is what REGISTERS them, so this import is the population step and
+        # not merely a name lookup.
+        import ada.clash.identify  # noqa: F401,PLC0415 - imported for its registration side effect
+        from ada.clash.passes import list_passes
+    except ImportError:
+        # The SLIM api has no modelling stack, so it cannot load the module that registers core's
+        # passes -- and does not need to: every pool that can RUN one advertises it on its
+        # heartbeat, and the union below is what the panel reads. Nothing here is the honest
+        # answer from a process that cannot answer, not a claim that core has no passes.
+        return []
+
+    return [{**entry, "slug": entry["name"]} for entry in list_passes()]
+
+
+@router.get("/scopes/{scope}/clash-check/passes")
+async def api_clash_passes(
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """Which SEARCHES a check could run: core's own, unioned with whatever a live (non-stale)
+    pool currently advertises via its heartbeat's ``clash_passes``.
+
+    The panel reads this to offer passes as checkboxes BEFORE the first run. Without it a
+    contributed pass could only be discovered by seeing one in a result -- a checkbox that
+    appears only after you have already managed to do the thing it turns on.
+
+    A pass naming a ``capability`` runs only on a pool advertising that capability; core's answer
+    ``None`` and run anywhere core runs. Which package contributed one is never reported, here or
+    anywhere else -- the capability is the whole of what core knows.
+    """
+    by_slug = merge_catalog_specs(
+        _core_clash_passes(),
+        await ctx.jobs.advertised_specs("clash_passes"),
+        project=lambda slug, spec, origin: {**spec, "slug": slug, "origin": origin},
+    )
+    return JSONResponse({"passes": list(by_slug.values())})
+
+
 @router.get("/scopes/{scope}/clash-check/connection-specs")
 async def api_connection_specs(
     scope_obj: Scope = Depends(scope_from_path),

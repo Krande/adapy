@@ -27,6 +27,7 @@ import {
   type ClashCheckResponse,
   type ClashDetailResponse,
   type WireClashPass,
+  type WireClashPassSpec,
   type WireClashApplicableSpec,
   type WireClashGroup,
   type WireClashJoint,
@@ -786,6 +787,14 @@ interface ClashCheckState {
    *  omitting `passes` from the request means -- not the same as an empty selection, which is a
    *  user asking for nothing. */
   selectedPasses: readonly string[] | null;
+  /** Which passes this DEPLOYMENT could run -- core's, plus whatever a live pool advertises.
+   *  Fetched once when the panel opens, so a contributed pass is offerable BEFORE the first run
+   *  that uses it. `null` until asked. */
+  availablePasses: readonly WireClashPassSpec[] | null;
+  /** The live `connection_specs` capability union behind `isSpecAvailable`. `null` = not asked
+   *  yet, which that function deliberately reads as "offer everything" rather than as "nothing
+   *  is available". */
+  liveCapabilities: ReadonlySet<string> | null;
   /** Producers whose joints are hidden in the result view. A joint found by a hidden producer is
    *  filtered out of the rows, the markers and the counts alike, so the view never shows a number
    *  that does not match what is listed. */
@@ -822,6 +831,10 @@ interface ClashCheckState {
   setShowMarkers: (v: boolean) => void;
   setInBrowser: (v: boolean) => void;
   setSelectedPasses: (names: readonly string[] | null) => void;
+  /** Fetch what this deployment can run. Best effort: a deployment whose routes predate these
+   *  answers 404, and the panel then falls back to offering core's passes and every capability,
+   *  which is exactly what it did before they existed. */
+  loadCapabilities: (scope: string) => Promise<void>;
   toggleOriginHidden: (origin: string) => void;
   runCheck: (scope: string) => Promise<void>;
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
@@ -870,6 +883,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   browserStage: null,
   selectedPasses: null,
   hiddenOrigins: [],
+  availablePasses: null,
+  liveCapabilities: null,
 
   jobId: null,
   derivedKey: null,
@@ -930,6 +945,19 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setShowMarkers: (v) => set({ showMarkers: v }),
   setInBrowser: (v) => set({ inBrowser: v }),
   setSelectedPasses: (names) => set({ selectedPasses: names }),
+
+  loadCapabilities: async (scope) => {
+    // Both are optional knowledge: failing to learn them must leave the panel usable, not
+    // empty. Settled independently so one missing route does not cost the other's answer.
+    const [passes, caps] = await Promise.allSettled([
+      clashCheckApi.listPasses(scope as never),
+      clashCheckApi.listLiveConnectionCapabilities(scope as never),
+    ]);
+    set({
+      availablePasses: passes.status === "fulfilled" ? passes.value : null,
+      liveCapabilities: caps.status === "fulfilled" ? caps.value : null,
+    });
+  },
   toggleOriginHidden: (origin) =>
     set((s) => ({
       hiddenOrigins: s.hiddenOrigins.includes(origin)
