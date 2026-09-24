@@ -264,9 +264,9 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # 0.24.0: `stream_ifc_to_glb(include_guids=...)` for native IFC subset streaming, and the
 # first release built against occt 8.0.1.
 [feature.adacpp-runtime.dependencies]
-# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.25.4 for the
-# `edges` fix AdacppBackend.edges now depends on (adacpp#61).
-ada-cpp = "0.25.4.*"
+# Tracks the [feature.adacpp] pin -- see the rationale log there. 0.28 for
+# `IfcMemberScan`, which the native IFC member reader needs (adacpp#63, #64).
+ada-cpp = "0.28.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -311,7 +311,14 @@ ada-cpp = "0.25.4.*"
 # it collapsed on (`face_id`, a bare TShape pointer) is placement-blind and ate a
 # prism's located rails along with the incidences. Against an older ada-cpp those
 # incidences now reach callers unfiltered -- a box answers 24 edges, not 12.
-ada-cpp = "0.25.4.*"
+# 0.26 adds `IfcMemberScan` and 0.27 gives it the swept area's outline + plane
+# (adacpp#63, #64). REQUIRED for the same reason the two pins above are: the
+# native member reader probes the binding (`native_members_available()`) and
+# FALLS BACK to ifcopenshell without it, so a lower pin would leave the native
+# path untested here while looking green -- the failure mode these pins exist
+# to prevent. A plate needs the outline specifically: 0.26 alone reads members
+# and drops every plate, which is a worse answer than refusing to read at all.
+ada-cpp = "0.28.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

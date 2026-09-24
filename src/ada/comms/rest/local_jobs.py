@@ -532,6 +532,7 @@ def start_clash_check(
     own scope should be able to check it for joints without a cluster, and it needs no capability
     pool to do that -- identifying and typing joints wants no kernel this process does not already
     have (the worker-side handler's own comment: "nothing here needs a capability pool")."""
+    from ada.cadit.ifc.read.native_members import load_members_or_model
     from ada.clash import ClashOptions, run_clash_check
     from ada.clash.builtin_specs import register_builtin_specs
     from ada.comms.rest.converters.ada_load import _load_with_ada
@@ -557,7 +558,9 @@ def start_clash_check(
         try:
             job.stage, job.progress = "loading", 0.15
             sync_storage.fetch_to_path(source_key, tmp)
-            model = _load_with_ada(tmp, tmp.suffix.lower())
+            # For an IFC this reads MEMBERS natively -- no ifcopenshell, no geometry -- which is
+            # the whole of what a check needs; anything else falls back to the full reader.
+            model = load_members_or_model(tmp, tmp.suffix.lower(), _load_with_ada)
             source_sha256 = hashlib.sha256(tmp.read_bytes()).hexdigest()
             register_builtin_specs()
             clash_options = ClashOptions(

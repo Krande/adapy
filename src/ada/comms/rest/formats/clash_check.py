@@ -22,6 +22,7 @@ import traceback as tb_module
 
 import asyncpg
 
+from ada.cadit.ifc.read.native_members import load_members_or_model
 from ada.clash import ClashOptions, run_clash_check
 from ada.clash.builtin_specs import BUILTIN_SPEC_NAMES, register_builtin_specs
 from ada.config import logger
@@ -109,7 +110,9 @@ async def _run_clash_check(
     loop = asyncio.get_running_loop()
 
     def _read_and_hash():
-        model = _load_with_ada(src_path, ext)
+        # Members are all a check needs, and for an IFC they can be read without
+        # ifcopenshell and without building any geometry (`load_members_or_model`).
+        model = load_members_or_model(src_path, ext, _load_with_ada)
         # Computed from the DOWNLOADED bytes, here, where the full file already sits on local
         # disk -- the route that enqueued this job priced its derived key off a cheap key/e_tag
         # token instead (see routes/clash_check.py) precisely so it never has to fetch the whole

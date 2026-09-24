@@ -1,0 +1,234 @@
+"""Read an IFC's MEMBERS natively -- beams and plates, no ifcopenshell, no tessellation.
+
+WHY THIS EXISTS. A clash check asks what meets what, and a quantity take-off asks how much of
+what; both are questions about MEMBERS -- a beam of this section running from here to there, a
+plate of this thickness in this plane -- and neither needs a triangle. Until now the only way to
+get members out of an IFC was `ada.from_ifc`, which reads the file with ifcopenshell and builds
+the geometry on the way past. That is the expensive half, and it is the half these two callers
+throw away:
+
+* the viewer's `.ifc -> glb` conversion is already fully native (adacpp reads the file in C++ and
+  writes the GLB itself), so a clash check on that source paid for a SECOND, semantic read;
+* the take-off pays for the same second read, which is why it is bounded by source size today
+  (`converters/takeoff.source_is_small_enough`).
+
+`adacpp.cad.IfcMemberScan` answers the member question from the handful of entities that state it
+-- the Axis polyline, the swept area's profile and outline, the extrusion depth, the placement
+chain -- in one streaming pass. This module turns that into the `Beam` and `Plate` objects the
+rest of adapy already knows how to reason about, so every pass downstream (`ada.clash`, the
+take-off, the connection specs) runs unchanged on top of it.
+
+WHAT IT IS NOT. Not a replacement for `from_ifc`: it carries no geometry, no materials, no
+property sets, no spatial hierarchy beyond one flat part, and no products that are neither beam
+nor plate. It is the cheap answer to one question, and a caller that needs a model should still
+read one.
+"""
+
+from __future__ import annotations
+
+import pathlib
+from typing import TYPE_CHECKING, Iterable, Iterator
+
+from ada.config import logger
+
+if TYPE_CHECKING:
+    import numpy as np
+
+__all__ = [
+    "MEMBER_SCAN_MIN_ADACPP",
+    "ifc_members_to_part",
+    "native_members_available",
+    "scan_ifc_members",
+]
+
+#: The adacpp release that first carried the outline + swept plane (`IfcMemberScan` itself landed
+#: in 0.26.0, but a plate needs the outline, and a member reader that silently dropped every plate
+#: would be worse than one that refuses).
+MEMBER_SCAN_MIN_ADACPP = "0.27.0"
+
+#: IFC classes this reader maps. Anything else is skipped -- a member reader that guessed at a
+#: railing or a piece of furniture would put objects into a clash check that no spec can detail.
+_BEAM_CLASSES = {"IFCBEAM", "IFCCOLUMN", "IFCMEMBER"}
+_PLATE_CLASSES = {"IFCPLATE", "IFCSLAB"}
+
+
+def native_members_available() -> bool:
+    """Whether the installed adacpp can answer the member question at all."""
+    try:
+        import adacpp.cad  # noqa: PLC0415 - probing an optional backend
+
+        return hasattr(adacpp.cad, "IfcMemberScan")
+    except Exception:  # noqa: BLE001 - an adacpp that cannot import is one that cannot answer
+        return False
+
+
+def scan_ifc_members(ifc_file: str | pathlib.Path) -> Iterator[dict]:
+    """Stream one member record per product, as `IfcMemberScan` yields them.
+
+    Exposed separately from `ifc_members_to_part` because a caller that only needs to COUNT
+    products, or to look at classes and guids, should not pay for building ada objects it will
+    drop -- and because the scan is a stream, which a function returning a Part cannot be.
+    """
+    import adacpp.cad  # noqa: PLC0415 - optional backend, probed by native_members_available
+
+    yield from adacpp.cad.IfcMemberScan(str(ifc_file))
+
+
+# numpy is imported INSIDE these rather than at module scope: the slim viewer image carries this
+# package (the REST clash routes reach it) and carries no numpy, so a module-level import would
+# crashloop an API that never calls any of them.
+def _world(placement: Iterable[float]) -> "np.ndarray":
+    """The 16-float column-major matrix as a 4x4, row-vector convention."""
+    import numpy as np
+
+    return np.asarray(list(placement), dtype=float).reshape(4, 4).T
+
+
+def _to_world_point(m4: "np.ndarray", p: Iterable[float]) -> "np.ndarray":
+    import numpy as np
+
+    v = np.asarray([*p, 1.0], dtype=float)
+    return (m4 @ v)[:3]
+
+
+def _to_world_dir(m4: "np.ndarray", d: Iterable[float]) -> "np.ndarray":
+    import numpy as np
+
+    v = np.asarray([*d, 0.0], dtype=float)
+    out = (m4 @ v)[:3]
+    n = float(np.linalg.norm(out))
+    return out / n if n > 0 else out
+
+
+def _section_for(member: dict):
+    """The member's section: its catalogue name where the file names one, else its OUTLINE.
+
+    A name that adapy's section parser understands carries dimensions and a family, which is what
+    a connection spec matches on. A name it does not understand (a project-specific label, an
+    empty one) still has a boundary, so the section is built from that rather than guessed at --
+    a section invented from a name would put a member in the wrong family, which is a wrong answer
+    rather than a missing one.
+    """
+    from ada import Section
+    from ada.api.curves import CurvePoly2d
+    from ada.sections.categories import BaseTypes
+
+    name = (member.get("profile_name") or "").strip()
+    if name:
+        try:
+            sec = Section.from_str(name)
+            return sec[0] if isinstance(sec, list) else sec
+        except Exception as exc:  # noqa: BLE001 - an unparsable name is data, not a failure
+            logger.debug(f"native members: section name {name!r} not in the catalogue ({exc}); using the outline")
+
+    outline = [tuple(pt) for pt in member.get("outline") or ()]
+    if len(outline) < 3:
+        return None
+    return Section(
+        name or f"profile_{member['id']}",
+        sec_type=BaseTypes.POLY,
+        poly_outer=CurvePoly2d(outline),
+    )
+
+
+def _beam_from(member: dict):
+    from ada import Beam
+
+    p1, p2 = member.get("p1"), member.get("p2")
+    if p1 is None or p2 is None:
+        return None
+    sec = _section_for(member)
+    if sec is None:
+        return None
+    import numpy as np
+
+    if float(np.linalg.norm(np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float))) < 1e-9:
+        return None  # a zero-length member is not one; it would divide by zero downstream
+    return Beam(member["name"] or member["guid"], p1, p2, sec, guid=member["guid"] or None)
+
+
+def _plate_from(member: dict):
+    from ada import Plate
+
+    outline = [tuple(pt) for pt in member.get("outline") or ()]
+    if len(outline) < 3 or member.get("origin") is None:
+        return None
+    # The scan reports the swept plane in the product's LOCAL frame beside the world placement, so
+    # the two can be taken apart; a plate wants them put together, in world, because that is the
+    # frame its neighbours are in and a clash check compares them against each other.
+    m4 = _world(member["placement"])
+    return Plate(
+        member["name"] or member["guid"],
+        outline,
+        member["depth"],
+        origin=_to_world_point(m4, member["origin"]),
+        xdir=_to_world_dir(m4, member["xdir"]),
+        normal=_to_world_dir(m4, member["normal"]),
+        guid=member["guid"] or None,
+    )
+
+
+def ifc_members_to_part(ifc_file: str | pathlib.Path, name: str = "ifc_members"):
+    """One flat `Part` of the beams and plates an IFC states, read natively.
+
+    Consumed as a STREAM: each product is turned into its object and the record dropped, so a
+    plant-sized file is never held as a list of members on either side of the boundary.
+    """
+    from ada import Part
+
+    part = Part(name)
+    skipped: dict[str, int] = {}
+    for member in scan_ifc_members(ifc_file):
+        cls = (member.get("ifc_class") or "").upper()
+        obj = None
+        if cls in _BEAM_CLASSES:
+            obj = _beam_from(member)
+        elif cls in _PLATE_CLASSES:
+            obj = _plate_from(member)
+        if obj is None:
+            skipped[cls or "?"] = skipped.get(cls or "?", 0) + 1
+            continue
+        part.add_object(obj)
+    if skipped:
+        # Counted per class rather than logged per product: a plant has thousands of products that
+        # are neither beam nor plate, and one line per product would bury the run.
+        logger.info(f"native members: skipped {sum(skipped.values())} product(s) by class {skipped}")
+    return part
+
+
+def _has_members(part) -> bool:
+    from ada import Beam, Plate
+
+    return any(True for _ in part.get_all_physical_objects(by_type=(Beam, Plate)))
+
+
+def load_members_or_model(src_path: str | pathlib.Path, ext: str, fallback):
+    """The members of ``src_path``, natively where that is possible and fully where it is not.
+
+    The one place that decides, so the four job entry points that need members for a clash check
+    do not each grow their own version of the question. ``fallback`` is the full reader
+    (``_load_with_ada``), used for every source that is not an IFC and whenever adacpp is too old
+    to answer -- a deployment on an older backend keeps working, one release behind on speed
+    rather than broken.
+
+    A native read is preferred for IFC because the viewer's own `.ifc -> glb` conversion is
+    already native: without this, checking the model a user just converted meant reading the same
+    file a second time, with ifcopenshell, to recover members the first read had in its hands.
+    """
+    ext = (ext or "").lower()
+    if ext in (".ifc", ".ifcxml") and native_members_available():
+        try:
+            part = ifc_members_to_part(src_path, name=pathlib.Path(src_path).stem or "ifc_members")
+        except Exception as exc:  # noqa: BLE001 - a native read that fails is not a failed job
+            logger.warning(f"native member read of {src_path} failed ({exc}); falling back to the full reader")
+        else:
+            # EMPTY IS NOT AN ANSWER HERE. A file the scan could not make sense of reads as zero
+            # members, and so does a file that genuinely has none -- the two are indistinguishable
+            # from this side, and the caller would be told "this source has no beams or plates",
+            # which is a confident wrong answer for the first case. The full reader is the
+            # authority on which it is, so an empty native read defers to it. The cost lands only
+            # on sources that really carry no members, which pay one read to say so.
+            if _has_members(part):
+                return part
+            logger.info(f"native member read of {src_path} found no members; deferring to the full reader")
+    return fallback(pathlib.Path(src_path), ext)
