@@ -23,13 +23,16 @@ occ = pytest.importorskip("OCC")  # parity is measured against pythonocc
 
 
 def _occ_points(curve, deflection: float) -> np.ndarray:
-    from OCC.Core.TopAbs import TopAbs_EDGE
-    from OCC.Extend.TopologyUtils import TopologyExplorer, discretize_edge
+    # CadBackend has no deflection-driven edge sampler, so the reference sampling itself is
+    # pythonocc's discretize_edge. Everything around it goes through the OCC backend by name:
+    # it must build the edge, since discretize_edge can only read a pythonocc shape.
+    from OCC.Extend.TopologyUtils import discretize_edge
 
-    from ada.cad import active_backend
+    from ada.cad import select_backend
 
-    shape = active_backend().build(Geometry(0, curve))
-    edges = [shape] if shape.ShapeType() == TopAbs_EDGE else list(TopologyExplorer(shape).edges())
+    occ_be = select_backend(prefer="occ")
+    shape = occ_be.build(Geometry(0, curve))
+    edges = [shape] if occ_be.shape_type(shape) == "edge" else occ_be.edges(shape)
     pts: list = []
     for e in edges:
         pts.extend(discretize_edge(e, deflection=deflection))

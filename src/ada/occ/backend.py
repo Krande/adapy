@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ada.cad import Containment, StepShapeData
+from ada.cad import Containment, StepShapeData, check_similarity_matrix
 
 if TYPE_CHECKING:
     import numpy as np
@@ -557,24 +557,30 @@ class OccBackend:
         finally:
             os.unlink(path)
 
-    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+    def read_step_shapes(self, data: bytes, unit: str = "M", matrix: "np.ndarray | None" = None) -> list:
         # Mirror of adacpp's read_step_shapes: STEPCAFControl_Reader (not the plain
         # STEPControl_Reader read_step_bytes uses) is what resolves the presentation-style
         # tree, so this is the only read that recovers per-shape names and colours.
+        # `matrix` likewise: applied to every shape after its assembly locations and the
+        # unit conversion, and checked before the file is read.
         import os
         import tempfile
 
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.Interface import Interface_Static
         from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
         from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
-        from OCC.Core.TDataStd import TDataStd_Name
-        from OCC.Core.TDF import TDF_LabelSequence
-        from OCC.Core.XCAFDoc import (
-            XCAFDoc_ColorCurv,
-            XCAFDoc_ColorGen,
-            XCAFDoc_ColorSurf,
-        )
+        from OCC.Core.TDF import TDF_Label, TDF_LabelSequence
+        from OCC.Core.TopLoc import TopLoc_Location
+        from OCC.Core.XCAFDoc import XCAFDoc_ColorTool, XCAFDoc_ColorType
 
+        # The enum's members, not the module-level names: pythonocc 8's GetColor overloads
+        # accept only XCAFDoc_ColorType (the same spelling ada.occ.xcaf_utils uses).
+        XCAFDoc_ColorGen = XCAFDoc_ColorType.XCAFDoc_ColorGen
+        XCAFDoc_ColorSurf = XCAFDoc_ColorType.XCAFDoc_ColorSurf
+        XCAFDoc_ColorCurv = XCAFDoc_ColorType.XCAFDoc_ColorCurv
+
+        m = None if matrix is None else check_similarity_matrix(matrix, "read_step_shapes")
         with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
             f.write(data)
             path = f.name
@@ -597,41 +603,50 @@ class OccBackend:
         color_tool = self._XCAFDoc_DocumentTool.ColorTool(doc.Main())
         out: list[StepShapeData] = []
 
-        def read_one(lab, raw):
-            name = ""
-            nm = TDataStd_Name()
-            if lab.FindAttribute(TDataStd_Name.GetID(), nm):
-                name = nm.Get().ToExtString()
+        def read_one(lab, raw, loc):
+            shape = raw if loc.IsIdentity() else BRepBuilderAPI_Transform(raw, loc.Transformation()).Shape()
+            # GetLabelName, as ada.occ.step.reader_utils does: through TDataStd_Name, pythonocc 8
+            # returns ToExtString() as a raw char16_t* SWIG pointer, not a str.
+            name = lab.GetLabelName() or ""
             c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)
-            has_color = False
-            for target in (lab, raw):
-                if any(
-                    color_tool.GetColor(target, t, c) for t in (XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorCurv)
-                ):
-                    has_color = True
-                    break
-            out.append(StepShapeData(raw, name, (c.Red(), c.Green(), c.Blue()), has_color))
+            # Label first, then the shape -- adacpp's order. pythonocc 8 binds the label form
+            # (static in OCCT) only on the class: through the instance it raises TypeError.
+            kinds = (XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorCurv)
+            has_color = any(XCAFDoc_ColorTool.GetColor(lab, t, c) for t in kinds) or any(
+                color_tool.GetColor(raw, t, c) for t in kinds
+            )
+            out.append(StepShapeData(shape, name, (c.Red(), c.Green(), c.Blue()), has_color))
 
-        def collect(lab):
+        def collect(lab, loc):
             if shape_tool.IsAssembly(lab):
                 comps = TDF_LabelSequence()
                 shape_tool.GetComponents(lab, comps)
                 for i in range(1, comps.Length() + 1):
-                    collect(comps.Value(i))
+                    comp = comps.Value(i)
+                    # An assembly's components are REFERENCES, neither assemblies nor simple
+                    # shapes themselves: follow each to the shape it names and carry its
+                    # placement down, as adacpp's collect_step_shapes does. Recursing into the
+                    # component label instead found nothing, so any assembly read as empty.
+                    if shape_tool.IsReference(comp):
+                        ref = TDF_Label()
+                        shape_tool.GetReferredShape(comp, ref)
+                        collect(ref, loc.Multiplied(shape_tool.GetLocation(comp)))
             elif shape_tool.IsSimpleShape(lab):
-                read_one(lab, shape_tool.GetShape(lab))
+                read_one(lab, shape_tool.GetShape(lab), loc)
                 # Sub-shape labels carry the per-face/per-solid overrides XCAF split out of
                 # the parent — without these a solid-coloured assembly reads as one colour.
                 subs = TDF_LabelSequence()
                 shape_tool.GetSubShapes(lab, subs)
                 for i in range(1, subs.Length() + 1):
                     sl = subs.Value(i)
-                    read_one(sl, shape_tool.GetShape(sl))
+                    read_one(sl, shape_tool.GetShape(sl), loc)
 
         free = TDF_LabelSequence()
         shape_tool.GetFreeShapes(free)
         for i in range(1, free.Length() + 1):
-            collect(free.Value(i))
+            collect(free.Value(i), TopLoc_Location())
+        if m is not None:
+            out = [StepShapeData(self.transform(d.shape, m), d.name, d.color, d.has_color) for d in out]
         return out
 
     def step_bytes_to_glb_bytes(
@@ -962,7 +977,7 @@ class OccBackend:
         # BRepBuilderAPI_Transform's copy flag.
         from OCC.Core.gp import gp_Trsf
 
-        m = matrix
+        m = check_similarity_matrix(matrix, "transform")
         trsf = gp_Trsf()
         trsf.SetValues(
             float(m[0][0]),

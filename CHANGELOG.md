@@ -2,6 +2,25 @@
 
 
 
+## v0.87.0 (2026-09-24)
+
+### Feature
+
+* feat: STEP import scale/transform/rotate on either kernel (#389)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`a1fc214`](https://github.com/Krande/adapy/commit/a1fc214e63c3906e3a5803c453774e2e1189954c))
+
+
+## v0.86.2 (2026-09-24)
+
+### Fix
+
+* fix(cad): kernel parity in CI — construction verbs without xfails, both kernels in one env, adacpp by default (#385)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`4335b5e`](https://github.com/Krande/adapy/commit/4335b5ee0438042969f26b9ada5f76fbb2152f4d))
+
+
 ## v0.86.1 (2026-09-24)
 
 ### Fix

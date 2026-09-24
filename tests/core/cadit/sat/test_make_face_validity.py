@@ -29,11 +29,11 @@ FIXTURES = Path(__file__).parent / "bad_face_fixtures"
     ["planar_arc_face.pkl", "rational_bspline_face_0.pkl", "rational_bspline_face_1.pkl"],
 )
 def test_make_face_from_geom_is_brepcheck_valid(fixture):
-    from OCC.Core.BRepCheck import BRepCheck_Analyzer
-
+    from ada.cad import select_backend
     from ada.occ.geom.surfaces import make_face_from_geom
 
+    occ = select_backend(prefer="occ")  # make_face_from_geom is the OCC builder
     advanced_face = pickle.loads((FIXTURES / fixture).read_bytes())
     face = make_face_from_geom(advanced_face)
-    assert not face.IsNull()
-    assert BRepCheck_Analyzer(face).IsValid(), f"{fixture} produced a BRepCheck-invalid OCC face"
+    assert occ.shape_type(face) == "face"
+    assert occ.is_valid(face), f"{fixture} produced a BRepCheck-invalid OCC face"

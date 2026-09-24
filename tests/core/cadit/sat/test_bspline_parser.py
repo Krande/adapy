@@ -109,8 +109,7 @@ def test_exactcur_multiline_knot_vector_parses():
 def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
     # OCC-only SAT/STEP read + validity check (lazy-imported so the module
     # collects without pythonocc; the test itself is skipped).
-    from OCC.Core.BRepCheck import BRepCheck_Analyzer
-
+    from ada.cad import active_backend
     from ada.cadit.step.read.geom.surfaces import occ_shell_to_ada_faces
     from ada.occ.utils import extract_occ_shapes
 
@@ -246,8 +245,7 @@ def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
 
     shape = ada.Shape("shape0", Geometry(0, face_obj_sat))
     occ_shape = shape.solid_occ()
-    analyzer = BRepCheck_Analyzer(occ_shape, True)
     # Check shape validity
     # Note: This might fail if p-curves are missing (recomputed p-curves on rational surfaces can be unstable).
     # The primary goal was to validate that the parsed geometry (knots, poles) matches the validated STP.
-    assert analyzer.IsValid()
+    assert active_backend().is_valid(occ_shape)  # solid_occ builds on the active backend

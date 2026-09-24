@@ -86,7 +86,13 @@ class Tessellator:
     def default(cls, **kwargs) -> Tessellator:
         """The track adacpp declares as its default (libtess2 today), or adapy's OCC track."""
         tracks = available_tess_tracks()
-        chosen = next((t for t in tracks if t.is_default), None) or (tracks[0] if tracks else None)
+        # With no declared default (an adacpp predating tess_tracks' `default`), still take an
+        # adacpp track over OCC: the list leads with OCC whenever pythonocc is importable.
+        chosen = (
+            next((t for t in tracks if t.is_default), None)
+            or next((t for t in tracks if t.backend == CadBackendName.ADACPP), None)
+            or (tracks[0] if tracks else None)
+        )
         if chosen is None:
             raise PlanError("no tessellation track is available in this environment")
         return cls(track=chosen.name, **kwargs)

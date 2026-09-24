@@ -412,8 +412,13 @@ def test_stream_reader_curved_faces_full_coverage(tmp_path):
     # slivers must ALL build into OCC faces, not drop — 100% face coverage on curved
     # CAD. Exercises _try_make_closed_revolution_face (parametric-bounds seam faces)
     # and the chord fallback for sub-mm arcs. OCC-only (make_face_from_geom).
-    pytest.importorskip("OCC.Core.BRepBuilderAPI")
+    from ada.cad import CadBackendName, backend_available, select_backend
+
+    if not backend_available(CadBackendName.OCC):
+        pytest.skip("occ backend not installed")
     from ada.occ.geom.surfaces import make_face_from_geom
+
+    occ = select_backend(prefer="occ")  # make_face_from_geom is the OCC builder
 
     a = ada.Assembly("m") / (
         ada.Part("p")
@@ -431,8 +436,9 @@ def test_stream_reader_curved_faces_full_coverage(tmp_path):
         for face in g.geometry.cfs_faces:
             try:
                 occ_face = make_face_from_geom(face)
-                built += 1 if occ_face is not None and not occ_face.IsNull() else 0
-                dropped += 0 if occ_face is not None and not occ_face.IsNull() else 1
+                ok = occ_face is not None and occ.shape_type(occ_face) == "face"
+                built += 1 if ok else 0
+                dropped += 0 if ok else 1
             except Exception:
                 dropped += 1
     assert built > 0

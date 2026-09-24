@@ -569,12 +569,15 @@ class Part(BackendGeom):
 
         :param step_path: Can be path to stp file or path to directory of step files.
         :param name: Desired name of destination Shape object
-        :param scale: Scale the step content upon import
-        :param transform: Transform the step content upon import
-        :param rotate: Rotate step content upon import
+        :param scale: Scale the step content upon import (uniform, about the world origin)
+        :param transform: Translate the step content upon import (a Placement's origin, or x, y, z)
+        :param rotate: Rotate step content upon import (a Rotation: degrees about an axis). When
+            several are given they apply in the order scale, rotate, translate.
         :param colour: Assign a specific colour upon import
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
+        :param include_shells: No effect; kept so existing calls keep working. The OCAF reader
+            returns every labelled shape, solids and shells alike.
         :param reader: STEP read path. ``None`` (default) resolves from the active
             ``CadConfig.step_reader`` (``"auto"`` out of the box). "occ" reads via the
             OpenCASCADE STEPControl_Reader. "stream" uses the kernel-free streaming reader
@@ -588,8 +591,8 @@ class Part(BackendGeom):
             # Resolve the default read path from the active CAD config so it's configurable
             # via CadConfig.step_reader (default "auto": constant-memory streaming + OCC
             # fallback). The streaming readers can't apply scale/transform/rotate, so when
-            # those are requested fall back to the OCC reader regardless of the configured
-            # default.
+            # those are requested use the document backend's OCAF reader regardless of the
+            # configured default -- it applies them on either kernel.
             if scale is not None or transform is not None or rotate is not None:
                 reader = "occ"
             else:
@@ -611,25 +614,26 @@ class Part(BackendGeom):
                 return
             # auto-fallback: the file is outside the streaming reader's scope.
 
-        if scale is None and transform is None and rotate is None:
-            # Backend-neutral path: route through the active document backend's
-            # OCAF reader (works under adacpp as well as pythonocc). Carries the
-            # per-shape name/colour the OCAF reader recovers.
-            from ada.cad.doc import active_doc_backend
+        # Backend-neutral path: route through the active document backend's OCAF reader
+        # (adacpp or pythonocc). Carries the per-shape name/colour the OCAF reader recovers,
+        # and applies scale / transform / rotate as one matrix while reading.
+        from ada.api.transforms import import_transform_matrix
+        from ada.cad.doc import active_doc_backend
 
-            shapes = [
-                (s.shape, s.color, s.name)
-                for s in active_doc_backend().step_reader(step_path).iter_all_shapes(include_colors=True)
-            ]
+        matrix = import_transform_matrix(scale, transform, rotate)
+        step_path = pathlib.Path(step_path)
+        if step_path.is_dir():
+            from ada.core.file_system import get_list_of_files
+
+            step_files = [pathlib.Path(f) for f in get_list_of_files(step_path, ".stp")]
         else:
-            # Scale / transform / rotate on import is still the OCC-only path
-            # (gp_Trsf via extract_occ_shapes); names/colours aren't recovered.
-            from ada.occ.utils import extract_occ_shapes
-
-            shapes = [
-                (shp, None, None)
-                for shp in extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
-            ]
+            step_files = [step_path]
+        doc_backend = active_doc_backend()
+        shapes = [
+            (s.shape, s.color, s.name)
+            for f in step_files
+            for s in doc_backend.step_reader(f, matrix=matrix).iter_all_shapes(include_colors=True)
+        ]
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)

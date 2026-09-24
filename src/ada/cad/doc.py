@@ -42,7 +42,7 @@ class DocBackend(Protocol):
     capabilities: frozenset[str]
 
     def step_writer(self) -> "StepWriter": ...
-    def step_reader(self, filepath: Any) -> "StepStore": ...
+    def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore": ...
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
@@ -71,10 +71,10 @@ class AdacppDocBackend:
 
         return AdacppStepWriter("AdaStep")
 
-    def step_reader(self, filepath: Any) -> "StepStore":
+    def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore":
         from ada.cadit.step.read.adacpp_store import AdacppStepStore
 
-        return AdacppStepStore(filepath)
+        return AdacppStepStore(filepath, matrix=matrix)
 
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError(
@@ -99,24 +99,25 @@ def select_doc_backend(prefer: str | None = None) -> DocBackend:
     if choice is not None:
         raise ValueError(f"Unknown ADAPY_DOC_BACKEND: {choice!r}")
 
-    # No explicit doc backend: honour the active CAD backend choice first.
-    if os.environ.get("ADAPY_CAD_BACKEND") == "adacpp":
-        try:
-            return AdacppDocBackend()
-        except ImportError:
-            pass
+    # No explicit doc backend: follow the CAD backend, in select_backend's order -- adacpp
+    # first, pythonocc only when asked for or when adacpp is absent. With both kernels
+    # installed, an OCC-first order here paired an adacpp CAD backend with an OCC document
+    # backend, whose shapes the CAD backend cannot read.
+    if os.environ.get("ADAPY_CAD_BACKEND") in ("occ", "pythonocc-core", "pyocc"):
+        order = (OccDocBackend, AdacppDocBackend)
+    else:
+        order = (AdacppDocBackend, OccDocBackend)
 
-    try:
-        return OccDocBackend()
-    except ImportError:
-        # Pure-adacpp environment (no pythonocc): fall back to the adacpp doc backend.
+    last_err: Exception | None = None
+    for cls in order:
         try:
-            return AdacppDocBackend()
+            return cls()
         except ImportError as e:
-            raise ImportError(
-                "No document backend available — install `pythonocc-core` or `ada-cpp` "
-                f"for OCAF/XCAF assembly I/O. Last error: {e}"
-            )
+            last_err = e
+    raise ImportError(
+        "No document backend available — install `ada-cpp` or `pythonocc-core` "
+        f"for OCAF/XCAF assembly I/O. Last error: {last_err}"
+    )
 
 
 _ACTIVE_DOC_BACKEND: DocBackend | None = None
