@@ -100,7 +100,9 @@ def spring_str(spring: Spring, fresh_ids: Iterator[int], user_types: Iterator[in
     for n, (dofs, value) in enumerate(terms):
         el_id = spring.id if n == 0 else next(fresh_ids)
         elset = spring.name if len(terms) == 1 else f"{spring.name}_{'_'.join(map(str, dofs))}"
-        out += render_keyword("Element", [("type", spring.type.value), ("elset", elset)], [f"{el_id}, {nodes}"], comment)
+        out += render_keyword(
+            "Element", [("type", spring.type.value), ("elset", elset)], [f"{el_id}, {nodes}"], comment
+        )
         out += render_keyword("Spring", [("elset", elset)], [", ".join(map(str, dofs)), format_number(value)])
     return out
 

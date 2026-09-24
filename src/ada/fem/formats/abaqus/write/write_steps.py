@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Union
 
-import numpy as np
-
 from ada.core.utils import bool2text
 from ada.fem.steps import (
     Step,
@@ -12,6 +10,7 @@ from ada.fem.steps import (
     StepSteadyState,
 )
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 from .templates import step_inp_str
 
@@ -48,7 +47,9 @@ def abaqus_step_str(step: _step_types):
         st.STEADY_STATE: steady_state_response_str,
         st.COMPLEX_EIG: complex_eig_str,
     }
-    step_str_writer = step_map.get(step.type, None)
+    # By class first: StepEigenComplex inherits StepEigen.__init__, which gives it the EIGEN type,
+    # so dispatching on the type wrote every complex-frequency step as a plain *Frequency.
+    step_str_writer = complex_eig_str if isinstance(step, StepEigenComplex) else step_map.get(step.type, None)
     if step_str_writer is None:
         raise ValueError(f"Unrecognized step type {step.type}.")
 
@@ -118,6 +119,12 @@ def load_str(step: _step_types):
     return "\n".join([load_str(load) for load in step.loads])
 
 
+def _opt(value) -> str:
+    """An optional data field: blank when unset, which Abaqus reads as its default (a step read
+    from a deck that left a field blank has None there, and ``None`` is not a number)."""
+    return "" if value is None else str(value)
+
+
 def restart_request_str(step: _step_types):
     solver_options = step.options.ABAQUS
     if solver_options.restart_int is None:
@@ -128,15 +135,15 @@ def restart_request_str(step: _step_types):
 def dynamic_implicit_str(step: StepImplicitStatic):
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Dynamic,application={step.dyn_type}, INITIAL={bool2text(step.options.ABAQUS.init_accel_calc)}
-{step.init_incr},{step.total_time},{step.min_incr}, {step.max_incr}"""
+{_opt(step.init_incr)},{_opt(step.total_time)},{_opt(step.min_incr)}, {_opt(step.max_incr)}"""
 
 
 def explicit_str(step: StepExplicit):
+    # No *Bulk Viscosity: it was hard-coded to 0.06, 1.2 -- Abaqus's own defaults, so writing it
+    # changed nothing, and no step attribute stood behind it for a reader to give back.
     return f"""*Step, name={step.name}, nlgeom={bool2text(step.nl_geom)}
 *Dynamic, Explicit
-, {step.total_time}
-*Bulk Viscosity
-0.06, 1.2"""
+, {_opt(step.total_time)}"""
 
 
 def static_step_str(step: StepImplicitStatic):
@@ -154,15 +161,16 @@ def static_step_str(step: StepImplicitStatic):
 
     return f"""{line1}
 *Static{stabilize_str}
-{step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
+{_opt(step.init_incr)}, {_opt(step.total_time)}, {_opt(step.min_incr)}, {_opt(step.max_incr)}"""
 
 
 def eigenfrequency_str(step: StepEigen):
+    # The step's own name: this wrote every frequency step as "eig".
     return f"""** ----------------------------------------------------------------
 **
-** STEP: eig
+** STEP: {step.name}
 **
-*Step, name=eig, nlgeom=NO, perturbation
+*Step, name={step.name}, nlgeom=NO, perturbation
 *Frequency, eigensolver=Lanczos, sim=NO, acoustic coupling=on, normalization=displacement
 {step.num_eigen_modes}, , , , ,
 """
@@ -172,7 +180,7 @@ def complex_eig_str(step: StepEigenComplex):
     unsymm = bool2text(step.options.ABAQUS.unsymm)
     return f"""** ----------------------------------------------------------------
 **
-** STEP: complex_eig
+** STEP: {step.name}
 **
 *Step, name={step.name}, nlgeom=NO, perturbation, unsymm={unsymm}
 *Complex Frequency, friction damping=NO
@@ -182,34 +190,27 @@ def complex_eig_str(step: StepEigenComplex):
 
 def steady_state_response_str(step: StepSteadyState) -> str:
     load = step.unit_load
-    directions = [dof for dof in load.dof if dof is not None]
+    # The DOF's POSITION: this took the entry's value, so a unit load [None, None, 1, ...] (DOF 3)
+    # was written on DOF 1.
+    directions = [i + 1 for i, dof in enumerate(load.dof) if dof]  # None or 0: no component there
     if len(directions) != 1:
         raise ValueError("Steady state analysis supports only a Unit load in a single degree of freedom")
 
     direction = directions[0]
-    magnitude = load.magnitude
-    node_ref = get_instance_name(load.fem_set.members[0], True)
-
+    magnitude = load.magnitude * load.dof[direction - 1]
+    set_ref = get_instance_name(load.fem_set, True)
+    # The step's own name (this wrote "<name>_<fmin>_<fmax>Hz"); the range as the ONE data line the
+    # Keywords Guide gives INTERVAL=RANGE -- lower, upper, number of points -- where this wrote a
+    # hundred single frequencies rounded to 3 decimals; and the unit load against its set and under
+    # its name. All of it reads back.
     return f"""** ----------------------------------------------------------------
-*STEP,NAME={step.name}_{step.fmin}_{step.fmax}Hz
+*STEP,NAME={step.name}
 *STEADY STATE DYNAMICS, DIRECT, INTERVAL=RANGE
- {add_freq_range(step.fmin, step.fmax)}
-*GLOBAL DAMPING, ALPHA={step.alpha} , BETA={step.beta}
+ {format_number(step.fmin)}, {format_number(step.fmax)}, 100
+*GLOBAL DAMPING, ALPHA={format_number(step.alpha)} , BETA={format_number(step.beta)}
 **
 *LOAD CASE, NAME=LC1
+** Name: {load.name}   Type: Concentrated force
 *CLOAD, OP=NEW
- {node_ref}, {direction}, {magnitude}
+ {set_ref}, {direction}, {format_number(magnitude)}
 *END LOAD CASE"""
-
-
-def add_freq_range(fmin: float, fmax: float, intervals: int = 100):
-    """Return a multiline string of frequency range given by <fmin> and <fmax> at a specific interval."""
-    freq_list = np.linspace(fmin, fmax, intervals)
-    freq_str = ""
-    for eig in freq_list:
-        if eig == freq_list[-1]:
-            freq_str += "{0:.3f},".format(eig)
-        else:
-            freq_str += "{0:.3f},\n".format(eig)
-
-    return freq_str

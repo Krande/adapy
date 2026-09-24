@@ -86,7 +86,9 @@ def _behaviours(bulk_str: str) -> dict[str, tuple[tuple[int, ...], float]]:
         elset = block.params.get("ELSET")
         if elset is None:  # an ITS / JOINTC behaviour, not a spring element's
             continue
-        unsupported = [p for p in ("NONLINEAR", "ORIENTATION", "DEPENDENCIES", "COMPLEX STIFFNESS") if p in block.params]
+        unsupported = [
+            p for p in ("NONLINEAR", "ORIENTATION", "DEPENDENCIES", "COMPLEX STIFFNESS") if p in block.params
+        ]
         lines = block.data_lines
         if unsupported or len(lines) != 2:
             reason = f"{', '.join(unsupported)} not read" if unsupported else "a table of stiffnesses is not read"

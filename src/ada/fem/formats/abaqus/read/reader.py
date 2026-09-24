@@ -44,11 +44,18 @@ from .lexer import (
 )
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
-from .read_ref_points import add_ref_points_from_bulk, is_ref_point_block, node_by_id
-from .read_springs import get_springs_from_bulk, link_spring_sets
 from .read_materials import get_materials_from_bulk
 from .read_orientations import get_lcsys_from_bulk
+from .read_ref_points import add_ref_points_from_bulk, is_ref_point_block, node_by_id
 from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
+from .read_springs import get_springs_from_bulk, link_spring_sets
+from .read_steps import (
+    HISTORY_KEYWORDS,
+    first_step_offset,
+    read_amplitudes,
+    read_steps,
+    read_transforms,
+)
 
 part_name_counter = Counter(1, "Part")
 
@@ -93,16 +100,18 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
     lbulk = bulk_str.lower()
     ass_start = lbulk.find("\n*assembly")
     ass_end = lbulk.rfind("\n*end assembly")
-    step_start = lbulk.rfind("\n*step")
+    # History data starts at the FIRST *Step (read_steps.first_step_offset); the end of the deck
+    # when there is none. Cutting at the last one read an earlier step's data as model data,
+    # and with no step at all a -1 here sliced off the deck's last character.
+    step_start = first_step_offset(bulk_str)
 
     ass_start = ass_start + 1 if ass_start != -1 else ass_start
     ass_end = ass_end + 1 if ass_end != -1 else ass_end
-    step_start = step_start + 1 if step_start != -1 else step_start
 
     if ass_start == -1 and ass_end == -1:
         uses_assembly_parts = False
-        assembly_str = bulk_str
-        props_str = bulk_str
+        assembly_str = bulk_str[:step_start]
+        props_str = bulk_str[:step_start]
     else:
         uses_assembly_parts = True
         assembly_str = bulk_str[ass_start : ass_end + 2]
@@ -118,7 +127,7 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
 
     part_list = import_parts(bulk_str[:ass_start], ass_data, assembly)
     if len(part_list) == 0:
-        add_fem_without_assembly(bulk_str, assembly)
+        add_fem_without_assembly(bulk_str[:step_start], assembly)
 
     if uses_assembly_parts is True:
         ass_sets = assembly_str[inst_end:]
@@ -146,12 +155,13 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_str(assembly, props_str)
+    read_amplitudes(props_str, assembly.fem)
+    read_transforms(assembly_str, assembly.fem)
+    read_steps(bulk_str[step_start:], assembly)
+    assembly.fem.metadata.pop("_abaqus_transforms", None)
     # The assembly and its end are found by string search above, not by asking for the keyword.
     mark_read("ASSEMBLY", "END ASSEMBLY")
-    # Where history data starts, as far as this reader is concerned: an assembly deck's model
-    # data is cut off at the LAST *Step (props_str above), so nothing from there on is read.
-    history_start = step_start if (uses_assembly_parts and step_start != -1) else len(bulk_str)
-    return assembly, bulk_str, history_start
+    return assembly, bulk_str, step_start
 
 
 def _surface_or_set(name: str, fem: FEM):
@@ -207,8 +217,8 @@ def report_unread_keywords(bulk_str: str, read: set[str], history_start: int) ->
 
     * as a ``note`` when it changes nothing in the model -- a title, an output/print request, a
       solver control (``keywords.NO_MODEL_EFFECT``, ``keywords.SOLVER_CONTROLS``);
-    * as ``omitted`` when it sits in history data the reader does not read (from the last
-      ``*Step`` of an assembly deck on), whatever the keyword;
+    * as ``omitted`` when it sits in history data (from the first ``*Step`` on) and is not one
+      of the keywords the step reader reads (``read_steps.HISTORY_KEYWORDS``);
     * as ``omitted`` when no reader asked for it at all.
 
     Counted per keyword, never per block: a deck with a thousand ``*Cload`` blocks is one line
@@ -221,7 +231,7 @@ def report_unread_keywords(bulk_str: str, read: set[str], history_start: int) ->
     unread: dict[tuple[str, bool], list[int]] = {}
     for block in tokenize(bulk_str):
         in_history = block.start >= history_start
-        if not in_history and block.keyword in read:
+        if block.keyword in (HISTORY_KEYWORDS if in_history else read):
             continue
         entry = unread.setdefault((block.keyword, in_history), [0, block.lineno])
         entry[0] += 1
@@ -248,7 +258,7 @@ def report_unread_keywords(bulk_str: str, read: set[str], history_start: int) ->
                 READER_STAGE,
                 f"*{keyword}",
                 subject,
-                "history data in the last *Step is not read",
+                "no reader for this keyword in a step",
                 count=count,
                 **details,
             )
@@ -1260,7 +1270,9 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
     mpcs = [get_mpc(name, mpc_type, values) for (name, mpc_type), values in mpc_dict.items()]
 
-    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs, _equations(bulk_str, fem)])}
+    return {
+        c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs, _equations(bulk_str, fem)])
+    }
 
 
 def _equations(bulk_str: str, fem: FEM) -> list[Constraint]:
@@ -1301,9 +1313,7 @@ def _equations(bulk_str: str, fem: FEM) -> list[Constraint]:
             n_eq += 1
             s_set = as_set(terms[0][0], f"{name}_s")
             m_set = as_set(terms[1][0], f"{name}_m") if len(terms) > 1 else s_set
-            out.append(
-                Constraint(name, Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem)
-            )
+            out.append(Constraint(name, Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem))
     return out
 
 

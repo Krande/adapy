@@ -75,6 +75,12 @@ R17 A connector section's properties are compared per component: a scalar is com
     docstring says, is a question for the model, not the comparison.) A section with
     ``str_override`` is the text written in its place; like R16, it is compared through the
     typed section the reader rebuilds from that text.
+R18 A point load is compared by its effective components (``forces``: each DOF's factor times
+    the magnitude), not by how they are split between ``magnitude`` and ``dof``. ``*Cload`` holds
+    only the product; ``(100, [0, 0, -1])`` and ``(1, [0, 0, -100])`` write the same deck.
+R19 A step whose text is supplied verbatim (metadata ``aba_inp``) is written as that text and
+    nothing else, so it is compared as that text reads -- parsed by the reader's step parser
+    against the same model -- not as the step object that carried it.
 """
 
 from __future__ import annotations
@@ -265,7 +271,9 @@ def _per_component(comp):
 def _con_section(cs) -> dict:
     override = getattr(cs, "str_override", None)
     if override:  # R17: the text written in its place, read back as the reader reads it
-        from ada.fem.formats.abaqus.read.read_sections import get_connector_sections_from_bulk
+        from ada.fem.formats.abaqus.read.read_sections import (
+            get_connector_sections_from_bulk,
+        )
 
         rebuilt = get_connector_sections_from_bulk(override, None)
         if len(rebuilt) == 1:
@@ -443,7 +451,9 @@ def _bc(bc) -> dict:
     if part is not None and getattr(part, "fem", None) is owner:  # R6
         owner_name = _part_key(part)
     else:
-        owner_name = getattr(owner, "instance_name", None) or getattr(owner, "name", None) if owner is not None else None
+        owner_name = (
+            getattr(owner, "instance_name", None) or getattr(owner, "name", None) if owner is not None else None
+        )
     return {
         "key": f"{(owner_name or '').lower()}.{_name(bc.fem_set)}",  # R3
         "type": _bc_type(bc.type),
@@ -454,6 +464,8 @@ def _bc(bc) -> dict:
 
 def _load(ld) -> dict:
     out = {"type": _v(ld.type), "magnitude": _v(ld.magnitude), "dof": _v(ld.dof)}
+    if _is_point_load(ld):
+        del out["magnitude"], out["dof"]  # R18: ``forces`` below is what the deck holds
     for attr in ("fem_set", "amplitude", "csys", "surface"):
         val = getattr(ld, attr, None)
         out[attr] = _csys(val) if attr == "csys" else _name(val)
@@ -465,6 +477,12 @@ def _load(ld) -> dict:
         except ValueError:
             continue  # defined only for another load type (acc_vector raises for gravity)
     return out
+
+
+def _is_point_load(ld) -> bool:
+    from ada.fem.loads.fe_loads import LoadTypes
+
+    return ld.type == LoadTypes.FORCE
 
 
 def _field_output(fo) -> dict:
@@ -504,7 +522,21 @@ _STEP_ATTRS = (
 )
 
 
+def _verbatim_step(st):
+    """R19: the step ``aba_inp`` stands for, or None when it has none (or not one step)."""
+    text = (getattr(st, "metadata", None) or {}).get("aba_inp")
+    fem = getattr(st, "parent", None)
+    if not text or fem is None or fem.parent is None:
+        return None
+    from ada.fem.formats.abaqus.read.read_steps import parse_step
+
+    return parse_step(text, fem.parent)
+
+
 def _step(st) -> dict:
+    parsed = _verbatim_step(st)
+    if parsed is not None:
+        return _step(parsed)
     out = {"type": type(st).__name__}
     for attr in _STEP_ATTRS:
         if hasattr(st, attr):

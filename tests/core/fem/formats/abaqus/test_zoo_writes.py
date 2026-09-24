@@ -21,8 +21,7 @@ from ada.fem.formats.abaqus.write.writer import to_fem as write_abaqus
 from .zoo import ZOO
 
 #: The Abaqus writer's own gaps.
-ABAQUS_GAPS = {
-}
+ABAQUS_GAPS = {}
 
 #: What the Calculix writer cannot express, beyond the gaps it shares with Abaqus.
 CALCULIX_GAPS = {

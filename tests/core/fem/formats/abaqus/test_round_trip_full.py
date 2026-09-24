@@ -29,23 +29,13 @@ from .canonical import canonical, diff_paths
 from .zoo import ZOO
 
 FULL_ROUND_TRIP_GAPS = {
-    "amplitudes": (AssertionError, "amplitudes (a)"),
-    "boundary_conditions": (AssertionError, "connector placement: part-level connector reads back at assembly level"),
-    "elements_line_explicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "interactions": (AssertionError, "interactions (e)"),
-    "loads": (AssertionError, "amplitudes (a); load csys (*Transform) (a); steps (+ their loads, BCs, outputs) (a)"),
-    "outputs": (AssertionError, "steps and outputs (a); connector placement"),
+    "boundary_conditions": (AssertionError, "connector-motion BCs are not read; a BC's amplitude is not read"),
+    "interactions": (AssertionError, "a raw interaction (aba_bulk text) does not read back"),
+    "outputs": (AssertionError, "the connector elset a history output names is not written"),
     "sections_zero_thickness": (
         AssertionError,
-        "a zero-thickness shell section has no Abaqus form (d): left out, reported as omitted",
+        "a zero-thickness shell section has no Abaqus form: left out, reported as omitted",
     ),
-    "steps_complex_eigen": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "steps_dynamic_implicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "steps_eigen": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "steps_explicit": (AssertionError, "interactions (e); steps (+ their loads, BCs, outputs) (a)"),
-    "steps_raw_input": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
-    "steps_static": (AssertionError, "step-level BC (b); steps (+ their loads, BCs, outputs) (a)"),
-    "steps_steady_state": (AssertionError, "steps (+ their loads, BCs, outputs) (a)"),
 }
 
 
