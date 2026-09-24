@@ -280,9 +280,9 @@ class MeshArrays:
                 blk.fem_secs = [getattr(e, "fem_sec", None) for e in elems]
             if any(getattr(e, "elset", None) is not None for e in elems):
                 blk.elsets = [getattr(e, "elset", None) for e in elems]
-            forms = [getattr(e, "_formulation_override", None) for e in elems]
-            if any(isinstance(f, str) for f in forms):
-                blk.formulations = [f if isinstance(f, str) else None for f in forms]
+            forms = [getattr(e, "formulation", None) for e in elems]
+            if any(f is not None for f in forms):
+                blk.formulations = forms
             for i, e in enumerate(elems):
                 if getattr(e, "eccentricity", None) is not None:
                     blk.ecc[i] = e.eccentricity

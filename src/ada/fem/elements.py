@@ -7,6 +7,7 @@ import numpy as np
 
 from ada.api.nodes import Node
 from ada.config import logger
+from ada.fem.formulations import Formulation, as_formulation
 
 from .common import Csys, FemBase
 from .shapes import ElemShape, ElemType
@@ -172,7 +173,16 @@ class Elem(FemBase):
 
     @property
     def formulation_override(self):
-        return self._formulation_override if self._formulation_override is not None else self.type
+        """The source type's name (``"S4R"``), else the shape. See :attr:`formulation`."""
+        form = as_formulation(self._formulation_override)
+        return form.name if form is not None else self.type
+
+    @property
+    def formulation(self) -> Formulation | None:
+        """The element type this element was read as, with the format that names it -- what a
+        writer consults before its own default (``ada.fem.formulations.resolve``). None for an
+        element made in adapy."""
+        return as_formulation(self._formulation_override)
 
     def update(self) -> None:
         self._nodes = list(set(self.nodes))

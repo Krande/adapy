@@ -183,6 +183,7 @@ class Assembly(Part):
         model_data_only=False,
         write_input_files_only=False,
         report_file: str | os.PathLike | None = None,
+        formulations=None,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -222,6 +223,11 @@ class Assembly(Part):
             the format has no form for, and what it approximated -- to this path as a JSON
             conversion report (``ada.fem.formats.conversion_report``). Always written, also when
             nothing was lost.
+        :param formulations: How to choose each element's type in the target format, ahead of the
+            element's own source formulation and the writer's defaults: a mapping (keyed by the
+            source ``Formulation``, a ``(family, name)`` pair, a bare source type name, or the
+            element shape), a function ``fn(elem, source, target_format) -> type name | None``,
+            or a list of them tried in order. See ``ada.fem.formulations``.
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -252,10 +258,14 @@ class Assembly(Part):
             logger.info(f"FEM result file already exists: {res_path}")
             return postprocess(res_path, fem_format=fem_format)
 
+        from ada.fem import formulations as fem_formulations
         from ada.fem.formats import conversion_report
 
-        with conversion_report.to_file(
-            report_file, output=str(scratch_dir / name), name=name, to_format=_format_name(fem_format)
+        with (
+            conversion_report.to_file(
+                report_file, output=str(scratch_dir / name), name=name, to_format=_format_name(fem_format)
+            ),
+            fem_formulations.use(formulations),
         ):
             write_to_fem(
                 self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only

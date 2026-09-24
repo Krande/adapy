@@ -13,6 +13,7 @@ from ada.fem.formats.abaqus.mapping import (
     bc_types,
     element_types,
 )
+from ada.fem.formulations import as_formulation
 from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 
 
@@ -59,8 +60,8 @@ def test_every_element_type_the_writer_emits_reads_back_as_the_same_shape(shape,
 def test_the_formulation_an_element_was_read_as_wins_over_the_default():
     class _Elem:
         type = ShellShapes.TRI
-        formulation_override = "cps3"
+        formulation = as_formulation("cps3")
 
     assert element_types().write_type(_Elem(), AbaqusDefaultElemTypes()) == "CPS3"
-    _Elem.formulation_override = "C3D4"  # not a triangle: ignored, the default is written
+    _Elem.formulation = as_formulation("C3D4")  # not a triangle: the default is written (and reported)
     assert element_types().write_type(_Elem(), AbaqusDefaultElemTypes()) == "S3"
