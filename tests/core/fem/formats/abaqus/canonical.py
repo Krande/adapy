@@ -41,6 +41,29 @@ R10 A surface is compared as the list of ``(set, face label)`` data lines it sta
     shell face index carries only the sign (the writer writes -1 as SNEG, any other value as
     SPOS), and ``id_refs`` is the same list held pre-formatted -- which of the two a model holds
     is representation. A node surface's weight is compared as a field.
+R11 Connectors are compared assembly-wide, keyed by element id, with their end nodes as
+    ``(part, node id)``: the writer writes every connector at assembly level (it may join
+    instances), so a connector defined in a part reads back on the assembly. The connector's own
+    element set and orientation are its attributes, compared on it -- not as separate entries
+    of whichever FEM happens to hold them.
+R12 A constraint's DOFs are compared expanded (``ada.fem.constraints.expand_dofs``): ``[1, 2, 3]``
+    and the reader's ``(first, last)`` ranges ``[[1, 1], [2, 2], [3, 3]]`` are one DOF list. An
+    operand is compared by its nodes/elements, and by name -- except where Abaqus has no name for
+    it: an MPC names nodes, not sets, so MPC operand set names are not compared.
+R13 An orientation owned by a constraint, connector or section is compared on its owner (R11,
+    ``csys`` fields); ``lcsys`` lists only the orientations nothing owns. Whether the owner's
+    orientation is also registered in its FEM's ``lcsys`` is representation. An orientation with
+    neither coordinates nor nodes is the global one, and is compared as its axes
+    ``[[1, 0, 0], [0, 1, 0]]`` -- which is what the writer writes for it.
+R14 A NODE surface over exactly one node set of the same name, used as a coupling operand, IS
+    that set for comparison: ``*Coupling`` takes a surface, so the writer writes one over the
+    coupling's node set, and the reader reads the surface. It is compared on the constraint
+    (R12), not as a surface of its own.
+R15 A nonstructural mass has no Abaqus element: ``*Nonstructural Mass`` spreads a value over a
+    set of structural elements. adapy holds it as a pseudo-element, whose id and one-member set
+    are not in the deck, so it is compared under ``nonstructural_masses``, keyed by the
+    structural set it spreads over, by value and units. A point mass or rotary inertia IS an
+    element (``*Element, type=MASS``) and is compared as one, values included.
 """
 
 from __future__ import annotations
@@ -138,12 +161,17 @@ def _element(el, defaults) -> dict:
             etype = element_types().write_type(el, defaults)  # R2
         except Exception:
             etype = f"{_v(el.type)} (no Abaqus type)"
-    return {
+    out = {
         "type": etype,
         "nodes": [_v(n.id) for n in el.nodes],
         "elset": _name(el.elset),
         "section": _name(getattr(getattr(el, "fem_sec", None), "elset", None)),  # R8
     }
+    if isinstance(el.type, MassTypes):  # R15: a mass element's values are the element
+        out["mass"] = _v(el.mass)
+        out["point_mass_type"] = _v(getattr(el, "point_mass_type", None))
+        out["units"] = _v(getattr(el, "units", None))
+    return out
 
 
 def _section(sec) -> dict:
@@ -197,13 +225,22 @@ def _spring(sp) -> dict:
     return {"type": _v(sp.type), "stiff": _v(sp.stiff), "set": _name(sp.fem_set), "nodes": _ids(sp.nodes)}
 
 
+def _node_ref(node) -> list:
+    """R11: a node as ``[part, id]`` -- which FEM holds it is part of what it is."""
+    fem = getattr(node, "parent", None)
+    part = getattr(fem, "parent", None)
+    owner = _part_key(part) if part is not None and hasattr(part, "fem") else None
+    return [owner, _v(node.id)]
+
+
 def _connector(con) -> dict:
     return {
         "type": _v(con.con_type),
-        "n1": _v(con.n1.id),
-        "n2": _v(con.n2.id),
+        "n1": _node_ref(con.n1),
+        "n2": _node_ref(con.n2),
         "section": _name(con.con_sec),
         "csys": _csys(con.csys),
+        "elset": _name(getattr(con, "elset", None)),
     }
 
 
@@ -219,22 +256,60 @@ def _con_section(cs) -> dict:
 def _csys(cs) -> dict | None:
     if cs is None:
         return None
+    coords = cs.coords
+    if coords is None and not cs.nodes:
+        coords = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]  # R13: the global orientation
     return {
         "definition": _v(cs.definition),
         "system": _v(cs.system),
-        "coords": _v(cs.coords),
+        "coords": _v(coords),
         "nodes": _ids(cs.nodes or []),
     }
 
 
+def _operand_members(op) -> list | None:
+    """R12/R14: an operand's nodes or elements, through a surface to the set it stands on."""
+    if op is None:
+        return None
+    if hasattr(op, "members"):
+        return _ids(op.members)
+    fs = getattr(op, "fem_set", None)
+    sets = fs if isinstance(fs, list) else [fs]
+    if all(s is not None and hasattr(s, "members") for s in sets):
+        return sorted(i for s in sets for i in _ids(s.members))
+    return None
+
+
+def _operand_name(op) -> str | None:
+    """R14: a node surface named as the one set it stands on is that set."""
+    fs = getattr(op, "fem_set", None)
+    if fs is not None and not isinstance(fs, list) and str(_v(getattr(op, "type", ""))).upper() == "NODE":
+        if _name(fs) == _name(op):
+            return _name(fs)
+    return _name(op)
+
+
+def _expanded_dofs(dofs):
+    """R12."""
+    from ada.fem.constraints import expand_dofs
+
+    if dofs is None:
+        return None
+    try:
+        return list(expand_dofs(dofs))
+    except (TypeError, ValueError):
+        return _v(dofs)
+
+
 def _constraint(c) -> dict:
+    is_mpc = str(_v(c.type)).lower() == "mpc"
     return {
         "type": _v(c.type),
-        "m_set": _name(c.m_set),
-        "m_members": _ids(c.m_set.members) if c.m_set is not None and hasattr(c.m_set, "members") else None,
-        "s_set": _name(c.s_set),
-        "s_members": _ids(c.s_set.members) if c.s_set is not None and hasattr(c.s_set, "members") else None,
-        "dofs": _v(c.dofs),
+        "m_set": None if is_mpc else _operand_name(c.m_set),
+        "m_members": _operand_members(c.m_set),
+        "s_set": None if is_mpc else _operand_name(c.s_set),
+        "s_members": _operand_members(c.s_set),
+        "dofs": _expanded_dofs(c.dofs),
         "pos_tol": _v(c.pos_tol),
         "influence_distance": _v(c.influence_distance),
         "mpc_type": _v(c.mpc_type),
@@ -420,33 +495,64 @@ def _part_key(part) -> str:
     return (inst or part.name).lower()
 
 
-def _fem(fem) -> dict:
-    from ada.fem.shapes.definitions import ConnectorTypes
+def _is_connector_set(s) -> bool:
+    """R11: a set holding connector elements only is the connector's own attribute."""
+    from ada.fem import Connector
+
+    members = s.members
+    return bool(members) and all(isinstance(m, Connector) for m in members)
+
+
+def _is_nonstructural_mass_set(s) -> bool:
+    """R15: the one-member set holding a nonstructural mass's pseudo-element."""
+    from ada.fem.shapes.definitions import MassTypes
+
+    members = s.members
+    return bool(members) and all(getattr(m, "type", None) == MassTypes.NONSTRUCTURAL for m in members)
+
+
+def _coupling_surface(s, fem) -> bool:
+    """R14: a node surface named as its one set, used as a coupling operand of this FEM."""
+    return any(c.s_set is s for c in fem.constraints.values()) and _operand_name(s) == _name(
+        getattr(s, "fem_set", None)
+    )
+
+
+def _fem(fem, owned_csys: set) -> dict:
+    from ada.fem.shapes.definitions import ConnectorTypes, MassTypes
 
     defaults = fem.options.ABAQUS.default_elements
     elements = {}
-    connectors = {}
+    nonstructural = {}
     for el in fem.elements:
-        if isinstance(el.type, ConnectorTypes):
-            connectors[str(_v(el.id))] = _connector(el)
-        else:
-            elements[str(_v(el.id))] = _element(el, defaults)
+        if isinstance(el.type, ConnectorTypes):  # R11, compared assembly-wide
+            continue
+        if el.type == MassTypes.NONSTRUCTURAL:  # R15
+            nonstructural[_name(getattr(el, "fem_set", None))] = {
+                "mass": _v(el.mass),
+                "units": _v(getattr(el, "units", None)),
+            }
+            continue
+        elements[str(_v(el.id))] = _element(el, defaults)
     return {
         "nodes": {str(_v(n.id)): _v(n.p) for n in fem.nodes},
         "elements": elements,
-        "connectors": connectors,
-        "sets": {f"{_v(s.type)}:{_name(s)}": _set(s) for s in fem.sets},
+        "nonstructural_masses": nonstructural,
+        "sets": {
+            f"{_v(s.type)}:{_name(s)}": _set(s)
+            for s in fem.sets
+            if not (_is_connector_set(s) or _is_nonstructural_mass_set(s))
+        },
         "sections": {_name(s.elset): _section(s) for s in fem.sections},  # R8
         "masses": {_name(k): _mass(m) for k, m in fem.masses.items()},
         "springs": {_name(k): _spring(s) for k, s in fem.springs.items()},
-        "connector_sections": {_name(k): _con_section(c) for k, c in fem.connector_sections.items()},
         "constraints": {_name(k): _constraint(c) for k, c in fem.constraints.items()},
-        "surfaces": {_name(k): _surface(s) for k, s in fem.surfaces.items()},
+        "surfaces": {_name(k): _surface(s) for k, s in fem.surfaces.items() if not _coupling_surface(s, fem)},
         "interaction_properties": {_name(k): _intprop(p) for k, p in fem.intprops.items()},
         "interactions": {_name(k): _interaction(i) for k, i in fem.interactions.items()},
         "amplitudes": {_name(k): _amplitude(a) for k, a in fem.amplitudes.items()},
         "predefined_fields": {_name(k): _predefined(p) for k, p in fem.predefined_fields.items()},
-        "lcsys": {_name(k): _csys(c) for k, c in fem.lcsys.items()},
+        "lcsys": {_name(k): _csys(c) for k, c in fem.lcsys.items() if id(c) not in owned_csys},  # R13
         "ref_points": sorted(_v(n.id) for n in fem.ref_points),
         "steps": {_name(st): _step(st) for st in fem.steps},
     }
@@ -454,20 +560,43 @@ def _fem(fem) -> dict:
 
 def canonical(assembly) -> dict:
     """Everything the Abaqus format can carry about ``assembly``, comparable with ``==``."""
+    from ada.fem.shapes.definitions import ConnectorTypes
+
+    all_parts = assembly.get_all_parts_in_assembly(include_self=True)
+    owned_csys: set = set()  # R13
+    connectors: dict = {}  # R11
+    connector_sections: dict = {}
+    for p in all_parts:
+        fem = p.fem
+        owned_csys |= {id(c.csys) for c in fem.constraints.values() if c.csys is not None}
+        owned_csys |= {id(s.csys) for s in fem.sections if getattr(s, "csys", None) is not None}
+        for el in fem.elements:
+            if isinstance(el.type, ConnectorTypes):
+                if el.csys is not None:
+                    owned_csys.add(id(el.csys))
+                connectors[str(_v(el.id))] = _connector(el)
+        connector_sections.update({_name(k): _con_section(c) for k, c in fem.connector_sections.items()})
+
     parts = {}
     bcs = []
-    for p in assembly.get_all_parts_in_assembly(include_self=True):
+    for p in all_parts:
         bcs += [_bc(b) for b in p.fem.bcs]  # R3
         if p is not assembly and p.fem.is_empty():
             continue
         # The assembly is always present, so what it holds (steps, assembly-level sets and
         # constraints, amplitudes...) is compared field by field, never as one opaque key.
-        parts[_part_key(p) if p is not assembly else "<assembly>"] = _fem(p.fem)
+        parts[_part_key(p) if p is not assembly else "<assembly>"] = _fem(p.fem, owned_csys)
     materials = {}
     for p in assembly.get_all_parts_in_assembly(include_self=True):
         for m in p.materials:
             materials[_name(m)] = _material(m)
-    return {"parts": parts, "materials": materials, "bcs": _keyed(bcs)}
+    return {
+        "parts": parts,
+        "materials": materials,
+        "bcs": _keyed(bcs),
+        "connectors": connectors,
+        "connector_sections": connector_sections,
+    }
 
 
 def _keyed(bcs: list[dict]) -> dict:

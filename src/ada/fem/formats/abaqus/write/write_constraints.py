@@ -30,7 +30,9 @@ def constraint_str(constraint: Constraint, on_assembly_level: bool):
         return _tie(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.RIGID_BODY:
         rnode = get_instance_name(constraint.m_set, on_assembly_level)
-        return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(constraint.s_set, on_assembly_level)}"
+        elset = get_instance_name(constraint.s_set, on_assembly_level)
+        # The name has nowhere else to go: *Rigid Body takes none, so CAE writes it as a comment.
+        return f"** Constraint: {constraint.name}\n*Rigid Body, ref node={rnode}, elset={elset}"
     elif constraint.type == Constraint.TYPES.MPC:
         return _mpc(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.SHELL2SOLID:
@@ -45,9 +47,16 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
     ).rstrip()
 
     if type(constraint.s_set) is FemSet:
+        # *Coupling takes a SURFACE; adapy's coupling holds a node set, so a node surface over it
+        # is written. Named as the set (surfaces and sets are separate namespaces in Abaqus), so
+        # the name comes back -- ``<constraint>_surf`` read back as a different operand.
+        surf_name = constraint.s_set.name
+        parent = constraint.s_set.parent
+        if parent is not None and surf_name in parent.surfaces:
+            surf_name = f"{constraint.name}_surf"
         new_surf = surface_str(
             Surface(
-                f"{constraint.name}_surf",
+                surf_name,
                 Surface.TYPES.NODE,
                 constraint.s_set,
                 1.0,
@@ -55,7 +64,7 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
             ),
             on_assembly_level,
         )
-        surface_ref = f"{constraint.name}_surf"
+        surface_ref = surf_name
         add_str = new_surf
     else:
         add_str = "**"
@@ -70,7 +79,11 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
         cstr = ""
         new_csys_str = ""
 
-    rnode = f"{get_instance_name(constraint.m_set.members[0], on_assembly_level)}"
+    # The reference node's SET when it is a named set of the model (the name then survives), its
+    # node id otherwise.
+    m_set = constraint.m_set
+    named = isinstance(m_set, FemSet) and m_set.parent is not None and m_set.name in m_set.parent.nsets
+    rnode = get_instance_name(m_set if named else m_set.members[0], on_assembly_level)
     return f"""** ----------------------------------------------------------------
 ** Coupling element {constraint.name}
 ** ----------------------------------------------------------------{new_csys_str}
@@ -109,7 +122,7 @@ def _tie(constraint: Constraint, on_assembly_level: bool) -> str:
     num = 80
     pos_tol_str = ""
     if constraint.pos_tol is not None:
-        pos_tol_str = f", position tolerance={constraint.pos_tol},"
+        pos_tol_str = f", position tolerance={constraint.pos_tol}"
 
     coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(constraint.name) + "**" + num * "-" + "\n"
     name = constraint.name

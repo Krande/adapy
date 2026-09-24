@@ -3,6 +3,7 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING
 
+from ..grammar import format_number
 from .helper_utils import get_instance_name
 
 if TYPE_CHECKING:
@@ -18,7 +19,9 @@ def orientations_str(fem: FEM, written_on_assembly_level: bool) -> str:
             if load.csys is None:
                 continue
             cstr += "\n"
-            coord_str = ", ".join([str(x) for x in chain.from_iterable(load.csys.coords)])[:-1]
+            # Every coordinate, exactly. ``[:-1]`` here cut the last character off the joined
+            # numbers -- the final coordinate's last digit.
+            coord_str = ", ".join(format_number(x) for x in chain.from_iterable(load.csys.coords))
             name = load.fem_set.name.upper()
             inst_name = get_instance_name(load.fem_set, written_on_assembly_level)
             cstr += f"*Nset, nset=_T-{name}, internal\n{inst_name},\n"
@@ -33,7 +36,8 @@ def csys_str(csys: Csys, written_on_assembly_level: bool):
     name = csys.name
 
     def f(num: float) -> str:
-        return f"{num:.3f}"
+        # Exact: .3f wrote an axis of 0.7071068 as 0.707.
+        return format_number(num)
 
     ori_str = f'*Orientation, name="{name}"'
     if csys.nodes is None and csys.coords is None:

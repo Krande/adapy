@@ -10,13 +10,14 @@ import numpy as np
 from ada.api.nodes import Node
 from ada.config import logger
 from ada.core.utils import Counter
-from ada.fem import Connector, Elem
+from ada.fem import Connector, Elem, Mass
 from ada.fem.containers import FemElements
 from ada.fem.formats.abaqus.elem_shapes import (
     UnsupportedAbaqusElementType,
     abaqus_el_type_to_ada,
 )
 from ada.fem.formats.utils import str_to_int
+from ada.fem.shapes import definitions as shape_def
 from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
 from .keywords import validate
@@ -184,6 +185,25 @@ def numpy_array_to_list_of_elements(res_, eltype, elset, ada_el_type, fem: FEM) 
             con = Connector(next(con_names), el_id, n1, n2, con_type=None, con_sec=None, parent=fem)
             connectors.append(con)
         return connectors
+    elif ada_el_type in (shape_def.MassTypes.MASS, shape_def.MassTypes.ROTARYI):
+        # The mass element itself, as a Mass. Its values arrive with the *Mass / *Rotary Inertia
+        # block that names its set (read_masses.get_mass fills them in); built as a plain Elem,
+        # the reader then made a SECOND element for the mass, under a new id.
+        masses = []
+        for e in res_:
+            m = Mass(
+                elset or f"mass{int(e[0])}",
+                [fem.nodes.from_id(n) for n in e[1:]],
+                0.0,
+                mass_type=ada_el_type,
+                mass_id=int(e[0]),
+                parent=fem,
+            )
+            # The *Element line's ELSET, as Elem gets it: build_sets makes the set from this, and
+            # *Mass names that set.
+            m._elset = elset
+            masses.append(m)
+        return masses
     else:
         return [
             Elem(

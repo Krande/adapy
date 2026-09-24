@@ -510,7 +510,17 @@ class FEM:
         if elid_max > other.elements.min_el_id:
             other.elements.renumber(int(elid_max + 10))
 
-        self.elements += other.elements
+        # Added under the ids they have -- a clash was resolved just above. ``FemElements.__add__``
+        # renumbers from max_id + 1 unconditionally, which threw away every element id of the
+        # model ada.from_fem returns (a connector written as 501 read back as 1).
+        from ada.api.mesh.containers import ArrayElements
+
+        array_backed = isinstance(self.elements, ArrayElements)
+        for el in list(other.elements):
+            el.parent = self
+            self.elements.add(el, skip_grouping=not array_backed)
+        if not array_backed:
+            self.elements._group_by_types()
         self.sections += other.sections
 
         # Copy any Beam sections to the current FEM parent Part object

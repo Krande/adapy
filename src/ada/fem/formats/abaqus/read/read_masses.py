@@ -57,11 +57,23 @@ def get_mass(block: KeywordBlock, parent: "FEM", mass_id_gen):
     values = [float(x) for x in block.data_lines[0].split(",") if x.strip() != ""]
     value = values[0] if len(values) == 1 else values
     units = block.params.get("UNITS")
-    mass = Mass(
-        elset_name, elset, value, mass_type_general, p_type, mass_id=next(mass_id_gen), units=units, parent=parent
-    )
-    if mass_type_general != shape_def.MassTypes.NONSTRUCTURAL:
-        # A point mass / rotary inertia belongs to its one mass element. A nonstructural mass
-        # is spread over a set of STRUCTURAL elements and is no element's property.
-        elset.members[0].mass_prop = mass
-    return mass
+
+    if mass_type_general == shape_def.MassTypes.NONSTRUCTURAL:
+        # Spread over a set of STRUCTURAL elements: no element of its own in the deck, so adapy's
+        # pseudo-element for it gets the next free id.
+        return Mass(
+            elset_name, elset, value, mass_type_general, p_type, mass_id=next(mass_id_gen), units=units, parent=parent
+        )
+
+    # A point mass / rotary inertia: the values of the Mass elements *Element already made for
+    # this set -- not a second element. Built through the constructor so the values are held
+    # exactly as a Mass made in adapy holds them (a scalar is an isotropic [m], and so on).
+    for elem in elset.members:
+        if not isinstance(elem, Mass):
+            continue
+        filled = Mass(elem.name, list(elem.nodes), value, mass_type_general, p_type, mass_id=elem.id, units=units)
+        elem._mass = filled._mass
+        elem.point_mass_type = filled.point_mass_type
+        elem._units = filled._units
+        elem.elset = elset  # the set the writer names in *Mass, as a Mass made in adapy holds it
+    return None

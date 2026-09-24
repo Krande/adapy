@@ -1104,19 +1104,22 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         # ADJUST is optional per the guide; a *Tie without it is legal and used to not match.
         msurf = get_set_from_assembly(surfaces[0], fem, "surface")
         ssurf = get_set_from_assembly(surfaces[1], fem, "surface")
+        pos_tol = block.params.get("POSITION TOLERANCE")
         constraints.append(
             Constraint(
                 block.params.get("NAME"),
                 Constraint.TYPES.TIE,
                 msurf,
                 ssurf,
+                pos_tol=float(pos_tol) if pos_tol else None,
                 metadata=dict(adjust=block.params.get("ADJUST")),
+                parent=fem,
             )
         )
 
     for block in iter_keywords(bulk_str, "RIGID BODY"):
         validate(block)
-        name = next(rbnames)
+        name = comment_property(block, "Constraint").get("Constraint") or next(rbnames)
         ref_node = get_set_from_assembly(block.params.get("REF NODE"), fem, FemSet.TYPES.NSET)
         elset = get_set_from_assembly(block.params.get("ELSET"), fem, FemSet.TYPES.ELSET)
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
@@ -1183,18 +1186,25 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
             )
         )
 
-    # MPC's
+    # MPC's -- one constraint per *MPC block (and per MPC type within it), named from the block's
+    # ``** Constraint:`` comment. Grouping every line of the deck by type merged separate MPCs
+    # into one and lost their names.
     mpc_dict = dict()
+    mpc_names = Counter(1, "mpc")
     for block in iter_keywords(bulk_str, "MPC"):
         validate(block)
+        block_name = comment_property(block, "Constraint").get("Constraint") or next(mpc_names)
+        block_types: list[str] = []
         for line in block.data_lines:
             fields = [x.strip() for x in line.split(",")]
             if len(fields) < 3:
                 logger.warning("abaqus read: *MPC (line %d) data line %r needs three fields", block.lineno, line)
                 continue
             mpc_type, m, s = fields[0], fields[1], fields[2]
-            if mpc_type not in mpc_dict.keys():
-                mpc_dict[mpc_type] = []
+            if mpc_type not in block_types:
+                block_types.append(mpc_type)
+            key = (block_name, mpc_type)
+            mpc_dict.setdefault(key, [])
             try:
                 n1_ = str_to_int(m)
             except BaseException as e:
@@ -1207,7 +1217,10 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
                 logger.debug(e)
                 n2_ = get_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
-            mpc_dict[mpc_type].append((n1_, n2_))
+            mpc_dict[key].append((n1_, n2_))
+        if len(block_types) > 1:  # a block mixing types: one constraint per type, told apart by suffix
+            for t in block_types:
+                mpc_dict[(f"{block_name}_{t.lower()}", t)] = mpc_dict.pop((block_name, t))
 
     def mpc_nodes(refs) -> list:
         """The nodes an MPC names: a node id, or every node of a named set."""
@@ -1219,16 +1232,15 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
                 nodes.extend(ref.members)
         return nodes
 
-    def get_mpc(mpc_type, mpc_values):
+    def get_mpc(mpc_name, mpc_type, mpc_values):
         m_refs, s_refs = zip(*mpc_values)
-        mpc_name = mpc_type + "_mpc"
         # Node objects on a set that knows its FEM: built from bare ids with no parent, the sets
         # could not resolve their members, and writing the MPC back failed.
-        mset = FemSet("mpc_" + mpc_type + "_m", mpc_nodes(m_refs), FemSet.TYPES.NSET, parent=fem)
-        sset = FemSet("mpc_" + mpc_type + "_s", mpc_nodes(s_refs), FemSet.TYPES.NSET, parent=fem)
+        mset = FemSet(mpc_name + "_m", mpc_nodes(m_refs), FemSet.TYPES.NSET, parent=fem)
+        sset = FemSet(mpc_name + "_s", mpc_nodes(s_refs), FemSet.TYPES.NSET, parent=fem)
         return Constraint(mpc_name, Constraint.TYPES.MPC, mset, sset, mpc_type=mpc_type, parent=fem)
 
-    mpcs = [get_mpc(mpc_type, mpc_values_in) for mpc_type, mpc_values_in in mpc_dict.items()]
+    mpcs = [get_mpc(name, mpc_type, values) for (name, mpc_type), values in mpc_dict.items()]
 
     return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
 
