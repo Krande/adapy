@@ -4,6 +4,8 @@ import os
 import shutil
 from typing import TYPE_CHECKING
 
+from ..grammar import render_keyword
+from .helper_utils import include_str, render_block
 from .templates import main_inp_str
 from .write_interactions import interact_str
 from .write_predefined_state import predefined_fields_str
@@ -19,7 +21,7 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
     all_fem_parts = [p.fem for p in assembly.get_all_subparts(include_self=True)]
 
     step_str = "** No Steps added"
-    incl = "*INCLUDE,INPUT=core_input_files"
+    incl = "core_input_files"
     ampl_str = "**"
     consec_str = "**"
     iprop_str = "**"
@@ -28,16 +30,16 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
     if len(assembly.fem.steps) > 0:
         step_str = "\n".join(list(map(main_step_inp_str, assembly.fem.steps))).rstrip()
     if len(assembly.fem.amplitudes) > 0:
-        ampl_str = f"{incl}\\amplitude_data.inp"
+        ampl_str = include_str(f"{incl}\\amplitude_data.inp")
     if len([con for fem_part in all_fem_parts for con in fem_part.connector_sections.values()]) > 0:
-        consec_str = f"{incl}\\connector_sections.inp"
+        consec_str = include_str(f"{incl}\\connector_sections.inp")
     if len(assembly.fem.intprops) > 0:
-        iprop_str = f"{incl}\\interaction_prop.inp"
+        iprop_str = include_str(f"{incl}\\interaction_prop.inp")
     if interact_str(assembly.fem) != "" or predefined_fields_str(assembly.fem) != "":
-        int_str = f"{incl}\\interactions.inp"
+        int_str = include_str(f"{incl}\\interactions.inp")
 
-    mat_str = f"{incl}\\materials.inp"
-    fix_str = f"{incl}\\bc_data.inp"
+    mat_str = include_str(f"{incl}\\materials.inp")
+    fix_str = include_str(f"{incl}\\bc_data.inp")
 
     return main_inp_str.format(
         part_str=part_str,
@@ -54,14 +56,20 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
 
 
 def part_inp_str(part: "Part") -> str:
-    return """**\n*Part, name={name}\n*INCLUDE,INPUT=bulk_{name}\\{inp_file}\n*End Part\n**""".format(
-        name=part.name, inp_file="aba_bulk.inp"
+    return (
+        render_keyword("Part", [("name", part.name)], (), [""])
+        + include_str(f"bulk_{part.name}\\aba_bulk.inp")
+        + "\n"
+        + render_keyword("End Part")
+        + "**"
     )
 
 
 def instance_str(part: "Part", analysis_dir) -> str:
     if part.fem.initial_state is None:
-        return f"""**\n*Instance, name={part.fem.instance_name}, part={part.name}\n*End Instance"""
+        return render_keyword(
+            "Instance", [("name", part.fem.instance_name), ("part", part.name)], (), [""]
+        ) + render_block("End Instance")
 
     istep = part.fem.initial_state
     analysis_name = os.path.basename(istep.initial_state_file.replace(".inp", ""))
@@ -70,13 +78,18 @@ def instance_str(part: "Part", analysis_dir) -> str:
         if analysis_name in f:
             dest_file = os.path.join(analysis_dir, os.path.basename(f))
             shutil.copy(os.path.join(source_dir, f), dest_file)
-    return f"""*Instance, library={analysis_name}, instance={istep.initial_state_part.fem.instance_name}
-**
-** PREDEFINED FIELD
-**
-** Name: {part.fem.initial_state.name}   Type: Initial State
-*Import, state=yes, update=no
-*End Instance"""
+    return (
+        render_keyword(
+            "Instance", [("library", analysis_name), ("instance", istep.initial_state_part.fem.instance_name)]
+        )
+        + render_keyword(
+            "Import",
+            [("state", "yes"), ("update", "no")],
+            (),
+            ["", "PREDEFINED FIELD", "", f"Name: {part.fem.initial_state.name}   Type: Initial State"],
+        )
+        + render_block("End Instance")
+    )
 
 
 def skip_if_this(p):

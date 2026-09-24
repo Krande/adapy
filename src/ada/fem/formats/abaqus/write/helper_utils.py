@@ -1,5 +1,18 @@
 from typing import Union
 
+from ..grammar import render_keyword
+
+
+def render_block(*args, **kwargs) -> str:
+    """:func:`render_keyword` without its final newline, for writers that join blocks with ``"\\n"``."""
+    return render_keyword(*args, **kwargs)[:-1]
+
+
+def include_str(path: str) -> str:
+    """``*INCLUDE,INPUT=<path>``, with no blank after the keyword: the layout the writer has always
+    used (``bundle`` reads it back either way)."""
+    return render_block("INCLUDE", [("INPUT", path)], sep=",")
+
 
 def set_name(fem_set) -> str:
     """The name of an element's set, whether the element holds the set or only its name.

@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING
 from ada.fem.interactions import ContactTypes
 from ada.fem.steps import Step, StepExplicit
 
-from ..grammar import format_number
-from .helper_utils import get_instance_name
+from ..grammar import Verbatim, format_number, render_keyword
+from .helper_utils import get_instance_name, render_block
 
 if TYPE_CHECKING:
     from ada import FEM, Assembly
@@ -27,53 +27,49 @@ def interaction_str(interaction: "Interaction") -> str:
         else "ALL EXTERIOR"
     )
 
-    top_str = f"**\n** Interaction: {interaction.name}"
+    top = ["", f"Interaction: {interaction.name}"]
     if interaction.type == ContactTypes.SURFACE:
         adjust_par = interaction.metadata.get("adjust", None)
         geometric_correction = interaction.metadata.get("geometric_correction", None)
         small_sliding = interaction.metadata.get("small_sliding", None)
 
-        first_line = "" if small_sliding is None else f", {small_sliding}"
+        params = [("interaction", interaction.interaction_property.name)]
+        if small_sliding is not None:
+            params.append((small_sliding, None))
 
-        if issubclass(type(interaction.parent), Step):
-            step = interaction.parent
-            first_line += "" if type(step) is StepExplicit else f", type={interaction.surface_type}"
-        else:
-            first_line += f", type={interaction.surface_type}"
+        if not (issubclass(type(interaction.parent), Step) and type(interaction.parent) is StepExplicit):
+            params.append(("type", Verbatim(interaction.surface_type)))
 
         if interaction.constraint is not None:
-            first_line += f", mechanical constraint={interaction.constraint}"
+            params.append(("mechanical constraint", interaction.constraint))
 
         if adjust_par is not None:
-            first_line += f", adjust={adjust_par}" if adjust_par is not None else ""
+            params.append(("adjust", adjust_par))
 
         if geometric_correction is not None:
-            first_line += f", geometric correction={geometric_correction}"
+            params.append(("geometric correction", geometric_correction))
 
-        return f"""{top_str}
-*Contact Pair, interaction={interaction.interaction_property.name}{first_line}
-{get_instance_name(interaction.surf1, True)}, {get_instance_name(interaction.surf2, True)}"""
+        surfs = f"{get_instance_name(interaction.surf1, True)}, {get_instance_name(interaction.surf2, True)}"
+        return render_block("Contact Pair", params, [surfs], top)
     else:
-        return f"""{top_str}\n*Contact, op={contact_mod}
-*Contact Inclusions, {contact_incl}
-*Contact Property Assignment
- ,  , {interaction.interaction_property.name}"""
+        return (
+            render_keyword("Contact", [("op", contact_mod)], (), top)
+            + render_keyword("Contact Inclusions", [(contact_incl, None)])
+            + render_block("Contact Property Assignment", (), [f" ,  , {interaction.interaction_property.name}"])
+        )
 
 
 def interaction_prop_str(int_prop: "InteractionProperty") -> str:
-    iprop_str = f"*Surface Interaction, name={int_prop.name}\n"
+    iprop_str = render_keyword("Surface Interaction", [("name", int_prop.name)])
 
     # Friction
-    iprop_str += f"*Friction\n{int_prop.friction},\n"
+    iprop_str += render_keyword("Friction", (), [f"{int_prop.friction},"])
 
     # Behaviours
-    tab_str = (
-        # Exact: {:.3E} kept four significant digits of a pressure-overclosure table.
-        "\n" + "\n".join([f"{format_number(d[0])},{format_number(d[1])}" for d in int_prop.tabular])
-        if int_prop.tabular is not None
-        else ""
-    )
-    iprop_str += f"*Surface Behavior, pressure-overclosure={int_prop.pressure_overclosure}{tab_str}"
+    # Exact: {:.3E} kept four significant digits of a pressure-overclosure table.
+    tabular = int_prop.tabular if int_prop.tabular is not None else []
+    tab = [f"{format_number(d[0])},{format_number(d[1])}" for d in tabular]
+    iprop_str += render_keyword("Surface Behavior", [("pressure-overclosure", int_prop.pressure_overclosure)], tab)
 
     return iprop_str.rstrip()
 
@@ -84,8 +80,7 @@ def int_prop_str(fem: "FEM"):
     if smoothings is not None:
         iprop_str += "\n"
         for smooth in smoothings:
-            name = smooth["name"]
-            iprop_str += f"*Surface Smoothing, name={name}\n"
+            iprop_str += render_keyword("Surface Smoothing", [("name", smooth["name"])])
             iprop_str += smooth["bulk"] + "\n"
     return iprop_str
 

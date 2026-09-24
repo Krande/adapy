@@ -46,6 +46,7 @@ __all__ = [
     "KeywordBlock",
     "MAX_LINE_LENGTH",
     "Params",
+    "Verbatim",
     "format_number",
     "format_value",
     "iter_enclosed",
@@ -70,13 +71,21 @@ Param = tuple[str, Union[str, int, float, bool, None]]
 DataLine = Union[str, Sequence[Union[str, int, float]]]
 
 
+class Verbatim(str):
+    """A parameter value written exactly as given: an enumerated value such as
+    ``type=SURFACE TO SURFACE`` or ``units=PER AREA``, which Abaqus CAE writes unquoted (blanks on a
+    keyword line are ignored, so it still matches) -- as opposed to a name, whose blanks matter."""
+
+
 def format_value(value) -> str:
     """One parameter value as it must appear on a keyword line.
 
     Quoted when Abaqus would otherwise misread it: it splits parameters on commas and ignores
     blanks on a keyword line, so a name like ``Beam 1`` or ``a,b`` must be quoted, and is.
-    Anything already quoted is left alone.
+    Anything already quoted, or :class:`Verbatim`, is left alone.
     """
+    if isinstance(value, Verbatim):
+        return str(value)
     if isinstance(value, bool):
         text = "YES" if value else "NO"
     else:
