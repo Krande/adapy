@@ -6,10 +6,7 @@ order a deck happens to write its parameters in.
 """
 
 from ada.fem.formats.abaqus.read.lexer import comment_property, iter_keywords, tokenize
-from ada.fem.formats.abaqus.read.read_sections import (
-    conn_from_groupdict,
-    get_connector_sections_from_bulk,
-)
+from ada.fem.formats.abaqus.read.read_sections import get_connector_sections_from_bulk
 
 
 def test_consec(consec):
@@ -48,11 +45,11 @@ def test_conn_beha(conbeh):
     assert "NONLINEAR" in elasticity[0].params
     assert elasticity[0].params["NONLINEAR"] is None
 
-    conn = conn_from_groupdict(
-        dict(name=behaviors[0].params["NAME"], component="1", bulk=elasticity[0].data_text), None
-    )
+    conn = get_connector_sections_from_bulk(conbeh, None)["ConnProp-1_VISC_DAMPER_ELEM"]
     assert conn.name == "ConnProp-1_VISC_DAMPER_ELEM"
+    # one component, nonlinear: a table of (force, displacement) rows
     assert len(conn.elastic_comp) == 1
+    assert all(len(row) >= 2 for row in conn.elastic_comp[0])
 
 
 def test_connector_sections_are_owned_by_the_behavior_above_them(conbeh):

@@ -89,6 +89,14 @@ def grab_elements(block: KeywordBlock, fem: "FEM"):
             elem_nodes_str = li.split(",")
             elid = str_to_int(elem_nodes_str[0])
             elem_nodes = get_elem_nodes(elem_nodes_str, fem)
+            if ada_el_type == Elem.EL_TYPES.CONNECTOR_SHAPES.CONNECTOR:
+                # A connector, not a plain Elem with a connector shape -- as on the numeric path.
+                # Assembly-level connectors name their nodes ``instance.node``, which lands here;
+                # built as Elem they were invisible to everything that looks for Connector, so the
+                # writer dropped them on the next write.
+                n1, n2 = elem_nodes
+                elems.append(Connector(next(con_names), elid, n1, n2, con_type=None, con_sec=None, parent=fem))
+                continue
             elem = Elem(elid, elem_nodes, ada_el_type, elset, el_formulation_override=eltype, parent=fem)
             elems.append(elem)
         return elems
@@ -201,7 +209,6 @@ class ConnectorSectionData:
 def update_connector_data(bulk_str: str, fem: FEM):
     """Extract connector elements from bulk string"""
 
-    nsuffix = Counter(1, "_")
     for block in iter_keywords(bulk_str, "CONNECTOR SECTION"):
         validate(block)
         if len(block.data_lines) < 2:
@@ -209,8 +216,10 @@ def update_connector_data(bulk_str: str, fem: FEM):
             continue
         behavior = block.params.first("BEHAVIOR", "BEHAVIOUR")
         csys_ref = block.data_lines[1].replace('"', "")
-        name = behavior + next(nsuffix)
-        elset = fem.elsets[block.params.get("ELSET")]
+        # The connector is named after its element set: that is the name the writer gives the
+        # set, so naming it after the behaviour (``cs_linear_1``) renamed it on every pass.
+        name = block.params.get("ELSET")
+        elset = fem.elsets[name]
         connector: Connector = elset.members[0]
         con_sec = fem.connector_sections[behavior]
         csys_ref = csys_ref[:-1] if csys_ref[-1] == "," else csys_ref

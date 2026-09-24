@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Constraint, FemSet, Surface
 
+from ..grammar import format_value
 from .helper_utils import get_instance_name
 from .write_orientations import csys_str
 from .write_surfaces import surface_str
@@ -62,7 +63,9 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
 
     if constraint.csys is not None:
         new_csys_str = "\n" + csys_str(constraint.csys, on_assembly_level)
-        cstr = f", Orientation={constraint.csys.name.upper()}"
+        # The name as *Orientation defines it (upper-casing it made the reference and the
+        # definition two different strings to anything that compares names exactly).
+        cstr = f", Orientation={format_value(constraint.csys.name)}"
     else:
         cstr = ""
         new_csys_str = ""

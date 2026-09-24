@@ -122,7 +122,7 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
         assembly.fem.nodes += get_nodes_from_inp(ass_sets, assembly.fem)
         assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, assembly.fem))
         assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
-        assembly.fem.elements += get_elem_from_bulk_str(ass_sets, assembly.fem)
+        _add_keeping_ids(assembly.fem, get_elem_from_bulk_str(ass_sets, assembly.fem))
         assembly.fem.elements.build_sets()
         assembly.fem.sets += get_sets_from_bulk(ass_sets, assembly.fem)
         assembly.fem.sets.link_data()
@@ -136,7 +136,7 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
             logger.error(e)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
-        assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
+        _add_keeping_ids(assembly.fem, get_mass_from_bulk(ass_sets, assembly.fem))
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_str(assembly, props_str)
@@ -146,6 +146,47 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
     # data is cut off at the LAST *Step (props_str above), so nothing from there on is read.
     history_start = step_start if (uses_assembly_parts and step_start != -1) else len(bulk_str)
     return assembly, bulk_str, history_start
+
+
+def _surface_or_set(name: str, fem: FEM):
+    """A *Shell to Solid Coupling operand: a surface, per the Keywords Guide -- or, where the
+    deck has no surface of that name, the node/element set adapy's own writer has always put
+    there. (That writer output is not valid Abaqus; reading it back still must not fail.)"""
+    try:
+        return get_set_from_assembly(name, fem, "surface")
+    except KeyError:
+        for kind in ("nset", "elset"):
+            try:
+                return get_set_from_assembly(name, fem, kind)
+            except KeyError:
+                continue
+        raise
+
+
+def by_name(mapping, name: str):
+    """``mapping[name]`` the way Abaqus looks names up: case-insensitively. A deck may define
+    ``cpl_csys`` and refer to ``CPL_CSYS``; both are one name to Abaqus."""
+    if name in mapping:
+        return mapping[name]
+    key = name.lower()
+    return next((v for k, v in mapping.items() if k.lower() == key), None)
+
+
+def _add_keeping_ids(fem: FEM, elements) -> None:
+    """Add a deck's elements to ``fem`` under the ids the deck gave them.
+
+    ``FemElements.__add__`` renumbers what it adds from ``max_id + 1`` -- right for merging two
+    unrelated meshes, wrong for reading: a deck's ids are part of its data (its sets, sections
+    and connector sections name elements by id), so a renumbered element is no longer the one
+    they refer to. A clash is an error, as a duplicate element id in a deck is.
+    """
+    from ada.api.mesh.containers import ArrayElements
+
+    array_backed = isinstance(fem.elements, ArrayElements)  # groups itself as it adds
+    for el in elements:
+        fem.elements.add(el, skip_grouping=not array_backed)
+    if not array_backed:
+        fem.elements._group_by_types()
 
 
 #: The ``stage`` of every finding the reader records.
@@ -328,7 +369,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     fem.sets += get_sets_from_bulk(bulk_str, fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
-    fem.elements += get_mass_from_bulk(bulk_str, fem)
+    _add_keeping_ids(fem, get_mass_from_bulk(bulk_str, fem))
     fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
     fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
     fem.constraints = get_constraints_from_inp(bulk_str, fem)
@@ -752,9 +793,15 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                             break
                 if composed is None:
                     # A set defined another way -- ``*Element, elset=right`` names a set
-                    # without an *Elset block -- is already on the FEM, not in ``parsed``.
-                    pool = parent_instance.elsets if set_type_l == "elset" else parent_instance.nsets
-                    composed = next((fs for nm, fs in pool.items() if nm.lower() == ref.lower()), None)
+                    # without an *Elset block -- is already on the FEM, not in ``parsed``. An
+                    # ``instance.set`` reference names a set of that instance's part.
+                    owner, set_ref = parent_instance, ref
+                    if "." in ref:
+                        inst, set_ref = ref.split(".", 1)
+                        owner = next((p.fem for p in all_parts if p.fem.instance_name == inst), None)
+                    if owner is not None:
+                        pool = owner.elsets if set_type_l == "elset" else owner.nsets
+                        composed = by_name(pool, set_ref)
                 if composed is None:
                     from ada.fem.formats import conversion_report
 
@@ -1101,12 +1148,11 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         dofs = res.reshape(rows, cols)
 
         csys_name = block.params.get("ORIENTATION")
+        csys = None
         if csys_name is not None:
-            if csys_name not in fem.lcsys.keys():
+            csys = by_name(fem.lcsys, csys_name)
+            if csys is None:
                 raise ValueError(f'Csys "{csys_name}" was not found on part {fem}')
-            csys = fem.lcsys[csys_name]
-        else:
-            csys = None
 
         couplings.append(Constraint(name, Constraint.TYPES.COUPLING, ref_set, surf, csys=csys, dofs=dofs, parent=fem))
 
@@ -1120,8 +1166,8 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         name = (block.params.get("CONSTRAINT NAME") or "").strip()
         influence = block.params.get("INFLUENCE DISTANCE")
         pos_tol = block.params.get("POSITION TOLERANCE")
-        surf1 = get_set_from_assembly(surfaces[0], fem, "surface")
-        surf2 = get_set_from_assembly(surfaces[1], fem, "surface")
+        surf1 = _surface_or_set(surfaces[0], fem)
+        surf2 = _surface_or_set(surfaces[1], fem)
         sh2solids.append(
             Constraint(
                 name,
@@ -1160,14 +1206,26 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
             mpc_dict[mpc_type].append((n1_, n2_))
 
-    def get_mpc(mpc_values):
-        m_set, s_set = zip(*mpc_values)
+    def mpc_nodes(refs) -> list:
+        """The nodes an MPC names: a node id, or every node of a named set."""
+        nodes = []
+        for ref in refs:
+            if isinstance(ref, (int, np.integer)):
+                nodes.append(fem.nodes.from_id(int(ref)))
+            else:
+                nodes.extend(ref.members)
+        return nodes
+
+    def get_mpc(mpc_type, mpc_values):
+        m_refs, s_refs = zip(*mpc_values)
         mpc_name = mpc_type + "_mpc"
-        mset = FemSet("mpc_" + mpc_type + "_m", m_set, FemSet.TYPES.NSET)
-        sset = FemSet("mpc_" + mpc_type + "_s", s_set, FemSet.TYPES.NSET)
+        # Node objects on a set that knows its FEM: built from bare ids with no parent, the sets
+        # could not resolve their members, and writing the MPC back failed.
+        mset = FemSet("mpc_" + mpc_type + "_m", mpc_nodes(m_refs), FemSet.TYPES.NSET, parent=fem)
+        sset = FemSet("mpc_" + mpc_type + "_s", mpc_nodes(s_refs), FemSet.TYPES.NSET, parent=fem)
         return Constraint(mpc_name, Constraint.TYPES.MPC, mset, sset, mpc_type=mpc_type, parent=fem)
 
-    mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
+    mpcs = [get_mpc(mpc_type, mpc_values_in) for mpc_type, mpc_values_in in mpc_dict.items()]
 
     return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
 

@@ -46,6 +46,7 @@ __all__ = [
     "KeywordBlock",
     "MAX_LINE_LENGTH",
     "Params",
+    "format_number",
     "format_value",
     "iter_enclosed",
     "iter_keywords",
@@ -85,6 +86,20 @@ def format_value(value) -> str:
     if any(ch in text for ch in ', \t"') or text != text.strip():
         return '"' + text.replace('"', "") + '"'
     return text
+
+
+def format_number(value) -> str:
+    """A number as the shortest text that reads back as exactly the same value.
+
+    Fixed-width formats lose data: ``{:.3E}`` wrote a stiffness of 0.12345 as ``1.235E-01``,
+    and a round trip then changed the model. Python's ``repr`` of a float is the shortest string
+    that parses back to the identical float, and Abaqus reads it as written.
+    """
+    if isinstance(value, bool):
+        raise TypeError("a boolean is not a number here")
+    if isinstance(value, int):
+        return str(value)
+    return repr(float(value))
 
 
 def _keyword_line_parts(keyword: str, params: Iterable[Param]) -> list[str]:

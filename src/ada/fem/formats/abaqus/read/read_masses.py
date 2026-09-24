@@ -4,7 +4,6 @@ from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Mass
 from ada.fem.containers import FemElements
-from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes import definitions as shape_def
 
 from .helper_utils import get_set_from_assembly
@@ -53,13 +52,16 @@ def get_mass(block: KeywordBlock, parent: "FEM", mass_id_gen):
         raise NotImplementedError(f'Mass type "{block.keyword}" is not yet supported by general ADA')
 
     p_type = block.params.get("TYPE")
-    mass_ints = [str_to_int(x.strip()) for x in block.data_lines[0].split(",") if x.strip() != ""]
-    if len(mass_ints) == 1:
-        mass_ints = mass_ints[0]
+    # Floats: these are masses and inertias. Read through str_to_int (int(float(s))) they were
+    # truncated -- a 12.5 mass came back as 12.
+    values = [float(x) for x in block.data_lines[0].split(",") if x.strip() != ""]
+    value = values[0] if len(values) == 1 else values
     units = block.params.get("UNITS")
-    elem = elset.members[0]
     mass = Mass(
-        elset_name, elset, mass_ints, mass_type_general, p_type, mass_id=next(mass_id_gen), units=units, parent=parent
+        elset_name, elset, value, mass_type_general, p_type, mass_id=next(mass_id_gen), units=units, parent=parent
     )
-    elem.mass_prop = mass
+    if mass_type_general != shape_def.MassTypes.NONSTRUCTURAL:
+        # A point mass / rotary inertia belongs to its one mass element. A nonstructural mass
+        # is spread over a set of STRUCTURAL elements and is no element's property.
+        elset.members[0].mass_prop = mass
     return mass

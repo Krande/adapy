@@ -77,6 +77,10 @@ def elwriter(eltype_set, elements, fem: "FEM", written_on_assembly_level: bool):
         # would define every spring twice in the deck — the same reason connectors
         # return None and are left to write_connectors.
         return None
+    elif eltype == shape_def.MassTypes.NONSTRUCTURAL:
+        # No Abaqus element: *Nonstructural Mass applies to existing elements. This wrote
+        # "*ELEMENT, type=NONSTRUCTURAL", a type Abaqus does not have.
+        return None
     elif isinstance(eltype, shape_def.MassTypes):
         return write_mass_elem(eltype, elset, fem, elements, written_on_assembly_level)
     else:

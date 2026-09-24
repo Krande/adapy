@@ -10,10 +10,35 @@ if TYPE_CHECKING:
     from ada import FEM
 
 
+def _is_connector_set(fem_set: FemSet) -> bool:
+    """A set of connector elements only. The connector writer defines it beside the connector,
+    at assembly level where the connector element is written; defined again here, inside a part
+    that does not hold the element, it read back as an empty set that the next write refused."""
+    from ada.fem import Connector
+
+    members = fem_set.members
+    return bool(members) and all(isinstance(m, Connector) for m in members)
+
+
+def _is_nonstructural_mass_set(fem_set: FemSet) -> bool:
+    """The one-member set adapy keeps for a nonstructural mass's pseudo-element: there is no
+    Abaqus element to put in it (the mass is written against the structural set it spreads over)."""
+    from ada.fem import Mass
+
+    members = fem_set.members
+    return bool(members) and all(isinstance(m, Mass) and m.type == Mass.TYPES.NONSTRU for m in members)
+
+
 def elsets_str(fem: "FEM", written_on_assembly_level: bool):
     if len(fem.elsets) == 0:
         return "** No element sets"
-    return "\n".join([aba_set_str(el, written_on_assembly_level) for el in fem.elsets.values()]).rstrip()
+    return "\n".join(
+        [
+            aba_set_str(el, written_on_assembly_level)
+            for el in fem.elsets.values()
+            if not (_is_connector_set(el) or _is_nonstructural_mass_set(el))
+        ]
+    ).rstrip()
 
 
 def nsets_str(fem: "FEM", written_on_assembly_level: bool):

@@ -280,7 +280,9 @@ class Connector(Elem):
         metadata=None,
         parent: "FEM" = None,
     ):
-        if type(n1) is not Node or type(n2) is not Node:
+        # isinstance, not an exact type: a node on the array-backed mesh is a NodeProxy, which IS a
+        # Node, and every node the reader reads is one.
+        if not isinstance(n1, Node) or not isinstance(n2, Node):
             raise ValueError("Connector Start\\end must be nodes")
         self._n1 = n1
         self._n2 = n2

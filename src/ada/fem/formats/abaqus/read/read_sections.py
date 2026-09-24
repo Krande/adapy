@@ -3,8 +3,6 @@ from __future__ import annotations
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable
 
-import numpy as np
-
 from ada.config import logger
 from ada.core.utils import Counter, roundoff
 from ada.fem import ConnectorSection, FemSection
@@ -12,7 +10,6 @@ from ada.fem.containers import FemSections
 from ada.fem.elements import Eccentricity
 from ada.fem.shapes import ElemType
 
-from .helper_utils import list_cleanup
 from .keywords import validate
 from .lexer import KeywordBlock, comment_property, iter_keywords, mark_read, tokenize
 
@@ -230,30 +227,44 @@ def get_shell_section(block: KeywordBlock, sh_name, fem: "FEM", a: "Assembly"):
     )
 
 
-def conn_from_groupdict(d: dict, parent):
-    name = d["name"]
-    comp = int(d["component"])
-    # This does not work reliably
-    logger.warning(
-        f'Connector section "{name}" has a component number of "{comp}". '
-        "Please verify the imported connector, as the connector properties import is not reliable."
-    )
-    res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=np.float64)
-    size = res.size
-    cols = comp + 1
-    rows = int(size / cols)
-    res_ = res.reshape(rows, cols)
-    return ConnectorSection(name, [res_], [], metadata=d, parent=parent)
+#: The blocks that belong to the ``*Connector Behavior`` above them (Abaqus nests these by
+#: adjacency, not with an end keyword).
+_CONNECTOR_BEHAVIOR_OPTIONS = (
+    "CONNECTOR ELASTICITY",
+    "CONNECTOR DAMPING",
+    "CONNECTOR PLASTICITY",
+    "CONNECTOR HARDENING",
+)
+_DAMPING_KNOWN_PARAMS = {"COMPONENT", "NONLINEAR", "DEPENDENCIES"}
+
+
+def _floats(line: str) -> list[float]:
+    return [float(x) for x in line.split(",") if x.strip()]
+
+
+def _set_component(comps: list, component: int, value) -> None:
+    while len(comps) < component:
+        comps.append(None)
+    comps[component - 1] = value
+
+
+def _component_value(block: KeywordBlock):
+    """A linear block's one stiffness/coefficient, or a nonlinear block's table of rows."""
+    if "NONLINEAR" in block.params:
+        return [_floats(line) for line in block.data_lines]
+    return _floats(block.data_lines[0])[0]
 
 
 def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[str, ConnectorSection]:
-    """``*Connector Behavior`` plus the ``*Connector Elasticity`` blocks that follow it.
+    """``*Connector Behavior`` plus every block that belongs to it: elasticity (linear,
+    nonlinear or rigid), damping, and plasticity with its hardening table.
 
-    Abaqus nests these by adjacency rather than with an end keyword, so the behaviour owns
-    every elasticity block up to the next block that is not one.
+    Each property is a list indexed by component - 1, the shape the writer consumes. The
+    previous reader kept only the LAST elasticity block of a behaviour, read none of the
+    others, and assumed ``component + 1`` values per row, so a linear stiffness did not parse.
     """
     consecsd: dict[str, ConnectorSection] = {}
-    mark_read("CONNECTOR BEHAVIOR", "CONNECTOR ELASTICITY")
+    mark_read("CONNECTOR BEHAVIOR", *_CONNECTOR_BEHAVIOR_OPTIONS)
     blocks = tokenize(bulk_str)
 
     for i, block in enumerate(blocks):
@@ -261,16 +272,43 @@ def get_connector_sections_from_bulk(bulk_str: str, parent: FEM = None) -> dict[
             continue
         validate(block)
         name = block.params.get("NAME")
+        elastic: list = []
+        damping: list = []
+        plastic: list = []
+        rigid = None
+        extra_damper_args = ""
+        plastic_component = None
         for sub in blocks[i + 1 :]:
-            if sub.keyword != "CONNECTOR ELASTICITY":
+            if sub.keyword not in _CONNECTOR_BEHAVIOR_OPTIONS:
                 break
             validate(sub)
-            d = dict(
-                name=name,
-                nonlinear="NONLINEAR" if "NONLINEAR" in sub.params else None,
-                component=sub.params.get("COMPONENT"),
-                dependencies=sub.params.get("DEPENDENCIES"),
-                bulk=sub.data_text,
-            )
-            consecsd[name] = conn_from_groupdict(d, parent)
+            component = int(sub.params.get("COMPONENT") or 1)
+            if sub.keyword == "CONNECTOR ELASTICITY":
+                if "RIGID" in sub.params:
+                    rigid = [int(v) for line in sub.data_lines for v in line.split(",") if v.strip()]
+                else:
+                    _set_component(elastic, component, _component_value(sub))
+            elif sub.keyword == "CONNECTOR DAMPING":
+                _set_component(damping, component, _component_value(sub))
+                extra = [
+                    k if v is None else f"{k}={v}" for k, v in sub.params.items() if k not in _DAMPING_KNOWN_PARAMS
+                ]
+                if extra:
+                    extra_damper_args = ", ".join(extra)
+            elif sub.keyword == "CONNECTOR PLASTICITY":
+                plastic_component = component
+            elif sub.keyword == "CONNECTOR HARDENING":
+                rows = [tuple(_floats(line)) for line in sub.data_lines]
+                _set_component(plastic, plastic_component or 1, rows)
+
+        metadata = {"abaqus": {"extra_damper_args": extra_damper_args}} if extra_damper_args else {}
+        consecsd[name] = ConnectorSection(
+            name,
+            elastic_comp=elastic,
+            damping_comp=damping,
+            plastic_comp=plastic or None,
+            rigid_dofs=rigid,
+            metadata=metadata,
+            parent=parent,
+        )
     return consecsd

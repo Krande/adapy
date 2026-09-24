@@ -80,15 +80,7 @@ def test_an_element_keeps_the_formulation_it_was_read_as(tmp_path):
 
 #: Zoo models whose written deck the reader cannot yet read back -- each a place where the two
 #: sides still disagree about the format. Strict: fixing one makes its case fail until removed.
-READ_BACK_GAPS = {
-    "boundary_conditions": (ValueError, "*Connector Elasticity data the writer emits does not parse"),
-    "connectors": (ValueError, "*Connector Elasticity data the writer emits does not parse"),
-    "outputs": (ValueError, "*Connector Elasticity data the writer emits does not parse"),
-    "constraints": (ValueError, "a coupling's orientation csys is looked up on the wrong part"),
-    "constraints_assembly_level": (KeyError, "an assembly-level coupling's set is looked up on the part"),
-    "loads": (ValueError, "the *Transform set reads back empty, so the second write refuses it"),
-    "masses": (IndexError, "*Mass / *Rotary Inertia data the writer emits does not parse"),
-}
+READ_BACK_GAPS: dict = {}
 
 
 def _zoo_cases():

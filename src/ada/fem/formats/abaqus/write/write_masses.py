@@ -29,7 +29,11 @@ def mass_str(mass: Mass, written_on_assembly_level: bool) -> str:
 
     mstr = ",".join([str(x) for x in mass.mass]) if isinstance(mass.mass, list) else str(mass.mass)
 
-    if mass.elset is not None:
+    if mass.type == Mass.TYPES.NONSTRU and mass.fem_set is not None:
+        # Spread over the STRUCTURAL elements it was defined on -- not over the one-member set
+        # holding adapy's pseudo-element for it, which is where it used to land.
+        set_ref = mass.fem_set
+    elif mass.elset is not None:
         set_ref = mass.elset
     elif mass.fem_set is not None:
         set_ref = mass.fem_set
