@@ -218,6 +218,7 @@ re_belfix = get_ff_regex(
     "a6|",
 )
 re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
+re_mshglsp = get_ff_regex("MSHGLSP", "matno", "matknd", "ndof1", "ndof2", "bulk")
 # BNMASS carries NDOF mass components, which is not always six: a solid-type node has
 # NDOF=3 and three translational components (GNODE's NDOF, manual printed 5-91; the writer
 # now emits that -- see ``sesam/write/writer.NodeDofs``). Named fields m1..m6 made a

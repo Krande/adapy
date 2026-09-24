@@ -9,6 +9,9 @@ and every table outside it that the model uses must be named in the conversion r
 Sesam writer fills in. The way back needs no such allowance: Abaqus holds everything a Sesam
 file does, so Sesam -> Abaqus reports nothing omitted and changes nothing.
 
+Numbers are compared at the nine significant digits a Sesam field holds (E16.8): that is the
+format, not a defect, and the writer records it as a note with the largest relative change.
+
 The zoo is the Abaqus one, read from a written deck first, so the Sesam writer sees what a
 real Abaqus conversion hands it.
 """
@@ -153,7 +156,18 @@ def sesam_view(c: dict) -> dict:
     model["elements"] = {k: {f: v for f, v in e.items() if f != "type"} for k, e in model["elements"].items()}
     bcs = {k.split(".", 1)[-1]: v for k, v in c["bcs"].items()}
     materials = {k: {f: m[f] for f in MATERIAL_FIELDS} for k, m in c["materials"].items()}
-    return {"model": model, "materials": materials, "bcs": bcs}
+    return _e16_8({"model": model, "materials": materials, "bcs": bcs})
+
+
+def _e16_8(value):
+    """Every float as a Sesam field holds it: nine significant digits."""
+    if isinstance(value, float):
+        return float(f"{value:.8E}")
+    if isinstance(value, dict):
+        return {k: _e16_8(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_e16_8(v) for v in value]
+    return value
 
 
 #: What MISOSEL holds of a material: the linear elastic isotropic constants.

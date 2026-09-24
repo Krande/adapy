@@ -13,6 +13,7 @@ from ada.fem.shapes.definitions import (
 from ..common import sesam_el_map
 from ..node_order import SESAM_ORDER
 from .not_held import STAGE, report
+from .write_springs import element_records
 from .write_utils import write_ff
 
 # Reverse of ``sesam_el_map``, built once rather than re-scanned per element. Several
@@ -143,24 +144,16 @@ def unwritten_element_ids(fem: FEM) -> set:
 def _report_skipped(fem: FEM, skipped: Dict[str, List[Elem]]) -> int:
     """Name every element the deck leaves out; return how many that is."""
     rep = report()
-    # stru_elements already holds springs back, so nothing below would ever mention
-    # them. Say so rather than let them vanish: the reader builds Spring objects off
-    # GELMNT1 eltyp 18/40 (see sesam_el_map), so a Sesam -> Sesam round trip of a deck
-    # with springs loses them here, and silence makes that look like the deck never
-    # had any.
-    springs = list(fem.elements.springs)
-    for sp in springs:
-        rep.omitted(STAGE, "Spring", sp.name, "the writer emits no GELMNT1 + MGSPRNG pair for a spring yet")
     for el in skipped["connector"]:
         rep.omitted(STAGE, "Connector", el.name, "a connector has no Sesam element (GLSH needs a stiffness matrix)")
     for el in skipped["unsectioned"]:
         rep.omitted(STAGE, "Element", str(el.id), "no section: GELREF1 needs a material and section binding")
     for el in skipped["unsupported"]:
         rep.omitted(STAGE, "Element", str(el.id), f"{el.type} has no Sesam element type", type=str(el.type))
-    return len(springs) + sum(len(els) for els in skipped.values())
+    return sum(len(els) for els in skipped.values())
 
 
-def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
+def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None) -> Iterator[str]:
     """
     'GELREF1',  ('elno', 'matno', 'addno', 'intno'), ('mintno', 'strano', 'streno', 'strepono'), ('geono', 'fixno',
             'eccno', 'transno'), 'members|'
@@ -178,6 +171,10 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     # the ids the model carries are the ids the deck has to use — and note that sorting
     # does not fill gaps left by the skipped elements above; see the contiguity check
     # just below, which reports those gaps rather than renumbering around them.
+    # Springs take their place in that order too (write_springs): GELMNT1 type 18/40 with a
+    # GELREF1 naming their stiffness record.
+    springs = list(fem.elements.springs) if spring_matnos else []
+    writable = writable + springs
     el_ids = [el.id for el in writable]
     order = sorted(range(len(writable)), key=el_ids.__getitem__)
     writable = [writable[i] for i in order]
@@ -185,6 +182,7 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     dupes = [b for a, b in zip(el_ids, el_ids[1:]) if a == b]
     if dupes:
         raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
+    spring_records = {sp.id: element_records(sp, spring_matnos[sp.id]) for sp in springs}
 
     _warn_if_not_contiguous(el_ids, n_skipped)
 
@@ -193,6 +191,9 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
     # memory on top of the mesh.
     by_block = _sesam_ordered_ids(fem)
     for el in writable:
+        if el.id in spring_records and is_spring(el):
+            yield spring_records[el.id][0]
+            continue
         ids = by_block.get(el.type)
         row = getattr(el, "_row", None)
         if ids is not None and row is not None:
@@ -201,6 +202,9 @@ def elem_gen(fem: FEM, thick_map) -> Iterator[str]:
             nids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
         yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
     for el in writable:
+        if el.id in spring_records and is_spring(el):
+            yield spring_records[el.id][1]
+            continue
         yield write_elem(el, thick_map)
 
 

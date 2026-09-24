@@ -8,10 +8,9 @@ never emits the same spring twice.**
 Before the change, abaqus, calculix, vtu and ifc each raised on a model with a spring
 (ValueError / AttributeError), which cost the caller the whole export.
 
-Abaqus reads its springs back (`test_abaqus_reads_the_spring_back`; the zoo's round trip
-covers the rest). The other formats cannot be round-tripped: the Sesam writer does not emit
-springs (see `test_sesam_reports_the_springs_it_drops`), so their assertions check each
-format's own output instead of a read-back.
+Abaqus and Sesam read their springs back (`test_abaqus_reads_the_spring_back`,
+`test_sesam_reads_the_spring_back`; the zoo's round trips cover the rest). The other formats
+cannot be round-tripped, so their assertions check each format's own output instead.
 """
 
 from __future__ import annotations
@@ -113,18 +112,14 @@ def test_calculix_reports_the_spring_it_drops(tmp_path, warnings_visible):
     assert "SpringTypes.SPRING1=1" in warnings_visible.text
 
 
-def test_sesam_reports_the_springs_it_drops(tmp_path, warnings_visible):
-    """The Sesam reader builds springs off GELMNT1 eltyp 18/40, but the writer emits no
-    GELMNT1+MGSPRNG pair for them — so a Sesam round trip loses them. Known gap; the
-    point of the test is that it is a loud one: named in the conversion report, and logged."""
-    from ada.fem.formats import conversion_report
-
-    with conversion_report.collect() as report:
-        _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
-
-    (finding,) = [f for f in report.findings if f.keyword == "Spring"]
-    assert (finding.kind, finding.stage, finding.subject) == ("omitted", "sesam writer", "spr1")
-    assert "Spring: spr1" in warnings_visible.text
+def test_sesam_reads_the_spring_back(tmp_path):
+    """The writer used to emit no GELMNT1 + MGSPRNG pair, so the spring was lost. It is now a
+    GSPR element with its stiffness record and a TDELEM carrying its name and node set."""
+    _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
+    back = ada.from_fem(next(tmp_path.rglob("seT1.FEM")), "sesam")
+    (spring,) = [s for p in back.get_all_parts_in_assembly() for s in p.fem.springs.values()]
+    assert (spring.name, spring.id, spring.fem_set.name) == ("spr1", SPRING_ID, "spr1_set")
+    np.testing.assert_array_equal(spring.stiff, np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]))
 
 
 def test_usfos_reports_the_springs_it_drops(tmp_path, warnings_visible):

@@ -21,7 +21,7 @@ from ada.fem.shapes.definitions import (
 
 from .templates import top_level_fem_str
 from .write_sets import sets_str
-from .write_utils import write_ff
+from .write_utils import SIGNIFICANT_DIGITS, track_rounding, write_ff
 
 if TYPE_CHECKING:
     from ada import Material
@@ -72,6 +72,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     from .write_bcs import bnbcd_str, retained_dofs
     from .write_constraints import bldep_records
     from .write_elements import elem_gen, unwritten_element_ids
+    from .not_held import STAGE, report
+    from .write_springs import property_records
+    from .write_springs import spring_matnos as spring_matnos_for
     from .write_loads import step_loads_str
     from .write_masses import mass_str
     from .write_sections import sections_str
@@ -141,10 +144,14 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # reference point fixed whichever part node shared its id.
     held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
 
-    with open(inp_file_path, "w") as d:
+    # A spring's stiffness record takes a MATNO, numbered on from the materials'.
+    spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
+
+    with open(inp_file_path, "w") as d, track_rounding() as rounding:
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
         d.write(units)
         d.write(materials_str(materials))
+        d.write("".join(property_records(sp, spring_matnos[sp.id]) for sp in part.fem.springs.values()))
         d.write(sections_str(part.fem, thick_map))
         d.write(univec_str(part.fem))
         d.write(eccen_str(part.fem))
@@ -154,10 +161,20 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
-        d.writelines(elem_gen(part.fem, thick_map))
+        d.writelines(elem_gen(part.fem, thick_map, spring_matnos))
         d.write(step_loads_str(step, ndofs))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
+    if rounding.count:
+        # A limit of the format, not of this writer: said once, with its size.
+        report().note(
+            STAGE,
+            "Number",
+            str(inp_file_path.name),
+            f"values rounded to the {SIGNIFICANT_DIGITS} significant digits of Sesam's E16.8 fields",
+            count=rounding.count,
+            max_relative_change=rounding.max_rel,
+        )
     logger.info(f'Created an Sesam input deck at "{analysis_dir}"')
 
 
