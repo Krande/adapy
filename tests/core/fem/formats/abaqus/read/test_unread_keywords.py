@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import textwrap
 
-
 import ada
 from ada.fem.formats import conversion_report
 from ada.fem.formats.abaqus.read.reader import READER_STAGE
@@ -59,31 +58,31 @@ def test_unread_keywords_are_reported_once_each_and_read_ones_are_not(tmp_path):
         + "*Amplitude, name=ramp\n0., 0., 1., 1.\n"
         + "*Constraint Controls, print=yes\n"
         "*Step, name=load\n*Static\n1., 1.\n"
+        "*Temperature\n3, 20.\n"
+        "*Temperature\n5, 20.\n"
         "*Cload\n3, 3, -1.\n"
-        "*Cload\n5, 3, -1.\n"
-        "*Node Output\nU,\n"
+        "*Node Print\nU,\n"
         "*End Step\n"
     )
     _, report, found = _read(tmp_path, deck)
 
     # what the reader reads is never reported
-    for kw in ("*NODE", "*ELEMENT", "*NSET", "*MATERIAL", "*ELASTIC", "*DENSITY", "*SOLID SECTION"):
+    read = ("*NODE", "*ELEMENT", "*NSET", "*MATERIAL", "*ELASTIC", "*DENSITY", "*SOLID SECTION")
+    for kw in (*read, "*AMPLITUDE", "*STEP", "*STATIC", "*CLOAD"):
         assert kw not in found, kw
 
     # a local coordinate system silently ignored would move every node after it
     assert found["*SYSTEM"].kind == "omitted"
-    assert found["*AMPLITUDE"].kind == "omitted"
-    assert found["*STATIC"].kind == "omitted"
 
     # counted per keyword, not per block, with where to look
-    cload = found["*CLOAD"]
-    assert cload.kind == "omitted" and cload.count == 2
-    assert cload.details["blocks"] == 2
-    assert cload.details["first_line"] == deck.splitlines().index("*Cload") + 1
+    temp = found["*TEMPERATURE"]
+    assert temp.kind == "omitted" and temp.count == 2
+    assert temp.details["blocks"] == 2
+    assert temp.details["first_line"] == deck.splitlines().index("*Temperature") + 1
 
     # changes nothing in the model: a note, which does not fail --strict
     assert found["*HEADING"].kind == "note"
-    assert found["*NODE OUTPUT"].kind == "note"
+    assert found["*NODE PRINT"].kind == "note"
     assert found["*CONSTRAINT CONTROLS"].kind == "note"  # a solver setting, and adapy writes it
 
     assert report.has_omissions
@@ -103,20 +102,24 @@ def test_keywords_read_by_hand_matching_are_not_reported(tmp_path):
         assert kw not in found, kw
 
 
-def test_history_data_in_the_last_step_of_an_assembly_deck_is_reported_even_for_read_keywords(tmp_path):
-    """*Boundary is read as model data -- but not from inside the step the reader cuts off, so
-    one there is reported, and one before it is not."""
+def test_history_data_is_reported_by_what_the_step_reader_reads(tmp_path):
+    """Inside a step, what counts as read is the step reader's list, not the model reader's:
+    *Boundary is read in both places, *Initial Conditions only as model data -- so one in a step
+    is reported, and the one before the step is not."""
     deck = (
         "*Part, name=p\n" + _MESH_ONLY + "*End Part\n"
         "*Assembly, name=a\n*Instance, name=p-1, part=p\n*End Instance\n*End Assembly\n"
         + _MATERIAL
         + "*Boundary\np-1.base, ENCASTRE\n"
-        "*Step, name=s\n*Static\n1., 1.\n*Boundary\np-1.base, 1, 1\n*End Step\n"
+        "** Name: v0   Type: Velocity\n*Initial Conditions, type=VELOCITY\np-1.base, 1, 1.\n"
+        "*Step, name=s\n*Static\n1., 1.\n*Boundary\np-1.base, 1, 1\n"
+        "*Initial Conditions, type=VELOCITY\np-1.base, 1, 1.\n*End Step\n"
     )
-    _, _, found = _read(tmp_path, deck)
-    bc = found["*BOUNDARY"]
-    assert bc.kind == "omitted" and bc.count == 1
-    assert "history data" in bc.reason
+    a, _, found = _read(tmp_path, deck)
+    assert "*BOUNDARY" not in found and [len(s.bcs) for s in a.fem.steps] == [1]
+    ic = found["*INITIAL CONDITIONS"]
+    assert ic.kind == "omitted" and ic.count == 1
+    assert "in a step" in ic.reason
 
 
 def test_outside_a_collector_it_still_logs(tmp_path):
