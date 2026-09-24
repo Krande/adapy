@@ -30,10 +30,16 @@ from .zoo import ZOO
 
 FULL_ROUND_TRIP_GAPS = {
     "amplitudes": (AssertionError, "amplitudes (a); section int_points (b); section names (c)"),
-    "boundary_conditions": (ValueError, "connector sections (b)"),
-    "connectors": (ValueError, "connector sections (b)"),
-    "constraints": (ValueError, "coupling orientation (b)"),
-    "constraints_assembly_level": (KeyError, "assembly-level coupling (b)"),
+    "boundary_conditions": (
+        AssertionError,
+        "connector placement: part-level connector reads back at assembly level; section names (c)",
+    ),
+    "connectors": (
+        AssertionError,
+        "connector placement: part-level connectors, sets and csys read back at assembly level",
+    ),
+    "constraints": (AssertionError, "coupling dofs/sets as surfaces (b); MPC and tie tolerance (b); section names (c)"),
+    "constraints_assembly_level": (AssertionError, "assembly-level coupling dofs/sets (b); section names (c)"),
     "constraints_equation": (NotImplementedError, "*Equation (c)"),
     "elements_line_explicit": (AssertionError, "steps (+ their loads, BCs, outputs) (a); section names (c)"),
     "elements_line_profiles": (AssertionError, "beam section RECT (b); beam general section (a); section names (c)"),
@@ -49,14 +55,14 @@ FULL_ROUND_TRIP_GAPS = {
         AssertionError,
         "amplitudes (a); load csys (*Transform) (a); steps (+ their loads, BCs, outputs) (a); section int_points (b); section names (c)",
     ),
-    "masses": (IndexError, "masses (b)"),
+    "masses": (AssertionError, "mass elements: read back as MASS element plus Mass (b); section names (c)"),
     "masses_anisotropic": (NotImplementedError, "anisotropic mass (c)"),
     "materials": (
         AssertionError,
         "material density (c); material damping (a); material expansion (b); material no-compression (a); material plasticity (c)",
     ),
     "multi_part": (AssertionError, "multi-part (c); node coordinates (c)"),
-    "outputs": (ValueError, "connector sections (b)"),
+    "outputs": (AssertionError, "steps and outputs (a); connector placement; section names (c)"),
     "read_back_deck": (AssertionError, "node coordinates (c)"),
     "reference_point": (AttributeError, "reference points (c)"),
     "sections_zero_thickness": (AssertionError, "zero-thickness section (c)"),
