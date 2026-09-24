@@ -46,8 +46,8 @@ from ada_cli.formats import (
 def _cmd_convert(args: argparse.Namespace) -> int:
     from ada.api.cli import _cmd_convert as impl
 
-    impl(args)
-    return 0
+    # The impl owns the exit code: 3 when --strict meets an omission.
+    return impl(args)
 
 
 def _cmd_view(args: argparse.Namespace) -> int:
@@ -257,6 +257,14 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
     p.add_argument("--limit", type=int, default=None, help="Limit number of geometries (debugging).")
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Exit 3 if anything in the input could not be written to the output. "
+            "Approximations alone do not fail; the deck and the report are written either way."
+        ),
+    )
     _add_log_file(p)
     p.set_defaults(func=_cmd_convert, needs_ada_logging=True)
 

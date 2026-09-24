@@ -149,7 +149,7 @@ def test_invalid_to_choice_is_an_argparse_error(capsys):
 
 def test_convert_namespace_attribute_names():
     """The namespace is the contract between this parser and ``ada.api.cli._cmd_convert``, which
-    is in a different package and reads these six names. Renaming a ``dest`` here would break it
+    is in a different package and reads these seven names. Renaming a ``dest`` here would break it
     at runtime and nowhere else, so pin the names and the ``None`` defaults."""
     args = ada_cli.main._build_parser().parse_args(["convert", "in.inp", "out.FEM"])
 
@@ -159,6 +159,7 @@ def test_convert_namespace_attribute_names():
     assert args.to_format is None
     assert args.split is False
     assert args.limit is None
+    assert args.strict is False
 
     args = ada_cli.main._build_parser().parse_args(
         ["convert", "in.dat", "out.fem", "--from", "abaqus", "--to", "usfos", "--split", "--limit", "5"]
@@ -413,3 +414,68 @@ def test_without_log_file_the_console_still_gets_everything(tmp_path, example_fi
     assert proc.returncode == 0, proc.stderr
     assert "INFO/ada" in proc.stderr, f"INFO records stopped reaching the console:\n{proc.stderr[:500]}"
     assert not list(tmp_path.glob("*.log"))
+
+
+# --------------------------------------------------------------------------------------
+# --strict and the conversion report, through the parser and main()
+# --------------------------------------------------------------------------------------
+
+
+def test_strict_is_accepted_before_and_after_the_positionals():
+    for argv in (
+        ["convert", "in.inp", "out.FEM", "--strict"],
+        ["convert", "--strict", "in.inp", "out.FEM"],
+    ):
+        assert ada_cli.main._build_parser().parse_args(argv).strict is True
+
+
+@pytest.fixture
+def _omitting_load(monkeypatch):
+    """Inject one omission into the conversion, around the real loader."""
+    from ada.api import cli as cli_module
+    from ada.fem.formats import conversion_report
+
+    real_load = cli_module._load
+
+    def _load_and_report(*args, **kwargs):
+        model = real_load(*args, **kwargs)
+        conversion_report.current().omitted("abaqus reader", "*CLOAD", "", "not read by the Abaqus reader")
+        return model
+
+    monkeypatch.setattr(cli_module, "_load", _load_and_report)
+
+
+def test_main_returns_3_for_a_strict_conversion_with_an_omission(example_files, tmp_path, _omitting_load):
+    """The exit code has to survive ``main``'s own return path, not just the implementation's.
+
+    ``main`` ends in ``return rc if isinstance(rc, int) else 0``, and the convert wrapper used to
+    hard-code ``return 0`` — so an implementation returning 3 would have been silently flattened
+    to success, which is the one thing a script reading exit codes cannot detect.
+    """
+    out = tmp_path / "box.FEM"
+    argv = ["convert", str(example_files / "fem_files/abaqus/box.inp"), str(out), "--strict"]
+
+    assert ada_cli.main.main(argv) == 3
+    assert out.is_file()
+
+    # Without --strict the same conversion is a success.
+    assert ada_cli.main.main(argv[:-1]) == 0
+
+
+def test_the_summary_survives_a_log_file_raising_the_console_handler(example_files, tmp_path, capsys, _omitting_load):
+    """``--log-file`` lifts the console log handler to WARNING so an INFO flood goes to the file.
+
+    The summary is printed, not logged, precisely so that it cannot be turned off that way: it is
+    the one place an omission is guaranteed to be seen.
+    """
+    out = tmp_path / "box.FEM"
+    log = tmp_path / "convert.log"
+    argv = ["convert", str(example_files / "fem_files/abaqus/box.inp"), str(out), "--log-file", str(log)]
+
+    assert ada_cli.main.main(argv) == 0
+
+    err = capsys.readouterr().err
+    assert "COMPLETED_WITH_OMISSIONS" in err
+    assert "*CLOAD" in err
+    # And the finding is in the log file too, for whoever reads that instead.
+    assert "*CLOAD" in log.read_text(encoding="utf-8")
