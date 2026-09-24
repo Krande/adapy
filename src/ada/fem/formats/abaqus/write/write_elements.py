@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable
 from ada.core.utils import NewLine
 from ada.fem.shapes import definitions as shape_def
 
+from ..grammar import render_keyword
 from ..mapping import element_types
 from .helper_utils import get_instance_name, set_name
 from .write_masses import write_mass_elem
@@ -51,9 +52,8 @@ def write_elements(
     abaqus_type: str | None = None,
 ):
     el_type = abaqus_type or fem.options.ABAQUS.default_elements.get_element_type(eltype)
-    el_set_str = f", ELSET={set_name(elset)}" if elset is not None else ""
-    el_str = "\n".join((write_elem(el, alevel) for el in elements))
-    return f"""*ELEMENT, type={el_type}{el_set_str}\n{el_str}\n"""
+    params = [("type", el_type)] + ([("ELSET", set_name(elset))] if elset is not None else [])
+    return render_keyword("ELEMENT", params, [write_elem(el, alevel) for el in elements])
 
 
 def write_elem(el: Elem, alevel: bool) -> str:

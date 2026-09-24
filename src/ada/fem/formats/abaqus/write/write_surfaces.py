@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from ada.fem import Surface
 
 from ..grammar import format_number
-from .helper_utils import get_instance_name
+from .helper_utils import get_instance_name, render_block
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -21,11 +21,11 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
     from ada.fem.elements import find_element_type_from_list
     from ada.fem.shapes import ElemType
 
-    top_line = f"*Surface, type={surface.type}, name={surface.name}"
+    params = [("type", surface.type), ("name", surface.name)]
 
     if surface.id_refs is not None:
         id_refs_str = "\n".join([f"{m[0]}, {m[1]}" for m in surface.id_refs]).strip()
-        return f"""{top_line}\n{id_refs_str}"""
+        return render_block("Surface", params, [id_refs_str])
 
     if surface.type == surface.TYPES.NODE:
         elem_face_index_label = surface.weight_factor
@@ -61,4 +61,4 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
         else:
             raise NotImplementedError()
 
-    return f"""{top_line}\n{fs_str.strip()}"""
+    return render_block("Surface", params, [fs_str.strip()])

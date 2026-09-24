@@ -37,24 +37,28 @@ def connector_sections_str(fem: FEM) -> str:
 
 
 def connector_str(connector: "Connector", written_on_assembly_level: bool) -> str:
-    csys_ref = "" if connector.csys is None else f'\n "{connector.csys.name}",'
+    section_data = [f" {connector.con_type},"]
+    if connector.csys is not None:
+        section_data.append(f' "{connector.csys.name}",')
 
     end1 = get_instance_name(connector.n1, written_on_assembly_level)
     end2 = get_instance_name(connector.n2, written_on_assembly_level)
-    return f"""**
-** ----------------------------------------------------------------
-** Connector element representing {connector.name}
-** ----------------------------------------------------------------
-**
-*Elset, elset={connector.name}
- {connector.id},
-*Element, type=CONN3D2
- {connector.id}, {end1}, {end2}
-*Connector Section, elset={connector.name}, behavior={connector.con_sec.name}
- {connector.con_type},{csys_ref}
-**
-{csys_str(connector.csys, written_on_assembly_level)}
-**"""
+    rule = "-" * 64
+    return (
+        render_keyword(
+            "Elset",
+            [("elset", connector.name)],
+            [f" {connector.id},"],
+            ["", rule, f"Connector element representing {connector.name}", rule, ""],
+        )
+        + render_keyword("Element", [("type", "CONN3D2")], [f" {connector.id}, {end1}, {end2}"])
+        + render_keyword(
+            "Connector Section",
+            [("elset", connector.name), ("behavior", connector.con_sec.name)],
+            section_data,
+        )
+        + f"**\n{csys_str(connector.csys, written_on_assembly_level)}\n**"
+    )
 
 
 def _component_blocks(keyword: str, comp, extra=()) -> str:

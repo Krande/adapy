@@ -16,7 +16,7 @@ def _node_line(no) -> str:
 def nodes_str(fem: "FEM"):
     if len(fem.nodes) == 0:
         return "** No Nodes"
-    return "*NODE\n" + "\n".join([_node_line(no) for no in sorted(fem.nodes, key=attrgetter("id"))]).rstrip()
+    return render_keyword("NODE", (), [_node_line(no) for no in sorted(fem.nodes, key=attrgetter("id"))]).rstrip()
 
 
 def rp_str(fem: "FEM") -> str:

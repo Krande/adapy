@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 from ada.core.utils import NewLine
 from ada.fem import FemSet
 
-from .helper_utils import is_connector_set
+from ..grammar import render_keyword
+from .helper_utils import is_connector_set, render_block
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -46,8 +47,8 @@ def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_s
         # to an empty element set" for Abaqus to fill (generated fastener connectors, explicit
         # domain decomposition). Written as a keyword line with no data lines; it used to be
         # dropped with an error, or refused outright for a set read from a deck.
-        kind = "*Elset, elset" if fem_set.type == FemSet.TYPES.ELSET else "*Nset, nset"
-        return f"{kind}={fem_set.name}"
+        keyword, param = _set_keyword(fem_set)
+        return render_block(keyword, [(param, fem_set.name)])
 
     generate = fem_set.metadata.get("generate", False)
     internal = fem_set.metadata.get("internal", False)
@@ -55,7 +56,7 @@ def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_s
         if fem_set.name[0] == "_":
             internal = True
 
-    el_str = "*Elset, elset" if fem_set.type == FemSet.TYPES.ELSET else "*Nset, nset"
+    keyword, param = _set_keyword(fem_set)
 
     el_instances = dict()
 
@@ -67,21 +68,22 @@ def aba_set_str(fem_set: FemSet, written_on_assembly_level: bool, is_ref_point_s
         name = fem_set.name
         if is_ref_point_set is True:
             name += "-RefPt_"
-        el_root = f"{el_str}={name}"
+        params = [(param, name)]
         if written_on_assembly_level:
             if internal is True:
-                el_root += "" if "," in el_str[-2] else ", "
-                el_root += "internal"
+                params.append(("internal", None))
             if elinst != fem_set.parent.name:
-                el_root += "" if "," in el_str[-2] else ", "
-                el_root += f"instance={elinst}"
+                params.append(("instance", elinst))
 
         if generate is True:
             assert len(fem_set.metadata["gen_mem"]) == 3
-            el_root += "" if "," in el_root[-2] else ", "
-            set_str += (
-                el_root + "generate\n {},  {},   {}" "".format(*[no for no in fem_set.metadata["gen_mem"]]) + "\n"
-            )
+            params.append(("generate", None))
+            data = " {},  {},   {}".format(*fem_set.metadata["gen_mem"])
         else:
-            set_str += el_root + "\n " + " ".join([f"{no.id}," + next(newline) for no in members]).rstrip()[:-1] + "\n"
+            data = " " + " ".join([f"{no.id}," + next(newline) for no in members]).rstrip()[:-1]
+        set_str += render_keyword(keyword, params, [data])
     return set_str.rstrip()
+
+
+def _set_keyword(fem_set: FemSet) -> tuple[str, str]:
+    return ("Elset", "elset") if fem_set.type == FemSet.TYPES.ELSET else ("Nset", "nset")
