@@ -35,6 +35,13 @@ def solid_section_str(fem_sec: FemSection):
 
 def shell_section_str(fem_sec: FemSection):
     if fem_sec.thickness == 0:
+        # A shell of no thickness has no *Shell Section form; its elements go without a section.
+        # Left out as before -- but said, not silently.
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            "abaqus writer", "*SHELL SECTION", fem_sec.name, "a zero-thickness shell section has no Abaqus form"
+        )
         return ""
     return f"""** Section: {fem_sec.name}
 *Shell Section, elset={fem_sec.elset.name}, material={fem_sec.material.name}
@@ -42,7 +49,10 @@ def shell_section_str(fem_sec: FemSection):
 
 
 def line_section_str(fem_sec: FemSection):
-    top_line = f"** Section: {fem_sec.elset.name}  Profile: {fem_sec.elset.name}"
+    # The section's and the profile's own names (both were written as the elset's name, so a
+    # section read back was renamed after its set).
+    profile = fem_sec.section.name if fem_sec.section is not None else fem_sec.elset.name
+    top_line = f"** Section: {fem_sec.name}  Profile: {profile}"
     density = fem_sec.material.model.rho if fem_sec.material.model.rho > 0.0 else 1e-4
     ass = fem_sec.parent.parent.get_assembly()
 
@@ -100,6 +110,8 @@ def line_section_props(fem_sec: FemSection):
         return f"{sec.w_btn}, {sec.h}, {sec.t_fbtn}, {sec.t_w}\n {n1}"
     elif sec_data == "RECT":
         return f"{sec.w_btn}, {sec.h}\n {n1}"
+    elif sec_data == "ARBITRARY":
+        return f"{channel_arbitrary_lines(sec)}\n {n1}"
     else:
         raise NotImplementedError(f'section type "{sec.type}" is not added to Abaqus export yet')
 
@@ -119,17 +131,33 @@ def line_cross_sec_type_str(fem_sec: FemSection):
         bt.GENERAL: "GENERAL",
         bt.TUBULAR: "PIPE",
         bt.ANGULAR: "L",
-        bt.CHANNEL: "GENERAL",
+        # Abaqus's beam library has no channel; ARBITRARY describes it exactly (three segments),
+        # where GENERAL kept only an approximation of its integrated properties.
+        bt.CHANNEL: "ARBITRARY",
         bt.FLATBAR: "RECT",
     }
     sec_str = sec_map.get(fem_sec.section.type, None)
     if sec_str is None:
         raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
-    if fem_sec.section.type in [bt.CHANNEL]:
-        logger.error(f'Profile type "{sec_type}" is not supported by Abaqus. Using a General Section instead')
-
     return sec_str
+
+
+def channel_arbitrary_lines(sec: Section) -> str:
+    """A channel as an ``SECTION=ARBITRARY`` beam section: its three wall segments by centreline
+    and thickness -- bottom flange, web, top flange -- web centreline on the local-2 axis.
+
+    The reader recognises exactly this shape and rebuilds the channel from it
+    (``read_sections.channel_from_arbitrary``).
+    """
+    tip = sec.w_btn - sec.t_w / 2
+    y_btn = -(sec.h - sec.t_fbtn) / 2
+    y_top = (sec.h - sec.t_ftop) / 2
+    return (
+        f"3, {tip}, {y_btn}, 0.0, {y_btn}, {sec.t_fbtn}\n"
+        f" 0.0, {y_top}, {sec.t_w}\n"
+        f" {tip}, {y_top}, {sec.t_ftop}"
+    )
 
 
 def line_temperature_str(fem_sec: FemSection):

@@ -1,26 +1,26 @@
 from operator import attrgetter
 from typing import TYPE_CHECKING
 
+from ..grammar import format_number
+
 if TYPE_CHECKING:
     from ada import FEM
 
 
+def _node_line(no) -> str:
+    """A node's coordinates exactly: ``{:13.6f}`` rounded them to a micrometre in metres, so a
+    node at 1/3 read back at 0.333333."""
+    return f"{no.id:>7}, {format_number(no[0]):>13}, {format_number(no[1]):>13}, {format_number(no[2]):>13}"
+
+
 def nodes_str(fem: "FEM"):
-    f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
     if len(fem.nodes) == 0:
         return "** No Nodes"
-    return (
-        "*NODE\n"
-        + "\n".join(
-            [f.format(nid=no.id, x=no[0], y=no[1], z=no[2]) for no in sorted(fem.nodes, key=attrgetter("id"))]
-        ).rstrip()
-    )
+    return "*NODE\n" + "\n".join([_node_line(no) for no in sorted(fem.nodes, key=attrgetter("id"))]).rstrip()
 
 
 def rp_str(fem: "FEM") -> str:
     from .write_sets import aba_set_str
-
-    f = "{nid:>7}, {x:>13.6f}, {y:>13.6f}, {z:>13.6f}"
 
     if len(fem.ref_points.nodes) == 0:
         return "** No Nodes"
@@ -29,10 +29,7 @@ def rp_str(fem: "FEM") -> str:
     fem.ref_points.renumber(int(ref_int + 1))
 
     rp_nodes_str = (
-        "*NODE\n"
-        + "\n".join(
-            [f.format(nid=no.id, x=no[0], y=no[1], z=no[2]) for no in sorted(fem.ref_points, key=attrgetter("id"))]
-        ).rstrip()
+        "*NODE\n" + "\n".join([_node_line(no) for no in sorted(fem.ref_points, key=attrgetter("id"))]).rstrip()
     )
     for nset in fem.ref_sets:
         nset.name += "-RefPt_"
