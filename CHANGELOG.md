@@ -2,6 +2,15 @@
 
 
 
+## v0.87.0 (2026-09-24)
+
+### Feature
+
+* feat: STEP import scale/transform/rotate on either kernel (#389)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`a1fc214`](https://github.com/Krande/adapy/commit/a1fc214e63c3906e3a5803c453774e2e1189954c))
+
+
 ## v0.86.2 (2026-09-24)
 
 ### Fix
