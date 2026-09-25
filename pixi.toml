@@ -437,7 +437,8 @@ pydantic = "*"
 # runtime closure is self-contained.
 openpyxl = "*"
 
-# WINDOWS STAYS ON 3.13. conda-forge's python 3.14 for win-64 cannot load `pyexpat`:
+# WINDOWS STAYS ON 3.12 -- where it was, and where it works. conda-forge's python 3.14 for
+# win-64 cannot load `pyexpat`:
 #
 #     ImportError: DLL load failed while importing pyexpat:
 #     The operating system cannot run %1.
@@ -448,8 +449,13 @@ openpyxl = "*"
 # about adapy. Raise this to 3.14 once a win-64 python build loads pyexpat; every dependency that
 # matters (ada-cpp, ifcopenshell, code-aster, medcoupling) already ships both ABIs there, so the
 # pin is the only thing holding it.
+#
+# 3.13 was tried and fails the same way, so this is not "one version behind": it is the version
+# this platform is known green on. Moving it cascades the whole win-64 solve (harfbuzz 14.2->14.5,
+# glib, libharfbuzz-devel all arrive), which is a second variable to control before blaming the
+# interpreter -- bump it on its own, not inside another change.
 [feature.prod.target.win-64.dependencies]
-python = "3.13.*"
+python = "3.12.*"
 
 # Notebook / rendering / static-export deps. Held separate from `prod`
 # so the slim viewer-api / worker images don't ship the
@@ -461,15 +467,6 @@ jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
 pygfx = ">=0.16"
-# harfbuzz and libharfbuzz ship the SAME `lib/libharfbuzz.so.0`, so a solve that
-# takes them at different versions resolves the symlink by conda's clobber rule
-# rather than by intent. On python 3.14 it picked harfbuzz 14.2.1 beside
-# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 --
-# failed to import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`,
-# taking pygfx with it. Nothing pinned the old one (librsvg asks only for
-# >=14.2.0); the solver simply had no reason to prefer the matching pair. This
-# gives it one. Raise both bounds together if they move again.
-harfbuzz = ">=14.5"
 # pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
 # rendercanvas ≥ 2.0 for our offscreen path.
 wgpu-py = ">=0.31"
@@ -477,6 +474,20 @@ rendercanvas = ">=2.6"
 glfw = "==3.4"
 pyglfw = "*"
 send2trash = "*"
+
+# LINUX ONLY, and deliberately so. `harfbuzz` and `libharfbuzz` ship the same
+# `lib/libharfbuzz.so.0`, so a solve taking them at different versions resolves the symlink by
+# conda's clobber rule rather than by intent: on linux/py314 it picked harfbuzz 14.2.1 beside
+# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 -- failed to
+# import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`, taking pygfx with it.
+# Nothing pinned the old one (librsvg asks only for >=14.2.0), so this gives the solver a reason
+# to prefer the matching pair.
+#
+# NOT global: on win-64 that same bound drags in `libharfbuzz-devel` (harfbuzz 14.5 there is a
+# metapackage over it), which carries its own libexpat linkage and leaves `pyexpat` unloadable --
+# every XML test on Windows dying for a symlink problem that only exists on linux.
+[feature.desktop.target.linux-64.dependencies]
+harfbuzz = ">=14.5"
 
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
