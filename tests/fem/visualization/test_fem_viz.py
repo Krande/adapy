@@ -1,16 +1,14 @@
 import pytest
 
-# A bare `import medcoupling` here was a COLLECTION ERROR -- it aborted the
-# whole run rather than this one module, which is why the adacpp `test-all`
-# carried an --ignore for this directory and why `pixi run test` could not
-# simply point at tests/.
+# medcoupling is declared for linux-64 and win-64 (`fem-deps`), the platforms conda-forge builds
+# it for; there is no macOS build at all. So these run on the platforms that can run them and are
+# DESELECTED elsewhere by the marker below -- not skipped, which would report a hole in every
+# macOS run for a package that cannot exist there.
 #
-# medcoupling is declared in NO environment in this manifest, so these tests do
-# not currently run anywhere; they were merely invisible before instead of
-# reported. That is worth knowing rather than hiding: a skip says the module
-# exists and is unexercised, which is the honest state. Install medcoupling
-# into the fem env to run them.
-mc = pytest.importorskip("medcoupling", reason="medcoupling is not declared in any pixi environment")
+# The import stays INSIDE the tests: at module scope a bare `import medcoupling` is a collection
+# ERROR that aborts the whole run rather than this module, which is why this directory used to be
+# --ignore'd wholesale.
+pytestmark = pytest.mark.medcoupling
 
 import ada  # noqa: E402
 from ada.base.types import GeomRepr  # noqa: E402
@@ -56,6 +54,8 @@ def test_basic_cube_mesh(cube_solid_static_o1, cube_solid_static_o2):
 
     res_o1 = cube_solid_static_o1.to_fem("cube_solid_static_o1", "code_aster", overwrite=False, execute=True)
     # res_o2 = cube_solid_static_o2.to_fem("cube_solid_static_o2", "code_aster", overwrite=False, execute=True)
+
+    import medcoupling as mc  # imported here: at module scope it is a collection error
 
     data_o1 = mc.MEDFileData.New(res_o1.results_file_path.as_posix())
     fields_o1 = data_o1.getFields()

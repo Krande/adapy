@@ -127,6 +127,12 @@ class Connections(BaseCollections):
             are_beams_connected(bm1_, beams_, out_of_plane_tol, point_tol, nodes, nmap)
 
         for node, mem in nmap.items():
+            # BY NAME, not by discovery order. A joint of three or more members has no single
+            # angle, and a consumer takes the one between its first two -- so the order the
+            # candidate pairs happened to be walked in (partly a `set`'s, here) would decide the
+            # joint's angle bucket and with it its type key. The compiled pass sorts for the same
+            # reason; the two have to agree.
+            mem = sorted(mem, key=lambda b: str(b.name))
             if joint_func is not None:
                 joint = joint_func(next(self._counter), mem, node.p, parent=self)
                 if joint is None:

@@ -173,6 +173,14 @@ async def _run_clash_detail(
                         landing=landing,
                         incoming=incoming,
                         centre=found.centre,
+                        # What the PASS measured at this contact, where it measured anything:
+                        # normal, penetration depth, nearest points, patch area. A pass that works
+                        # on axes has none and this is None, which every builder already tolerates
+                        # -- but a builder given a geometric contact can size its output from the
+                        # real overlap instead of inferring one. Without this the richer passes
+                        # would be pointless: the data they exist to produce would be computed,
+                        # carried through the result document, and then dropped on the last step.
+                        clash=found.contact,
                         name=f"{spec_name}_{jid}" if i == 0 else f"{spec_name}_{jid}_{i}",
                         **gen_options,
                     )

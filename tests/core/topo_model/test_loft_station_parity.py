@@ -31,12 +31,10 @@ def _loft_curved_capable() -> bool:
     (pyodide/wasm) the compile falls back to flat plates and a rounded column
     bulges to ~+/-5.18 by design, so the +/-5.01 parity assertion is skipped there
     rather than failing."""
-    try:
-        import OCC.Core  # noqa: F401  (availability decides the loft backend)
+    from ada.cad import CadBackendName, backend_available
 
+    if backend_available(CadBackendName.OCC):  # availability decides the loft backend
         return True
-    except ImportError:
-        pass
     try:
         import adacpp.cad as _adacpp_cad
 

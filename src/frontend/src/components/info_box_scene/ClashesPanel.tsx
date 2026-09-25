@@ -11,10 +11,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
 import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
+import { OriginFilter, PassSelector } from "@/components/info_box_scene/joints/PassControls";
 import { startClashMarkerSync } from "@/utils/scene/clashJointMarkers";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { focusJoint as focusJointEverywhere } from "@/utils/scene/clashJointFocus";
@@ -31,6 +33,7 @@ import {
   memberNamesForGroup,
   noMembersSentence,
   useClashCheckStore,
+  visibleResult,
   type ClashApplicableSpec,
   type ClashFilters,
   type ClashGroup,
@@ -73,6 +76,12 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
   const busy = useClashCheckStore((s) => s.busy);
   const setOptions = useClashCheckStore((s) => s.setOptions);
   const runCheck = useClashCheckStore((s) => s.runCheck);
+  const inBrowser = useClashCheckStore((s) => s.inBrowser);
+  const setInBrowser = useClashCheckStore((s) => s.setInBrowser);
+  const browserStage = useClashCheckStore((s) => s.browserStage);
+  // Only IFC: the member scan is an IFC reader, so for anything else the option would be a
+  // checkbox that silently did nothing.
+  const browserPossible = browserClashCheckSupports(sourceKey ?? "");
 
   return (
     <div className="flex flex-col gap-1 pb-1 border-b border-gray-700">
@@ -85,6 +94,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
           title: "Coincidence tolerance for a shared node",
         })}
       </div>
+      <PassSelector />
       <div className="flex flex-wrap items-center gap-2">
         <ClashRootPicker value={options.root ?? null} onChange={(root) => setOptions({ root })} />
         <label className="flex items-center gap-1 text-[11px] text-gray-300">
@@ -95,6 +105,15 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
           />
           plate joints
         </label>
+        {browserPossible && (
+          <label
+            className="flex items-center gap-1 text-[11px] text-gray-300"
+            title="Read the members with the wasm IFC scan and run the same ada.clash rules in the browser — no upload, no worker job. Costs a one-time pyodide load; produces no server-side result, so detailing a joint still needs a server run."
+          >
+            <input type="checkbox" checked={inBrowser} onChange={(e) => setInBrowser(e.target.checked)} />
+            in browser
+          </label>
+        )}
       </div>
       <button
         type="button"
@@ -102,7 +121,7 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null }> = ({ scope,
         className="rounded-sm px-2 py-1 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-gray-100 text-xs"
         onClick={() => void runCheck(scope)}
       >
-        {busy ? "checking…" : "Run clash check"}
+        {busy ? (browserStage ? `${browserStage}…` : "checking…") : "Run clash check"}
       </button>
     </div>
   );
@@ -113,11 +132,12 @@ const ApplicableBadge: React.FC<{ spec: ClashApplicableSpec; scope: string; join
   scope,
   jointIds,
 }) => {
-  // `liveCapabilities: null` -- see `isSpecAvailable`'s doc and the TODO in
-  // `services/api/clashCheck.ts`: the live `connection_specs` union route does not exist yet, so
-  // this fails OPEN (every capability-bearing spec is offered) rather than hiding one that may in
-  // fact work. Once that route lands, swap this `null` for the fetched set.
-  const available = isSpecAvailable(spec, null);
+  // The live `connection_specs` union, fetched when the panel opened. Still `null` until that
+  // answer arrives (or where the route is absent), and `isSpecAvailable` reads null as "offer
+  // everything" -- there is no way to tell "no live pool" from "nobody has checked yet", and
+  // hiding a spec that in fact works is the worse of the two mistakes.
+  const liveCapabilities = useClashCheckStore((s) => s.liveCapabilities);
+  const available = isSpecAvailable(spec, liveCapabilities);
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailSpec = useClashCheckStore((s) => s.detailSpec);
   const runDetail = useClashCheckStore((s) => s.runDetail);
@@ -325,11 +345,19 @@ const GenerateDetailButton: React.FC<{
 const ClashesPanel: React.FC = () => {
   const loadedSourceName = useModelState((s) => s.loadedSourceName);
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
+  const loadCapabilities = useClashCheckStore((s) => s.loadCapabilities);
 
   const sourceKey = useClashCheckStore((s) => s.sourceKey);
   const checkedSource = useClashCheckStore((s) => s.sourceName);
   const setSource = useClashCheckStore((s) => s.setSource);
-  const result = useClashCheckStore((s) => s.result);
+  // The FILTERED result -- see `visibleResult`. Every view reads the same derivation, so a
+  // hidden producer disappears from the rows, the markers and the counts together.
+  const rawResult = useClashCheckStore((s) => s.result);
+  const hiddenOrigins = useClashCheckStore((s) => s.hiddenOrigins);
+  const result = React.useMemo(
+    () => visibleResult({ result: rawResult, hiddenOrigins }),
+    [rawResult, hiddenOrigins],
+  );
   const error = useClashCheckStore((s) => s.error);
   const filters = useClashCheckStore((s) => s.filters);
   const setFilters = useClashCheckStore((s) => s.setFilters);
@@ -347,6 +375,14 @@ const ClashesPanel: React.FC = () => {
   useEffect(() => {
     startClashMarkerSync();
   }, []);
+
+  // What this deployment can run, asked once when the panel opens -- which is what lets a
+  // contributed pass be TICKED before the first run that uses it, and what turns the generator
+  // badges from "offer everything" into the live answer. Best effort by construction: a
+  // deployment whose routes predate these leaves both null and the panel behaves as it did.
+  useEffect(() => {
+    void loadCapabilities(scope);
+  }, [scope, loadCapabilities]);
 
   // The check runs against the loaded SOURCE, never the GLB (see the module doc). A different
   // model invalidates whatever result was showing -- see `setSource`'s own doc for why.
@@ -409,6 +445,7 @@ const ClashesPanel: React.FC = () => {
 
       {result && !sentence && (
         <>
+          <OriginFilter />
           <div className="flex items-center gap-2 text-[11px] text-gray-400">
             <span className="flex-1 min-w-0 truncate">
               {result.counts.joints ?? 0} joint{(result.counts.joints ?? 0) === 1 ? "" : "s"}

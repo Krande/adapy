@@ -34,22 +34,19 @@ def _wire_filled_face(points) -> geo_su.WireFilledFace:
     return geo_su.WireFilledFace(bounds=[geo_su.FaceBound(bound=loop, orientation=True)])
 
 
-def _face_area(face) -> float:
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
+def _occ():
+    # make_face_from_wire_filled is the OCC builder, so its faces are measured on that backend.
+    from ada.cad import select_backend
 
-    props = GProp_GProps()
-    brepgprop.SurfaceProperties(face, props)
-    return abs(props.Mass())  # Mass is signed by face orientation
+    return select_backend(prefer="occ")
+
+
+def _face_area(face) -> float:
+    return abs(_occ().area(face))  # area is signed by face orientation
 
 
 def _shape_diag(face) -> float:
-    from OCC.Core.Bnd import Bnd_Box
-    from OCC.Core.BRepBndLib import brepbndlib
-
-    box = Bnd_Box()
-    brepbndlib.Add(face, box)
-    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    xmin, ymin, zmin, xmax, ymax, zmax = _occ().bbox(face)
     return math.dist((xmin, ymin, zmin), (xmax, ymax, zmax))
 
 
@@ -58,7 +55,7 @@ def test_wire_filled_planar_quad_builds_positive_area():
 
     pts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
     face = make_face_from_wire_filled(_wire_filled_face(pts))
-    assert face is not None and not face.IsNull()
+    assert face is not None and _occ().shape_type(face) == "face"
     # ~unit square; bounded MakeFilling must still cover the boundary.
     assert _face_area(face) > 0.5
     # the plate must not balloon past its boundary (the runaway-disk failure mode)
@@ -72,6 +69,6 @@ def test_wire_filled_nonplanar_saddle_builds_and_is_bounded():
     # plate solver actually iterates, so it exercises the bounded GeomPlate path.
     pts = [(0.0, 0.0, 0.2), (1.0, 0.0, -0.2), (1.0, 1.0, 0.2), (0.0, 1.0, -0.2)]
     face = make_face_from_wire_filled(_wire_filled_face(pts))
-    assert face is not None and not face.IsNull()
+    assert face is not None and _occ().shape_type(face) == "face"
     assert _face_area(face) > 0.5
     assert math.isfinite(_shape_diag(face)) and _shape_diag(face) < 5.0

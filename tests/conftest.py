@@ -1,8 +1,11 @@
+import importlib.util
+import os
 import pathlib
 
 import pytest
 
 import ada
+from ada.cad import CadBackendName, backend_available, select_backend
 from ada.config import Config
 
 is_printed = False
@@ -90,3 +93,103 @@ def mixed_model(pipe_w_multiple_bends, basic_2d_plate):
     mix2 = [bm2, basic_2d_plate]
 
     return ada.Assembly() / [(ada.Part("P1") / mix1), (ada.Part("P2") / mix2), (ada.Part("P3") / bm3)]
+
+
+# --- CAD backend fixtures ----------------------------------------------------------------------
+# Tests reach a kernel only through the CadBackend API, and measure a shape with the backend that
+# built it: a shape is only readable by its own kernel. ``select_backend`` tries adacpp before
+# pythonocc, so every backend handed out here is pinned by name rather than auto-selected.
+
+BACKEND_NAMES = ("occ", "adacpp")
+
+
+#: The `occ` leg carries the `pyocc` marker so a run can DESELECT it rather than skip it. A
+#: parametrised backend test is one test per kernel: the adacpp leg belongs in every run, the
+#: pythonocc leg only where that kernel exists. Marking the param (not the test) is what keeps
+#: those two facts separable -- the alternative, skipping at fixture time, reports a hole in
+#: every default run for a kernel that env was never meant to carry.
+_BACKEND_PARAMS = (
+    pytest.param("occ", marks=pytest.mark.pyocc),
+    pytest.param("adacpp", marks=pytest.mark.adacpp),
+)
+
+
+@pytest.fixture(params=_BACKEND_PARAMS)
+def backend(request):
+    """One installed backend, pinned by name — never the ``select_backend`` default."""
+    if not backend_available(CadBackendName(request.param)):
+        pytest.skip(f"{request.param} backend not installed")
+    return select_backend(prefer=request.param)
+
+
+@pytest.fixture
+def occ_backend():
+    """The pythonocc backend, for tests whose subject IS that kernel; a skip where it's absent."""
+    if not backend_available(CadBackendName.OCC):
+        pytest.skip("occ backend not installed")
+    return select_backend(prefer="occ")
+
+
+@pytest.fixture
+def both_backends():
+    """``(occ, adacpp)``, or a skip when this environment carries only one kernel."""
+    missing = [n for n in BACKEND_NAMES if not backend_available(CadBackendName(n))]
+    if missing and os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS"):
+        # tests-xkernel exists to run these; a kernel that fails to import there must not
+        # turn the whole job into a green run of skips.
+        pytest.fail(f"ADAPY_REQUIRE_BOTH_KERNELS is set but a kernel is missing: {', '.join(missing)}")
+    if missing:
+        pytest.skip(f"cross-backend comparison needs both kernels; missing: {', '.join(missing)}")
+    return select_backend(prefer="occ"), select_backend(prefer="adacpp")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Mark every test that needs pythonocc, so a run can select or deselect the whole set.
+
+    DERIVED, NOT DECLARED. A test needs that kernel because of the FIXTURE it asks for -- and a
+    marker maintained by hand beside the fixture is one someone will forget on the next test.
+    `fixturenames` already carries the answer, so this reads it rather than trusting a second
+    source. `backend`'s own `occ` leg is marked at the param instead (see `_BACKEND_PARAMS`),
+    because there the kernel is one of two legs rather than the whole test.
+
+    The point is to stop the default suite REPORTING these as skips: an env without pythonocc was
+    never meant to run them, and 117 skipped tests read as missing coverage rather than as
+    coverage that lives in another job.
+    """
+    needs_occ = {"occ_backend", "both_backends"}
+    for item in items:
+        if needs_occ.intersection(getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.pyocc)
+
+    # DESELECT, don't skip. An environment without pythonocc was never going to run these, and a
+    # skip reports that as a hole in the suite -- one that is never read, never acted on, and
+    # never executed anywhere. Removing them from collection says the same thing honestly: this
+    # env runs what it can run, and the compat leg (an env carrying both kernels) runs the rest.
+    #
+    # `ADAPY_REQUIRE_BOTH_KERNELS` turns this off: that is the compat leg, where a missing kernel
+    # must FAIL rather than quietly shrink the run to nothing.
+    absent = set()
+    # `pyocc` is exempt under ADAPY_REQUIRE_BOTH_KERNELS: that is the compat leg, where a missing
+    # kernel must FAIL rather than quietly shrink the run to nothing.
+    if not os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS") and not backend_available(CadBackendName.OCC):
+        absent.add("pyocc")
+    if importlib.util.find_spec("medcoupling") is None:
+        absent.add("medcoupling")
+    # Symmetric with `pyocc`: the pythonocc-only envs have no adacpp, and a test whose subject is
+    # that kernel is no more "skipped" there than a pythonocc test is here.
+    if importlib.util.find_spec("adacpp") is None:
+        absent.add("adacpp")
+    # An escape hatch, for asking "would these actually run here?" -- which is the only way to
+    # catch a test marked for a capability it does not really need. Without it the deselection is
+    # invisible to inspection: `-m adacpp` selects nothing, because the deselection already ran.
+    if os.environ.get("ADAPY_NO_CAPABILITY_DESELECT"):
+        return
+    if not absent:
+        return
+
+    kept, removed = [], []
+    for item in items:
+        (removed if any(item.get_closest_marker(m) for m in absent) else kept).append(item)
+    if removed:
+        config.hook.pytest_deselected(items=removed)
+        items[:] = kept

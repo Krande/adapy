@@ -97,16 +97,31 @@ class JointRecord:
     type_key: str
     type_label: str
     applicable: tuple[ApplicableSpec, ...] = ()
+    #: The PASS that found this joint (`ada.clash.passes`), which is also what its id is hashed
+    #: from. Two passes over one model find overlapping but different joints -- a shared node and
+    #: a two-millimetre overlap are both true -- and a reader who cannot tell which pass produced
+    #: a joint can neither judge it nor filter it out.
+    origin: str = "beam-beam"
+    #: What the pass measured at the contact, where it measured anything: contact normal,
+    #: penetration depth, the nearest point on each member, patch area. Present only for a pass
+    #: that works on geometry rather than axes, and passed to a connection builder as its
+    #: ``clash`` argument -- the data a generator sizes its output from. Core reads none of it;
+    #: it is carried, not interpreted.
+    contact: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "centre": list(self.centre),
             "members": [m.to_dict() for m in self.members],
             "type_key": self.type_key,
             "type_label": self.type_label,
+            "origin": self.origin,
             "applicable": [a.to_dict() for a in self.applicable],
         }
+        if self.contact is not None:
+            out["contact"] = dict(self.contact)
+        return out
 
 
 @dataclass(frozen=True)
@@ -143,6 +158,10 @@ class ClashResult:
     source_sha256: str | None = None
     provenance: Mapping[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    #: One entry per pass the check KNEW ABOUT, each saying whether it ran and what it found.
+    #: A pass that was available and not selected is in here too, because "not run" and "found
+    #: nothing" are different answers and the panel offers the difference as a checkbox.
+    passes: tuple[Mapping[str, Any], ...] = ()
     schema: str = CLASH_RESULT_SCHEMA
 
     def to_dict(self) -> dict:
@@ -159,6 +178,8 @@ class ClashResult:
             out["source_sha256"] = self.source_sha256
         if self.warnings:
             out["warnings"] = list(self.warnings)
+        if self.passes:
+            out["passes"] = [dict(p) for p in self.passes]
         return out
 
     def to_json(self) -> bytes:
@@ -245,6 +266,10 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
             type_key=str(j["type_key"]),
             type_label=str(j.get("type_label") or j["type_key"]),
             applicable=_applicable(j.get("applicable")),
+            # Defaulted, not required: a document written before joints carried their producer
+            # still reads, and reads as what it was -- core's beam pass was the only one there.
+            origin=str(j.get("origin") or "beam-beam"),
+            contact=j.get("contact"),
         )
         for j in raw.get("joints") or ()
     )
@@ -267,4 +292,5 @@ def parse_clash_result(doc: bytes | str | Mapping[str, Any]) -> ClashResult:
         source_sha256=raw.get("source_sha256"),
         provenance=dict(raw.get("provenance") or {}),
         warnings=tuple(str(w) for w in raw.get("warnings") or ()),
+        passes=tuple(dict(p) for p in raw.get("passes") or ()),
     )

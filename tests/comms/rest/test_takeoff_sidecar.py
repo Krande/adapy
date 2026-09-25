@@ -152,3 +152,50 @@ def test_a_source_that_cannot_be_read_is_simply_not_taken_off(tmp_path):
 
     record_takeoff_from_source(tmp_path / "missing.ifc", ".ifc")  # must not raise
     assert consume_takeoff() is None
+
+
+# ── the native route: the bound is for the reader it replaces ────────────────────────────────
+
+
+def test_an_ifc_the_native_reader_can_answer_is_taken_off_regardless_of_size(tmp_path, monkeypatch):
+    """The bound exists because of the SECOND READ, so a source that avoids it is not bound.
+
+    25 MB was never a statement about which models deserve a take-off -- it was the price of
+    reading a plant with ifcopenshell purely to count it. The native member reader answers the
+    same question from the entities that state it, so an IFC it can vouch for is taken off at any
+    size, and the panel stops being empty for exactly the files it was most wanted on.
+    """
+    from ada.cadit.ifc.read.native_members import native_members_available
+    from ada.comms.rest.converters.takeoff import (
+        SOURCE_SIZE_LIMIT_ENV,
+        record_takeoff_from_source,
+    )
+
+    if not native_members_available():
+        pytest.skip("ada-cpp without IfcMemberScan")
+
+    src = tmp_path / "frame.ifc"
+    _frame().to_ifc(src, validate=False)
+    monkeypatch.setenv(SOURCE_SIZE_LIMIT_ENV, "1")  # every real file is "too large"
+
+    record_takeoff_from_source(src, ".ifc")
+    stats = consume_takeoff()
+    if stats is None:
+        pytest.skip("ada-cpp without material in IfcMemberScan (needs >= 0.29)")
+    assert stats["total_mass"] > 0
+    assert stats["objects"] > 0
+
+
+def test_a_step_source_is_still_bound(tmp_path, monkeypatch):
+    """Nothing native answers for a STEP, so that leg keeps paying the full read and its bound."""
+    from ada.comms.rest.converters.takeoff import (
+        SOURCE_SIZE_LIMIT_ENV,
+        record_takeoff_from_source,
+    )
+
+    src = tmp_path / "frame.stp"
+    src.write_bytes(b"x" * 4096)
+    monkeypatch.setenv(SOURCE_SIZE_LIMIT_ENV, "1024")
+
+    record_takeoff_from_source(src, ".stp")
+    assert consume_takeoff() is None

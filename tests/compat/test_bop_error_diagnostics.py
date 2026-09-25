@@ -35,15 +35,21 @@ def test_error_without_alerts_keeps_the_bare_message():
 
 
 def _cells_builder(n_operands: int):
-    pytest.importorskip("OCC")
+    # The subject is the raw BOPAlgo_CellsBuilder's alert report, which no CadBackend verb
+    # exposes, so the algorithm object itself stays pythonocc. Its operands come from the OCC
+    # backend by name.
+    from ada.cad import CadBackendName, backend_available, select_backend
+
+    if not backend_available(CadBackendName.OCC):
+        pytest.skip("occ backend not installed")
     from OCC.Core.BOPAlgo import BOPAlgo_CellsBuilder
-    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
     from OCC.Core.TopTools import TopTools_ListOfShape
 
+    occ = select_backend(prefer="occ")
     cb = BOPAlgo_CellsBuilder()
     args = TopTools_ListOfShape()
     for i in range(n_operands):
-        args.Append(BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape())
+        args.Append(occ.make_box(1.0, 1.0, 1.0))
     cb.SetArguments(args)
     cb.Perform()
     return cb

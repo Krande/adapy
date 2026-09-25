@@ -36,10 +36,17 @@ class OccDocBackend:
 
         return OCCStore.get_step_writer()
 
-    def step_reader(self, filepath: Any) -> "StepStore":
+    def step_reader(self, filepath: Any, matrix: Any = None) -> "StepStore":
         from ada.occ.store import OCCStore
 
-        return OCCStore.get_reader(filepath)
+        if matrix is None:
+            return OCCStore.get_reader(filepath)
+        # A transformed import reads through CadBackend.read_step_shapes, the same OCAF
+        # traversal the adacpp doc backend uses, so the two kernels apply it identically.
+        from ada.cad import select_backend
+        from ada.cadit.step.read.adacpp_store import AdacppStepStore
+
+        return AdacppStepStore(filepath, matrix=matrix, backend=select_backend(prefer="occ"))
 
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any:
         # The XCAF RWGltf_CafWriter path. The portable per-shape GLB path

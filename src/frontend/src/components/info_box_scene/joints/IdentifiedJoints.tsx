@@ -21,6 +21,7 @@ import {
   groupColor,
   memberNamesForGroup,
   useClashCheckStore,
+  visibleResult,
   type ClashResult,
 } from "@/state/clashCheckStore";
 import { useModelState } from "@/state/modelState";
@@ -32,7 +33,14 @@ import JointDetail from "./JointDetail";
 import { cursorIndex, groupRowFor, step, visibleRows, type JointRow } from "./rows";
 
 const IdentifiedJoints: React.FC = () => {
-  const result = useClashCheckStore((s) => s.result);
+  // The FILTERED result -- see `visibleResult`. Every view reads the same derivation, so a
+  // hidden producer disappears from the rows, the markers and the counts together.
+  const rawResult = useClashCheckStore((s) => s.result);
+  const hiddenOrigins = useClashCheckStore((s) => s.hiddenOrigins);
+  const result = React.useMemo(
+    () => visibleResult({ result: rawResult, hiddenOrigins }),
+    [rawResult, hiddenOrigins],
+  );
   const openGroup = useClashCheckStore((s) => s.selectedGroup);
   const focusedJoint = useClashCheckStore((s) => s.selectedJoint);
   const selectGroup = useClashCheckStore((s) => s.selectGroup);

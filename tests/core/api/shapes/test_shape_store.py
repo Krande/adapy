@@ -11,6 +11,8 @@ import gc
 import pickle
 import weakref
 
+import pytest
+
 import ada.geom.curves as cu
 import ada.geom.solids as so
 import ada.geom.surfaces as su
@@ -197,6 +199,7 @@ def test_proxy_pickle_shares_store():
     assert isinstance(r1, ShapeProxy) and isinstance(r1, Shape)
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_blob_fast_path_matches_serialized_tessellation():
     """A stored NGEOM blob tessellates via tessellate_stream_buffer to the same mesh
     the hydrate+re-serialize route produces (the lazy fast path skips both steps)."""
@@ -228,6 +231,7 @@ def test_pickle_kind_has_no_ngeom_blob():
     assert p.ngeom_blob() is None
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_stream_tessellation_applies_bool_operations():
     """A Geometry wrapper's bool_operations reach the stream kernel: the serializer
     folds them into a BOOLEAN_RESULT chain (half-space lowered to a finite box, the
@@ -276,6 +280,7 @@ def test_backend_builds_hydrated_connected_face_set():
     assert handle is not None
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_ifc_brep_products_import_as_ngeom_blobs(tmp_path):
     """B-rep IFC products the Python-native readers can't resolve import via adacpp's
     IfcNgeomStream as zero-copy ngeom-kind proxies instead of eager OCC kernel bodies."""

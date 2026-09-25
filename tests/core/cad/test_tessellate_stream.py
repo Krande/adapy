@@ -15,6 +15,11 @@ import ada.geom.curves as cu
 import ada.geom.surfaces as su
 from ada.geom.placement import Axis2Placement3D, Direction, Point
 
+# The module's subject IS the adacpp streaming tessellator, so the whole file carries the marker
+# and is deselected where that kernel is absent -- rather than each test skipping through the
+# helper below, which reports a hole in every pythonocc-only run.
+pytestmark = pytest.mark.adacpp
+
 
 def _backend_or_skip():
     pytest.importorskip("adacpp")

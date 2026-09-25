@@ -186,6 +186,7 @@ def _has_step_parity() -> bool:
         return False
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not _has_step_parity(), reason="adacpp.cad.step_parity unavailable (pre-branch / no overlay)")
 def test_native_step_parity_single_parse_matches(tmp_path):
     """The native single-parse fan-out (adacpp.cad.step_parity) returns a consistent

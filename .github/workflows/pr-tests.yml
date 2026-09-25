@@ -56,8 +56,41 @@ jobs:
         # here would triple its cost and gate nothing new. -e is what picks the
         # backend; `test`'s default environment is deliberately not relied on
         # in CI, where the environment is always stated.
+        # The DEXPI corpus is ~220 third-party XML files fetched from a public repo. Cached so
+        # the download happens about once per corpus change instead of once per job on three
+        # OSes; `fetch-dexpi` (a dependency of the test task) no-ops when the cache restored it.
+        # A cache miss just means the task fetches, so a stale or absent cache costs time, never
+        # correctness.
+        - name: Cache the DEXPI corpus
+          uses: actions/cache@v4
+          with:
+            path: files/dexpi_files/_external
+            key: dexpi-corpus-${{ hashFiles('scripts/fetch_dexpi_testcases.py') }}
+            restore-keys: dexpi-corpus-
+
         - name: Runs Tests
           run: pixi run -e tests test-quick
+
+    # Every other env carries one CAD kernel, so the parity suites' `both_backends` cases skip
+    # everywhere else and a divergence between ada-cpp and pythonocc can land unseen. This env
+    # carries both on one occt 8.0.1. Linux only: the kernels are compared on the same inputs, so
+    # a second OS would repeat the comparison rather than extend it.
+    test-xkernel:
+        name: Cross-kernel CAD parity (ada-cpp vs pythonocc)
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.10.2
+          with:
+            pixi-version: v0.68.0
+            environments: tests-xkernel
+            cache: true
+
+        - name: Run parity suites with both kernels
+          run: pixi run -e tests-xkernel test-xkernel
 
     # tests/comms/rest is excluded from the `test` task above (it needs the viewer-api stack, which
     # the `tests` env does not carry), so before this job the entire REST/viewer-API suite — the
