@@ -11,6 +11,7 @@ compounds on repeat calls).
 """
 
 import numpy as np
+import pytest
 
 from ada import Placement, Point, Shape
 from ada.geom import Geometry
@@ -83,10 +84,8 @@ def test_baked_geometry_builds_placed_on_each_kernel(backend):
     assert 1.9 < ymin and ymax < 4.1, (ymin, ymax)
 
 
+@pytest.mark.adacpp  # the libtess2 render path IS adacpp's; deselected where it is absent
 def test_baked_geometry_renders_placed_via_libtess2():
-    import pytest
-
-    pytest.importorskip("adacpp")
     from ada.cad import AdacppBackend
 
     place = Placement.from_axis_angle([0, 0, 1], 90, origin=(5, 2, 0))

@@ -35,6 +35,7 @@ def _color(c):
     return None if c is None else tuple(round(float(x), 5) for x in (c.red, c.green, c.blue))
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_reader_matches_stream():
     from ada.cadit.ngeom.serialize import serialize_geometries
 
@@ -51,6 +52,7 @@ def test_native_reader_matches_stream():
         assert _transform_set(gn.transforms) == _transform_set(gp.transforms), f"{gid}: placement set"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_reader_synthetic_box_cyl(tmp_path):
     from ada.cadit.ngeom.serialize import serialize_geometries
     from ada.visit.colors import Color
@@ -69,6 +71,7 @@ def test_native_reader_synthetic_box_cyl(tmp_path):
         assert serialize_geometries([(gid, geom.geometry)]), "serializable B-rep"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_read_step_file_native_builds_assembly():
     asm = ada.Assembly("t")
     asm.read_step_file(_AS1, reader="native", product_tree=True)
@@ -78,6 +81,7 @@ def test_read_step_file_native_builds_assembly():
     assert {"bolt", "nut", "plate", "rod", "l-bracket"} <= names
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_iter_from_step_factory():
     """The public streaming factory ``ada.iter_from_step`` yields the same per-solid
     Geometry stream as the underlying readers, lazily (a generator — bounded memory)."""

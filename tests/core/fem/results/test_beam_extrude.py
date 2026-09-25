@@ -22,11 +22,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# the procedural extruder takes its section mesh from adacpp, so without it there is
-# nothing here to assert against: every beam falls back to the kernel by design.
-# The adacpp CI leg is where these run.
-pytest.importorskip("adacpp.cad")
-
 from ada import Beam, BeamTapered, Section
 from ada.api.curves import CurvePoly2d
 from ada.fem.results.artefacts.beam_extrude import (
@@ -37,6 +32,15 @@ from ada.fem.results.artefacts.beam_extrude import (
 )
 from ada.fem.results.artefacts.beam_solids import tessellate_beams_to_solid_mesh
 from ada.fem.results.beam_placement import SectionCentroidCache
+
+# the procedural extruder takes its section mesh from adacpp, so without it there is
+# nothing here to assert against: every beam falls back to the kernel by design.
+# The adacpp CI leg is where these run.
+
+
+# Marked rather than skipped: deselected where adacpp is absent, which is the env this
+# module was never meant to run in.
+pytestmark = pytest.mark.adacpp
 
 # OCC's tessellator hands back float32 positions, so "the same vertex" cannot
 # be tighter than float32 epsilon on a coordinate of a few metres.

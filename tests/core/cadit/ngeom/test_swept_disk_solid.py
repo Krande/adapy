@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_swept_disk_solid_tube_libtess2():
     pytest.importorskip("adacpp")
     import ada.geom.curves as cu

@@ -26,6 +26,10 @@ if TYPE_CHECKING:  # import-time names for type checkers only; resolved at runti
         type_key_for,
         type_label_for,
     )
+    from ada.clash.from_scan import (  # noqa: F401
+        clash_check_from_members,
+        clash_check_from_scan,
+    )
     from ada.clash.identify import identify_joints, run_clash_check  # noqa: F401
     from ada.clash.match import (  # noqa: F401
         applicable_specs,
@@ -68,6 +72,8 @@ _LAZY = {
     "detail_pairs": "match",
     "identify_joints": "identify",
     "run_clash_check": "identify",
+    "clash_check_from_members": "from_scan",
+    "clash_check_from_scan": "from_scan",
 }
 
 __all__ = ["CLASH_RESULT_SCHEMA", "ClashOptions", *sorted(_LAZY)]

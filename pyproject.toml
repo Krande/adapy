@@ -163,6 +163,18 @@ markers = [
     # (tessellate_stream). Run under the viewer-api-tests-adacpp env (`test-rest-adacpp`); they
     # also pass under OCC via the object-path fallback in the plain viewer-api-tests leg.
     "adacpp_stream: REST test exercising the adacpp streaming tessellation path",
+    # Needs the pythonocc kernel: either as the subject under test, or as the other half of a
+    # cross-kernel comparison. Applied automatically from the fixtures a test asks for
+    # (tests/conftest.py's `pytest_collection_modifyitems`), so it cannot drift from reality.
+    # The default suite DESELECTS these (`-m "not pyocc"`); `pixi run test-compat` selects them
+    # in an env carrying both kernels, where a missing one fails rather than skips.
+    "pyocc: test requiring the pythonocc kernel (run by the compat leg, not the default suite)",
+    # medcoupling has no macOS build on conda-forge, so these are deselected there rather than
+    # skipped -- a skip would report a hole in every macOS run for a package that cannot exist.
+    "medcoupling: test requiring the medcoupling MED reader (linux/windows only)",
+    # The mirror of `pyocc`: a test whose subject is the adacpp kernel, deselected in the
+    # pythonocc-only envs rather than skipped there.
+    "adacpp: test requiring the adacpp kernel",
 ]
 # This is meant to stop and catch any unintended hangs
 timeout = 600

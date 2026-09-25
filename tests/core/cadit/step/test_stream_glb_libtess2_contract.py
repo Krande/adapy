@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_libtess2_stream_glb_keeps_adapy_contract(tmp_path, monkeypatch):
     ada = pytest.importorskip("ada")
     pytest.importorskip("adacpp")

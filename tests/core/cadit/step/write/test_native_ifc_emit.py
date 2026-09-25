@@ -65,6 +65,7 @@ def _ifc_fixture_dir() -> str:
     pytest.skip("ifc_files fixtures not found")
 
 
+@pytest.mark.adacpp
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
 @pytest.mark.parametrize(
     "fixture,exp_min,exp_max,n_solids",
@@ -90,6 +91,7 @@ def _ifc_fixture_dir() -> str:
         ("half_space_beam.ifc", (0, -0.05, -0.1), (3.5, 0.05, 0.1), 1),
     ],
 )
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_path):
     """Native IFC->STEP covers IfcExtrudedAreaSolid with rectangle + parametric (I/T-shape) profiles,
     mapped instances (scale/rotation), and the product ObjectPlacement — fully native
@@ -107,6 +109,7 @@ def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_p
     assert np.allclose(a.max(0), exp_max, atol=0.01), a.max(0)
 
 
+@pytest.mark.adacpp
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
 @pytest.mark.parametrize(
     "prim,kw,exp_min,exp_max",
@@ -116,6 +119,7 @@ def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_p
         ("IfcRightCircularCone", dict(Height=2.0, BottomRadius=0.5), (-0.5, -0.5, 0), (0.5, 0.5, 2)),
     ],
 )
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
     """IfcSphere -> ng::revolve, IfcRightCircularCylinder -> extrusion, IfcRightCircularCone -> revolve;
     re-tessellated bbox matches the analytic primitive. No fixtures exist, so build a minimal IFC."""
@@ -160,6 +164,7 @@ def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
     assert np.allclose(a.max(0), exp_max, atol=0.03), a.max(0)
 
 
+@pytest.mark.adacpp
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
 @pytest.mark.parametrize(
     "prof_kind,kw,exp_min,exp_max,hollow",
@@ -191,6 +196,7 @@ def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
         ),
     ],
 )
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_ifc_parametric_profiles(prof_kind, kw, exp_min, exp_max, hollow, tmp_path):
     """Parametric + hollow IfcProfileDef types (the targets of adapy's beam-section export) extruded ->
     native IFC->STEP, fully native (products_skipped==0) with the validated bbox; hollow sections show
@@ -266,6 +272,7 @@ def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
     )
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 @pytest.mark.parametrize("fixture", ["Ventilator.stp", "curved_plate.stp", "plate_3_curved.stp"])
 def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
@@ -303,6 +310,7 @@ def _bbox_relerr(a_path, b_path):
     return float(np.linalg.norm((bmn + bmx) / 2 - (amn + amx) / 2) + np.linalg.norm((bmx - bmn) - (amx - amn))) / diag
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_step"), reason="no stream_step_to_step")
 @pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_2_curved_complex.stp", "curved_plate.stp"])
 def test_native_step_to_step_roundtrip(fixture, tmp_path):
@@ -320,6 +328,7 @@ def test_native_step_to_step_roundtrip(fixture, tmp_path):
     not (hasattr(_cad or object(), "stream_ifc_to_step") and hasattr(_cad or object(), "stream_step_to_ifc")),
     reason="no native ifc<->step",
 )
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_3_curved.stp", "curved_plate.stp"])
 def test_native_step_ifc_step_roundtrip(fixture, tmp_path):
     """Full circle: STEP -> (native STEP->IFC) -> IFC -> (native IFC->STEP) -> STEP; the final mesh
@@ -334,6 +343,7 @@ def test_native_step_ifc_step_roundtrip(fixture, tmp_path):
     assert _bbox_relerr(src, stp) < 0.02
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 def test_adapy_native_step_to_ifc_wrapper(tmp_path):
     """Phase 4: the adapy wrapper ada.cadit.step.native_step_to_ifc (what the converter calls) prefers
@@ -353,6 +363,7 @@ def test_adapy_native_step_to_ifc_wrapper(tmp_path):
     assert not logger.statements, [str(s.get("message")) for s in logger.statements[:3]]
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 @pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_3_curved.stp"])
 def test_stream_step_to_ifc_parallel_matches_serial(fixture, tmp_path):
@@ -373,6 +384,7 @@ def test_stream_step_to_ifc_parallel_matches_serial(fixture, tmp_path):
     ), f"{fixture} parallel validate: {[str(s.get('message')) for s in logger.statements[:3]]}"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 @pytest.mark.parametrize("fixture", ["curved_plate.stp", "plate_3_curved.stp", "bsplinesurfacewithknots.stp"])
 def test_ifc_geometry_matches_glb_oracle(fixture, tmp_path):
@@ -418,6 +430,7 @@ def test_ifc_geometry_matches_glb_oracle(fixture, tmp_path):
     assert worst < 0.02, f"{fixture}: IFC vs GLB bbox rel-err {worst:.4f} too large"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.parametrize("fixture", FIXTURES)
 @pytest.mark.parametrize("schema", SCHEMAS)
 def test_emit_ifc_brep_validates(fixture, schema):

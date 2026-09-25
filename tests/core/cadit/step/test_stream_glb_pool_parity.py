@@ -35,6 +35,7 @@ def _model():
     return ada.Assembly("m") / p
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_pool_path_matches_sequential(tmp_path, monkeypatch):
     pytest.importorskip("adacpp")
     monkeypatch.setenv("ADAPY_CAD_BACKEND", "adacpp")
@@ -67,6 +68,7 @@ def test_pool_path_matches_sequential(tmp_path, monkeypatch):
     assert _glb_stats(pool_glb) == _glb_stats(seq_glb)
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_pool_lpt_matches_sequential(tmp_path, monkeypatch):
     # LPT scheduling reorders dispatch (heaviest solid first) but must produce the same
     # GLB — only the order in which workers pick up solids changes.

@@ -374,14 +374,15 @@ def test_open_channel_swept_run_builds_occ_solid():
 
     This is the OCC-fallback (no-adacpp) render path for routed cable trays; the
     NGEOM/libtess2 stream already renders it. Regression for that parity gap."""
-    from ada.cad import CadBackendName, backend_available, select_backend
+    # Through the facade, on whichever kernel this env carries. It used to call
+    # `ada.occ.geom.solids.make_fixed_reference_swept_area_shape_from_geom` with the INNER
+    # geometry; `backend.build` takes the wrapper and dispatches, which is the same construction
+    # on either kernel -- and this is a routing regression, not a kernel one.
+    from ada.cad import active_backend
 
-    if not backend_available(CadBackendName.OCC):
-        pytest.skip("occ backend not installed")
-    occ = select_backend(prefer="occ")  # the swept solid comes from the OCC builder
+    be = active_backend()
 
     from ada.geom.curves import ArcLine
-    from ada.occ.geom.solids import make_fixed_reference_swept_area_shape_from_geom
     from ada.topology.routing import (
         _orthogonalize_polyline,
         _polyline_to_directrix,
@@ -408,10 +409,10 @@ def test_open_channel_swept_run_builds_occ_solid():
     sec = ada.Section("c", "UNP", h=0.3, w_top=0.1, w_btn=0.1, t_w=0.003, t_ftop=0.003, t_fbtn=0.003)
     run = _SweptRun("tray", ada.Point(*ortho[0]), ada.Point(*ortho[-1]), directrix, sec, open_channel=True)
 
-    shape = make_fixed_reference_swept_area_shape_from_geom(run.solid_geom().geometry)
+    shape = be.build(run.solid_geom())
 
-    assert occ.solids(shape), "swept tray did not build a solid"
-    assert abs(occ.volume(shape)) > 1e-9, "swept tray solid is empty (zero volume)"
+    assert be.solids(shape), "swept tray did not build a solid"
+    assert abs(be.volume(shape)) > 1e-9, "swept tray solid is empty (zero volume)"
 
 
 def test_graceful_swept_run_collapses_microjog_no_inverted_fillet():

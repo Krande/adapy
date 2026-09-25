@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_empty_bounds_sphere_tessellates(tmp_path):
     """A full sphere carries no FACE_BOUND; tessellate_face must not bail on empty bounds — it
     tessellates the closed quadric via tessellate_unbounded. Regression: 0 -> ~324 tris."""
@@ -34,6 +35,7 @@ def test_empty_bounds_sphere_tessellates(tmp_path):
     assert tris > 200, f"empty-bounds sphere should tessellate (was 0 before the fix), got {tris}"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_meshopt_simplify_lossless_drops_degenerate():
     """meshopt_simplify_mesh (border-locked, target_error 0 = lossless) drops degenerate
     triangles, never grows the mesh, and preserves the shape (bbox). This is the step2glb
@@ -52,6 +54,7 @@ def test_meshopt_simplify_lossless_drops_degenerate():
     assert np.allclose(pos.max(axis=0), out.max(axis=0), atol=1e-5)
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_libtess2_tessellation_parity_gate(tmp_path):
     """Golden triangle counts (libtess2, deflection 2.0 / max-angle 20) on plain primitives — a
     guard against silent drift from the verified ~0.99x step2glb parity. Counts are deterministic

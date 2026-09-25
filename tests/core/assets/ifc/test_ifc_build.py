@@ -77,6 +77,7 @@ def _request_for(claim, node: str) -> tuple[BuildRequest, str, str]:
     return request, fingerprint, prefix
 
 
+@pytest.mark.adacpp  # the IFC asset build routes through native_ifc_to_glb, which needs adacpp
 def test_member_build_draws_exactly_one_and_provenance_matches(published_member):
     store, beam_guid, claim = published_member
     request, fingerprint, prefix = _request_for(claim, beam_guid)
@@ -106,6 +107,7 @@ def test_member_build_draws_exactly_one_and_provenance_matches(published_member)
     assert read_glb_provenance(glb_bytes) == summary.provenance.to_dict()
 
 
+@pytest.mark.adacpp  # the IFC asset build routes through native_ifc_to_glb, which needs adacpp
 def test_a_summary_whose_revision_disagrees_is_refused(published_member):
     store, beam_guid, claim = published_member
     request, fingerprint, prefix = _request_for(claim, beam_guid)
@@ -145,6 +147,7 @@ def test_refuses_rather_than_widens_when_the_spine_is_missing(published_member):
         )
 
 
+@pytest.mark.adacpp  # the IFC asset build routes through native_ifc_to_glb, which needs adacpp
 def test_provenance_carries_a_real_source_hash(published_member):
     store, beam_guid, claim = published_member
     request, _fingerprint, prefix = _request_for(claim, beam_guid)
@@ -161,6 +164,7 @@ def test_provenance_carries_a_real_source_hash(published_member):
 # --- registry integration -------------------------------------------------------------------------
 
 
+@pytest.mark.adacpp  # the IFC asset build routes through native_ifc_to_glb, which needs adacpp
 def test_asset_build_ifc_is_registered_and_available():
     # NOT `clear_asset_builders()` then re-check: registration is an IMPORT-TIME side effect of
     # `ada.assets.ifc`'s module body, and `ensure_core_builders()` re-imports it via

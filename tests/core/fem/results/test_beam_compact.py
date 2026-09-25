@@ -20,11 +20,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# the compact artefact takes its section mesh from adacpp, so without it there is
-# nothing here to assert against: every beam falls back to the kernel by design.
-# The adacpp CI leg is where these run.
-pytest.importorskip("adacpp.cad")
-
 from ada import Beam, BeamTapered, Section
 from ada.fem.results.artefacts.beam_compact import (
     collect_beam_solid_instances,
@@ -38,6 +33,15 @@ from ada.fem.results.artefacts.formats import (
     BEAM_COMPACT_HEADER_BYTES,
     BEAM_COMPACT_MAGIC,
 )
+
+# the compact artefact takes its section mesh from adacpp, so without it there is
+# nothing here to assert against: every beam falls back to the kernel by design.
+# The adacpp CI leg is where these run.
+
+
+# Marked rather than skipped: deselected where adacpp is absent, which is the env this
+# module was never meant to run in.
+pytestmark = pytest.mark.adacpp
 
 # Positions are float32 in the file and float32 out of the expander; the
 # reference tessellation is float64. "The same vertex" is therefore float32

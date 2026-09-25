@@ -47,6 +47,11 @@ export interface WireClashJointMember {
 export interface WireClashJoint {
   readonly id: string;
   readonly centre: readonly [number, number, number];
+  /** Which PASS found this joint (`ada/clash/passes.py`). Absent in a document written before
+   *  joints carried their producer, where core's beam pass was the only one there. */
+  readonly origin?: string;
+  /** What a geometric pass measured at the contact; absent for a pass that works on axes. */
+  readonly contact?: Readonly<Record<string, unknown>> | null;
   readonly members: readonly WireClashJointMember[];
   readonly type_key: string;
   readonly type_label: string;
@@ -77,6 +82,8 @@ export interface WireClashResult {
   readonly groups: readonly WireClashGroup[];
   readonly provenance: Readonly<Record<string, unknown>>;
   readonly warnings?: readonly string[];
+  /** Every pass the check knew about, run or not. What the producer filter is built from. */
+  readonly passes?: readonly WireClashPass[];
 }
 
 /** Core's own options -- tolerances and a subtree scope. No provider option ever rides in this
@@ -86,6 +93,27 @@ export interface ClashCheckOptions {
   readonly point_tol?: number;
   readonly root?: string | null;
   readonly include_plate_joints?: boolean;
+  /** Which registered PASSES to run, by name (`ada/clash/passes.py`). Omitted means every pass
+   *  core can run by itself; a capability-bearing pass -- one a plugin contributed, routed to the
+   *  pool that carries it -- is opt-in, because a pass routed to a pool that is not there would
+   *  make every default check report a failure nobody asked for.
+   *
+   *  Pass NAMES, never a provider id: core never learns which package contributed one, the same
+   *  convention `applicable`'s `capability` already follows. */
+  readonly passes?: readonly string[];
+}
+
+/** One pass the check knew about, and what became of it. Present for passes that were available
+ *  and NOT selected too: "not run" and "found nothing" are different answers, and the panel
+ *  offers the difference as a checkbox. */
+export interface WireClashPass {
+  readonly name: string;
+  readonly ran: boolean;
+  readonly found?: number;
+  readonly reason?: string;
+  /** The pool that can run it, or absent for one core runs anywhere. Lets the panel say WHY a
+   *  pass is unavailable rather than merely that it is. */
+  readonly capability?: string | null;
 }
 
 export interface ClashCheckResponse {
@@ -151,6 +179,17 @@ export const clashCheckApi = {
     return jsonOrThrow<unknown>(r, `getClashResult(${key})`);
   },
 
+  /** The SOURCE file's bytes, for a check that runs in the browser.
+   *
+   *  Bytes rather than a URL handed to the worker: the blob route is authed, and a wasm worker
+   *  streaming a URL directly carries no credentials. Where a presigned URL exists the scan can
+   *  stream it through OPFS instead (`nativeIfcMemberScanStreaming`) and never materialise this. */
+  async getSourceBytes(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
+    const r = await authedFetch(filesApi.blobUrl(scope, key));
+    if (!r.ok) throw new Error(`getSourceBytes(${key}) failed: ${r.status}`);
+    return r.arrayBuffer();
+  },
+
   /** A detail run's take-off (`…/result.stats.json`): `{joints: {count, by_type, items}, skipped?}`.
    *  The same blob fetch as the result document -- what differs is which document it is, and that
    *  is the caller's business, not the transport's. */
@@ -159,12 +198,48 @@ export const clashCheckApi = {
     return jsonOrThrow<unknown>(r, `getDetailStats(${key})`);
   },
 
-  // TODO(clash-check hand-off, Phase 6 §Decision 10 item 4): core is meant to grow a live
-  // `connection_specs` union -- the heartbeat-derived list of capabilities a worker pool is
-  // CURRENTLY advertising (the same union `advertised_specs("connection_specs")` folds
-  // server-side). Once that route exists, add a `listLiveConnectionCapabilities(scope)` call
-  // here and wire it into `state/clashCheckStore.ts`'s `isSpecAvailable`. Until then there is no
-  // way to tell "this capability has no live pool" apart from "nobody has checked yet", so this
-  // client deliberately exposes nothing for it and the store treats every capability as
-  // available rather than hiding a spec that may in fact work (see `isSpecAvailable`'s doc).
+  /** Which SEARCHES a check could run: core's own passes, unioned with whatever a live pool
+   *  currently advertises on its heartbeat.
+   *
+   *  Read BEFORE the first run, which is the whole point of it. A pass contributed by a plugin
+   *  would otherwise be discoverable only by seeing one in a result -- a checkbox that appears
+   *  after you have already managed to do the thing it turns on.
+   *
+   *  A pass naming a `capability` runs only on a pool advertising it; core's answer `null` and
+   *  run anywhere. Which package contributed one is never reported -- the capability is the whole
+   *  of what core knows, the convention `applicable` already follows. */
+  async listPasses(scope: ScopeUrl): Promise<readonly WireClashPassSpec[]> {
+    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/passes`);
+    const body = await jsonOrThrow<{ passes?: readonly WireClashPassSpec[] }>(r, "listPasses");
+    return body.passes ?? [];
+  },
+
+  /** The capabilities a connection spec could be routed to right now -- the live union behind
+   *  `isSpecAvailable`. A capability absent from this set has no pool serving it. */
+  async listLiveConnectionCapabilities(scope: ScopeUrl): Promise<ReadonlySet<string>> {
+    const r = await authedFetch(`${runtime.apiBase}/scopes/${scope}/clash-check/connection-specs`);
+    const body = await jsonOrThrow<{ connection_specs?: readonly { capability?: string | null }[] }>(
+      r,
+      "listLiveConnectionCapabilities",
+    );
+    const out = new Set<string>();
+    for (const spec of body.connection_specs ?? []) {
+      if (typeof spec.capability === "string" && spec.capability.trim()) out.add(spec.capability);
+    }
+    return out;
+  },
 };
+
+/** One pass the deployment could run, as the listing route describes it. Distinct from
+ *  `WireClashPass`, which is what a RESULT says became of a pass on one particular run. */
+export interface WireClashPassSpec {
+  readonly slug: string;
+  readonly name: string;
+  readonly label?: string;
+  readonly needs_backend?: boolean;
+  readonly priority?: number;
+  readonly capability?: string | null;
+  /** `"code"` for one core carries, `"live"` for one a pool advertises -- `merge_catalog_specs`'
+   *  own vocabulary, surfaced so the panel can say where a pass came from. */
+  readonly origin?: string;
+}

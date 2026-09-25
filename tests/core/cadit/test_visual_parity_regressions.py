@@ -96,6 +96,7 @@ def test_fem_step_cylinder_strategy_keeps_beams(tmp_path):
     assert "MANIFOLD_SOLID_BREP" in txt  # the beam's extruded solid — absent before the fix
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_meshopt_packed_glb_measures_like_uncompressed(tmp_path):
     """Audit regression: production GLBs ship EXT_meshopt_compression, which trimesh cannot decode
     (IndexError in _read_buffers) — 4 of 5 parity failures in one sweep were glb=ERR on otherwise

@@ -28,10 +28,27 @@
 # adacpp_extrude embind module, which the frontend fetches at runtime to expand
 # compact beam solids in the browser. A base without it builds perfectly green
 # and ships a viewer that draws every beam as a line; the guard after the /wasm/
-# promotion below turns that into a build failure instead. 0.25.3 is also what
-# `ada-cpp` is pinned to in pixi.toml, so the wheel running in the browser and
-# the package in the conda envs are the same adacpp release.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.25.3
+# promotion below turns that into a build failure instead.
+#
+# 0.30.1 carries the joint-member ordering fix (adacpp#68). The browser builds
+# its type KEYS inside the wasm module, and a joint of three or more members is
+# typed from the angle between its first two -- so a base without the fix types
+# such a joint differently from the worker, on the same model. A version pin is
+# the only thing standing between those two answers.
+#
+# MUST also stay >=0.30.0 — that is where adacpp_ifc_glb gained `scanMembers`
+# and `clashJoints`, the member scan and the in-browser clash check. Those are
+# VERBS INSIDE a module that has existed since 0.25, so the file-existence guard
+# below cannot see their absence: an older base ships an adacpp_ifc_glb.js that
+# is present, loads, converts — and answers `undefined` the moment the Clashes
+# panel asks it for a check. The guard therefore greps the .wasm for the verbs
+# as well as the files.
+#
+# KEEP IN STEP WITH `ada-cpp` in pixi.toml, so the module running in the browser
+# and the package in the conda envs are the same adacpp release. They drifted
+# once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
+# survivable only until the browser needs a verb the older base lacks.
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.30.1
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -125,6 +142,21 @@ RUN set -eu; \
             echo "       from /wasm/ at runtime. Bump the pin to an adacpp release that has it." >&2; \
             exit 1; \
         done; \
+    done
+
+# A module can be PRESENT and still lack the verb the frontend calls on it. `scanMembers` and
+# `clashJoints` were added to adacpp_ifc_glb in 0.30, to a module that has shipped since 0.25 — so
+# the loop above passes on an older base and the Clashes panel then calls `undefined` in a browser
+# nobody is watching. embind writes each exported name into the .wasm as a literal, so grepping for
+# it is enough to tell a base that HAS the verb from one that merely has the module.
+# Keep in step with the verbs called in `src/frontend/src/utils/nativeConvert/*.worker.ts`.
+RUN set -eu; \
+    for v in scanMembers clashJoints ifcToGlb; do \
+        grep -aq "$v" /build/dist/wasm/adacpp_ifc_glb.wasm && continue; \
+        echo "ERROR: adacpp_ifc_glb.wasm does not export $v — the adacpp wasm base image" >&2; \
+        echo "       (ADACPP_BASE_IMAGE, see the pin at the top of this file) predates it." >&2; \
+        echo "       The module loads and the verb answers undefined at runtime. Bump the pin." >&2; \
+        exit 1; \
     done
 
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment

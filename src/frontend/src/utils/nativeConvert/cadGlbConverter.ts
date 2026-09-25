@@ -5,9 +5,15 @@
 import * as Comlink from "comlink";
 
 import CadGlbConverterWorker from "./cadGlbConverter.worker.ts?worker&inline";
-import type {CadGlbConverterAPI, NativeCadGlbResult, CadKind} from "./cadGlbConverter.worker";
+import type {
+    CadGlbConverterAPI,
+    NativeCadGlbResult,
+    NativeClashResult,
+    NativeMemberScanResult,
+    CadKind,
+} from "./cadGlbConverter.worker";
 
-export type {CadKind, NativeCadGlbResult} from "./cadGlbConverter.worker";
+export type {CadKind, NativeCadGlbResult, NativeClashResult, NativeMemberScanResult} from "./cadGlbConverter.worker";
 
 let worker: Worker | null = null;
 let apiRemote: Comlink.Remote<CadGlbConverterAPI> | null = null;
@@ -59,4 +65,29 @@ export async function nativeCadToGlbStreaming(
     opts?: {deflection?: number; angularDeg?: number; meshopt?: boolean},
 ): Promise<NativeCadGlbResult> {
     return ensureApi().toGlbStreaming(kind, sourceUrl, tessOpts(opts));
+}
+
+/** What an IFC says its MEMBERS are -- sections, axes, outlines, placements, materials -- read in
+ * the browser with no server and no tessellation. Returns the scan as JSONL text
+ * (`adacpp.ifc_members/1`). The buffer is transferred (consumed). */
+export async function nativeIfcMemberScan(srcBytes: ArrayBuffer): Promise<NativeMemberScanResult> {
+    return ensureApi().scanMembers(Comlink.transfer(srcBytes, [srcBytes]));
+}
+
+/** The same scan, streaming the source through OPFS so a plant-scale IFC never has to fit the wasm
+ * heap. Requires nativeCadGlbOpfsAvailable("ifc"). */
+export async function nativeIfcMemberScanStreaming(sourceUrl: string): Promise<NativeMemberScanResult> {
+    return ensureApi().scanMembersStreaming(sourceUrl);
+}
+
+/** A beam-to-beam clash check run entirely in the browser, in C++ -- the same compiled pass a
+ * worker runs through adapy. Returns `adacpp.clash_joints/1` JSON. The buffer is transferred. */
+export async function nativeIfcClashJoints(
+    srcBytes: ArrayBuffer,
+    opts?: {outOfPlaneTol?: number; pointTol?: number},
+): Promise<NativeClashResult> {
+    return ensureApi().clashJoints(Comlink.transfer(srcBytes, [srcBytes]), {
+        outOfPlaneTol: opts?.outOfPlaneTol ?? 0.1,
+        pointTol: opts?.pointTol ?? 1e-5,
+    });
 }

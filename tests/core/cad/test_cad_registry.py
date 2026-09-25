@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_registry_lists_adacpp_paths_when_installed():
     pytest.importorskip("adacpp")
     from ada.cad import (
@@ -41,6 +42,7 @@ def test_tessellation_path_enum_backend_and_pipeline():
     assert TessellationPath.ADACPP_HYBRID.pipeline == "hybrid"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_cadconfig_default_prefers_libtess2_when_adacpp_installed():
     pytest.importorskip("adacpp")
     from ada.cad import CadConfig, TessellationPath
@@ -56,14 +58,25 @@ def test_cadconfig_default_prefers_libtess2_when_adacpp_installed():
     assert CadConfig(path=TessellationPath.ADACPP_LIBTESS2, simplify=True).env()["ADA_STREAM_SIMPLIFY"] == "1"
 
 
-def test_cadconfig_validate_rejects_unavailable_path():
+def test_cadconfig_validate_rejects_unavailable_path(monkeypatch):
+    """A path this deployment cannot run must be refused, not attempted.
+
+    The absent path is STAGED rather than found. Looking for a genuinely missing one made the
+    test depend on the environment being incomplete -- so it skipped in exactly the env that has
+    everything, which is the one CI now runs, and the assertion went unmade everywhere.
+    """
+    import ada.cad.registry as registry
     from ada.cad import CadConfig, TessellationPath, available_paths
 
-    missing = next((p for p in TessellationPath if p not in available_paths()), None)
-    if missing is None:
-        pytest.skip("every path is available in this environment")
+    # Both lookups are patched where `validate` makes them -- in `ada.cad.registry`, not the
+    # `ada.cad` re-export -- and BOTH are needed: validate short-circuits when the path resolves
+    # to a discovered track, which it does in an env carrying every kernel.
+    victim = next(iter(TessellationPath))
+    monkeypatch.setattr(registry, "available_paths", lambda: tuple(p for p in available_paths() if p is not victim))
+    monkeypatch.setattr(registry, "tess_track_by_name", lambda name: None)
+
     with pytest.raises(ValueError):
-        CadConfig(path=missing).validate()
+        CadConfig(path=victim).validate()
 
 
 def test_assembly_cad_config_attaches():

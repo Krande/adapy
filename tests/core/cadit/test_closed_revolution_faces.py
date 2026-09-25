@@ -20,10 +20,14 @@ import ada.geom.surfaces as su
 from ada.geom import Geometry
 from ada.geom.placement import Axis2Placement3D, Direction, Point
 
+pytestmark = pytest.mark.adacpp
+
 
 def _adacpp_backend():
     from ada.cad import select_backend
 
+    # Deselection is handled by the module marker; this stays as the belt for an env that has
+    # the name but not a working kernel.
     try:
         return select_backend(prefer="adacpp")
     except ImportError:

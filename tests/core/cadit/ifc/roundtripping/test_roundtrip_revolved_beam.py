@@ -1,5 +1,6 @@
 """Revolved beam: valid geometry, IFC round-trip, and buildingSMART import."""
 
+import pytest
 import trimesh
 
 import ada
@@ -86,6 +87,7 @@ def test_import_buildingsmart_revolved_beam(example_files):
     assert abs(vol - expected) / expected < 0.05
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_buildingsmart_revolved_beam_arc_is_smooth(example_files):
     """The revolved beam is a large-radius (7.25 m) arc: its tessellation must sample
     the sweep finely enough that the bulge apex reaches the true arc extent, not fall
@@ -117,6 +119,7 @@ def test_buildingsmart_revolved_beam_arc_is_smooth(example_files):
     assert verts[:, 0].max() > apex * 0.99, f"arc apex clipped: {verts[:, 0].max():.3f} vs ~{apex:.3f}"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_buildingsmart_revolved_beam_via_ngeom_stream(example_files, monkeypatch):
     """Production (worker/viewer) GLB uses the NGEOM libtess2 stream tessellator, NOT the
     OCC BatchTessellator the other tests exercise. That path had the revolve wrong three
@@ -176,6 +179,7 @@ def _stream_bbox_vol(model):
     return v.min(0), v.max(0), float(m.volume)
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_buildingsmart_revolved_beam_ifc_roundtrip_via_stream(example_files, tmp_path, monkeypatch):
     """The revolved beam must survive an IFC write->read round-trip: the CurveRevolve
     parameters (radius, sweep angle, revolution axis, section) preserved AND the

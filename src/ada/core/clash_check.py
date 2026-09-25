@@ -24,6 +24,16 @@ if TYPE_CHECKING:
 
 
 def basic_intersect(bm: Beam, margins, all_beam_containers: list[Beams]):
+    """Beams whose volume could touch ``bm``'s -- the candidate set a cross-check then decides on.
+
+    BOX AGAINST BOX, not box against endpoints. ``Beams.get_beams_within_volume`` indexes beams by
+    their END NODES, so a beam counted as a candidate only if one of its ends lands inside ``bm``'s
+    box. That silently drops the MID-SPAN CROSSING: two long beams crossing away from either's
+    ends have no endpoint in the other's box, are never offered to ``beam_cross_check``, and so
+    were never a joint however plainly they met. Any filter here only has to ADMIT every pair that
+    could touch -- the decision is made downstream and is exact -- so it costs nothing to be
+    generous and it costs a real joint to be clever.
+    """
     if bm.section.type == "gensec":
         return bm, []
     try:
@@ -31,11 +41,21 @@ def basic_intersect(bm: Beam, margins, all_beam_containers: list[Beams]):
     except ValueError as e:
         logger.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
         return None
-    vol_in = [x for x in zip(vol[0], vol[1])]
-    beams = filter(
-        lambda x: x != bm,
-        chain.from_iterable([beams.get_beams_within_volume(vol_in, margins=margins) for beams in all_beam_containers]),
-    )
+
+    pad = margins or 0.0
+    lo = [float(v) - pad for v in vol[0]]
+    hi = [float(v) + pad for v in vol[1]]
+
+    def could_touch(other: Beam) -> bool:
+        if other is bm or other == bm:
+            return False
+        try:
+            o_lo, o_hi = other.bbox().minmax
+        except ValueError:
+            return True  # a beam whose box cannot be built is offered rather than dropped
+        return all(lo[k] <= float(o_hi[k]) + pad and float(o_lo[k]) - pad <= hi[k] for k in range(3))
+
+    beams = filter(could_touch, chain.from_iterable(all_beam_containers))
     return bm, beams
 
 
@@ -85,7 +105,14 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
         if t_len > bm2.length / 2 or s_len > bm1.length / 2:
             continue
         if point is not None:
-            new_node = Node(point)
+            # The MIDPOINT of the two closest points, not the one on bm1's line. `beam_cross_check`
+            # returns the point on the FIRST member, so a near miss inside the out-of-plane
+            # tolerance yields a different point depending on which member is asked -- up to the
+            # tolerance apart, far beyond `point_tol`, so the two never merge and ONE physical
+            # contact is registered as TWO joints. Computed here rather than in `beam_cross_check`,
+            # whose `s`/`t` callers (the joint detailers) want the point on a specific member.
+            cd_ = bm2.n1.p + t * (bm2.n2.p - bm2.n1.p)
+            new_node = Node((point + cd_) / 2.0)
             n = nodes.add(new_node, point_tol=point_tol)
             if n not in nmap.keys():
                 nmap[n] = [bm1]

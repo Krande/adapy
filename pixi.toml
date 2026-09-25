@@ -84,14 +84,28 @@ pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install c
 #   * tests/profiling is pytest-benchmark, minutes of timing runs whose numbers
 #     mean nothing on a busy machine -- `bench-cad`.
 # Anything else that is skipped is skipped by the test, which says why.
-test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# `tests/compat` is IGNORED here, not deselected: its modules import pythonocc at module scope,
+# which skips at collection before any marker can speak. The compat leg (`test-compat`, in an env
+# carrying both kernels) runs that tree. Marked tests OUTSIDE it need no flag -- tests/conftest.py
+# deselects them wherever the kernel is absent, and runs them wherever it is present.
+test = { cmd = "bash scripts/run_test.sh", depends-on = ["pre-install", "fetch-dexpi"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The inner-loop subset: everything that needs no FEM solver and no viewer
 # stack. This WAS `test`, and it is what CI's per-PR leg runs, because the
 # FEM/e2e halves have their own jobs and running them twice buys nothing.
 # Deliberately left ambiguous across environments (no default): it exists to be
 # pointed at a backend, and every caller passes -e.
-test-quick = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-quick = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --ignore=tests/compat --durations=0", depends-on = ["pre-install", "fetch-dexpi"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd = "pytest tests/core --durations=0", depends-on = ["fetch-dexpi"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# The DEXPI TrainingTestCases corpus (~220 official P&IDs, CC BY 4.0) that
+# `tests/core/cadit/dexpi/test_external_corpus.py` runs T1 over. NOT fetched by pytest: a test
+# suite that reaches the network is a suite that fails for reasons unrelated to the code. Fetched
+# HERE, as a dependency of the test tasks, so the corpus is present by the time pytest looks and
+# the module stops skipping -- 203 real third-party round-trips that otherwise never ran anywhere.
+#
+# Idempotent: the script returns immediately when the target exists (`--force` to re-fetch), and
+# `outputs` lets pixi skip even that. CI caches the directory on the same key, so the download
+# happens about once per corpus change rather than once per job.
+fetch-dexpi = { cmd = "python scripts/fetch_dexpi_testcases.py", outputs = ["files/dexpi_files/_external"] }
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
@@ -170,12 +184,12 @@ tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", 
 # parity. Its own solve: pythonocc-core must not leak into the `prod` group every shipped env
 # shares. Run with: pixi run -e tests-xkernel test-xkernel
 tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
-fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
+fem-deps = { features = ["fem-deps", "prod", "adacpp-runtime", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
 # only under tests/full/frontend and need the `tests` feature's playwright).
-fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
-docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "tests", "prod", "adacpp-runtime", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "adacpp-runtime", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
 # pythonocc-core is being wound down (2026-09-21): conda-forge builds ada-cpp against occt 8
 # while pythonocc-core has no occt 8 build at all, so keeping it meant holding environments on
 # occt 7.9.3. Every environment runs the adacpp backend -- which implements all 54 CadBackend
@@ -248,20 +262,20 @@ meshio = "*"
 # ifcopenshell. Dropping pyocc here WITHOUT adding ada-cpp would solve, but leave FEM with no
 # CAD backend at all.
 #
-# Decision: align forward on hdf5 2.2 -- not pin 2.1, not fall back to 1.14. Unblocked when
-# libmed 4.2 ships an hdf5 2.2 build (a build-number bump; its recipe already builds the
-# hdf5-2 variant) AND code-aster is rebuilt on 2.2. Then swap `pyocc` for `adacpp-runtime`
-# in the three envs and delete this feature.
+# DONE (2026-09-25). libmed 4.2 build 29 ships hdf5 2.2 (nompi, openmpi and mpich alike) and
+# code-aster 18.1.7 is rebuilt on it, so the holdout that kept `fem`, `fem-deps` and `docs` on
+# pythonocc is gone. All three now take `adacpp-runtime` and NOT pythonocc: the kernel was
+# REPLACED, not joined. Carrying both would have left the FEM env asserting against a kernel it
+# does not ship, and pythonocc being there was never a reason to keep it.
+#
+# pythonocc survives in exactly one environment -- `tests-xkernel`, whose whole job is running
+# the two kernels against each other. Everywhere else adacpp is the backend.
 # novtk: default occt builds link VTK + X libs we don't render through.
 # pythonocc-core's build string must match occt's or the solver picks the
 # vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
 # ada-cpp (which links the same conda-forge occt) — identical TopoDS ABI
 # makes the from_topods_pointer bridge between the two backends safe.
 # See dap plan/v3 Phase 7.
-[feature.pyocc.dependencies]
-pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
-occt = { version = "7.9.3.*", build = "novtk_*" }
-
 # pythonocc-core on occt 8.0.1 -- the same occt ada-cpp links -- so both kernels load in one
 # process. Used only by `tests-xkernel`, where the parity suites' `both_backends` fixture stops
 # skipping and every kernel-against-kernel case actually runs. novtk on both: the `all` build
@@ -272,6 +286,14 @@ occt = { version = "8.0.1.*", build = "novtk_*" }
 
 [feature.pyocc8.tasks]
 test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
+# The COMPAT leg: every test that needs the pythonocc kernel, wherever it lives -- the
+# `tests/compat` tree plus anything the `pyocc` marker picks up elsewhere (a parametrised
+# backend test's occ leg, a capability adacpp lacks). Run with: pixi run -e tests-xkernel test-compat
+#
+# ADAPY_REQUIRE_BOTH_KERNELS is what makes this leg honest: with it set, a kernel that fails to
+# import FAILS instead of deselecting, so this job cannot pass by quietly running nothing -- which
+# is exactly how a missing kernel used to read as 117 green skips.
+test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
 
 # ada-cpp with no ADAPY_CAD_BACKEND flip (unlike the `adacpp` feature), so the backend
 # is whatever `select_backend()` auto-detects -- adacpp, wherever pythonocc is not carried.
@@ -281,8 +303,12 @@ test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PR
 [feature.adacpp-runtime.dependencies]
 # Tracks the [feature.adacpp] pin -- see the rationale log there. 0.25.4 for the
 # `edges` fix AdacppBackend.edges now depends on (adacpp#61); 0.25.5 for the
-# placement-aware `face_id` (adacpp#62); 0.28.0 for `read_step_shapes(matrix=)` (adacpp#65).
-ada-cpp = "0.28.0.*"
+# placement-aware `face_id` (adacpp#62); 0.28.0 for `read_step_shapes(matrix=)` (adacpp#65);
+# 0.30 for the compiled beam-to-beam clash pass and the member scan as JSONL
+# (adacpp#63, #64, #66, #67). KEEP IN STEP with ADACPP_BASE_IMAGE in
+# deploy/Dockerfile.viewer: the browser runs the same release's wasm build of
+# this same code.
+ada-cpp = "0.30.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -331,11 +357,31 @@ ada-cpp = "0.28.0.*"
 # (adacpp#62), so a prism's base and top -- one TShape at two Locations -- get two
 # ids and its six faces six. REQUIRED: the construction-verb parity suite asserts
 # exactly that on this leg, with no xfail to fall back on.
+# 0.26 adds `IfcMemberScan` and 0.27 gives it the swept area's outline + plane
+# (adacpp#63, #64). REQUIRED for the same reason the two pins above are: the
+# native member reader probes the binding (`native_members_available()`) and
+# FALLS BACK to ifcopenshell without it, so a lower pin would leave the native
+# path untested here while looking green -- the failure mode these pins exist
+# to prevent. A plate needs the outline specifically: 0.26 alone reads members
+# and drops every plate, which is a worse answer than refusing to read at all.
 # 0.28.0 applies an import-time transform inside `read_step_shapes` (adacpp#65) and
 # rejects a non-uniform matrix in it and in `transform`, where gp_Trsf.SetValues used to
 # make a stretch uniform without a word. REQUIRED: Part.read_step_file's scale/transform/
 # rotate now go through that reader on this backend, with no pythonocc path left to take.
-ada-cpp = "0.28.0.*"
+# 0.29 adds the MATERIAL each member is associated with (adacpp#66). Required
+# for the same reason again, and one step further: without it the take-off's
+# native route refuses every part (a mass needs a density it will not guess at)
+# and quietly falls back to the bounded ifcopenshell read, so the fast path
+# would be dead code here while every test still passed.
+# 0.30 adds `find_beam_joints` -- the compiled beam-to-beam clash pass -- and
+# `scan_ifc_members_to_jsonl` (adacpp#67). Required for the strongest version of
+# the same reason: `ada.clash.identify` calls the compiled pass wherever it is
+# available and keeps the Python one otherwise, so a lower pin here does not
+# fail, it silently tests the FALLBACK while the default that ships to users
+# goes unexercised. It is also the release the browser's wasm module is built
+# from, so this pin and ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer move
+# together or the two runtimes stop running the same code.
+ada-cpp = "0.30.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -369,7 +415,8 @@ PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
 test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.prod.dependencies]
-python = "3.12.*"
+python = "3.14.*"
+
 bcf-client = "*"
 numpy = "*"
 hdf5 = "*"
@@ -390,6 +437,24 @@ pydantic = "*"
 # runtime closure is self-contained.
 openpyxl = "*"
 
+# WINDOWS STAYS ON 3.12.13 -- the configuration main is green on, and the only one this branch
+# has evidence for. Anything newer fails to load `pyexpat`:
+#
+#     ImportError: DLL load failed while importing pyexpat:
+#     The operating system cannot run %1.
+#
+# ERROR_BAD_EXE_FORMAT out of the loader, and ONLY pyexpat: every other extension module in the
+# environment imports, so it is specific to that .pyd and its one private dependency,
+# libexpat.dll. What it is NOT: a version conflict (`expat` and `libexpat` resolve to the same
+# version and build as main, and that package ships a normal 266 KB DLL), stale state (the
+# failing job logged a cache MISS), or the python packaging split (3.14.7 build 100 is monolithic
+# and fails identically -- that theory was tested and is wrong).
+#
+# So the mechanism is unknown and the pin is empirical, not explanatory. 3.12.14, 3.13.15 and
+# 3.14.7 have all been tried on win-64 and all fail. Linux runs 3.14 and is unaffected.
+[feature.prod.target.win-64.dependencies]
+python = "3.12.13.*"
+
 # Notebook / rendering / static-export deps. Held separate from `prod`
 # so the slim viewer-api / worker images don't ship the
 # pygfx→wgpu→imgui→libopencv→ffmpeg closure (~260 MiB).
@@ -408,6 +473,27 @@ glfw = "==3.4"
 pyglfw = "*"
 send2trash = "*"
 
+# LINUX ONLY, and deliberately so. `harfbuzz` and `libharfbuzz` ship the same
+# `lib/libharfbuzz.so.0`, so a solve taking them at different versions resolves the symlink by
+# conda's clobber rule rather than by intent: on linux/py314 it picked harfbuzz 14.2.1 beside
+# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 -- failed to
+# import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`, taking pygfx with it.
+# Nothing pinned the old one (librsvg asks only for >=14.2.0), so this gives the solver a reason
+# to prefer the matching pair.
+#
+# Scoped to linux because that is where the clobber happens -- but note it changes nothing on
+# win-64 either way: `libharfbuzz-devel` arrives there regardless, because `pango` and `librsvg`
+# require `harfbuzz` BY NAME and conda-forge turned that name into a metapackage whose only
+# dependency IS the devel package. Nothing here can ask for "runtime harfbuzz only"; `uharfbuzz`,
+# the one thing in the pygfx stack that actually links it, correctly asks for `libharfbuzz`.
+#
+# BOTH bounds, deliberately: `libharfbuzz` is what uharfbuzz links, and `harfbuzz` is what has to
+# move with it -- below 14.5 that package still ships its own `lib/libharfbuzz.so.0`, which is the
+# file that wins the clobber and breaks the pair.
+[feature.desktop.target.linux-64.dependencies]
+libharfbuzz = ">=14.5"
+harfbuzz = ">=14.5"
+
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
@@ -422,6 +508,18 @@ channels = ["conda-forge"]
 calculix = "*"
 
 [feature.fem-deps.target.linux-64.dependencies]
+code-aster = ">=17.3.16"
+# The MED reader `tests/fem/visualization` exercises. Declared per platform because conda-forge
+# builds it for linux and windows only -- there is no macOS build at all -- and a manifest-wide
+# dependency would make the whole project unsolvable there. Where it is absent those tests are
+# DESELECTED (tests/conftest.py), not skipped: the same rule the pythonocc tests follow.
+medcoupling = "*"
+
+[feature.fem-deps.target.win-64.dependencies]
+medcoupling = "*"
+# code-aster builds for Windows now (MSVC), and win-64 libmed 4.2 build 29 carries the hdf5 2.2
+# it needs -- so the FEM solver is no longer linux-only. Same constraint as linux; the win-64
+# builds are nompi, which is what this env wants anyway.
 code-aster = ">=17.3.16"
 
 [feature.tests-core.tasks]
@@ -443,6 +541,15 @@ pytest-asyncio = "*"
 pyinstrument = "*"
 
 # Editable installs
+[feature.tests.dependencies]
+# Present so their tests RUN here rather than skip. A skipped test is not a covered one, and
+# `meshio` has its own env (`meshio-bridge-tests`) for the BRIDGE -- that is about keeping the
+# package out of the prod image closure, which is no reason for the test env to lack it.
+meshio = "*"
+# The GLB contract test parses what the streaming tessellator writes; without the parser it
+# asserted nothing, quietly, in every run.
+pygltflib = "*"
+
 [feature.tests.pypi-dependencies]
 pytest-playwright = "*"
 

@@ -21,6 +21,7 @@ def _glb_tris(path: str) -> int:
     return sum(g["accessors"][p["indices"]]["count"] // 3 for m in g["meshes"] for p in m["primitives"])
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_stream_model_scale_coarsens(tmp_path, monkeypatch):
     pytest.importorskip("adacpp")
     import ada

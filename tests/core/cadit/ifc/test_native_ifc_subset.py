@@ -35,12 +35,14 @@ def ifc_with_three_beams(tmp_path):
     return src, [bm.guid for bm in beams]
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_subset
 def test_no_filter_streams_every_product(ifc_with_three_beams, tmp_path):
     src, _ = ifc_with_three_beams
     assert native_ifc_to_glb(src, tmp_path / "all.glb")["solids"] == 3
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_subset
 @pytest.mark.parametrize("n_requested", [1, 2, 3])
 def test_filter_streams_exactly_its_matches(ifc_with_three_beams, tmp_path, n_requested):
@@ -51,6 +53,7 @@ def test_filter_streams_exactly_its_matches(ifc_with_three_beams, tmp_path, n_re
     assert out.stat().st_size > 0
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_subset
 def test_empty_filter_is_every_product(ifc_with_three_beams, tmp_path):
     """[] must mean "no filter", not "nothing" — it is the falsy default path, not a raise."""
@@ -58,6 +61,7 @@ def test_empty_filter_is_every_product(ifc_with_three_beams, tmp_path):
     assert native_ifc_to_glb(src, tmp_path / "empty.glb", include_guids=[])["solids"] == 3
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_subset
 def test_subset_is_smaller_than_the_whole(ifc_with_three_beams, tmp_path):
     src, guids = ifc_with_three_beams
@@ -67,6 +71,7 @@ def test_subset_is_smaller_than_the_whole(ifc_with_three_beams, tmp_path):
     assert part.stat().st_size < whole.stat().st_size
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_subset
 def test_filter_matching_nothing_raises(ifc_with_three_beams, tmp_path):
     """The spine disagrees with the file: raise rather than hand back a GLB of everything."""
@@ -77,6 +82,7 @@ def test_filter_matching_nothing_raises(ifc_with_three_beams, tmp_path):
     assert not out.exists()
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_older_binding_is_refused_not_widened(ifc_with_three_beams, tmp_path, monkeypatch):
     """An adacpp that ignores the kwarg would convert the WHOLE model and report success."""
     src, guids = ifc_with_three_beams

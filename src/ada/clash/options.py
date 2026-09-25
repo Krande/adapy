@@ -31,11 +31,20 @@ class ClashOptions:
     point_tol: float = 1e-5
     root: str | None = None
     include_plate_joints: bool = True
+    #: Which registered passes to run, by name (``ada.clash.passes``). ``None`` means every pass
+    #: core can run by itself -- a capability-bearing pass, contributed by a plugin, is opt-in,
+    #: because a pass routed to a pool that is not there would make every default check report a
+    #: failure nobody asked for. Still core's own vocabulary: these are pass NAMES, never a
+    #: provider id, and a name core does not know is reported as unavailable rather than obeyed.
+    passes: tuple[str, ...] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "out_of_plane_tol": self.out_of_plane_tol,
             "point_tol": self.point_tol,
             "root": self.root,
             "include_plate_joints": self.include_plate_joints,
         }
+        if self.passes is not None:
+            out["passes"] = list(self.passes)
+        return out

@@ -14,6 +14,9 @@ _occ_arc_only = pytest.mark.skipif(
     active_backend().name == "adacpp",
     reason="make_arc_segment_using_occ is pythonocc-only",
 )
+# One alias, so the mark and the skip cannot drift apart: these tests call the pythonocc helper
+# directly rather than through the backend facade, which is what makes them compat tests.
+_occ_arc_only = pytest.mark.pyocc(_occ_arc_only)
 
 
 @_occ_arc_only

@@ -79,6 +79,7 @@ def _sweep_tris(ifc_path: pathlib.Path) -> int:
     return 0
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_alignment_fixed_reference_swept_solid_to_step_is_one_solid(tmp_path):
     from ada.comms.rest.converter import _step_has_solids, _via_ada_to_step
 

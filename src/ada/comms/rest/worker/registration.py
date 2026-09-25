@@ -91,6 +91,58 @@ def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
     return out
 
 
+def _clash_passes_for_heartbeat(capabilities: list[str]) -> list[dict]:
+    """This worker's registered clash PASSES, in the same catalog shape as the connection specs.
+
+    A pass is a search a check can run -- core's own look at axes and at surface distances, and a
+    plugin may contribute one that works on geometry (mesh interference, with a penetration depth
+    and a contact patch). Without this advertisement the panel could only learn of a contributed
+    pass by SEEING ONE IN A RESULT, which means it could never be ticked before the first run that
+    used it: a checkbox that appears only after you have already managed to do the thing.
+
+    Told apart from the package that registered it by CAPABILITY alone, exactly as a connection
+    spec is. Core's passes answer ``capability: None`` -- they run wherever core runs. Anything
+    else answers this worker's single declared (non-``base``) capability, which is the token a
+    check wanting that pass has to be routed to; a worker declaring several, or none, cannot be
+    attributed unambiguously and answers ``None`` rather than a guess.
+    """
+    try:
+        from ada.clash.identify import CORE_PASS_NAMES
+        from ada.clash.passes import list_passes
+    except Exception:
+        logger.exception("worker: ada.clash unavailable for the clash_passes heartbeat (non-fatal)")
+        return []
+
+    try:
+        # Importing `identify` is what registers core's three passes -- they are registered at
+        # import, not at check time, for the same reason `register_builtin_specs` is called here:
+        # a pass that only appeared once a check had run would flicker on the panel's first load.
+        import ada.clash.identify  # noqa: F401,PLC0415 - imported for its registration side effect
+    except Exception:
+        logger.exception("worker: core clash passes unavailable for the heartbeat (non-fatal)")
+
+    own = sorted({t for c in capabilities if (t := capability_token(c)) and t != "base"})
+    own_capability = own[0] if len(own) == 1 else None
+
+    out: list[dict] = []
+    for entry in list_passes():
+        out.append(
+            {
+                "slug": entry["name"],
+                "name": entry["name"],
+                "label": entry["label"],
+                "needs_backend": entry["needs_backend"],
+                "priority": entry["priority"],
+                # The registry's own attribution wins where it has one -- a plugin that named the
+                # pool it needs knows better than this worker does. Otherwise: core's passes are
+                # capability-free by definition, and anything else is this worker's, when this
+                # worker can be named at all.
+                "capability": entry["capability"] or (None if entry["name"] in CORE_PASS_NAMES else own_capability),
+            }
+        )
+    return out
+
+
 async def build_registration(queue: JobQueue) -> Registration:
     """Evaluate what this worker advertises and serves. Run once at startup, after
     ``ADA_WORKER_PRELOAD`` / plugin discovery populated the registries."""
@@ -291,6 +343,10 @@ async def build_registration(queue: JobQueue) -> Registration:
     # routing and the Clashes panel's "which generators exist" listing both come from the same
     # live union — no hardcoded joint-type provider anywhere in core.
     connection_specs = _connection_specs_for_heartbeat(capabilities)
+    # Clash passes: which SEARCHES this worker can run, beside which generators it can detail
+    # with. Same union, same attribution-by-capability, so the panel can offer a contributed pass
+    # as a checkbox BEFORE the first run that uses it.
+    clash_passes = _clash_passes_for_heartbeat(capabilities)
 
     async def _publish_registration() -> bool:
         """Publish the registration; return whether it reached the bus.
@@ -328,6 +384,7 @@ async def build_registration(queue: JobQueue) -> Registration:
                     "procedural_detailing_engine_specs": procedural_detailing_engines,
                     "plugin_specs": plugin_specs,
                     "connection_specs": connection_specs,
+                    "clash_passes": clash_passes,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },
