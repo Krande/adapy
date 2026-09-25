@@ -416,6 +416,7 @@ test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depen
 
 [feature.prod.dependencies]
 python = "3.14.*"
+
 bcf-client = "*"
 numpy = "*"
 hdf5 = "*"
@@ -435,6 +436,20 @@ pydantic = "*"
 # previously only reaching users transitively; declare it explicitly so the
 # runtime closure is self-contained.
 openpyxl = "*"
+
+# WINDOWS STAYS ON 3.13. conda-forge's python 3.14 for win-64 cannot load `pyexpat`:
+#
+#     ImportError: DLL load failed while importing pyexpat:
+#     The operating system cannot run %1.
+#
+# which is ERROR_BAD_EXE_FORMAT out of the loader, not a version conflict -- `expat` and
+# `libexpat` resolve to the same version AND build in that environment. Everything that touches
+# XML dies with it, which on this suite is 436 failures and 107 collection errors, none of them
+# about adapy. Raise this to 3.14 once a win-64 python build loads pyexpat; every dependency that
+# matters (ada-cpp, ifcopenshell, code-aster, medcoupling) already ships both ABIs there, so the
+# pin is the only thing holding it.
+[feature.prod.target.win-64.dependencies]
+python = "3.13.*"
 
 # Notebook / rendering / static-export deps. Held separate from `prod`
 # so the slim viewer-api / worker images don't ship the
