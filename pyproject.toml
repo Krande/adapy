@@ -169,6 +169,9 @@ markers = [
     # The default suite DESELECTS these (`-m "not pyocc"`); `pixi run test-compat` selects them
     # in an env carrying both kernels, where a missing one fails rather than skips.
     "pyocc: test requiring the pythonocc kernel (run by the compat leg, not the default suite)",
+    # medcoupling has no macOS build on conda-forge, so these are deselected there rather than
+    # skipped -- a skip would report a hole in every macOS run for a package that cannot exist.
+    "medcoupling: test requiring the medcoupling MED reader (linux/windows only)",
 ]
 # This is meant to stop and catch any unintended hangs
 timeout = 600

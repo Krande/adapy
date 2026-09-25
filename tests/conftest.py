@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import pathlib
 
@@ -167,13 +168,19 @@ def pytest_collection_modifyitems(config, items):
     #
     # `ADAPY_REQUIRE_BOTH_KERNELS` turns this off: that is the compat leg, where a missing kernel
     # must FAIL rather than quietly shrink the run to nothing.
-    if os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS"):
+    absent = set()
+    # `pyocc` is exempt under ADAPY_REQUIRE_BOTH_KERNELS: that is the compat leg, where a missing
+    # kernel must FAIL rather than quietly shrink the run to nothing.
+    if not os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS") and not backend_available(CadBackendName.OCC):
+        absent.add("pyocc")
+    if importlib.util.find_spec("medcoupling") is None:
+        absent.add("medcoupling")
+    if not absent:
         return
-    if backend_available(CadBackendName.OCC):
-        return
+
     kept, removed = [], []
     for item in items:
-        (removed if item.get_closest_marker("pyocc") else kept).append(item)
+        (removed if any(item.get_closest_marker(m) for m in absent) else kept).append(item)
     if removed:
         config.hook.pytest_deselected(items=removed)
         items[:] = kept

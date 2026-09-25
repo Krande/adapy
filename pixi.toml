@@ -478,6 +478,14 @@ calculix = "*"
 
 [feature.fem-deps.target.linux-64.dependencies]
 code-aster = ">=17.3.16"
+# The MED reader `tests/fem/visualization` exercises. Declared per platform because conda-forge
+# builds it for linux and windows only -- there is no macOS build at all -- and a manifest-wide
+# dependency would make the whole project unsolvable there. Where it is absent those tests are
+# DESELECTED (tests/conftest.py), not skipped: the same rule the pythonocc tests follow.
+medcoupling = "*"
+
+[feature.fem-deps.target.win-64.dependencies]
+medcoupling = "*"
 
 [feature.tests-core.tasks]
 

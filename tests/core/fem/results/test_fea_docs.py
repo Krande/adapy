@@ -264,17 +264,16 @@ def test_paradoc_figure_sources_entry_point_registered():
         )
 
     eps = metadata.entry_points(group="paradoc.figure_sources")
-    by_name = {ep.name: ep for ep in eps if ep.dist == dist}
+    # Matched by distribution NAME, not by object. `importlib.metadata.Distribution` defines no
+    # `__eq__`, so `ep.dist == dist` is an identity test between two separately-constructed
+    # objects and is always False -- which made this skip in every environment, with a message
+    # blaming the wheel. The entry point was there the whole time.
+    by_name = {ep.name: ep for ep in eps if ep.dist is not None and ep.dist.name == dist.name}
     if "fea_artefact_bundle" not in by_name:
-        # The conda-forge feedstock or pip-installed wheel pre-dates the
-        # entry-point declaration. Skip rather than fail: that's the
-        # expected steady state until a fresh build lands. See
-        # ``dap/notes/conda_forge_adapy_recipe.md`` for the rebuild
-        # checklist when entry-points change.
-        pytest.skip(
-            "fea_artefact_bundle entry-point not present in the "
-            "installed ada-py dist-info — rebuild the wheel "
-            "(`pip install -e .`) or refresh the conda-forge feedstock."
+        pytest.fail(
+            "the fea_artefact_bundle entry-point is declared in pyproject.toml but is not in the "
+            f"installed ada-py dist-info ({dist.version}). Rebuild it (`pip install -e .`) or "
+            "refresh the conda-forge feedstock; see dap/notes/conda_forge_adapy_recipe.md."
         )
 
     from ada.fem.results.docs import register_paradoc_block_sugar
