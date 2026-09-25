@@ -184,12 +184,12 @@ tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", 
 # parity. Its own solve: pythonocc-core must not leak into the `prod` group every shipped env
 # shares. Run with: pixi run -e tests-xkernel test-xkernel
 tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
-fem-deps = { features = ["fem-deps", "prod", "pyocc8", "adacpp-runtime", "tests-core"], no-default-feature = true }
+fem-deps = { features = ["fem-deps", "prod", "adacpp-runtime", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
 # only under tests/full/frontend and need the `tests` feature's playwright).
-fem = { features = ["fem", "tests", "prod", "pyocc8", "adacpp-runtime", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
-docs = { features = ["docs", "prod", "pyocc8", "adacpp-runtime", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "tests", "prod", "adacpp-runtime", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "adacpp-runtime", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
 # pythonocc-core is being wound down (2026-09-21): conda-forge builds ada-cpp against occt 8
 # while pythonocc-core has no occt 8 build at all, so keeping it meant holding environments on
 # occt 7.9.3. Every environment runs the adacpp backend -- which implements all 54 CadBackend
@@ -262,11 +262,14 @@ meshio = "*"
 # ifcopenshell. Dropping pyocc here WITHOUT adding ada-cpp would solve, but leave FEM with no
 # CAD backend at all.
 #
-# UNBLOCKED (2026-09-25): libmed 4.2 build 29 ships hdf5 2.2 (nompi, openmpi and mpich alike)
-# and code-aster 18.1.7 is rebuilt on it. `fem` has moved to `pyocc8` + `adacpp-runtime`, so it
-# carries BOTH kernels and every adacpp test runs there instead of being deselected -- which was
-# 202 tests. `fem-deps` and `docs` still take this feature; they can follow the same way, and
-# then it can be deleted.
+# DONE (2026-09-25). libmed 4.2 build 29 ships hdf5 2.2 (nompi, openmpi and mpich alike) and
+# code-aster 18.1.7 is rebuilt on it, so the holdout that kept `fem`, `fem-deps` and `docs` on
+# pythonocc is gone. All three now take `adacpp-runtime` and NOT pythonocc: the kernel was
+# REPLACED, not joined. Carrying both would have left the FEM env asserting against a kernel it
+# does not ship, and pythonocc being there was never a reason to keep it.
+#
+# pythonocc survives in exactly one environment -- `tests-xkernel`, whose whole job is running
+# the two kernels against each other. Everywhere else adacpp is the backend.
 # novtk: default occt builds link VTK + X libs we don't render through.
 # pythonocc-core's build string must match occt's or the solver picks the
 # vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
