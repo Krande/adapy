@@ -1,13 +1,13 @@
-// A flat model catalogue seen as an asset tree.
+// An `ExternalModelClient` seen through the asset tree's fetching abstraction.
 //
-// The adapter exists so one provider does not maintain two descriptions of the same catalogue:
-// the mesh catalogue already implements `ExternalModelClient` (it must authenticate as the
-// signed-in user), and core turns that into the tree shape rather than asking the plugin to
-// implement a second interface.
+// The adapter exists so one provider does not describe the same tree twice: the mesh catalogue
+// already implements `ExternalModelClient` (it must, to authenticate as the signed-in user), and
+// core translates rather than asking the plugin for a second description.
 //
-// What matters is that a catalogue and a deep CSG hierarchy are read through the SAME two calls
-// and differ only in what the delivery claim says -- `mesh` for a stored model, `build` for a
-// provider that stores the inputs to a build.
+// What these pin is that core asserts NOTHING about how the provider stores its tree. `listModels`
+// is a list of ROOTS; whether a root has anything under it is the provider's question to answer,
+// and this client simply has no call that does. A catalogue and a deep CSG hierarchy are read
+// through the same two calls and differ only in what the delivery claim says.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -27,7 +27,7 @@ const globals = globalThis as unknown as { sessionStorage: unknown; localStorage
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const { assetTreeClientFromCatalogue, catalogueRootId } = await import("@/services/assetCatalogueAdapter");
+const { assetTreeClientFromCatalogue } = await import("@/services/assetCatalogueAdapter");
 
 const SCOPE = "user:me" as never;
 
@@ -56,30 +56,35 @@ test("collections come through with their labels", async () => {
   assert.deepEqual(await c.collections(SCOPE), [{ collection: "plant-a", label: "Plant A" }]);
 });
 
-test("a catalogue is a tree of depth one, and says so", async () => {
+test("listModels are ROOTS of the collection's tree, not children of an invented parent", async () => {
   const c = assetTreeClientFromCatalogue("mesh-catalogue", catalogue());
   const slice = await c.hierarchy(SCOPE, "plant-a", { depth: 5 });
 
   assert.equal(slice.schema, "ada.assets/hierarchy@1");
   assert.equal(slice.provider, "mesh-catalogue");
-  assert.equal(slice.depth, 1, "a catalogue has no deeper structure to report");
   assert.equal(slice.nodes.length, 2);
   assert.deepEqual(
     slice.nodes.map((n) => [n.id, n.parent, n.label, n.leaf, n.delivery]),
     [
-      ["plant-a/m1", catalogueRootId("plant-a"), "Deck", true, "mesh"],
+      // `parent: null` -- a top-level node. The collection is the thing being listed, not a node
+      // in the tree, and synthesising one would be core inventing structure the provider never
+      // reported.
+      ["plant-a/m1", null, "Deck", true, "mesh"],
       // An unnamed model falls back to its id rather than rendering as a blank row.
-      ["plant-a/m2", catalogueRootId("plant-a"), "m2", true, "mesh"],
+      ["plant-a/m2", null, "m2", true, "mesh"],
     ],
   );
-  // Every node names the provider that produced it, so a mixed collection reads like a
-  // single-source one.
+  // `depth` reports what was FETCHED, not what was asked for: this client returns the roots in
+  // one call and has no second level to descend into, so a depth of 5 cannot be honoured and is
+  // not claimed to have been.
+  assert.equal(slice.depth, 1);
   assert.ok(slice.nodes.every((n) => n.provider === "mesh-catalogue"));
 });
 
-test("asking for the children of a leaf is a fair question with the answer 'none'", async () => {
-  // Not an error: a consumer walking a mixed tree cannot know in advance which providers are
-  // deep, and a throw here would make the catalogue the one that breaks the walk.
+test("a rooted request this client cannot answer is an empty subtree, not an error", async () => {
+  // `leaf: true` above says THIS CLIENT offers no deeper fetch -- it is not a claim that the
+  // storage format is shallow. A consumer walking a mixed tree cannot know in advance which
+  // providers are deep, and a throw here would make this one break the walk.
   const c = assetTreeClientFromCatalogue("mesh-catalogue", catalogue());
   const slice = await c.hierarchy(SCOPE, "plant-a", { root: "plant-a/m1", depth: 1 });
   assert.deepEqual(slice.nodes, []);
@@ -114,7 +119,7 @@ test("a requested revision is forwarded and reported", async () => {
   assert.deepEqual(calls, ["modelUrl:plant-a/m1@r7"]);
 });
 
-test("the collection root itself delivers nothing", async () => {
+test("a node id this client did not mint delivers nothing, rather than a guess", async () => {
   const c = assetTreeClientFromCatalogue("mesh-catalogue", catalogue());
-  assert.equal(await c.delivery(SCOPE, "plant-a", catalogueRootId("plant-a")), null);
+  assert.equal(await c.delivery(SCOPE, "plant-a", "some-other-provider/thing"), null);
 });

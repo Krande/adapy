@@ -1,50 +1,54 @@
-// A flat model catalogue, seen as an asset tree.
+// An `ExternalModelClient`, seen through the asset tree's fetching abstraction.
 //
-// THE TWO SHAPES. `ExternalModelClient` is flat -- collections hold models, and `modelUrl` hands
-// back a URL. `AssetTreeClient` is a tree -- a hierarchy of nodes, and a delivery CLAIM per node.
-// The mesh catalogue already implements the first (it must authenticate as the signed-in user,
-// which is why it is a browser-side client at all), and making it implement the second as well
-// would mean one provider maintaining two descriptions of the same catalogue.
+// WHAT CORE MUST NOT KNOW. How a provider stores its tree -- a CSG database, a catalogue of
+// exported models, a live system of record -- is the provider's business. Core asks two
+// questions: what are the roots, and what is under this one. `AssetTreeClient` IS that
+// abstraction, and a provider whose format has structure implements it directly; core never
+// learns what produced the geometry.
 //
-// So core ships the adapter instead. One direction only: flat -> tree. A catalogue is a tree of
-// depth one, which is not a limitation being worked around -- it is what a catalogue IS, and the
-// Assets tab renders it beside a deep CSG hierarchy without either knowing about the other.
+// So this adapter is narrow on purpose. It exists only because the mesh catalogue ALREADY
+// implements `ExternalModelClient` -- it has to, to authenticate as the signed-in user -- and
+// making it describe the same tree twice is the duplication that stays consistent until it does
+// not. It translates one interface into the other and asserts nothing about shape beyond what
+// the wrapped client can actually answer.
 //
-// GEOMETRY KIND IS NOT THE AXIS HERE. A catalogue yields `mesh` claims because it stores built
-// models; a CSG provider yields `build` claims because it stores the inputs to a build. Both hang
-// off the same tree and both are read through the same two calls -- the kind is what the claim
-// SAYS, not a second system.
+// `listModels` is a list of ROOTS. Not leaves, and not children of some invented parent: each is
+// a top-level node of that collection's tree. Whether a root has anything under it is a question
+// for the provider, and this particular client has no call that answers it -- so its roots report
+// `leaf: true` because THIS CLIENT offers no deeper fetch, not because catalogues are shallow.
+// A catalogue that grows a subtree call stops needing this adapter and implements the interface.
+//
+// GEOMETRY KIND IS NOT THE AXIS. A stored model yields a `mesh` claim; a provider holding the
+// inputs to a build yields `build`. Same tree, same two calls -- the kind is what the claim SAYS.
 
 import type { AssetNode, BuildDelivery, HierarchySlice, MeshDelivery } from "@/assets/types";
 import type { ScopeUrl } from "@/services/api/client";
 import type { AssetTreeClient, CollectionInfo } from "@/services/assets";
 import type { ExternalModelClient } from "@/services/externalModelClients";
 
-/** The synthetic root every catalogue collection gets.
- *
- *  A catalogue has no root node of its own -- it is a bag of models -- but a hierarchy needs one
- *  to hang them from, and `null` root means "index" rather than "subtree". Naming it after the
- *  collection keeps ids unique across a mixed provider list. */
-export const catalogueRootId = (collection: string): string => `${collection}`;
+/** Node ids are `<collection>/<model>`, so ids stay unique across a mixed provider list. */
+const nodeId = (collection: string, modelId: string): string => `${collection}/${modelId}`;
 
-function modelNode(collection: string, id: string, label: string, provider: string): AssetNode {
+function rootNode(collection: string, id: string, label: string, provider: string): AssetNode {
   return {
-    id: `${collection}/${id}`,
-    parent: catalogueRootId(collection),
+    id: nodeId(collection, id),
+    // A ROOT. The collection is not a node -- it is the thing being listed.
+    parent: null,
     label,
-    // The provider's own node type, shown and filtered on, never branched on. A catalogue has
-    // exactly one.
+    // The provider's own node type: shown, filtered on, never branched on.
     kind: "model",
+    // True of THIS CLIENT, which exposes no way to ask for children -- not a claim about the
+    // storage format behind it.
     leaf: true,
     delivery: "mesh",
     provider,
   };
 }
 
-/** Wrap an `ExternalModelClient` so it satisfies `AssetTreeClient`.
+/** Wrap an `ExternalModelClient` so it answers the asset tree's two questions.
  *
- *  `provider` is the id the asset index reports for this catalogue -- the same id the client is
- *  registered under, so a node's `provider` field and the registry agree. */
+ *  `provider` is the id the asset index reports, and the id the client is registered under, so a
+ *  node's `provider` field and the registry agree. */
 export function assetTreeClientFromCatalogue(provider: string, client: ExternalModelClient): AssetTreeClient {
   return {
     async collections(_scope: ScopeUrl): Promise<readonly CollectionInfo[]> {
@@ -57,25 +61,24 @@ export function assetTreeClientFromCatalogue(provider: string, client: ExternalM
       collection: string,
       opts: { root?: string; depth: number },
     ): Promise<HierarchySlice> {
-      const models = await client.listModels(collection);
-      const root = catalogueRootId(collection);
-
-      // A catalogue is one level deep, so a request for a SUBTREE of the root is the same set as
-      // the index, and a request rooted anywhere else is empty rather than an error: asking for
-      // the children of a leaf is a fair question with the answer "none".
-      const rooted = opts.root != null && opts.root !== root;
-      const nodes: AssetNode[] = rooted
-        ? []
-        : models.map((m) => modelNode(collection, m.id, m.name || m.id, provider));
+      // A ROOTED request asks what is under one node. This client cannot answer that -- it has
+      // no subtree call -- and the honest reply is an empty subtree for a node it reported as a
+      // leaf, not an error. A consumer walking a mixed tree cannot know in advance which
+      // providers are deep, and a throw would make this one break the walk.
+      const nodes: AssetNode[] =
+        opts.root != null
+          ? []
+          : (await client.listModels(collection)).map((m) => rootNode(collection, m.id, m.name || m.id, provider));
 
       return {
         schema: "ada.assets/hierarchy@1",
         provider,
         collection,
-        // `null` claims no completeness, which is the honest answer for a listing that may be
-        // paged or filtered upstream; asked for the root explicitly, this IS the whole subtree.
         root: opts.root ?? null,
         producedAt: new Date().toISOString(),
+        // What was actually fetched. The wrapped client returns the roots in one call and has no
+        // second level to descend into, so a deeper `opts.depth` cannot be honoured and is not
+        // claimed to have been.
         depth: 1,
         nodes,
       };
@@ -87,8 +90,9 @@ export function assetTreeClientFromCatalogue(provider: string, client: ExternalM
       node: string,
       opts?: { revision?: string },
     ): Promise<MeshDelivery | BuildDelivery | null> {
-      // Node ids are `<collection>/<model>`; the root itself delivers nothing.
-      const modelId = node.startsWith(`${collection}/`) ? node.slice(collection.length + 1) : null;
+      const prefix = `${collection}/`;
+      const modelId = node.startsWith(prefix) ? node.slice(prefix.length) : null;
+      // A node id this client did not mint: nothing to deliver, rather than a guess.
       if (!modelId) return null;
 
       const { url, headers } = await client.modelUrl(collection, modelId, { revision: opts?.revision });
@@ -96,12 +100,11 @@ export function assetTreeClientFromCatalogue(provider: string, client: ExternalM
         kind: "mesh",
         url,
         headers,
-        // A catalogue stores what an exporter wrote; core's GLB convention is z-up and the
-        // external-model path already assumes it, so this stays consistent with how the same
-        // file loads through the Files tab.
+        // Core's GLB convention, and what the same file already assumes when loaded through the
+        // Files tab -- so one model does not arrive oriented two ways.
         sourceUpAxis: "z",
-        // A provider without revisions reports the one it served: "current". Inventing a
-        // revision id here would make an unversioned catalogue look versioned.
+        // A provider without revisions reports the one it served. Minting an id would make an
+        // unversioned catalogue look versioned and offer history that does not exist.
         revision: opts?.revision ?? "current",
         provider,
       };
