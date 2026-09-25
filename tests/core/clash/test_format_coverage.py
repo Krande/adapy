@@ -91,9 +91,9 @@ def test_a_shapes_only_source_says_so_rather_than_reporting_zero(tmp_path):
 
     result = run_clash_check(model, source_key=src.name, options=_OPTS)
     assert result.joints == ()
-    assert any("no beams or plates" in w for w in result.warnings), (
-        "a source a check cannot answer must SAY so; a bare zero reads as 'this model has no joints'"
-    )
+    assert any(
+        "no beams or plates" in w for w in result.warnings
+    ), "a source a check cannot answer must SAY so; a bare zero reads as 'this model has no joints'"
 
 
 @pytest.mark.parametrize("ext", [".ifc", ".xml"])
