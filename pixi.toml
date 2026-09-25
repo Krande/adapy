@@ -437,32 +437,23 @@ pydantic = "*"
 # runtime closure is self-contained.
 openpyxl = "*"
 
-# WINDOWS PINNED TO A BUILD, not a version. What breaks win-64 is the PACKAGING LAYOUT, not the
-# interpreter version -- conda-forge split the
-# win-64 python package into `python` + `libpython` + `cpython` (3.12.14 build 3 onwards, and
-# every 3.13/3.14 build), and on every split build `pyexpat` fails to load:
+# WINDOWS STAYS ON 3.12.13 -- the configuration main is green on, and the only one this branch
+# has evidence for. Anything newer fails to load `pyexpat`:
 #
 #     ImportError: DLL load failed while importing pyexpat:
 #     The operating system cannot run %1.
 #
-# which is ERROR_BAD_EXE_FORMAT out of the loader: the .pyd is not a valid image for the
-# interpreter loading it. Not a version conflict -- `expat` and `libexpat` resolve to the same
-# version AND build as on main. Everything touching XML dies with it: 436 failures and 107
-# collection errors, none of them about adapy.
+# ERROR_BAD_EXE_FORMAT out of the loader, and ONLY pyexpat: every other extension module in the
+# environment imports, so it is specific to that .pyd and its one private dependency,
+# libexpat.dll. What it is NOT: a version conflict (`expat` and `libexpat` resolve to the same
+# version and build as main, and that package ships a normal 266 KB DLL), stale state (the
+# failing job logged a cache MISS), or the python packaging split (3.14.7 build 100 is monolithic
+# and fails identically -- that theory was tested and is wrong).
 #
-# That is why bumping the VERSION never helped. 3.14, 3.13 and 3.12.14-build-3 all fail and are
-# all SPLIT; 3.12.13 is monolithic and is what main has been green on. The bound has to be spelt
-# as a version because that is what a manifest can say, but what is being avoided is the layout
-# -- so check whether a candidate build pulls `libpython`, not whether its number is higher,
-# before moving this. Linux is on 3.14 and unaffected: the split works there.
-#
-# Hence a BUILD pin rather than a version one: 3.14.7 build 100 is the last monolithic win-64
-# build, so Windows gets the same interpreter as everywhere else. It cannot float -- every later
-# 3.14 build is split -- which is the honest cost of holding out. Drop the `build` field the day
-# a split build loads pyexpat, and this becomes an ordinary `3.14.*`.
-
+# So the mechanism is unknown and the pin is empirical, not explanatory. 3.12.14, 3.13.15 and
+# 3.14.7 have all been tried on win-64 and all fail. Linux runs 3.14 and is unaffected.
 [feature.prod.target.win-64.dependencies]
-python = { version = "3.14.7.*", build = "h53f6dd8_100_cp314" }
+python = "3.12.13.*"
 
 # Notebook / rendering / static-export deps. Held separate from `prod`
 # so the slim viewer-api / worker images don't ship the
