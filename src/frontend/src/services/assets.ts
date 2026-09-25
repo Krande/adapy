@@ -23,7 +23,12 @@
 // provider it serves and nothing else. A provider with no registration is served by the REST
 // route, which is what every core-shipped provider does.
 
-import type { BuildDelivery, HierarchySlice, MeshDelivery } from "@/assets/types";
+import type {
+  BuildDelivery,
+  HierarchySlice,
+  MeshDelivery,
+  WireNodeAttributes,
+} from "@/assets/types";
 import type { ScopeUrl } from "@/services/api/client";
 
 /** One collection a live client can serve, in the terms the index reports. */
@@ -46,6 +51,21 @@ export interface AssetTreeClient {
     node: string,
     opts?: { revision?: string },
   ): Promise<MeshDelivery | BuildDelivery | null>;
+  /** OPTIONAL. What one node IS, fetched per selection.
+   *
+   *  Omit it unless the answer cannot be precomputed. A provider whose attributes are PUBLISHED
+   *  needs nothing here -- core serves them from the store, which is one blob read and no source
+   *  file, and is what every in-tree provider does. This exists for a live system of record whose
+   *  properties move without a republish, where a published document would be stale the moment it
+   *  was written.
+   *
+   *  `null` means "nothing recorded", which is an answer and not an error. */
+  attributes?(
+    scope: ScopeUrl,
+    collection: string,
+    node: string,
+    opts?: { subject?: string; revision?: string },
+  ): Promise<WireNodeAttributes | null>;
 }
 
 export class AssetTreeClientError extends Error {}
@@ -131,4 +151,43 @@ export async function fetchAssetDelivery(
   const { assetsApi } = await import("@/services/api/assets");
   const { parseDeliveryClaim } = await import("@/assets/delivery");
   return parseDeliveryClaim(await assetsApi.getAssetDelivery(scope, provider, collection, node, opts));
+}
+
+/** What one node IS, from a registered client that answers live or from the REST route.
+ *
+ *  `null` is "nothing recorded": a live client saying so, or the route's 404, which is the one
+ *  answer for a provider that publishes no attributes, a document that does not mention the node
+ *  and a node that is not published at all. A caller asking what something is cannot act
+ *  differently on those, so they are not told apart here.
+ *
+ *  Any OTHER failure -- a 502 over an unreadable document, a network error -- is thrown, because
+ *  those are not absence and a panel that showed them as "no properties" would be lying. */
+export async function fetchAssetAttributes(
+  scope: ScopeUrl,
+  provider: string,
+  collection: string,
+  node: string,
+  opts?: { subject?: string; revision?: string },
+): Promise<WireNodeAttributes | null> {
+  const client = assetTreeClient(provider);
+  if (client?.attributes) return client.attributes(scope, collection, node, opts);
+
+  const { assetsApi } = await import("@/services/api/assets");
+  try {
+    return await assetsApi.getAssetAttributes(scope, provider, collection, node, opts);
+  } catch (e) {
+    if (isNotFound(e)) return null;
+    throw e;
+  }
+}
+
+/** A 404 from `jsonOrThrow`, told apart from every other failure.
+ *
+ *  Matched on a status carried by the error where there is one, and on the message otherwise --
+ *  `jsonOrThrow` formats the status into the text, and this must not depend on which of the two
+ *  a given error shape happens to have. */
+function isNotFound(e: unknown): boolean {
+  const status = (e as { status?: unknown })?.status;
+  if (typeof status === "number") return status === 404;
+  return /\b404\b/.test(String((e as { message?: unknown })?.message ?? e));
 }

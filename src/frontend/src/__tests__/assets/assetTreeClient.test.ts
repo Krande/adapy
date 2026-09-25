@@ -27,6 +27,7 @@ globals.localStorage = storage;
 const {
   AssetTreeClientError,
   assetTreeClient,
+  fetchAssetAttributes,
   fetchAssetDelivery,
   fetchAssetHierarchy,
   registerAssetTreeClient,
@@ -149,4 +150,56 @@ test("the plugin API advertises 1.6.0", async () => {
   // bump exists to turn into one log line.
   const { PLUGIN_API_VERSION } = await import("@/plugins/registry");
   assert.equal(PLUGIN_API_VERSION, "1.6.0");
+});
+
+test("a client that answers attributes live is asked, and is given the covering subject", async () => {
+  // The optional half of the contract. `subject` travels because a covered node's properties sit
+  // in its ancestor's document, and a client that reads a live source needs the same anchor to
+  // know which publish the caller is looking at.
+  const seen: unknown[] = [];
+  registerAssetTreeClient("live-attrs", {
+    ...fakeClient("live-attrs", []),
+    attributes: async (_s: never, collection: string, node: string, opts?: { subject?: string }) => {
+      seen.push([collection, node, opts?.subject ?? null]);
+      return {
+        node,
+        provider: "live-attrs",
+        revision: null,
+        kind: "Valve",
+        own: { tag: "V-1" },
+        groups: {},
+        quantities: {},
+      };
+    },
+  });
+  try {
+    const body = await fetchAssetAttributes(SCOPE, "live-attrs", "c", "n1", { subject: "root" });
+    assert.deepEqual(body?.own, { tag: "V-1" });
+    assert.deepEqual(seen, [["c", "n1", "root"]]);
+  } finally {
+    unregisterAssetTreeClient("live-attrs");
+  }
+});
+
+test("a live client may answer 'nothing recorded' without that being a failure", async () => {
+  registerAssetTreeClient("quiet", {
+    ...fakeClient("quiet", []),
+    attributes: async () => null,
+  });
+  try {
+    assert.equal(await fetchAssetAttributes(SCOPE, "quiet", "c", "n1"), null);
+  } finally {
+    unregisterAssetTreeClient("quiet");
+  }
+});
+
+test("attributes are optional on the interface, so a tree-only client is not a broken one", () => {
+  // Most providers publish their attributes and core serves them from the store; implementing
+  // the method is the exception, for a source whose properties move without a republish.
+  registerAssetTreeClient("tree-only", fakeClient("tree-only", []));
+  try {
+    assert.equal(assetTreeClient("tree-only")?.attributes, undefined);
+  } finally {
+    unregisterAssetTreeClient("tree-only");
+  }
 });

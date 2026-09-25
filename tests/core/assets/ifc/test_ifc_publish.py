@@ -123,7 +123,9 @@ def test_dry_run_writes_nothing_and_says_so(store):
         store, collection="plant-a", staged_key=STAGED_KEY, extracted_at="2026-01-01T00:00:00Z", dry_run=True
     )
     assert result.dry_run is True
-    assert len(result.written) == 9  # the plan is still derived...
+    # one shared source + the collection's hierarchy/asset + per subject a
+    # hierarchy/ifc-index/attributes/asset -- the plan is still derived...
+    assert len(result.written) == 11
     assert store.blobs == {STAGED_KEY: _raw()}  # ...but nothing beyond the staged input exists
 
 

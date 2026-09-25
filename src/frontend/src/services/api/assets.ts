@@ -17,6 +17,7 @@ import type {
   WireBuildAssetResponse,
   WireDeliveryClaim,
   WireHierarchySlice,
+  WireNodeAttributes,
   WireProvider,
 } from "@/assets/types";
 
@@ -80,6 +81,28 @@ export const assetsApi = {
     const url = `${base(scope)}/delivery/${encodeURIComponent(provider)}/${encodeURIComponent(collection)}/${encodeURIComponent(node)}${q}`;
     const r = await authedFetch(url);
     return jsonOrThrow<WireDeliveryClaim>(r, `getAssetDelivery(${collection}/${node})`);
+  },
+
+  /** What one node IS. `subject` names the manifest-owning ancestor when the
+   *  node was published under a root rather than in its own right -- the same
+   *  parameter the build request takes, resolved from the row's badge.
+   *
+   *  Throws on 404, which is this route's "nothing recorded"; the caller that
+   *  renders a selection treats that as absence rather than failure. */
+  async getAssetAttributes(
+    scope: ScopeUrl,
+    provider: string,
+    collection: string,
+    node: string,
+    opts?: { subject?: string; revision?: string },
+  ): Promise<WireNodeAttributes> {
+    const q = new URLSearchParams();
+    if (opts?.subject) q.set("subject", opts.subject);
+    if (opts?.revision) q.set("revision", opts.revision);
+    const qs = q.toString() ? `?${q.toString()}` : "";
+    const url = `${base(scope)}/attributes/${encodeURIComponent(provider)}/${encodeURIComponent(collection)}/${encodeURIComponent(node)}${qs}`;
+    const r = await authedFetch(url);
+    return jsonOrThrow<WireNodeAttributes>(r, `getAssetAttributes(${collection}/${node})`);
   },
 
   /** Build one node's geometry on demand (or find it already built). Body

@@ -7,7 +7,8 @@ branch per vendor.
 
 Only ``AssetTreeProvider`` is required. A provider that merely publishes into the store needs no
 runtime hierarchy code at all -- it rides the built-in ``published`` provider and supplies a
-publisher and/or a builder.
+publisher and/or a builder. ``AssetAttributes`` is optional in a second sense: a provider that
+publishes an ``attributes`` artefact answers selections without implementing it at all.
 
 The delivery split is the whole of Decision 1:
 
@@ -27,6 +28,7 @@ from typing import Any, Literal, Mapping, Protocol, runtime_checkable
 from ada.assets.projection import HierarchySlice
 
 __all__ = [
+    "AssetAttributes",
     "AssetBuilder",
     "AssetPublisher",
     "AssetTreeProvider",
@@ -115,6 +117,26 @@ class AssetPublisher(Protocol):
 
 
 @runtime_checkable
+class AssetAttributes(Protocol):
+    """Optional: what a node IS, fetched one node at a time.
+
+    Separate from ``hierarchy`` because the two have opposite shapes. A spine is fetched once and
+    expanded from; attributes are fetched per selection and most nodes are never selected at all,
+    so carrying them in the spine would pay for every node to answer for the few.
+
+    Optional because a provider whose attributes are PUBLISHED needs no method: core serves
+    ``attributes.json`` from the store, which is what the in-tree IFC provider does and the
+    cheapest answer at click time. Implement this only when the answer cannot be precomputed --
+    a live system of record whose properties move without a republish.
+
+    Returning ``None`` means "nothing for this node", which is an answer. Raising is for "this
+    node is not mine".
+    """
+
+    def attributes(self, scope: Any, collection: str, node: str, *, revision: str | None = None) -> Any | None: ...
+
+
+@runtime_checkable
 class AssetBuilder(Protocol):
     """Optional: the worker-side half of a ``build`` claim.
 
@@ -141,4 +163,8 @@ def provider_capabilities(provider: Any) -> dict[str, bool]:
         "tree": all(hasattr(provider, m) for m in ("collections", "hierarchy", "delivery")),
         "publish": hasattr(provider, "derive"),
         "build": hasattr(provider, "build"),
+        # A provider that PUBLISHES attributes reports False here and still answers: the store
+        # serves those. This flag is only "can answer live", which is what a caller deciding
+        # whether to expect an answer without a published revision needs to know.
+        "attributes": hasattr(provider, "attributes"),
     }

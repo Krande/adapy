@@ -47,6 +47,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
+from ada.assets.attributes import ATTRIBUTES_FILENAME, ATTRIBUTES_ROLE, build_attributes
+from ada.assets.ifc.attributes import attributes_for_nodes
 from ada.assets.ifc.index import (
     IFC_INDEX_FILENAME,
     IFC_INDEX_ROLE,
@@ -467,8 +469,8 @@ def _publish_one_subject(
     hierarchy_revision: str | None,
     planned: list[tuple[str, bytes]],
 ) -> dict[str, int]:
-    """One subject's own hierarchy.json + ifc.index.json + asset.json, appended to ``planned``
-    in that order -- the per-subject half of the write-order contract (the manifest is written
+    """One subject's own hierarchy.json + ifc.index.json + attributes.json + asset.json, appended
+    to ``planned`` in that order -- the per-subject half of the write-order contract (the manifest is written
     last because it is the one file whose mere presence a reader treats as "this revision is
     complete"). Returns this subject's own ``counts``, for a scoped (``--root``/``--leaf``)
     publish's plan to report."""
@@ -491,6 +493,21 @@ def _publish_one_subject(
     index_bytes = index_to_json(index_entries)
     index_key = asset_key(collection, subject, revision, IFC_INDEX_FILENAME)
     planned.append((index_key, index_bytes))
+
+    # What each node IS, for the selection panel. Written here, on a walk the publish is already
+    # making, so that answering a click needs neither ifcopenshell nor the source file -- see
+    # `ada.assets.attributes`. Nodes with nothing to say are dropped by `build_attributes`, which
+    # on a spatial-heavy subtree is most of them.
+    attributes_doc = build_attributes(
+        provider=IFC_PROVIDER_ID,
+        collection=collection,
+        root=subject,
+        produced_at=instant,
+        nodes=attributes_for_nodes(ifc_file, [n.id for n in subject_nodes]),
+    )
+    attributes_bytes = attributes_doc.to_json()
+    attributes_key = asset_key(collection, subject, revision, ATTRIBUTES_FILENAME)
+    planned.append((attributes_key, attributes_bytes))
 
     leaves = sum(1 for n in subject_nodes if n.leaf)
     counts = {"nodes": len(subject_nodes), "leaves": leaves}
@@ -524,6 +541,12 @@ def _publish_one_subject(
             ),
             ArtefactEntry(
                 role=IFC_INDEX_ROLE, file=IFC_INDEX_FILENAME, sha256=_sha(index_bytes), size=len(index_bytes)
+            ),
+            ArtefactEntry(
+                role=ATTRIBUTES_ROLE,
+                file=ATTRIBUTES_FILENAME,
+                sha256=_sha(attributes_bytes),
+                size=len(attributes_bytes),
             ),
         ),
         counts=counts,
