@@ -483,10 +483,17 @@ send2trash = "*"
 # Nothing pinned the old one (librsvg asks only for >=14.2.0), so this gives the solver a reason
 # to prefer the matching pair.
 #
-# NOT global: on win-64 that same bound drags in `libharfbuzz-devel` (harfbuzz 14.5 there is a
-# metapackage over it), which carries its own libexpat linkage and leaves `pyexpat` unloadable --
-# every XML test on Windows dying for a symlink problem that only exists on linux.
+# Scoped to linux because that is where the clobber happens -- but note it changes nothing on
+# win-64 either way: `libharfbuzz-devel` arrives there regardless, because `pango` and `librsvg`
+# require `harfbuzz` BY NAME and conda-forge turned that name into a metapackage whose only
+# dependency IS the devel package. Nothing here can ask for "runtime harfbuzz only"; `uharfbuzz`,
+# the one thing in the pygfx stack that actually links it, correctly asks for `libharfbuzz`.
+#
+# BOTH bounds, deliberately: `libharfbuzz` is what uharfbuzz links, and `harfbuzz` is what has to
+# move with it -- below 14.5 that package still ships its own `lib/libharfbuzz.so.0`, which is the
+# file that wins the clobber and breaks the pair.
 [feature.desktop.target.linux-64.dependencies]
+libharfbuzz = ">=14.5"
 harfbuzz = ">=14.5"
 
 [feature.prod.target.win-64.activation.env]
