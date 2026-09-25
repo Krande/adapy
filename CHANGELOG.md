@@ -2,6 +2,15 @@
 
 
 
+## v0.88.0 (2026-09-25)
+
+### Feature
+
+* feat: read an IFC&#39;s members natively for a clash check (#391)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`2f5f0b3`](https://github.com/Krande/adapy/commit/2f5f0b33c430d366d0218c745c9e722bc5a0b448))
+
+
 ## v0.87.0 (2026-09-24)
 
 ### Feature
