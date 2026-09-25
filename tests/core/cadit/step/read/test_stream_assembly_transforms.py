@@ -318,6 +318,7 @@ def test_stream_reader_applies_known_assembly_transform(tmp_path):
     assert not np.allclose(expected, np.eye(4))
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 @pytest.mark.parametrize("kernel", ["occ", "adacpp"])
 def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch, kernel):
     # The reader's transformed world bbox must match OpenCascade's whole-file OCAF reader

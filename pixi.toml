@@ -84,7 +84,11 @@ pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install c
 #   * tests/profiling is pytest-benchmark, minutes of timing runs whose numbers
 #     mean nothing on a busy machine -- `bench-cad`.
 # Anything else that is skipped is skipped by the test, which says why.
-test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# `tests/compat` is IGNORED here, not deselected: its modules import pythonocc at module scope,
+# which skips at collection before any marker can speak. The compat leg (`test-compat`, in an env
+# carrying both kernels) runs that tree. Marked tests OUTSIDE it need no flag -- tests/conftest.py
+# deselects them wherever the kernel is absent, and runs them wherever it is present.
+test = { cmd = "bash scripts/run_test.sh", depends-on = ["pre-install"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The inner-loop subset: everything that needs no FEM solver and no viewer
 # stack. This WAS `test`, and it is what CI's per-PR leg runs, because the
 # FEM/e2e halves have their own jobs and running them twice buys nothing.
@@ -272,6 +276,14 @@ occt = { version = "8.0.1.*", build = "novtk_*" }
 
 [feature.pyocc8.tasks]
 test-xkernel = { cmd = "pytest tests/core/cad", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
+# The COMPAT leg: every test that needs the pythonocc kernel, wherever it lives -- the
+# `tests/compat` tree plus anything the `pyocc` marker picks up elsewhere (a parametrised
+# backend test's occ leg, a capability adacpp lacks). Run with: pixi run -e tests-xkernel test-compat
+#
+# ADAPY_REQUIRE_BOTH_KERNELS is what makes this leg honest: with it set, a kernel that fails to
+# import FAILS instead of deselecting, so this job cannot pass by quietly running nothing -- which
+# is exactly how a missing kernel used to read as 117 green skips.
+test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_REQUIRE_BOTH_KERNELS" = "1" } }
 
 # ada-cpp with no ADAPY_CAD_BACKEND flip (unlike the `adacpp` feature), so the backend
 # is whatever `select_backend()` auto-detects -- adacpp, wherever pythonocc is not carried.
@@ -393,7 +405,7 @@ PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
 test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.prod.dependencies]
-python = "3.12.*"
+python = "3.14.*"
 bcf-client = "*"
 numpy = "*"
 hdf5 = "*"
@@ -424,6 +436,15 @@ jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
 pygfx = ">=0.16"
+# harfbuzz and libharfbuzz ship the SAME `lib/libharfbuzz.so.0`, so a solve that
+# takes them at different versions resolves the symlink by conda's clobber rule
+# rather than by intent. On python 3.14 it picked harfbuzz 14.2.1 beside
+# libharfbuzz 14.5.0, the older file won, and `uharfbuzz` -- built against 14.5 --
+# failed to import with `undefined symbol: hb_paint_funcs_set_fill_glyph_func`,
+# taking pygfx with it. Nothing pinned the old one (librsvg asks only for
+# >=14.2.0); the solver simply had no reason to prefer the matching pair. This
+# gives it one. Raise both bounds together if they move again.
+harfbuzz = ">=14.5"
 # pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
 # rendercanvas ≥ 2.0 for our offscreen path.
 wgpu-py = ">=0.31"
@@ -467,6 +488,15 @@ pytest-asyncio = "*"
 pyinstrument = "*"
 
 # Editable installs
+[feature.tests.dependencies]
+# Present so their tests RUN here rather than skip. A skipped test is not a covered one, and
+# `meshio` has its own env (`meshio-bridge-tests`) for the BRIDGE -- that is about keeping the
+# package out of the prod image closure, which is no reason for the test env to lack it.
+meshio = "*"
+# The GLB contract test parses what the streaming tessellator writes; without the parser it
+# asserted nothing, quietly, in every run.
+pygltflib = "*"
+
 [feature.tests.pypi-dependencies]
 pytest-playwright = "*"
 

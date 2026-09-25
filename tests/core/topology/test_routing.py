@@ -365,6 +365,7 @@ def test_site_terminal_orientation_respected_when_stub_is_occupied(grid):
     assert polyline[1][0] > p_start[0]
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 def test_open_channel_swept_run_builds_occ_solid():
     """An open UNP cable tray swept along a directrix with *consecutive* arc fillets
     (a tight zig-zag with a vertical rise) must build a valid, non-empty OCC solid —

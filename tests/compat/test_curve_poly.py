@@ -1,11 +1,15 @@
 import pytest
 
 from ada.api.curves import CurveOpen2d
-from ada.cad import active_backend
+from ada.cad import CadBackendName, backend_available
 
 
+# On whether the KERNEL IS THERE, not on which one happens to be ACTIVE. Gating on the ambient
+# backend meant this skipped in the compat env too -- the env that exists to run it -- because
+# adacpp is what `active_backend()` auto-selects when nothing says otherwise. A compat test asks
+# for its kernel; it does not wait to be handed one.
 @pytest.mark.skipif(
-    active_backend().name == "adacpp",
+    not backend_available(CadBackendName.OCC),
     reason="OCC x3dom display + CurveOpen2d.occ_wire is pythonocc-only (display smoke test)",
 )
 def test_sweep_curve():

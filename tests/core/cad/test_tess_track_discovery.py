@@ -37,6 +37,7 @@ def test_track_names_are_unique():
     assert len(names) == len(set(names))
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 def test_adapy_owns_only_the_occ_track():
     """Every non-OCC track must come from adacpp. If adapy ever hardcodes another one, this fails."""
     pytest.importorskip("OCC")

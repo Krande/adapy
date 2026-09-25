@@ -105,7 +105,10 @@ def test_exactcur_multiline_knot_vector_parses():
     assert getattr(curve, "weights_data", None) is None
 
 
-@pytest.mark.skip(reason="Not yet implemented")
+# xfail, not skip: a skip is invisible and stays invisible, while an xfail is reported every
+# run and turns into a failure the day the reader learns this case -- which is the day someone
+# needs to know.
+@pytest.mark.xfail(reason="SAT b-spline surface read not implemented yet", strict=False)
 def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
     # OCC-only SAT/STEP read + validity check (lazy-imported so the module
     # collects without pythonocc; the test itself is skipped).

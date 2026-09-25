@@ -28,7 +28,12 @@ def _fit_supported() -> bool:
         return True
 
 
-requires_fit = pytest.mark.skipif(not _fit_supported(), reason="CAD backend has no grid→bspline surface fit (adacpp)")
+# A capability the pythonocc kernel HAS and adacpp does not, so these are compat tests rather
+# than dead ones: marked `pyocc`, they are deselected in the default env and RUN in the compat
+# leg, instead of reporting a skip in every run and executing nowhere.
+requires_fit = pytest.mark.pyocc(
+    pytest.mark.skipif(not _fit_supported(), reason="CAD backend has no grid→bspline surface fit (adacpp)")
+)
 
 
 def _add_quad(p, eid, ring, mat="S355", th=12e-3):

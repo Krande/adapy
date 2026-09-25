@@ -79,6 +79,7 @@ def test_the_outline_is_the_t_it_describes(h, w_btn, t_w, t_fbtn) -> None:
     assert max(p[0] for p in pts) == pytest.approx(w_btn / 2)
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 @pytest.mark.parametrize("backend_name", ("occ", "adacpp"))
 @pytest.mark.parametrize(("h", "w_btn", "t_w", "t_fbtn"), T_BARS)
 def test_the_swept_solid_has_the_volume_the_t_implies(h, w_btn, t_w, t_fbtn, backend_name) -> None:

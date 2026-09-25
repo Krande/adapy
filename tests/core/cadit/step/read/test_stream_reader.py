@@ -407,6 +407,7 @@ def test_stream_reader_reads_mixed_rational_and_analytic(example_files, tmp_path
     assert len(list(asm.get_all_physical_objects())) >= 1
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 def test_stream_reader_curved_faces_full_coverage(tmp_path):
     # Closed cylinder/cone/torus faces (full circle + seam) and near-degenerate arc
     # slivers must ALL build into OCC faces, not drop — 100% face coverage on curved

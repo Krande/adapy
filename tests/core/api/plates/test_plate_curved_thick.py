@@ -181,6 +181,7 @@ def test_ifc_export_validates_and_tessellates():
     assert max(zs) > 0.15 + T * 0.9
 
 
+@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 def test_step_stream_roundtrip_volume():
     a, _ = _thick_assembly()
     fd, stp_path = tempfile.mkstemp(suffix=".stp")
@@ -189,11 +190,13 @@ def test_step_stream_roundtrip_volume():
     data = open(stp_path, "rb").read()
     assert b"CLOSED_SHELL" in data
 
-    from ada.cad import active_backend
+    # The ORACLE is pythonocc's, so it is selected BY NAME. Reading `active_backend()` and
+    # skipping when it was not pythonocc meant this never ran anywhere: the env that carries the
+    # kernel still auto-selects adacpp, so the oracle was skipped in the only env that could
+    # provide it. `@pytest.mark.pyocc` above is what keeps it out of the envs that cannot.
+    from ada.cad import select_backend
 
-    be = active_backend()
-    if be.name != "pythonocc-core":
-        pytest.skip("OCC read-back oracle runs on the pythonocc backend only")
+    be = select_backend(prefer="occ")
     shape = be.read_step_bytes(data)
     assert be.is_valid(shape)
     vol = be.volume(shape)
