@@ -72,6 +72,7 @@ def test_read_revolved_solid(example_files):
     print(a)
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_extruded_solid_beam_winding_is_outward(example_files, monkeypatch):
     """The production NGEOM libtess2 stream tessellates the extruded beam with OUTWARD-facing
     normals (positive signed volume). A CW-discretized profile loop previously came out

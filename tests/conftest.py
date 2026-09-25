@@ -110,7 +110,7 @@ BACKEND_NAMES = ("occ", "adacpp")
 #: every default run for a kernel that env was never meant to carry.
 _BACKEND_PARAMS = (
     pytest.param("occ", marks=pytest.mark.pyocc),
-    pytest.param("adacpp"),
+    pytest.param("adacpp", marks=pytest.mark.adacpp),
 )
 
 
@@ -179,6 +179,11 @@ def pytest_collection_modifyitems(config, items):
     # that kernel is no more "skipped" there than a pythonocc test is here.
     if importlib.util.find_spec("adacpp") is None:
         absent.add("adacpp")
+    # An escape hatch, for asking "would these actually run here?" -- which is the only way to
+    # catch a test marked for a capability it does not really need. Without it the deselection is
+    # invisible to inspection: `-m adacpp` selects nothing, because the deselection already ran.
+    if os.environ.get("ADAPY_NO_CAPABILITY_DESELECT"):
+        return
     if not absent:
         return
 

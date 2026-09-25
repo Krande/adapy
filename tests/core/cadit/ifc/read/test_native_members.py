@@ -17,18 +17,14 @@ import collections
 import pytest
 
 import ada
-from ada.cadit.ifc.read.native_members import (
-    ifc_members_to_part,
-    load_members_or_model,
-    native_members_available,
-)
+from ada.cadit.ifc.read.native_members import ifc_members_to_part, load_members_or_model
 from ada.clash.identify import identify_joints
 from ada.clash.options import ClashOptions
 
-pytestmark = pytest.mark.skipif(
-    not native_members_available(),
-    reason="ada-cpp without IfcMemberScan (needs >= 0.27); the reader falls back to from_ifc there",
-)
+# DESELECTED where adacpp is absent, not skipped: this module's subject IS the native reader, so
+# an env without that kernel was never going to run it, and a skip reports a hole that is covered
+# in the env that carries it.
+pytestmark = pytest.mark.adacpp
 
 
 @pytest.fixture(scope="module")

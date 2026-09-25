@@ -16,14 +16,12 @@ from __future__ import annotations
 import pytest
 
 import ada
-from ada.clash import native_joints
 from ada.clash.identify import identify_joints
 from ada.clash.options import ClashOptions
 
-pytestmark = pytest.mark.skipif(
-    not native_joints.available(),
-    reason="ada-cpp without find_beam_joints; adapy keeps the Python pass there",
-)
+# DESELECTED where adacpp is absent: the whole point of this file is holding the COMPILED pass
+# to the Python one, which needs the compiled pass to exist.
+pytestmark = pytest.mark.adacpp
 
 
 def _describe(members, centre):

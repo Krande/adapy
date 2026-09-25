@@ -322,7 +322,9 @@ def test_stream_reader_applies_known_assembly_transform(tmp_path):
 # The kernel legs come from the SHARED params (tests/conftest.py's `_BACKEND_PARAMS`), whose occ
 # leg carries the `pyocc` mark -- so it is deselected where that kernel is absent instead of
 # skipping, and this file stops carrying its own copy of the availability check.
-@pytest.mark.parametrize("kernel", [pytest.param("occ", marks=pytest.mark.pyocc), "adacpp"])
+@pytest.mark.parametrize(
+    "kernel", [pytest.param("occ", marks=pytest.mark.pyocc), pytest.param("adacpp", marks=pytest.mark.adacpp)]
+)
 def test_stream_world_bbox_matches_occ(tmp_path, monkeypatch, kernel):
     # The reader's transformed world bbox must match OpenCascade's whole-file OCAF reader
     # (STEPCAFControl_Reader) bbox for the same file (both in metres) to ~1e-6 -- on each

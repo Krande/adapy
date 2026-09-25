@@ -82,7 +82,10 @@ def test_the_outline_is_the_t_it_describes(h, w_btn, t_w, t_fbtn) -> None:
 # Marked per LEG, like the shared `backend` fixture: the occ leg is deselected where that kernel
 # is absent rather than skipped, and the adacpp leg runs everywhere. The availability check below
 # stays as the belt for an env that has the name but not a working kernel.
-@pytest.mark.parametrize("backend_name", (pytest.param("occ", marks=pytest.mark.pyocc), "adacpp"))
+@pytest.mark.parametrize(
+    "backend_name",
+    (pytest.param("occ", marks=pytest.mark.pyocc), pytest.param("adacpp", marks=pytest.mark.adacpp)),
+)
 @pytest.mark.parametrize(("h", "w_btn", "t_w", "t_fbtn"), T_BARS)
 def test_the_swept_solid_has_the_volume_the_t_implies(h, w_btn, t_w, t_fbtn, backend_name) -> None:
     """What the fix is actually for: the member builds, and builds as a T.

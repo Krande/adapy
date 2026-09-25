@@ -16,18 +16,12 @@ import json
 import pytest
 
 import ada
-from ada.cadit.ifc.read.native_members import (
-    members_from_jsonl,
-    native_members_available,
-    scan_ifc_members,
-)
+from ada.cadit.ifc.read.native_members import members_from_jsonl, scan_ifc_members
 from ada.clash.from_scan import clash_check_from_members, clash_check_from_scan
 from ada.clash.identify import run_clash_check
 
-pytestmark = pytest.mark.skipif(
-    not native_members_available(),
-    reason="ada-cpp without IfcMemberScan; the scan-driven route has no scan to drive it",
-)
+# DESELECTED where adacpp is absent: a scan-driven route needs a scan, which is adacpp's.
+pytestmark = pytest.mark.adacpp
 
 
 def _jsonl_writer_available() -> bool:

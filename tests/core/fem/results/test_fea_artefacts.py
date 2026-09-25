@@ -1465,6 +1465,7 @@ def test_bake_beam_solid_methods_produce_the_same_artefact_set(fem_files, tmp_pa
 needs_adacpp = pytest.mark.skipif(importlib.util.find_spec("adacpp") is None, reason="compact beam solids need adacpp")
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_adacpp
 def test_bake_writes_one_compact_beam_solid_artefact_by_default(fem_files, tmp_path):
     """The default bake emits AFBS and nothing else for beam solids: no GLB,
@@ -1515,6 +1516,7 @@ def test_bake_writes_one_compact_beam_solid_artefact_by_default(fem_files, tmp_p
     assert float(expanded.vertex_t.max()) <= 1.0
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @needs_adacpp
 def test_bake_compact_and_mesh_formats_draw_the_same_beams(fem_files, tmp_path):
     """The two artefacts are two encodings of one mesh, and the compact one is

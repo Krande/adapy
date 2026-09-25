@@ -32,6 +32,7 @@ def _glb_json(glb_path) -> dict:
     return json.loads(raw[20 : 20 + jlen])
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_step_to_glb_renders_merge_by_colour(tmp_path):
     # Two differently-coloured solids -> two merge-by-colour materials.
     from ada.visit.colors import Color
@@ -76,6 +77,7 @@ def test_native_step_to_glb_renders_merge_by_colour(tmp_path):
     assert "version" in ada_ext and "assembly_guid" in ada_ext, "version + assembly_guid present"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_full_cylinder_renders(tmp_path):
     # No geometry left behind: a standalone full (360deg) cylinder must tessellate. Its edges are
     # SURFACE_CURVE / SEAM_CURVE wrappers (OCC export) around the CIRCLE / LINE 3D curves — the native
@@ -91,6 +93,7 @@ def test_native_full_cylinder_renders(tmp_path):
     assert total_idx > 0, "full cylinder must produce triangles (side + caps)"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_step_to_glb_unit_cube(tmp_path):
     box = ada.PrimBox("bx", (0, 0, 0), (1, 1, 1))
     src = tmp_path / "cube.step"
@@ -115,6 +118,7 @@ def _curved_step(tmp_path):
 @pytest.mark.skipif(
     not native_track_selection_available(), reason="adacpp build predates native track selection (pipeline kwarg)"
 )
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_track_selection_reaches_the_kernel(tmp_path):
     """A selected track must CHANGE the mesh.
 
@@ -135,6 +139,7 @@ def test_native_track_selection_reaches_the_kernel(tmp_path):
     assert counts["libtess2"] != counts["cdt"], f"track ignored — both produced {counts['libtess2']} indices"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(
     not native_track_selection_available(), reason="adacpp build predates native track selection (pipeline kwarg)"
 )
