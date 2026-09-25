@@ -56,6 +56,18 @@ jobs:
         # here would triple its cost and gate nothing new. -e is what picks the
         # backend; `test`'s default environment is deliberately not relied on
         # in CI, where the environment is always stated.
+        # The DEXPI corpus is ~220 third-party XML files fetched from a public repo. Cached so
+        # the download happens about once per corpus change instead of once per job on three
+        # OSes; `fetch-dexpi` (a dependency of the test task) no-ops when the cache restored it.
+        # A cache miss just means the task fetches, so a stale or absent cache costs time, never
+        # correctness.
+        - name: Cache the DEXPI corpus
+          uses: actions/cache@v4
+          with:
+            path: files/dexpi_files/_external
+            key: dexpi-corpus-${{ hashFiles('scripts/fetch_dexpi_testcases.py') }}
+            restore-keys: dexpi-corpus-
+
         - name: Runs Tests
           run: pixi run -e tests test-quick
 

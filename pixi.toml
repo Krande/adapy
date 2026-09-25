@@ -88,14 +88,24 @@ pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install c
 # which skips at collection before any marker can speak. The compat leg (`test-compat`, in an env
 # carrying both kernels) runs that tree. Marked tests OUTSIDE it need no flag -- tests/conftest.py
 # deselects them wherever the kernel is absent, and runs them wherever it is present.
-test = { cmd = "bash scripts/run_test.sh", depends-on = ["pre-install"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test = { cmd = "bash scripts/run_test.sh", depends-on = ["pre-install", "fetch-dexpi"], default-environment = "fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # The inner-loop subset: everything that needs no FEM solver and no viewer
 # stack. This WAS `test`, and it is what CI's per-PR leg runs, because the
 # FEM/e2e halves have their own jobs and running them twice buys nothing.
 # Deliberately left ambiguous across environments (no default): it exists to be
 # pointed at a backend, and every caller passes -e.
-test-quick = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-quick = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --ignore=tests/compat --durations=0", depends-on = ["pre-install", "fetch-dexpi"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd = "pytest tests/core --durations=0", depends-on = ["fetch-dexpi"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# The DEXPI TrainingTestCases corpus (~220 official P&IDs, CC BY 4.0) that
+# `tests/core/cadit/dexpi/test_external_corpus.py` runs T1 over. NOT fetched by pytest: a test
+# suite that reaches the network is a suite that fails for reasons unrelated to the code. Fetched
+# HERE, as a dependency of the test tasks, so the corpus is present by the time pytest looks and
+# the module stops skipping -- 203 real third-party round-trips that otherwise never ran anywhere.
+#
+# Idempotent: the script returns immediately when the target exists (`--force` to re-fetch), and
+# `outputs` lets pixi skip even that. CI caches the directory on the same key, so the download
+# happens about once per corpus change rather than once per job.
+fetch-dexpi = { cmd = "python scripts/fetch_dexpi_testcases.py", outputs = ["files/dexpi_files/_external"] }
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
