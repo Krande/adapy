@@ -55,7 +55,7 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          the mismatch" case a minor bump exists to turn into one log line.
 //   1.6.0  `registerAssetTreeClient` — a plugin supplies a BROWSER-SIDE client for one asset
 //          provider, and core's reading paths dispatch to it per call instead of the REST
-//          route. It exists for the provider that must be read as the SIGNED-IN USER: a
+//          route. It exists for a provider that must be read as the SIGNED-IN USER: a
 //          service authenticating the person cannot be proxied by a worker without either
 //          handing the worker that identity or flattening every user to one service account.
 //          The same reasoning already produced `registerExternalModelClient`

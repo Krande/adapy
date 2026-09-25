@@ -4,9 +4,15 @@
 // data a worker can see that is the whole story. It is not the whole story for a provider that
 // must be read AS THE SIGNED-IN USER: a browser-side service that authenticates the person, not
 // the cluster, cannot be proxied by a worker without either handing the worker the person's
-// identity or flattening every user to one service account. That case already exists for external
-// models (`registerExternalModelClient`, `services/externalModelClients.ts`), and this is the same
-// shape for assets.
+// identity or flattening every user to one service account. `registerExternalModelClient`
+// (`services/externalModelClients.ts`) already carries that reasoning for external models, and
+// this is the same shape for assets.
+//
+// NO SHIPPED PROVIDER USES IT TODAY, and that is the expected ratio. A catalogue the deployment
+// itself can read -- a service principal against object storage, say -- belongs on the worker:
+// the credential stays out of the page, the job cache absorbs repeat reads, and the tree still
+// loads in a browser with no session. Registering here trades all three away for the one thing a
+// worker cannot have, so it is the exception a provider must argue for, not the default.
 //
 // DISPATCH PER CALL, AND THE CALLER NEVER LEARNS WHICH. A consumer asks for a hierarchy; it does
 // not ask whether a client is registered. That is deliberate: the moment a reading path branches
