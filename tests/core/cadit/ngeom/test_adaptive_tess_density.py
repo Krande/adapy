@@ -40,6 +40,7 @@ def test_registry_toggle_and_model_scale(monkeypatch):
     assert stream_tess_model_scale() == 0.0
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_estimate_step_model_scale_robust(tmp_path):
     """The estimator returns a positive scale and rejects a far-flung outlier point."""
     import ada
@@ -51,6 +52,7 @@ def test_estimate_step_model_scale_robust(tmp_path):
     assert ms >= 0.0  # small clean model: a finite scale (or 0 if too few points) — never negative
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(not _adacpp_supports_model_scale(), reason="adacpp build predates model_scale param")
 def test_model_scale_coarsens_small_feature_but_not_standalone():
     """model_scale flows to the kernel: a cylinder that is a large fraction of a SMALL model keeps

@@ -172,6 +172,9 @@ markers = [
     # medcoupling has no macOS build on conda-forge, so these are deselected there rather than
     # skipped -- a skip would report a hole in every macOS run for a package that cannot exist.
     "medcoupling: test requiring the medcoupling MED reader (linux/windows only)",
+    # The mirror of `pyocc`: a test whose subject is the adacpp kernel, deselected in the
+    # pythonocc-only envs rather than skipped there.
+    "adacpp: test requiring the adacpp kernel",
 ]
 # This is meant to stop and catch any unintended hangs
 timeout = 600

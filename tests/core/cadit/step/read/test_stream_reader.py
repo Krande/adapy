@@ -8,8 +8,6 @@ touches no kernel.
 
 import pathlib
 
-import pytest
-
 import ada
 from ada import Beam, Plate, Section
 from ada.cadit.step.read.stream_reader import stream_read_step
@@ -407,24 +405,21 @@ def test_stream_reader_reads_mixed_rational_and_analytic(example_files, tmp_path
     assert len(list(asm.get_all_physical_objects())) >= 1
 
 
-# Genuinely kernel-specific, not merely written that way: the facade has no verb for "build a
-# FACE from a face geometry" -- `backend.build` takes a solid and returns a solid, so routing
-# this through it yields zero faces on either kernel (tried). Until that verb exists this test
-# reaches for `make_face_from_geom` directly, which is what makes it a compat test rather than a
-# style problem.
-@pytest.mark.pyocc
 def test_stream_reader_curved_faces_full_coverage(tmp_path):
     # Closed cylinder/cone/torus faces (full circle + seam) and near-degenerate arc
-    # slivers must ALL build into OCC faces, not drop — 100% face coverage on curved
-    # CAD. Exercises _try_make_closed_revolution_face (parametric-bounds seam faces)
-    # and the chord fallback for sub-mm arcs. OCC-only (make_face_from_geom).
-    from ada.cad import CadBackendName, backend_available, select_backend
+    # slivers must ALL build into faces, not drop — 100% face coverage on curved CAD.
+    # Exercises _try_make_closed_revolution_face (parametric-bounds seam faces) and the
+    # chord fallback for sub-mm arcs.
+    #
+    # Through the FACADE, on whichever kernel this env carries. It used to import
+    # `ada.occ.geom.surfaces.make_face_from_geom`, which made a claim about the reader into a
+    # claim about one kernel -- and one this env could not check at all. `backend.build` covers
+    # it: a face is a geometry like any other, it just has to be handed over WRAPPED, which is
+    # the same calling convention every other construction takes.
+    from ada.cad import active_backend
+    from ada.geom import Geometry
 
-    if not backend_available(CadBackendName.OCC):
-        pytest.skip("occ backend not installed")
-    from ada.occ.geom.surfaces import make_face_from_geom
-
-    occ = select_backend(prefer="occ")  # make_face_from_geom is the OCC builder
+    be = active_backend()
 
     a = ada.Assembly("m") / (
         ada.Part("p")
@@ -441,8 +436,8 @@ def test_stream_reader_curved_faces_full_coverage(tmp_path):
     for g in stream_read_step(out, local_pool=False, tolerant=True):
         for face in g.geometry.cfs_faces:
             try:
-                occ_face = make_face_from_geom(face)
-                ok = occ_face is not None and occ.shape_type(occ_face) == "face"
+                built_face = be.build(Geometry(id=1, geometry=face, color=None))
+                ok = built_face is not None and be.shape_type(built_face) == "face"
                 built += 1 if ok else 0
                 dropped += 0 if ok else 1
             except Exception:

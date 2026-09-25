@@ -37,16 +37,25 @@ def test_track_names_are_unique():
     assert len(names) == len(set(names))
 
 
-@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
 def test_adapy_owns_only_the_occ_track():
-    """Every non-OCC track must come from adacpp. If adapy ever hardcodes another one, this fails."""
-    pytest.importorskip("OCC")
-    non_occ = [t for t in available_tess_tracks() if t.backend is not CadBackendName.OCC]
+    """Every non-OCC track must come from adacpp. If adapy ever hardcodes another one, this fails.
+
+    Asserted over the tracks this environment ACTUALLY has, rather than requiring pythonocc to be
+    installed first. The invariant -- "the only track adapy declares itself is OCC's; everything
+    else is adacpp's vocabulary" -- is true of an env with one kernel exactly as it is of an env
+    with both, so demanding both meant the rule went unchecked in the env that is the default.
+    """
+    tracks = available_tess_tracks()
+    non_occ = [t for t in tracks if t.backend is not CadBackendName.OCC]
     assert all(t.backend is CadBackendName.ADACPP for t in non_occ)
-    occ = [t for t in available_tess_tracks() if t.backend is CadBackendName.OCC]
-    assert len(occ) == 1 and occ[0].pipeline is None, "OCC is BRepMesh: it has no adacpp pipeline arg"
+
+    occ = [t for t in tracks if t.backend is CadBackendName.OCC]
+    assert len(occ) <= 1, "OCC contributes at most one track"
+    if occ:  # only where that kernel is installed
+        assert occ[0].pipeline is None, "OCC is BRepMesh: it has no adacpp pipeline arg"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_adacpp_tracks_are_discovered_from_adacpp():
     """The vocabulary must match what adacpp declares — not a list maintained in adapy."""
     pytest.importorskip("adacpp")
@@ -60,6 +69,7 @@ def test_adacpp_tracks_are_discovered_from_adacpp():
     assert discovered == declared, "adapy must publish exactly what adacpp declares"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_discovery_sees_tracks_the_legacy_enum_cannot():
     """The whole point: a track added to adacpp after the enum was written is still reachable."""
     pytest.importorskip("adacpp")
@@ -84,6 +94,7 @@ def test_lookup_by_name_and_unknown():
     assert tess_track_by_name("definitely-not-a-track") is None
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_watertight_is_advertised():
     """A caller must be able to ASK which tracks are watertight rather than know it."""
     pytest.importorskip("adacpp")

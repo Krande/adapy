@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_registry_lists_adacpp_paths_when_installed():
     pytest.importorskip("adacpp")
     from ada.cad import (
@@ -41,6 +42,7 @@ def test_tessellation_path_enum_backend_and_pipeline():
     assert TessellationPath.ADACPP_HYBRID.pipeline == "hybrid"
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_cadconfig_default_prefers_libtess2_when_adacpp_installed():
     pytest.importorskip("adacpp")
     from ada.cad import CadConfig, TessellationPath

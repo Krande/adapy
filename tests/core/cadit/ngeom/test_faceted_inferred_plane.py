@@ -30,6 +30,7 @@ def _square_face(dx: float, dy: float, dz: float):
     return su.Face(bounds=[su.FaceBound(bound=loop, orientation=True)])  # plain Face -> inferred plane
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_faceted_shell_libtess2_no_displacement():
     pytest.importorskip("adacpp")
     import ada.geom.surfaces as su

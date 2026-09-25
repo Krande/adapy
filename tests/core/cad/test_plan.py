@@ -64,12 +64,14 @@ def test_unknown_track_is_refused_and_names_the_alternatives():
         plan.validate()
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_unknown_serializer_is_refused():
     plan = ConversionPlan(serializer=Serializer(name="nope"), tessellator=Tessellator.default())
     with pytest.raises(PlanError, match="unknown serializer"):
         plan.validate()
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(_taxonomy_track() is None, reason="this adacpp declares no taxonomy track")
 def test_cpp_refuses_a_taxonomy_track():
     """The native reader builds no taxonomy geometry, and adacpp meshes such a track as though
@@ -81,6 +83,7 @@ def test_cpp_refuses_a_taxonomy_track():
         plan.validate()
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(_neutral_track() is None, reason="no neutral adacpp track available")
 def test_python_accepts_any_available_track():
     """The python path drives every declared track — the neutral restriction is the native
@@ -89,6 +92,7 @@ def test_python_accepts_any_available_track():
         (Serializer.python() | Tessellator(t.name)).validate()
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(_neutral_track() is None, reason="no neutral adacpp track available")
 def test_fuses_only_for_cpp_step_to_glb(tmp_path):
     step = tmp_path / "x.stp"
@@ -103,6 +107,7 @@ def test_fuses_only_for_cpp_step_to_glb(tmp_path):
     assert (Serializer.cpp() | Tessellator(neutral)).fuses(other) is False
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 @pytest.mark.skipif(_neutral_track() is None, reason="no neutral adacpp track available")
 def test_tess_env_does_not_leak_between_plans(tmp_path):
     """adaptive/face_regions travel only by env and are inherited by the Python path's pool, so a

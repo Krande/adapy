@@ -11,6 +11,8 @@ import gc
 import pickle
 import weakref
 
+import pytest
+
 import ada.geom.curves as cu
 import ada.geom.solids as so
 import ada.geom.surfaces as su
@@ -276,6 +278,7 @@ def test_backend_builds_hydrated_connected_face_set():
     assert handle is not None
 
 
+@pytest.mark.adacpp  # needs the adacpp kernel; deselected where it is absent
 def test_native_ifc_brep_products_import_as_ngeom_blobs(tmp_path):
     """B-rep IFC products the Python-native readers can't resolve import via adacpp's
     IfcNgeomStream as zero-copy ngeom-kind proxies instead of eager OCC kernel bodies."""

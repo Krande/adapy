@@ -175,6 +175,10 @@ def pytest_collection_modifyitems(config, items):
         absent.add("pyocc")
     if importlib.util.find_spec("medcoupling") is None:
         absent.add("medcoupling")
+    # Symmetric with `pyocc`: the pythonocc-only envs have no adacpp, and a test whose subject is
+    # that kernel is no more "skipped" there than a pythonocc test is here.
+    if importlib.util.find_spec("adacpp") is None:
+        absent.add("adacpp")
     if not absent:
         return
 
