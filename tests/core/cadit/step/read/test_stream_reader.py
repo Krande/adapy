@@ -407,7 +407,12 @@ def test_stream_reader_reads_mixed_rational_and_analytic(example_files, tmp_path
     assert len(list(asm.get_all_physical_objects())) >= 1
 
 
-@pytest.mark.pyocc  # reaches the pythonocc kernel directly, not through the backend facade
+# Genuinely kernel-specific, not merely written that way: the facade has no verb for "build a
+# FACE from a face geometry" -- `backend.build` takes a solid and returns a solid, so routing
+# this through it yields zero faces on either kernel (tried). Until that verb exists this test
+# reaches for `make_face_from_geom` directly, which is what makes it a compat test rather than a
+# style problem.
+@pytest.mark.pyocc
 def test_stream_reader_curved_faces_full_coverage(tmp_path):
     # Closed cylinder/cone/torus faces (full circle + seam) and near-degenerate arc
     # slivers must ALL build into OCC faces, not drop — 100% face coverage on curved
