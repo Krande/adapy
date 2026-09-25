@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     import numpy as np
 
 __all__ = [
-    "MEMBER_SCAN_MIN_ADACPP",
     "ifc_members_to_part",
     "materials_are_complete",
     "members_from_jsonl",
@@ -45,11 +44,6 @@ __all__ = [
     "native_takeoff_part",
     "scan_ifc_members",
 ]
-
-#: The adacpp release that first carried the outline + swept plane (`IfcMemberScan` itself landed
-#: in 0.26.0, but a plate needs the outline, and a member reader that silently dropped every plate
-#: would be worse than one that refuses).
-MEMBER_SCAN_MIN_ADACPP = "0.27.0"
 
 #: IFC classes this reader maps. Anything else is skipped -- a member reader that guessed at a
 #: railing or a piece of furniture would put objects into a clash check that no spec can detail.
