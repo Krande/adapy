@@ -1,0 +1,500 @@
+# -*- coding: utf-8 -*-
+# Abaqus/CAE concept model, written by adapy <version>.
+#
+# adapy source part : Frame
+# CAE model         : Model-1
+# adapy units       : m
+#                     Every coordinate and every profile dimension below is in those
+#                     units, unscaled: unit_scale must be 1.0. It used to multiply both
+#                     and leave E and the density alone, which emitted a millimetre model
+#                     with a modulus in pascals and nothing to report it.
+# joint tolerance   : 0.0001
+#                     adapy's Config().general_point_tol -- how close two members have to
+#                     be for adapy to call them joined, and so what EXPECTED_TOPOLOGY
+#                     below is stated at. CAE's own merge tolerance is 1e-06.
+# parts             : 1
+# beams             : 3
+# materials         : 1
+# beam sections     : 3
+#
+# Every physical object in the source part was translated.
+#
+# Run:  abaqus cae noGUI=<this file>
+# 'print' does not reach stdout under CAE: it lands in abaqus.rpy prefixed '#: '.
+#
+# Machine-readable outcome: frame.cae_build_result.json, written next to this script on
+# success AND on failure. Read it, and do not read the launcher's exit status:
+# measured on Abaqus 2025, abq<ver>.bat returns 0 even when the cae process it
+# started died with a non-zero status (CAE does print 'Abaqus Error: cae exited
+# with an error' in that case). A failed run leaves "ok": false and a reason.
+#
+# Written with .format() and no f-strings, so an older Abaqus kernel reports a real
+# error rather than a SyntaxError.
+
+from __future__ import print_function
+
+import json
+import os
+import sys
+import traceback
+
+from abaqus import *
+from abaqusConstants import *
+
+# Mandatory, not decorative: without caeModules, mdb has no geometry importers at all
+# (measured -- "'Mdb' object has no attribute 'openAcis'").
+from caeModules import *
+
+MODEL_NAME = 'Model-1'
+MODEL_DESCRIPTION = "adapy concept model 'Frame'; units m"
+RESULT_NAME = 'frame.cae_build_result.json'
+CAE_NAME = 'frame.cae'
+
+# Corners adapy computed from Beam.axis_global(), in the emitted units. The script
+# checks the geometry it built against them; see _guard_bounding_box.
+EXPECTED_BBOX = {
+    'Frame': ((0.0, 0.0, 0.0), (6.0, 2.0, 4.0)),
+}
+BBOX_TOL = 1e-06
+
+# What CAE must end up holding, computed by adapy from Beam.axis_global() before
+# a wire was drawn: one sub-edge per member, plus one more for every OTHER member's
+# endpoint that lands strictly inside it (CAE imprints a landing member into the
+# through member -- measured, 1 edge becomes 3). See _guard_topology.
+#
+# JOINT_TOL is adapy's own Config().general_point_tol -- the distance at which its FEM
+# node container calls two points one node. CAE's merge tolerance is CAE_MERGE_TOL,
+# measured on Abaqus 2025 and absolute in model units at every part size probed
+# (0.004, 4 and 4000 units long). The gap between the two is deliberate: a joint
+# closer than CAE_MERGE_TOL is built by both, one further apart than JOINT_TOL is
+# built by neither, and one in between is a member adapy joins and CAE leaves loose --
+# which is a real disagreement between adapy's two Abaqus routes and fails the build.
+JOINT_TOL = 0.0001
+CAE_MERGE_TOL = 1e-06
+EXPECTED_TOPOLOGY = {
+    'Frame': {
+        'edges': 4,
+        'vertices': 5,
+        'edges_per_member': {
+            'brace': 1,
+            'col1': 1,
+            'girder': 2,
+        },
+    },
+}
+
+# Every name this script creates. CAE does not refuse a reused name -- it replaces the
+# object and invalidates handles to the old one -- so a second run in one session would
+# silently swap them all. Checked before anything is built; see _guard_no_name_collisions.
+#
+# A part's own member sets are absent deliberately: they live inside the part, and a part
+# whose own name is free is a part this script just created, so its sets cannot collide.
+# A support's or load's region is an ASSEMBLY set and shares one namespace with every other
+# model, so those are checked. So is every step name -- 'Initial' already exists before this
+# script creates anything, and it is the step every fixed support here is declared in.
+PLANNED_NAMES = {
+    'instances': ['Frame-1'],
+    'materials': ['S355'],
+    'parts': ['Frame'],
+    'profiles': ['BG200x200x10', 'HP200x10', 'IPE300'],
+    'sections': ['sec_BG200x200x10_S355', 'sec_HP200x10_S355', 'sec_IPE300_S355'],
+}
+
+_RESULT = {
+    'schema': 'ada.cae_build_result/4',
+    'ok': False,
+    'model': MODEL_NAME,
+    'source_part': 'Frame',
+    'created': {
+        'parts': [],
+        'materials': [],
+        'profiles': [],
+        'sections': [],
+        'sets': [],
+        'instances': [],
+        'regions': [],
+        'section_assignments': 0,
+        'orientations': 0,
+    },
+    'edges_per_member': {},
+    'curve_length_error': {},
+    'section_offsets': {},
+    'mesh': {},
+    'analysis': {},
+    'equilibrium': {},
+    'job': None,
+    'displacements': None,
+    'guards': {},
+    'errors': [],
+    'skipped': [
+    ],
+}
+
+
+def _result_path():
+    """Next to this script, so the sidecar travels with the artefact that produced it."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        here = os.getcwd()
+    return os.path.join(here, RESULT_NAME)
+
+
+def _write_result():
+    handle = open(_result_path(), 'w')
+    try:
+        handle.write(json.dumps(_RESULT, indent=2, sort_keys=True))
+    finally:
+        handle.close()
+
+
+def _fail(message):
+    """Guard 5: CAE can exit 0 on a half-built model, so record AND signal.
+
+    Measured on Abaqus 2025, and it is not what it looks like: a SystemExit leaving a
+    `cae noGUI=` script does NOT reach the process exit status. `sys.exit(1)` here left
+    the run reporting 0 -- exactly the "it ran" versus "it built a third of the model"
+    confusion this guard exists to remove. os._exit does reach the caller, so the
+    sidecar and the reason are written and flushed first and the status is forced after.
+    """
+    _RESULT['ok'] = False
+    _RESULT['errors'].append(message)
+    _write_result()
+    banner = 'ADAPY-CAE BUILD FAILED: ' + message
+    print(banner)
+    # print() under CAE lands in abaqus.rpy prefixed '#: ', not on the console, so say it
+    # again on every stream that might actually be one.
+    for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
+        try:
+            stream.write(banner + '\n')
+            stream.flush()
+        except Exception:
+            pass
+    os._exit(1)
+
+
+def _model():
+    if MODEL_NAME in mdb.models.keys():
+        model = mdb.models[MODEL_NAME]
+        model.setValues(description=MODEL_DESCRIPTION)
+        return model
+    return mdb.Model(name=MODEL_NAME, description=MODEL_DESCRIPTION)
+
+
+def _guard_no_name_collisions(model):
+    """Guard 7: nothing this script is about to create may already exist.
+
+    CAE does not raise when a name is reused. Measured: it silently REPLACES the object
+    and invalidates every handle to the old one, which then fails much later with
+    "AccessError: ... no longer exists" -- or does not fail at all. So running this script
+    twice in one GUI session would quietly swap every part, section and profile, and the
+    second run would look exactly as clean as the first.
+
+    That is why this cannot be left to the kernel and has to happen before a single object
+    is built: once the first Part is replaced, the damage is done and there is nothing to
+    abort back to.
+
+    The analysis kinds are here for the same reason and one more: `model.steps` already holds
+    'Initial' before this script creates anything, so a step of that name in the source model
+    would otherwise replace the one every DisplacementBC in the 'Initial' step depends on.
+    """
+    present = {
+        'parts': model.parts.keys(),
+        'materials': model.materials.keys(),
+        'profiles': model.profiles.keys(),
+        'sections': model.sections.keys(),
+        'instances': model.rootAssembly.instances.keys(),
+        'steps': model.steps.keys(),
+        'boundary conditions': model.boundaryConditions.keys(),
+        'loads': model.loads.keys(),
+        'assembly sets': model.rootAssembly.sets.keys(),
+        'field output requests': model.fieldOutputRequests.keys(),
+    }
+    clashes = []
+    for kind in sorted(PLANNED_NAMES.keys()):
+        existing = list(present[kind])
+        for name in PLANNED_NAMES[kind]:
+            if name in existing:
+                clashes.append('{0} {1!r}'.format(kind, name))
+    if clashes:
+        _fail('model {0!r} already holds {1} of the object(s) this script would create, and CAE '
+              'replaces an object whose name is reused rather than refusing it -- so building here '
+              'would silently swap them: {2}. Delete that model, or write the script again with a '
+              'model_name of its own.'.format(MODEL_NAME, len(clashes), ', '.join(clashes)))
+
+
+def _guard_topology(model):
+    """Guard 6: the ONLY check that can tell a connected frame from a pile of loose sticks.
+
+    Guard 1 below cannot, although it was written believing it could. Measured, with this
+    script's own wire calls:
+
+        T-joint, IMPRINT (correct)        edges=3 vertices=4     guard 1 passes
+        T-joint, SEPARATE (disconnected)  edges=2 vertices=4     guard 1 PASSES
+        brace 1e-6 off the girder line    edges=2 vertices=4     guard 1 PASSES
+        collinear pair, touching          edges=2 vertices=3     guard 1 passes
+        collinear pair, 1e-6 apart        edges=2 vertices=4     guard 1 PASSES
+
+    Every one of those has "every edge carries exactly one section", so the guard that
+    counts sections cannot see connectivity at all. Note the last pair especially: two
+    members that failed to join do not change the EDGE count either. Only the vertex count
+    moves, which is why it is checked here.
+
+    EXPECTED_TOPOLOGY was computed from the adapy model -- every member's endpoints were
+    known there -- so this compares the kernel against an independent statement of what it
+    should have built, not against its own bookkeeping.
+    """
+    problems = []
+    for part_name in sorted(EXPECTED_TOPOLOGY.keys()):
+        expected = EXPECTED_TOPOLOGY[part_name]
+        part = model.parts[part_name]
+        built_edges = len(part.edges)
+        built_vertices = len(part.vertices)
+        record = _RESULT['guards'].setdefault(part_name, {})
+        record['expected_edges'] = expected['edges']
+        record['expected_vertices'] = expected['vertices']
+        record['built_vertices'] = built_vertices
+        disagree = []
+        for set_name in sorted(expected['edges_per_member'].keys()):
+            wanted = expected['edges_per_member'][set_name]
+            built = _RESULT['edges_per_member'].get(set_name)
+            if built != wanted:
+                disagree.append('member {0!r} expected {1} sub-edge(s), CAE built {2}'.format(
+                    set_name, wanted, built))
+        if disagree:
+            problems.append('part {0!r}: {1}'.format(part_name, '; '.join(disagree)))
+        if built_edges != expected['edges']:
+            problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
+                part_name, expected['edges'], built_edges))
+        if built_vertices != expected['vertices']:
+            problems.append('part {0!r}: adapy described {1} vertex(es), CAE built {2}'.format(
+                part_name, expected['vertices'], built_vertices))
+    if problems:
+        _fail('the topology CAE built is not the topology adapy described -- ' + ' | '.join(problems)
+              + ' | FEWER sub-edges or MORE vertices than expected means a joint did not merge: '
+              'CAE merges two points only when they are closer than ' + repr(CAE_MERGE_TOL)
+              + ' in model units, while adapy treats anything within ' + repr(JOINT_TOL)
+              + ' as one point, so a member landing between those two distances is joined in the '
+              'adapy model and loose here. MORE sub-edges or FEWER vertices means CAE imprinted a '
+              'connection adapy does not model -- two members crossing away from their ends, which '
+              'the writer refuses when it can see it. Either way the geometry is reported, never '
+              'snapped: fix the model.')
+
+
+def _member_edges(part_name, set_name, edges):
+    """Check and record what the cylinder on the preceding line actually found.
+
+    Each member is located by a bounding cylinder, never by findAt at a midpoint: a
+    member landing mid-span SPLITS the through member (measured: 1 edge -> 3).
+    getByBoundingCylinder returns every sub-edge while findAt returns only the one
+    containing the point, so a midpoint lookup would section half a beam and leave the
+    other half bare. So a member legitimately yields more than one edge here -- but
+    never zero, because its own wire was drawn a few lines up.
+    """
+    if len(edges) == 0:
+        _fail('member {0!r} of part {1!r}: the bounding cylinder on the line above contains no '
+              'edge, although the member\'s own wire was drawn. Either the cylinder is too tight '
+              'for this model\'s scale, or the geometry is not where it was drawn.'.format(
+                  set_name, part_name))
+    _RESULT['edges_per_member'][set_name] = len(edges)
+    return edges
+
+
+def _guard_every_edge_sectioned(model):
+    """Guard 1: every edge carries exactly one section, and every section an orientation.
+
+    Imprinting can leave a sub-edge no cylinder claimed, and a duplicated wire is an edge
+    no cylinder claims either. Neither shows up anywhere else.
+
+    This guard used to claim it caught connectivity as well. It does not, and the
+    measurements are in _guard_topology above: a disconnected frame reaches this check
+    with every one of its edges sectioned. Do not delete that guard on the strength of
+    this one.
+
+    Read back from the kernel's own sectionAssignments and the kernel's own sets -- not
+    from this script's bookkeeping -- so a bug in the bookkeeping cannot make the guard
+    pass. (Measured: sa.region is a tuple whose first element is the set's name.)
+    """
+    problems = []
+    for part_name in sorted(_RESULT['created']['parts']):
+        part = model.parts[part_name]
+        covered = {}
+        for assignment in part.sectionAssignments:
+            set_name = assignment.region[0]
+            if set_name not in part.sets.keys():
+                problems.append('part {0!r}: section assignment region {1!r} is not one of the '
+                                "part's sets, so its coverage cannot be verified".format(
+                                    part_name, assignment.region))
+                continue
+            for edge in part.sets[set_name].edges:
+                covered.setdefault(edge.index, []).append(set_name)
+        all_indices = set([edge.index for edge in part.edges])
+        unassigned = sorted(all_indices - set(covered.keys()))
+        doubled = sorted([index for index in covered if len(covered[index]) > 1])
+        orientations = len(part.beamSectionOrientations)
+        # update(), not assignment: _guard_topology has already recorded what adapy expected
+        # for this part, and overwriting it would drop the connectivity verdict from the
+        # sidecar -- the one number a reader most wants next to 'edges'.
+        _RESULT['guards'].setdefault(part_name, {}).update({
+            'edges': len(all_indices),
+            'edges_with_a_section': len(covered),
+            'edges_with_no_section': len(unassigned),
+            'edges_with_two_sections': len(doubled),
+            'section_assignments': len(part.sectionAssignments),
+            'orientations': orientations,
+            'sets': len(part.sets.keys()),
+        })
+        _RESULT['created']['section_assignments'] += len(part.sectionAssignments)
+        _RESULT['created']['orientations'] += orientations
+        for set_name in sorted(part.sets.keys()):
+            _RESULT['created']['sets'].append(set_name)
+        # A section without an orientation is a beam whose profile is turned an unknown
+        # way round -- it meshes and solves, and its weak axis is wherever CAE defaulted.
+        if orientations < len(part.sectionAssignments):
+            problems.append('part {0!r}: {1} section assignments but only {2} beam orientations, so at '
+                            'least one member\'s profile is turned an unknown way round'.format(
+                                part_name, len(part.sectionAssignments), orientations))
+        if not all_indices:
+            problems.append('part {0!r} has no edges at all: no geometry was built'.format(part_name))
+            continue
+        if unassigned:
+            problems.append('part {0!r}: {1} of {2} edges carry a section assignment; edges {3} carry '
+                            'none (pointOn {4})'.format(part_name, len(covered), len(all_indices), unassigned,
+                                                        [part.edges[i].pointOn for i in unassigned[:8]]))
+        if doubled:
+            problems.append('part {0!r}: edges {1} carry more than one section assignment, so which '
+                            'section applies is ambiguous'.format(part_name, doubled))
+    if problems:
+        _fail('every edge must end with exactly one section assignment -- ' + ' | '.join(problems))
+
+
+def _guard_bounding_box(model):
+    """A jacket built 1000x too small, or a Part placement dropped on the way out.
+
+    adapy computed these corners from Beam.axis_global() in the emitted units, so a
+    mismatch means the script built something adapy did not describe.
+    """
+    problems = []
+    for part_name in sorted(EXPECTED_BBOX.keys()):
+        part = model.parts[part_name]
+        if len(part.vertices) == 0:
+            problems.append('part {0!r} has no vertices'.format(part_name))
+            continue
+        low = [None, None, None]
+        high = [None, None, None]
+        for vertex in part.vertices:
+            point = vertex.pointOn[0]
+            for axis in range(3):
+                if low[axis] is None or point[axis] < low[axis]:
+                    low[axis] = point[axis]
+                if high[axis] is None or point[axis] > high[axis]:
+                    high[axis] = point[axis]
+        expected_low, expected_high = EXPECTED_BBOX[part_name]
+        worst = 0.0
+        for axis in range(3):
+            worst = max(worst, abs(low[axis] - expected_low[axis]), abs(high[axis] - expected_high[axis]))
+        _RESULT['guards'].setdefault(part_name, {})['bbox_error'] = worst
+        if worst > BBOX_TOL:
+            problems.append('part {0!r}: built bounding box {1} {2}, but adapy described {3} {4} '
+                            '(worst axis off by {5!r}, tolerance {6!r})'.format(
+                                part_name, tuple(low), tuple(high), expected_low, expected_high, worst, BBOX_TOL))
+    if problems:
+        problems.append('a coordinate off by this much is a unit slip or a lost Part placement, not noise')
+        _fail('the built geometry is not where adapy said it is -- ' + ' | '.join(problems))
+
+
+
+
+def build(model):
+    """Everything this model is, in the order CAE needs it."""
+
+    # --- materials
+    model.Material(name='S355')
+    model.materials['S355'].Elastic(table=((210000000000.0, 0.3),))
+    model.materials['S355'].Density(table=((7850.0,),))
+    _RESULT['created']['materials'].append('S355')
+
+    # --- profiles, from the section->profile mapping shared with the INP writer
+    model.BoxProfile(name='BG200x200x10', a=0.2, b=0.2, uniformThickness=OFF, t1=0.01, t2=0.01, t3=0.01, t4=0.01)
+    _RESULT['created']['profiles'].append('BG200x200x10')
+    model.LProfile(name='HP200x10', a=0.2, b=0.2, t1=0.01, t2=0.01)
+    _RESULT['created']['profiles'].append('HP200x10')
+    model.IProfile(name='IPE300', l=0.15, h=0.3, b1=0.15, b2=0.15, t1=0.0107, t2=0.0107, t3=0.0071)
+    _RESULT['created']['profiles'].append('IPE300')
+
+    # --- beam sections, one per (profile, material, offset) triple
+    model.BeamSection(name='sec_BG200x200x10_S355', profile='BG200x200x10', material='S355', integration=DURING_ANALYSIS)
+    _RESULT['created']['sections'].append('sec_BG200x200x10_S355')
+    model.BeamSection(name='sec_HP200x10_S355', profile='HP200x10', material='S355', integration=DURING_ANALYSIS)
+    _RESULT['created']['sections'].append('sec_HP200x10_S355')
+    model.BeamSection(name='sec_IPE300_S355', profile='IPE300', material='S355', integration=DURING_ANALYSIS)
+    _RESULT['created']['sections'].append('sec_IPE300_S355')
+
+    # --- part 'Frame', 3 member(s)
+    part_0 = model.Part(name='Frame', dimensionality=THREE_D, type=DEFORMABLE_BODY)
+    _RESULT['created']['parts'].append('Frame')
+    # Every wire first. Coincident endpoints merge, and a member landing mid-span
+    # imprints a split, so a member located before its neighbours exist would miss
+    # the sub-edges those neighbours are about to create.
+    part_0.WirePolyLine(points=(((3.0, 0.0, 4.0), (3.0, 2.0, 0.0)),), mergeType=IMPRINT, meshable=ON)
+    part_0.WirePolyLine(points=(((0.0, 0.0, 0.0), (0.0, 0.0, 4.0)),), mergeType=IMPRINT, meshable=ON)
+    part_0.WirePolyLine(points=(((0.0, 0.0, 4.0), (6.0, 0.0, 4.0)),), mergeType=IMPRINT, meshable=ON)
+
+    # 'brace'
+    edges_0_0 = part_0.edges.getByBoundingCylinder(center1=(3.0, -0.00020000018089791818, 4.000400000361796), center2=(3.0, 2.000200000180898, -0.00040000036179583636), radius=0.000447214)
+    _member_edges('Frame', 'brace', edges_0_0)
+    region_0_0 = part_0.Set(name='brace', edges=edges_0_0)
+    part_0.SectionAssignment(region=region_0_0, sectionName='sec_HP200x10_S355')
+    part_0.assignBeamSectionOrientation(region=region_0_0, method=N1_COSINES, n1=(-1.0, 0.0, 0.0))
+
+    # 'col1'
+    edges_0_1 = part_0.edges.getByBoundingCylinder(center1=(0.0, 0.0, -0.0004), center2=(0.0, 0.0, 4.0004), radius=0.0004)
+    _member_edges('Frame', 'col1', edges_0_1)
+    region_0_1 = part_0.Set(name='col1', edges=edges_0_1)
+    part_0.SectionAssignment(region=region_0_1, sectionName='sec_IPE300_S355')
+    part_0.assignBeamSectionOrientation(region=region_0_1, method=N1_COSINES, n1=(1.0, 0.0, 0.0))
+
+    # 'girder'
+    edges_0_2 = part_0.edges.getByBoundingCylinder(center1=(-0.0006, 0.0, 4.0), center2=(6.0006, 0.0, 4.0), radius=0.0006)
+    _member_edges('Frame', 'girder', edges_0_2)
+    region_0_2 = part_0.Set(name='girder', edges=edges_0_2)
+    part_0.SectionAssignment(region=region_0_2, sectionName='sec_BG200x200x10_S355')
+    part_0.assignBeamSectionOrientation(region=region_0_2, method=N1_COSINES, n1=(0.0, 1.0, 0.0))
+
+    # --- assembly: exactly one instance per part
+    assembly = model.rootAssembly
+    assembly.DatumCsysByDefault(CARTESIAN)
+    assembly.Instance(name='Frame-1', part=part_0, dependent=ON)
+    _RESULT['created']['instances'].append('Frame-1')
+
+
+def main():
+    model = _model()
+    # Before anything is built: CAE would replace a reused name rather than refuse it.
+    _guard_no_name_collisions(model)
+    build(model)
+    # Topology first of the post-build guards, because it is the one that says
+    # whether the thing CAE built is even the same structure adapy described.
+    _guard_topology(model)
+    _guard_every_edge_sectioned(model)
+    _guard_bounding_box(model)
+    _RESULT['ok'] = True
+    _write_result()
+    try:
+        mdb.saveAs(pathName=os.path.join(os.path.dirname(_result_path()), CAE_NAME))
+        _RESULT['cae_file'] = CAE_NAME
+    except Exception:
+        # The model is built and verified. Not being able to drop a .cae next to the
+        # script is worth reporting, but it is not a build failure.
+        _RESULT['errors'].append('could not save the .cae file:\n' + traceback.format_exc())
+    _write_result()
+    print('ADAPY-CAE BUILD OK: ' + json.dumps(_RESULT['guards'], sort_keys=True))
+    sys.stdout.flush()
+
+
+try:
+    main()
+except Exception:
+    # A half-built model must not look like a clean run. _fail records the traceback in
+    # the sidecar and then forces a non-zero process status.
+    _fail('unhandled exception during the build:\n' + traceback.format_exc())
