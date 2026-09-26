@@ -511,9 +511,13 @@ def test_a_generalized_section_carries_its_offset_as_centroid(tmp_path):
     ``BeamSection(..., beamSectionOffset=...)`` and ``setValues(beamSectionOffset=...)`` both
     raise ``TypeError: keyword error on beamSectionOffset``, although the attribute exists and
     reads back ``[0.0, 0.0]``. It takes ``centroid``, which CAE writes as ``*Centroid`` -- and
-    the solver reproduced adapy's own ``*MPC BEAM`` route with it to every printed digit. This
-    is not a cosmetic difference: a channel has to go through a generalized section on both
-    Abaqus routes, so without this every channel with an offset would fail the build.
+    the solver reproduced adapy's own ``*MPC BEAM`` route with it to every printed digit.
+
+    A declared GENERAL section is now the only kind that lands here. A channel used to, and does
+    not any more: it is an ``ArbitraryProfile``, which integrates DURING_ANALYSIS and takes the
+    other keyword -- see :func:`test_an_arbitrary_section_carries_its_offset_as_beam_section_offset`.
+    The refusal is only in this direction: that section kind treats ``centroid`` as an alias of
+    ``beamSectionOffset`` rather than rejecting it, so the two are asymmetric and both need saying.
     """
     assembly = ada.Assembly("A")
     part = assembly.add_part(ada.Part("P"))
@@ -525,6 +529,45 @@ def test_a_generalized_section_carries_its_offset_as_centroid(tmp_path):
     assert "centroid=(0.0, 0.4)" in text
     assert "beamSectionOffset=" not in text
     assert "'centroid')" in text, "the guard has to read back the attribute that was written"
+
+
+def test_an_arbitrary_section_carries_its_offset_as_beam_section_offset(tmp_path):
+    """A channel's offset changed keyword when the channel changed profile class.
+
+    Measured on Abaqus 2025, on a ``BeamSection(integration=DURING_ANALYSIS)`` holding an
+    ``ArbitraryProfile``, one section per spelling and one exported INP per section:
+
+    * ``beamSectionOffset=(0.0, 0.09)`` reads back as that and the INP gains
+      ``*Beam Section Offset`` -- which is what this writer emits;
+    * ``centroid=(0.0, 0.09)`` is the **same stored member**: it reads back out of
+      ``beamSectionOffset`` and produces the identical ``*Beam Section Offset``. So the old spelling
+      would not in fact have lost the offset here. It is still not the one written, because
+      ``beamSectionOffset`` is the attribute this section kind documents and the attribute the guard
+      can read back by name;
+    * ``shearCenter=(0.0, 0.09)`` is accepted, leaves ``beamSectionOffset`` at ``(0.0, 0.0)``, and
+      writes **nothing at all**. That is the argument on this section kind that fails in silence.
+
+    The generalized section is the other way round and refuses ``beamSectionOffset`` outright --
+    :func:`test_a_generalized_section_carries_its_offset_as_centroid`.
+    """
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    channel = ada.Section("UNP200", from_str="UNP200x10")
+    part.add_beam(ada.Beam("bm", (0, 0, 0), (0, 0, 3), channel, e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)))
+
+    _, text = emit(assembly, tmp_path)
+
+    # The table verbatim, because the kernel does not check its shape: a five-float first row was
+    # accepted in silence and read back padded with zeros, i.e. a different cross-section.
+    assert (
+        "model.ArbitraryProfile(name='UNP200', table=((0.07075, -0.09425, 0.0), "
+        "(0.0, -0.09425, 0.0115), (0.0, 0.09425, 0.0085), (0.07075, 0.09425, 0.0115)))" in text
+    )
+    assert "integration=DURING_ANALYSIS" in text
+    assert "beamSectionOffset=(0.0, 0.4)" in text
+    assert "centroid=" not in text, "the generalized spelling belongs to generalized sections only"
+    assert "shearCenter=" not in text, "which this section kind accepts and then ignores"
+    assert "'beamSectionOffset')" in text, "the guard has to read back the attribute that was written"
 
 
 def test_the_same_profile_at_two_offsets_is_two_sections(tmp_path):
@@ -554,10 +597,15 @@ def test_the_same_profile_at_two_offsets_is_two_sections(tmp_path):
 def test_a_real_genie_model_with_offsets_writes(fem_files, tmp_path):
     """``beams_constant_offset.xml``, which used to raise ``UnsupportedBeamError``.
 
-    Seven Genie members, six with a constant offset, among them a channel (which has to
-    become a generalized section and therefore a ``*Centroid``) and an angle (whose offset is
-    an explicit ``-0.0`` and must not be treated as an offset at all). Built for real in
+    Seven Genie members, six with a constant offset, among them a channel and an angle (whose
+    offset is an explicit ``-0.0`` and must not be treated as an offset at all). Built for real in
     Abaqus 2025 from exactly this file: 7 edges, 14 vertices, every offset read back.
+
+    The channel's offset used to be a ``*Centroid`` here, because a channel used to be a
+    generalized section. It is an ``ArbitraryProfile`` now, so all six offsets take the one
+    keyword. (``centroid`` would in fact have worked too -- measured, it is an alias of
+    ``beamSectionOffset`` on a DURING_ANALYSIS section -- but it is not that section kind's name
+    for it, and a guard can only read back a name.)
     """
     assembly = ada.from_genie_xml(fem_files / "sesam/varying_offset/beams_constant_offset.xml")
 
@@ -567,8 +615,9 @@ def test_a_real_genie_model_with_offsets_writes(fem_files, tmp_path):
     offsets = {use.cae_section_name: use.offset for use in plan.sections if use.offset is not None}
     assert len(offsets) == 6, "six of the seven members carry an offset"
     assert offsets["sec_UNP180_S355_off_0_0p09"] == pytest.approx((0.0, 0.09))
-    assert "centroid=(0.0, 0.09)" in text, "the channel's offset cannot go in beamSectionOffset"
-    assert text.count("beamSectionOffset=(") == 5
+    assert "beamSectionOffset=(0.0, 0.09)" in text, "the channel is an ArbitraryProfile, so it takes this"
+    assert text.count("beamSectionOffset=(") == 6
+    assert "centroid=" not in text, "nothing in this model is a generalized section any more"
     # The angle's offset is an explicit (0, 0, -0.0), which is not an offset.
     assert "sec_HP180x10_S355'" in text
     assert "sec_HP180x10_S355_off" not in text

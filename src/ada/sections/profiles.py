@@ -412,6 +412,7 @@ log_fin = "Please check your result and input. This is not a validated method of
 #: ``t2..t4`` are read at all, so leaving it out yields a box with one wall thickness on all four
 #: walls and no error anywhere.
 CAE_PROFILE_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "ArbitraryProfile": ("table",),
     "BoxProfile": ("a", "b", "uniformThickness", "t1", "t2", "t3", "t4"),
     "CircularProfile": ("r",),
     "GeneralizedProfile": ("area", "i11", "i12", "i22", "j", "gammaO", "gammaW"),
@@ -433,7 +434,8 @@ CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS: dict[str, str] = {
         '***ERROR: in keyword *BEAMSECTION ... Illegal value "CHANNEL" for parameter "section" -- '
         "and CAE's own getMassProperties() returns mass=None for a member carrying it. Measured on "
         "Abaqus 2025 via abaqus datacheck, identically for o=0 and o=0.05, so no argument avoids it. "
-        "Use GeneralizedProfile: see ada.sections.profiles._channel_spec."
+        "Use ArbitraryProfile, which traces the same three walls and whose deck the solver accepts: "
+        "see ada.sections.profiles._channel_spec."
     ),
 }
 
@@ -454,9 +456,10 @@ class ProfileSpec:
     with exactly ``a, b, t1, t2, t3, t4``.
 
     They are separate fields because the two targets do not always take the same numbers: a T is an
-    ``IProfile`` data line in the INP and a ``TProfile`` in CAE (see :func:`_tprofile_spec`), and a
+    ``IProfile`` data line in the INP and a ``TProfile`` in CAE (see :func:`_tprofile_spec`), a
     generalized section carries five numbers in the INP against seven in CAE (see
-    :func:`_general_spec`).
+    :func:`_general_spec`), and a channel is one traced polyline written two ways -- packed onto
+    Abaqus' keyword lines, laid out a point per row for CAE (see :func:`_channel_spec`).
 
     Numbers are passed through from the :class:`~ada.Section` unconverted, not coerced to ``float``,
     so a value that is an ``int`` still renders as ``0`` rather than ``0.0`` and the INP this writes
@@ -467,9 +470,11 @@ class ProfileSpec:
     inp_kind: str
     inp_dims: tuple[float, ...]
     cae_class: str
-    #: Values are numbers, except for the keys in :data:`CAE_SYMBOL_ARGUMENTS`, which carry the name
-    #: of an ``abaqusConstants`` symbol as a ``str``.
-    cae_kwargs: dict[str, float | str]
+    #: Values are numbers, with two exceptions: the keys in :data:`CAE_SYMBOL_ARGUMENTS` carry the
+    #: name of an ``abaqusConstants`` symbol as a ``str``, and ``ArbitraryProfile``'s ``table`` is a
+    #: tuple of ``(x, y, t)`` rows. All three render as Python source via
+    #: :meth:`cae_kwargs_source`.
+    cae_kwargs: dict[str, float | str | tuple]
     #: The data rows after the first, for the one ``inp_kind`` whose data block runs to more than a
     #: single line: ``ARBITRARY``, which takes a row per wall segment. Empty for every other kind,
     #: where ``inp_dims`` is the whole data block.
@@ -632,54 +637,99 @@ def channel_midline_rows(sec: Section) -> tuple[tuple[float, ...], ...]:
     )
 
 
-def _channel_spec(sec: Section) -> ProfileSpec:
-    """A channel: ``section=ARBITRARY`` in the INP, a generalized section in CAE.
+def channel_cae_table(sec: Section) -> tuple[tuple[float, float, float], ...]:
+    """The same three walls as CAE's ``ArbitraryProfile(table=...)`` takes them.
 
-    The two routes part company here, and neither half of that is a preference. CAE does have a
-    ``ChannelProfile``, and it is the only target that keeps the shape, which is what makes it
-    tempting. It cannot be used. Abaqus/CAE 2025 builds one happily and writes it out as
-    ``section=CHANNEL`` with ``l, h, b1, b2, t1, t2, t3, o`` -- and Abaqus/Standard then **rejects its
-    own preprocessor's output**. Measured on a deck CAE exported from a ``ChannelProfile`` built by
-    this mapping, run through ``abaqus datacheck``::
+    Derived from :func:`channel_midline_rows` rather than recomputed, so the INP keyword and the CAE
+    call cannot describe two different channels.
+
+    The two spellings of one polyline differ only in layout. The keyword's first line packs the
+    segment count and *two* points; CAE's table is one ``(x, y, t)`` row per point, with the first
+    row's thickness unused -- it is a starting point, not a segment. Probed: the kernel normalises a
+    2-float first row to ``(x, y, 0.0)``, so that padded form is what is emitted, and a table read
+    back out of Abaqus is then identical to the one put in.
+
+    The kernel does **not** validate the row width. A table whose first row carried five floats was
+    accepted without a murmur and read back with every later row padded with zeros -- a different
+    profile, silently. So the shape of this table is not a detail the kernel will catch.
+    """
+    rows = channel_midline_rows(sec)
+    _, x1, y1, x2, y2, t1 = rows[0]
+    return ((x1, y1, 0.0), (x2, y2, t1)) + tuple(rows[1:])
+
+
+def _channel_spec(sec: Section) -> ProfileSpec:
+    """A channel: the same traced polyline on both routes -- ``section=ARBITRARY`` and ``ArbitraryProfile``.
+
+    Abaqus' beam library has no channel. ``section=CHANNEL`` does not exist, even though Abaqus/CAE
+    writes exactly that from its own ``ChannelProfile``, and Abaqus/Standard then **rejects its own
+    preprocessor's output**::
 
         ***ERROR: in keyword *BEAMSECTION, file "chan_job.inp", line 29: Illegal value
                   "CHANNEL" for parameter "section". The value may be misspelled, obsolete,
                   or invalid.
         ***ERROR: ELEMENT 1 INSTANCE CHANPART-1 IS MISSING A BEAM SECTION DEFINITION
-        Abaqus Error: Analysis Input File Processor exited with an error
 
-    Two independent confirmations that the shape is a picture and nothing more: the failure is
-    identical for ``o=0`` and ``o=0.05``, so no argument of ``ChannelProfile`` avoids it, and CAE's
-    own ``part.getMassProperties()`` returns ``mass=None, centerOfMass=(None, None, None)`` for a
-    member carrying such a section -- the kernel will not integrate the profile either. So a
-    ``ChannelProfile`` yields a model that opens in the GUI and cannot be meshed-and-solved, or handed
-    to anyone, or weighed. The CAE route therefore takes a generalized section, which *analyses*, with
-    the section properties adapy computed, at the cost of the outline in the viewer. The same
-    ``abaqus datacheck``, on the deck CAE exports from the generalized section::
+    -- identically for ``o=0`` and ``o=0.05``, and ``part.getMassProperties()`` on such a member
+    returns ``mass=None``, so the kernel will not integrate the profile either. Hence
+    :data:`CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS`.
 
-        *beamgeneralsection, elset=..., poisson=0.3, density=7850, material=S355, section=GENERAL
-        ANALYSIS DATACHECK COMPLETE WITH 1 WARNING MESSAGES ON THE DAT FILE
+    What *does* exist is ``ARBITRARY``, and it fits, because a rolled channel genuinely is
+    thin-walled: three wall segments given by centreline and thickness describe it rather than
+    approximate it (:func:`channel_midline_rows`). Both routes therefore take it, and the two are the
+    same section in the strongest available sense -- asked to export the INP for an
+    ``ArbitraryProfile`` built from this table, Abaqus/CAE 2025 writes the data block this module's
+    INP side writes, number for number::
 
-    -- zero errors, and the one warning is that density is given on both the material and the
-    section, which is how a ``BEFORE_ANALYSIS`` section has to be written.
+        *Beam Section, elset=all_edges, material=S355, temperature=GRADIENTS, section=ARBITRARY
+        3, 0.07075, -0.09425, 0., -0.09425, 0.0115
+        0., 0.09425, 0.0085
+        0.07075, 0.09425, 0.0115
 
-    The INP route does better, and does not have to give the outline up: ``section=ARBITRARY`` exists,
-    it is legal, and a channel is genuinely thin-walled, so the three wall segments of
-    :func:`channel_midline_rows` describe it exactly. That is a strictly better deck than a
-    generalized section, which keeps only five integrated numbers and loses the outline, the stress
-    recovery points and the shear centre with it. So the two routes carry different things, and the
-    warning below says which of them loses what rather than letting one pretend otherwise.
+    Measured on a UNP200x10 against adapy's own computed properties, since agreeing with CAE is not
+    the same as being right:
+
+    * ``abaqus datacheck`` on that export: ANALYSIS DATACHECK COMPLETE, **0 errors**.
+    * mass, from ``part.getMassProperties()`` on a 4 m member: ``101.406297`` kg against
+      ``rho * Ax * L = 101.406300``, a relative 3e-8. Not a coincidence -- the midline area
+      ``2(w - t_w/2) t_f + (h - t_f) t_w`` is *algebraically identical* to ``calc_channel``'s
+      ``2 w t_f + (h - 2 t_f) t_w``.
+    * centre of mass ``y = 0.01784244`` from the web centreline against ``calc_channel``'s
+      ``0.01775393``: 0.4%.
+    * ``Iy`` and ``Iz``, from the tip rotation of a cantilever under a **pure end moment** (B33, so no
+      shear, and a moment so no torsion): ``1.919937e-05`` and ``1.689222e-06`` against adapy's
+      ``1.9270167e-05`` and ``1.7060945e-06`` -- 0.37% and 0.99% low. A ``GeneralizedProfile`` given
+      adapy's numbers in the same job reproduced them to 3e-6, which is what says the rig is sound.
+
+    The residual is the difference between two thin-walled idealisations, not an error in either:
+    ``calc_channel`` integrates full-width flanges and a web of height ``h - 2 t_f``, while Abaqus
+    integrates each wall as a *line* of the given thickness and so omits each wall's own
+    ``t^3 / 12``. Subtract those terms from the midline model by hand and it lands on Abaqus'
+    measured ``Iz`` to 1e-4. Under 1% either way, and both are the shape rather than a substitute for
+    it.
+
+    Which is the case against the alternative. A ``GeneralizedProfile`` carrying the same five
+    numbers also analyses, and it was what this mapping did before: it loses the outline, the stress
+    recovery points and the shear centre, it cannot be weighed (``mass=None``), and it makes the CAE
+    model a different section from the INP one. The measured cost of the outline is a 0.4% stiffness
+    difference. That is the wrong way round, so it is no longer done.
+
+    A last consequence, and the reason the two are not interchangeable at the call site: an
+    ``ArbitraryProfile`` section integrates ``DURING_ANALYSIS`` and takes ``beamSectionOffset``
+    (written ``*Beam Section Offset``), while a ``GeneralizedProfile`` section integrates
+    ``BEFORE_ANALYSIS`` and refuses it -- ``TypeError: keyword error on beamSectionOffset`` -- and
+    takes ``centroid``. So moving the channel here moves which offset keyword it needs; the writer
+    picks by profile class, and reads back the keyword it wrote.
     """
-    logger.warning(
-        f"Section {sec.name}: an Abaqus INP carries this channel as section=ARBITRARY, which traces "
-        f"its three walls exactly, but a CAE export carries it as a generalized section -- CAE's "
-        f"ChannelProfile writes a section=CHANNEL that Abaqus/Standard's own preprocessor rejects, "
-        f"and CAE cannot even compute the mass of a member holding one. So the CAE model has this "
-        f"channel's stiffness and mass but not its shape."
-    )
     rows = channel_midline_rows(sec)
-    general = _general_spec(sec, BaseTypes.CHANNEL)
-    return dataclasses.replace(general, inp_kind="ARBITRARY", inp_dims=rows[0], inp_extra_rows=rows[1:])
+    return _spec(
+        BaseTypes.CHANNEL,
+        "ARBITRARY",
+        rows[0],
+        "ArbitraryProfile",
+        dict(table=channel_cae_table(sec)),
+        extra_rows=rows[1:],
+    )
 
 
 def _general_spec(sec: Section, base_type: BaseTypes) -> ProfileSpec:
@@ -707,6 +757,12 @@ def _poly_spec(sec: Section) -> ProfileSpec:
     to give it, so the faithful target is a generalized section: that loses the shape in the viewer
     and keeps the stiffness, which is the right way round. ``ArbitraryProfile`` would keep a picture
     of the shape and be wrong about every property of it.
+
+    That measurement is also why a *channel* does use ``ArbitraryProfile`` (:func:`_channel_spec`),
+    and the two are not in tension: a channel is thin-walled and comes with a thickness per wall, so
+    the profile describes it, while a POLY is filled and has none, so the same profile would misread
+    it by an order of magnitude. The distinction is thin-walled versus filled, not polygonal versus
+    parametric.
 
     Which leaves the properties, and ``ada.sections.properties.calc_poly`` is a stub: it logs
     "not implemented" and returns **zeros** for all twenty of them. Run through the substitution in

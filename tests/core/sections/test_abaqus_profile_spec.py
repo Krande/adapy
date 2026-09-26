@@ -13,13 +13,14 @@ is invisible on one. That is the trap this suite has been caught by before.
 The second is that three things the mapping now says are true were measured against an Abaqus 2025
 kernel and are not what reading the API would tell you:
 
-* ``ArbitraryProfile`` is **thin-walled**, so a filled outline (adapy's POLY) cannot use it;
+* ``ArbitraryProfile`` is **thin-walled**: it is right for a channel, whose walls have a thickness
+  each, and wrong for a filled outline (adapy's POLY), which it would misread by an order of
+  magnitude;
 * there is no ``section=T``, and Abaqus/CAE itself writes a T as an I with the bottom flange zeroed;
 * there *is* a ``ChannelProfile`` in CAE and it is unusable -- Abaqus/Standard refuses the
   ``section=CHANNEL`` that CAE's own preprocessor writes for one, and CAE will not even compute the
-  mass of a member carrying it. The INP keyword that does exist for that shape is ``ARBITRARY``,
-  which traces the channel's three walls by centreline and thickness; CAE has no equivalent, so
-  there the channel is a generalized section.
+  mass of a member carrying it. Both routes take the traced polyline instead: ``section=ARBITRARY``
+  in the INP, ``ArbitraryProfile`` in CAE, from the same four points.
 
 Each of those is pinned, because each is a plausible-sounding change away from a wrong model.
 """
@@ -39,6 +40,8 @@ from ada.sections.profiles import (
     CAE_PROFILE_ARGUMENTS,
     CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS,
     ProfileSpec,
+    channel_cae_table,
+    channel_midline_rows,
     eval_general_properties,
     profile_spec,
 )
@@ -200,7 +203,7 @@ def test_a_t_profile_becomes_a_cae_t_profile():
     assert spec.cae_kwargs == dict(b=0.33, h=0.83, l=0.415, tf=0.027, tw=0.023)
 
 
-def test_a_channel_is_an_arbitrary_section_in_the_inp_and_a_generalized_one_in_cae():
+def test_a_channel_is_the_same_traced_polyline_on_both_routes():
     """A channel must not use CAE's ``ChannelProfile``, and the reason is a solver run, not taste.
 
     ``ChannelProfile`` exists, builds, and is a dead end. Measured on Abaqus 2025, on the INP that CAE
@@ -209,39 +212,66 @@ def test_a_channel_is_an_arbitrary_section_in_the_inp_and_a_generalized_one_in_c
         ***ERROR: in keyword *BEAMSECTION, file "chan_job.inp", line 29: Illegal value
                   "CHANNEL" for parameter "section".
         ***ERROR: ELEMENT 1 INSTANCE CHANPART-1 IS MISSING A BEAM SECTION DEFINITION
-        Abaqus Error: Analysis Input File Processor exited with an error
 
     -- and ``part.getMassProperties()`` on the same member returns ``mass=None``, so the kernel will
-    not integrate the profile either. A shape that only renders is worth less than a section that
-    analyses, so the CAE route takes a generalized section, whose deck CAE exports and ``datacheck``
-    accepts with **zero errors**. Regressing that to ``ChannelProfile`` turns every channel in a deck
-    into a model that cannot be solved -- which is why
-    :data:`CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS` makes the attempt raise.
+    not integrate the profile either. Hence
+    :func:`test_the_channel_profile_class_cannot_be_reached_by_accident`.
 
-    The INP route is not so constrained, and that is the half worth stating separately:
-    ``section=ARBITRARY`` is legal, and a channel is thin-walled, so three segments given by
-    centreline and thickness describe it exactly -- against a generalized section, which keeps five
-    integrated numbers and throws the outline away. The midline arithmetic is asserted here rather
-    than only through the writer, because the reader reconstructs ``h`` and ``w`` from these very
-    coordinates: ``x1`` is half a web thickness inside the flange tip, and each flange lies half a
-    flange thickness inside its outer face.
+    What the two routes take instead is the *same* thing: ``section=ARBITRARY`` and
+    ``ArbitraryProfile``, both fed the channel's three wall segments by centreline and thickness.
+    Asked to export an INP for an ``ArbitraryProfile`` built from this table, Abaqus/CAE 2025 wrote
+    the very data block the INP side writes, number for number -- which is the strongest form of "one
+    mapping, not two" available, and the reason both rows are asserted here together.
+
+    The midline arithmetic is asserted rather than only the class, because the Abaqus *reader*
+    reconstructs ``h`` and ``w`` from these coordinates: ``x1`` is half a web thickness inside the
+    flange tip, and each flange lies half a flange thickness inside its outer face. And the CAE table
+    is asserted to be derived from the same rows, because the kernel does **not** validate a table's
+    row width -- a five-float first row was accepted in silence and read back with every later row
+    padded with zeros, i.e. a different profile.
     """
     sec = asymmetric("CHASYM", "UNP", **CHANNEL_ASYM)
 
     spec = profile_spec(sec)
 
-    assert spec.inp_kind == "ARBITRARY"
     tip = sec.w_btn - sec.t_w / 2
     y_top = (sec.h - sec.t_ftop) / 2
     y_btn = -(sec.h - sec.t_fbtn) / 2
+
+    assert spec.inp_kind == "ARBITRARY"
     assert spec.inp_dims == (3, tip, y_btn, 0.0, y_btn, sec.t_fbtn)
     assert spec.inp_extra_rows == ((0.0, y_top, sec.t_w), (tip, y_top, sec.t_ftop))
 
-    assert spec.cae_class == "GeneralizedProfile"
-    gp = eval_general_properties(sec)
-    assert spec.cae_kwargs == dict(
-        area=gp.Ax, i11=gp.Iy, i12=gp.Iyz, i22=gp.Iz, j=gp.Ix, gammaO=0.0, gammaW=0.0
-    ), "the CAE side must carry the properties adapy computed, not a second derivation"
+    assert spec.cae_class == "ArbitraryProfile"
+    assert spec.cae_kwargs == {
+        "table": (
+            (tip, y_btn, 0.0),
+            (0.0, y_btn, sec.t_fbtn),
+            (0.0, y_top, sec.t_w),
+            (tip, y_top, sec.t_ftop),
+        )
+    }, "the CAE table must be the INP rows relaid out, not a second derivation of the same shape"
+
+
+def test_the_channels_two_spellings_are_one_polyline():
+    """The same four points and three thicknesses, however they are packed onto lines.
+
+    The keyword's first line carries the segment count and two points; CAE's table carries one
+    ``(x, y, t)`` row per point with the first row's thickness unused. A drift between them would be a
+    CAE model that is a different cross-section from the deck beside it, and nothing downstream
+    compares the two.
+    """
+    sec = ada.Section("UNP200", from_str="UNP200x10")
+
+    inp_rows = channel_midline_rows(sec)
+    table = channel_cae_table(sec)
+
+    count, x1, y1, x2, y2, t1 = inp_rows[0]
+    assert count == 3 == len(table) - 1, "a channel is three segments and therefore four points"
+    assert table[0] == (x1, y1, 0.0), "the first row is a starting point; its thickness is unused"
+    assert table[1] == (x2, y2, t1)
+    assert table[2:] == inp_rows[1:], "every later row is the keyword's own row, unchanged"
+    assert profile_spec(sec).cae_kwargs["table"] == table
 
 
 def test_the_channel_profile_class_cannot_be_reached_by_accident():
@@ -332,6 +362,7 @@ def test_every_section_type_is_mapped():
 #: established by building a member with it and measuring -- which is exactly what nothing downstream
 #: of a ``ChannelProfile`` will do. It was never proved, so it is not recorded.
 PROBED_CAE_ARGUMENTS = {
+    "ArbitraryProfile": ("table",),
     "BoxProfile": ("a", "b", "uniformThickness", "t1", "t2", "t3", "t4"),
     "CircularProfile": ("r",),
     "GeneralizedProfile": ("area", "i11", "i12", "i22", "j", "gammaO", "gammaW"),
@@ -392,8 +423,8 @@ def test_the_two_writers_carry_the_same_numbers(sec):
     of the two writers is producing a different beam from the other.
 
     T and CHANNEL are excluded on purpose: a T's CAE arguments are ``(b, h, l, tf, tw)`` against an
-    I-section data line, and a channel's INP side is a traced polyline against CAE's parametric
-    channel. Those two are tested above.
+    I-section data line, and a channel's are one ``table`` against several keyword lines -- the same
+    polyline, but not a positional match. Those two are tested above.
     """
     spec = profile_spec(sec)
     numeric = [v for k, v in spec.cae_kwargs.items() if k != "uniformThickness"]

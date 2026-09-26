@@ -645,6 +645,11 @@ _m = mdb.models['Model-1']
 _p = _m.parts['Channels']
 for _k in sorted(_m.profiles.keys()):
     print('PROBE profile {0} {1}'.format(_k, _m.profiles[_k].__class__.__name__))
+# Weighing the member is the check a generalized section cannot pass: measured, a part whose only
+# section is a GeneralizedProfile reports mass=None, because the kernel has no shape to integrate.
+_mp = _p.getMassProperties()
+print('PROBE mass {0}'.format(_mp['mass']))
+print('PROBE com {0}'.format(_mp['centerOfMass']))
 _p.seedPart(size=1.0, deviationFactor=0.1, minSizeFactor=0.1)
 _p.setElementType(regions=(_p.edges,), elemTypes=(ElemType(elemCode=B31, elemLibrary=STANDARD),))
 _p.generateMesh()
@@ -690,16 +695,35 @@ def test_a_channel_model_passes_abaqus_datacheck(channel_run):
     to ``datacheck`` here, and the assertion is on Abaqus' verdict and its own ``.dat``.
 
     The profile assertion belongs with it: a deck that datachecks clean because the channel had
-    silently become something else would satisfy the verdict alone.
+    silently become something else would satisfy the verdict alone. And the mass is asserted next to
+    it, because it separates the two candidates that both datacheck clean. An ``ArbitraryProfile``
+    traces the three walls and can be weighed; a ``GeneralizedProfile`` carrying the same five
+    properties analyses just as happily and reports ``mass=None``, since there is no shape to
+    integrate. Weight is what a model gets handed to someone for.
     """
     _, run = channel_run
     _assert_ran(run)
 
     profiles = dict(line.split(" ", 1) for line in run.values("PROBE profile"))
-    assert profiles == {"UNP200": "GeneralizedProfile"}, (
-        "a channel has to be a generalized section in CAE as well as in the INP; CAE's ChannelProfile "
-        "builds fine and then cannot be solved"
+    assert profiles == {"UNP200": "ArbitraryProfile"}, (
+        "a channel is a traced polyline in CAE, as it is in the INP: CAE's ChannelProfile builds fine "
+        "and then cannot be solved, and a GeneralizedProfile cannot be weighed"
     )
+
+    # rho * Ax * L, on adapy's own numbers for a UNP200x10 over a 4 m member. The midline area
+    # Abaqus integrates -- 2(w - t_w/2) t_f + (h - t_f) t_w -- is algebraically the same as
+    # calc_channel's 2 w t_f + (h - 2 t_f) t_w, so this is an equality and not a tolerance.
+    section = ada.Section("UNP200", from_str="UNP200x10")
+    expected_mass = 7850.0 * section.properties.Ax * 4.0
+    mass = run.value("PROBE mass")
+    assert mass not in (None, "None"), (
+        "CAE could not weigh the member, which is what a generalized section does: " + run.describe()
+    )
+    assert float(mass) == pytest.approx(expected_mass, rel=1e-6), (
+        "CAE weighs the channel at {0} kg against rho * Ax * L = {1} kg from adapy's own area, so the "
+        "profile Abaqus integrated is not the cross-section adapy meant".format(mass, expected_mass)
+    )
+
     # Not `job.status`: measured, it reads `None` in a noGUI session even for a datacheck that
     # finished cleanly, so it is printed for diagnosis and asserted on nowhere. Abaqus' own verdict
     # is the last line of the job log, and its reasons are in the .dat.
@@ -713,3 +737,81 @@ def test_a_channel_model_passes_abaqus_datacheck(channel_run):
     assert errors == [], "abaqus datacheck rejected the deck CAE exported for a channel:\n" + "\n".join(errors)
     assert "ANALYSIS DATACHECK COMPLETE" in text, "the datacheck did not run to completion:\n" + text[-2000:]
     assert "COMPLETED" in verdict, "Abaqus did not report the job as COMPLETED:\n" + verdict
+
+
+# --------------------------------------- an offset on a traced channel, read back from the kernel
+
+OFFSET_DRIVER = """
+_m = mdb.models['Model-1']
+for _k in sorted(_m.sections.keys()):
+    _s = _m.sections[_k]
+    print('PROBE section {0} {1} {2}'.format(_k, _m.profiles[_s.profile].__class__.__name__, _s.integration))
+    for _attr in ('beamSectionOffset', 'centroid', 'shearCenter'):
+        try:
+            print('PROBE attr {0} {1} {2}'.format(_k, _attr, tuple(getattr(_s, _attr))))
+        except Exception:
+            print('PROBE attr {0} {1} ABSENT'.format(_k, _attr))
+"""
+
+
+@pytest.fixture(scope="session")
+def offset_run(tmp_path_factory):
+    """adapy's own GeniE corpus, every constant offset in it, built for real."""
+    path = (
+        pathlib.Path(__file__).resolve().parents[4] / "files/fem_files/sesam/varying_offset/beams_constant_offset.xml"
+    )
+    assembly = ada.from_genie_xml(path)
+
+    workdir = tmp_path_factory.mktemp("cae_offsets")
+    script = emit(assembly, workdir, OFFSET_DRIVER, name="offsets")
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_a_channels_offset_survives_as_the_keyword_its_section_kind_accepts(offset_run):
+    """The consequence of a channel becoming an ``ArbitraryProfile``, checked in the kernel.
+
+    A channel used to be a generalized section here, and a generalized section takes ``centroid``
+    because it *refuses* ``beamSectionOffset`` -- ``TypeError: keyword error on beamSectionOffset``,
+    from the constructor and from ``setValues`` alike. An ``ArbitraryProfile`` section takes
+    ``beamSectionOffset``, so moving the channel moved which name its offset has to be written under,
+    and nothing but the kernel can confirm the value arrived.
+
+    The two kinds are not symmetric, and this is where that was established rather than assumed. On a
+    ``DURING_ANALYSIS`` section ``centroid`` is the *same stored member* as ``beamSectionOffset``:
+    probed one section per spelling with one exported INP each, setting either produced
+    ``*Beam Section Offset`` and read back out of ``beamSectionOffset``. What is silently ignored on
+    that kind is ``shearCenter`` -- accepted, and written nowhere -- so this asserts it stayed zero.
+
+    The emitted script's guard 8 reads the same attribute back and fails the build on a mismatch, so a
+    clean run is itself part of the evidence; these assertions say which value it found.
+    """
+    assembly, run = offset_run
+    _assert_ran(run)
+
+    kinds = dict((line.split(" ")[0], line.split(" ")[1]) for line in run.values("PROBE section"))
+    assert kinds["sec_UNP180_S355_off_0_0p09"] == "ArbitraryProfile"
+
+    attrs = {}
+    for line in run.values("PROBE attr"):
+        name, attr, value = line.split(" ", 2)
+        attrs[(name, attr)] = value
+    channel = "sec_UNP180_S355_off_0_0p09"
+    assert (
+        attrs[(channel, "beamSectionOffset")] == "(0.0, 0.09)"
+    ), "CAE holds the channel's offset as {0}; the writer asked for (0.0, 0.09)".format(
+        attrs[(channel, "beamSectionOffset")]
+    )
+    assert attrs[(channel, "centroid")] == "(0.0, 0.09)", (
+        "on a DURING_ANALYSIS section 'centroid' is the same member under another name; were this "
+        "zero, the two would be separate and the choice of name would carry the offset"
+    )
+    assert (
+        attrs[(channel, "shearCenter")] == "(0.0, 0.0)"
+    ), "'shearCenter' is the argument this section kind accepts and ignores, so nothing may land in it"
+
+    # And the same value on a shaped section that was never a channel, so the assertion above is
+    # about the keyword and not about this one profile.
+    assert attrs[("sec_HEA300_S355_off_0_0p145", "beamSectionOffset")] == "(0.0, 0.145)"
+
+    built = json.loads((run.workdir / "offsets.cae_build_result.json").read_text(encoding="utf-8"))
+    assert built["ok"] is True, built

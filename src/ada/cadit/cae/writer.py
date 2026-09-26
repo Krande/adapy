@@ -553,13 +553,13 @@ def _material_row(mat: Material, cae_name: str) -> _MaterialRow:
     )
 
 
-#: The one CAE profile class that is not defined by lengths. ``GeneralizedProfile`` takes
-#: an area and second moments, which is where adapy's GENERAL sections land — and, since
-#: Abaqus' solver rejects the ``section=CHANNEL`` that CAE itself writes, where a channel
-#: lands on the INP side too. It differs from every other profile class twice over: its
+#: The one CAE profile class that is not defined by lengths. ``GeneralizedProfile`` takes an area
+#: and second moments, which is where adapy's GENERAL sections land — and only those: a channel
+#: used to land here as well and is now an ``ArbitraryProfile``, which traces its three walls and
+#: so behaves like every other shaped profile. This class differs from all of them twice over: its
 #: arguments scale as L², L⁴ and L⁴ rather than as L, and its section has to integrate
 #: ``BEFORE_ANALYSIS`` with its own elastic constants. Both are handled by name, because
-#: both come from the same fact about the class.
+#: both come from the same fact about the class — and so is the offset keyword it takes.
 _NON_LINEAR_PROFILE_CLASS = "GeneralizedProfile"
 
 
@@ -871,14 +871,20 @@ def _pt(point) -> str:
 #: The two CAE keywords that displace a beam's cross-section from its node line, and which
 #: kind of section each belongs to. They are not interchangeable, and that is measured:
 #:
-#: * a **shaped** profile takes ``beamSectionOffset``, which CAE writes as
-#:   ``*Beam Section Offset``;
-#: * a **generalized** profile -- ``integration=BEFORE_ANALYSIS``, where a channel has to
-#:   land on both Abaqus routes -- **refuses** it. ``BeamSection(..., beamSectionOffset=...)``
-#:   and ``sections[x].setValues(beamSectionOffset=...)`` both raise
+#: * a **shaped** profile -- ``integration=DURING_ANALYSIS``, which since the channel became an
+#:   ``ArbitraryProfile`` is every profile but one -- takes ``beamSectionOffset``, which CAE writes
+#:   as ``*Beam Section Offset``. On this kind ``centroid`` is the *same stored member* under
+#:   another name: set it and it reads back out of ``beamSectionOffset`` and produces the identical
+#:   keyword (measured, one section per spelling, one exported INP each). ``shearCenter`` is the
+#:   one that is accepted and then written nowhere at all;
+#: * a **generalized** profile -- ``integration=BEFORE_ANALYSIS`` -- **refuses**
+#:   ``beamSectionOffset``. ``BeamSection(..., beamSectionOffset=...)`` and
+#:   ``sections[x].setValues(beamSectionOffset=...)`` both raise
 #:   ``TypeError: keyword error on beamSectionOffset``, although the attribute exists and
 #:   reads back ``[0.0, 0.0]``. What such a section does take is ``centroid``, which CAE
-#:   writes as ``*Centroid``.
+#:   writes as ``*Centroid``. So the two kinds are asymmetric: one refuses the other's name, the
+#:   other aliases it. Each is written its own name, and guard 8 reads that name back -- a guard
+#:   can only check the attribute it can spell.
 #:
 #: Both were pinned against adapy's own ``*MPC BEAM`` route by the solver, and both reproduce
 #: it exactly: an eccentric axial tip load on a cantilever gave
@@ -1484,10 +1490,11 @@ def _section_offsets_source(plan: _Plan) -> list[str]:
         "# onto n1 = the beam's yvec (the vector the INP writer emits) and n2 = t x n1.",
         "#",
         "# The keyword differs by section kind, and that is measured rather than tidy: a shaped profile",
-        "# takes 'beamSectionOffset' (written '*Beam Section Offset'), while a generalized one --",
-        "# integration=BEFORE_ANALYSIS, which is where a channel has to go -- REFUSES it with",
-        "# 'TypeError: keyword error on beamSectionOffset' from the constructor and from setValues",
-        "# alike, and takes 'centroid' (written '*Centroid') instead.",
+        "# (integration=DURING_ANALYSIS) takes 'beamSectionOffset', written '*Beam Section Offset'. A",
+        "# generalized one (BEFORE_ANALYSIS) REFUSES that with 'TypeError: keyword error on",
+        "# beamSectionOffset' from the constructor and from setValues alike, and takes 'centroid'",
+        "# (written '*Centroid'). The asymmetry is real: on a shaped section 'centroid' is an alias of",
+        "# 'beamSectionOffset' rather than an error, while 'shearCenter' is accepted and ignored.",
         "#",
         "# The sign is not a reading of Abaqus' convention. A cantilever under an eccentric axial load",
         "# reproduced adapy's own *MPC BEAM route's tip displacement to every printed digit for e.n2,",
