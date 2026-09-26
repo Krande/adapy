@@ -195,7 +195,8 @@ def run_cae_script(script: pathlib.Path, workdir: pathlib.Path | None = None, ti
     """Copy ``script`` into ``workdir`` and run it through ``abq cae noGUI=``.
 
     The script is run with ``workdir`` as the working directory so its sidecars, ``abaqus.rpy`` and
-    any job files land together and can be inspected afterwards.
+    any job files land together and can be inspected afterwards. Any ``<stem>*.sat`` beside the
+    source script is copied too: a plate model imports its geometry from one.
     """
     command = abaqus_command()
     if command is None:
@@ -207,6 +208,11 @@ def run_cae_script(script: pathlib.Path, workdir: pathlib.Path | None = None, ti
     local = workdir / script.name
     if script.resolve() != local.resolve():
         shutil.copyfile(script, local)
+        # The script imports its plates from an ACIS body written beside it, resolved relative to
+        # itself -- so moving the script without them leaves a run that dies in the kernel on the
+        # first plate. Every sidecar the writer produced travels with it.
+        for sidecar in sorted(script.parent.glob(script.stem + "*.sat")):
+            shutil.copyfile(sidecar, workdir / sidecar.name)
 
     # A stale replay file would be read as this run's output.
     for stale in workdir.glob("abaqus.rpy*"):

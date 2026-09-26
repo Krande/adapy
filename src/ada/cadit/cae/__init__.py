@@ -37,17 +37,17 @@ from .curves import (
 )
 from .names import CaeNameError, NameRegistry, sanitise_cae_name
 from .plates import (
-    BEAM_ON_PLATE_REFUSAL,
     PLATE_AREA_REL_TOL,
     PLATE_NORMAL_TOL,
+    STRINGER_MEASUREMENT,
     FaceLocator,
     PlateBody,
     PlateNotSupported,
     PlatePlan,
-    check_no_beam_on_a_plate,
     check_no_nested_plates,
     interior_point_2d,
     plate_body,
+    stringer_members,
 )
 from .topology import (
     CAE_MERGE_TOL,
@@ -83,7 +83,7 @@ from .writer import (
 )
 
 __all__ = [
-    "BEAM_ON_PLATE_REFUSAL",
+    "STRINGER_MEASUREMENT",
     "CAE_MERGE_TOL",
     "CARRIED_BC_TYPES",
     "CARRIED_ELEMENT_TYPES",
@@ -131,7 +131,7 @@ __all__ = [
     "check_element_type",
     "check_mesh_and_job",
     "check_n1_holds_along_the_curve",
-    "check_no_beam_on_a_plate",
+    "stringer_members",
     "check_no_nested_plates",
     "check_shell_element_type",
     "check_unit_scale",

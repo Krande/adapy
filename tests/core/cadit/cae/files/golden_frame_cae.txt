@@ -76,8 +76,10 @@ CAE_MERGE_TOL = 1e-06
 EXPECTED_TOPOLOGY = {
     'Frame': {
         'edges': 4,
+        'wire_edges': 4,
         'vertices': 5,
         'faces': 0,
+        'stringers': [],
         'edges_per_member': {
             'brace': 1,
             'col1': 1,
@@ -298,9 +300,10 @@ def _guard_topology(model):
             problems.append('part {0!r}: adapy authored {1} face(s) into the ACIS body, CAE imported '
                             '{2}'.format(part_name, expected['faces'], built_faces))
         if expected['faces']:
-            if free_edges != expected['edges']:
-                problems.append('part {0!r}: adapy described {1} beam edge(s), and CAE holds {2} edge(s) '
-                                'that bound no face'.format(part_name, expected['edges'], free_edges))
+            if free_edges != expected['wire_edges']:
+                problems.append('part {0!r}: adapy drew {1} member edge(s) as wires, and CAE holds {2} '
+                                'edge(s) that bound no face'.format(
+                                    part_name, expected['wire_edges'], free_edges))
             continue
         if built_edges != expected['edges']:
             problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
@@ -320,7 +323,7 @@ def _guard_topology(model):
               'snapped: fix the model.')
 
 
-def _member_edges(part_name, set_name, edges):
+def _member_edges(part_name, set_name, edges, on_a_plate=False):
     """Check and record what the cylinder on the preceding line actually found.
 
     Each member is located by a bounding cylinder, never by findAt at a midpoint: a
@@ -335,6 +338,29 @@ def _member_edges(part_name, set_name, edges):
               'edge, although the member\'s own wire was drawn. Either the cylinder is too tight '
               'for this model\'s scale, or the geometry is not where it was drawn.'.format(
                   set_name, part_name))
+    # Which kind of member this is, checked against the kernel rather than trusted. A member the
+    # writer drew as a WIRE must have edges that bound no face: an edge bounding one means the wire
+    # was absorbed into a plate's boundary, and an ordinary edge shared with a face produces no beam
+    # elements at all (measured) -- so that member would be in the geometry and absent from the
+    # analysis. A member built as a STRINGER must have edges that DO bound a face, or the stringer
+    # was put on something that is not part of a plate.
+    wrong = []
+    for edge in edges:
+        bounds = len(edge.getFaces()) > 0
+        if bounds != bool(on_a_plate):
+            wrong.append((edge.index, edge.pointOn))
+    if wrong:
+        if on_a_plate:
+            _fail('member {0!r} of part {1!r} was built as a Stringer on a plate, and {2} of its {3} '
+                  'edge(s) bound no face: {4}. A Stringer reinforces a shell along an edge of it; on '
+                  'an edge that is not part of a plate there is nothing for it to '
+                  'reinforce.'.format(set_name, part_name, len(wrong), len(edges), wrong))
+        _fail('member {0!r} of part {1!r} was drawn as a wire, and {2} of its {3} edge(s) bound a '
+              'face: {4}. The wire has been absorbed into a plate boundary, and an ordinary edge '
+              'shared with a shell face produces NO beam elements when the part is meshed -- '
+              'measured, 96 S4R and no B31 at all, against 96 S4R and 12 B31 for the same beam built '
+              'as a Stringer. This member would be in the geometry and absent from the '
+              'analysis.'.format(set_name, part_name, len(wrong), len(edges), wrong))
     _RESULT['edges_per_member'][set_name] = len(edges)
     return edges
 
@@ -522,21 +548,21 @@ def build(model):
 
     # 'brace'
     edges_0_0 = part_0.edges.getByBoundingCylinder(center1=(3.0, -0.00020000018089791818, 4.000400000361796), center2=(3.0, 2.000200000180898, -0.00040000036179583636), radius=0.000447214)
-    _member_edges('Frame', 'brace', edges_0_0)
+    _member_edges('Frame', 'brace', edges_0_0, on_a_plate=False)
     region_0_0 = part_0.Set(name='brace', edges=edges_0_0)
     part_0.SectionAssignment(region=region_0_0, sectionName='sec_HP200x10_S355')
     part_0.assignBeamSectionOrientation(region=region_0_0, method=N1_COSINES, n1=(-1.0, 0.0, 0.0))
 
     # 'col1'
     edges_0_1 = part_0.edges.getByBoundingCylinder(center1=(0.0, 0.0, -0.0004), center2=(0.0, 0.0, 4.0004), radius=0.0004)
-    _member_edges('Frame', 'col1', edges_0_1)
+    _member_edges('Frame', 'col1', edges_0_1, on_a_plate=False)
     region_0_1 = part_0.Set(name='col1', edges=edges_0_1)
     part_0.SectionAssignment(region=region_0_1, sectionName='sec_IPE300_S355')
     part_0.assignBeamSectionOrientation(region=region_0_1, method=N1_COSINES, n1=(1.0, 0.0, 0.0))
 
     # 'girder'
     edges_0_2 = part_0.edges.getByBoundingCylinder(center1=(-0.0006, 0.0, 4.0), center2=(6.0006, 0.0, 4.0), radius=0.0006)
-    _member_edges('Frame', 'girder', edges_0_2)
+    _member_edges('Frame', 'girder', edges_0_2, on_a_plate=False)
     region_0_2 = part_0.Set(name='girder', edges=edges_0_2)
     part_0.SectionAssignment(region=region_0_2, sectionName='sec_BG200x200x10_S355')
     part_0.assignBeamSectionOrientation(region=region_0_2, method=N1_COSINES, n1=(0.0, 1.0, 0.0))

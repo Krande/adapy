@@ -609,13 +609,9 @@ def test_a_real_genie_model_with_offsets_writes(fem_files, tmp_path):
     """
     assembly = ada.from_genie_xml(fem_files / "sesam/varying_offset/beams_constant_offset.xml")
 
-    # plates=False, because every one of this model's seven members lies ON one of its plates
-    # and that pair cannot be expressed in one CAE part at all -- see
-    # test_a_genie_model_whose_members_lie_on_its_plates_is_refused_by_name, which pins the
-    # refusal and the switch out of it. This test's subject is the offsets.
-    _, text = emit(assembly, tmp_path, plates=False)
+    _, text = emit(assembly, tmp_path)
 
-    plan = build_plan(assembly, plates=False)
+    plan = build_plan(assembly)
     offsets = {use.cae_section_name: use.offset for use in plan.sections if use.offset is not None}
     assert len(offsets) == 6, "six of the seven members carry an offset"
     assert offsets["sec_UNP180_S355_off_0_0p09"] == pytest.approx((0.0, 0.09))
@@ -1506,10 +1502,14 @@ def test_the_emitted_script_states_the_topology_and_both_tolerances(tmp_path, mo
     assert namespace["EXPECTED_TOPOLOGY"] == {
         "Frame": {
             "edges": 6,
+            # Equal to 'edges' on a beams-only part: every member is drawn as a wire. They differ
+            # once a member lies on a plate and becomes a Stringer on an edge the body carries.
+            "wire_edges": 6,
             "vertices": 7,
             # A beams-only part: zero faces is what tells the guard to check the edge and
             # vertex totals rather than the faces and the face-free edges.
             "faces": 0,
+            "stringers": [],
             "edges_per_member": {"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1},
         }
     }
@@ -2149,7 +2149,14 @@ def test_the_expected_topology_of_a_curve_is_stated_in_the_emitted_script(tmp_pa
     namespace, _ = load_emitted_script(text, tmp_path, monkeypatch)
 
     assert namespace["EXPECTED_TOPOLOGY"] == {
-        "Curves": {"edges": 2, "vertices": 3, "faces": 0, "edges_per_member": {"BeamRevolve": 1, "tie": 1}}
+        "Curves": {
+            "edges": 2,
+            "wire_edges": 2,
+            "vertices": 3,
+            "faces": 0,
+            "stringers": [],
+            "edges_per_member": {"BeamRevolve": 1, "tie": 1},
+        }
     }
     assert namespace["CURVE_LENGTH_REL_TOL"] == 1e-04
 
@@ -2160,12 +2167,20 @@ def test_the_expected_topology_of_a_curve_is_stated_in_the_emitted_script(tmp_pa
 
 
 class FakeCurveEdge:
+    """``getFaces`` returns nothing on purpose: a curved member is always a wire here, because a
+    curved member lying on a plate is refused while planning -- so its edge must bound no face, and
+    the locator now asks. An ordinary edge that bounds a face produces no beam elements at all."""
+
     def __init__(self, index, length):
         self.index = index
         self._length = length
+        self.pointOn = ((float(index), 0.0, 0.0),)
 
     def getSize(self, printResults=True):
         return self._length
+
+    def getFaces(self):
+        return ()
 
 
 class FakeCurveEdges(list):

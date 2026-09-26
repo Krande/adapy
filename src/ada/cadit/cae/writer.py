@@ -6,14 +6,15 @@ section assignments and sets faithfully — but the geometry arrives as an *orph
 mesh*: ``edges 0, faces 0, cells 0``. Nothing to re-mesh, nothing to attach a brace
 to, nothing to edit. The user's verdict was "orphan mesh is not enough".
 
-So this writer's subject is geometry and connectivity. It builds **beams**: straight ones
-as ``WirePolyLine``, curved ones as ``WireSpline`` through points on their exact curve, and
-a constant eccentricity as the section's own ``beamSectionOffset``. Anything a wire would
-silently misrepresent is refused rather than approximated, and anything not translated at
-all is listed in the emitted script's header and in its result sidecar so its absence is
+So this writer's subject is geometry and connectivity. It builds **beams** -- straight ones as
+``WirePolyLine``, curved ones as ``WireSpline`` through points on their exact curve, a constant
+eccentricity as the section's own ``beamSectionOffset``, and one lying on a plate as a CAE
+``Stringer`` -- and **plates**, imported as the ACIS body adapy's own SAT writer produces. Anything
+either would silently misrepresent is refused rather than approximated, and anything not translated
+at all is listed in the emitted script's header and in its result sidecar so its absence is
 visible.
 
-Eight guards carry the correctness of the output, each aimed at a specific way this
+Twelve guards carry the correctness of the output, each aimed at a specific way this
 could emit a model that opens in CAE, meshes, solves and is wrong:
 
 1. **Every edge ends with exactly one section assignment**, asserted inside the
@@ -29,17 +30,34 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    be handed over as one spline wire -- a multi-leg sweep path, a curve container nobody has
    sampled -- is refused too, and named. A ``BeamRevolve`` drawn as a straight chord is a
    model that looks right, which is what all of this is for.
-3. **An eccentricity is carried as a section offset, and refused when it cannot be.**
+3. **A plate is the ACIS body adapy already writes, and a member lying on one is a stringer.**
+   The plates arrive through ``mdb.openAcis`` + ``PartFromGeometryFile`` from a ``.sat`` written
+   beside the script -- arcs analytic, a curved plate a NURBS patch, and the plates already split
+   along every beam axis on them. Each face is located by ``findAt`` at a point adapy computes
+   strictly inside it, because the import **discards the ACIS face names** (measured:
+   ``part.sets.keys()`` is ``[]`` afterwards), and given a ``HomogeneousShellSection`` at
+   ``offsetType=MIDDLE_SURFACE`` -- adapy's own convention, since the polygon a ``Plate`` carries is
+   the surface its FEM mesh puts nodes on.
+
+   A member whose axis lies on a plate is built as a CAE ``Stringer`` on the edge that body already
+   carries, and draws no wire. That is measured, not stylistic: an **ordinary** edge shared with a
+   shell face takes a beam section, reads it back, exports a ``*Beam Section`` keyword -- and
+   produces no elements when the part is meshed (``{'S4R': 96}`` with no B31, and 0 of the 13 nodes
+   on the stiffener line shared). A ``Stringer`` on the same edge gives ``{'S4R': 96, 'B31': 12}``
+   with **every** node shared, and on a 4 m strip it added 80 beam elements and not one node. See
+   :data:`ada.cadit.cae.plates.STRINGER_MEASUREMENT`.
+
+4. **An eccentricity is carried as a section offset, and refused when it cannot be.**
    ``*Beam Section Offset`` takes one 2-tuple in the section's own ``(n1, n2)`` axes, so a
    constant offset is exact and cheap -- no extra nodes and no ``*MPC BEAM`` links, which is
    what adapy's INP writer has to create. A **varying** offset (``e1 != e2``), an **axial**
    component, and an offset on a **curved** member are refused: none of the three is
    expressible as one 2-tuple, and a wire drawn end to end discards an offset silently,
    which is the 660 mm coordinate error this project has already paid for, in a new coat.
-4. **Endpoints come from** :meth:`ada.Beam.axis_global`, whose own docstring says
+5. **Endpoints come from** :meth:`ada.Beam.axis_global`, whose own docstring says
    exporters must share it so they cannot disagree about where a beam is. Raw
    ``n1.p``/``n2.p`` ignores the owning Part's placement.
-5. **A result sidecar and a non-zero exit.** CAE can exit 0 on a half-built model, so
+6. **A result sidecar and a non-zero exit.** CAE can exit 0 on a half-built model, so
    the script writes ``<stem>.cae_build_result.json`` and forces a non-zero status on
    failure. Without it, "it ran" cannot be told from "it built a third of the model".
 
@@ -50,7 +68,7 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    ``Abaqus Error: cae exited with an error``. But the ``abq<ver>.bat`` launcher
    *itself* still returns 0 either way, so a caller cannot learn the outcome from an
    exit code at all. The sidecar is the signal, which is why it is not optional.
-6. **The topology CAE built is the topology adapy described.** Per-member sub-edge
+7. **The topology CAE built is the topology adapy described.** Per-member sub-edge
    counts and the part's vertex count, computed from the adapy model by
    :mod:`ada.cadit.cae.topology` and asserted in the emitted script against the kernel.
    This is the *only* guard that can tell a connected frame from a pile of loose
@@ -58,11 +76,11 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    change the edge count, only the vertex count. A *crossing*, which CAE welds
    silently, is refused while planning rather than asserted; the reasoning is in
    :func:`ada.cadit.cae.topology.expected_topology` and in :func:`build_plan`.
-7. **No planned name already exists in the target CAE model.** CAE does not raise on a
+8. **No planned name already exists in the target CAE model.** CAE does not raise on a
    reused name: it silently *replaces* the object and invalidates handles to the old
    one (measured), so a second run in the same GUI session would quietly swap every
    part. Checked against the live model before a single object is built.
-8. **A curve is the curve adapy sampled, and an offset is the offset adapy projected.** A
+9. **A curve is the curve adapy sampled, and an offset is the offset adapy projected.** A
    spline through points on a curve is an interpolation, so the built edge's arc length is
    compared against the sampled one and every interior sample point has to lie on that one
    edge. An offset is read back off the section CAE holds -- which is a readback and not a
@@ -71,7 +89,7 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    The solver can, and that is where the sign of the projection was pinned; see
    :func:`beam_section_offset`.
 
-9. **Every support and load arrives, at a vertex, or nothing is written.** The analysis
+10. **Every support and load arrives, at a vertex, or nothing is written.** The analysis
    comes from ``FEM.bcs`` and the ``Load`` records inside ``FEM.steps`` -- see
    :mod:`ada.cadit.cae.analysis` on which of adapy's two stores that is and why. A support
    or load whose node is not at a vertex of the emitted geometry is refused rather than
@@ -83,7 +101,7 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    written as a prescribed displacement, which the Sesam writer also does not do -- it
    defines ``PRESCRIBED = 2`` and its own comment says the magnitudes "are not carried into
    BNDISPL yet", so a settlement case silently becomes a fixed support there.
-10. **The solver's own reaction sum is checked against the load adapy described.** With
+11. **The solver's own reaction sum is checked against the load adapy described.** With
    ``submit=True`` the script runs the job and adds up ``RF`` and ``CF`` over every node in
    the ODB: the two must cancel, and the ``CF`` total must be the resultant adapy computed
    from its own ``Load`` records. A halved or dropped load is the defect a displacement
@@ -91,7 +109,7 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    ``job.status`` is **not** consulted, and that is measured: after ``waitForCompletion()``
    under ``cae noGUI=`` it reads ``None``, so a check against ``COMPLETED`` would fail every
    clean run. The ``.sta`` file's own closing line is used instead.
-11. **The displacements are written out where a reader can get at them.** The job's ODB is
+12. **The displacements are written out where a reader can get at them.** The job's ODB is
    read in the same run and ``<stem>.cae_displacements.json`` records each node's position
    and its six components per step. Abaqus splits them across **two** fields --
    ``U`` is ``(U1, U2, U3)`` and ``UR`` is ``(UR1, UR2, UR3)``, measured -- so a reader that
@@ -141,8 +159,8 @@ from .plates import (
     PLATE_NORMAL_TOL,
     PlateNotSupported,
     PlatePlan,
-    check_no_beam_on_a_plate,
     plate_body,
+    stringer_members,
 )
 from .topology import (
     CAE_MERGE_TOL,
@@ -336,10 +354,20 @@ class _MemberPlan:
     #: The sampled arc length of that polyline, which the emitted script checks the built
     #: edge against. ``None`` for a straight member.
     curve_length: float | None = None
+    #: The SAT edges this member's axis was imprinted onto, when it lies on a plate. Such a member
+    #: is built as a CAE ``Stringer`` on the edge the imported body already carries and draws **no
+    #: wire**: measured, an ordinary edge shared with a face produces no beam elements at all, and a
+    #: ``Stringer`` on the same edge produces them and shares every node with the shell. Empty for a
+    #: member clear of every plate, which is the wire case.
+    sat_edges: tuple[str, ...] = ()
 
     @property
     def is_curved(self) -> bool:
         return self.path is not None
+
+    @property
+    def is_stringer(self) -> bool:
+        return bool(self.sat_edges)
 
 
 @dataclass
@@ -383,6 +411,15 @@ class _PartPlan:
     @property
     def face_count(self) -> int:
         return sum(len(plate.faces) for plate in self.plates)
+
+    @property
+    def wire_members(self) -> list[_MemberPlan]:
+        """The members drawn as wires. A stringer draws none: its edge is already in the body."""
+        return [member for member in self.members if not member.is_stringer]
+
+    @property
+    def stringers(self) -> list[_MemberPlan]:
+        return [member for member in self.members if member.is_stringer]
 
 
 @dataclass
@@ -812,6 +849,10 @@ def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
     sub-edges adapy did not predict, and fails the build there. So a crossing is never
     unasserted; it is refused if it can be seen here and reported if it cannot.
     """
+    # Every member, stringers included: a stringer's axis is still somewhere another member can land,
+    # and a crossing with one is still a crossing. What differs is how many sub-edges a stringer
+    # starts from -- the ACIS body has already split it at the plate boundaries it runs along -- which
+    # :func:`_stringer_edge_counts` adds on top of the splits computed here.
     segments = [Segment(name=m.cae_set_name, p1=m.p1, p2=m.p2, points=m.path) for m in part_plan.members]
     crossings = find_crossings(segments, joint_tol)
     if crossings:
@@ -842,6 +883,31 @@ def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
             )
         )
     return expected_topology(segments, joint_tol)
+
+
+def _stringer_edge_counts(part_plan: _PartPlan, topology: PartTopology, joint_tol: float) -> dict[str, int]:
+    """How many sub-edges each stringer member must resolve to in CAE.
+
+    A wire member starts as one edge and gains one per *other* member's endpoint landing strictly
+    inside it, which is what :func:`ada.cadit.cae.topology.expected_topology` computes. A stringer
+    starts from however many edges the ACIS body already split its axis into -- the plate boundaries
+    it runs along -- and gains the same landings on top.
+
+    A landing that coincides with a vertex the body already holds is **not** an extra split, because
+    the body has already made it. That is why the plate vertices are subtracted here rather than
+    assumed absent: a stiffener running between two plates is split at their shared corner by the
+    imprint, and a third member ending at that same corner adds nothing.
+    """
+    vertices = [np.asarray(point, dtype=float) for point in part_plan.plate_vertices]
+    counts: dict[str, int] = {}
+    for member in part_plan.stringers:
+        extra = 0
+        for point in topology.splits.get(member.cae_set_name, ()):
+            here = np.asarray(point, dtype=float)
+            if not any(float(np.linalg.norm(here - vertex)) <= joint_tol for vertex in vertices):
+                extra += 1
+        counts[member.cae_set_name] = len(member.sat_edges) + extra
+    return counts
 
 
 def check_mesh_and_job(
@@ -906,7 +972,12 @@ def build_plan(
     profile_spec = _load_profile_spec()
     check_unit_scale(unit_scale)
     mesh_size, element_type, job_name = check_mesh_and_job(mesh_size, element_type, job_name, submit)
-    shell_element_type = check_shell_element_type(shell_element_type)
+    try:
+        shell_element_type = check_shell_element_type(shell_element_type)
+    except AnalysisNotSupported as exc:
+        # One exception type for "this model cannot be expressed as a CAE model", as
+        # check_mesh_and_job does for the beam element code.
+        raise CaeWriteError(str(exc)) from exc
 
     plan = _Plan(
         root_name=root.name,
@@ -993,8 +1064,6 @@ def build_plan(
         # worth planning until that is known.
         try:
             body = plate_body(part) if plates else None
-            if body is not None:
-                check_no_beam_on_a_plate(part.name, body)
         except PlateNotSupported as exc:
             # One exception type for "this model cannot be expressed as a CAE model", as with a
             # CurveNotSupported and an AnalysisNotSupported.
@@ -1003,6 +1072,9 @@ def build_plan(
         beams = sorted(part.beams, key=lambda b: b.name)
         if body is None and not beams:
             continue
+        # Which members lie ON a plate, from the body's own record of where each beam axis was
+        # imprinted. Those become Stringers rather than wires; see STRINGER_MEASUREMENT.
+        on_a_plate = stringer_members(body) if body is not None else {}
 
         part_plan = _PartPlan(
             part_name=part.name,
@@ -1133,6 +1205,16 @@ def build_plan(
                 ),
             )
 
+            sat_edges = tuple(on_a_plate.get(bm.name, ()))
+            if sat_edges and curved:
+                raise CaeWriteError(
+                    "beam {0!r} is a {1} whose axis lies on a plate. A curved member on a plate would "
+                    "have to be a Stringer on the spline edge the body carries, and where along that "
+                    "edge CAE puts an imprinted vertex is the spline's own parameterisation's "
+                    "business -- so this writer cannot state the sub-edge count it asserts for every "
+                    "member. Straight members on plates are built; this one is "
+                    "refused.".format(bm.name, type(bm).__name__)
+                )
             member = _MemberPlan(
                 beam_name=bm.name,
                 cae_set_name=set_names.allocate_unique(bm.name),
@@ -1140,6 +1222,7 @@ def build_plan(
                 p1=p1,
                 p2=p2,
                 n1=beam_n1(bm),
+                sat_edges=sat_edges,
             )
             if curved:
                 member.path = path
@@ -1317,12 +1400,14 @@ def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_nam
             "# the surface its FEM mesh puts nodes on, and the Sesam writer writes no eccentricity for a",
             "# plain plate.",
             "#",
-            "# A beam whose axis lies ON a plate is REFUSED rather than built, and the reason is measured:",
-            "# in Abaqus/CAE 2025 an edge shared with a face takes a beam section, reads it back, exports",
-            "# a '*Beam Section' keyword -- and produces no elements at all when the part is meshed",
-            "# ({'S4R': 96} with no B31, against {'S4R': 96, 'B31': 12} for the same beam moved clear of",
-            "# the plate). A beam meeting a plate at a POINT is fine and is built; its node comes out",
-            "# shared by shell and beam elements.",
+            "# A beam whose axis lies ON a plate is built as a CAE Stringer on the edge the body already",
+            "# carries, and draws no wire of its own. That is measured rather than stylistic: an ORDINARY",
+            "# edge shared with a face takes a beam section, reads it back, exports a '*Beam Section'",
+            "# keyword -- and produces no elements at all when the part is meshed ({'S4R': 96} with no",
+            "# B31). A Stringer on the same edge gives {'S4R': 96, 'B31': 12} with every node on the line",
+            "# shared by a shell and a beam element, and on a 4 m strip it added 80 beam elements and not",
+            "# one node. A beam meeting a plate at a POINT needs neither: its wire's endpoint splits the",
+            "# plate's boundary edge and the resulting node is shared.",
             "#",
         ]
     if offsets:
@@ -1578,9 +1663,10 @@ def _guard_topology(model):
             problems.append('part {0!r}: adapy authored {1} face(s) into the ACIS body, CAE imported '
                             '{2}'.format(part_name, expected['faces'], built_faces))
         if expected['faces']:
-            if free_edges != expected['edges']:
-                problems.append('part {0!r}: adapy described {1} beam edge(s), and CAE holds {2} edge(s) '
-                                'that bound no face'.format(part_name, expected['edges'], free_edges))
+            if free_edges != expected['wire_edges']:
+                problems.append('part {0!r}: adapy drew {1} member edge(s) as wires, and CAE holds {2} '
+                                'edge(s) that bound no face'.format(
+                                    part_name, expected['wire_edges'], free_edges))
             continue
         if built_edges != expected['edges']:
             problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
@@ -1600,7 +1686,7 @@ def _guard_topology(model):
               'snapped: fix the model.')
 
 
-def _member_edges(part_name, set_name, edges):
+def _member_edges(part_name, set_name, edges, on_a_plate=False):
     """Check and record what the cylinder on the preceding line actually found.
 
     Each member is located by a bounding cylinder, never by findAt at a midpoint: a
@@ -1615,6 +1701,29 @@ def _member_edges(part_name, set_name, edges):
               'edge, although the member\\'s own wire was drawn. Either the cylinder is too tight '
               'for this model\\'s scale, or the geometry is not where it was drawn.'.format(
                   set_name, part_name))
+    # Which kind of member this is, checked against the kernel rather than trusted. A member the
+    # writer drew as a WIRE must have edges that bound no face: an edge bounding one means the wire
+    # was absorbed into a plate's boundary, and an ordinary edge shared with a face produces no beam
+    # elements at all (measured) -- so that member would be in the geometry and absent from the
+    # analysis. A member built as a STRINGER must have edges that DO bound a face, or the stringer
+    # was put on something that is not part of a plate.
+    wrong = []
+    for edge in edges:
+        bounds = len(edge.getFaces()) > 0
+        if bounds != bool(on_a_plate):
+            wrong.append((edge.index, edge.pointOn))
+    if wrong:
+        if on_a_plate:
+            _fail('member {0!r} of part {1!r} was built as a Stringer on a plate, and {2} of its {3} '
+                  'edge(s) bound no face: {4}. A Stringer reinforces a shell along an edge of it; on '
+                  'an edge that is not part of a plate there is nothing for it to '
+                  'reinforce.'.format(set_name, part_name, len(wrong), len(edges), wrong))
+        _fail('member {0!r} of part {1!r} was drawn as a wire, and {2} of its {3} edge(s) bound a '
+              'face: {4}. The wire has been absorbed into a plate boundary, and an ordinary edge '
+              'shared with a shell face produces NO beam elements when the part is meshed -- '
+              'measured, 96 S4R and no B31 at all, against 96 S4R and 12 B31 for the same beam built '
+              'as a Stringer. This member would be in the geometry and absent from the '
+              'analysis.'.format(set_name, part_name, len(wrong), len(edges), wrong))
     _RESULT['edges_per_member'][set_name] = len(edges)
     return edges
 
@@ -1824,8 +1933,11 @@ def _curved_member_edges(part_name, set_name, part, points, expected_length):
               'sample points should be within 3e-06 of them; this far out means the wire is not that '
               'curve -- the chord of the same arc would read about 10% short.'.format(
                   set_name, part_name, expected_length, built, error, CURVE_LENGTH_REL_TOL))
-    _RESULT['edges_per_member'][set_name] = 1
-    return part.edges[index:index + 1]
+    # A curved member is always a wire here -- a curved member lying on a plate is refused while
+    # planning, because where along a spline CAE puts an imprinted vertex is the spline's own
+    # parameterisation's business. So its edge must bound no face, for the reason _member_edges
+    # gives: an ordinary edge shared with a face produces no beam elements at all.
+    return _member_edges(part_name, set_name, part.edges[index:index + 1])
 '''
 
 
@@ -2366,19 +2478,29 @@ def _expected_topology_source(plan: _Plan) -> list[str]:
     ]
     for part_plan in plan.parts:
         topology = part_plan.topology
+        stringer_counts = _stringer_edge_counts(part_plan, topology, plan.joint_tol)
+        per_member = dict(topology.edges_per_member)
+        per_member.update(stringer_counts)
+        wire_edges = sum(
+            per_member[member.cae_set_name] for member in part_plan.wire_members if member.cae_set_name in per_member
+        )
         lines += [
             "    {0!r}: {{".format(part_plan.cae_part_name),
-            "        'edges': {0},".format(topology.edges),
+            "        'edges': {0},".format(sum(per_member[name] for name in sorted(per_member))),
+            # Only the members drawn as wires. An imported plate contributes boundary edges adapy
+            # does not enumerate, so on a plate part this is what 'edges bounding no face' is
+            # compared against; a stringer's edges bound a face and are counted per member instead.
+            "        'wire_edges': {0},".format(wire_edges),
             "        'vertices': {0},".format(topology.vertices),
             # Non-zero marks a part built by importing an ACIS body, which is checked on its
             # faces and on its face-free edges rather than on totals adapy cannot state.
             "        'faces': {0},".format(part_plan.face_count),
+            "        'stringers': [{0}],".format(
+                ", ".join(repr(member.cae_set_name) for member in part_plan.stringers)
+            ),
             "        'edges_per_member': {",
         ]
-        lines += [
-            "            {0!r}: {1},".format(name, topology.edges_per_member[name])
-            for name in sorted(topology.edges_per_member)
-        ]
+        lines += ["            {0!r}: {1},".format(name, per_member[name]) for name in sorted(per_member)]
         lines += ["        },", "    },"]
     lines += ["}", ""]
     return lines
@@ -2817,6 +2939,12 @@ def render_script(
             "    # the sub-edges those neighbours are about to create.",
         ]
         for member_index, member in enumerate(part_plan.members):
+            if member.is_stringer:
+                lines.append(
+                    "    # {0!r} lies on a plate: its edge is already in the imported body, so no wire "
+                    "is drawn.".format(member.beam_name)
+                )
+                continue
             if not member.is_curved:
                 lines.append(
                     "    {0}.WirePolyLine(points=(({1}, {2}),), mergeType=IMPRINT, meshable=ON)".format(
@@ -2863,12 +2991,36 @@ def render_script(
                     "    {0} = {1}.edges.getByBoundingCylinder(center1={2}, center2={3}, radius={4})".format(
                         edges_var, part_var, _pt(member.cyl1), _pt(member.cyl2), _num(member.radius)
                     ),
-                    "    _member_edges({0!r}, {1!r}, {2})".format(
-                        part_plan.cae_part_name, member.cae_set_name, edges_var
+                    "    _member_edges({0!r}, {1!r}, {2}, on_a_plate={3!r})".format(
+                        part_plan.cae_part_name, member.cae_set_name, edges_var, member.is_stringer
                     ),
                 ]
+            if member.is_stringer:
+                lines += [
+                    "    # This member's axis lies on a plate, so it is a CAE Stringer on the edge(s) the",
+                    "    # ACIS body already carries ({0}). Measured: an ORDINARY edge shared".format(
+                        ", ".join(member.sat_edges)
+                    ),
+                    "    # with a shell face takes a beam section, reads it back, exports a '*Beam Section'",
+                    "    # keyword and produces NO elements when the part is meshed -- {'S4R': 96} with no",
+                    "    # B31. A Stringer on the same edge gives {'S4R': 96, 'B31': 12} with every node on",
+                    "    # the line shared by a shell and a beam element, and on a 4 m strip it added 80 beam",
+                    "    # elements and not one node.",
+                    "    {0}.Stringer(name={1!r}, edges={2})".format(part_var, member.cae_set_name, edges_var),
+                    # stringerEdges is how a region is BUILT; it is not how one reads back. Measured:
+                    # the set's own `.edges` holds the stringer edge and `.stringerEdges` raises
+                    # AttributeError, which is why the coverage guard needs no special case for it.
+                    "    {0} = {1}.Set(name={2!r}, stringerEdges=(({2!r}, {3}),))".format(
+                        region_var, part_var, member.cae_set_name, edges_var
+                    ),
+                ]
+            else:
+                lines.append(
+                    "    {0} = {1}.Set(name={2!r}, edges={3})".format(
+                        region_var, part_var, member.cae_set_name, edges_var
+                    )
+                )
             lines += [
-                "    {0} = {1}.Set(name={2!r}, edges={3})".format(region_var, part_var, member.cae_set_name, edges_var),
                 "    {0}.SectionAssignment(region={1}, sectionName={2!r})".format(
                     part_var, region_var, member.cae_section_name
                 ),

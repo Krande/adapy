@@ -130,7 +130,7 @@ DEFECTS = (
         "    p.WirePolyLine(points=(((3.0, 0.0, 4.0), (3.0, 2.0, 0.0)),), mergeType=IMPRINT, meshable=ON)\n",
         "",
         check_every_member_is_sectioned_and_oriented,
-        "members are drawn but",
+        "members are drawn as wires and 0 as stringers",
     ),
     Defect(
         "zero_length_member",
@@ -343,6 +343,22 @@ DEFECTS = (
         "faces_0_1 = _plate_faces('PlateFrame', 'bulkhead', part_0, PLATES['PlateFrame'][1]['points'])",
         check_plate_faces_are_sectioned,
         "is located twice",
+        specimen="plates",
+    ),
+    Defect(
+        "a_stringer_is_created_and_never_sectioned",
+        "    part_0.SectionAssignment(region=region_0_2, sectionName='sec_HP200x10_S355')\n",
+        "",
+        check_every_member_is_sectioned_and_oriented,
+        "no section for ['stf']",
+        specimen="plates",
+    ),
+    Defect(
+        "a_stringer_region_names_another_members_stringer",
+        "part_0.Set(name='stf', stringerEdges=(('stf', edges_0_2),))",
+        "part_0.Set(name='stf', stringerEdges=(('girder', edges_0_2),))",
+        check_every_member_is_sectioned_and_oriented,
+        "must be the same member",
         specimen="plates",
     ),
     Defect(

@@ -68,11 +68,11 @@ def plate_model() -> ada.Assembly:
     the case that genuinely connects: measured, CAE splits that edge and the resulting node comes
     out shared by shell and beam elements (``['S4R', 'S4R', 'B31']``).
 
-    Nothing here lies *on* a plate, and that is the point of the layout rather than an accident: a
-    member whose axis lies on a face cannot be expressed in the same CAE part as that face at all
-    (the shared edge produces no beam elements -- see
-    :data:`ada.cadit.cae.plates.BEAM_ON_PLATE_REFUSAL`), so a model that exercises plates *and*
-    beams together has to keep them apart in exactly this way.
+    A stiffener lying **on** the deck along that same line, which is the case an ordinary edge cannot
+    carry: measured, an edge shared with a shell face takes a beam section and produces no elements at
+    all, and ``Part.Stringer`` on the same edge produces them with every node shared (see
+    :data:`ada.cadit.cae.plates.STRINGER_MEASUREMENT`). So this one model exercises all three kinds of
+    member -- a wire clear of every plate, a wire meeting one at a point, and a stringer on one.
     """
     part = ada.Part("PlateFrame")
     part / (
@@ -88,6 +88,9 @@ def plate_model() -> ada.Assembly:
         ),
         ada.Beam("girder", (0, 2, -0.5), (6, 2, -0.5), "IPE300", "S355"),
         ada.Beam("column", (0, 2, -0.5), (0, 2, 0), "IPE300", "S355"),
+        # A stiffener lying ON the deck, along the line the column reaches. It becomes a CAE
+        # Stringer rather than a wire, and it splits the deck into two faces.
+        ada.Beam("stf", (0, 2, 0), (6, 2, 0), "HP200x10", "S355"),
     )
     return ada.Assembly("CaePlates") / part
 

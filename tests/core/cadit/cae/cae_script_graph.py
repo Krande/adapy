@@ -300,6 +300,25 @@ def _region_set(graph: ScriptGraph, call: Call, what: str) -> Call:
     return set_call
 
 
+def region_kind(graph: ScriptGraph, call: Call) -> str:
+    """Which of the three kinds of region a ``SectionAssignment`` covers.
+
+    ``"faces"`` is a plate: a shell section on a set of faces. ``"stringer"`` is a member lying on a
+    plate: a beam section on a region built with ``stringerEdges=``, which is CAE's own concept for a
+    beam reinforcing a shell along an edge of it. ``"edges"`` is a member drawn as a wire.
+
+    Told apart by how the ``Set`` was built rather than by the section's name, so a writer that
+    emitted a shell section onto an edge set, or a beam section onto a plain edge that happens to
+    bound a face, is caught rather than excused.
+    """
+    set_call = _region_set(graph, call, "SectionAssignment")
+    if set_call.kw("faces") is not None:
+        return "faces"
+    if set_call.kw("stringerEdges") is not None:
+        return "stringer"
+    return "edges"
+
+
 def is_face_assignment(graph: ScriptGraph, call: Call) -> bool:
     """Whether a ``SectionAssignment``'s region is a set of faces rather than of edges.
 
@@ -309,8 +328,36 @@ def is_face_assignment(graph: ScriptGraph, call: Call) -> bool:
     what the ``Set`` is built from, not by the section's name, so a writer that emitted a shell
     section onto an edge set would be caught rather than excused.
     """
-    set_call = _region_set(graph, call, "SectionAssignment")
-    return set_call.kw("faces") is not None
+    return region_kind(graph, call) == "faces"
+
+
+def _region_edge_source(set_call: Call, what: str):
+    """The value a region's edges come from, whichever of the two keywords built it.
+
+    ``stringerEdges`` takes ``((stringer name, edgeArray),)``, so the array is one level in. Measured:
+    the keyword is write-only -- a set built with it reads its edges back out of ``.edges`` and has no
+    ``.stringerEdges`` attribute at all -- so this reader is following the *emission*, which is the
+    only place the two spellings differ.
+    """
+    edges = set_call.kw("edges")
+    if edges is not None:
+        return edges
+    stringer = set_call.kw("stringerEdges")
+    if stringer is None:
+        _fail("the Set on line {} used by {} has neither edges= nor stringerEdges=".format(set_call.lineno, what))
+    if not isinstance(stringer, (tuple, list)) or len(stringer) != 1:
+        _fail(
+            "the Set on line {} passes stringerEdges={!r}, which is not one (name, edges) pair".format(
+                set_call.lineno, set_call.raw_kwargs.get("stringerEdges", "?")
+            )
+        )
+    pair = stringer[0]
+    if not isinstance(pair, (tuple, list)) or len(pair) != 2 or not isinstance(pair[0], str):
+        _fail(
+            "the Set on line {} passes stringerEdges={!r}; each entry must be (stringer name, "
+            "edges)".format(set_call.lineno, set_call.raw_kwargs.get("stringerEdges", "?"))
+        )
+    return pair[1]
 
 
 def _region_lookup(graph: ScriptGraph, call: Call, what: str) -> Call:
@@ -331,16 +378,14 @@ def _region_lookup(graph: ScriptGraph, call: Call, what: str) -> Call:
         )
     if set_call.lineno > call.lineno:
         _fail("{} on line {} uses a region defined later, on line {}".format(what, call.lineno, set_call.lineno))
-    edges = set_call.kw("edges")
-    if edges is None:
-        _fail("the Set on line {} used by {} has no edges= argument".format(set_call.lineno, what))
+    edges = _region_edge_source(set_call, what)
     if isinstance(edges, (tuple, list)) and len(edges) == 0:
         _fail("the Set on line {} used by {} is built from an empty edge sequence".format(set_call.lineno, what))
     lookup = graph.resolve_call(edges)
     if lookup is None:
         _fail(
             "the Set on line {} takes edges from {!r}, which is not a call this reader can follow".format(
-                set_call.lineno, set_call.raw_kwargs.get("edges", "?")
+                set_call.lineno, set_call.raw_kwargs.get("edges", set_call.raw_kwargs.get("stringerEdges", "?"))
             )
         )
     if lookup.method == "findAt":
@@ -531,8 +576,18 @@ def check_every_part_instanced_once(graph: ScriptGraph) -> None:
 
 
 def beam_assignments(graph: ScriptGraph) -> list[Call]:
-    """Every ``SectionAssignment`` whose region is a set of edges."""
-    return [call for call in graph.by_method("SectionAssignment") if not is_face_assignment(graph, call)]
+    """Every ``SectionAssignment`` on a member drawn as a WIRE. Stringers are not here."""
+    return [call for call in graph.by_method("SectionAssignment") if region_kind(graph, call) == "edges"]
+
+
+def stringer_assignments(graph: ScriptGraph) -> list[Call]:
+    """Every ``SectionAssignment`` on a member lying on a plate, built as a ``Stringer``."""
+    return [call for call in graph.by_method("SectionAssignment") if region_kind(graph, call) == "stringer"]
+
+
+def member_assignments(graph: ScriptGraph) -> list[Call]:
+    """Both kinds of member. A plate's shell section is not a member and is not here."""
+    return beam_assignments(graph) + stringer_assignments(graph)
 
 
 def face_assignments(graph: ScriptGraph) -> list[Call]:
@@ -549,7 +604,7 @@ def check_every_member_is_sectioned_and_oriented(graph: ScriptGraph) -> None:
     segments = _wire_segments(graph)
     if not segments and not graph.by_method("SectionAssignment"):
         _fail("the emitted script draws no WirePolyLine at all and assigns no section either")
-    assigned = [_region_key(graph, c) for c in beam_assignments(graph)]
+    assigned = [_region_key(graph, c) for c in member_assignments(graph)]
     oriented = [_region_key(graph, c) for c in graph.by_method("assignBeamSectionOrientation")]
     if sorted(assigned) != sorted(set(assigned)):
         _fail("a region is given a section assignment more than once: {}".format(sorted(assigned)))
@@ -562,8 +617,34 @@ def check_every_member_is_sectioned_and_oriented(graph: ScriptGraph) -> None:
             "section assignments and beam orientations cover different regions: "
             "no orientation for {}, no section for {}".format(missing_orientation, missing_section)
         )
-    if len(assigned) != len(segments):
-        _fail("{} members are drawn but {} regions get a beam section assignment".format(len(segments), len(assigned)))
+    # A member lying on a plate draws no wire: its edge is already in the imported ACIS body and it is
+    # built as a Stringer instead, because an ORDINARY edge shared with a shell face produces no beam
+    # elements at all (measured). So the members are the wires plus the stringers.
+    stringers = graph.by_method("Stringer")
+    stringer_names = []
+    for call in stringers:
+        name = call.kw("name")
+        if not isinstance(name, str):
+            _fail("the Stringer on line {} has no literal name=".format(call.lineno))
+        if name in stringer_names:
+            _fail("the stringer name {!r} is emitted twice; CAE would replace the first".format(name))
+        stringer_names.append(name)
+    for call in stringer_assignments(graph):
+        set_call = _region_set(graph, call, "SectionAssignment")
+        pair = set_call.kw("stringerEdges")[0]
+        if pair[0] != set_call.kw("name"):
+            _fail(
+                "the Set {!r} on line {} is built from the stringer {!r}; a member's set and its own "
+                "stringer must be the same member".format(set_call.kw("name"), set_call.lineno, pair[0])
+            )
+    missing_stringer = sorted(set(stringer_names) - set(assigned))
+    if missing_stringer:
+        _fail("the stringer(s) {} are created and never given a beam section".format(missing_stringer))
+    if len(assigned) != len(segments) + len(stringers):
+        _fail(
+            "{} members are drawn as wires and {} as stringers, but {} regions get a beam section "
+            "assignment".format(len(segments), len(stringers), len(assigned))
+        )
 
 
 def _axis_positions(segment, c1, cyl_dir, span) -> list[float] | None:
@@ -593,6 +674,12 @@ def check_members_are_located_by_a_cylinder_spanning_them(graph: ScriptGraph) ->
     the wires. So a segment that sticks out of the caps is treated as *not this cylinder's member*, and
     the caps are only reported once no candidate fits at all. Where several fit, the tightest wins.
     """
+    # A stringer has no wire to be matched against -- its edge came out of the imported ACIS body --
+    # so what is checked of its cylinder here is only that it is one, and non-degenerate. That its
+    # axis is the member's own axis is settled where the member's endpoints exist, which is the
+    # writer's own side; see test_cae_plates.py.
+    for call in stringer_assignments(graph):
+        _cylinder_axis(_region_lookup(graph, call, "SectionAssignment"), graph)
     segments = _wire_segments(graph)
     unmatched = list(segments)
     for call in beam_assignments(graph):
@@ -637,10 +724,18 @@ def check_members_are_located_by_a_cylinder_spanning_them(graph: ScriptGraph) ->
 
 
 def check_orientation_vectors(graph: ScriptGraph) -> None:
-    """``n1`` must be a unit vector perpendicular to the member it orients."""
+    """``n1`` must be a unit vector perpendicular to the member it orients.
+
+    A model of plates alone orients nothing, and that is not a defect: a shell section takes no beam
+    orientation. What is a defect is a *member* without one, and
+    ``check_every_member_is_sectioned_and_oriented`` is what says so -- it compares the two coverages
+    set against set.
+    """
     calls = graph.by_method("assignBeamSectionOrientation")
     if not calls:
-        _fail("the emitted script assigns no beam section orientation at all")
+        if graph.by_method("WirePolyLine", "WireSpline", "Stringer"):
+            _fail("the emitted script builds members and assigns no beam section orientation at all")
+        return
     for call in calls:
         method = call.raw_kwargs.get("method")
         if method != "N1_COSINES":

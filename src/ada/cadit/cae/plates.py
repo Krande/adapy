@@ -27,11 +27,14 @@ boundary comes from its loop's edge endpoints, which every path fills in; a spli
 polygon, so a curved plate is measured through the CAD backend instead and is refused when that
 cannot be done.
 
-**The refusal that matters most.** A beam whose axis lies *on* a plate is refused, and the reason is
-measured rather than cautious: in Abaqus/CAE 2025 an edge shared with a face carries a section
-assignment, reads it back and exports a ``*Beam Section`` keyword, and then **produces no elements
-when the part is meshed**. See :data:`BEAM_ON_PLATE_REFUSAL` for the numbers. The test for it is not
-geometric guesswork either: the SAT writer already reports, per beam, the edges that beam was
+**A beam lying on a plate is a stringer, not a wire.** Measured: an *ordinary* edge shared with
+a shell face takes a beam section, reads it back, exports a ``*Beam Section`` keyword and then
+produces no elements at all when the part is meshed. ``Part.Stringer`` on the same edge of the same
+part, with the same section and the same element type, gives ``{'S4R': 96, 'B31': 12}`` and
+**every** node on the stiffener line shared by a shell and a beam element -- and on a 4 m strip it
+added 80 beam elements and not one node. So such a member is built on the edge the ACIS body
+already carries rather than drawn as a wire; see :data:`STRINGER_MEASUREMENT`. Which members those
+are is not geometric guesswork: the SAT writer already reports, per beam, the edges that beam was
 imprinted into (``SatWriter.edge_map``), so the body itself says which beams lie on a plate.
 """
 
@@ -94,28 +97,35 @@ INTERIOR_REFINEMENTS = 2
 #: be trusted to land on it rather than on a neighbour. Refused by name rather than emitted.
 MIN_INTERIOR_CLEARANCE_FRACTION = 1e-06
 
-#: Why a beam lying on a plate is refused, with the measurement that condemns it.
-BEAM_ON_PLATE_REFUSAL = (
-    "in Abaqus/CAE 2025 an edge shared with a shell face produces NO beam elements. Measured on a "
-    "3 x 2 m plate split by a stiffener along its middle, shell sections on both faces and a "
-    "BeamSection on the shared edge: 'generateMesh()' gave {'S4R': 96} with no B31 at all, 0 of the "
-    "13 nodes on the stiffener line was shared by a shell and a beam element, and "
-    "'getUnmeshedRegions()' reported 'faces 2, edges 0' -- CAE never saw an edge to mesh. CAE's own "
-    "exported INP then carries '*Element, type=S4R' beside '*Beam Section, elset=..., section=I', so "
-    "the deck holds a beam section bound to an element set with nothing in it. The same holds for a "
-    "beam collinear with a plate BOUNDARY edge, where the wire is absorbed without even changing the "
-    "edge or vertex count. Five variants were tried (the element type assigned through a Set, the "
-    "beam section assigned before the shell sections, generateMesh() re-run on the edges, "
-    "seedEdgeBySize on the edge first, and letting CAE do its own imprint from an unsplit face) and "
-    "all five give {'S4R': 96}; the control, the same beam moved clear of every face, gives "
-    "{'S4R': 96, 'B31': 12}. getMassProperties() cannot see the defect either -- it reports 687.38 "
-    "for a plate of 565.2 plus an IPE300 that the solver will never integrate -- and neither can the "
-    "topology guard, because in the collinear case nothing about the counts changes. "
-    "mergeType=SEPARATE is not an escape: it does give {'S4R': 96, 'B31': 12} and then leaves two "
-    "coincident unmerged nodes at (1.5, 1.0, 0.0), one per element family, so the stiffener has "
-    "elements and is attached to nothing. A beam meeting a plate at a POINT is fine and is built: "
-    "measured, a column landing on a plate boundary splits that edge and its node comes out shared, "
-    "['S4R', 'S4R', 'B31']"
+#: Why a beam lying on a plate is built as a ``Stringer``, with the measurements that decide it.
+#:
+#: The first half is what an ordinary edge does, and it is why a stringer is not decoration. The
+#: second half is what a stringer does on the identical part, with the identical section and the
+#: identical element type -- the only difference being the ``Stringer`` feature itself.
+STRINGER_MEASUREMENT = (
+    "in Abaqus/CAE 2025 an ORDINARY edge shared with a shell face produces NO beam elements, however "
+    "it is dressed. Measured on a 3 x 2 m plate split by a stiffener along its middle, shell sections "
+    "on both faces and a BeamSection on the shared edge: generateMesh() gave {'S4R': 96} with no B31 "
+    "at all, 0 of the 13 nodes on the stiffener line was shared by a shell and a beam element, and "
+    "getUnmeshedRegions() reported 'faces 2, edges 0' -- CAE never saw an edge to mesh. CAE's own "
+    "exported INP then carried '*Element, type=S4R' beside '*Beam Section, elset=..., section=I', so "
+    "the deck held a beam section bound to an element set with nothing in it. Five variants give the "
+    "same: the element type assigned through a Set, the beam section assigned before the shell "
+    "sections, generateMesh() re-run on the edges, seedEdgeBySize on the edge first, and letting CAE "
+    "do its own imprint from an unsplit face. mergeType=SEPARATE is not an escape either -- it does "
+    "give {'S4R': 96, 'B31': 12} and then leaves two coincident unmerged nodes at (1.5, 1.0, 0.0), "
+    "one per element family, so the stiffener has elements and is attached to nothing. And "
+    "getMassProperties() cannot see any of it: it reports 687.38 for a plate of 565.2 plus an IPE300 "
+    "the solver will never integrate. || Part.Stringer is the spelling that works, and it works "
+    "completely. On the identical part, the only difference being p.Stringer(name=..., edges=<the "
+    "same EdgeArray>) and a region built with stringerEdges=((name, edges),): {'S4R': 96, "
+    "'B31': 12}, and ALL 13 nodes on the stiffener line shared -- the node at (1.5, 1.0, 0.0) reads "
+    "{'S4R': 4, 'B31': 2}. The exported INP carries '*Element, type=B31' as well. A plate BOUNDARY "
+    "edge behaves the same. On a 4 m strip the stiffened case added 80 B31 elements and NOT ONE node "
+    "(891 either way, so the beams reuse the shell's nodes), and its deflection came to "
+    "0.06520956754684448 m against the parallel-spring closed form 0.06520028713203371 -- 1.4e-04, "
+    "with the measured stiffness ratio 0.3762966491666233 against EI_plate/(EI_plate+EI_bar) = "
+    "0.37615550268480996"
 )
 
 
@@ -626,34 +636,25 @@ def _beam_type():
     return Beam
 
 
-def check_no_beam_on_a_plate(part_name: str, body: PlateBody) -> None:
-    """Guard: refuse every beam whose axis the SAT body imprinted onto a plate face.
+def stringer_members(body: PlateBody) -> dict[str, list[str]]:
+    """``{beam name: the SAT edges its axis became}`` for every beam lying on one of these plates.
 
-    The test is the body's own ``edge_map`` rather than a fresh geometric intersection, because
-    the body is what CAE imports: a beam that resolved to an edge bounding a face *is* the case
-    :data:`BEAM_ON_PLATE_REFUSAL` measures, whether that edge came from the planar imprint, the
-    curved weld or a Genie topology store.
+    These are the members built as CAE ``Stringer`` features rather than as wires. The test is the
+    body's own ``edge_map`` filtered to the edges that bound a face, rather than a fresh geometric
+    intersection, because the body is what CAE imports: a beam that resolved to an edge bounding a
+    face *is* the case :data:`STRINGER_MEASUREMENT` describes, whether that edge came from the planar
+    imprint, the curved weld or a Genie topology store.
+
+    An edge that bounds no face is the other case and is excluded deliberately: adapy authors a beam
+    axis with no plate under it as a **wire** body, and such an edge still has a coedge and still gets
+    a name -- measured, a girder 0.3 m below a plate and a column merely touching its boundary both
+    appeared in ``edge_map``, and neither lies on a plate.
     """
-    if not body.beams_on_plates:
-        return
-    listing = ", ".join(
-        "{0!r} (SAT edge(s) {1})".format(name, ", ".join(body.beams_on_plates[name]))
-        for name in sorted(body.beams_on_plates)
-    )
-    raise PlateNotSupported(
-        "part {0!r}: {1} beam(s) lie on a plate, and a plate with a beam on it cannot be expressed "
-        "as one CAE part at all -- {2}. {3}. Neither half can be dropped to make this work: a "
-        "stiffened deck without its plate and a deck without its stiffeners are both the wrong "
-        "structure. So write this model with plates=False, which leaves the beams exactly as they "
-        "were before plates were translated and lists every plate as untranslated, or split the "
-        "plates and the members that lie on them into models of their own.".format(
-            part_name, len(body.beams_on_plates), listing, BEAM_ON_PLATE_REFUSAL
-        )
-    )
+    return dict(body.beams_on_plates)
 
 
 __all__ = [
-    "BEAM_ON_PLATE_REFUSAL",
+    "STRINGER_MEASUREMENT",
     "INTERIOR_GRID",
     "INTERIOR_REFINEMENTS",
     "MIN_INTERIOR_CLEARANCE_FRACTION",
@@ -663,9 +664,9 @@ __all__ = [
     "PlateBody",
     "PlateNotSupported",
     "PlatePlan",
-    "check_no_beam_on_a_plate",
     "check_no_nested_plates",
     "interior_point_2d",
     "plate_body",
     "polygon_area",
+    "stringer_members",
 ]

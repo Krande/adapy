@@ -747,6 +747,12 @@ OFFSET_DRIVER = """
 _m = mdb.models['Model-1']
 for _k in sorted(_m.sections.keys()):
     _s = _m.sections[_k]
+    # This model's plates bring HomogeneousShellSections with them, and a shell section has no
+    # profile at all -- measured: AttributeError: 'HomogeneousShellSection' object has no attribute
+    # 'profile'. The subject here is the beam offsets, so the shell sections are skipped by name.
+    if not hasattr(_s, 'profile'):
+        print('PROBE shell_section {0} {1!r}'.format(_k, _s.thickness))
+        continue
     print('PROBE section {0} {1} {2}'.format(_k, _m.profiles[_s.profile].__class__.__name__, _s.integration))
     for _attr in ('beamSectionOffset', 'centroid', 'shearCenter'):
         try:
@@ -765,10 +771,7 @@ def offset_run(tmp_path_factory):
     assembly = ada.from_genie_xml(path)
 
     workdir = tmp_path_factory.mktemp("cae_offsets")
-    # plates=False: every member of this model lies ON one of its plates, and that pair cannot be
-    # expressed in one CAE part at all -- the shared edge produces no beam elements (measured; see
-    # ada.cadit.cae.plates.BEAM_ON_PLATE_REFUSAL). The subject here is the offsets.
-    script = emit(assembly, workdir, OFFSET_DRIVER, name="offsets", plates=False)
+    script = emit(assembly, workdir, OFFSET_DRIVER, name="offsets")
     return assembly, run_cae_script(script, workdir)
 
 
@@ -1216,3 +1219,320 @@ def test_a_follower_force_is_accepted_by_the_kernel(analysis_detail_run):
 
     tip = nodal(displacements)[(CANTILEVER_LENGTH, 6.0, 0.0)]
     assert tip[2] > 0.0, "a +Z tip force deflects the tip in +Z"
+
+
+# --------------------------------------------------------------------------------------- plates
+#
+# Three things are settled here that nothing licence-free can settle:
+#
+# * the faces CAE imports from the ACIS body adapy wrote are the plates adapy described -- area,
+#   normal and thickness, read out of the kernel;
+# * a member lying on a plate, built as a ``Stringer``, produces real beam elements that SHARE the
+#   shell's nodes. Measured: {'S4R': 96, 'B31': 12} with all 13 nodes on the stiffener line shared,
+#   against {'S4R': 96} and no B31 at all for the same beam as an ordinary edge;
+# * the shells answer a closed form. A simply supported strip in cylindrical bending under uniform
+#   pressure, and the same strip with a stringer, against ``5 q L**4 / (384 EI)`` with the two
+#   stiffnesses in parallel -- the stringer's axis is the plate's own mid-surface, so they add with no
+#   eccentricity term and the hand estimate is exact rather than indicative.
+
+PLATE_T = 0.012
+PLATE_AREA = 6.0
+STRIP_L = 4.0
+STRIP_B = 0.5
+STRIP_T = 0.010
+STRIP_Q = 1000.0
+STRIP_SEED = 0.05
+BAR_A = 0.010
+BAR_B = 0.045
+POISSON = 0.3
+
+#: Measured on this writer's own output, Abaqus 2025: the bare strip came to 2.3e-04 of the closed
+#: form and the stiffened one to 1.4e-04, with their ratio 3.8e-04 of ``EI_plate/(EI_plate+EI_bar)``.
+#: 2e-03 is roughly eight times the worst of those. The residual is the shell element's own transverse
+#: shear and the discretisation, not noise: these are deterministic runs.
+STRIP_TOL = 2e-03
+
+
+def plate_with_a_stringer() -> ada.Part:
+    """A deck, a stiffener lying on it, an edge stiffener along its boundary, and a portal below.
+
+    All three kinds of member at once, which is the point: ``stf1`` and ``edge_stf`` lie on the plate
+    and become ``Stringer`` features on edges the imported body already carries; ``girder`` is clear
+    of it and is a wire; ``column`` reaches the plate's boundary at a point, which splits that
+    boundary edge and produces a node shared by shell and beam elements.
+    """
+    part = ada.Part("Deck")
+    part / (
+        ada.Plate("deck", [(0, 0), (3, 0), (3, 2), (0, 2)], PLATE_T, mat="S355"),
+        ada.Beam("stf1", (0, 1, 0), (3, 1, 0), "HP200x10", "S355"),
+        ada.Beam("edge_stf", (0, 0, 0), (3, 0, 0), "FB100x10", "S355"),
+        ada.Beam("girder", (0, 1, -0.4), (3, 1, -0.4), "IPE300", "S355"),
+        ada.Beam("column", (0, 1, -0.4), (0, 1, 0), "IPE300", "S355"),
+    )
+    ada.Assembly("PlateSite") / part
+    return part
+
+
+PLATE_DRIVER = """
+_m = mdb.models['Model-1']
+_p = _m.parts['Deck']
+print('PROBE faces {0}'.format(len(_p.faces)))
+print('PROBE edges {0}'.format(len(_p.edges)))
+print('PROBE stringers {0}'.format(sorted(_p.stringers.keys())))
+_total = 0.0
+for _i in range(len(_p.faces)):
+    _total = _total + _p.faces[_i].getSize(printResults=False)
+print('PROBE face_area_total {0!r}'.format(_total))
+for _i in range(len(_p.faces)):
+    _f = _p.faces[_i]
+    _pt = _f.pointOn[0]
+    print('PROBE face {0} {1!r} {2!r}'.format(_i, _f.getSize(printResults=False), _f.getNormal(point=_pt)))
+print('PROBE shell_thickness {0!r}'.format(_m.sections['sh_0p012_S355'].thickness))
+print('PROBE shell_material {0}'.format(_m.sections['sh_0p012_S355'].material))
+_counts = {}
+for _e in _p.elements:
+    _k = str(_e.type)
+    _counts[_k] = _counts.get(_k, 0) + 1
+for _k in sorted(_counts.keys()):
+    print('PROBE element_type {0} {1}'.format(_k, _counts[_k]))
+print('PROBE nodes {0}'.format(len(_p.nodes)))
+print('PROBE mass {0!r}'.format(_p.getMassProperties()['mass']))
+# Every node on the stiffener line, and how many of them a beam and a shell element both use.
+_on_line = 0
+_shared = 0
+for _nd in _p.nodes:
+    _c = _nd.coordinates
+    if abs(_c[1] - 1.0) < 1e-09 and abs(_c[2]) < 1e-09:
+        _on_line = _on_line + 1
+        _kinds = {}
+        for _el in _nd.getElements():
+            _kinds[str(_el.type)] = 1
+        if len(_kinds) > 1:
+            _shared = _shared + 1
+print('PROBE stiffener_nodes {0}'.format(_on_line))
+print('PROBE stiffener_shared {0}'.format(_shared))
+# And the node where the column meets the plate boundary.
+for _nd in _p.nodes:
+    _c = _nd.coordinates
+    if abs(_c[0]) < 1e-09 and abs(_c[1] - 1.0) < 1e-09 and abs(_c[2]) < 1e-09:
+        _kinds = {}
+        for _el in _nd.getElements():
+            _kinds[str(_el.type)] = _kinds.get(str(_el.type), 0) + 1
+        print('PROBE column_node {0}'.format(sorted(_kinds.keys())))
+_m.rootAssembly.regenerate()
+_m.StaticStep(name='Step-1', previous='Initial')
+mdb.Job(name='plate_export', model='Model-1').writeInput(consistencyChecking=OFF)
+print('PROBE inp plate_export.inp')
+"""
+
+
+@pytest.fixture(scope="session")
+def plate_run(tmp_path_factory):
+    part = plate_with_a_stringer()
+    workdir = tmp_path_factory.mktemp("cae_plate")
+    script = emit(part, workdir, PLATE_DRIVER, name="plate", mesh_size=0.25)
+    return part, run_cae_script(script, workdir)
+
+
+def test_the_faces_cae_imports_are_the_plates_adapy_described(plate_run):
+    """The area is the check that makes an arc and a spline honest: adapy's own area is compared
+    against the sum of the faces CAE imported, not against the boundary polygon this writer walks."""
+    part, run = plate_run
+    _assert_ran(run)
+
+    assert run.value("PROBE faces") == "2", "the stiffener splits the deck in the body adapy authors"
+    assert float(run.value("PROBE face_area_total")) == pytest.approx(PLATE_AREA, rel=1e-09)
+    assert float(run.value("PROBE shell_thickness")) == PLATE_T
+    assert run.value("PROBE shell_material") == "S355"
+    for row in run.values("PROBE face"):
+        _, area, normal = row.split(" ", 2)
+        assert float(area) == pytest.approx(PLATE_AREA / 2.0, rel=1e-09)
+        assert [float(c) for c in normal.strip("()").split(",")] == pytest.approx([0.0, 0.0, 1.0], abs=1e-06)
+
+
+def test_a_member_lying_on_a_plate_becomes_a_stringer_with_real_beam_elements(plate_run):
+    """The measurement the whole design turns on. An ORDINARY edge shared with a shell face takes a
+    beam section, reads it back, exports a ``*Beam Section`` keyword -- and produces no elements at
+    all: ``{'S4R': 96}``, with 0 of the 13 nodes on the stiffener line shared. ``Part.Stringer`` on
+    the same edge of the same part gives ``{'S4R': 96, 'B31': 12}`` with every one of them shared."""
+    part, run = plate_run
+    _assert_ran(run)
+
+    assert run.value("PROBE stringers") == "['edge_stf', 'stf1']"
+    counts = {}
+    for row in run.values("PROBE element_type"):
+        name, number = row.split()
+        counts[name] = int(number)
+    assert counts["S4R"] == 96
+    assert counts["B31"] == 38, "12 per stiffener, 12 for the girder, 2 for the column"
+
+    assert run.value("PROBE stiffener_nodes") == "13"
+    assert run.value("PROBE stiffener_shared") == "13", "every node on the line, not merely some of them"
+
+
+def test_the_deck_abaqus_writes_carries_both_element_families(plate_run):
+    """CAE will happily export a ``*Beam Section`` bound to an elset with no elements in it -- that is
+    exactly what an ordinary shared edge produces. The deck is where that shows."""
+    part, run = plate_run
+    _assert_ran(run)
+    text = (run.workdir / "plate_export.inp").read_text(encoding="utf-8")
+
+    element_lines = sorted({line.strip() for line in text.splitlines() if line.lower().startswith("*element,")})
+    assert element_lines == ["*Element, type=B31", "*Element, type=S4R"]
+    assert "*Shell Section, elset=deck" in text
+    assert re.search(r"\*Beam Section, elset=stf1,", text) is not None
+
+
+def test_a_member_meeting_a_plate_at_a_point_shares_that_node(plate_run):
+    """The connectivity a wire member *can* have. Measured: the column's endpoint splits the plate's
+    boundary edge (4 edges / 4 vertices became 7 / 7) and the node comes out used by both families."""
+    part, run = plate_run
+    _assert_ran(run)
+
+    assert run.value("PROBE column_node") == "['B31', 'S4R']"
+
+
+def test_the_part_weighs_its_plate_plus_its_members(plate_run):
+    """``getMassProperties()`` is a weak check on its own -- it reports a beam the solver will never
+    integrate -- so it is here as arithmetic on the plate, next to the element counts that are the
+    real check."""
+    part, run = plate_run
+    _assert_ran(run)
+    plate = next(pl for pl in part.plates if pl.name == "deck")
+
+    plate_mass = PLATE_AREA * PLATE_T * plate.material.model.rho
+    assert plate_mass == pytest.approx(565.2)
+    assert float(run.value("PROBE mass")) > plate_mass
+
+
+# ------------------------------------------------------------------- the strip against a closed form
+
+
+def strip(stiffened: bool) -> ada.Part:
+    part = ada.Part("Strip")
+    objects = [ada.Plate("strip", [(0, 0), (STRIP_L, 0), (STRIP_L, STRIP_B), (0, STRIP_B)], STRIP_T, mat="S355")]
+    if stiffened:
+        bar = ada.Section("BAR", "FB", h=BAR_B, w_top=BAR_A, w_btn=BAR_A)
+        objects.append(ada.Beam("bar", (0, STRIP_B / 2, 0), (STRIP_L, STRIP_B / 2, 0), bar, "S355"))
+    part / objects
+    ada.Assembly("StripSite") / part
+    return part
+
+
+STRIP_DRIVER = """
+import odbAccess
+
+_m = mdb.models['Model-1']
+_p = _m.parts['Strip']
+_a = _m.rootAssembly
+_inst = _a.instances['Strip-1']
+_L = {L!r}
+_B = {B!r}
+print('PROBE faces {{0}}'.format(len(_p.faces)))
+_counts = {{}}
+for _e in _p.elements:
+    _k = str(_e.type)
+    _counts[_k] = _counts.get(_k, 0) + 1
+for _k in sorted(_counts.keys()):
+    print('PROBE element_type {{0}} {{1}}'.format(_k, _counts[_k]))
+_x0 = _a.Set(name='x0', edges=_inst.edges.findAt(((0.0, _B / 2, 0.0),)))
+_x1 = _a.Set(name='x1', edges=_inst.edges.findAt(((_L, _B / 2, 0.0),)))
+_sides = _a.Set(name='sides', edges=_inst.edges.findAt(((_L / 2, 0.0, 0.0),), ((_L / 2, _B, 0.0),)))
+_m.StaticStep(name='pressure', previous='Initial')
+_m.DisplacementBC(name='simple_x0', createStepName='Initial', region=_x0, u1=0.0, u3=0.0)
+_m.DisplacementBC(name='simple_x1', createStepName='Initial', region=_x1, u3=0.0)
+# u2 = 0 and ur1 = 0 on both long edges: the strip is then in CYLINDRICAL bending, which is what
+# makes D = E t^3 / 12 (1 - v^2) the right stiffness. A narrow strip with free long edges curves
+# anticlastically and behaves as E I with no (1 - v^2), which would be 9% out and look like a
+# tolerance problem.
+_m.DisplacementBC(name='cylindrical', createStepName='Initial', region=_sides, u2=0.0, ur1=0.0)
+_surf = _a.Surface(name='top', side1Faces=_inst.faces)
+_m.Pressure(name='q', createStepName='pressure', region=_surf, magnitude={Q!r})
+_m.FieldOutputRequest(name='F-strip', createStepName='pressure', variables=('U', 'UR', 'RF', 'S'))
+_job = mdb.Job(name='strip_job', model='Model-1')
+_job.submit(consistencyChecking=OFF)
+_job.waitForCompletion()
+print('PROBE solved {{0}}'.format('THE ANALYSIS HAS COMPLETED SUCCESSFULLY' in open('strip_job.sta').read()))
+_odb = odbAccess.openOdb('strip_job.odb')
+_frame = _odb.steps['pressure'].frames[-1]
+_worst = 0.0
+for _v in _frame.fieldOutputs['U'].values:
+    if abs(_v.data[2]) > abs(_worst):
+        _worst = _v.data[2]
+print('PROBE max_u3 {{0!r}}'.format(float(_worst)))
+_odb.close()
+"""
+
+
+def _strip_run(tmp_path_factory, stiffened: bool):
+    part = strip(stiffened)
+    workdir = tmp_path_factory.mktemp("cae_strip_" + ("stiff" if stiffened else "bare"))
+    driver = STRIP_DRIVER.format(L=STRIP_L, B=STRIP_B, Q=STRIP_Q)
+    script = emit(part, workdir, driver, name="strip", mesh_size=STRIP_SEED)
+    return part, run_cae_script(script, workdir)
+
+
+@pytest.fixture(scope="session")
+def bare_strip_run(tmp_path_factory):
+    return _strip_run(tmp_path_factory, stiffened=False)
+
+
+@pytest.fixture(scope="session")
+def stiffened_strip_run(tmp_path_factory):
+    return _strip_run(tmp_path_factory, stiffened=True)
+
+
+def plate_stiffness() -> float:
+    """``D`` for a plate in cylindrical bending."""
+    return E_MODULUS * STRIP_T**3 / (12.0 * (1.0 - POISSON**2))
+
+
+def test_a_simply_supported_strip_under_pressure_is_the_closed_form(bare_strip_run):
+    """``5 q L**4 / (384 D)``, with ``D = E t**3 / (12 (1 - v**2))``.
+
+    Measured on this writer's own output: 0.17329297959804535 m against 0.1733333... -- 2.3e-04.
+    """
+    part, run = bare_strip_run
+    _assert_ran(run)
+
+    assert run.value("PROBE faces") == "1"
+    assert run.value("PROBE solved") == "True"
+    expected = 5.0 * STRIP_Q * STRIP_L**4 / (384.0 * plate_stiffness())
+    assert expected == pytest.approx(0.1733333333333333, rel=1e-12)
+    assert abs(float(run.value("PROBE max_u3"))) == pytest.approx(expected, rel=STRIP_TOL)
+
+
+def test_a_stringer_stiffens_the_strip_by_the_amount_two_springs_in_parallel_would(bare_strip_run, stiffened_strip_run):
+    """The physics check on the stringer, and the reason it is exact rather than indicative.
+
+    The stringer's axis **is** the plate's mid-surface -- the shell section is assigned
+    ``MIDDLE_SURFACE`` and the beam sits on the geometry -- so the bar and the plate bend about the
+    same axis and their stiffnesses simply add, with no eccentricity term. Measured:
+
+        EI_plate = D * b               = 9615.384615384617 N m^2
+        EI_bar   = E a b^3 / 12        = 15946.874999999998 N m^2
+        ratio    = EI_plate / (EI_plate + EI_bar) = 0.37615550268480996
+        Abaqus     0.3762966491666233                        -> 3.8e-04
+
+    A stringer that carried no load at all would give a ratio of 1.0, which is 166 times the
+    tolerance away.
+    """
+    _, bare = bare_strip_run
+    part, stiff = stiffened_strip_run
+    _assert_ran(bare)
+    _assert_ran(stiff)
+
+    assert stiff.value("PROBE faces") == "2", "the bar splits the strip along its centreline"
+    stiff_counts = dict(row.split() for row in stiff.values("PROBE element_type"))
+    bare_counts = dict(row.split() for row in bare.values("PROBE element_type"))
+    assert bare_counts == {"S4R": "800"}
+    assert stiff_counts == {"S4R": "800", "B31": "80"}
+
+    ei_plate = plate_stiffness() * STRIP_B
+    ei_bar = E_MODULUS * BAR_A * BAR_B**3 / 12.0
+    expected_ratio = ei_plate / (ei_plate + ei_bar)
+    assert expected_ratio == pytest.approx(0.37615550268480996, rel=1e-09)
+
+    measured = abs(float(stiff.value("PROBE max_u3"))) / abs(float(bare.value("PROBE max_u3")))
+    assert measured == pytest.approx(expected_ratio, rel=STRIP_TOL)
+    assert measured < 0.5, "and it is unmissably stiffer, not marginally"
