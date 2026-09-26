@@ -259,7 +259,7 @@ const MemberPane: React.FC<{
     const onMintCiBot = async () => {
         const name = prompt(
             `Name for a CI bot on "${project.name}"?\n\n` +
-            "One per consumer — e.g. ada-build, e3d-worker. Each gets its own " +
+            "One per consumer — e.g. ada-build, cad-worker. Each gets its own " +
             "token, its own rotation and its own audit trail.\n\n" +
             "Leave blank for the project's original unnamed bot (ci:" + project.slug + ").",
             "",

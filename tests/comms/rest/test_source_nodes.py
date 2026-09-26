@@ -645,7 +645,7 @@ def test_the_cursor_read_asks_for_no_source_and_parses_its_timestamps(worker_mod
         return {
             "sources": [
                 {
-                    "source": "e3d",
+                    "source": "cad",
                     "nodes": 1234,
                     "last_changed_at": "2026-09-09T09:53:46+00:00",
                     "observed_at": "2026-09-09T09:53:47Z",
@@ -661,7 +661,7 @@ def test_the_cursor_read_asks_for_no_source_and_parses_its_timestamps(worker_mod
     assert urls == [rec._url()]
     assert "source=" not in urls[0] and "refs=" not in urls[0]
 
-    assert got[0]["source"] == "e3d"
+    assert got[0]["source"] == "cad"
     assert got[0]["nodes"] == 1234
     # Parsed back to aware datetimes, like every other value these recorders
     # hand back — a plugin must not be able to tell the two apart by type.
@@ -677,7 +677,7 @@ def test_an_unreadable_cursor_reads_as_absent_rather_than_failing_the_sweep(work
     """
     rec = worker_mod._RestSourceNodesRecorder("https://viewer.example", "tok", shared_scope)
     rec._request = lambda url, payload=None: {
-        "sources": [{"source": "e3d", "nodes": 1, "last_changed_at": "not a timestamp", "observed_at": None}]
+        "sources": [{"source": "cad", "nodes": 1, "last_changed_at": "not a timestamp", "observed_at": None}]
     }
     assert rec.sources()[0]["last_changed_at"] is None
 

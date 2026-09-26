@@ -63,8 +63,9 @@ class NodeAttributes:
     """One node's own facts, in three groups core keeps apart.
 
     ``own`` is what the source says about the entity itself -- its class, name, tag. ``groups`` is
-    named sets of properties (an IFC property set, a Tekla UDA block, a catalogue's attribute
-    group): the grouping is the source's and core preserves it, because flattening two properties
+    named sets of properties (an IFC property set, another format's user-defined attribute block,
+    a catalogue's attribute group): the grouping is the source's and core preserves it, because
+    flattening two properties
     that share a name into one map loses which one a reader is looking at. ``quantities`` is
     separated from ``groups`` only because a consumer that wants numbers -- a take-off, a mass
     roll-up -- should not have to guess which group holds them by name.

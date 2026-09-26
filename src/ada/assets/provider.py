@@ -2,7 +2,8 @@
 
 Core dispatches on which methods a provider has, the same "presence IS the declaration"
 convention core already uses for optional catalogue methods. That is what lets a mesh catalogue,
-a private-format CSG store and the in-tree IFC provider ride one pipeline without core growing a
+a provider with a private source format and the in-tree IFC provider ride one pipeline without
+core growing a
 branch per vendor.
 
 Only ``AssetTreeProvider`` is required. A provider that merely publishes into the store needs no
@@ -30,6 +31,7 @@ from ada.assets.projection import HierarchySlice
 __all__ = [
     "AssetAttributes",
     "AssetBuilder",
+    "AssetConcepts",
     "AssetPublisher",
     "AssetTreeProvider",
     "BuildDelivery",
@@ -137,6 +139,45 @@ class AssetAttributes(Protocol):
 
 
 @runtime_checkable
+class AssetConcepts(Protocol):
+    """Optional: the node as CONCEPT OBJECTS -- an ``ada.Part`` of real ``Beam``/``Plate``.
+
+    WHY THIS IS NOT THE BUILDER. A ``build`` claim answers "what do I DRAW", and its product is a
+    GLB: bytes for a viewer, with the objects thrown away on the way out. Two things in core need
+    the objects themselves and cannot use a mesh for either:
+
+    * ``ada.clash.identify_joints`` walks ``get_all_physical_objects(Beam/Plate)`` -- a clash check
+      needs members, not geometry;
+    * ``clash_detail`` hands a registered spec the actual ``Beam``/``Plate`` objects, because the
+      result document's member rows are core-vocabulary DESCRIPTIONS -- enough to group and label a
+      joint, never enough to build with.
+
+    Both reach a model today by downloading a source file and dispatching on its EXTENSION, which
+    works for the formats core reads and cannot work for a provider's private one. This is the way
+    in for the rest: the provider reads its own format and hands back core's objects, so core still
+    never learns what the source was.
+
+    THE ARGUMENTS ARE A BUILDER'S, MINUS THE OUTPUT. ``options`` is the node's own
+    ``BuildSpec.options`` -- the same opaque mapping the publish wrote and core forwards without
+    reading -- so a node that can be built can be read as concepts with nothing extra recorded
+    anywhere. A provider that scopes its build to the published spine scopes this the same way, by
+    construction, because it is the same code with the tessellation left off.
+
+    Registered by PROVIDER ID (``ada.assets.concepts``), not by capability: "who can read this
+    format" is a property of the package, and unlike a build there is no job to route.
+    """
+
+    def concepts(
+        self,
+        options: Mapping[str, Any],
+        *,
+        storage: Any,
+        scope: Any = None,
+        node: str | None = None,
+    ) -> Any: ...
+
+
+@runtime_checkable
 class AssetBuilder(Protocol):
     """Optional: the worker-side half of a ``build`` claim.
 
@@ -167,4 +208,7 @@ def provider_capabilities(provider: Any) -> dict[str, bool]:
         # serves those. This flag is only "can answer live", which is what a caller deciding
         # whether to expect an answer without a published revision needs to know.
         "attributes": hasattr(provider, "attributes"),
+        # Can this provider hand core the node as `ada` objects? What a clash check and a detail
+        # hand-off need, and what no mesh can answer.
+        "concepts": hasattr(provider, "concepts"),
     }

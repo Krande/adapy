@@ -1,6 +1,6 @@
 /** What the viewer will try to open, and what it will not.
  *
- * The bug this pins down: a `csg.db` sitting in a scope was walked by the
+ * The bug this pins down: a provider's own `source.db` sitting in a scope was walked by the
  * gallery and offered a load checkbox by the storage browser, and could only
  * fail — nothing converts it. The cause was `canLoadIntoSceneLegacy` being a
  * DENYLIST ("everything except .rmed and the streaming-only extensions") while
@@ -55,8 +55,8 @@ beforeEach(() => {
 });
 
 test("an extension with no GLB target is not legacy-loadable", () => {
-    // The report: csg.db files in a scope.
-    assert.equal(canLoadIntoSceneLegacy("exports/csg.db"), false);
+    // The report: a provider's own binary files in a scope.
+    assert.equal(canLoadIntoSceneLegacy("exports/source.db"), false);
     // ...and the class it belongs to, which is the actual fix.
     assert.equal(canLoadIntoSceneLegacy("notes.txt"), false);
     assert.equal(canLoadIntoSceneLegacy("archive.tar.gz"), false);
@@ -110,14 +110,14 @@ test("with convert on but no worker registered, the static mirror answers", () =
     assert.equal(canLoadIntoSceneLegacy("a.step"), true);
     assert.equal(canLoadIntoSceneLegacy("run.zip"), true);
     // The mirror is still an allowlist: the bug does not come back here.
-    assert.equal(canLoadIntoSceneLegacy("exports/csg.db"), false);
+    assert.equal(canLoadIntoSceneLegacy("exports/source.db"), false);
     assert.equal(canLoadIntoSceneLegacy("mesh.med"), false);
 });
 
 test("with no plugins, canOpenInScene is exactly core's two routes", () => {
     assert.equal(canOpenInScene("a.ifc"), true);
     assert.equal(canOpenInScene("a.sif"), true);
-    assert.equal(canOpenInScene("exports/csg.db"), false);
+    assert.equal(canOpenInScene("exports/source.db"), false);
     assert.equal(canOpenInScene("notes.txt"), false);
 });
 
@@ -126,16 +126,16 @@ test("a plugin provider makes its file kind openable again", () => {
         id: "renderer",
         renderableFileProviders: [
             {
-                id: "csg",
-                claims: (key) => key.endsWith("/csg.db"),
+                id: "native",
+                claims: (key) => key.endsWith("/source.db"),
                 open: async () => {},
             },
         ],
     });
     // The interaction in one line: the allowlist says no, the plugin says yes,
     // and the file is offered.
-    assert.equal(canLoadIntoSceneLegacy("assets/c/s/r/csg.db"), false);
-    assert.equal(canOpenInScene("assets/c/s/r/csg.db"), true);
+    assert.equal(canLoadIntoSceneLegacy("assets/c/s/r/source.db"), false);
+    assert.equal(canOpenInScene("assets/c/s/r/source.db"), true);
     // A claim is not a licence over everything: what the provider does not
     // claim stays closed.
     assert.equal(canOpenInScene("assets/c/s/r/other.db"), false);
@@ -149,7 +149,7 @@ test("a disabled plugin's claims stop counting", () => {
         // openable, and every OTHER file must stay openable.
         renderableFileProviders: [
             {
-                id: "csg",
+                id: "native",
                 claims: () => {
                     throw new Error("boom");
                 },
@@ -157,6 +157,6 @@ test("a disabled plugin's claims stop counting", () => {
             },
         ],
     });
-    assert.equal(canOpenInScene("assets/c/s/r/csg.db"), false);
+    assert.equal(canOpenInScene("assets/c/s/r/source.db"), false);
     assert.equal(canOpenInScene("a.ifc"), true);
 });

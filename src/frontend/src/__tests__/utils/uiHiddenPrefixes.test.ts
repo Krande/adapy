@@ -10,13 +10,13 @@ import {
 // Published-asset blobs are hidden from the file BROWSERS, never from the API.
 //
 // GET /scopes/{scope}/files is the sole index of the assets/ prefix — no prefix
-// filter, no pagination — and the weld-gen-assets plugin builds its whole
+// filter, no pagination — and an out-of-tree assets plugin builds its whole
 // collection -> subject -> revision hierarchy out of that one listing, via its
 // own viewerApi.listFiles call. Filtering server-side would not degrade it, it
-// would silently blank it. converter.py carries the same warning at the source.
+// would silently blank it.
 
 test("assets/ is hidden from the browsers", () => {
-  assert.ok(isUiHiddenKey("assets/asp/asp/20260825T135553Z/csg.db"));
+  assert.ok(isUiHiddenKey("assets/demo/demo/20260101T000000Z/source.db"));
   assert.ok(isUiHiddenKey("/assets/leading-slash/x/y/f.db"), "a leading slash must not defeat it");
 });
 

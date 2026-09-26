@@ -121,11 +121,11 @@ def test_no_name_keeps_the_original_subject(ci_client):
 
 def test_a_name_adds_one_segment(ci_client):
     client, calls = ci_client
-    r = client.post(MINT, json={"name": "e3d-worker"})
+    r = client.post(MINT, json={"name": "cad-worker"})
     assert r.status_code == 201
-    assert r.json()["user_sub"] == f"ci:{SLUG}:e3d-worker"
+    assert r.json()["user_sub"] == f"ci:{SLUG}:cad-worker"
     # Still non-admin, still a project member, still role `ci`.
-    assert calls["members"] == [{"sub": f"ci:{SLUG}:e3d-worker", "role": "ci"}]
+    assert calls["members"] == [{"sub": f"ci:{SLUG}:cad-worker", "role": "ci"}]
 
 
 def test_two_named_bots_are_separate_principals(ci_client):
@@ -133,8 +133,8 @@ def test_two_named_bots_are_separate_principals(ci_client):
     from them being different subjects, since the cutoff is per subject."""
     client, calls = ci_client
     client.post(MINT, json={"name": "ada-build"})
-    client.post(MINT, json={"name": "e3d-worker"})
-    assert calls["revoked"] == [f"ci:{SLUG}:ada-build", f"ci:{SLUG}:e3d-worker"]
+    client.post(MINT, json={"name": "cad-worker"})
+    assert calls["revoked"] == [f"ci:{SLUG}:ada-build", f"ci:{SLUG}:cad-worker"]
 
 
 def test_a_colon_in_a_name_is_refused(ci_client):
@@ -155,11 +155,11 @@ def test_malformed_names_are_refused(ci_client, name):
 
 
 def test_a_name_is_lowercased_rather_than_refused(ci_client):
-    """A subject is an identifier: accepting both `E3D` and `e3d` would make
+    """A subject is an identifier: accepting both `Cad` and `cad` would make
     two bots that look like one wherever it is displayed."""
     client, _ = ci_client
-    r = client.post(MINT, json={"name": "E3D-Worker"})
-    assert r.json()["user_sub"] == f"ci:{SLUG}:e3d-worker"
+    r = client.post(MINT, json={"name": "Cad-Worker"})
+    assert r.json()["user_sub"] == f"ci:{SLUG}:cad-worker"
 
 
 def test_revoking_does_not_mint(ci_client):

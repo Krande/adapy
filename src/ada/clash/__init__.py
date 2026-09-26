@@ -26,6 +26,10 @@ if TYPE_CHECKING:  # import-time names for type checkers only; resolved at runti
         type_key_for,
         type_label_for,
     )
+    from ada.clash.from_asset import (  # noqa: F401
+        clash_check_from_asset_node,
+        part_for_asset_node,
+    )
     from ada.clash.from_scan import (  # noqa: F401
         clash_check_from_members,
         clash_check_from_scan,
@@ -74,6 +78,8 @@ _LAZY = {
     "run_clash_check": "identify",
     "clash_check_from_members": "from_scan",
     "clash_check_from_scan": "from_scan",
+    "clash_check_from_asset_node": "from_asset",
+    "part_for_asset_node": "from_asset",
 }
 
 __all__ = ["CLASH_RESULT_SCHEMA", "ClashOptions", *sorted(_LAZY)]

@@ -47,7 +47,7 @@ MODEL_SUFFIXES = (".glb", ".gltf")
 
 # Optional per-collection sidecar mapping model id -> display label, so a
 # catalogue can show a meaningful name where the object key is an opaque
-# identifier (an E3D ref, say). One GET per listing regardless of model count,
+# identifier (an upstream system's own ref, say). One GET per listing regardless of model count,
 # which is why it is a single file rather than per-object metadata: S3 listings
 # do not carry user metadata, so that shape would cost one HEAD per model.
 #
