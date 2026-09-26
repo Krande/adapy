@@ -571,6 +571,8 @@ def _curved_plate_from_sat(path, name="curved_plate", t=0.02) -> PlateCurved:
     return PlateCurved(name, Geometry(1, advanced_face, None), t=t, mat="S355")
 
 
+@pytest.mark.pyocc  # a curved plate is located by a point the pythonocc kernel finds on its
+# spline face; without that kernel the writer refuses it by name, which is its own test above
 def test_a_real_curved_plate_is_translated_with_the_area_the_cad_backend_measures(cae_files):
     """Measured against CAE on this very body: the point below resolved to exactly one face and the
     areas agreed to 2.5e-08 (adapy 6.915204361623685, CAE 6.91520453146419)."""
@@ -589,6 +591,8 @@ def test_a_real_curved_plate_is_translated_with_the_area_the_cad_backend_measure
     assert planned.normal == pytest.approx((0.18602819108818064, 0.9783424781269513, -0.09077173355662654), rel=1e-09)
 
 
+@pytest.mark.pyocc  # a curved plate is located by a point the pythonocc kernel finds on its
+# spline face; without that kernel the writer refuses it by name, which is its own test above
 def test_a_curved_plates_area_is_the_bare_face_and_not_the_thickened_shell(cae_files):
     """The trap: with ``Config().geom_thicken_curved_shells`` on -- the default -- ``solid_occ()``
     returns a thickness-``t`` ClosedShell whose *surface* area is about twice the face's. Measured on
@@ -608,6 +612,8 @@ def test_a_curved_plates_area_is_the_bare_face_and_not_the_thickened_shell(cae_f
     assert thickened / planned.area > 1.9
 
 
+@pytest.mark.pyocc  # a curved plate is located by a point the pythonocc kernel finds on its
+# spline face; without that kernel the writer refuses it by name, which is its own test above
 def test_a_curved_plate_emits_a_shell_section_and_a_located_face(cae_files, tmp_path):
     plate = _curved_plate_from_sat(cae_files.parents[4] / "files/sat_files/curved_plate.sat")
 
