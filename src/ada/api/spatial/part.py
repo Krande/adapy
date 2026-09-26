@@ -1819,7 +1819,10 @@ class Part(BackendGeom):
 
         :param destination: the ``.py`` script to write.
         :param model_name: the CAE model to build into.
-        :param unit_scale: multiplies every coordinate and every profile dimension.
+        :param unit_scale: must be ``1.0``. It used to multiply every coordinate and every
+            profile dimension while leaving ``E`` and the density alone, which emitted a
+            millimetre model carrying a modulus in pascals — 10⁶ too stiff, unreported.
+            See :func:`ada.cadit.cae.writer.check_unit_scale`; convert the model instead.
         :return: the paths this call wrote — the script, plus ``<stem>.name_map.json``
             if sanitising names for CAE changed any of them. The script itself writes
             ``<stem>.cae_build_result.json`` when CAE runs it.

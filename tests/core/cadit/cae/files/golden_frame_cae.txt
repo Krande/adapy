@@ -4,9 +4,14 @@
 # adapy source part : Frame
 # CAE model         : Model-1
 # adapy units       : m
-# unit_scale        : 1.0
-#                     Every coordinate and every profile dimension below is already
-#                     multiplied by it; nothing is scaled at run time.
+#                     Every coordinate and every profile dimension below is in those
+#                     units, unscaled: unit_scale must be 1.0. It used to multiply both
+#                     and leave E and the density alone, which emitted a millimetre model
+#                     with a modulus in pascals and nothing to report it.
+# joint tolerance   : 0.0001
+#                     adapy's Config().general_point_tol -- how close two members have to
+#                     be for adapy to call them joined, and so what EXPECTED_TOPOLOGY
+#                     below is stated at. CAE's own merge tolerance is 1e-06.
 # parts             : 1
 # beams             : 3
 # materials         : 1
@@ -41,7 +46,7 @@ from abaqusConstants import *
 from caeModules import *
 
 MODEL_NAME = 'Model-1'
-MODEL_DESCRIPTION = "adapy concept model 'Frame'; units m; unit_scale 1.0"
+MODEL_DESCRIPTION = "adapy concept model 'Frame'; units m"
 RESULT_NAME = 'frame.cae_build_result.json'
 CAE_NAME = 'frame.cae'
 
@@ -52,12 +57,51 @@ EXPECTED_BBOX = {
 }
 BBOX_TOL = 1e-06
 
+# What CAE must end up holding, computed by adapy from Beam.axis_global() before
+# a wire was drawn: one sub-edge per member, plus one more for every OTHER member's
+# endpoint that lands strictly inside it (CAE imprints a landing member into the
+# through member -- measured, 1 edge becomes 3). See _guard_topology.
+#
+# JOINT_TOL is adapy's own Config().general_point_tol -- the distance at which its FEM
+# node container calls two points one node. CAE's merge tolerance is CAE_MERGE_TOL,
+# measured on Abaqus 2025 and absolute in model units at every part size probed
+# (0.004, 4 and 4000 units long). The gap between the two is deliberate: a joint
+# closer than CAE_MERGE_TOL is built by both, one further apart than JOINT_TOL is
+# built by neither, and one in between is a member adapy joins and CAE leaves loose --
+# which is a real disagreement between adapy's two Abaqus routes and fails the build.
+JOINT_TOL = 0.0001
+CAE_MERGE_TOL = 1e-06
+EXPECTED_TOPOLOGY = {
+    'Frame': {
+        'edges': 4,
+        'vertices': 5,
+        'edges_per_member': {
+            'brace': 1,
+            'col1': 1,
+            'girder': 2,
+        },
+    },
+}
+
+# Every name this script creates. CAE does not refuse a reused name -- it replaces the
+# object and invalidates handles to the old one -- so a second run in one session would
+# silently swap them all. Checked before anything is built; see _guard_no_name_collisions.
+#
+# Sets are absent deliberately: they live inside a part, and a part whose own name is
+# free is a part this script just created, so its sets cannot collide with anything.
+PLANNED_NAMES = {
+    'instances': ['Frame-1'],
+    'materials': ['S355'],
+    'parts': ['Frame'],
+    'profiles': ['BG200x200x10', 'HP200x10', 'IPE300'],
+    'sections': ['sec_BG200x200x10_S355', 'sec_HP200x10_S355', 'sec_IPE300_S355'],
+}
+
 _RESULT = {
-    'schema': 'ada.cae_build_result/1',
+    'schema': 'ada.cae_build_result/2',
     'ok': False,
     'model': MODEL_NAME,
     'source_part': 'Frame',
-    'unit_scale': 1.0,
     'created': {
         'parts': [],
         'materials': [],
@@ -126,6 +170,97 @@ def _model():
     return mdb.Model(name=MODEL_NAME, description=MODEL_DESCRIPTION)
 
 
+def _guard_no_name_collisions(model):
+    """Guard 7: nothing this script is about to create may already exist.
+
+    CAE does not raise when a name is reused. Measured: it silently REPLACES the object
+    and invalidates every handle to the old one, which then fails much later with
+    "AccessError: ... no longer exists" -- or does not fail at all. So running this script
+    twice in one GUI session would quietly swap every part, section and profile, and the
+    second run would look exactly as clean as the first.
+
+    That is why this cannot be left to the kernel and has to happen before a single object
+    is built: once the first Part is replaced, the damage is done and there is nothing to
+    abort back to.
+    """
+    present = {
+        'parts': model.parts.keys(),
+        'materials': model.materials.keys(),
+        'profiles': model.profiles.keys(),
+        'sections': model.sections.keys(),
+        'instances': model.rootAssembly.instances.keys(),
+    }
+    clashes = []
+    for kind in sorted(PLANNED_NAMES.keys()):
+        existing = list(present[kind])
+        for name in PLANNED_NAMES[kind]:
+            if name in existing:
+                clashes.append('{0} {1!r}'.format(kind, name))
+    if clashes:
+        _fail('model {0!r} already holds {1} of the object(s) this script would create, and CAE '
+              'replaces an object whose name is reused rather than refusing it -- so building here '
+              'would silently swap them: {2}. Delete that model, or write the script again with a '
+              'model_name of its own.'.format(MODEL_NAME, len(clashes), ', '.join(clashes)))
+
+
+def _guard_topology(model):
+    """Guard 6: the ONLY check that can tell a connected frame from a pile of loose sticks.
+
+    Guard 1 below cannot, although it was written believing it could. Measured, with this
+    script's own wire calls:
+
+        T-joint, IMPRINT (correct)        edges=3 vertices=4     guard 1 passes
+        T-joint, SEPARATE (disconnected)  edges=2 vertices=4     guard 1 PASSES
+        brace 1e-6 off the girder line    edges=2 vertices=4     guard 1 PASSES
+        collinear pair, touching          edges=2 vertices=3     guard 1 passes
+        collinear pair, 1e-6 apart        edges=2 vertices=4     guard 1 PASSES
+
+    Every one of those has "every edge carries exactly one section", so the guard that
+    counts sections cannot see connectivity at all. Note the last pair especially: two
+    members that failed to join do not change the EDGE count either. Only the vertex count
+    moves, which is why it is checked here.
+
+    EXPECTED_TOPOLOGY was computed from the adapy model -- every member's endpoints were
+    known there -- so this compares the kernel against an independent statement of what it
+    should have built, not against its own bookkeeping.
+    """
+    problems = []
+    for part_name in sorted(EXPECTED_TOPOLOGY.keys()):
+        expected = EXPECTED_TOPOLOGY[part_name]
+        part = model.parts[part_name]
+        built_edges = len(part.edges)
+        built_vertices = len(part.vertices)
+        record = _RESULT['guards'].setdefault(part_name, {})
+        record['expected_edges'] = expected['edges']
+        record['expected_vertices'] = expected['vertices']
+        record['built_vertices'] = built_vertices
+        disagree = []
+        for set_name in sorted(expected['edges_per_member'].keys()):
+            wanted = expected['edges_per_member'][set_name]
+            built = _RESULT['edges_per_member'].get(set_name)
+            if built != wanted:
+                disagree.append('member {0!r} expected {1} sub-edge(s), CAE built {2}'.format(
+                    set_name, wanted, built))
+        if disagree:
+            problems.append('part {0!r}: {1}'.format(part_name, '; '.join(disagree)))
+        if built_edges != expected['edges']:
+            problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
+                part_name, expected['edges'], built_edges))
+        if built_vertices != expected['vertices']:
+            problems.append('part {0!r}: adapy described {1} vertex(es), CAE built {2}'.format(
+                part_name, expected['vertices'], built_vertices))
+    if problems:
+        _fail('the topology CAE built is not the topology adapy described -- ' + ' | '.join(problems)
+              + ' | FEWER sub-edges or MORE vertices than expected means a joint did not merge: '
+              'CAE merges two points only when they are closer than ' + repr(CAE_MERGE_TOL)
+              + ' in model units, while adapy treats anything within ' + repr(JOINT_TOL)
+              + ' as one point, so a member landing between those two distances is joined in the '
+              'adapy model and loose here. MORE sub-edges or FEWER vertices means CAE imprinted a '
+              'connection adapy does not model -- two members crossing away from their ends, which '
+              'the writer refuses when it can see it. Either way the geometry is reported, never '
+              'snapped: fix the model.')
+
+
 def _member_edges(part_name, set_name, edges):
     """Check and record what the cylinder on the preceding line actually found.
 
@@ -146,10 +281,15 @@ def _member_edges(part_name, set_name, edges):
 
 
 def _guard_every_edge_sectioned(model):
-    """Guard 1, the only check that catches both connectivity failure modes.
+    """Guard 1: every edge carries exactly one section, and every section an orientation.
 
-    Imprinting can leave a sub-edge no cylinder claimed; mergeType=SEPARATE would leave
-    duplicate wires no section covers. Neither shows up anywhere else.
+    Imprinting can leave a sub-edge no cylinder claimed, and a duplicated wire is an edge
+    no cylinder claims either. Neither shows up anywhere else.
+
+    This guard used to claim it caught connectivity as well. It does not, and the
+    measurements are in _guard_topology above: a disconnected frame reaches this check
+    with every one of its edges sectioned. Do not delete that guard on the strength of
+    this one.
 
     Read back from the kernel's own sectionAssignments and the kernel's own sets -- not
     from this script's bookkeeping -- so a bug in the bookkeeping cannot make the guard
@@ -172,7 +312,10 @@ def _guard_every_edge_sectioned(model):
         unassigned = sorted(all_indices - set(covered.keys()))
         doubled = sorted([index for index in covered if len(covered[index]) > 1])
         orientations = len(part.beamSectionOrientations)
-        _RESULT['guards'][part_name] = {
+        # update(), not assignment: _guard_topology has already recorded what adapy expected
+        # for this part, and overwriting it would drop the connectivity verdict from the
+        # sidecar -- the one number a reader most wants next to 'edges'.
+        _RESULT['guards'].setdefault(part_name, {}).update({
             'edges': len(all_indices),
             'edges_with_a_section': len(covered),
             'edges_with_no_section': len(unassigned),
@@ -180,7 +323,7 @@ def _guard_every_edge_sectioned(model):
             'section_assignments': len(part.sectionAssignments),
             'orientations': orientations,
             'sets': len(part.sets.keys()),
-        }
+        })
         _RESULT['created']['section_assignments'] += len(part.sectionAssignments)
         _RESULT['created']['orientations'] += orientations
         for set_name in sorted(part.sets.keys()):
@@ -307,7 +450,12 @@ def build(model):
 
 def main():
     model = _model()
+    # Before anything is built: CAE would replace a reused name rather than refuse it.
+    _guard_no_name_collisions(model)
     build(model)
+    # Topology first of the three post-build guards, because it is the one that says
+    # whether the thing CAE built is even the same structure adapy described.
+    _guard_topology(model)
     _guard_every_edge_sectioned(model)
     _guard_bounding_box(model)
     _RESULT['ok'] = True

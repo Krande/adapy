@@ -11,13 +11,15 @@ only**; anything a straight wire would silently misrepresent is refused rather t
 approximated, and anything phase 1 does not translate at all is listed in the emitted
 script's header and in its result sidecar so its absence is visible.
 
-Five guards carry the correctness of the output, each aimed at a specific way this
+Seven guards carry the correctness of the output, each aimed at a specific way this
 could emit a model that opens in CAE, meshes, solves and is wrong:
 
 1. **Every edge ends with exactly one section assignment**, asserted inside the
    emitted script against the kernel's own ``sectionAssignments``. Imprinting can
-   leave a sub-edge no cylinder claimed, and ``mergeType=SEPARATE`` would leave
-   duplicated wires no section covers; both show up here and nowhere else.
+   leave a sub-edge no cylinder claimed, and a duplicated wire is a second edge no
+   cylinder claims either. What this guard does **not** see is connectivity, although
+   it was written believing it did: measured, a disconnected frame produces exactly the
+   same "every edge carries a section" verdict as a connected one. That is guard 6.
 2. **Beam subclasses are refused by exact type.** A ``BeamRevolve`` drawn as a
    straight chord is a model that looks right.
 3. **Eccentric beams are refused.** GeniE carries ``e1``/``e2`` and adapy
@@ -37,20 +39,47 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    ``Abaqus Error: cae exited with an error``. But the ``abq<ver>.bat`` launcher
    *itself* still returns 0 either way, so a caller cannot learn the outcome from an
    exit code at all. The sidecar is the signal, which is why it is not optional.
+6. **The topology CAE built is the topology adapy described.** Per-member sub-edge
+   counts and the part's vertex count, computed from the adapy model by
+   :mod:`ada.cadit.cae.topology` and asserted in the emitted script against the kernel.
+   This is the *only* guard that can tell a connected frame from a pile of loose
+   sticks — guard 1 cannot, and two collinear members that failed to join do not even
+   change the edge count, only the vertex count. A *crossing*, which CAE welds
+   silently, is refused while planning rather than asserted; the reasoning is in
+   :func:`ada.cadit.cae.topology.expected_topology` and in :func:`build_plan`.
+7. **No planned name already exists in the target CAE model.** CAE does not raise on a
+   reused name: it silently *replaces* the object and invalidates handles to the old
+   one (measured), so a second run in the same GUI session would quietly swap every
+   part. Checked against the live model before a single object is built.
+
+``unit_scale`` is accepted only as ``1.0``. It used to multiply coordinates and profile
+dimensions, which is a trap and not a feature: ``E`` and the density were left alone, so
+``unit_scale=1000`` emitted ``IProfile(h=300.0)`` beside ``Elastic(table=((2.1e11, 0.3),))``
+— a millimetre model a million times too stiff, with nothing anywhere reporting it. No
+single scalar can fix that, because ``E`` scales as s⁻² and density as s⁻³ *relative to a
+mass unit that is a separate choice* (N/mm/s needs tonnes, not kilogrammes). So the
+conversion belongs to the model, not to the writer, and a non-unit scale is refused.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
+from ada.config import Config, get_logger
 
 from .names import CaeNameError, NameRegistry, dump_name_map
+from .topology import (
+    CAE_MERGE_TOL,
+    PartTopology,
+    Segment,
+    expected_topology,
+    find_crossings,
+)
 
 if TYPE_CHECKING:
     from ada import Beam, Material, Part, Section
@@ -162,6 +191,9 @@ class _PartPlan:
     cae_part_name: str
     cae_instance_name: str
     members: list[_MemberPlan] = field(default_factory=list)
+    #: What CAE must end up holding for this part. ``None`` only while the part is being
+    #: filled in; every part in a finished plan carries one.
+    topology: PartTopology | None = None
 
 
 @dataclass
@@ -170,8 +202,8 @@ class _Plan:
 
     root_name: str
     model_name: str
-    unit_scale: float
     units: str
+    joint_tol: float = 0.0
     parts: list[_PartPlan] = field(default_factory=list)
     materials: list[_MaterialRow] = field(default_factory=list)
     sections: list[_SectionUse] = field(default_factory=list)
@@ -248,18 +280,21 @@ def check_beam_has_no_eccentricity(bm: Beam) -> None:
             )
 
 
-def beam_endpoints(bm: Beam, unit_scale: float = 1.0) -> tuple[tuple[float, ...], tuple[float, ...]]:
+def beam_endpoints(bm: Beam) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Guard 4: a beam's endpoints, from :meth:`ada.Beam.axis_global` and nowhere else.
 
     Its docstring is explicit that exporters share it so they cannot disagree about
     where a beam is: the nodes are expressed in the beam's own frame, so a beam inside
     a placed :class:`~ada.Part` has to be pushed through the accumulated placement.
     Reading ``n1.p``/``n2.p`` here would drop that placement.
+
+    The coordinates come out in the model's own units, unscaled -- see the module
+    docstring on why ``unit_scale`` is refused rather than applied.
     """
     p1, p2 = bm.axis_global()
     return (
-        tuple(float(c) * unit_scale for c in p1),
-        tuple(float(c) * unit_scale for c in p2),
+        tuple(float(c) for c in p1),
+        tuple(float(c) for c in p2),
     )
 
 
@@ -319,15 +354,6 @@ def _material_row(mat: Material, cae_name: str) -> _MaterialRow:
     )
 
 
-def _scale_value(value, unit_scale: float):
-    """Scale one profile dimension, recursing through a table of them."""
-    if isinstance(value, (list, tuple)):
-        return tuple(_scale_value(item, unit_scale) for item in value)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return value
-    return float(value) * unit_scale
-
-
 #: The one CAE profile class that is not defined by lengths. ``GeneralizedProfile`` takes
 #: an area and second moments, which is where adapy's GENERAL sections land — and, since
 #: Abaqus' solver rejects the ``section=CHANNEL`` that CAE itself writes, where a channel
@@ -338,28 +364,36 @@ def _scale_value(value, unit_scale: float):
 _NON_LINEAR_PROFILE_CLASS = "GeneralizedProfile"
 
 
-def _scaled_profile_spec(spec: ProfileSpec, unit_scale: float, section_name: str) -> ProfileSpec:
-    """``spec`` with its CAE dimensions in the emitted units.
+def check_unit_scale(unit_scale: float) -> None:
+    """Refuse anything but ``1.0``, and say why the parameter is not simply fixed.
 
-    Every keyword of every *shaped* CAE profile is a length, so one factor is right for
-    all of them. ``GeneralizedProfile`` is the exception: rather than invent dimensional
-    exponents this writer does not own, a non-unit scale on such a section is refused.
-    The failure mode otherwise is a model whose stiffnesses are wrong by orders of
-    magnitude while every coordinate in it looks right — exactly the kind of wrong this
-    writer exists to refuse.
+    The implementation this replaces multiplied every coordinate and every profile
+    dimension by ``unit_scale`` and left the *material* alone. Verified:
+    ``unit_scale=1000`` wrote ``model.IProfile(..., h=300.0)`` alongside
+    ``Elastic(table=((210000000000.0, 0.3),))`` — a model whose geometry is in
+    millimetres and whose Young's modulus is in pascals, so every stiffness in it is out
+    by 10⁶, and not one guard anywhere said a word. That is the exact class of
+    plausible-but-wrong output this writer exists to refuse, produced by the writer
+    itself.
+
+    It cannot be repaired by scaling the material too, because there is no single factor
+    to scale it by. With lengths multiplied by ``s``, ``E`` scales as ``s⁻²`` and density
+    as ``s⁻³`` **only once a force or mass unit has been chosen** — Abaqus in
+    N/mm/s wants tonne/mm³, so a metre-to-millimetre conversion multiplies density by
+    1e-12 rather than by ``s⁻³`` = 1e-9. A unit system is three independent choices, not
+    one number, so converting a model belongs to the model.
     """
-    if unit_scale == 1.0:
-        return spec
-    if spec.cae_class == _NON_LINEAR_PROFILE_CLASS:
+    if float(unit_scale) != 1.0:
         raise CaeWriteError(
-            "section {0!r} maps onto a CAE {1}, which is defined by an area and second moments "
-            "rather than by lengths, so a unit_scale of {2} cannot be applied to it by a single "
-            "factor. Convert the model to the target units before writing, or write with "
-            "unit_scale=1.0.".format(section_name, _NON_LINEAR_PROFILE_CLASS, unit_scale)
+            "unit_scale={0!r} is refused. It used to multiply coordinates and profile dimensions "
+            "while leaving E and the density untouched, which emitted a millimetre model carrying "
+            "a Young's modulus in pascals -- every stiffness out by a factor of a million, with "
+            "nothing reporting it. No single factor can fix that: E scales as s**-2 and density as "
+            "s**-3 only once a force/mass unit has been chosen (Abaqus in N/mm/s wants tonne/mm3, "
+            "so density scales by 1e-12, not 1e-9, from m to mm). Convert the model to the units "
+            "you want -- Part.units, or a unit conversion on the assembly -- and write it with "
+            "unit_scale=1.0.".format(unit_scale)
         )
-    # replace(), not a new ProfileSpec: it re-runs ProfileSpec.__post_init__, which
-    # checks the keys still match the kernel's own argument order for this class.
-    return replace(spec, cae_kwargs={key: _scale_value(value, unit_scale) for key, value in spec.cae_kwargs.items()})
 
 
 #: CAE sets live inside a part, so two parts *could* each hold a set called ``bm1``.
@@ -371,6 +405,53 @@ def _scaled_profile_spec(spec: ProfileSpec, unit_scale: float, section_name: str
 _SET_SCOPE = "sets"
 
 
+def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
+    """The topology one part must build, and the refusal of the one case that cannot be stated.
+
+    **Crossing policy: a model with an interior crossing is refused, not asserted.**
+
+    CAE imprints a crossing exactly as it imprints a real T-joint -- measured, an X of two
+    4 m members builds ``edges=4 vertices=5`` -- so the emitted model would carry a shared
+    vertex, and therefore a moment-transferring connection, at a point where the adapy
+    model has no joint at all. Two braces passing each other in an X is the ordinary case
+    of that, and the ordinary truth about it is that they are *not* connected.
+
+    Asserting the crossing instead of refusing it would make the change *known*, which is
+    what the alternative buys, but it would not make it *right*: the guard would then
+    certify a model stiffer than its source. There is also no way to have it both ways in
+    one part, because ``mergeType`` is per-``WirePolyLine`` and not per-pair -- the only
+    settings available are "merge every touching member" (which welds the crossing) and
+    ``SEPARATE`` (which disconnects the real joints too). A model that needs the
+    distinction is therefore outside what phase 1 can express, and this writer's standing
+    rule for that is to refuse rather than approximate: the same rule that refuses a
+    ``BeamRevolve`` and a 0.66 m eccentricity.
+
+    The refusal is a *plan-time* geometric test and the in-kernel topology guard is its
+    backstop: a crossing this misses -- because the two members pass within CAE's 1e-6
+    merge tolerance but further apart than ``joint_tol``, say -- reappears in CAE as
+    sub-edges adapy did not predict, and fails the build there. So a crossing is never
+    unasserted; it is refused if it can be seen here and reported if it cannot.
+    """
+    segments = [Segment(name=m.cae_set_name, p1=m.p1, p2=m.p2) for m in part_plan.members]
+    crossings = find_crossings(segments, joint_tol)
+    if crossings:
+        raise CaeWriteError(
+            "part {0!r} contains {1} member pair(s) that meet away from their ends, and phase 1 of "
+            "the CAE writer refuses them: {2}. CAE imprints such a meeting into a shared vertex "
+            "exactly as it does a real joint (measured: an X of two members builds 4 edges and 5 "
+            "vertices), so the emitted model would transfer moment at a point where this model has "
+            "no joint -- structural connectivity the source never had. mergeType is per-wire and not "
+            "per-pair, so 'connect the real joints but not this crossing' cannot be expressed in one "
+            "CAE part at all. Split the members at the crossing in the source model if the "
+            "connection is intended, or put them in separate parts if it is not.".format(
+                part_plan.part_name,
+                len(crossings),
+                "; ".join(crossing.describe() for crossing in crossings),
+            )
+        )
+    return expected_topology(segments, joint_tol)
+
+
 def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0) -> _Plan:
     """Resolve the whole emission before any text is written.
 
@@ -378,15 +459,17 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
     half-written script behind.
     """
     profile_spec = _load_profile_spec()
-
-    if unit_scale <= 0.0:
-        raise CaeWriteError("unit_scale must be positive, got {0!r}".format(unit_scale))
+    check_unit_scale(unit_scale)
 
     plan = _Plan(
         root_name=root.name,
         model_name=model_name,
-        unit_scale=float(unit_scale),
         units=str(getattr(getattr(root, "units", ""), "value", getattr(root, "units", ""))),
+        # adapy's own definition of "these two points are the same point": the tolerance
+        # its FEM node container merges nodes at and its Connections.find() looks for
+        # joints with. Read from the config rather than hardcoded, so a model written with
+        # a tightened point_tol gets a topology stated at that same tolerance.
+        joint_tol=float(Config().general_point_tol),
     )
     plan.registries = {
         "parts": NameRegistry("parts"),
@@ -431,12 +514,12 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
             check_beam_is_straight(bm)
             check_beam_has_no_eccentricity(bm)
 
-            p1, p2 = beam_endpoints(bm, plan.unit_scale)
+            p1, p2 = beam_endpoints(bm)
             length = float(np.linalg.norm(np.asarray(p2, dtype=float) - np.asarray(p1, dtype=float)))
             if length <= MIN_BEAM_LENGTH:
                 raise CaeWriteError(
-                    "beam {0!r} has zero length in the emitted units ({1} -> {2}); a wire needs two "
-                    "distinct points.".format(bm.name, p1, p2)
+                    "beam {0!r} has zero length ({1} -> {2}); a wire needs two distinct "
+                    "points.".format(bm.name, p1, p2)
                 )
 
             mat = bm.material
@@ -463,7 +546,6 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
                     "cross-section: {3}".format(bm.name, sec.name, sec.type, exc)
                 ) from exc
             cae_profile_name = plan.registries["profiles"].allocate_shared(sec.name)
-            spec = _scaled_profile_spec(spec, plan.unit_scale, sec.name)
             profile_entry = (spec.cae_class, dict(spec.cae_kwargs))
             previous_profile = profiles_seen.get(cae_profile_name)
             if previous_profile is not None and previous_profile != profile_entry:
@@ -504,6 +586,7 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
                 )
             )
 
+        part_plan.topology = _part_topology(part_plan, plan.joint_tol)
         plan.parts.append(part_plan)
 
     if not plan.parts:
@@ -558,9 +641,14 @@ def _header(plan: _Plan, result_name: str, adapy_version: str) -> list[str]:
         "# adapy source part : {0}".format(plan.root_name),
         "# CAE model         : {0}".format(plan.model_name),
         "# adapy units       : {0}".format(plan.units),
-        "# unit_scale        : {0}".format(_num(plan.unit_scale)),
-        "#                     Every coordinate and every profile dimension below is already",
-        "#                     multiplied by it; nothing is scaled at run time.",
+        "#                     Every coordinate and every profile dimension below is in those",
+        "#                     units, unscaled: unit_scale must be 1.0. It used to multiply both",
+        "#                     and leave E and the density alone, which emitted a millimetre model",
+        "#                     with a modulus in pascals and nothing to report it.",
+        "# joint tolerance   : {0}".format(_num(plan.joint_tol)),
+        "#                     adapy's Config().general_point_tol -- how close two members have to",
+        "#                     be for adapy to call them joined, and so what EXPECTED_TOPOLOGY",
+        "#                     below is stated at. CAE's own merge tolerance is {0}.".format(_num(CAE_MERGE_TOL)),
         "# parts             : {0}".format(len(plan.parts)),
         "# beams             : {0}".format(beams),
         "# materials         : {0}".format(len(plan.materials)),
@@ -661,6 +749,97 @@ def _model():
     return mdb.Model(name=MODEL_NAME, description=MODEL_DESCRIPTION)
 
 
+def _guard_no_name_collisions(model):
+    """Guard 7: nothing this script is about to create may already exist.
+
+    CAE does not raise when a name is reused. Measured: it silently REPLACES the object
+    and invalidates every handle to the old one, which then fails much later with
+    "AccessError: ... no longer exists" -- or does not fail at all. So running this script
+    twice in one GUI session would quietly swap every part, section and profile, and the
+    second run would look exactly as clean as the first.
+
+    That is why this cannot be left to the kernel and has to happen before a single object
+    is built: once the first Part is replaced, the damage is done and there is nothing to
+    abort back to.
+    """
+    present = {
+        'parts': model.parts.keys(),
+        'materials': model.materials.keys(),
+        'profiles': model.profiles.keys(),
+        'sections': model.sections.keys(),
+        'instances': model.rootAssembly.instances.keys(),
+    }
+    clashes = []
+    for kind in sorted(PLANNED_NAMES.keys()):
+        existing = list(present[kind])
+        for name in PLANNED_NAMES[kind]:
+            if name in existing:
+                clashes.append('{0} {1!r}'.format(kind, name))
+    if clashes:
+        _fail('model {0!r} already holds {1} of the object(s) this script would create, and CAE '
+              'replaces an object whose name is reused rather than refusing it -- so building here '
+              'would silently swap them: {2}. Delete that model, or write the script again with a '
+              'model_name of its own.'.format(MODEL_NAME, len(clashes), ', '.join(clashes)))
+
+
+def _guard_topology(model):
+    """Guard 6: the ONLY check that can tell a connected frame from a pile of loose sticks.
+
+    Guard 1 below cannot, although it was written believing it could. Measured, with this
+    script's own wire calls:
+
+        T-joint, IMPRINT (correct)        edges=3 vertices=4     guard 1 passes
+        T-joint, SEPARATE (disconnected)  edges=2 vertices=4     guard 1 PASSES
+        brace 1e-6 off the girder line    edges=2 vertices=4     guard 1 PASSES
+        collinear pair, touching          edges=2 vertices=3     guard 1 passes
+        collinear pair, 1e-6 apart        edges=2 vertices=4     guard 1 PASSES
+
+    Every one of those has "every edge carries exactly one section", so the guard that
+    counts sections cannot see connectivity at all. Note the last pair especially: two
+    members that failed to join do not change the EDGE count either. Only the vertex count
+    moves, which is why it is checked here.
+
+    EXPECTED_TOPOLOGY was computed from the adapy model -- every member's endpoints were
+    known there -- so this compares the kernel against an independent statement of what it
+    should have built, not against its own bookkeeping.
+    """
+    problems = []
+    for part_name in sorted(EXPECTED_TOPOLOGY.keys()):
+        expected = EXPECTED_TOPOLOGY[part_name]
+        part = model.parts[part_name]
+        built_edges = len(part.edges)
+        built_vertices = len(part.vertices)
+        record = _RESULT['guards'].setdefault(part_name, {})
+        record['expected_edges'] = expected['edges']
+        record['expected_vertices'] = expected['vertices']
+        record['built_vertices'] = built_vertices
+        disagree = []
+        for set_name in sorted(expected['edges_per_member'].keys()):
+            wanted = expected['edges_per_member'][set_name]
+            built = _RESULT['edges_per_member'].get(set_name)
+            if built != wanted:
+                disagree.append('member {0!r} expected {1} sub-edge(s), CAE built {2}'.format(
+                    set_name, wanted, built))
+        if disagree:
+            problems.append('part {0!r}: {1}'.format(part_name, '; '.join(disagree)))
+        if built_edges != expected['edges']:
+            problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
+                part_name, expected['edges'], built_edges))
+        if built_vertices != expected['vertices']:
+            problems.append('part {0!r}: adapy described {1} vertex(es), CAE built {2}'.format(
+                part_name, expected['vertices'], built_vertices))
+    if problems:
+        _fail('the topology CAE built is not the topology adapy described -- ' + ' | '.join(problems)
+              + ' | FEWER sub-edges or MORE vertices than expected means a joint did not merge: '
+              'CAE merges two points only when they are closer than ' + repr(CAE_MERGE_TOL)
+              + ' in model units, while adapy treats anything within ' + repr(JOINT_TOL)
+              + ' as one point, so a member landing between those two distances is joined in the '
+              'adapy model and loose here. MORE sub-edges or FEWER vertices means CAE imprinted a '
+              'connection adapy does not model -- two members crossing away from their ends, which '
+              'the writer refuses when it can see it. Either way the geometry is reported, never '
+              'snapped: fix the model.')
+
+
 def _member_edges(part_name, set_name, edges):
     """Check and record what the cylinder on the preceding line actually found.
 
@@ -681,10 +860,15 @@ def _member_edges(part_name, set_name, edges):
 
 
 def _guard_every_edge_sectioned(model):
-    """Guard 1, the only check that catches both connectivity failure modes.
+    """Guard 1: every edge carries exactly one section, and every section an orientation.
 
-    Imprinting can leave a sub-edge no cylinder claimed; mergeType=SEPARATE would leave
-    duplicate wires no section covers. Neither shows up anywhere else.
+    Imprinting can leave a sub-edge no cylinder claimed, and a duplicated wire is an edge
+    no cylinder claims either. Neither shows up anywhere else.
+
+    This guard used to claim it caught connectivity as well. It does not, and the
+    measurements are in _guard_topology above: a disconnected frame reaches this check
+    with every one of its edges sectioned. Do not delete that guard on the strength of
+    this one.
 
     Read back from the kernel's own sectionAssignments and the kernel's own sets -- not
     from this script's bookkeeping -- so a bug in the bookkeeping cannot make the guard
@@ -707,7 +891,10 @@ def _guard_every_edge_sectioned(model):
         unassigned = sorted(all_indices - set(covered.keys()))
         doubled = sorted([index for index in covered if len(covered[index]) > 1])
         orientations = len(part.beamSectionOrientations)
-        _RESULT['guards'][part_name] = {
+        # update(), not assignment: _guard_topology has already recorded what adapy expected
+        # for this part, and overwriting it would drop the connectivity verdict from the
+        # sidecar -- the one number a reader most wants next to 'edges'.
+        _RESULT['guards'].setdefault(part_name, {}).update({
             'edges': len(all_indices),
             'edges_with_a_section': len(covered),
             'edges_with_no_section': len(unassigned),
@@ -715,7 +902,7 @@ def _guard_every_edge_sectioned(model):
             'section_assignments': len(part.sectionAssignments),
             'orientations': orientations,
             'sets': len(part.sets.keys()),
-        }
+        })
         _RESULT['created']['section_assignments'] += len(part.sectionAssignments)
         _RESULT['created']['orientations'] += orientations
         for set_name in sorted(part.sets.keys()):
@@ -782,7 +969,12 @@ _TAIL = """
 
 def main():
     model = _model()
+    # Before anything is built: CAE would replace a reused name rather than refuse it.
+    _guard_no_name_collisions(model)
     build(model)
+    # Topology first of the three post-build guards, because it is the one that says
+    # whether the thing CAE built is even the same structure adapy described.
+    _guard_topology(model)
     _guard_every_edge_sectioned(model)
     _guard_bounding_box(model)
     _RESULT['ok'] = True
@@ -808,6 +1000,72 @@ except Exception:
 """
 
 
+def _expected_topology_source(plan: _Plan) -> list[str]:
+    """The topology guard's data, as source: what CAE must have built, per part.
+
+    Written out in full rather than recomputed in the emitted script on purpose. adapy
+    knows every endpoint, so the arithmetic belongs on this side; recomputing it in the
+    kernel from the kernel's own geometry would be asking the model whether it agrees with
+    itself.
+    """
+    lines = [
+        "# What CAE must end up holding, computed by adapy from Beam.axis_global() before",
+        "# a wire was drawn: one sub-edge per member, plus one more for every OTHER member's",
+        "# endpoint that lands strictly inside it (CAE imprints a landing member into the",
+        "# through member -- measured, 1 edge becomes 3). See _guard_topology.",
+        "#",
+        "# JOINT_TOL is adapy's own Config().general_point_tol -- the distance at which its FEM",
+        "# node container calls two points one node. CAE's merge tolerance is CAE_MERGE_TOL,",
+        "# measured on Abaqus 2025 and absolute in model units at every part size probed",
+        "# (0.004, 4 and 4000 units long). The gap between the two is deliberate: a joint",
+        "# closer than CAE_MERGE_TOL is built by both, one further apart than JOINT_TOL is",
+        "# built by neither, and one in between is a member adapy joins and CAE leaves loose --",
+        "# which is a real disagreement between adapy's two Abaqus routes and fails the build.",
+        "JOINT_TOL = {0}".format(_num(plan.joint_tol)),
+        "CAE_MERGE_TOL = {0}".format(_num(CAE_MERGE_TOL)),
+        "EXPECTED_TOPOLOGY = {",
+    ]
+    for part_plan in plan.parts:
+        topology = part_plan.topology
+        lines += [
+            "    {0!r}: {{".format(part_plan.cae_part_name),
+            "        'edges': {0},".format(topology.edges),
+            "        'vertices': {0},".format(topology.vertices),
+            "        'edges_per_member': {",
+        ]
+        lines += [
+            "            {0!r}: {1},".format(name, topology.edges_per_member[name])
+            for name in sorted(topology.edges_per_member)
+        ]
+        lines += ["        },", "    },"]
+    lines += ["}", ""]
+    return lines
+
+
+def _planned_names_source(plan: _Plan) -> list[str]:
+    """Every name the script will create, for guard 7 to check against the live model."""
+    planned = {
+        "parts": [p.cae_part_name for p in plan.parts],
+        "instances": [p.cae_instance_name for p in plan.parts],
+        "materials": [row.cae_name for row in plan.materials],
+        "profiles": sorted({use.cae_profile_name for use in plan.sections}),
+        "sections": [use.cae_section_name for use in plan.sections],
+    }
+    lines = [
+        "# Every name this script creates. CAE does not refuse a reused name -- it replaces the",
+        "# object and invalidates handles to the old one -- so a second run in one session would",
+        "# silently swap them all. Checked before anything is built; see _guard_no_name_collisions.",
+        "#",
+        "# Sets are absent deliberately: they live inside a part, and a part whose own name is",
+        "# free is a part this script just created, so its sets cannot collide with anything.",
+        "PLANNED_NAMES = {",
+    ]
+    for kind in sorted(planned):
+        lines.append("    {0!r}: [{1}],".format(kind, ", ".join(repr(name) for name in planned[kind])))
+    lines += ["}", ""]
+    return lines
+
+
 def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: str) -> str:
     """The emitted CAE script, as text."""
     boxes = _bounding_boxes(plan)
@@ -815,9 +1073,7 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
     lines += _header(plan, result_name, adapy_version)
     lines += _PREAMBLE.split("\n")
 
-    description = "adapy concept model {0!r}; units {1}; unit_scale {2}".format(
-        plan.root_name, plan.units, _num(plan.unit_scale)
-    )
+    description = "adapy concept model {0!r}; units {1}".format(plan.root_name, plan.units)
     lines += [
         "MODEL_NAME = {0!r}".format(plan.model_name),
         "MODEL_DESCRIPTION = {0!r}".format(description),
@@ -833,12 +1089,15 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
         "}",
         "BBOX_TOL = {0}".format(_num(_bbox_tolerance(boxes))),
         "",
+    ]
+    lines += _expected_topology_source(plan)
+    lines += _planned_names_source(plan)
+    lines += [
         "_RESULT = {",
-        "    'schema': 'ada.cae_build_result/1',",
+        "    'schema': 'ada.cae_build_result/2',",
         "    'ok': False,",
         "    'model': MODEL_NAME,",
         "    'source_part': {0!r},".format(plan.root_name),
-        "    'unit_scale': {0},".format(_num(plan.unit_scale)),
         "    'created': {",
         "        'parts': [],",
         "        'materials': [],",
@@ -997,6 +1256,8 @@ def write_cae_script(
     Returns the paths *this call* wrote — the script, plus a ``<stem>.name_map.json``
     sidecar when sanitisation changed any name. ``<stem>.cae_build_result.json`` is
     written by the script itself, when CAE runs it.
+
+    ``unit_scale`` must be ``1.0``; see :func:`check_unit_scale`.
     """
     from ada import __version__ as adapy_version
 
@@ -1056,6 +1317,7 @@ __all__ = [
     "build_plan",
     "check_beam_has_no_eccentricity",
     "check_beam_is_straight",
+    "check_unit_scale",
     "render_script",
     "write_cae_script",
 ]

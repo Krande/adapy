@@ -2,10 +2,15 @@
 
 What this file is *not*: a fake Abaqus. Nothing here pretends to know what
 ``WirePolyLine`` does — that was settled by running the emitted script against a real
-Abaqus 2025 kernel, which is the authority and is exercised separately. Two tests below
-do ``exec`` the emitted script's own guard functions against a hand-built stand-in for a
-CAE part, but only to prove that *the guard logic* rejects an uncovered edge and records
-a failure; the stand-in is a fixture for my code, never an oracle for Abaqus'.
+Abaqus 2025 kernel, which is the authority and is exercised separately. Several tests
+below do ``exec`` the emitted script's own guard functions against a hand-built stand-in
+for a CAE part, but only to prove that *the guard logic* rejects what it is supposed to and
+records a failure; the stand-in is a fixture for my code, never an oracle for Abaqus'.
+
+Where a stand-in's edge and vertex counts come from a real measurement (a disconnected
+frame's 5 edges and 10 vertices, a crossing's 4 and 5, a broken collinear joint's 2 and 4)
+the docstring says so, because those numbers are the only part of the fixture that has to
+be true of Abaqus rather than merely convenient.
 """
 
 from __future__ import annotations
@@ -52,8 +57,19 @@ def frame(part_origin=(0.0, 0.0, 0.0), beam_order=None):
     """A frame that exercises the traps, with the beams addable in any order.
 
     ``brace`` lands on the *middle* of ``girder``, which is the imprint that splits the
-    through member; ``skew`` is off-axis so its ``n1`` is not axis-aligned; ``UNP200`` is
-    asymmetric, on which a sign flip in ``n1`` is visible.
+    through member; ``skew`` is off-axis so its ``n1`` is not axis-aligned.
+
+    ``UNP200`` is asymmetric, and it is **not** here to make a sign flip in ``n1``
+    visible: it cannot. Every second moment of area is quadratic in position and so
+    invariant under a 180° rotation, which means ``n1`` and ``−n1`` give identical
+    bending stiffness on *any* section and no deflection measurement can tell them apart.
+    The sign is pinned only by the cross-writer equality against the INP writer's ``n1``
+    (`test_cae_orientation_convention.py`). What an asymmetric section does catch, and no
+    symmetric one can, is a **mirrored** local frame — ``n2 = n1 × t`` where the
+    convention is ``t × n1`` — because that reverses the product of inertia.
+
+    Built and measured in Abaqus 2025: 6 edges and 7 vertices, the girder split in two by
+    the landing brace.
     """
     beams = {
         "col1": ada.Beam("col1", (0, 0, 0), (0, 0, 4), "IPE300"),
@@ -286,11 +302,32 @@ def test_the_emitted_wires_are_where_axis_global_says_they_are(tmp_path):
     assert "'Frame': ((10.0, 0.0, 0.0), (16.0, 3.0, 4.0))" in text
 
 
-def test_unit_scale_multiplies_coordinates_and_profile_dimensions(tmp_path):
-    _, text = emit(one_beam(), tmp_path, unit_scale=1000.0)
-    assert "points=(((0.0, 0.0, 0.0), (0.0, 0.0, 3000.0)),)" in text
-    assert "h=300.0" in text  # IPE300, 0.3 m -> 300 mm
-    assert "t3=7.1" in text
+def test_unit_scale_is_refused_because_it_never_scaled_the_material(tmp_path):
+    """This test used to assert ``h=300.0`` and ``t3=7.1``, and passed with the bug present.
+
+    ``unit_scale=1000`` multiplied every coordinate and every profile dimension and left
+    the *material* untouched, so the writer emitted ``IProfile(..., h=300.0)`` beside
+    ``Elastic(table=((210000000000.0, 0.3),))`` — a millimetre model carrying a modulus in
+    pascals, every stiffness in it out by 10⁶, and not one guard reporting it. The old
+    assertions were green because they never looked at the material: that is the whole
+    lesson, so the pair is asserted here instead of being deleted with the test.
+
+    No single factor repairs it. ``E`` scales as s⁻² and density as s⁻³ *only after* a
+    force/mass unit has been chosen — Abaqus in N/mm/s wants tonne/mm³, so m→mm scales
+    density by 1e-12 and not by 1e-9. So the scale is refused and the conversion belongs
+    to the model.
+    """
+    destination = tmp_path / "scaled.py"
+    with pytest.raises(CaeWriteError, match="unit_scale=1000.0 is refused"):
+        one_beam().to_abaqus_cae_script(destination, unit_scale=1000.0)
+    assert not destination.exists(), "a refused scale must leave no half-written script"
+
+    # The pair the old assertions never put side by side. At unit_scale=1.0 it is
+    # consistent: metres in the profile, pascals in the material.
+    _, text = emit(one_beam(), tmp_path)
+    assert "h=0.3" in text
+    assert "table=((210000000000.0, 0.3),)" in text
+    assert "h=300.0" not in text
 
 
 def general_section(name="GEN"):
@@ -346,32 +383,59 @@ def test_a_section_with_no_faithful_abaqus_shape_is_refused_by_name(tmp_path):
         assembly.to_abaqus_cae_script(tmp_path / "out.py")
 
 
+def millimetre_beam():
+    """The same 3 m member, authored in millimetres.
+
+    Since ``unit_scale`` is refused, a millimetre model is one whose *coordinates* are in
+    millimetres — which is how a model converted upstream arrives, and the case the
+    cylinder fractions have to survive.
+    """
+    part = ada.Part("P")
+    part.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3000), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
+
+
 def test_the_cylinder_is_a_fraction_of_the_member_not_an_absolute_length(tmp_path):
     """The same structure in millimetres must be located the same way.
 
     An absolute clamp here would be the obvious implementation and would be wrong in
     exactly this writer's characteristic way: 1 mm is a sane radius for a model in metres
     and a hundredth of a micron for the same model in millimetres.
+
+    Note this is the *opposite* of the joint tolerance, which is absolute on purpose: CAE
+    merges two wire points below 1e-6 model units at every part size measured (0.004, 4
+    and 4000 long), so that one is a kernel constant while this one is a question about the
+    model. The two must not be made to look alike.
     """
     _, in_metres = emit(one_beam(), tmp_path, name="m.py")
-    _, in_millimetres = emit(one_beam(), tmp_path, name="mm.py", unit_scale=1000.0)
+    _, in_millimetres = emit(millimetre_beam(), tmp_path, name="mm.py")
     assert "radius=0.0003)" in in_metres
     assert "radius=0.3)" in in_millimetres
 
 
-def test_a_generalized_profile_refuses_to_be_scaled_by_a_single_factor(tmp_path):
-    """Its arguments are an area and second moments: L², L⁴, not L.
+@pytest.mark.parametrize("scale", [1000.0, 0.001, 2.0, 0.0, -1.0])
+def test_no_scale_but_one_gets_through(scale, tmp_path):
+    """Including the ones a linear factor could not express even in principle.
 
-    Scaling them linearly would leave every coordinate right and every stiffness wrong
-    by orders of magnitude, which is precisely the plausible-but-wrong model this writer
-    refuses to emit.
+    A ``GeneralizedProfile``'s arguments are an area and second moments — L², L⁴, not L —
+    so the old code refused *those* while happily mis-scaling everything else. The refusal
+    is now at the top, where the rest of the model cannot slip past it.
     """
     assembly = ada.Assembly("A")
     part = assembly.add_part(ada.Part("P"))
     general = ada.Section("GEN", "GENERAL", genprops=GeneralProperties(Ax=0.01, Ix=1e-6, Iy=1e-5, Iz=1e-5))
     part.add_beam(ada.Beam("bm", (0, 0, 0), (0, 0, 3), general))
-    with pytest.raises(CaeWriteError, match="GeneralizedProfile"):
-        assembly.to_abaqus_cae_script(tmp_path / "out.py", unit_scale=1000.0)
+    with pytest.raises(CaeWriteError, match="is refused"):
+        assembly.to_abaqus_cae_script(tmp_path / "out.py", unit_scale=scale)
+
+
+def test_the_emitted_script_no_longer_advertises_a_scale_it_cannot_apply(tmp_path):
+    """A banner saying ``unit_scale: 1.0`` invites the next reader to try 1000.0."""
+    _, text = emit(one_beam(), tmp_path)
+    assert "unit_scale must be 1.0" in text
+    assert "'unit_scale':" not in text, "the result sidecar should not carry a scale that is always 1"
 
 
 def test_n1_is_the_beams_yvec_normalised():
@@ -639,8 +703,14 @@ class FakePart:
 
 
 class FakeModel:
-    def __init__(self, parts):
+    """Only what the guards read: parts, and the four name spaces guard 7 checks."""
+
+    def __init__(self, parts, materials=None, profiles=None, sections=None, instances=None):
         self.parts = parts
+        self.materials = materials if materials is not None else {}
+        self.profiles = profiles if profiles is not None else {}
+        self.sections = sections if sections is not None else {}
+        self.rootAssembly = types.SimpleNamespace(instances=instances if instances is not None else {})
 
 
 def load_emitted_script(text, tmp_path, monkeypatch):
@@ -792,7 +862,7 @@ def test_guard_five_records_the_reason_and_forces_a_non_zero_status(tmp_path, mo
     result = json.loads(sidecar.read_text())
     assert result["ok"] is False
     assert result["errors"] == ["something went wrong halfway"]
-    assert result["schema"] == "ada.cae_build_result/1"
+    assert result["schema"] == "ada.cae_build_result/2"
 
 
 def test_the_sidecar_name_follows_the_script_stem(tmp_path):
@@ -805,3 +875,451 @@ def test_the_writer_returns_only_what_it_wrote(tmp_path):
     written, _ = emit(one_beam(), tmp_path)
     assert written == [tmp_path / "out.py"]
     assert all(isinstance(p, pathlib.Path) for p in written)
+
+
+# --------------------------------------------------------------------------------------
+# Guard 6 — the expected topology, which is the only thing that can see connectivity
+# --------------------------------------------------------------------------------------
+
+
+def stacked():
+    """Two collinear columns, end to end. Measured in CAE: 2 edges, 3 vertices."""
+    part = ada.Part("Stack")
+    part.add_beam(ada.Beam("col_lower", (0, 0, 0), (0, 0, 4), "IPE300"))
+    part.add_beam(ada.Beam("col_upper", (0, 0, 4), (0, 0, 8), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
+
+
+def two_members_clear_of_each_other():
+    part = ada.Part("Pair")
+    part.add_beam(ada.Beam("a", (0, 0, 0), (4, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("b", (2, 2, 0), (2, 4, 0), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
+
+
+def test_the_expected_topology_is_what_the_kernel_actually_builds():
+    """Built for real in Abaqus 2025: this frame gives ``edges=6 vertices=7``.
+
+    The girder is two sub-edges because the brace lands on its middle and CAE imprints the
+    landing into a split; everything else is one. ``skew`` starts on ``col1``'s own end
+    node, which is a shared vertex and splits nothing.
+    """
+    topology = build_plan(frame()).parts[0].topology
+
+    assert topology.edges_per_member == {"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1}
+    assert topology.edges == 6
+    assert topology.vertices == 7
+
+
+def test_a_landing_member_splits_the_through_member_and_not_itself():
+    """The asymmetry is the whole content of the arithmetic: one of the two is split."""
+    topology = build_plan(frame()).parts[0].topology
+
+    assert topology.edges_per_member["girder"] == 2
+    assert topology.edges_per_member["brace"] == 1
+    assert topology.splits["girder"] == ((3.0, 0.0, 4.0),)
+    assert topology.splits["brace"] == ()
+
+
+def test_two_members_meeting_end_to_end_split_nothing():
+    """Stacked columns are collinear and touch; measured in CAE as 2 edges and 3 vertices.
+
+    If "inside" were tested inclusively this would read 2 sub-edges each, and every frame
+    corner in every model would be reported as a failure.
+    """
+    topology = build_plan(stacked()).parts[0].topology
+
+    assert topology.edges_per_member == {"col_lower": 1, "col_upper": 1}
+    assert topology.vertices == 3
+
+
+def test_two_braces_landing_on_the_same_point_split_the_girder_once():
+    """Measured in CAE: 4 edges and 5 vertices, not 5 and 5."""
+    part = ada.Part("P")
+    part.add_beam(ada.Beam("girder", (0, 0, 0), (4, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("up", (2, 0, 0), (2, 0, 2), "IPE300"))
+    part.add_beam(ada.Beam("out", (2, 0, 0), (2, 2, 0), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member == {"girder": 2, "out": 1, "up": 1}
+    assert topology.edges == 4
+    assert topology.vertices == 5
+
+
+def test_a_joint_adapy_calls_a_joint_splits_even_when_cae_will_not_merge_it():
+    """A brace 1e-6 off the girder's line. This is the case the guard exists to report.
+
+    Measured on Abaqus 2025: CAE merges two wire points below 1e-6 model units and not at
+    1e-6 (9e-7 merges, 1e-6 does not), absolutely and at every part size probed. adapy's
+    own ``point_tol`` is 1e-4 — the distance at which its FEM node container treats two
+    points as one node — so this brace *is* joined to the girder as far as adapy and the
+    INP route are concerned, and will be loose in CAE. Predicting the split here is what
+    makes the emitted script fail and name the member, instead of shipping a model with an
+    inert brace hanging a micron off its girder.
+    """
+    part = ada.Part("P")
+    part.add_beam(ada.Beam("girder", (0, 0, 4), (6, 0, 4), "IPE300"))
+    part.add_beam(ada.Beam("brace", (3, 1e-06, 4), (3, 3, 4), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member["girder"] == 2
+
+
+def test_a_member_further_off_than_point_tol_is_not_a_joint_at_all():
+    """A millimetre clear of the girder is a gap in the model, and the writer copies it.
+
+    Neither adapy nor CAE calls this a joint, so nothing is expected and nothing is
+    reported. A guard that snapped it would be inventing geometry.
+    """
+    part = ada.Part("P")
+    part.add_beam(ada.Beam("girder", (0, 0, 4), (6, 0, 4), "IPE300"))
+    part.add_beam(ada.Beam("brace", (3, 0.001, 4), (3, 3, 4), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member == {"brace": 1, "girder": 1}
+    assert topology.vertices == 4
+
+
+def test_the_joint_tolerance_is_adapys_own_point_tol_and_not_a_number_of_its_own(monkeypatch):
+    """Which is the justification for the value, so it has to be read and not copied.
+
+    ``general_point_tol`` is what adapy's node container merges nodes at and what
+    ``Connections.find`` looks for joints with. Hardcoding 1e-4 here would silently stop
+    tracking it the first time a user tightened theirs.
+
+    ``Config`` is a process-wide singleton whose ``reload_config`` *merges* the environment
+    rather than resetting to it, so dropping the variable is not enough to put it back: the
+    default has to be written in explicitly before the variable goes. Otherwise this test
+    leaks a tenfold tolerance into every test that runs after it.
+    """
+    from ada.config import Config
+
+    part = ada.Part("P")
+    part.add_beam(ada.Beam("girder", (0, 0, 4), (6, 0, 4), "IPE300"))
+    part.add_beam(ada.Beam("brace", (3, 0.001, 4), (3, 3, 4), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    assert build_plan(assembly).parts[0].topology.edges_per_member["girder"] == 1
+
+    monkeypatch.setenv("ADA_GENERAL_POINT_TOL", "0.01")
+    Config().reload_config()
+    try:
+        assert Config().general_point_tol == 0.01, "the fixture did not actually change the config"
+        plan = build_plan(assembly)
+        assert plan.joint_tol == 0.01
+        assert plan.parts[0].topology.edges_per_member["girder"] == 2
+    finally:
+        monkeypatch.setenv("ADA_GENERAL_POINT_TOL", "0.0001")
+        Config().reload_config()
+        monkeypatch.undo()
+    assert Config().general_point_tol == 1e-04
+    assert build_plan(assembly).parts[0].topology.edges_per_member["girder"] == 1
+
+
+def test_the_emitted_script_states_the_topology_and_both_tolerances(tmp_path, monkeypatch):
+    _, text = emit(frame(), tmp_path)
+
+    namespace, _ = load_emitted_script(text, tmp_path, monkeypatch)
+
+    assert namespace["EXPECTED_TOPOLOGY"] == {
+        "Frame": {
+            "edges": 6,
+            "vertices": 7,
+            "edges_per_member": {"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1},
+        }
+    }
+    assert namespace["JOINT_TOL"] == 1e-04
+    # Measured, and stated in the script so a failure message can explain the band.
+    assert namespace["CAE_MERGE_TOL"] == 1e-06
+
+
+#: Seven distinct positions, which is what `frame()` must build.
+SEVEN_POINTS = [(float(i), 0.0, 0.0) for i in range(7)]
+
+
+def five_loose_sticks():
+    """What ``mergeType=SEPARATE`` would leave: the frame, unmerged. 5 edges, 10 vertices."""
+    return FakePart(
+        5,
+        {"brace": [0], "col1": [1], "col2": [2], "girder": [3], "skew": [4]},
+        vertices=[(float(i), 0.0, 0.0) for i in range(10)],
+    )
+
+
+def test_guard_one_is_blind_to_exactly_what_guard_six_catches(tmp_path, monkeypatch):
+    """The review finding, as a test: guard 1 passes on a disconnected frame.
+
+    Measured with this writer's own wire calls::
+
+        T-joint, IMPRINT (correct)        edges=3 vertices=4     guard 1 passes
+        T-joint, SEPARATE (disconnected)  edges=2 vertices=4     guard 1 PASSES
+
+    Every edge of the loose version carries exactly one section, because each member's own
+    cylinder finds its own unsplit wire. So the guard that counts sections reports a clean
+    build, and only the expected topology sees that the frame is a pile of sticks.
+    """
+    _, text = emit(frame(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_RESULT"]["created"]["parts"].append("Frame")
+    namespace["_RESULT"]["edges_per_member"].update({"brace": 1, "col1": 1, "col2": 1, "girder": 1, "skew": 1})
+    model = FakeModel({"Frame": five_loose_sticks()})
+
+    namespace["_guard_every_edge_sectioned"](model)
+    assert exits == [], "guard 1 is supposed to be fooled here; if it is not, say so and simplify"
+
+    namespace["_guard_topology"](model)
+
+    assert exits == [1]
+    error = json.loads((tmp_path / "out.cae_build_result.json").read_text())["errors"][0]
+    assert "member 'girder' expected 2 sub-edge(s), CAE built 1" in error
+    assert "adapy described 6 edge(s), CAE built 5" in error
+    assert "adapy described 7 vertex(es), CAE built 10" in error
+    assert "a joint did not merge" in error
+
+
+def test_the_topology_guard_catches_a_crossing_cae_imprinted_on_its_own(tmp_path, monkeypatch):
+    """The backstop for a crossing the planner's refusal did not see.
+
+    Measured: an X of two members builds ``edges=4 vertices=5`` where two members clear of
+    each other build 2 and 4. Every one of those four edges gets a section, so guard 1 is
+    silent again; the extra sub-edges are the only trace.
+    """
+    _, text = emit(two_members_clear_of_each_other(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_RESULT"]["edges_per_member"].update({"a": 2, "b": 2})
+    crossed = FakePart(4, {"a": [0, 1], "b": [2, 3]}, vertices=[(float(i), 0.0, 0.0) for i in range(5)])
+
+    namespace["_guard_topology"](FakeModel({"Pair": crossed}))
+
+    assert exits == [1]
+    error = json.loads((tmp_path / "out.cae_build_result.json").read_text())["errors"][0]
+    assert "member 'a' expected 1 sub-edge(s), CAE built 2" in error
+    assert "member 'b' expected 1 sub-edge(s), CAE built 2" in error
+    assert "CAE imprinted a connection adapy does not model" in error
+
+
+def test_the_topology_guard_catches_the_joint_that_only_the_vertex_count_shows(tmp_path, monkeypatch):
+    """Two collinear members that failed to join keep the same *edge* count.
+
+    Measured: touching gives ``edges=2 vertices=3``, and 1e-6 apart gives
+    ``edges=2 vertices=4``. Nothing but the vertex count moves — not the edge total, not
+    any member's sub-edge count, not the section coverage — so without it this failure is
+    invisible to every other guard in the script.
+    """
+    _, text = emit(stacked(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_RESULT"]["edges_per_member"].update({"col_lower": 1, "col_upper": 1})
+    apart = FakePart(2, {"col_lower": [0], "col_upper": [1]}, vertices=[(0.0, 0.0, float(i)) for i in range(4)])
+
+    namespace["_guard_topology"](FakeModel({"Stack": apart}))
+
+    assert exits == [1]
+    error = json.loads((tmp_path / "out.cae_build_result.json").read_text())["errors"][0]
+    assert "adapy described 3 vertex(es), CAE built 4" in error
+    assert "sub-edge(s), CAE built" not in error, "no member's sub-edge count changed here"
+
+
+def test_the_topology_guard_passes_on_the_topology_adapy_described(tmp_path, monkeypatch):
+    _, text = emit(frame(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_RESULT"]["edges_per_member"].update({"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1})
+    built = FakePart(6, {"girder": [0, 1]}, vertices=[(float(i), 0.0, 0.0) for i in range(7)])
+
+    namespace["_guard_topology"](FakeModel({"Frame": built}))
+
+    assert exits == []
+    assert namespace["_RESULT"]["guards"]["Frame"]["expected_vertices"] == 7
+
+
+def test_the_sidecar_keeps_both_verdicts_and_not_just_the_later_one(tmp_path, monkeypatch):
+    """Guard 1 records into the same per-part dict, and ran second.
+
+    An assignment there would silently drop the connectivity verdict from the sidecar --
+    leaving ``edges: 6`` with nothing to compare it against, which is the state this whole
+    change exists to get out of.
+    """
+    _, text = emit(frame(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_RESULT"]["created"]["parts"].append("Frame")
+    namespace["_RESULT"]["edges_per_member"].update({"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1})
+    built = FakePart(6, {"girder": [0, 1], "col1": [2], "col2": [3], "brace": [4], "skew": [5]}, vertices=SEVEN_POINTS)
+    model = FakeModel({"Frame": built})
+
+    namespace["_guard_topology"](model)
+    namespace["_guard_every_edge_sectioned"](model)
+
+    assert exits == []
+    recorded = namespace["_RESULT"]["guards"]["Frame"]
+    assert recorded["expected_edges"] == 6
+    assert recorded["expected_vertices"] == 7
+    assert recorded["edges"] == 6
+    assert recorded["edges_with_no_section"] == 0
+
+
+def test_the_topology_guard_runs_before_the_one_that_cannot_see_connectivity(tmp_path):
+    """Order matters only for the message: the connectivity verdict is the useful one."""
+    _, text = emit(one_beam(), tmp_path)
+    body = text.split("def main():", 1)[1]
+
+    assert body.index("_guard_topology(model)") < body.index("_guard_every_edge_sectioned(model)")
+
+
+# --------------------------------------------------------------------------------------
+# The crossing policy — refused while planning, never approximated
+# --------------------------------------------------------------------------------------
+
+
+def crossing_pair():
+    part = ada.Part("X")
+    part.add_beam(ada.Beam("girder", (0, 0, 0), (4, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("brace", (2, -1, 0), (2, 1, 0), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
+
+
+def test_two_members_crossing_away_from_their_ends_are_refused(tmp_path):
+    """CAE welds a crossing exactly as it welds a real joint, and adapy models no joint here.
+
+    Measured: an X of two 4 m members builds ``edges=4 vertices=5`` — a shared vertex, and
+    therefore a moment connection, at a point the source model does not join. Asserting
+    that instead of refusing it would make the change *known* without making it *right*,
+    and ``mergeType`` is per-wire rather than per-pair, so "join the real joints but not
+    this crossing" cannot be said in one CAE part at all.
+    """
+    destination = tmp_path / "crossed.py"
+
+    with pytest.raises(CaeWriteError) as raised:
+        crossing_pair().to_abaqus_cae_script(destination)
+
+    message = str(raised.value)
+    assert "'brace' and 'girder' cross at about (2, 0, 0)" in message
+    assert "structural connectivity the source never had" in message
+    assert not destination.exists(), "a refused model must leave no half-written script"
+
+
+def test_a_brace_landing_on_a_girder_is_not_a_crossing(tmp_path):
+    """The ordinary frame corner and the ordinary stacked column. Both must still write."""
+    frame().to_abaqus_cae_script(tmp_path / "ok.py")
+    stacked().to_abaqus_cae_script(tmp_path / "ok2.py")
+
+
+def test_collinear_members_that_share_a_length_are_refused(tmp_path):
+    """Measured: two collinear 4 m members overlapping by 2 build ``edges=3``.
+
+    Counting one split per intruding endpoint would predict 4, and there is no honest
+    answer to "which sub-edges belong to which member" over the shared stretch, so this is
+    refused rather than mis-predicted. A duplicated member is the same case at full overlap.
+    """
+    part = ada.Part("Overlap")
+    part.add_beam(ada.Beam("lower", (0, 0, 0), (4, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("upper", (2, 0, 0), (6, 0, 0), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(CaeWriteError, match="collinear and overlap"):
+        assembly.to_abaqus_cae_script(tmp_path / "out.py")
+
+
+def test_a_duplicated_member_is_refused_as_an_overlap(tmp_path):
+    part = ada.Part("Twice")
+    part.add_beam(ada.Beam("a", (0, 0, 0), (4, 0, 0), "IPE300"))
+    part.add_beam(ada.Beam("b", (0, 0, 0), (4, 0, 0), "IPE300"))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(CaeWriteError, match="collinear and overlap"):
+        assembly.to_abaqus_cae_script(tmp_path / "out.py")
+
+
+def test_members_in_different_parts_cannot_cross(tmp_path):
+    """Separate CAE parts hold separate geometry, so the refusal is per part and must stay so."""
+    assembly = ada.Assembly("A")
+    first = assembly.add_part(ada.Part("One"))
+    first.add_beam(ada.Beam("girder", (0, 0, 0), (4, 0, 0), "IPE300"))
+    second = assembly.add_part(ada.Part("Two"))
+    second.add_beam(ada.Beam("brace", (2, -1, 0), (2, 1, 0), "IPE300"))
+
+    plan = build_plan(assembly)
+
+    assert [p.topology.edges_per_member for p in plan.parts] == [{"girder": 1}, {"brace": 1}]
+
+
+# --------------------------------------------------------------------------------------
+# Guard 7 — CAE replaces a reused name instead of refusing it
+# --------------------------------------------------------------------------------------
+
+
+def test_the_script_lists_every_name_it_will_create(tmp_path, monkeypatch):
+    _, text = emit(frame(), tmp_path)
+
+    namespace, _ = load_emitted_script(text, tmp_path, monkeypatch)
+
+    planned = namespace["PLANNED_NAMES"]
+    assert planned["parts"] == ["Frame"]
+    assert planned["instances"] == ["Frame-1"]
+    assert planned["materials"] == ["S355"]
+    assert planned["profiles"] == ["HEA300", "IPE300", "TUB200x10", "UNP200"]
+    assert sorted(planned["sections"]) == planned["sections"]
+    # Sets are deliberately absent: they live inside a part this script just created.
+    assert "sets" not in planned
+
+
+def test_the_collision_guard_lets_an_empty_model_through(tmp_path, monkeypatch):
+    _, text = emit(one_beam(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+
+    namespace["_guard_no_name_collisions"](FakeModel({}))
+
+    assert exits == []
+
+
+@pytest.mark.parametrize(
+    "kind,existing",
+    [
+        ("parts", {"parts": {"P": object()}}),
+        ("materials", {"materials": {"S355": object()}}),
+        ("profiles", {"profiles": {"IPE300": object()}}),
+        ("sections", {"sections": {"sec_IPE300_S355": object()}}),
+        ("instances", {"instances": {"P-1": object()}}),
+    ],
+)
+def test_the_collision_guard_refuses_a_second_run_into_the_same_model(kind, existing, tmp_path, monkeypatch):
+    """Measured: CAE does not raise on a reused name. It replaces the object.
+
+    So a second run in one GUI session would quietly swap every part, and the run would
+    look as clean as the first. Every namespace is checked, because any one of them left
+    out is a namespace that gets silently replaced.
+    """
+    _, text = emit(one_beam(), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    model = FakeModel(existing.pop("parts", {}), **existing)
+
+    namespace["_guard_no_name_collisions"](model)
+
+    assert exits == [1], "namespace {!r} is not checked".format(kind)
+    error = json.loads((tmp_path / "out.cae_build_result.json").read_text())["errors"][0]
+    assert "already holds 1 of the object(s)" in error
+    assert kind in error
+    assert "CAE replaces an object whose name is reused" in error
+
+
+def test_the_collision_guard_runs_before_anything_is_built(tmp_path):
+    """Once the first Part has been replaced there is nothing left to abort back to."""
+    _, text = emit(one_beam(), tmp_path)
+    body = text.split("def main():", 1)[1]
+
+    assert body.index("_guard_no_name_collisions(model)") < body.index("build(model)")

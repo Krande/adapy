@@ -172,22 +172,57 @@ def test_phase_one_refuses_what_it_cannot_carry(beam, tmp_path):
         part.to_abaqus_cae_script(tmp_path / "refused.py")
 
 
-def test_unit_scale_multiplies_every_coordinate(frame_model, tmp_path):
-    """A jacket built 1000x too small is the classic silent unit failure."""
+def test_unit_scale_is_refused_and_the_coordinates_are_the_models_own(frame_model, tmp_path):
+    """This test used to assert the scaling worked, over the top of the bug that made it wrong.
+
+    ``unit_scale`` multiplied coordinates and profile dimensions and left ``E`` and the
+    density in the source units, so `unit_scale=1000` emitted a millimetre frame carrying a
+    modulus in pascals -- every stiffness out by 10^6, nothing reporting it. The assertions
+    that used to be here (every wire 1000x, every profile height 300.0) were all *true*;
+    they simply never looked at the material. So the scale is refused, and what is asserted
+    instead is that the emitted geometry is the model's own, untouched.
+    """
     part = frame_model.get_part("Frame")
 
     _, metres = emit(part, tmp_path, name="m")
-    _, millimetres = emit(part, tmp_path, name="mm", unit_scale=1000.0)
 
-    graph_m = ScriptGraph(metres)
-    graph_mm = ScriptGraph(millimetres)
-    wires_m = [c.kwargs["points"] for c in graph_m.by_method("WirePolyLine")]
-    wires_mm = [c.kwargs["points"] for c in graph_mm.by_method("WirePolyLine")]
-    assert len(wires_m) == len(wires_mm) == 3
-    for before, after in zip(wires_m, wires_mm):
-        for (p1, p2), (q1, q2) in zip(before, after):
-            assert q1 == pytest.approx(tuple(v * 1000.0 for v in p1))
-            assert q2 == pytest.approx(tuple(v * 1000.0 for v in p2))
-    # and the profiles are scaled with them, or the model would be a hairline frame
-    heights = {c.kwargs.get("h") for c in graph_mm.profile_calls() if "h" in c.kwargs}
-    assert heights == {300.0}
+    graph = ScriptGraph(metres)
+    wires = [c.kwargs["points"] for c in graph.by_method("WirePolyLine")]
+    assert len(wires) == 3
+    for beam, (polyline,) in zip(sorted(part.beams, key=lambda b: b.name), wires):
+        start, end = beam.axis_global()
+        assert polyline[0] == pytest.approx(tuple(float(v) for v in start))
+        assert polyline[1] == pytest.approx(tuple(float(v) for v in end))
+    heights = {c.kwargs.get("h") for c in graph.profile_calls() if "h" in c.kwargs}
+    assert heights == {0.3}, "metres in the profile (the IPE300), to match the pascals in the material"
+    assert "table=((210000000000.0, 0.3),)" in metres, "E in pascals, which is what the geometry must match"
+
+    with pytest.raises(Exception, match="unit_scale=1000.0 is refused"):
+        part.to_abaqus_cae_script(tmp_path / "mm.py", unit_scale=1000.0)
+
+
+def test_the_script_states_the_topology_the_kernel_must_have_built(frame_model, tmp_path):
+    """The brace lands mid-span, so the girder must come back as two sub-edges.
+
+    Measured in Abaqus 2025 for exactly this frame: 4 edges and 5 vertices. Guard 1 cannot
+    see any of that -- a disconnected build of the same three members reports every edge
+    sectioned -- which is why these numbers travel with the script.
+    """
+    _, source = emit(frame_model.get_part("Frame"), tmp_path)
+
+    namespace = {}
+    for line in source.splitlines():
+        if line.startswith(("JOINT_TOL", "CAE_MERGE_TOL")):
+            exec(line, namespace)  # noqa: S102 - two float literals from the script under test
+    start = source.index("EXPECTED_TOPOLOGY = {")
+    exec(source[start : source.index("\n}\n", start) + 3], namespace)  # noqa: S102
+
+    assert namespace["EXPECTED_TOPOLOGY"] == {
+        "Frame": {
+            "edges": 4,
+            "vertices": 5,
+            "edges_per_member": {"brace": 1, "col1": 1, "girder": 2},
+        }
+    }
+    assert namespace["JOINT_TOL"] == 1e-04
+    assert namespace["CAE_MERGE_TOL"] == 1e-06
