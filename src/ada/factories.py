@@ -367,6 +367,8 @@ def from_genie_xml(
 ) -> Assembly:
     """Create an Assembly object from a Genie XML file.
 
+    A ``.gnx`` workspace is accepted too, and handed to :func:`from_gnx`.
+
     With ``build_topology_store`` the source ACIS body is also read into a neutral
     :class:`~ada.geom.brep.BRepStore` and attached, so a subsequent
     ``to_genie_xml(embed_sat=True)`` re-exports the exact source topology (1 lump,
@@ -377,22 +379,82 @@ def from_genie_xml(
     from ada.cadit.gxml.store import GxmlStore
 
     if str(xml_path).lower().endswith(".gnx"):
-        # A Genie workspace: the same concept XML zipped up with its ACIS body
-        # in a separate member. Unpack into a self-contained XML (body embedded
-        # back in) and read that; the reader's SAT side-file lands beside it.
-        import tempfile
+        # A path can reach here from the CLI or the REST registry without anyone having
+        # looked at it, so a workspace is still accepted by extension. from_gnx is the
+        # name to use when you know what you have.
+        return from_gnx(
+            xml_path,
+            ifc_schema=ifc_schema,
+            name=name,
+            extract_joints=extract_joints,
+            cad_config=cad_config,
+            build_topology_store=build_topology_store,
+        )
 
-        from ada.cadit.gxml.write.write_gnx import genie_xml_from_gnx
+    return _genie_assembly(
+        GxmlStore(xml_path),
+        ifc_schema=ifc_schema,
+        name=name,
+        extract_joints=extract_joints,
+        cad_config=cad_config,
+        build_topology_store=build_topology_store,
+    )
 
-        with tempfile.TemporaryDirectory() as td:
-            unpacked = genie_xml_from_gnx(xml_path, pathlib.Path(td) / (pathlib.Path(xml_path).stem + ".xml"))
-            gxml = GxmlStore(unpacked)
-            p = gxml.to_part(extract_joints=extract_joints)
-            if build_topology_store and len(gxml.sat_factory.sat_store.sat_records) == 0:
-                gxml.sat_factory.load_sat_data_from_file()
-    else:
-        gxml = GxmlStore(xml_path)
-        p = gxml.to_part(extract_joints=extract_joints)
+
+def from_gnx(
+    gnx_path,
+    ifc_schema="IFC4",
+    name: str = None,
+    extract_joints=False,
+    cad_config: "CadConfig | None" = None,
+    build_topology_store: bool = False,
+) -> Assembly:
+    """Create an Assembly object from a Genie workspace file (``.gnx``).
+
+    The mirror of :meth:`ada.Assembly.to_gnx`, and the arguments are
+    :func:`from_genie_xml`'s because a workspace *is* a concept XML: the same
+    ``DNV_structure_concept_protocol`` document zipped together with its ACIS body as a
+    separate member. It is unpacked into a self-contained XML (the body embedded back
+    in) in a temporary directory and read from there.
+
+    That temporary directory is the reason this is a function rather than two lines at
+    the call site: the SAT the reader writes beside the unpacked XML — the one
+    ``build_topology_store`` reads a second time — exists only while the directory does.
+    Everything that touches it happens inside the ``with``.
+    """
+    import tempfile
+
+    from ada.cadit.gxml.store import GxmlStore
+    from ada.cadit.gxml.write.write_gnx import genie_xml_from_gnx
+
+    gnx_path = pathlib.Path(gnx_path)
+    with tempfile.TemporaryDirectory() as td:
+        unpacked = genie_xml_from_gnx(gnx_path, pathlib.Path(td) / (gnx_path.stem + ".xml"))
+        return _genie_assembly(
+            GxmlStore(unpacked),
+            ifc_schema=ifc_schema,
+            name=name,
+            extract_joints=extract_joints,
+            cad_config=cad_config,
+            build_topology_store=build_topology_store,
+        )
+
+
+def _genie_assembly(
+    gxml,
+    ifc_schema: str,
+    name: str | None,
+    extract_joints: bool,
+    cad_config: "CadConfig | None",
+    build_topology_store: bool,
+) -> Assembly:
+    """Turn a read :class:`~ada.cadit.gxml.store.GxmlStore` into an Assembly.
+
+    Shared by :func:`from_genie_xml` and :func:`from_gnx`, and the reason it exists is the
+    second one: every read of the store's SAT file must happen while that file is still
+    there, so the whole tail lives in one place a caller can put inside a ``with``.
+    """
+    p = gxml.to_part(extract_joints=extract_joints)
     name = name if name is not None else p.name
     a = Assembly(name=name, schema=ifc_schema, cad_config=cad_config) / p
     if build_topology_store:

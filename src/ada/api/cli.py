@@ -46,6 +46,16 @@ from ada_cli.formats import (
 # character under the Windows cp1252 default. Log messages elsewhere can afford the nicer dash.
 _CODE_ASTER_EXT_MSG = "code_aster output is the .med mesh; the .comm is written beside it - name the output *.med"
 
+#: Format names that are the same model in two containers, and whose name *is* their extension.
+#: ``xml`` is the GeniE concept XML as text; ``gnx`` is that same document zipped with its ACIS
+#: body, which is the form GeniE opens directly. Everywhere else here an explicit ``--to`` beats
+#: the extension and only warns, but between these two the flag selects no conversion at all -- it
+#: can only put one container under the other's name, and either result is unopenable, because
+#: GeniE reads a .gnx by unzipping it and an XML parser reads a .xml by parsing it. So the
+#: contradiction is refused, for the same reason naming a code_aster ``.comm`` is: the file we
+#: would deliver is not the file that was asked for.
+_CONTAINER_FORMATS: frozenset[str] = frozenset({"xml", "gnx"})
+
 
 def _ext_label(path) -> str:
     """How an extension is named in an error message, including when there isn't one."""
@@ -101,6 +111,15 @@ def _resolve_write_format(output_file, fmt: str | None) -> str:
     if fmt == "code_aster" and ext != "med":
         raise CliUsageError(_CODE_ASTER_EXT_MSG)
 
+    # See _CONTAINER_FORMATS: between xml and gnx the extension decides the container and --to has
+    # nothing left to choose, so a disagreement is a contradiction rather than an override.
+    if fmt in _CONTAINER_FORMATS and ext in _CONTAINER_FORMATS and ext != fmt:
+        raise CliUsageError(
+            f"--to {fmt} contradicts the output name '.{ext}': .{ext} and .{fmt} are the same "
+            f"model in two containers, so --to has nothing to choose between them and a .{ext} "
+            f"holding {fmt} would not open. Name the output *.{fmt}, or drop --to."
+        )
+
     usual = WRITE_FORMATS[fmt]
     if ext not in usual:
         logger.warning(
@@ -133,6 +152,8 @@ def _load(input_file, fmt: str | None = None, split: bool = False, limit: int | 
         return ada.from_step(path)
     if fmt == "xml":
         return ada.from_genie_xml(path)
+    if fmt == "gnx":
+        return ada.from_gnx(path)
     if fmt == "acis":
         return ada.from_acis(path, split=split, limit=limit)
     if fmt in FEM_READ_FORMATS:
@@ -272,6 +293,8 @@ def _write(model, output_file, fmt: str) -> list[pathlib.Path]:
         model.to_gltf(out)
     elif fmt == "xml":
         model.to_genie_xml(out)
+    elif fmt == "gnx":
+        model.to_gnx(out)
     else:
         raise CliUsageError(f"writing {fmt!r} is not implemented; --to must be one of: {', '.join(WRITE_FORMATS)}")
 
