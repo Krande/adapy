@@ -79,6 +79,7 @@ from .writer import (
     check_mesh_and_job,
     check_n1_holds_along_the_curve,
     check_unit_scale,
+    curved_beam_section_offset,
     render_script,
     write_cae_script,
 )
@@ -137,6 +138,7 @@ __all__ = [
     "check_no_nested_plates",
     "check_shell_element_type",
     "check_unit_scale",
+    "curved_beam_section_offset",
     "distinct_points",
     "expected_topology",
     "find_crossings",

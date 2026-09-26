@@ -54,6 +54,7 @@ from ada.cadit.cae.writer import (
     build_plan,
     check_beam_shape,
     check_n1_holds_along_the_curve,
+    curved_beam_section_offset,
 )
 from ada.geom import curves as gc
 from ada.sections.concept import GeneralProperties
@@ -462,15 +463,121 @@ def test_an_axial_offset_is_refused_because_no_section_offset_can_express_it():
         beam_section_offset(bm)
 
 
-def test_an_offset_on_a_curved_member_is_refused():
-    """``(n1, n2)`` rotates along a curve; adapy's ``e1`` is one global vector.
+def arc_end_frames(bm):
+    """``[(tangent, n1_proj, n2), ...]`` at a curved member's two ends, derived here.
 
-    CAE accepts the combination (probed), so nothing downstream would complain -- which is
-    exactly why it is refused here.
+    A second implementation of the frame :func:`curved_beam_section_offset` projects in, so a
+    test can state the offset it means *in the frame the arc has* and then assert the literal
+    pair the writer must return for it. Only the fixtures below are built this way; what each
+    test asserts is the literal 2-tuple, which is the part a wrong frame would get wrong.
+    """
+    points = np.asarray(sample_member_curve(bm, *beam_endpoints(bm), 1e-04)[0])
+    n1 = np.asarray(beam_n1(bm))
+    frames = []
+    for chord in (points[1] - points[0], points[-1] - points[-2]):
+        tangent = chord / np.linalg.norm(chord)
+        n1_proj = n1 - float(np.dot(n1, tangent)) * tangent
+        n1_proj = n1_proj / np.linalg.norm(n1_proj)
+        frames.append((tangent, n1_proj, np.cross(tangent, n1_proj)))
+    return frames
+
+
+def curved_offset(bm):
+    """The writer's ``beamSectionOffset`` for a curved member, sampled the way it samples it."""
+    path, _ = sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+    return curved_beam_section_offset(bm, path)
+
+
+def test_an_out_of_plane_offset_on_a_curved_member_is_carried_as_the_measured_pair():
+    """The narrowing this replaces a blanket refusal with, on the number that was measured.
+
+    Abaqus applies the 2-tuple in the local ``(n1, n2)`` frame element by element, and on a
+    planar arc whose ``n1`` lies in that plane ``n2 = t x n1_proj`` is a constant ``+Z`` --
+    so an offset out of the arc's plane is one constant pair and is **exact**. Measured on
+    Abaqus 2025 for a quarter arc of radius 4 with ``beamSectionOffset=(0, 0.4)`` against the
+    same arc drawn at ``z = +0.4`` and tied back with ``*MPC BEAM``: all six displacement
+    components identical to every printed digit (``u2 = 6.210658699e-02``,
+    ``ur3 = -1.614604890e-02``).
+
+    This fixture is the same geometry at radius 2 and offset 0.2, so the pair must come out
+    ``(0, +0.2)``: nothing along ``n1``, all of it along ``n2``, and positive -- the sign that
+    was pinned by the solver for the straight member.
     """
     bm = a_curved_beam("BeamCurved", e1=(0.0, 0.0, 0.2), e2=(0.0, 0.0, 0.2))
-    with pytest.raises(UnsupportedBeamError, match="curved AND carries an offset"):
-        beam_section_offset(bm, curved=True)
+    (_, _, n2_start), (_, _, n2_end) = arc_end_frames(bm)
+    assert n2_start == pytest.approx((0.0, 0.0, 1.0), abs=1e-12), "the fixture must have a constant +Z n2"
+    assert n2_end == pytest.approx((0.0, 0.0, 1.0), abs=1e-12)
+
+    assert curved_offset(bm) == pytest.approx((0.0, 0.2), abs=1e-12)
+
+
+def test_an_in_plane_offset_on_a_curved_member_is_still_refused_and_quotes_both_ends():
+    """The case the blanket refusal was right about, kept, and now with the numbers in it.
+
+    A constant *radial* offset on a planar arc has ``e1 == e2`` in global axes, so no test on
+    the global vectors can tell it from the out-of-plane offset above -- and it is a different
+    offset at each end, because its ``n1_proj`` component reads -0.2 at one end of a quarter
+    arc and -0.0022 at the other. One 2-tuple cannot be both, so it is refused, and the
+    message quotes both projections rather than only saying no.
+    """
+    bm = a_curved_beam("BeamCurved", e1=(0.2, 0.0, 0.0), e2=(0.2, 0.0, 0.0))
+
+    with pytest.raises(UnsupportedBeamError) as raised:
+        curved_offset(bm)
+
+    message = str(raised.value)
+    assert "not one constant pair in its own section frame" in message
+    assert "-0.19998" in message and "-0.0022" in message, "both projections have to be in the message"
+
+
+def test_an_offset_that_differs_globally_but_not_in_the_frame_is_carried():
+    """``e1 == e2`` is neither necessary nor sufficient, and this is the "not necessary" half.
+
+    adapy's Genie reader resolves a curved member's eccentricity **per end** -- ``segs[0]``
+    for ``e1`` and ``segs[-1]`` for ``e2`` -- so two different global vectors are the ordinary
+    case on an arc, and they are the *same* offset whenever they are the same pair in each
+    end's own frame. Here they differ by 0.42 length units globally and are ``(0.3, 0.2)`` at
+    both ends, which is what the writer must emit.
+    """
+    bm = a_curved_beam("BeamCurved")
+    (_, n1_start, n2_start), (_, n1_end, n2_end) = arc_end_frames(bm)
+    bm.e1 = tuple(0.3 * n1_start + 0.2 * n2_start)
+    bm.e2 = tuple(0.3 * n1_end + 0.2 * n2_end)
+    globally = float(np.linalg.norm(np.asarray(bm.e1, dtype=float) - np.asarray(bm.e2, dtype=float)))
+    assert globally > 0.4, "the fixture must exercise two genuinely different global vectors"
+
+    assert curved_offset(bm) == pytest.approx((0.3, 0.2), abs=1e-12)
+
+
+def test_an_offset_along_a_curved_members_own_tangent_is_refused_although_the_pair_agrees():
+    """The "not sufficient" half, and the hole the pair comparison alone would leave.
+
+    An offset along the tangent at each end projects to ``(0, 0)`` at both ends, so the
+    comparison of the two pairs is perfectly happy with it -- and emitting ``(0, 0)`` would
+    drop the whole offset in silence, which is the failure this writer exists to refuse. So
+    the axial component is checked per end after the pair, and named.
+    """
+    bm = a_curved_beam("BeamCurved")
+    (t_start, _, _), (t_end, _, _) = arc_end_frames(bm)
+    bm.e1 = tuple(0.2 * t_start)
+    bm.e2 = tuple(0.2 * t_end)
+
+    with pytest.raises(UnsupportedBeamError, match="AXIAL component"):
+        curved_offset(bm)
+
+
+def test_a_curved_member_with_an_offset_it_cannot_carry_stops_the_whole_write(tmp_path):
+    """The refusal is a plan-time one, like every other: no half-written script."""
+    part = ada.Part("Arc")
+    part.add_beam(a_curved_beam("BeamCurved", name="arc", e1=(0.2, 0.0, 0.0), e2=(0.2, 0.0, 0.0)))
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    destination = tmp_path / "out.py"
+
+    with pytest.raises(UnsupportedBeamError, match="not one constant pair"):
+        assembly.to_abaqus_cae_script(destination)
+
+    assert not destination.exists()
 
 
 def test_a_varying_offset_stops_the_whole_write(tmp_path):

@@ -241,6 +241,51 @@ def test_a_curved_member_is_drawn_as_a_spline_on_its_own_curve(tmp_path):
     assert graph.by_method("getByBoundingCylinder") == [], "a cylinder round an arc's chord finds nothing"
 
 
+def test_a_curved_members_out_of_plane_offset_reaches_its_section(tmp_path):
+    """The narrowed refusal, read off the emitted script: one spline, one section, one offset.
+
+    A quarter arc in the XY plane offset 0.4 out of that plane. ``n1`` lies in the arc's plane,
+    so ``n2 = t x n1_proj`` is a constant ``+Z`` and the offset is one constant pair in the
+    frame Abaqus applies it in -- measured exact against an ``*MPC BEAM`` model of the same arc
+    (all six components to every printed digit), which is what allows it through at all.
+
+    The graph pass proper cannot run here for the same reason it cannot on any curved member:
+    it insists every region is located by ``getByBoundingCylinder``, and a cylinder round an
+    arc's chord returns 0 edges. What is asserted instead is that the offset arrives on the
+    section rather than being dropped on the way, and that the wire is still drawn at the
+    member's own nodes -- an offset that moved the geometry would be a different model.
+    """
+    curve = gc.RationalBSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(4.0, 0.0, 0.0), (4.0, 4.0, 0.0), (0.0, 4.0, 0.0)],
+        curve_form=gc.BSplineCurveFormEnum.CIRCULAR_ARC,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=gc.KnotType.UNSPECIFIED,
+        weights_data=[1.0, math.cos(math.pi / 4.0), 1.0],
+    )
+    part = ada.Part("OffsetArc")
+    part / ada.BeamCurved(
+        "arc", (4.0, 0.0, 0.0), (0.0, 4.0, 0.0), curve, "IPE300", mat="S355", e1=(0, 0, 0.4), e2=(0, 0, 0.4)
+    )
+    ada.Assembly("A") / part
+
+    _, source = emit(part, tmp_path, name="offset_arc")
+
+    graph = ScriptGraph(source, name="offset_arc.py")
+    (section,) = graph.by_method("BeamSection")
+    assert section.kwargs["beamSectionOffset"] == pytest.approx((0.0, 0.4))
+    (spline,) = graph.by_method("WireSpline")
+    points = graph.resolve_value(spline.kw("points"))
+    assert points[0] == pytest.approx((4.0, 0.0, 0.0)), "the wire is at the nodes, not at the offset"
+    assert points[-1] == pytest.approx((0.0, 4.0, 0.0), abs=1e-12)
+    assert graph.by_method("WirePolyLine") == [], "the only member here is curved"
+    assert graph.by_method("Equation", "MultipointConstraint", "Coupling", "Node") == []
+    assert "_guard_section_offsets(model)" in source, "the offset readback guard has to travel with it"
+
+
 def test_unit_scale_is_refused_and_the_coordinates_are_the_models_own(frame_model, tmp_path):
     """This test used to assert the scaling worked, over the top of the bug that made it wrong.
 

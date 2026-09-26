@@ -44,6 +44,7 @@ import re
 import pytest
 
 import ada
+from ada.geom import curves as gc
 from ada.materials.metals import CarbonSteel
 
 from .abaqus_runner import ERROR_MARKERS, abaqus_available, run_cae_script
@@ -1598,3 +1599,224 @@ def test_a_pressure_the_writer_wrote_arrives_as_a_dsload_on_the_plates_faces(pre
     text = (run.workdir / "pressure_export.inp").read_text(encoding="utf-8")
     assert "*Dsload" in text
     assert re.search(r"q_surf,\s*P,\s*1000", text) is not None, text[-3000:]
+# ------------------------------------- a curved member's offset, against an *MPC BEAM reference
+
+ARC_RADIUS = 4.0
+ARC_OFFSET = 0.4
+ARC_ELEMENTS = 16
+ARC_LOAD = 1.0e4
+#: The arc length of a quarter circle, and with :data:`ARC_ELEMENTS` the seed that cuts it up.
+ARC_LENGTH = ARC_RADIUS * math.pi / 2.0
+
+#: What the probe this test reproduces measured for the *offset* model's loaded end (Abaqus 2025,
+#: ``D:\temp\cae_probe\lift\arc``): a quarter arc R = 4 at z = 0 carrying
+#: ``beamSectionOffset=(0, 0.4)``, 16 x B32, PIPE OD200x10, fixed at ``(4, 0, 0)`` and carrying
+#: ``Fx = Fz = My = 1e4`` together at ``(0, 4, 0)``. The rigid-link reference model returned every
+#: one of these to the last printed digit.
+ARC_PROBED_U = (2.437131479e-02, 6.210658699e-02, 1.610077024e-01)
+ARC_PROBED_UR = (1.368860062e-02, 4.019251838e-02, -1.614604890e-02)
+
+ARC_REF_DRIVER = """
+from mesh import ElemType
+from odbAccess import openOdb
+
+print('PROBE off_elements {0!r}'.format(len(mdb.models['Model-1'].parts['OffsetArc'].elements)))
+
+# The reference model: the SAME sampled polyline the writer drew, lifted 0.4 out of the arc's
+# plane so that the offset is carried as geometry, with no section offset at all -- and each end
+# tied back down to a reference point on the node line by an *MPC BEAM rigid link, which is what
+# adapy's INP writer builds for an eccentricity. An offset element is a beam on the offset line
+# plus a rigid link at every node, and with loads only at the ends the interior links carry
+# nothing, so the two models must agree.
+#
+# The links go in through the keyword block because Model.MultipointConstraint DOES NOT EXIST in
+# Abaqus 2025 -- measured: "'Model' object has no attribute 'MultipointConstraint'". The
+# dependent set comes first, and the block goes in before *End Assembly.
+_points = __POINTS__
+_ref = mdb.Model(name='REF')
+_ref.Material(name='S355')
+_ref.materials['S355'].Elastic(table=((__E__, __POISSON__),))
+_ref.PipeProfile(name='PIPE', r=__PIPE_R__, t=__PIPE_T__)
+_ref.BeamSection(name='S', profile='PIPE', material='S355', integration=DURING_ANALYSIS)
+_part = _ref.Part(name='Arc', dimensionality=THREE_D, type=DEFORMABLE_BODY)
+_part.WireSpline(points=_points, mergeType=IMPRINT, meshable=ON, smoothClosedSpline=OFF)
+_all = _part.Set(name='all', edges=_part.edges)
+_part.SectionAssignment(region=_all, sectionName='S')
+_part.assignBeamSectionOrientation(region=_all, method=N1_COSINES, n1=__N1__)
+_part.seedPart(size=__SEED__, deviationFactor=0.1, minSizeFactor=0.1)
+_part.setElementType(regions=(_part.edges,), elemTypes=(ElemType(elemCode=B32, elemLibrary=STANDARD),))
+_part.generateMesh()
+print('PROBE ref_elements {0!r}'.format(len(_part.elements)))
+
+_assembly = _ref.rootAssembly
+_assembly.DatumCsysByDefault(CARTESIAN)
+_instance = _assembly.Instance(name='Arc-1', part=_part, dependent=ON)
+_assembly.Set(name='ARC_A', vertices=_instance.vertices.findAt((_points[0],)))
+_assembly.Set(name='ARC_B', vertices=_instance.vertices.findAt((_points[-1],)))
+_rp_a = _assembly.ReferencePoint(point=__NODE_A__)
+_rp_b = _assembly.ReferencePoint(point=__NODE_B__)
+_assembly.Set(name='RP_A', referencePoints=(_assembly.referencePoints[_rp_a.id],))
+_assembly.Set(name='RP_B', referencePoints=(_assembly.referencePoints[_rp_b.id],))
+_ref.StaticStep(name='lc', previous='Initial')
+_keywords = _ref.keywordBlock
+_keywords.synchVersions(storeNodesAndElements=False)
+_at = -1
+for _index, _block in enumerate(_keywords.sieBlocks):
+    if _block.upper().startswith('*END ASSEMBLY'):
+        _at = _index
+        break
+if _at < 1:
+    raise ValueError('no *End Assembly block to put the rigid links before')
+_keywords.insert(_at - 1, '*MPC\\nBEAM, ARC_A, RP_A\\n*MPC\\nBEAM, ARC_B, RP_B')
+_ref.EncastreBC(name='fix', createStepName='Initial', region=_assembly.sets['RP_A'])
+_ref.ConcentratedForce(name='F', createStepName='lc', region=_assembly.sets['RP_B'],
+                       cf1=__LOAD__, cf3=__LOAD__)
+_ref.Moment(name='M', createStepName='lc', region=_assembly.sets['RP_B'], cm2=__LOAD__)
+
+_job = mdb.Job(name='REF', model='REF')
+_job.submit(consistencyChecking=OFF)
+_job.waitForCompletion()
+_odb = openOdb('REF.odb')
+_frame = _odb.steps['lc'].frames[-1]
+_at_rp = _odb.rootAssembly.nodeSets['RP_B']
+_u = _frame.fieldOutputs['U'].getSubset(region=_at_rp).values[0].data
+_ur = _frame.fieldOutputs['UR'].getSubset(region=_at_rp).values[0].data
+_odb.close()
+print('PROBE ref_u {0!r} {1!r} {2!r}'.format(_u[0], _u[1], _u[2]))
+print('PROBE ref_ur {0!r} {1!r} {2!r}'.format(_ur[0], _ur[1], _ur[2]))
+"""
+
+
+def quarter_arc_curve(radius: float):
+    """The rational quadratic B-spline that **is** a quarter circle -- an ACIS intcurve's own form."""
+    weight = math.cos(math.pi / 4.0)
+    return gc.RationalBSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(radius, 0.0, 0.0), (radius, radius, 0.0), (0.0, radius, 0.0)],
+        curve_form=gc.BSplineCurveFormEnum.CIRCULAR_ARC,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=gc.KnotType.UNSPECIFIED,
+        weights_data=[1.0, weight, 1.0],
+    )
+
+
+@pytest.fixture(scope="session")
+def offset_arc_run(tmp_path_factory):
+    """The writer's own arc-with-an-offset model, and an ``*MPC BEAM`` reference beside it.
+
+    One CAE token: the writer's script builds, meshes and solves its model and writes the
+    displacement sidecar, then the appended driver builds the reference model in the same session
+    from the *same* sampled polyline at the *same* seed, so the only difference between the two is
+    how the 0.4 m eccentricity is carried.
+    """
+    from ada.cadit.cae.curves import sample_member_curve
+    from ada.cadit.cae.writer import beam_endpoints, beam_n1
+    from ada.fem import FEM, Bc, FemSet, Load, StepImplicitStatic
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    node_a, node_b = (ARC_RADIUS, 0.0, 0.0), (0.0, ARC_RADIUS, 0.0)
+    arc = ada.BeamCurved(
+        "arc",
+        node_a,
+        node_b,
+        quarter_arc_curve(ARC_RADIUS),
+        "OD200x10",
+        mat=mat,
+        e1=(0.0, 0.0, ARC_OFFSET),
+        e2=(0.0, 0.0, ARC_OFFSET),
+    )
+    part = ada.Part("OffsetArc") / arc
+
+    # The supports and loads by hand rather than through to_fem_obj: all this model needs is a node
+    # at each end of the arc, and a two-node FEM says exactly that with nothing in between to
+    # wonder about. plan_analysis reads positions off FemSets and never touches an element.
+    part.fem = FEM("arc", parent=part)
+    ends = {}
+    for name, point in (("END_A", node_a), ("END_B", node_b)):
+        node = part.fem.nodes.add(ada.Node(point))
+        ends[name] = part.fem.add_set(FemSet(name, [node], FemSet.TYPES.NSET, parent=part.fem))
+    part.fem.add_bc(Bc("fix", ends["END_A"], [1, 2, 3, 4, 5, 6]))
+
+    assembly = ada.Assembly("OffsetArcSite") / part
+    step = assembly.fem.add_step(StepImplicitStatic("lc", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    # Fx, Fz and My together, the combination the probe used: a single component could be carried
+    # by a section offset that was right about one axis and wrong about the other.
+    step.add_load(Load("P", Load.TYPES.FORCE, ARC_LOAD, fem_set=ends["END_B"], dof=[1, 0, 1, 0, 1, 0]))
+
+    seed = ARC_LENGTH / ARC_ELEMENTS
+    points, _ = sample_member_curve(arc, *beam_endpoints(arc), 1e-04)
+    lifted = tuple((p[0], p[1], p[2] + ARC_OFFSET) for p in points)
+    driver = ARC_REF_DRIVER
+    for token, value in (
+        ("__POINTS__", repr(lifted)),
+        ("__E__", repr(float(mat.model.E))),
+        ("__POISSON__", repr(float(mat.model.v))),
+        ("__PIPE_R__", repr(float(arc.section.r))),
+        ("__PIPE_T__", repr(float(arc.section.wt))),
+        ("__N1__", repr(beam_n1(arc))),
+        ("__SEED__", repr(seed)),
+        ("__NODE_A__", repr(node_a)),
+        ("__NODE_B__", repr(node_b)),
+        ("__LOAD__", repr(ARC_LOAD)),
+    ):
+        driver = driver.replace(token, value)
+
+    workdir = tmp_path_factory.mktemp("cae_offset_arc")
+    script = workdir / "offset_arc.py"
+    assembly.to_abaqus_cae_script(script, mesh_size=seed, element_type="B32", submit=True)
+    with script.open("a", encoding="utf-8") as handle:
+        handle.write("\n\n# --- appended by tests/core/cadit/cae/test_cae_licensed_acceptance.py\n")
+        handle.write(driver)
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_a_curved_members_section_offset_is_the_rigid_link_it_stands_for(offset_arc_run):
+    """The measurement that narrowed the refusal, reproduced through the writer itself.
+
+    A 0.4 m out-of-plane eccentricity on a quarter arc, carried two ways that share no code: as
+    ``*Beam Section Offset`` on the node line (this writer), and as the arc drawn 0.4 m up with an
+    ``*MPC BEAM`` rigid link at each end (what adapy's INP writer does with an eccentricity). Both
+    models are the same spline through the same sampled points, meshed at the same seed into the
+    same 16 ``B32`` elements and loaded with ``Fx = Fz = My = 1e4`` together, so the eccentricity
+    is the only thing that differs between them -- and dropping it in silence is exactly what a
+    wire drawn end to end does.
+
+    Abaqus applies the pair in each element's own ``(n1, n2)``, and on this arc ``n1`` lies in the
+    arc's plane, so ``n2 = t x n1_proj`` is a constant ``+Z`` and ``(0, 0.4)`` is one constant pair.
+    The probe that measured this first got all six components identical to every printed digit.
+    Both are checked here, and against the recorded numbers as well, so a pair of models that
+    agreed with each other for having quietly lost the offset on *both* sides would still fail.
+    """
+    assembly, run = offset_arc_run
+    _assert_ran(run)
+    build, displacements = sidecars(run, "offset_arc")
+    assert build["ok"] is True, build
+
+    # Like for like: the reference is only a reference if it was meshed the same way.
+    assert run.value("PROBE off_elements") == str(ARC_ELEMENTS), run.describe()
+    assert run.value("PROBE ref_elements") == str(ARC_ELEMENTS), run.describe()
+    assert build["mesh"]["OffsetArc"]["element_type"] == "B32"
+
+    written = nodal(displacements)[(0.0, ARC_RADIUS, 0.0)]
+    reference = tuple(float(v) for v in run.value("PROBE ref_u").split(" ")) + tuple(
+        float(v) for v in run.value("PROBE ref_ur").split(" ")
+    )
+
+    # 1e-06 relative, and that is the ODB's own single precision rather than a physical tolerance:
+    # the two routes agreed to every digit Abaqus printed. A dropped offset is 5x u3 away, not 1e-6.
+    assert written == pytest.approx(reference, rel=1e-06), (
+        "the section offset and the *MPC BEAM rigid link are not the same model: the writer's run gives "
+        "{0} and the rigid-link reference {1}".format(written, reference)
+    )
+    assert written[:3] == pytest.approx(ARC_PROBED_U, rel=1e-03), "u against the recorded measurement"
+    assert written[3:] == pytest.approx(ARC_PROBED_UR, rel=1e-03), "ur against the recorded measurement"
+
+    # Last, because it is the weakest of the three: a readback of the pair CAE holds. The two
+    # above are the model answering.
+    (offset,) = [entry[0] for entry in build["section_offsets"].values()]
+    assert tuple(offset) == pytest.approx((0.0, ARC_OFFSET), abs=1e-12)
+    arc = assembly.get_by_name("arc")
+    assert float(arc.e1[2]) == ARC_OFFSET, "the model still carries the eccentricity this is about"

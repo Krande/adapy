@@ -50,10 +50,19 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
 4. **An eccentricity is carried as a section offset, and refused when it cannot be.**
    ``*Beam Section Offset`` takes one 2-tuple in the section's own ``(n1, n2)`` axes, so a
    constant offset is exact and cheap -- no extra nodes and no ``*MPC BEAM`` links, which is
-   what adapy's INP writer has to create. A **varying** offset (``e1 != e2``), an **axial**
-   component, and an offset on a **curved** member are refused: none of the three is
-   expressible as one 2-tuple, and a wire drawn end to end discards an offset silently,
-   which is the 660 mm coordinate error this project has already paid for, in a new coat.
+   what adapy's INP writer has to create. On a straight member a **varying** offset
+   (``e1 != e2``) and an **axial** component are refused: neither is expressible as one
+   2-tuple, and a wire drawn end to end discards an offset silently, which is the 660 mm
+   coordinate error this project has already paid for, in a new coat. On a **curved** member
+   the test is made in the frame rather than on the global vectors, because the frame turns:
+   each end's own ``e`` is projected onto that end's own ``(n1_proj, n2)`` -- ``n1_proj``
+   being the single ``n1`` projected perpendicular to the tangent there, which is what
+   ``N1_COSINES`` makes Abaqus do -- and the pair is carried when the two ends agree and
+   refused, quoting both, when they do not. An out-of-plane offset on a planar arc passes and
+   is **exact**: measured against an ``*MPC BEAM`` rigid-link model of the same arc, all six
+   displacement components agreed to every printed digit. A constant *radial* offset on the
+   same arc has ``e1 == e2`` and still fails, because it rotates out of the frame. See
+   :func:`curved_beam_section_offset`.
 5. **Endpoints come from** :meth:`ada.Beam.axis_global`, whose own docstring says
    exporters must share it so they cannot disagree about where a beam is. Raw
    ``n1.p``/``n2.p`` ignores the owning Part's placement.
@@ -518,20 +527,35 @@ def check_beam_shape(bm: Beam) -> None:
     )
 
 
-def _eccentricity(bm: Beam) -> tuple[float, float, float] | None:
-    """The member's constant offset from its end nodes, or ``None`` if it has none.
+def _offset_ends(bm: Beam) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """``(e1, e2)`` as plain 3-tuples, a missing container read as no offset at all.
 
-    Refuses a **varying** offset, which one section offset cannot express: ``*Beam Section
-    Offset`` takes a single 2-tuple for the whole section. Measured across adapy's own Genie
-    fixtures, every offset in the corpus is constant (7 in ``beams_constant_offset.xml``,
-    2 in ``flush_top_varying_offset_types.xml``, 0 varying anywhere), so the constant case
-    covers the models on hand and the varying one can wait for a model that needs it.
+    A missing ``e2`` is ``(0, 0, 0)`` and **not** "the same as ``e1``": reading it as the
+    latter would move the far end of the member by the whole offset without a word.
     """
     ends = []
     for label in ("e1", "e2"):
         ecc = getattr(bm, label)
         ends.append((0.0, 0.0, 0.0) if ecc is None else tuple(float(component) for component in ecc))
-    e1, e2 = ends
+    return ends[0], ends[1]
+
+
+def _eccentricity(bm: Beam) -> tuple[float, float, float] | None:
+    """The member's constant offset from its end nodes, or ``None`` if it has none.
+
+    Refuses a **varying** offset, which one section offset cannot express on a *straight*
+    member: ``*Beam Section Offset`` takes a single 2-tuple for the whole section, and a
+    straight member's ``(n1, n2)`` frame is the same at both ends, so two different global
+    vectors are two different 2-tuples. Measured across adapy's own Genie fixtures, every
+    offset in the corpus is constant (7 in ``beams_constant_offset.xml``, 2 in
+    ``flush_top_varying_offset_types.xml``, 0 varying anywhere), so the constant case
+    covers the models on hand and the varying one can wait for a model that needs it.
+
+    A **curved** member is where "varying" and "two different 2-tuples" come apart, because
+    its frame turns: see :func:`curved_beam_section_offset`, which compares the two ends in
+    their own frames instead of comparing the global vectors.
+    """
+    e1, e2 = _offset_ends(bm)
     difference = max(abs(a - b) for a, b in zip(e1, e2))
     if difference > ECCENTRICITY_TOL:
         raise UnsupportedBeamError(
@@ -548,7 +572,7 @@ def _eccentricity(bm: Beam) -> tuple[float, float, float] | None:
     return e1
 
 
-def beam_section_offset(bm: Beam, *, curved: bool = False) -> tuple[float, float] | None:
+def beam_section_offset(bm: Beam, *, path=None) -> tuple[float, float] | None:
     """adapy's global ``e1``/``e2`` as Abaqus' ``beamSectionOffset``, or ``None``.
 
     Abaqus' offset is a 2-tuple in the section's own local axes, ``(along n1, along n2)``,
@@ -578,22 +602,15 @@ def beam_section_offset(bm: Beam, *, curved: bool = False) -> tuple[float, float
     An **axial** component of ``e`` is refused: a section offset moves the section sideways
     and has no way to lengthen a member, so an axial offset would be dropped in silence.
 
-    A **curved** member with an offset is refused too. ``(n1, n2)`` rotates along a curve
-    while ``e`` is one global vector, so no single 2-tuple is the same offset at both ends;
-    CAE accepts the pair (probed) and the result would be an offset that drifts out of the
-    direction the model meant.
+    ``path`` is the sampled polyline of a **curved** member and ``None`` for a straight one.
+    A curve's frame turns along the member, so the projection is done per end against that
+    end's own frame -- :func:`curved_beam_section_offset`, which this delegates to.
     """
+    if path is not None:
+        return curved_beam_section_offset(bm, path)
     e1 = _eccentricity(bm)
     if e1 is None:
         return None
-    if curved:
-        raise UnsupportedBeamError(
-            "beam {0!r} is curved AND carries an offset of {1}. Abaqus' *Beam Section Offset is stated "
-            "in the section's local (n1, n2) axes, and those rotate along a curve while adapy's e1 is a "
-            "single global vector -- so one 2-tuple cannot be the same offset at both ends of the arc. "
-            "CAE does accept the combination (probed), which is why it is refused here rather than left "
-            "to fail loudly somewhere else.".format(bm.name, e1)
-        )
     offset = np.asarray(e1, dtype=float)
     n1 = np.asarray(beam_n1(bm), dtype=float)
     p1, p2 = beam_endpoints(bm)
@@ -610,6 +627,144 @@ def beam_section_offset(bm: Beam, *, curved: bool = False) -> tuple[float, float
             "that for most offset containers) or split the member.".format(bm.name, e1, axial)
         )
     return (float(np.dot(offset, n1)), float(np.dot(offset, n2)))
+
+
+def _end_tangent(points: np.ndarray, at_end: bool) -> np.ndarray:
+    """The unit chord of the first (or last) non-degenerate span of a sampled polyline.
+
+    The chord rather than an analytic derivative, because the chord is what Abaqus itself
+    resolves ``N1_COSINES`` against: it projects the one ``n1`` perpendicular to each
+    *element's* own tangent, and an element spans a chord of the same wire. The two are not
+    the same chord -- the mesh seed is the user's, the sampling is
+    :data:`~ada.cadit.cae.curves.MAX_TURN_RADIANS` -- so the frame below is the end frame to
+    within half the sampled turn (measured: 0.0111 rad on the 65-point quarter arc adapy
+    samples for a radius-2 arc). That error is what makes this test conservative rather than
+    generous; see :func:`curved_beam_section_offset`.
+    """
+    span = range(len(points) - 1) if not at_end else range(len(points) - 2, -1, -1)
+    for index in span:
+        chord = points[index + 1] - points[index]
+        length = float(np.linalg.norm(chord))
+        if length > 0.0:
+            return chord / length
+    raise CaeWriteError("a sampled curve has no two distinct points to take a tangent from")
+
+
+def _end_section_frame(n1: np.ndarray, tangent: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(n1_proj, n2)`` at one end of a curve: Abaqus' own resolution of ``N1_COSINES`` there.
+
+    ``method=N1_COSINES`` hands Abaqus **one** vector for the whole member and Abaqus projects
+    it perpendicular to the local tangent, so the section's first axis at this end is ``n1``
+    with its tangential part removed. The second is ``t x n1_proj``, which is the same
+    right-handed rule :func:`beam_section_offset` uses on a straight member.
+
+    :func:`check_n1_holds_along_the_curve` has already refused a member whose ``n1`` comes
+    within ``sin`` = :data:`CURVE_N1_MIN_SIN` of its tangent anywhere, so the projection here
+    cannot be degenerate.
+    """
+    projected = n1 - float(np.dot(n1, tangent)) * tangent
+    n1_proj = projected / np.linalg.norm(projected)
+    return n1_proj, np.cross(tangent, n1_proj)
+
+
+def curved_beam_section_offset(bm: Beam, path) -> tuple[float, float] | None:
+    """A curved member's offset as one ``beamSectionOffset``, or a refusal quoting both ends.
+
+    **An out-of-plane offset on a curved member is exact, and that is measured** (Abaqus 2025,
+    ``D:\\temp\\cae_probe\\lift\\arc``). A quarter arc R = 4 in the XY plane, 16 x B32, PIPE
+    OD200x10, ``n1`` the writer's own chord ``yvec`` ``(-1,-1,0)/sqrt2``, fixed at one end and
+    loaded at the other with ``Fx = Fz = My = 1e4`` together, was run two ways: the node line
+    at ``z = 0`` carrying ``beamSectionOffset=(0, 0.4)``, against the arc *drawn* at
+    ``z = +0.4`` and tied back to a reference point at each end with ``*MPC BEAM`` -- the rigid
+    link adapy's INP writer builds for an eccentricity::
+
+        OFF  u = (2.437131479e-02, 6.210658699e-02, 1.610077024e-01)
+             ur = (1.368860062e-02, 4.019251838e-02, -1.614604890e-02)
+        REF  u = (2.437131479e-02, 6.210658699e-02, 1.610077024e-01)
+             ur = (1.368860062e-02, 4.019251838e-02, -1.614604890e-02)
+
+    Identical to every printed digit on all six components. So Abaqus applies the 2-tuple in
+    the *local* ``(n1, n2)`` frame element by element, and a curve is no obstacle in itself --
+    what matters is whether adapy's offset *is* one constant pair in that frame.
+
+    So the test is done in the frame and not on the global vectors. adapy stores one global
+    vector per end (the Genie reader's ``curve_offset_to_eccentricity_global`` resolves
+    ``segs[0]`` for ``e1`` and ``segs[-1]`` for ``e2``), so each end is projected onto **its
+    own** ``(n1_proj, n2)`` -- :func:`_end_section_frame` -- and the pair is emitted only when
+    the two agree within :data:`ECCENTRICITY_TOL`. Comparing the global vectors is neither
+    necessary nor sufficient, and both halves of that are ordinary on an arc: an offset
+    following the section frame round the curve has ``e1 != e2`` and is exactly expressible,
+    while a constant *radial* offset has ``e1 == e2`` and rotates out of the frame -- its
+    ``n1_proj`` component reads -0.2 at one end of a quarter arc and -0.0022 at the other.
+
+    The frames come from the sampled **end chords** (:func:`_end_tangent`), not from an
+    analytic tangent, and the error that leaves is spent on refusing rather than on carrying.
+    The offset measured above is unaffected either way: an out-of-plane ``e`` is perpendicular
+    to every chord of an in-plane arc, so both its components are exact and its axial
+    component is exactly zero. An offset that *follows* the frame round the curve -- a radial
+    one, say -- has its two projections agree to the last bit and is then refused for the
+    sliver of apparent axial content the chord's own tilt puts there: 2.2e-03 of a 0.2 offset
+    on the 65-point quarter arc adapy samples, against an exact zero for the true tangent.
+    That is the conservative half of the trade, and the other half would be a tolerance wide
+    enough to drop a *real* axial component of the same size in silence.
+
+    Where the emitted pair has a component along ``n1_proj``, the two ends are what pins it
+    and Abaqus rotates it with the section frame in between; adapy holds nothing about the
+    interior to compare that against. The measured case above is the one where that rotation
+    is nil.
+    """
+    e1, e2 = _offset_ends(bm)
+    if max(abs(component) for component in e1 + e2) <= ECCENTRICITY_TOL:
+        return None
+    n1 = np.asarray(beam_n1(bm), dtype=float)
+    points = np.asarray(path, dtype=float)
+    projections = []
+    axials = []
+    for ecc, at_end in ((e1, False), (e2, True)):
+        tangent = _end_tangent(points, at_end)
+        n1_proj, n2 = _end_section_frame(n1, tangent)
+        offset = np.asarray(ecc, dtype=float)
+        projections.append((float(np.dot(offset, n1_proj)), float(np.dot(offset, n2))))
+        axials.append((float(np.dot(offset, tangent)), tuple(float(c) for c in tangent)))
+    first, second = projections
+    difference = max(abs(a - b) for a, b in zip(first, second))
+    if difference > ECCENTRICITY_TOL:
+        raise UnsupportedBeamError(
+            "beam {0!r} is curved and its offset is not one constant pair in its own section frame: e1 "
+            "{1} projects onto (n1, n2) at that end as {2}, while e2 {3} projects as {4} at the other -- "
+            "differing by up to {5:g} length units. Abaqus' *Beam Section Offset is a single 2-tuple "
+            "applied in the local (n1, n2) axes of every element, and those axes turn along the curve, so "
+            "an offset that is constant in *global* axes is a different offset at each end of an arc, "
+            "while one that follows the frame is the same offset at both. This one is neither, so no "
+            "single pair says what the model says. An out-of-plane offset on a planar arc is carried "
+            "exactly (measured against an *MPC BEAM rigid link of the same arc, to every printed digit "
+            "on all six components); split the member where its frame has turned too far, or state the "
+            "offset in the section's own axes.".format(
+                bm.name, e1, tuple(round(c, 12) for c in first), e2, tuple(round(c, 12) for c in second), difference
+            )
+        )
+    # The pair says the same thing at both ends -- but a pair says nothing at all about the
+    # tangential direction, so an offset that runs along the member is not refused by the
+    # comparison above: both ends project to (0, 0) and the whole offset would be dropped.
+    for label, (axial, tangent) in zip(("e1", "e2"), axials):
+        if abs(axial) > ECCENTRICITY_TOL:
+            raise UnsupportedBeamError(
+                "beam {0!r} is curved and its {1} {2} has an AXIAL component of {3:g} along the member's "
+                "own tangent {4} at that end, which the pair (n1, n2) has no slot for: a section offset "
+                "displaces the cross-section sideways from the node line and cannot move a member along "
+                "itself, so that component would be discarded without a word. The tangent here is the "
+                "chord of the sampled span at that end and is within half a sampled turn of the true "
+                "tangent, so an offset meant to be perpendicular to the curve is refused rather than "
+                "rounded onto it -- the offset measured as exact (out of a planar arc's plane) is "
+                "perpendicular to every chord of it and is not affected either way.".format(
+                    bm.name,
+                    label,
+                    tuple(round(c, 12) for c in (e1 if label == "e1" else e2)),
+                    axial,
+                    tuple(round(c, 6) for c in tangent),
+                )
+            )
+    return first
 
 
 #: The smallest ``sin`` of the angle between a curved member's tangent and its ``n1`` that
@@ -1155,9 +1310,12 @@ def build_plan(
                             bm.name, type(bm).__name__, exc
                         )
                     ) from exc
-            offset = beam_section_offset(bm, curved=curved)
             if curved:
+                # The n1 check first: the offset's projection is done in the frame N1_COSINES
+                # resolves at each end, which is only a frame at all while n1 stays clear of
+                # the tangent there.
                 check_n1_holds_along_the_curve(bm, path)
+            offset = beam_section_offset(bm, path=path)
 
             cae_material_name = material_for(bm.material, "beam {0!r}".format(bm.name))
 
@@ -3436,6 +3594,7 @@ __all__ = [
     "check_n1_holds_along_the_curve",
     "check_shell_element_type",
     "check_unit_scale",
+    "curved_beam_section_offset",
     "render_script",
     "write_cae_script",
 ]
