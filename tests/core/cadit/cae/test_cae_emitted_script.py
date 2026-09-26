@@ -286,6 +286,103 @@ def test_a_curved_members_out_of_plane_offset_reaches_its_section(tmp_path):
     assert "_guard_section_offsets(model)" in source, "the offset readback guard has to travel with it"
 
 
+def swept_part(points, name="sweep", part_name="Swept") -> ada.Part:
+    """A ``BeamSweep`` over a ``CurveOpen2d`` in the XY plane; a third coordinate is a fillet radius."""
+    from ada.api.beams.beam_swept import BeamSweep
+    from ada.api.curves import CurveOpen2d
+
+    curve = CurveOpen2d(points, origin=(0.0, 0.0, 0.0), xdir=(1.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0))
+    part = ada.Part(part_name)
+    part / BeamSweep(name, curve, "IPE300", mat="S355")
+    ada.Assembly("A") / part
+    return part
+
+
+def test_a_two_leg_sweep_is_one_member_with_two_wires_and_one_set(tmp_path):
+    """The lift, read off the script: two wires, two cylinders, **one** set and one section.
+
+    A member whose axis is a chain is still one member -- one set, one section assignment, one
+    orientation -- and CAE needs nothing drawn at the junction: measured on Abaqus 2025, wires
+    sharing an end point under ``mergeType=IMPRINT`` build one vertex there (the L gives
+    ``edges=2 vertices=3``) and the mesh puts one node on it.
+
+    The graph pass proper is not run, for the same reason it is not run on a curved member: it
+    reads one ``WirePolyLine`` as one member and insists each is located by its own cylinder,
+    and here two wires are one member. What it would have checked is asserted directly instead,
+    including that each leg's cylinder is that leg's own axis.
+    """
+    part = swept_part([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)], name="ell")
+
+    _, source = emit(part, tmp_path, name="ell")
+
+    graph = ScriptGraph(source, name="ell.py")
+    wires = [graph.resolve_value(call.kw("points")) for call in graph.by_method("WirePolyLine")]
+    assert len(wires) == 2, "one wire per leg"
+    assert wires[0][0] == ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    assert wires[1][0] == ((2.0, 0.0, 0.0), (2.0, 2.0, 0.0))
+    assert graph.by_method("WireSpline") == [], "both legs of this path are straight"
+    # One member: one set, one section assignment, one orientation -- and two cylinders.
+    assert sorted(graph.created_names("Set")) == ["ell"]
+    assert len(graph.by_method("SectionAssignment")) == 1
+    assert len(graph.by_method("assignBeamSectionOrientation")) == 1
+    cylinders = graph.by_method("getByBoundingCylinder")
+    assert len(cylinders) == 2
+    assert [c.kwargs["center1"][1] for c in cylinders] == pytest.approx([0.0, -0.0002])
+    combine = [call for call in graph.calls if call.method == "_member_leg_edges"]
+    assert len(combine) == 1, "the legs are combined once, into the member's own edge sequence"
+    assert combine[0].args[:2] == ("Swept", "ell")
+    assert (
+        "_member_leg_edges" in source and "Feature creation failed" in source
+    ), "the helper has to carry why + is the spelling that works"
+
+
+def test_a_filleted_sweep_draws_its_arc_as_a_spline_between_its_two_straight_legs(tmp_path):
+    """Line-arc-line, which is what adapy's own ``CurveOpen2d`` makes of a filleted corner.
+
+    Each leg is located the way its shape needs -- the straight ones by their own cylinders, the
+    arc by ``findAt`` at its interior sample points, which also checks its arc length -- and the
+    three sequences become the one set the member's section is assigned to. Drawing this member
+    as a single spline would round its corner off; as a single chord it would lose it.
+    """
+    part = swept_part([(0.0, 0.0), (2.0, 0.0, 0.5), (2.0, 2.0)], name="filleted")
+
+    _, source = emit(part, tmp_path, name="filleted")
+
+    graph = ScriptGraph(source, name="filleted.py")
+    assert len(graph.by_method("WirePolyLine")) == 2
+    (spline,) = graph.by_method("WireSpline")
+    points = graph.resolve_value(spline.kw("points"))
+    assert points[0] == pytest.approx((1.5, 0.0, 0.0)) and points[-1] == pytest.approx((2.0, 0.5, 0.0))
+    located = [c for c in graph.calls if c.method == "_curved_member_edges"]
+    assert len(located) == 1
+    assert located[0].args[-2] == pytest.approx(math.pi * 0.5 / 2.0, rel=1e-09), "the fillet's arc, not its chord"
+    assert located[0].args[-1] == " leg 2/3", "the leg says which wire of the member it is"
+    assert sorted(graph.created_names("Set")) == ["filleted"]
+    assert len(graph.by_method("SectionAssignment")) == 1
+
+
+def test_the_script_states_a_swept_members_leg_count_as_its_sub_edge_count(tmp_path):
+    """What the topology guard will hold the kernel to, for a chain: one sub-edge per leg.
+
+    Measured on Abaqus 2025 for exactly these two shapes: the L builds ``edges=2 vertices=3`` and
+    the filleted corner ``edges=3 vertices=4`` -- the junction vertices merging as a real joint's
+    do, which is the whole reason a chain can be one member here.
+    """
+    expected = {}
+    for name, points in (
+        ("ell", [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)]),
+        ("fil", [(0.0, 0.0), (2.0, 0.0, 0.5), (2.0, 2.0)]),
+    ):
+        _, source = emit(swept_part(points, name=name), tmp_path / name, name=name)
+        namespace = {}
+        start = source.index("EXPECTED_TOPOLOGY = {")
+        exec(source[start : source.index("\n}\n", start) + 3], namespace)  # noqa: S102
+        expected[name] = namespace["EXPECTED_TOPOLOGY"]["Swept"]
+
+    assert expected["ell"] == {"edges": 2, "vertices": 3, "edges_per_member": {"ell": 2}}
+    assert expected["fil"] == {"edges": 3, "vertices": 4, "edges_per_member": {"fil": 3}}
+
+
 def test_unit_scale_is_refused_and_the_coordinates_are_the_models_own(frame_model, tmp_path):
     """This test used to assert the scaling worked, over the top of the bug that made it wrong.
 

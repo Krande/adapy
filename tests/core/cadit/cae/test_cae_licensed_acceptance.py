@@ -1820,3 +1820,136 @@ def test_a_curved_members_section_offset_is_the_rigid_link_it_stands_for(offset_
     assert tuple(offset) == pytest.approx((0.0, ARC_OFFSET), abs=1e-12)
     arc = assembly.get_by_name("arc")
     assert float(arc.e1[2]) == ARC_OFFSET, "the model still carries the eccentricity this is about"
+
+
+# ------------------------------------------- a swept member's legs, in the kernel and on the scales
+
+SWEEP_LEGS = (3.0, 4.0)
+SWEEP_SEED = 0.5
+#: The elements each leg gets at that seed: ``seedPart`` gives an edge ``round(length / size)``.
+SWEEP_ELEMENTS_PER_LEG = (6, 8)
+
+SWEEP_DRIVER = """
+import regionToolset
+
+_part = mdb.models['Model-1'].parts['SweptL']
+print('PROBE edges {0!r}'.format(len(_part.edges)))
+print('PROBE vertices {0!r}'.format(len(_part.vertices)))
+for _edge in _part.edges:
+    print('PROBE edge {0!r} {1!r} {2!r}'.format(
+        _edge.index, _edge.getSize(printResults=False), len(_edge.getElements())))
+print('PROBE nodes_at_corner {0!r}'.format(len(_part.nodes.getByBoundingSphere(center=__CORNER__, radius=1e-06))))
+print('PROBE nodes {0!r}'.format(len(_part.nodes)))
+
+# Weighed over the member's OWN set -- the one set both legs are in -- so what this measures is
+# that the member CAE holds is the whole chain and not one leg of it. getMassProperties takes a
+# regionToolset.Region: passing the Set itself is 'TypeError: regions; found Set, expecting
+# Region' (measured).
+_props = _part.getMassProperties(regions=regionToolset.Region(edges=_part.sets['ell'].edges))
+print('PROBE volume {0!r}'.format(_props['volume']))
+print('PROBE mass {0!r}'.format(_props['mass']))
+"""
+
+
+@pytest.fixture(scope="session")
+def swept_run(tmp_path_factory):
+    """One ``BeamSweep`` whose path is an L of two straight legs, meshed in the kernel.
+
+    No analysis and no job: what this fixture is for is the *geometry* a chain builds -- how many
+    edges, how many vertices, whether the junction is one node, and whether the member CAE holds
+    weighs what both legs together weigh.
+    """
+    from ada.api.beams.beam_swept import BeamSweep
+    from ada.api.curves import CurveOpen2d
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    curve = CurveOpen2d(
+        [(0.0, 0.0), (SWEEP_LEGS[0], 0.0), (SWEEP_LEGS[0], SWEEP_LEGS[1])],
+        origin=(0.0, 0.0, 0.0),
+        xdir=(1.0, 0.0, 0.0),
+        normal=(0.0, 0.0, 1.0),
+    )
+    part = ada.Part("SweptL") / BeamSweep("ell", curve, "OD200x10", mat=mat)
+    assembly = ada.Assembly("SweptSite") / part
+
+    workdir = tmp_path_factory.mktemp("cae_swept")
+    script = workdir / "swept.py"
+    assembly.to_abaqus_cae_script(script, mesh_size=SWEEP_SEED, element_type="B31")
+    driver = SWEEP_DRIVER.replace("__CORNER__", repr((SWEEP_LEGS[0], 0.0, 0.0)))
+    with script.open("a", encoding="utf-8") as handle:
+        handle.write("\n\n# --- appended by tests/core/cadit/cae/test_cae_licensed_acceptance.py\n")
+        handle.write(driver)
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_a_swept_members_legs_are_one_connected_member_in_the_kernel(swept_run):
+    """The lift, in the kernel: two wires, one member, and one node where they meet.
+
+    The emitted script's own topology guard has already compared the kernel against what adapy
+    predicted for this member -- ``edges=2 vertices=3``, one sub-edge per leg -- so a junction
+    that failed to merge would have failed the build rather than reached these assertions. What
+    is added here is the mesh: both legs carry elements, and the corner carries **one** node, not
+    two. Two nodes there is a model that looks right in every picture and hinges at the corner.
+    """
+    _, run = swept_run
+    _assert_ran(run)
+    build = run.build_results[0]
+    assert build["ok"] is True, build
+
+    assert run.value("PROBE edges") == "2", run.describe()
+    assert run.value("PROBE vertices") == "3", run.describe()
+    assert run.value("PROBE nodes_at_corner") == "1", "the legs' shared end point has to be ONE node"
+    guards = dict(build["guards"]["SweptL"])
+    assert guards.pop("bbox_error") == pytest.approx(0.0, abs=1e-09)
+    assert guards == {
+        "expected_edges": 2,
+        "expected_vertices": 3,
+        "built_vertices": 3,
+        "edges": 2,
+        "edges_with_a_section": 2,
+        "edges_with_no_section": 0,
+        "edges_with_two_sections": 0,
+        "section_assignments": 1,
+        "orientations": 1,
+        "sets": 1,
+    }, "one member, one set, one section assignment, one orientation -- over two edges"
+    assert build["edges_per_member"] == {"ell": 2}, "the member's sub-edge count is the total over its legs"
+
+    measured = {}
+    for line in run.values("PROBE edge"):
+        index, size, elements = line.split(" ")
+        measured[float(size)] = int(elements)
+    assert sorted(measured) == pytest.approx(sorted(SWEEP_LEGS), rel=1e-09), "both legs, at their own lengths"
+    assert [measured[length] for length in sorted(SWEEP_LEGS)] == list(SWEEP_ELEMENTS_PER_LEG)
+    assert build["mesh"]["SweptL"]["elements_per_member"] == {"ell": sum(SWEEP_ELEMENTS_PER_LEG)}
+    assert build["mesh"]["SweptL"]["nodes"] == sum(SWEEP_ELEMENTS_PER_LEG) + 1, "a chain, not two loose sticks"
+
+
+def test_a_swept_member_weighs_both_of_its_legs(swept_run):
+    """``getMassProperties()`` over the member's own set, against the arithmetic.
+
+    The number that says the member CAE holds is the whole chain: one leg missing from the set
+    would still mesh, still carry a section, and still pass every other guard here -- the
+    section assignment covers the edges it covers. The section is a pipe, so the area is
+    ``2 pi rm t`` exactly (Abaqus integrates a pipe as a thin-walled line, measured elsewhere in
+    this file), and the mass is that times 7 m of member times the density.
+
+    1e-06 relative: measured residual on this shape is 3.0e-08, which is the profile's numerical
+    integration, and a dropped leg is 43% away.
+    """
+    assembly, run = swept_run
+    _assert_ran(run)
+    beam = assembly.get_by_name("ell")
+    radius, thickness = float(beam.section.r), float(beam.section.wt)
+    area = 2.0 * math.pi * (radius - thickness / 2.0) * thickness
+    total = sum(SWEEP_LEGS)
+
+    volume = float(run.value("PROBE volume"))
+    mass = float(run.value("PROBE mass"))
+
+    assert volume == pytest.approx(
+        area * total, rel=1e-06
+    ), "CAE weighs {0:.9g} m3 of member; both legs of this pipe are {1:.9g}".format(volume, area * total)
+    assert mass == pytest.approx(area * total * float(beam.material.model.rho), rel=1e-06)
+    # And the same number said the other way round, so that a wrong *area* cannot hide in it.
+    assert volume / area == pytest.approx(total, rel=1e-06), "the length CAE holds for this member, in metres"

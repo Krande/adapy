@@ -558,6 +558,43 @@ def expected_topology(segments, tol: float) -> PartTopology:
     )
 
 
+def merge_leg_counts(topology: PartTopology, legs_by_member) -> PartTopology:
+    """One entry per member, out of a topology stated one entry per *wire*.
+
+    A member whose axis is a chain of legs draws one wire per leg, so
+    :func:`expected_topology` has to see one segment per leg -- that is what CAE imprints, and
+    what a landing brace splits. What the emitted script asserts, though, is one sub-edge count
+    per **member**, keyed by the set name the member's section is assigned to. So the legs' counts
+    are added back together here, and their split points concatenated.
+
+    The **vertex** count needs nothing doing to it, and that is measured rather than assumed:
+    three wires drawn line-arc-line through shared end points build ``edges=3 vertices=4`` under
+    ``mergeType=IMPRINT`` (Abaqus 2025), and four is exactly what counting every leg's two ends at
+    ``tol`` already gives -- the junction merges in the kernel the same way two coincident points
+    merge here.
+
+    ``legs_by_member`` is ``{member set name: (this member's leg segment names, in order)}``, and
+    an empty one returns the topology unchanged.
+    """
+    if not legs_by_member:
+        return topology
+    edges_per_member = dict(topology.edges_per_member)
+    splits = dict(topology.splits)
+    for member in sorted(legs_by_member):
+        total = 0
+        landed: list[tuple[float, float, float]] = []
+        for leg in legs_by_member[member]:
+            total += edges_per_member.pop(leg)
+            landed += list(splits.pop(leg, ()))
+        edges_per_member[member] = total
+        splits[member] = tuple(sorted(landed))
+    return PartTopology(
+        edges_per_member=edges_per_member,
+        vertices=topology.vertices,
+        splits=splits,
+    )
+
+
 __all__ = [
     "CAE_MERGE_TOL",
     "Crossing",
@@ -567,4 +604,5 @@ __all__ = [
     "distinct_points",
     "expected_topology",
     "find_crossings",
+    "merge_leg_counts",
 ]

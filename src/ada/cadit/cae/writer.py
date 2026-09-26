@@ -30,10 +30,16 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    ``integration=BEFORE_ANALYSIS`` writes a plausible ``*Beam General Section, Taper`` deck
    that solves and whose answer is **independent of which end is which** -- so one route
    cannot write the model and the other writes a different one. An unknown subclass is
-   refused for being unknown. A curved member whose axis cannot
-   be handed over as one spline wire -- a multi-leg sweep path, a curve container nobody has
-   sampled -- is refused too, and named. A ``BeamRevolve`` drawn as a straight chord is a
-   model that looks right, which is what all of this is for.
+   refused for being unknown. A curved member whose axis cannot be handed over as wires -- a
+   curve container nobody has sampled, a sweep path that does not chain end to end -- is
+   refused too, and named. A ``BeamSweep`` whose path *does* chain is built as **one wire per
+   leg**: adapy decomposes a filleted corner into line-arc-line, and drawing that as one spline
+   would round the corner off while drawing it as one chord would lose it entirely. Measured,
+   the legs cost nothing in the kernel -- three wires sharing their end points build ``edges=3
+   vertices=4``, the junction merging exactly as a real joint does, and the mesh puts one node
+   there -- so a swept member is one member, one set, one section assignment and one
+   orientation, with a sub-edge count of one per leg. A ``BeamRevolve`` drawn as a straight
+   chord is a model that looks right, which is what all of this is for.
 3. **A plate is the ACIS body adapy already writes, and a member lying on one is a stringer.**
    The plates arrive through ``mdb.openAcis`` + ``PartFromGeometryFile`` from a ``.sat`` written
    beside the script -- arcs analytic, a curved plate a NURBS patch, and the plates already split
@@ -169,7 +175,7 @@ from .curves import (
     MAX_TURN_RADIANS,
     CurveNotSupported,
     is_curved_beam_type,
-    sample_member_curve,
+    sample_member_legs,
 )
 from .names import CaeNameError, NameRegistry, dump_name_map
 from .plates import (
@@ -186,6 +192,7 @@ from .topology import (
     Segment,
     expected_topology,
     find_crossings,
+    merge_leg_counts,
 )
 
 if TYPE_CHECKING:
@@ -374,6 +381,29 @@ class _SectionUse:
     offset: tuple[float, float] | None = None
 
 
+@dataclass(frozen=True)
+class _LegPlan:
+    """One wire of a member whose axis is a chain of legs, located on its own.
+
+    A **straight** leg carries the bounding cylinder that finds it, a **curved** one the
+    polyline its spline is drawn through and that polyline's arc length -- the same two
+    strategies :class:`_MemberPlan` uses for a whole member, and exclusive for the same
+    measured reason: a cylinder round a quarter arc's chord finds 0 edges.
+    """
+
+    p1: tuple[float, float, float]
+    p2: tuple[float, float, float]
+    path: tuple[tuple[float, float, float], ...] | None = None
+    curve_length: float | None = None
+    cyl1: tuple[float, float, float] | None = None
+    cyl2: tuple[float, float, float] | None = None
+    radius: float | None = None
+
+    @property
+    def is_curved(self) -> bool:
+        return self.path is not None
+
+
 @dataclass
 class _MemberPlan:
     """Everything the emitted script needs in order to place and dress one beam.
@@ -407,6 +437,12 @@ class _MemberPlan:
     #: member clear of every plate, which is the wire case.
     sat_edges: tuple[str, ...] = ()
 
+    #: One entry per wire, for a member whose axis is a **chain** of legs -- a ``BeamSweep``
+    #: whose path is line-arc-line, say. Empty for every other member: a straight one and a
+    #: single-curve one are unchanged by this, and emit exactly what they emitted before legs
+    #: existed. A member either has legs or has ``p1``/``p2`` plus at most one ``path``.
+    legs: tuple[_LegPlan, ...] = ()
+
     @property
     def is_curved(self) -> bool:
         return self.path is not None
@@ -414,6 +450,17 @@ class _MemberPlan:
     @property
     def is_stringer(self) -> bool:
         return bool(self.sat_edges)
+
+    @property
+    def is_multi_leg(self) -> bool:
+        return bool(self.legs)
+
+    @property
+    def has_curved_wire(self) -> bool:
+        """Whether any wire this member draws is a spline, and so needs the curve guard."""
+        if self.path is not None:
+            return True
+        return any(leg.is_curved for leg in self.legs)
 
 
 @dataclass
@@ -907,6 +954,61 @@ def _cylinder(p1, p2, length: float):
     return tuple(float(x) for x in c1), tuple(float(x) for x in c2), radius
 
 
+def _leg_plan(bm: Beam, leg) -> _LegPlan:
+    """One :class:`_LegPlan` from one sampled :class:`~ada.cadit.cae.curves.MemberLeg`.
+
+    A straight leg gets the same bounding cylinder a straight member gets, sized off its **own**
+    length: the fractions are fractions of the thing being located, so the two legs of an L are
+    each located as tightly as a member of their own length would be.
+    """
+    if leg.is_curved:
+        return _LegPlan(p1=leg.p1, p2=leg.p2, path=leg.points, curve_length=leg.curve_length)
+    length = float(np.linalg.norm(np.asarray(leg.p2, dtype=float) - np.asarray(leg.p1, dtype=float)))
+    if length <= MIN_BEAM_LENGTH:
+        raise UnsupportedBeamError(
+            "beam {0!r} has a leg of zero length ({1} -> {2}); a wire needs two distinct points, and a "
+            "path with a leg that goes nowhere is not a path this writer can draw.".format(bm.name, leg.p1, leg.p2)
+        )
+    cyl1, cyl2, radius = _cylinder(leg.p1, leg.p2, length)
+    return _LegPlan(p1=leg.p1, p2=leg.p2, cyl1=cyl1, cyl2=cyl2, radius=radius)
+
+
+def _member_path(legs: tuple[_LegPlan, ...]) -> tuple[tuple[float, float, float], ...]:
+    """Every point of a multi-leg member's axis, end to end, each junction appearing once.
+
+    Used for the two checks that are about the member rather than about a wire: ``n1`` is one
+    vector for the whole member, and the offset is projected in the frame at each of the
+    member's two *outer* ends.
+    """
+    points: list[tuple[float, float, float]] = []
+    for leg in legs:
+        span = list(leg.path) if leg.is_curved else [leg.p1, leg.p2]
+        if points and span and points[-1] == span[0]:
+            span = span[1:]
+        points += span
+    return tuple(points)
+
+
+def _leg_segment_name(member: _MemberPlan, index: int) -> str:
+    """What the topology calls one leg of a member. Aggregated away again by the time it is asserted.
+
+    A name rather than an index because :func:`ada.cadit.cae.topology.find_crossings` puts it in
+    its refusal message, and "'sweep' leg 2/3" tells the reader which wire of which member
+    crossed something.
+    """
+    return "{0!r} leg {1}/{2}".format(member.cae_set_name, index + 1, len(member.legs))
+
+
+def _member_segments(member: _MemberPlan) -> list[Segment]:
+    """One topology segment per wire this member draws: one, or one per leg."""
+    if not member.legs:
+        return [Segment(name=member.cae_set_name, p1=member.p1, p2=member.p2, points=member.path)]
+    return [
+        Segment(name=_leg_segment_name(member, index), p1=leg.p1, p2=leg.p2, points=leg.path)
+        for index, leg in enumerate(member.legs)
+    ]
+
+
 def _material_row(mat: Material, cae_name: str) -> _MaterialRow:
     model = mat.model
     # Abaqus rejects a zero density; the INP writer already substitutes 1e-6, so the two
@@ -1045,7 +1147,10 @@ def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
     # and a crossing with one is still a crossing. What differs is how many sub-edges a stringer
     # starts from -- the ACIS body has already split it at the plate boundaries it runs along -- which
     # :func:`_stringer_edge_counts` adds on top of the splits computed here.
-    segments = [Segment(name=m.cae_set_name, p1=m.p1, p2=m.p2, points=m.path) for m in part_plan.members]
+    # One segment per *wire*, because that is what CAE imprints and splits: a member whose axis
+    # is a chain contributes one per leg, and its legs' counts are added back together below so
+    # that the guard still states one sub-edge count per member.
+    segments = [segment for member in part_plan.members for segment in _member_segments(member)]
     crossings = find_crossings(segments, joint_tol)
     if crossings:
         on_curve = [crossing for crossing in crossings if crossing.kind == "on_curve"]
@@ -1074,7 +1179,12 @@ def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
                 extra,
             )
         )
-    return expected_topology(segments, joint_tol)
+    legs_by_member = {
+        member.cae_set_name: tuple(_leg_segment_name(member, index) for index in range(len(member.legs)))
+        for member in part_plan.members
+        if member.is_multi_leg
+    }
+    return merge_leg_counts(expected_topology(segments, joint_tol), legs_by_member)
 
 
 def _stringer_edge_counts(part_plan: _PartPlan, topology: PartTopology, joint_tol: float) -> dict[str, int]:
@@ -1333,15 +1443,28 @@ def build_plan(
             curved = is_curved_beam_type(bm)
             path = None
             curve_length = None
+            legs: tuple[_LegPlan, ...] = ()
             if curved:
                 try:
-                    path, curve_length = sample_member_curve(bm, p1, p2, plan.joint_tol)
+                    member_legs = sample_member_legs(bm, p1, p2, plan.joint_tol)
                 except CurveNotSupported as exc:
                     raise UnsupportedBeamError(
-                        "beam {0!r} is a {1} whose axis cannot be drawn as one spline wire: {2}.".format(
+                        "beam {0!r} is a {1} whose axis cannot be drawn as wires: {2}.".format(
                             bm.name, type(bm).__name__, exc
                         )
                     ) from exc
+                # One curved leg is the ordinary curved member, and is planned exactly as it was
+                # before legs existed: same fields, same emission, same golden text. A chain --
+                # a BeamSweep's line-arc-line -- is planned leg by leg.
+                if len(member_legs) == 1 and member_legs[0].is_curved:
+                    path = member_legs[0].points
+                    curve_length = member_legs[0].curve_length
+                else:
+                    legs = tuple(_leg_plan(bm, leg) for leg in member_legs)
+                    # The n1 and offset checks below take the member's whole axis, so the legs
+                    # are concatenated for them: n1 is one vector for the whole member, and the
+                    # offset is projected in the frame at each of the member's two ends.
+                    path = _member_path(legs)
             if curved:
                 # The n1 check first: the offset's projection is done in the frame N1_COSINES
                 # resolves at each end, which is only a frame at all while n1 stays clear of
@@ -1419,7 +1542,9 @@ def build_plan(
                 n1=beam_n1(bm),
                 sat_edges=sat_edges,
             )
-            if curved:
+            if legs:
+                member.legs = legs
+            elif curved:
                 member.path = path
                 member.curve_length = curve_length
             else:
@@ -1551,7 +1676,8 @@ def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_nam
     beams = sum(len(p.members) for p in plan.parts)
     plates = sum(len(p.plates) for p in plan.parts)
     faces = sum(p.face_count for p in plan.parts)
-    curved = sum(1 for p in plan.parts for m in p.members if m.is_curved)
+    curved = sum(1 for p in plan.parts for m in p.members if m.has_curved_wire)
+    swept = sum(1 for p in plan.parts for m in p.members if m.is_multi_leg)
     offsets = sum(1 for use in plan.sections if use.offset is not None)
     lines = [
         "# -*- coding: utf-8 -*-",
@@ -1577,6 +1703,11 @@ def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_nam
         lines += [
             "#                     {0} of them curved, drawn as WireSpline through points on their".format(curved),
             "#                     exact curve -- a BeamCurved's ngeom spline, a BeamRevolve's arc.",
+        ]
+    if swept:
+        lines += [
+            "#                     {0} of them swept along several legs, one wire per leg -- every leg".format(swept),
+            "#                     in the member's own set, section assignment and orientation.",
         ]
     lines += [
         "# plates            : {0}, over {1} imported face(s)".format(plates, faces),
@@ -2085,7 +2216,7 @@ def _guard_bounding_box(model):
 #: calls invites the next reader to wonder which members use it; a straight, offset-free model
 #: emits exactly what it emitted before curves existed.
 _CURVED_MEMBER_HELPER = '''
-def _curved_member_edges(part_name, set_name, part, points, expected_length):
+def _curved_member_edges(part_name, set_name, part, points, expected_length, leg=''):
     """Locate a curved member, and prove the wire CAE built is the curve adapy described.
 
     A bounding cylinder cannot do this job, and that is measured rather than assumed: a
@@ -2132,13 +2263,17 @@ def _curved_member_edges(part_name, set_name, part, points, expected_length):
     index = indices[0]
     built = part.edges[index].getSize(printResults=False)
     error = abs(built - expected_length) / expected_length
-    _RESULT['curve_length_error'][set_name] = error
+    _RESULT['curve_length_error'][set_name + leg] = error
     if error > CURVE_LENGTH_REL_TOL:
         _fail('member {0!r} of part {1!r} is curved: adapy sampled its arc length as {2!r} and CAE built '
               '{3!r}, a relative difference of {4!r} against a tolerance of {5!r}. A spline through the '
               'sample points should be within 3e-06 of them; this far out means the wire is not that '
               'curve -- the chord of the same arc would read about 10% short.'.format(
                   set_name, part_name, expected_length, built, error, CURVE_LENGTH_REL_TOL))
+    if leg:
+        # One wire of a several-leg member: its edges are handed back raw, and the member's
+        # sub-edge count is the sum _member_leg_edges records over every leg.
+        return part.edges[index:index + 1]
     # A curved member is always a wire here -- a curved member lying on a plate is refused while
     # planning, because where along a spline CAE puts an imprinted vertex is the spline's own
     # parameterisation's business. So its edge must bound no face, for the reason _member_edges
@@ -2259,6 +2394,40 @@ def _guard_plate_faces(model):
                                     PLATE_NORMAL_TOL))
     if problems:
         _fail('the plate faces CAE imported are not the plates adapy described -- ' + ' | '.join(problems))
+'''
+
+
+#: Emitted only when some member's axis is a CHAIN of legs -- a ``BeamSweep`` whose path is
+#: line-arc-line, say. Every other model emits exactly what it emitted before legs existed.
+_MULTI_LEG_HELPER = '''
+def _member_leg_edges(part_name, set_name, legs):
+    """One edge sequence out of one member's legs, and the sub-edge count that goes with it.
+
+    Concatenating the sequences with + is the spelling that works, and the alternatives were
+    measured rather than reasoned about (Abaqus 2025): Set(edges=<tuple of Edge objects>) fails
+    outright with "AbaqusException: Feature creation failed.", and SetByBoolean does work but
+    needs a throwaway set per leg -- and a set name is the key this script reports a member's
+    edges, elements and curve error under, so spare ones are not free.
+
+    One member, one set, one section assignment, one orientation, whatever its path. That costs
+    nothing in the kernel, measured: three wires drawn line-arc-line through shared end points
+    build edges=3 vertices=4, the junction vertices merging exactly as a real joint\\'s do, and
+    the mesh puts one node at each junction. So the member\\'s sub-edge count is the total over
+    its legs, which is what EXPECTED_TOPOLOGY states for it.
+
+    Each leg has to contribute at least one edge, because its own wire was drawn a few lines up.
+    """
+    combined = None
+    for index in range(len(legs)):
+        edges = legs[index]
+        if len(edges) == 0:
+            _fail('member {0!r} of part {1!r} is drawn as {2} legs, and leg {3} of it contains no edge at '
+                  'all although its own wire was drawn. Either the volume locating that leg is too tight '
+                  'for this model\\'s scale, or the geometry is not where it was drawn.'.format(
+                      set_name, part_name, len(legs), index + 1))
+        combined = edges if combined is None else combined + edges
+    _RESULT['edges_per_member'][set_name] = len(combined)
+    return combined
 '''
 
 
@@ -2803,7 +2972,7 @@ def _section_offsets_source(plan: _Plan) -> list[str]:
     about *this* model rather than a list of everything the writer can do.
     """
     offsets = [use for use in plan.sections if use.offset is not None]
-    curved = [m for part in plan.parts for m in part.members if m.is_curved]
+    curved = [m for part in plan.parts for m in part.members if m.has_curved_wire]
     lines: list[str] = []
     if curved:
         lines += [
@@ -3038,8 +3207,10 @@ def render_script(
     lines += _RUNTIME_HELPERS.split("\n")
     if plan.has_plates:
         lines += _PLATE_HELPER.split("\n")
-    if any(member.is_curved for part_plan in plan.parts for member in part_plan.members):
+    if any(member.has_curved_wire for part_plan in plan.parts for member in part_plan.members):
         lines += _CURVED_MEMBER_HELPER.split("\n")
+    if any(member.is_multi_leg for part_plan in plan.parts for member in part_plan.members):
+        lines += _MULTI_LEG_HELPER.split("\n")
     if any(use.offset is not None for use in plan.sections):
         lines += _SECTION_OFFSET_GUARD.split("\n")
     if plan.meshed:
@@ -3192,6 +3363,9 @@ def render_script(
                     "is drawn.".format(member.beam_name)
                 )
                 continue
+            if member.is_multi_leg:
+                lines += _leg_wire_lines(part_var, part_index, member_index, member)
+                continue
             if not member.is_curved:
                 lines.append(
                     "    {0}.WirePolyLine(points=(({1}, {2}),), mergeType=IMPRINT, meshable=ON)".format(
@@ -3199,29 +3373,21 @@ def render_script(
                     )
                 )
                 continue
-            points_var = "curve_{0}_{1}".format(part_index, member_index)
-            lines += [
-                "    # {0!r}: {1} points on its exact curve, spaced so consecutive chords turn by no".format(
-                    member.beam_name, len(member.path)
-                ),
-                "    # more than {0} rad. Arc length {1} (Richardson-extrapolated, not the chord sum); the".format(
-                    _num(MAX_TURN_RADIANS), _num(member.curve_length)
-                ),
-                "    # built edge is checked against it below: a spline is an interpolation, not the curve.",
-                "    {0} = (".format(points_var),
-            ]
-            lines += ["        {0},".format(_pt(point)) for point in member.path]
-            lines += [
-                "    )",
-                "    {0}.WireSpline(points={1}, mergeType=IMPRINT, meshable=ON, smoothClosedSpline=OFF)".format(
-                    part_var, points_var
-                ),
-            ]
+            lines += _spline_lines(
+                part_var,
+                _curve_var(part_index, member_index),
+                member.beam_name,
+                member.path,
+                member.curve_length,
+                "{0!r}".format(member.beam_name),
+            )
         for member_index, member in enumerate(part_plan.members):
             edges_var = "edges_{0}_{1}".format(part_index, member_index)
             region_var = "region_{0}_{1}".format(part_index, member_index)
             lines += ["", "    # {0!r}".format(member.beam_name)]
-            if member.is_curved:
+            if member.is_multi_leg:
+                lines += _leg_region_lines(part_var, part_index, member_index, member, part_plan.cae_part_name)
+            elif member.is_curved:
                 lines.append(
                     "    {0} = _curved_member_edges({1!r}, {2!r}, {3}, curve_{4}_{5}, {6})".format(
                         edges_var,
@@ -3332,6 +3498,114 @@ def render_script(
     lines += _analysis_lines(plan)
     lines += _tail(plan).split("\n")
     return "\n".join(lines)
+
+
+def _curve_var(part_index: int, member_index: int, leg_index: int | None = None) -> str:
+    """The script's name for one sampled polyline. A leg's carries its index; a member's does not.
+
+    A single-curve member keeps the two-part name it had before legs existed, so a model with no
+    swept member emits exactly the text it emitted then.
+    """
+    if leg_index is None:
+        return "curve_{0}_{1}".format(part_index, member_index)
+    return "curve_{0}_{1}_{2}".format(part_index, member_index, leg_index)
+
+
+def _spline_lines(part_var: str, points_var: str, beam_name: str, path, curve_length: float, what: str) -> list[str]:
+    """The comment and the ``WireSpline`` call for one sampled polyline."""
+    lines = [
+        "    # {0}: {1} points on its exact curve, spaced so consecutive chords turn by no".format(what, len(path)),
+        "    # more than {0} rad. Arc length {1} (Richardson-extrapolated, not the chord sum); the".format(
+            _num(MAX_TURN_RADIANS), _num(curve_length)
+        ),
+        "    # built edge is checked against it below: a spline is an interpolation, not the curve.",
+        "    {0} = (".format(points_var),
+    ]
+    lines += ["        {0},".format(_pt(point)) for point in path]
+    lines += [
+        "    )",
+        "    {0}.WireSpline(points={1}, mergeType=IMPRINT, meshable=ON, smoothClosedSpline=OFF)".format(
+            part_var, points_var
+        ),
+    ]
+    return lines
+
+
+def _leg_wire_lines(part_var: str, part_index: int, member_index: int, member: _MemberPlan) -> list[str]:
+    """One wire per leg for a member whose axis is a chain.
+
+    A straight leg is a ``WirePolyLine`` and a curved one a ``WireSpline``, exactly as a whole
+    member of either kind would be -- what is new is only that one member draws several. The
+    junction needs nothing drawn for it: measured on Abaqus 2025, wires sharing their end points
+    under ``mergeType=IMPRINT`` build one vertex there (line-arc-line gave edges=3 vertices=4) and
+    the mesh puts one node on it.
+    """
+    lines = [
+        "    # {0!r}: a swept path of {1} legs, one wire each. Their shared end points merge into one".format(
+            member.beam_name, len(member.legs)
+        ),
+        "    # vertex per junction (measured: 3 legs -> edges=3 vertices=4), so the member is one",
+        "    # connected chain and its sub-edge count is the number of legs.",
+    ]
+    for leg_index, leg in enumerate(member.legs):
+        if not leg.is_curved:
+            lines.append(
+                "    {0}.WirePolyLine(points=(({1}, {2}),), mergeType=IMPRINT, meshable=ON)".format(
+                    part_var, _pt(leg.p1), _pt(leg.p2)
+                )
+            )
+            continue
+        lines += _spline_lines(
+            part_var,
+            _curve_var(part_index, member_index, leg_index),
+            member.beam_name,
+            leg.path,
+            leg.curve_length,
+            "{0!r} leg {1}/{2}".format(member.beam_name, leg_index + 1, len(member.legs)),
+        )
+    return lines
+
+
+def _leg_region_lines(
+    part_var: str, part_index: int, member_index: int, member: _MemberPlan, cae_part_name: str
+) -> list[str]:
+    """Locate every leg of a chained member, then combine them into the member's one edge sequence.
+
+    Each leg is located the way its own shape has to be -- a straight one by a bounding cylinder,
+    a curved one by ``findAt`` at its interior sample points, which also checks its arc length --
+    and ``_member_leg_edges`` concatenates the results. What comes out is one set, one section
+    assignment and one orientation for the member, because that is what the member is.
+    """
+    edges_var = "edges_{0}_{1}".format(part_index, member_index)
+    leg_vars = []
+    lines = []
+    for leg_index, leg in enumerate(member.legs):
+        leg_var = "{0}_{1}".format(edges_var, leg_index)
+        leg_vars.append(leg_var)
+        if leg.is_curved:
+            lines.append(
+                "    {0} = _curved_member_edges({1!r}, {2!r}, {3}, {4}, {5}, {6!r})".format(
+                    leg_var,
+                    cae_part_name,
+                    member.cae_set_name,
+                    part_var,
+                    _curve_var(part_index, member_index, leg_index),
+                    _num(leg.curve_length),
+                    " leg {0}/{1}".format(leg_index + 1, len(member.legs)),
+                )
+            )
+            continue
+        lines.append(
+            "    {0} = {1}.edges.getByBoundingCylinder(center1={2}, center2={3}, radius={4})".format(
+                leg_var, part_var, _pt(leg.cyl1), _pt(leg.cyl2), _num(leg.radius)
+            )
+        )
+    lines.append(
+        "    {0} = _member_leg_edges({1!r}, {2!r}, ({3},))".format(
+            edges_var, cae_part_name, member.cae_set_name, ", ".join(leg_vars)
+        )
+    )
+    return lines
 
 
 def _analysis_lines(plan: _Plan) -> list[str]:

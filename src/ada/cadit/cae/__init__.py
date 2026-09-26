@@ -33,8 +33,10 @@ from .curves import (
     CURVE_LENGTH_REL_TOL,
     MAX_TURN_RADIANS,
     CurveNotSupported,
+    MemberLeg,
     is_curved_beam_type,
     sample_member_curve,
+    sample_member_legs,
 )
 from .names import CaeNameError, NameRegistry, sanitise_cae_name
 from .plates import (
@@ -58,6 +60,7 @@ from .topology import (
     distinct_points,
     expected_topology,
     find_crossings,
+    merge_leg_counts,
 )
 from .writer import (
     CURVE_N1_MIN_SIN,
@@ -114,6 +117,7 @@ __all__ = [
     "CurveNotSupported",
     "FaceLocator",
     "LoadPlan",
+    "MemberLeg",
     "NameRegistry",
     "PartTopology",
     "PlateBody",
@@ -148,7 +152,9 @@ __all__ = [
     "plate_body",
     "refuse_untranslated_concept_analysis",
     "render_script",
+    "merge_leg_counts",
     "sample_member_curve",
+    "sample_member_legs",
     "sanitise_cae_name",
     "vertex_index",
     "write_cae_script",

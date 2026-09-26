@@ -36,6 +36,7 @@ from ada.cadit.cae.curves import (
     MAX_TURN_RADIANS,
     CurveNotSupported,
     sample_member_curve,
+    sample_member_legs,
 )
 from ada.cadit.cae.names import (
     CaeNameError,
@@ -2071,30 +2072,215 @@ def test_a_straight_curve_container_is_refused_rather_than_splined():
         sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
 
 
-def test_a_swept_path_is_refused_for_having_several_legs():
-    """And this is the honest limit of ``BeamSweep`` support, not an edge case.
+def a_swept_beam(points, name="sweep", sec="IPE300", **kwargs):
+    """One ``BeamSweep`` over a ``CurveOpen2d`` in the XY plane. A third coordinate is a fillet radius."""
+    curve = CurveOpen2d(points, origin=(0.0, 0.0, 0.0), xdir=(1.0, 0.0, 0.0), normal=(0.0, 0.0, 1.0))
+    return BeamSweep(name, curve, sec, mat="S355", **kwargs)
 
-    ``BeamSweep`` is no longer refused *by type* -- the shape guard accepts it -- but a
-    ``CurveOpen2d`` decomposes a filleted corner into **four** ``segments3d`` legs for a three-point
-    filleted corner -- a closer from the last point back to the first, then line, arc, line --
-    and a two-point one into a single straight leg. So in practice every ``BeamSweep``
-    reaching this writer is refused by its path rather than by its class: each leg is its own
-    CAE edge, and this writer draws one wire per member and locates a curved one by findAt,
-    which returns only the sub-edge containing the point. Supporting the chain means locating
-    a member leg by leg, and the refusal says so rather than pretending otherwise.
+
+def _swept_model(points, name, extra=()):
+    part = ada.Part("Swept")
+    part.add_beam(a_swept_beam(points, name=name))
+    for bm in extra:
+        part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
+
+
+class _StubSegment:
+    """The three attributes the sweep sampler reads off one leg of a path."""
+
+    def __init__(self, p1, p2):
+        self.p1 = p1
+        self.p2 = p2
+        self.midpoint = None
+
+
+def _stub_sweep(points3d, spans):
+    """A stand-in swept member whose path is whatever shape the test needs.
+
+    ``CurveOpen2d`` cannot produce a broken or a branching chain -- it builds one from an ordered
+    point list -- so the refusals for those are reached with a path built by hand. Only what the
+    sampler reads is here: the path's own points, its legs, and the member's placement.
     """
-    bm = a_curved_beam("BeamSweep")
+    return types.SimpleNamespace(
+        placement=Placement(),
+        curve=types.SimpleNamespace(points3d=points3d, segments3d=[_StubSegment(a, b) for a, b in spans]),
+    )
 
-    with pytest.raises(CurveNotSupported, match="sweep path has 4 legs"):
-        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+def leg_lengths(legs):
+    """Each leg's length: its sampled arc length if it is curved, its chord if it is not."""
+    out = []
+    for leg in legs:
+        if leg.is_curved:
+            out.append(leg.curve_length)
+        else:
+            out.append(float(np.linalg.norm(np.asarray(leg.p2) - np.asarray(leg.p1))))
+    return out
 
 
-def test_a_two_point_sweep_is_refused_for_being_straight_rather_than_curved():
-    curve = CurveOpen2d([(0.0, 0.0), (2.0, 0.0)], origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
-    bm = BeamSweep("flat", curve, "IPE300", mat="S355")
+def test_a_swept_path_is_one_leg_per_segment_with_the_closer_dropped():
+    """The lift: a chain is drawn leg by leg rather than refused, and the closer is not a leg.
 
-    with pytest.raises(CurveNotSupported, match="straight line, not a curve"):
-        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+    ``CurveOpen2d`` decomposes the three-point filleted corner ``[(0,0), (2,0,r=0.5), (2,2)]``
+    into **four** ``segments3d`` -- a line from the *last* point back to the first, then line,
+    arc, line -- so the first thing this has to get right is which of the four is the member's
+    axis. The closer is identified as the one leg spanning the path's own two ends and dropped;
+    what is left is walked into a chain from the first point. Drawing the chain as one spline
+    would round the corner off and drawing it as one chord would lose it, which is why each leg
+    is its own wire.
+    """
+    bm = a_swept_beam([(0.0, 0.0), (2.0, 0.0, 0.5), (2.0, 2.0)], name="filleted")
+    p1, p2 = beam_endpoints(bm)
+
+    legs = sample_member_legs(bm, p1, p2, 1e-04)
+
+    assert [leg.is_curved for leg in legs] == [False, True, False], "line, arc, line -- and no closer"
+    assert legs[0].p1 == pytest.approx(p1), "the chain starts on the member's own first node"
+    assert legs[-1].p2 == pytest.approx(p2), "and ends on its last"
+    for ahead, behind in zip(legs[:-1], legs[1:]):
+        assert ahead.p2 == pytest.approx(behind.p1), "each leg has to start where the one before it ended"
+    # 1.5 + a quarter circle of radius 0.5 + 1.5, the fillet's arc and not its chord.
+    assert leg_lengths(legs) == pytest.approx([1.5, math.pi * 0.5 / 2.0, 1.5], rel=1e-09)
+
+
+def test_a_two_point_sweep_is_the_one_straight_leg_it_describes():
+    """Two points are one leg and no closer, so the straight case needs no special handling."""
+    bm = a_swept_beam([(0.0, 0.0), (2.0, 0.0)], name="flat")
+
+    legs = sample_member_legs(bm, *beam_endpoints(bm), 1e-04)
+
+    assert len(legs) == 1 and not legs[0].is_curved
+    assert legs[0].p1 == pytest.approx((0.0, 0.0, 0.0)) and legs[0].p2 == pytest.approx((2.0, 0.0, 0.0))
+
+
+def test_a_swept_path_that_runs_the_other_way_is_turned_rather_than_refused():
+    """Which way round a path was authored says nothing about the member, as for a single curve."""
+    forwards = a_swept_beam([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)], name="f")
+    p1, p2 = beam_endpoints(forwards)
+
+    ahead = sample_member_legs(forwards, p1, p2, 1e-04)
+    behind = sample_member_legs(forwards, p2, p1, 1e-04)
+
+    assert [leg.p1 for leg in behind] == [leg.p2 for leg in reversed(ahead)]
+    assert [leg.p2 for leg in behind] == [leg.p1 for leg in reversed(ahead)]
+
+
+def test_a_swept_path_whose_legs_do_not_chain_is_refused_with_the_point_they_part_at():
+    """A defensive refusal, and the one shape of path that would otherwise be drawn wrong.
+
+    ``CurveOpen2d`` always produces a chain, so this is reached through the sampler's own
+    front door with a stand-in path rather than through a container that cannot make one. Both
+    halves matter: a gap means nothing says which way the member runs, and a *branch* -- two
+    legs leaving the same point -- is not one member's axis at all. Drawing either would
+    produce a member whose wires are somewhere the model never put them.
+    """
+    from ada.cadit.cae.curves import _sweep_legs
+
+    # Each stub carries its closer, so that what these reach is the chain walk and not the
+    # closer check the test below is about.
+    gapped = _stub_sweep(
+        [(0, 0, 0), (3, 0, 0)],
+        [((3, 0, 0), (0, 0, 0)), ((0, 0, 0), (1, 0, 0)), ((2, 0, 0), (3, 0, 0))],
+    )
+    legs, why = _sweep_legs(gapped, (0, 0, 0), (3, 0, 0), 1e-04)
+    assert legs is None
+    assert "does not chain" in why and "(1.0, 0.0, 0.0)" in why
+
+    branched = _stub_sweep(
+        [(0, 0, 0), (2, 0, 0)],
+        [((2, 0, 0), (0, 0, 0)), ((0, 0, 0), (1, 0, 0)), ((1, 0, 0), (2, 0, 0)), ((1, 0, 0), (1, 1, 0))],
+    )
+    legs, why = _sweep_legs(branched, (0, 0, 0), (2, 0, 0), 1e-04)
+    assert legs is None
+    assert "does not chain" in why and "2 of its remaining" in why
+
+
+def test_a_swept_path_with_no_single_closer_is_refused_rather_than_guessed_at():
+    """Dropping the closer only works while exactly one leg *is* the closer.
+
+    Two legs between the path's two ends, or none, and nothing says which of them the member
+    runs along -- so the writer says so instead of picking one and building a different member.
+    """
+    from ada.cadit.cae.curves import _sweep_legs
+
+    doubled = _stub_sweep(
+        [(0, 0, 0), (2, 0, 0)],
+        [((0, 0, 0), (2, 0, 0)), ((2, 0, 0), (0, 0, 0)), ((0, 0, 0), (1, 1, 0)), ((1, 1, 0), (2, 0, 0))],
+    )
+
+    legs, why = _sweep_legs(doubled, (0, 0, 0), (2, 0, 0), 1e-04)
+
+    assert legs is None
+    assert "2 of them run between the path's own two ends" in why
+
+
+def test_n1_is_checked_along_every_leg_of_a_swept_member():
+    """One ``n1`` for the whole member means every leg has to stay clear of it, not just the first.
+
+    ``N1_COSINES`` gives Abaqus one vector and it projects that vector perpendicular to each
+    element's tangent, so a leg running *along* ``n1`` leaves nothing to project and the profile
+    is turned whichever way the kernel chooses. This path detours perpendicular to its own
+    chord, which puts a whole leg exactly along the ``n1`` the chord gives it -- the failure a
+    single-leg member cannot have, reached through a member whose other two legs are fine.
+    """
+    bm = a_swept_beam([(0.0, 0.0), (0.0, 2.0), (4.0, 2.0), (4.0, 0.0)], name="detour")
+    part = ada.Part("Detour")
+    part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    assert beam_n1(bm) == pytest.approx((0.0, 1.0, 0.0)), "the fixture only bites while n1 is the y-axis"
+
+    with pytest.raises(UnsupportedBeamError) as raised:
+        build_plan(assembly)
+
+    message = str(raised.value)
+    assert "comes within sin=0" in message
+    assert "turned an arbitrary way round" in message
+
+
+def test_a_swept_member_is_one_sub_edge_per_leg_and_one_vertex_per_junction():
+    """The topology guard's numbers for a chain, and they are measured, not derived.
+
+    Abaqus 2025, three wires drawn line-arc-line through shared end points with
+    ``mergeType=IMPRINT``: ``edges=3 vertices=4``. The junction vertex merges exactly as a real
+    joint's does -- unmerged would be 6 vertices -- and the mesh puts one node on it. So a
+    swept member is one member with a sub-edge count of one per leg, and the part's vertex
+    count carries its junctions.
+    """
+    filleted = build_plan(_swept_model([(0.0, 0.0), (2.0, 0.0, 0.5), (2.0, 2.0)], "filleted"))
+    ell = build_plan(_swept_model([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)], "ell"))
+
+    assert filleted.parts[0].topology.edges_per_member == {"filleted": 3}
+    assert filleted.parts[0].topology.vertices == 4
+    assert ell.parts[0].topology.edges_per_member == {"ell": 2}
+    assert ell.parts[0].topology.vertices == 3
+
+
+def test_a_brace_landing_on_a_straight_leg_of_a_sweep_splits_that_leg_and_nothing_else():
+    """The per-leg prediction is a real prediction: an imprint on one leg is counted on the member.
+
+    A landing member splits the leg it lands on, and the member's sub-edge count is the total
+    over its legs -- so the L's two legs plus the split make 3, and the brace's own 1 makes the
+    part 4 edges. Counting the legs as one member and then predicting one sub-edge for it would
+    read 2 here and fail in the kernel.
+    """
+    ell = a_swept_beam([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)], name="ell")
+    brace = ada.Beam("brace", (1.0, 0.0, 0.0), (1.0, -2.0, 0.0), "IPE300", "S355")
+    part = ada.Part("Landing")
+    part.add_beam(ell)
+    part.add_beam(brace)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member == {"brace": 1, "ell": 3}
+    assert topology.edges == 4
+    assert topology.splits["ell"] == ((1.0, 0.0, 0.0),)
+    assert topology.vertices == 5, "the L's corner and two ends, the brace's far end, and the landing point"
 
 
 def test_a_curved_member_is_drawn_as_a_spline_and_located_by_its_own_points(tmp_path):
