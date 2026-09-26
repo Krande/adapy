@@ -414,6 +414,11 @@ class _MemberPlan:
     located differently for a measured reason: a bounding cylinder round a quarter arc's
     chord finds **0 edges**, because ``getByBoundingCylinder`` returns only fully contained
     edges and the arc bulges 0.59 units outside its own chord.
+
+    A member whose axis is a **chain** -- a ``BeamSweep``'s line-arc-line -- carries neither,
+    and carries :attr:`legs` instead: one :class:`_LegPlan` per wire, each located the way its
+    own shape has to be. ``p1``/``p2`` are still the member's two end nodes, which is what the
+    analysis and the bounding box are stated against.
     """
 
     beam_name: str
@@ -1460,6 +1465,11 @@ def build_plan(
                     path = member_legs[0].points
                     curve_length = member_legs[0].curve_length
                 else:
+                    # A support or load *at* a junction of a chained member is refused rather
+                    # than attached: ada.cadit.cae.analysis.vertex_index states the vertices
+                    # from members' ends and imprinted splits, and a junction is neither. CAE
+                    # does hold a vertex there (measured), so that is a false refusal and not a
+                    # wrong model -- left to the analysis module rather than worked around here.
                     legs = tuple(_leg_plan(bm, leg) for leg in member_legs)
                     # The n1 and offset checks below take the member's whole axis, so the legs
                     # are concatenated for them: n1 is one vector for the whole member, and the
@@ -1646,18 +1656,25 @@ def _offset_argument(use: _SectionUse) -> str:
 
 
 def _bounding_boxes(plan: _Plan) -> dict[str, tuple[tuple, tuple]]:
-    """The corners the script checks its own vertices against, per part.
+    """The corners the in-kernel guard compares the built part's **vertices** against.
 
-    Over *vertices*, which is what the guard measures, so a plate contributes the corners of the
-    ACIS body adapy authored rather than its outline: a curved plate's face bulges away from its
-    boundary and an arc's does too, and neither bulge is a vertex. A member's endpoint landing on a
+    So the points here have to be exactly the ones that become vertices: every member's two
+    ends, plus every junction of a member drawn as a chain of legs -- a swept path can reach
+    well outside the box its own two end nodes span, and a junction is a vertex (measured) --
+    plus the corners of the ACIS body adapy authored for each plate, rather than its outline: a
+    curved plate's face bulges away from its boundary and an arc's does too, and neither bulge is
+    a vertex. Sample points on a curve are deliberately *not* included, for the same reason: they
+    are interior to an edge and CAE holds no vertex at them. A member's endpoint landing on a
     plate boundary splits that edge (measured, 4 edges became 7) and adds a vertex *between* two
     existing ones, so it cannot widen the box either.
     """
     boxes = {}
     for part_plan in plan.parts:
-        raw = [m.p1 for m in part_plan.members] + [m.p2 for m in part_plan.members] + part_plan.plate_vertices
-        points = np.asarray(raw, dtype=float)
+        corners = [m.p1 for m in part_plan.members] + [m.p2 for m in part_plan.members]
+        corners += [leg.p1 for m in part_plan.members for leg in m.legs]
+        corners += [leg.p2 for m in part_plan.members for leg in m.legs]
+        corners += list(part_plan.plate_vertices)
+        points = np.asarray(corners, dtype=float)
         boxes[part_plan.cae_part_name] = (
             tuple(float(x) for x in points.min(axis=0)),
             tuple(float(x) for x in points.max(axis=0)),

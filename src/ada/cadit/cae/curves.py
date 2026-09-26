@@ -80,7 +80,7 @@ CURVE_LENGTH_REL_TOL = 1.0e-04
 
 
 class CurveNotSupported(Exception):
-    """This member's axis cannot be handed to CAE as one spline wire."""
+    """This member's axis cannot be handed to CAE as wires -- one spline, or one per leg."""
 
 
 def is_curved_beam_type(bm: Beam) -> bool:

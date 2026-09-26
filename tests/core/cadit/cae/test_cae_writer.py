@@ -2259,6 +2259,34 @@ def test_a_swept_member_is_one_sub_edge_per_leg_and_one_vertex_per_junction():
     assert ell.parts[0].topology.vertices == 3
 
 
+def test_the_stated_bounding_box_covers_a_swept_members_legs_and_not_only_its_ends(tmp_path):
+    """A swept path can reach well outside the box its own two end nodes span.
+
+    The in-kernel guard compares the part's **vertices** against this box, and a junction is a
+    vertex -- so a box taken from the member's ends alone would fail a perfectly good build for
+    a member like this one, whose two ends both sit on ``y = 0`` while its middle two legs run
+    along ``y = 2``. The box has to hold every vertex and no more: a curve's *sample* points are
+    interior to an edge and are deliberately not in it.
+    """
+    # The same detour shape as the n1 test, turned so that its n1 is out of the path's plane and
+    # therefore clear of every leg -- the refusal above is about n1, and this test is not.
+    bm = a_swept_beam([(0.0, 0.0), (0.0, 2.0), (4.0, 2.0), (4.0, 0.0)], name="detour", up=(0.0, 1.0, 0.0))
+    part = ada.Part("Detour")
+    part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    assert beam_endpoints(bm) == ((0.0, 0.0, 0.0), (4.0, 0.0, 0.0)), "both ends on y=0, or this proves nothing"
+
+    _, text = emit(assembly, tmp_path)
+
+    namespace = {}
+    start = text.index("EXPECTED_BBOX = {")
+    exec(text[start : text.index("\n}\n", start) + 3], namespace)  # noqa: S102 - literals from the script
+    low, high = namespace["EXPECTED_BBOX"]["Detour"]
+    assert low == pytest.approx((0.0, 0.0, 0.0))
+    assert high == pytest.approx((4.0, 2.0, 0.0)), "the junctions at y=2 are vertices and have to be in the box"
+
+
 def test_a_brace_landing_on_a_straight_leg_of_a_sweep_splits_that_leg_and_nothing_else():
     """The per-leg prediction is a real prediction: an imprint on one leg is counted on the member.
 
