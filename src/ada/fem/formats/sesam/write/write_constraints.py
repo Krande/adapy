@@ -134,6 +134,19 @@ def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: 
     from ada.fem.constraints import expand_dofs
 
     rep = report()
+    # A *distributing* coupling spreads the load over the surface by weights; what is written
+    # here is a rigid arm per slave node, which is the kinematic form. The two agree on
+    # rigid-body motion and on nothing else, so the difference is named rather than left for
+    # the engineer to discover in the stress field.
+    if constraint.metadata.get("coupling_type") == "distributing":
+        rep.approximated(
+            STAGE,
+            "Constraint",
+            constraint.name,
+            "a distributing coupling is written as rigid links, which is stiffer: BLDEP cannot "
+            "spread the load over the surface by weights",
+            n_links=len(records),
+        )
     if constraint.type == constraint.TYPES.RIGID_BODY:
         declared = set(range(1, 7))
     elif constraint.dofs_declared:

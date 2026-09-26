@@ -260,6 +260,12 @@ KEYWORDS: dict[str, KeywordSpec] = {
             optional=("INFLUENCE RADIUS", "ORIENTATION"),
         ),
         _spec("KINEMATIC", optional=("ALPHA",)),
+        # The distributing forms of a *Coupling's sub-keyword. Abaqus spells it three ways
+        # depending on the element types involved; all three are read, see
+        # ``reader._COUPLING_SUBTYPES``.
+        _spec("DISTRIBUTING", optional=("COUPLING", "WEIGHTING METHOD")),
+        _spec("STRUCTURAL DISTRIBUTING", optional=("WEIGHTING METHOD",)),
+        _spec("CONTINUUM DISTRIBUTING", optional=("WEIGHTING METHOD",)),
         _spec(
             "SHELL TO SOLID COUPLING",
             required=("CONSTRAINT NAME",),

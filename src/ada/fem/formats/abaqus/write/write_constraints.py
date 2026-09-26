@@ -57,8 +57,15 @@ def _equation(constraint: Constraint, on_assembly_level: bool) -> str:
     return render_keyword("Equation", (), lines, [f"Constraint: {constraint.name}"]).rstrip()
 
 
+#: The sub-keyword a coupling's ``metadata["coupling_type"]`` is written back as. A distributing
+#: coupling written out as ``*Kinematic`` is a different constraint -- rigid instead of
+#: load-spreading -- so the type the reader saw decides which keyword goes here.
+_COUPLING_SUBKEYWORD = {"kinematic": "KINEMATIC", "distributing": "DISTRIBUTING"}
+
+
 def _coupling(constraint: Constraint, on_assembly_level: bool):
     dofs = [f" {x[0]}, {x[1]}" if not isinstance(x, int) else f" {x}, {x}" for x in constraint.dofs]
+    sub = _COUPLING_SUBKEYWORD.get(constraint.metadata.get("coupling_type"), "KINEMATIC")
 
     if type(constraint.s_set) is FemSet:
         # *Coupling takes a SURFACE; adapy's coupling holds a node set, so a node surface over it
@@ -106,7 +113,7 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
 {add_str}
 """
         + render_keyword("COUPLING", params)
-        + render_keyword("KINEMATIC", (), dofs)
+        + render_keyword(sub, (), dofs)
     ).rstrip()
 
 
@@ -131,6 +138,13 @@ def _shell2solid(constraint, on_assembly_level: bool):
 
 
 def _tie(constraint: Constraint, on_assembly_level: bool) -> str:
+    """``*Tie``. The data line is ``secondary, main`` -- the **dependent** surface first.
+
+    So it is ``s_set`` that goes first, not ``m_set``. Writing ``m_set, s_set`` here (which this
+    did) exchanged the two sides of every tie adapy writes, and matched the reader's mirror-image
+    mistake exactly, so the round trip agreed with itself and no test could see it. See the note
+    on constraint sides in :func:`ada.fem.formats.abaqus.read.reader.get_constraints_from_inp`.
+    """
     num = 80
     name = constraint.name
     params = [("name", name), ("adjust", constraint.metadata.get("adjust", "no"))]
@@ -139,5 +153,5 @@ def _tie(constraint: Constraint, on_assembly_level: bool) -> str:
 
     coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(name) + "**" + num * "-" + "\n"
     return coupl_text + render_block(
-        "Tie", params, [f"{constraint.m_set.name}, {constraint.s_set.name}"], [f"Constraint: {name}"]
+        "Tie", params, [f"{constraint.s_set.name}, {constraint.m_set.name}"], [f"Constraint: {name}"]
     )
