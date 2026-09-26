@@ -100,6 +100,10 @@ class IfcAssetPublisher:
             leaf=opts.get("leaf"),
             source=opts.get("source"),
             extracted_at=opts.get("extracted_at"),
+            # The tree and what each node IS, with no geometry promise. An opaque publish option
+            # like every other: core hashes and forwards `options` without reading them, so a
+            # job-driven publish reaches the same derivation as the direct entry point.
+            structure_only=bool(opts.get("structure_only", False)),
             enforce_occupancy=False,
         )
         return PublishPlan(

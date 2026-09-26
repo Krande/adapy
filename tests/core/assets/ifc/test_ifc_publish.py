@@ -175,3 +175,109 @@ def test_both_root_and_leaf_is_refused(store, node_ids):
             leaf=node_ids["a1-bm0"],
             extracted_at="2026-01-01T00:00:00Z",
         )
+
+
+# --- structure_only ------------------------------------------------------------------------------
+#
+# The tree and what each node IS, with no geometry promise. Three consequences that are one
+# decision: no claim, no claim in the spine either, and no stored source.
+
+
+def test_structure_only_publishes_no_claim_on_any_subject(store):
+    result = publish_ifc(
+        store,
+        collection="plant-a",
+        staged_key=STAGED_KEY,
+        extracted_at="2026-01-01T00:00:00Z",
+        structure_only=True,
+    )
+    for subject in result.subjects:
+        manifest = parse_manifest(store.get_bytes(f"{ASSET_PREFIX}/plant-a/{subject}/{result.revision}/asset.json"))
+        assert manifest.delivery == "none"
+        assert manifest.build is None
+
+
+def test_structure_only_leaves_no_row_in_the_spine_claiming_anything(store):
+    """A row that claimed `build` would offer a Load the publish cannot honour."""
+    from ada.assets.projection import parse_hierarchy
+
+    result = publish_ifc(
+        store,
+        collection="plant-a",
+        staged_key=STAGED_KEY,
+        extracted_at="2026-01-01T00:00:00Z",
+        structure_only=True,
+    )
+    for subject in (*result.subjects, "plant-a"):
+        slice_ = parse_hierarchy(store.get_bytes(f"{ASSET_PREFIX}/plant-a/{subject}/{result.revision}/hierarchy.json"))
+        assert {r["delivery"] for r in slice_.records()} == {""}
+
+
+def test_structure_only_does_not_store_the_source(store):
+    """The build spec is its only reader. Several hundred megabytes nothing can read is the cost
+    this flag exists to avoid -- and the sweep works off the STAGED file plus each subject's
+    published ifc.index.json, never the stored source."""
+    result = publish_ifc(
+        store,
+        collection="plant-a",
+        staged_key=STAGED_KEY,
+        extracted_at="2026-01-01T00:00:00Z",
+        structure_only=True,
+    )
+    assert not [k for k in result.written if k.endswith("source.ifc")]
+    for subject in (*result.subjects, "plant-a"):
+        manifest = parse_manifest(store.get_bytes(f"{ASSET_PREFIX}/plant-a/{subject}/{result.revision}/asset.json"))
+        assert [a.role for a in manifest.artefacts if a.role == "source"] == []
+
+
+def test_structure_only_still_publishes_the_tree_and_the_attributes(store):
+    """Which is the point of it. A node's properties are what is left to read when there is no
+    geometry to draw."""
+    from ada.assets.attributes import ATTRIBUTES_FILENAME, parse_attributes
+
+    result = publish_ifc(
+        store,
+        collection="plant-a",
+        staged_key=STAGED_KEY,
+        extracted_at="2026-01-01T00:00:00Z",
+        structure_only=True,
+    )
+    subject = result.subjects[0]
+    doc = parse_attributes(store.get_bytes(f"{ASSET_PREFIX}/plant-a/{subject}/{result.revision}/{ATTRIBUTES_FILENAME}"))
+    assert doc.nodes, "a structure-only publish with no attributes has nothing to show"
+
+
+def test_structure_only_and_a_reused_source_are_refused_together(store, node_ids):
+    """`source=` names a blob for a BUILD to read; asking for both asks a publish that promises no
+    geometry to produce some."""
+    with pytest.raises(IfcPublishError, match="promises none"):
+        publish_ifc(
+            store,
+            collection="plant-a",
+            staged_key=STAGED_KEY,
+            leaf=node_ids["a1-bm0"],
+            source=f"{ASSET_PREFIX}/plant-a/plant-a/20260101T000000Z/source.ifc",
+            extracted_at="2026-01-01T00:00:00Z",
+            structure_only=True,
+        )
+
+
+def test_a_structure_only_revision_is_promoted_by_republishing_over_it(store):
+    """Promotion is a republish, not a patch: a geometry promise is about specific source bytes,
+    and the revision that made no promise never held them."""
+    publish_ifc(
+        store,
+        collection="plant-a",
+        staged_key=STAGED_KEY,
+        extracted_at="2026-01-01T00:00:00Z",
+        structure_only=True,
+    )
+    result = publish_ifc(
+        store, collection="plant-a", staged_key=STAGED_KEY, extracted_at="2026-01-01T00:00:00Z", replace=True
+    )
+    manifest = parse_manifest(
+        store.get_bytes(f"{ASSET_PREFIX}/plant-a/{result.subjects[0]}/{result.revision}/asset.json")
+    )
+    assert manifest.delivery == "build"
+    assert manifest.build is not None
+    assert [a.role for a in manifest.artefacts if a.role == "source"] == ["source"]

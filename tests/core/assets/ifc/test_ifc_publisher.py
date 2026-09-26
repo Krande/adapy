@@ -299,3 +299,25 @@ def test_source_actor_relayed_when_the_file_has_more_than_one_owner_history(stor
     assert manifest.change is not None
     assert manifest.change.source_actor == Actor(id="bob", display="Bob Builder", application="BobCAD 1.0")
     assert manifest.change.published_by is None  # still never set by the provider
+
+
+def test_structure_only_reaches_the_derivation_as_an_opaque_publish_option(store, facade):
+    """A job-driven publish gets the same flag the direct entry point has.
+
+    Core hashes and forwards `options` without reading them, so this pins the one thing that could
+    silently not work: a publish enqueued with `structure_only` and derived through the provider
+    protocol must produce the same no-claim, no-source revision.
+    """
+    staged = _stage(store, _raw(V1))
+    _, outcome = _derive_and_apply(
+        facade, staged, options={"extracted_at": "2026-01-01T00:00:00Z", "structure_only": True}
+    )
+
+    assert [k for k in outcome.written if k.endswith(f"/{SOURCE_FILENAME}")] == []
+    provider = PublishedAssetProvider(store.reader(), provider_id=IFC_PROVIDER_ID)
+    for subject in outcome.subjects:
+        manifest = provider.manifest("plant-a", subject)
+        assert manifest.delivery == "none"
+        assert manifest.build is None
+        # Core's own stamp is unaffected: who published is orthogonal to what was promised.
+        assert manifest.change.published_by == PUBLISHED_BY
