@@ -69,7 +69,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
     from .not_held import STAGE, bc_is_held, report, report_not_held
-    from .write_bcs import bnbcd_str, retained_dofs
+    from .write_bcs import bnbcd_str, prescribed_displacements, retained_dofs
     from .write_constraints import bldep_records
     from .write_elements import elem_gen, unwritten_element_ids
     from .write_loads import step_loads_str
@@ -143,6 +143,10 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # report. A velocity BC used to be written as a clamp, and a BC on an assembly-level
     # reference point fixed whichever part node shared its id.
     held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
+    # A BC with a magnitude is a settlement, not a support: BNBCD gets FIX code 2 on those dofs
+    # and BNDISPL (in the load block, which is where Sesam keeps a prescribed displacement)
+    # carries the value. Both cards or neither -- see write_bcs.bndispl_str.
+    prescribed = prescribed_displacements(held_bcs)
 
     # A spring's stiffness record takes a MATNO, numbered on from the materials'.
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
@@ -160,11 +164,11 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(point_elements_str(part.fem, ndofs))
         d.write(sets_str(_SetsOf(part.fem, assembly.fem), unwritten_elements=unwritten_element_ids(part.fem)))
         d.write(equation_names_str(part.fem, assembly.fem))
-        d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs))
+        d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs, prescribed))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
         d.writelines(elem_gen(part.fem, thick_map, spring_matnos))
-        d.write(step_loads_str(step, ndofs))
+        d.write(step_loads_str(step, ndofs, prescribed))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
     if rounding.count:
