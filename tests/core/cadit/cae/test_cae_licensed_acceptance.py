@@ -30,7 +30,7 @@ import pytest
 
 import ada
 
-from .abaqus_runner import abaqus_available, run_cae_script
+from .abaqus_runner import ERROR_MARKERS, abaqus_available, run_cae_script
 from .conftest import require_writer
 
 require_writer()
@@ -93,9 +93,10 @@ def test_the_specimen_script_is_accepted_by_the_kernel(specimen_script, tmp_path
 def test_the_runner_reports_a_failed_build_as_failed(frame_run, tmp_path):
     """The runner's own teeth, and the reason it does not trust the launcher's exit status.
 
-    Measured: `abq2025.bat` returns 0 even when the CAE process it started died. So a broken script is
-    detected from its output and from its sidecar. This runs a copy of the writer's own script with one
-    section name corrupted -- the defect a missing profile mapping would produce.
+    `abq2025.bat` returns 0 whatever the CAE process it started did, so a failed build has to announce
+    itself. This runs a copy of the writer's own script with one section name corrupted -- the defect a
+    missing profile mapping would produce -- and asserts that the writer's banner and its sidecar both
+    say so.
     """
     _, good = frame_run
     _assert_ran(good)
@@ -110,11 +111,37 @@ def test_the_runner_reports_a_failed_build_as_failed(frame_run, tmp_path):
     if run.licence_denied:
         pytest.skip("no CAE licence available")
     assert run.failed, "a script that could not build its model was reported as a clean run: " + run.describe()
-    sidecars = sorted(tmp_path.glob("*.cae_build_result.json"))
-    assert sidecars, "no build-result sidecar was written for the failed build"
-    result = json.loads(sidecars[0].read_text(encoding="utf-8"))
+    assert "BUILD FAILED banner" in run.failure_signals, run.describe()
+    assert "build-result sidecar" in run.failure_signals, run.describe()
+    result = run.build_results[0]
     assert result["ok"] is False
     assert result["errors"], "the sidecar records no reason for the failure"
+
+
+def test_a_failure_that_leaves_through_sys_exit_is_still_detected(specimen_script, tmp_path):
+    """The measurement that makes the exit status unusable, pinned as a test.
+
+    CAE treats a ``SystemExit`` escaping a ``noGUI=`` script as a clean finish: the process status is 0
+    and *no* ``Abaqus Error`` line is printed anywhere. The specimen exits that way on purpose, so
+    corrupting one of its section names produces exactly the run that a status-based or stdout-based
+    harness would call a pass. Only the sidecar shows it -- which is why the writer uses ``os._exit``
+    and why this runner reads the sidecar.
+    """
+    source = specimen_script.read_text(encoding="utf-8")
+    anchor = 'sectionName="sec_IPE300"'
+    assert source.count(anchor) == 1, "anchor matched {} times, not one".format(source.count(anchor))
+    broken = tmp_path / "specimen_broken.py"
+    broken.write_text(source.replace(anchor, 'sectionName="sec_NEVER_CREATED"'), encoding="utf-8")
+
+    run = run_cae_script(broken, tmp_path)
+
+    if run.licence_denied:
+        pytest.skip("no CAE licence available")
+    assert run.returncode == 0, "if sys.exit now reaches the process status, simplify the runner"
+    assert not any(marker in run.stdout for marker in ERROR_MARKERS), run.describe()
+    assert run.failure_signals == ["build-result sidecar"], run.describe()
+    sidecar = tmp_path / "specimen_frame_cae.cae_build_result.json"
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["error"], "the sidecar records no reason"
 
 
 # ------------------------------------------------------------------- the writer's own output

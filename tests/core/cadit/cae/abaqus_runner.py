@@ -1,13 +1,19 @@
 """Run an emitted Abaqus/CAE script and report what happened.
 
-Two things make this less obvious than it looks, both measured on Abaqus 2025:
+Three things make this less obvious than it looks, all measured on Abaqus 2025:
 
 1. **``print`` output does not reach stdout.** It lands in ``abaqus.rpy`` in the working directory,
    each line prefixed ``#: ``. A harness that only reads stdout sees nothing a script said about
    itself, so the results have to be lifted out of the replay file.
-2. **The exit status of ``abq2025.bat`` cannot be trusted.** A script that raises prints
-   ``Abaqus Error: cae exited with an error`` to stdout, and the batch wrapper still returns 0. So
-   failure is decided from the output, not the return code.
+2. **The exit status is useless in both directions.** ``abq2025.bat`` returns 0 whatever the CAE
+   process it started did, so a non-zero status never arrives. And a ``sys.exit(1)`` inside the script
+   is treated by CAE as a clean finish: no ``Abaqus Error`` line is printed at all. So the exit code
+   cannot decide pass or fail, and neither can stdout alone.
+3. **What can be trusted is what the script says about itself.** The writer prints an
+   ``ADAPY-CAE BUILD OK:`` / ``ADAPY-CAE BUILD FAILED:`` banner and writes a
+   ``<stem>.cae_build_result.json`` carrying an ``ok`` boolean, on success *and* on failure. This
+   runner reads both, plus stdout's ``Abaqus Error`` for the crash case, and calls a run failed if any
+   of them says so.
 
 There are four CAE tokens on the site server, so every run here is bounded by a timeout and the
 process is killed rather than left holding one.
@@ -15,6 +21,7 @@ process is killed rather than left holding one.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import shutil
@@ -29,12 +36,11 @@ ABAQUS_CANDIDATES = (
 )
 
 ERROR_MARKERS = ("Abaqus Error", "Abaqus/CAE Error")
-LICENCE_MARKERS = (
-    "Abaqus Error: Abaqus/CAE could not obtain a license",
-    "licensing",
-    "FlexNet",
-    "Error: Abaqus/Analysis exited with error",
-)
+#: The writer's own verdict, printed on the last line of a build.
+BUILD_OK_BANNER = "ADAPY-CAE BUILD OK"
+BUILD_FAILED_BANNER = "ADAPY-CAE BUILD FAILED"
+#: Any script may leave one of these; the writer always does, on success and on failure alike.
+RESULT_SIDECAR_GLOB = "*.cae_build_result.json"
 LICENCE_DENIED_MARKERS = (
     "could not obtain a license",
     "No licenses available",
@@ -104,13 +110,47 @@ class CaeRun:
         return any(marker.lower() in low for marker in LICENCE_DENIED_MARKERS)
 
     @property
-    def failed(self) -> bool:
-        """The batch wrapper returns 0 even on a traceback, so the output decides."""
+    def build_results(self) -> list[dict]:
+        """Every ``<stem>.cae_build_result.json`` the run left behind, parsed."""
+        results = []
+        for path in sorted(self.workdir.glob(RESULT_SIDECAR_GLOB)):
+            try:
+                results.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError) as exc:  # a truncated sidecar is itself a failure
+                results.append({"ok": False, "errors": ["unreadable sidecar {}: {}".format(path.name, exc)]})
+        return results
+
+    @property
+    def sidecar_says_failed(self) -> bool:
+        for result in self.build_results:
+            if result.get("ok") is False or result.get("error") or result.get("errors"):
+                return True
+        return False
+
+    @property
+    def failure_signals(self) -> list[str]:
+        """Which of the four independent signals said this run failed. Empty means a clean run.
+
+        Kept as a list rather than a bool so a test can assert *which* signal fired -- the point being
+        that the exit status is not one that can be relied on.
+        """
+        signals = []
         if self.timed_out:
-            return True
+            signals.append("timed out")
         if self.returncode != 0:
-            return True
-        return any(marker in self.stdout for marker in ERROR_MARKERS)
+            signals.append("returncode {}".format(self.returncode))
+        if any(marker in self.stdout for marker in ERROR_MARKERS):
+            signals.append("Abaqus Error on stdout")
+        if any(line.startswith(BUILD_FAILED_BANNER) for line in self.printed):
+            signals.append("BUILD FAILED banner")
+        if self.sidecar_says_failed:
+            signals.append("build-result sidecar")
+        return signals
+
+    @property
+    def failed(self) -> bool:
+        """``abq.bat`` returns 0 whatever happened, and a `sys.exit(1)` prints nothing, so ask everyone."""
+        return bool(self.failure_signals)
 
     @staticmethod
     def _matches(line: str, key: str) -> bool:
@@ -132,8 +172,8 @@ class CaeRun:
         return [line[len(key) :].strip() for line in self.printed if self._matches(line, key)]
 
     def describe(self) -> str:
-        return "returncode={}\ntimed_out={}\n--- stdout ---\n{}\n--- printed ---\n{}".format(
-            self.returncode, self.timed_out, self.stdout, "\n".join(self.printed)
+        return "returncode={} (never meaningful) signals={}\n--- stdout ---\n{}\n--- printed ---\n{}".format(
+            self.returncode, self.failure_signals, self.stdout, "\n".join(self.printed)
         )
 
 

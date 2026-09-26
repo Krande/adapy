@@ -293,3 +293,52 @@ def test_the_whole_pass_rejects_the_defect(defect, specimen_source):
     """And the pass a caller actually runs must reject it too, whatever order the checks run in."""
     with pytest.raises(CaeGraphError):
         check_emitted_script(defect.apply(specimen_source), name="mutated/" + defect.name)
+
+
+# --------------------------------------------------------------------------------------------------
+# A checker with teeth also has to keep its mouth shut about valid scripts. Each entry below is a
+# minimal script the pass must *accept*; the first one is a real false positive this check used to
+# produce.
+
+_STACKED_COLUMNS_IN_REVERSE_ORDER = """from __future__ import print_function
+
+import sys
+
+from abaqus import *
+from abaqusConstants import *
+from caeModules import *
+
+RESULT_PATH = "stack.cae_build_result.json"
+m = mdb.models["Model-1"]
+p = m.Part(name="Stack", dimensionality=THREE_D, type=DEFORMABLE_BODY)
+p.WirePolyLine(points=(((0.0, 0.0, 0.0), (0.0, 0.0, 4.0)),), mergeType=IMPRINT, meshable=ON)
+p.WirePolyLine(points=(((0.0, 0.0, 4.0), (0.0, 0.0, 8.0)),), mergeType=IMPRINT, meshable=ON)
+m.Material(name="S355")
+m.IProfile(name="IPE300", l=0.15, h=0.3, b1=0.15, b2=0.15, t1=0.0107, t2=0.0107, t3=0.0071)
+m.BeamSection(name="sec", profile="IPE300", material="S355", integration=DURING_ANALYSIS)
+edges_upper = p.edges.getByBoundingCylinder(center1=(0.0, 0.0, 3.999), center2=(0.0, 0.0, 8.001), radius=0.001)
+region_upper = p.Set(name="col_upper", edges=edges_upper)
+p.SectionAssignment(region=region_upper, sectionName="sec")
+p.assignBeamSectionOrientation(region=region_upper, method=N1_COSINES, n1=(1.0, 0.0, 0.0))
+edges_lower = p.edges.getByBoundingCylinder(center1=(0.0, 0.0, -0.001), center2=(0.0, 0.0, 4.001), radius=0.001)
+region_lower = p.Set(name="col_lower", edges=edges_lower)
+p.SectionAssignment(region=region_lower, sectionName="sec")
+p.assignBeamSectionOrientation(region=region_lower, method=N1_COSINES, n1=(1.0, 0.0, 0.0))
+a = m.rootAssembly
+a.Instance(name="Stack-1", part=p, dependent=ON)
+sys.exit(1)
+"""
+
+ACCEPTED = {"stacked_columns_in_reverse_order": _STACKED_COLUMNS_IN_REVERSE_ORDER}
+
+
+@pytest.mark.parametrize("name", sorted(ACCEPTED))
+def test_a_valid_script_is_accepted(name):
+    """Stacked columns are ordinary, and two of them are collinear.
+
+    Each lies on the other's cylinder axis, so a check that matched a cylinder to the first collinear
+    segment it met and then judged the end caps rejected this script with "does not overshoot its
+    member's ends" -- a false positive, and a misleading one. It appeared only when the regions were not
+    emitted in the same order as the wires, which is why the writer's own output did not show it.
+    """
+    check_emitted_script(ACCEPTED[name], name=name)

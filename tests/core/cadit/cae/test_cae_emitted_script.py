@@ -77,6 +77,30 @@ def test_the_graph_pass_still_has_teeth_on_this_writers_output(frame_model, tmp_
         check_emitted_script(mutated, name="mutated frame.py")
 
 
+def test_two_collinear_members_get_their_own_cylinders(tmp_path):
+    """Stacked columns share an axis, so each cylinder reaches into the other member's span.
+
+    The writer has to give them separate cylinders, and the graph pass has to tell the two members apart
+    rather than matching the first collinear segment it meets.
+    `test_cae_graph_checks_have_teeth.py::test_a_valid_script_is_accepted` carries the region ordering
+    that used to make the latter reject a valid script.
+    """
+    part = ada.Part("Stack")
+    part / (
+        ada.Beam("col_lower", (0, 0, 0), (0, 0, 4), "IPE300", "S355"),
+        ada.Beam("col_upper", (0, 0, 4), (0, 0, 8), "IPE300", "S355"),
+    )
+    ada.Assembly("A") / part
+
+    _, source = emit(part, tmp_path, name="stack")
+
+    graph = check_emitted_script(source, name="stack.py")
+    cylinders = graph.by_method("getByBoundingCylinder")
+    assert len(cylinders) == 2
+    assert cylinders[0].kwargs["center1"] != cylinders[1].kwargs["center1"]
+    assert sorted(graph.created_names("Set")) == ["col_lower", "col_upper"]
+
+
 def test_the_writer_is_deterministic(frame_model, tmp_path):
     """Golden files are worthless if a set or dict iteration order leaks into the output."""
     part = frame_model.get_part("Frame")

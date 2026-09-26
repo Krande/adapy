@@ -43,6 +43,11 @@ REQUIRED_IMPORTS = ("abaqus", "abaqusConstants", "caeModules")
 
 # `n1` is `beam.yvec`, which adapy already normalises, so the only slack these need to absorb is the
 # rounding in the emitted literal. A real misorientation is O(0.1) -- nine orders away.
+#
+# Perpendicularity is measured against the *cylinder axis*, which the writer derives from
+# `Beam.axis_global()`. That matters: `beam.yvec` is exactly perpendicular to the unrounded axis, but
+# `Beam.xvec` is a `Direction` rounded to 7 decimals, so `dot(yvec, xvec)` reads 4.5e-8 on a (6,3,4)
+# member. Checking against `xvec` would need ~1e-6; against the endpoints, 1e-12 holds.
 UNIT_TOL = 1e-9
 PERP_TOL = 1e-9
 #: How far off a member's axis a located cylinder's own axis may lie, relative to the member length.
@@ -311,11 +316,11 @@ def _cylinder_axis(lookup: Call, graph: ScriptGraph) -> tuple[tuple, tuple]:
 
 
 def _region_key(graph: ScriptGraph, call: Call) -> str:
-    """A set is named inside its part, so the key that identifies a member is part + set name."""
+    """The set name behind a region -- unique across the whole script, and the INP's elset name."""
     set_call = graph.resolve_call(call.kw("region"))
     name = set_call.kw("name") if set_call is not None else None
     if isinstance(name, str):
-        return "{}.{}".format(set_call.receiver, name)
+        return name
     return call.raw_kwargs.get("region", "?")
 
 
@@ -336,20 +341,28 @@ def check_preamble(graph: ScriptGraph) -> None:
 
 
 def check_names_unique(graph: ScriptGraph) -> None:
-    """A collision must fail, not silently overwrite -- and a dot is rejected by CAE outright."""
+    """A collision must fail, not silently overwrite -- and a dot is rejected by CAE outright.
+
+    Measured, and it is why this check is not redundant with "CAE would have noticed": a duplicate
+    ``Part`` or ``Set`` name does **not** raise. CAE replaces the object and invalidates every handle to
+    the old one, so the script runs on and the model is quietly wrong. "The kernel would have caught it"
+    is not available as an argument anywhere in this verification.
+
+    Set names are checked *globally*, not per part: the writer's result sidecar keys ``edges_per_member``
+    by set name, so a name reused in a second part would silently overwrite one member's edge count even
+    though CAE itself scopes sets to their part.
+    """
     namespaces = {
-        # model- and mdb-level names: one namespace each
-        "part": (("Part",), False),
-        "material": (("Material",), False),
-        "profile": (tuple(sorted(PROFILE_METHODS)), False),
-        "section": (("BeamSection",), False),
-        "instance": (("Instance",), False),
-        # a set belongs to its part, so uniqueness is per receiver
-        "set": (("Set",), True),
+        "part": ("Part",),
+        "material": ("Material",),
+        "profile": tuple(sorted(PROFILE_METHODS)),
+        "section": ("BeamSection",),
+        "instance": ("Instance",),
+        "set": ("Set",),
     }
-    for namespace, (methods, per_receiver) in namespaces.items():
-        seen: dict[tuple, int] = {}
-        for call in graph.by_method(*methods):
+    for namespace in sorted(namespaces):
+        seen: dict[str, int] = {}
+        for call in graph.by_method(*namespaces[namespace]):
             name = call.kw("name")
             if not isinstance(name, str):
                 continue
@@ -357,14 +370,13 @@ def check_names_unique(graph: ScriptGraph) -> None:
                 _fail(
                     "the {} name {!r} on line {} contains a dot, which CAE rejects".format(namespace, name, call.lineno)
                 )
-            key = (call.receiver, name) if per_receiver else (name,)
-            if key in seen:
+            if name in seen:
                 _fail(
                     "the {} name {!r} is emitted twice, on lines {} and {}".format(
-                        namespace, name, seen[key], call.lineno
+                        namespace, name, seen[name], call.lineno
                     )
                 )
-            seen[key] = call.lineno
+            seen[name] = call.lineno
 
 
 def check_profiles_and_materials_defined_before_use(graph: ScriptGraph) -> None:
@@ -453,46 +465,72 @@ def check_every_member_is_sectioned_and_oriented(graph: ScriptGraph) -> None:
         _fail("{} members are drawn but {} regions get a section assignment".format(len(segments), len(assigned)))
 
 
+def _axis_positions(segment, c1, cyl_dir, span) -> list[float] | None:
+    """Where a segment's endpoints fall along a cylinder's axis, or ``None`` if it is off that axis."""
+    positions = []
+    for point in segment[:2]:
+        rel = (point[0] - c1[0], point[1] - c1[1], point[2] - c1[2])
+        projection = _dot(rel, cyl_dir)
+        off = (
+            rel[0] - projection * cyl_dir[0],
+            rel[1] - projection * cyl_dir[1],
+            rel[2] - projection * cyl_dir[2],
+        )
+        if _length(off) > COLLINEAR_REL_TOL * span:
+            return None
+        positions.append(projection)
+    return positions
+
+
 def check_members_are_located_by_a_cylinder_spanning_them(graph: ScriptGraph) -> None:
-    """The located cylinder must be the member's own axis, with its end caps outside the member."""
+    """The located cylinder must be the member's own axis, with its end caps outside the member.
+
+    Stacked columns are ordinary, so two members are routinely *collinear* and lie on each other's
+    cylinder axis. An earlier version of this check matched a cylinder to the first collinear segment it
+    met and complained about the caps if that segment stuck out -- which reported "does not overshoot"
+    against a perfectly good script whenever the regions happened not to be emitted in the same order as
+    the wires. So a segment that sticks out of the caps is treated as *not this cylinder's member*, and
+    the caps are only reported once no candidate fits at all. Where several fit, the tightest wins.
+    """
     segments = _wire_segments(graph)
     unmatched = list(segments)
     for call in graph.by_method("SectionAssignment"):
+        set_name = _region_key(graph, call)
         lookup = _region_lookup(graph, call, "SectionAssignment")
         c1, c2 = _cylinder_axis(lookup, graph)
-        cyl_dir = _unit((c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]))
-        hit = None
+        axis = (c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2])
+        span = _length(axis)
+        cyl_dir = _unit(axis)
+
+        on_axis, fitting = [], []
         for segment in unmatched:
             p1, p2, _ = segment
             seg_dir = _unit((p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]))
             if abs(abs(_dot(cyl_dir, seg_dir)) - 1.0) > COLLINEAR_REL_TOL:
                 continue
-            # both endpoints must lie strictly inside the cylinder's caps
-            span = _length((c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]))
-            ts = []
-            for point in (p1, p2):
-                rel = (point[0] - c1[0], point[1] - c1[1], point[2] - c1[2])
-                off = (
-                    rel[0] - _dot(rel, cyl_dir) * cyl_dir[0],
-                    rel[1] - _dot(rel, cyl_dir) * cyl_dir[1],
-                    rel[2] - _dot(rel, cyl_dir) * cyl_dir[2],
-                )
-                if _length(off) > COLLINEAR_REL_TOL * span:
-                    ts = None
-                    break
-                ts.append(_dot(rel, cyl_dir))
-            if ts is None:
+            positions = _axis_positions(segment, c1, cyl_dir, span)
+            if positions is None:
                 continue
-            if min(ts) <= 0.0 or max(ts) >= span:
-                _fail(
-                    "the cylinder on line {} does not overshoot its member's ends, so an end "
-                    "sub-edge can fall outside it".format(lookup.lineno)
+            on_axis.append((segment, positions))
+            if min(positions) > 0.0 and max(positions) < span:
+                # slack: how much cylinder is left over at the two caps
+                fitting.append((min(positions) + (span - max(positions)), segment))
+
+        if not on_axis:
+            _fail(
+                "the cylinder for member {!r} on line {} does not lie on any member drawn by "
+                "WirePolyLine".format(set_name, lookup.lineno)
+            )
+        if not fitting:
+            starts = [positions for _, positions in on_axis]
+            _fail(
+                "the cylinder for member {!r} on line {} does not overshoot its member's ends, so an "
+                "end sub-edge can fall outside it (span {:.12g}, member ends at {})".format(
+                    set_name, lookup.lineno, span, starts
                 )
-            hit = segment
-            break
-        if hit is None:
-            _fail("the cylinder on line {} does not lie on any member drawn by WirePolyLine".format(lookup.lineno))
-        unmatched.remove(hit)
+            )
+        fitting.sort(key=lambda item: (item[0], item[1]))
+        unmatched.remove(fitting[0][1])
     if unmatched:
         _fail("{} drawn members are never located by a cylinder: {}".format(len(unmatched), unmatched))
 
