@@ -309,21 +309,35 @@ def test_a_refused_beam_subclass_is_refused_by_exact_type(kind):
         check_beam_shape(bm)
 
 
-def test_the_tapered_refusal_cites_the_segfault_rather_than_a_preference():
-    """The reason is a measurement, and the message has to carry it or it reads as timidity.
+def test_the_tapered_refusal_cites_both_measurements_rather_than_a_preference():
+    """The reason is two measurements, and the message has to carry both or it reads as timidity.
 
-    Isolated on Abaqus 2025 by building the same model four ways: the straight
-    constant-section deck wrote, the straight TAPERED one segfaulted. So the taper is
-    provably the cause and the curve is provably innocent -- which matters twice over now
-    that the curve is supported and the taper is not.
+    CAE offers two ways to write a taper and Abaqus 2025 fails at both, differently, which is
+    why one number is not enough here. ``integration=DURING_ANALYSIS`` segfaults the INP
+    writer -- for PIPE, I, RECT, CIRC and BOX alike and for both ``B31`` and ``B32``, with the
+    constant-section control writing, so the taper is provably the cause.
+    ``BEFORE_ANALYSIS`` *does* write, a plausible ``Taper`` general section that solves, and
+    its answer does not depend on which end is which: 9.122384e-02 / 8.756731e-02 /
+    8.635153e-02 at 1, 2 and 40 elements in **both** directions, where a real taper differs by
+    about 3x. A refusal that quoted only the segfault would invite the obvious "so write it
+    BEFORE_ANALYSIS instead", which is the reading this message has to close off.
     """
     with pytest.raises(UnsupportedBeamError) as raised:
         check_beam_shape(REFUSED_BEAM_FACTORIES["BeamTapered"]())
 
     message = str(raised.value)
+    # Fact one: the crash, its breadth, and the control that isolates the taper as its cause.
     assert "SEGMENTATION FAULT" in message
     assert "code 11 (0XB)" in message
     assert "straight_constant  -> WROTE OK" in message
+    assert "DURING_ANALYSIS" in message
+    assert "PIPE, I, RECT, CIRC, BOX" in message
+    # Fact two: the deck that writes, solves, and answers the same whichever way round it is.
+    assert "BEFORE_ANALYSIS" in message
+    assert "INDEPENDENT OF WHICH END IS WHICH" in message
+    for measured in ("9.122384e-02", "8.756731e-02", "8.635153e-02"):
+        assert measured in message, "the taper's own numbers are what make the second fact a fact"
+    assert "per-element sections" in message, "and what faithful tapering would actually need"
 
 
 def test_a_straight_beam_is_not_refused():

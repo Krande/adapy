@@ -24,9 +24,13 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    it was written believing it did: measured, a disconnected frame produces exactly the
    same "every edge carries a section" verdict as a connected one. That is guard 6.
 2. **A beam's shape is checked by exact type.** A straight ``Beam`` and the three curved
-   classes are built; ``BeamTapered`` is refused because writing the INP for one
-   **segfaults the Abaqus 2025 kernel** (measured, with the taper isolated as the cause),
-   and an unknown subclass is refused for being unknown. A curved member whose axis cannot
+   classes are built; ``BeamTapered`` is refused on two measurements, one for each way CAE
+   offers to write a taper: ``integration=DURING_ANALYSIS`` **segfaults the Abaqus 2025 INP
+   writer** for every profile type and both element types tried, and
+   ``integration=BEFORE_ANALYSIS`` writes a plausible ``*Beam General Section, Taper`` deck
+   that solves and whose answer is **independent of which end is which** -- so one route
+   cannot write the model and the other writes a different one. An unknown subclass is
+   refused for being unknown. A curved member whose axis cannot
    be handed over as one spline wire -- a multi-leg sweep path, a curve container nobody has
    sampled -- is refused too, and named. A ``BeamRevolve`` drawn as a straight chord is a
    model that looks right, which is what all of this is for.
@@ -199,23 +203,51 @@ CURVED_BEAM_TYPES = ("BeamCurved", "BeamRevolve", "BeamSweep")
 #: ``Beam`` subclasses that are refused, and why. The refusal is an exact-type test, so a
 #: fifth subclass added later is refused too rather than silently chorded.
 #:
-#: ``BeamTapered`` is not refused out of caution. CAE accepts
-#: ``BeamSection(beamShape=TAPERED, profileEnd=...)`` and reads it back, and then **writing
-#: the INP segfaults the kernel** — measured on Abaqus 2025, with the curve isolated as
-#: innocent and the taper as the cause::
+#: ``BeamTapered`` is not refused out of caution, and it stays refused on **two**
+#: measurements rather than one, because CAE offers two ways to write a taper and both of
+#: them fail -- differently (Abaqus 2025, ``D:\\temp\\cae_probe\\lift\\taper`` and
+#: ``…\\taper_phys``).
+#:
+#: ``integration=DURING_ANALYSIS`` with ``beamShape=TAPERED`` **segfaults the INP writer**,
+#: and not for one profile: one CAE process per variant, with a stage sidecar written either
+#: side of ``job.writeInput()``, gave the same crash for PIPE, I, RECT, CIRC and BOX and for
+#: both ``B31`` and ``B32``, while the constant-section control wrote::
 #:
 #:     >>> straight_constant  -> WROTE OK
 #:     >>> straight_TAPERED   -> *** ABAQUS/ABQcaeK rank 0 encountered a SEGMENTATION FAULT
 #:                               Abaqus Error: cae exited with an error code 11 (0XB)
+#:
+#: ``integration=BEFORE_ANALYSIS`` does write, and writes a *plausible* deck --
+#: ``*Beam General Section, elset=all, material=S355, poisson = 0.3, Taper, section=PIPE``
+#: with both end profiles under it -- which solves. Its answer is the trap: a 4 m cantilever
+#: with a tip ``Fz = 1e4`` gives ``u3`` = 9.122384e-02 / 8.756731e-02 / 8.635153e-02 at 1, 2
+#: and 40 elements, **the same numbers with the taper reversed**. A member thick at the root
+#: and one thin at the root differ by about 3x in a real taper (6.394e-02 against 1.966e-01
+#: by the thin-wall pipe rule); Abaqus returns one number, converging on a constant effective
+#: inertia of about 1.18e-05 m4 that is neither end (2.69e-05 / 2.86e-06), nor their mean, nor
+#: the mid-radius section (1.08e-05). So the deck meshes, solves and is wrong, which is the
+#: one output this writer exists to refuse; faithful tapering in Abaqus needs per-element
+#: sections, which a concept model with editable geometry does not have until it is meshed.
 REFUSED_BEAM_TYPES = {
     "BeamTapered": (
-        "CAE accepts BeamSection(beamShape=TAPERED, profileEnd=...) and reads it back, but writing "
-        "the INP then SEGFAULTS the kernel -- measured on Abaqus 2025, with the two halves isolated "
-        "so the taper is provably the cause and the curve provably innocent: "
-        "'>>> straight_constant  -> WROTE OK' against "
+        "CAE accepts BeamSection(beamShape=TAPERED, profileEnd=...) and reads it back, and then both "
+        "ways of writing it out fail -- measured on Abaqus 2025, one CAE process per variant. With "
+        "integration=DURING_ANALYSIS, writing the INP SEGFAULTS the kernel for every profile type "
+        "tried (PIPE, I, RECT, CIRC, BOX) and for both B31 and B32, while the constant-section "
+        "control wrote: '>>> straight_constant  -> WROTE OK' against "
         "'>>> straight_TAPERED   -> *** ABAQUS/ABQcaeK rank 0 encountered a SEGMENTATION FAULT / "
-        "Abaqus Error: cae exited with an error code 11 (0XB)'. A model that cannot be written to a "
-        "deck is not a model, so the taper is refused until Abaqus can write one"
+        "Abaqus Error: cae exited with an error code 11 (0XB)'; job.submit() dies the same way, "
+        "because it writes the deck first. With integration=BEFORE_ANALYSIS it does write, a "
+        "plausible '*Beam General Section, ..., Taper, section=PIPE' carrying both end profiles, and "
+        "it solves -- but its answer is INDEPENDENT OF WHICH END IS WHICH: a 4 m cantilever under a "
+        "tip Fz=1e4 gives u3 = 9.122384e-02 / 8.756731e-02 / 8.635153e-02 at 1, 2 and 40 elements, "
+        "identical with the taper reversed, where a real taper differs by about 3x between the two "
+        "directions (6.394e-02 against 1.966e-01). It converges on a constant effective inertia of "
+        "about 1.18e-05 m4, which is neither end (2.69e-05 / 2.86e-06), nor their mean, nor the "
+        "mid-radius section (1.08e-05). So one route cannot write the model at all and the other "
+        "writes a model that meshes, solves and is not the tapered member the source means. Faithful "
+        "tapering in Abaqus needs per-element sections, which a concept model with editable geometry "
+        "does not have until it is meshed, so the taper is refused rather than approximated"
     )
 }
 
