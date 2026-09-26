@@ -1795,6 +1795,121 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
+    def to_abaqus_cae_script(
+        self,
+        destination: str | pathlib.Path,
+        *,
+        model_name: str = "Model-1",
+        unit_scale: float = 1.0,
+        mesh_size: float | None = None,
+        element_type: str = "B31",
+        shell_element_type: str = "S4R",
+        job_name: str | None = None,
+        submit: bool = False,
+        plates: bool = True,
+    ) -> list[pathlib.Path]:
+        """Write an Abaqus/CAE script that rebuilds this part as **editable geometry**.
+
+        adapy's other Abaqus output is an INP, and importing one into CAE was measured:
+        materials, typed profiles, beam sections, assignments and sets all arrive as
+        first-class model objects, but the geometry arrives as an *orphan mesh* —
+        ``edges 0, faces 0, cells 0``. There is nothing to re-mesh, nothing to attach a
+        brace to, nothing to edit. This writer builds the geometry instead: one CAE part
+        per adapy part, one wire per beam and the plates as the ACIS body adapy already
+        writes, with sections and orientations assigned to edges and faces rather than to
+        elements.
+
+        Beams are translated: straight ones as wires, and ``BeamCurved``/``BeamRevolve``
+        along their own exact curve as a spline whose arc length is checked against the
+        curve's in the kernel. A constant ``e1``/``e2`` offset becomes the section's own
+        offset (``*Beam Section Offset``, or ``*Centroid`` for a generalized section,
+        which CAE refuses the former on) -- verified against adapy's ``*MPC BEAM`` route
+        through the solver, to identical displacements.
+
+        Still *refused*, each because it would otherwise be silently misrepresented: a
+        ``BeamTapered`` (CAE accepts one but segfaults writing its deck), a ``BeamSweep``
+        whose path has several legs, a *varying* offset (one section offset cannot express
+        ``e1 != e2``), an axial offset, an offset on a curve, and a member meeting another
+        away from its ends.
+
+        **Plates** are imported from the ACIS body adapy's own SAT writer produces — one
+        ``.sat`` per part, written beside the script — so arcs stay analytic, a curved plate
+        stays a NURBS patch, and a plate crossed by its neighbours arrives already split.
+        Each face is located by a point adapy computes strictly inside it (CAE discards the
+        ACIS face names on import, measured) and given a ``HomogeneousShellSection`` at
+        ``offsetType=MIDDLE_SURFACE``, which is adapy's own convention: the polygon a
+        ``Plate`` carries is the surface its FEM mesh puts nodes on. The emitted script
+        checks each plate's area and each face's normal against adapy's own.
+
+        A beam whose axis lies **on** a plate is refused, with the measurement: in
+        Abaqus/CAE an edge shared with a face takes a beam section, reads it back, exports a
+        ``*Beam Section`` keyword and then produces **no elements at all** when the part is
+        meshed. Neither half of such a pair can be dropped without writing the wrong
+        structure, so ``plates=False`` is the way to write such a model — beams as before,
+        every plate listed as untranslated. A beam meeting a plate at a *point* is fine and
+        is built; its node comes out shared by shell and beam elements.
+
+        Pipes, walls, shapes and masses are omitted and listed in the script's header and
+        result sidecar.
+
+        The **analysis** comes too, when the model carries one: ``ada.fem.Bc`` records
+        become ``DisplacementBC`` objects on assembly-level vertex sets (a non-zero
+        magnitude included, as the prescribed displacement it is — which adapy's Sesam
+        writer does not carry), the ``ada.fem.Load`` records inside ``ada.fem.FEM.steps``
+        become a ``ConcentratedForce`` and a ``Moment`` each, a ``pressure`` load becomes a
+        ``Pressure`` over the whole of the plate its element set was meshed from, and every
+        ``StepImplicitStatic`` becomes a ``StaticStep`` chained through ``previous``. Every
+        other load type, every non-static step, a pressure covering only part of a plate, and
+        any support or load whose node is not at a vertex of the emitted geometry are
+        **refused by name** rather than dropped. See
+        :mod:`ada.cadit.cae.analysis` for the whole list and for which of adapy's two stores
+        for this is read.
+
+        :param destination: the ``.py`` script to write.
+        :param model_name: the CAE model to build into.
+        :param unit_scale: must be ``1.0``. It used to multiply every coordinate and every
+            profile dimension while leaving ``E`` and the density alone, which emitted a
+            millimetre model carrying a modulus in pascals — 10⁶ too stiff, unreported.
+            See :func:`ada.cadit.cae.writer.check_unit_scale`; convert the model instead.
+        :param mesh_size: element seed size in the model's own units, or ``None`` to emit
+            the geometry — and any analysis definition, which attaches to vertices — without
+            meshing it.
+        :param shell_element_type: the shell element the plate faces become: ``S4R``
+            (the default, and the code whose answer against a closed form was measured on
+            this writer's own output), ``S4`` or ``S8R``. Anything else is refused.
+        :param plates: ``False`` leaves every plate untranslated and listed as such, as this
+            writer did before plates were carried. Needed for a model whose members lie on
+            its plates, which cannot be expressed as one CAE part at all.
+        :param element_type: the beam element the members become: ``B31`` (linear
+            Timoshenko, the default and the like-for-like match for Sestra's ``BEAS``),
+            ``B32`` (quadratic Timoshenko) or ``B33`` (cubic Euler-Bernoulli). Anything else
+            is refused.
+        :param job_name: the Abaqus job, which names the ``.odb``. Defaults to the script's
+            own stem.
+        :param submit: also run the job in the same CAE session, check that the reaction
+            total is the load adapy described, and write the nodal displacements to
+            ``<stem>.cae_displacements.json``. Needs ``mesh_size``.
+        :return: the paths this call wrote — the script, one ``<stem>_<part>.sat`` per part
+            that owns plates, plus ``<stem>.name_map.json`` if sanitising names for CAE
+            changed any of them. The ``.sat`` files are not optional: the script imports them
+            by a path relative to itself, so anything that moves the script has to move them
+            too. The script itself writes ``<stem>.cae_build_result.json`` when CAE runs it.
+        """
+        from ada.cadit.cae.writer import write_cae_script
+
+        return write_cae_script(
+            self,
+            destination,
+            model_name=model_name,
+            unit_scale=unit_scale,
+            mesh_size=mesh_size,
+            element_type=element_type,
+            shell_element_type=shell_element_type,
+            job_name=job_name,
+            submit=submit,
+            plates=plates,
+        )
+
     def to_aveva_mac(
         self,
         destination_file: str | pathlib.Path | io.TextIOBase,
