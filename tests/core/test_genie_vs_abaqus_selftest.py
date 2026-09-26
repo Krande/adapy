@@ -6,6 +6,12 @@ kind of guard that rots unquestioned if nothing runs it: the package is driven b
 command line, and a comparator that has quietly stopped discriminating still prints a table full of
 numbers. So the suite runs them.
 
+Eight groups: four for the portal frame and four for the plate strip. The plate groups carry the
+measured output of twelve real solves (Sestra ``FQUS`` and Abaqus ``S4R``, three mesh densities,
+bare and stiffened), which is what makes ``plate_compare.PLATE_REL_TOL`` checkable here without a
+solver -- including the check that the *coarsest* mesh pair would fail it, so the tolerance cannot
+quietly be loosened until a single-mesh comparison passes.
+
 Each group is its own test so a failure names the part that broke, and the group's printed output
 (captured by pytest) is the report: every check appears as PASS or FAIL with the numbers beside it.
 """
@@ -26,7 +32,7 @@ if str(ROOT_DIR) not in sys.path:
 #: A floor, not an equality, so adding a check does not mean editing this line -- but net removal
 #: is caught, which is the failure mode that matters for a set of guards. Raise it when the real
 #: count moves up.
-MINIMUM_CHECKS = 35
+MINIMUM_CHECKS = 109
 
 
 @pytest.fixture(scope="module")
@@ -41,6 +47,11 @@ def selftest():
         "check_agreement",
         "check_hand_check",
         "check_solver_section_idealisation",
+        "check_plate_closed_forms",
+        "check_plate_convergence",
+        "check_plate_agreement",
+        "check_plate_boundary_semantics",
+        "check_plate_loud_failures",
     ],
 )
 def test_the_comparison_framework_checks_itself(selftest, group):
@@ -57,6 +68,11 @@ def test_no_check_has_quietly_disappeared(selftest):
         + len(selftest.check_agreement())
         + len(selftest.check_hand_check())
         + len(selftest.check_solver_section_idealisation())
+        + len(selftest.check_plate_closed_forms())
+        + len(selftest.check_plate_convergence())
+        + len(selftest.check_plate_agreement())
+        + len(selftest.check_plate_boundary_semantics())
+        + len(selftest.check_plate_loud_failures())
     )
 
     assert total >= MINIMUM_CHECKS, f"only {total} checks remain; MINIMUM_CHECKS is {MINIMUM_CHECKS}"
