@@ -1599,6 +1599,8 @@ def test_a_pressure_the_writer_wrote_arrives_as_a_dsload_on_the_plates_faces(pre
     text = (run.workdir / "pressure_export.inp").read_text(encoding="utf-8")
     assert "*Dsload" in text
     assert re.search(r"q_surf,\s*P,\s*1000", text) is not None, text[-3000:]
+
+
 # ------------------------------------- a curved member's offset, against an *MPC BEAM reference
 
 ARC_RADIUS = 4.0
@@ -1910,8 +1912,18 @@ def test_a_swept_members_legs_are_one_connected_member_in_the_kernel(swept_run):
         "edges_with_no_section": 0,
         "edges_with_two_sections": 0,
         "section_assignments": 1,
+        "beam_section_assignments": 1,
         "orientations": 1,
         "sets": 1,
+        # A beams-only part: no faces expected, none built, and both wire edges bound no face.
+        "expected_faces": 0,
+        "built_faces": 0,
+        "faces": 0,
+        "faces_with_a_section": 0,
+        "faces_with_no_section": 0,
+        "faces_with_two_sections": 0,
+        "plate_boundary_edges": 0,
+        "edges_bounding_no_face": 2,
     }, "one member, one set, one section assignment, one orientation -- over two edges"
     assert build["edges_per_member"] == {"ell": 2}, "the member's sub-edge count is the total over its legs"
 

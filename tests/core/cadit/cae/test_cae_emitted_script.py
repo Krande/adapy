@@ -379,8 +379,23 @@ def test_the_script_states_a_swept_members_leg_count_as_its_sub_edge_count(tmp_p
         exec(source[start : source.index("\n}\n", start) + 3], namespace)  # noqa: S102
         expected[name] = namespace["EXPECTED_TOPOLOGY"]["Swept"]
 
-    assert expected["ell"] == {"edges": 2, "vertices": 3, "edges_per_member": {"ell": 2}}
-    assert expected["fil"] == {"edges": 3, "vertices": 4, "edges_per_member": {"fil": 3}}
+    # Zero faces and no stringers: a beams-only part, every edge a wire, the plates keys at rest.
+    assert expected["ell"] == {
+        "edges": 2,
+        "wire_edges": 2,
+        "vertices": 3,
+        "faces": 0,
+        "stringers": [],
+        "edges_per_member": {"ell": 2},
+    }
+    assert expected["fil"] == {
+        "edges": 3,
+        "wire_edges": 3,
+        "vertices": 4,
+        "faces": 0,
+        "stringers": [],
+        "edges_per_member": {"fil": 3},
+    }
 
 
 def test_unit_scale_is_refused_and_the_coordinates_are_the_models_own(frame_model, tmp_path):
