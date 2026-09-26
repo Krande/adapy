@@ -2,6 +2,15 @@
 
 
 
+## v0.91.1 (2026-09-26)
+
+### Fix
+
+* fix(fem): a *Tie&#39;s dependent side is the one the deck names first, and four quiet constraint drops (#393)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b21c4d3`](https://github.com/Krande/adapy/commit/b21c4d35b65df0e77df0ee312d9d5fa1586bd9cd))
+
+
 ## v0.91.0 (2026-09-26)
 
 ### Feature
