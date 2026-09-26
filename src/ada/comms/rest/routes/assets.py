@@ -19,11 +19,20 @@ blob route; exposing it as an asset would make a derived thing look restorable.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
+from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.assets.attributes import (
+    ATTRIBUTES_ROLE,
+    AttributesDocument,
+    AttributesError,
+    NodeAttributes,
+    parse_attributes,
+)
 from ada.assets.build import (
     BuildError,
     build_fingerprint,
@@ -161,6 +170,118 @@ async def api_asset_tree(
         # A stored blob core cannot read is a 502, not a 404: the object IS there, and calling it
         # missing would send the caller looking for the wrong problem.
         raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+
+
+# -- attributes -------------------------------------------------------------------------------
+#
+# One document covers a whole subject, and a selection wants ONE node out of it, so the blob is
+# read here and the node is what crosses the wire. That trade only works because the document is
+# immutable: it is keyed by a revision, and a revision's bytes never change. So it is cached, and
+# the cache needs no invalidation -- a republish is a NEW revision at a new key.
+#
+# Bounded two ways, because a subject can be a whole storey. Documents larger than the ceiling are
+# served without being retained (one pathological subject must not pin the process), and at most
+# `_ATTRS_CACHE_ENTRIES` of the rest are held, evicted least-recently-used. The budget counts RAW
+# bytes; the parsed objects are larger, so this bounds how many big documents are resident rather
+# than resident memory itself.
+_ATTRS_CACHE_ENTRIES = int(os.environ.get("ADA_ASSET_ATTRIBUTES_CACHE_ENTRIES", "4"))
+_ATTRS_CACHE_MAX_BYTES = int(os.environ.get("ADA_ASSET_ATTRIBUTES_CACHE_MAX_BYTES", str(32 * 1024 * 1024)))
+_ATTRS_CACHE: "OrderedDict[tuple[str, str], AttributesDocument]" = OrderedDict()
+
+
+def _attributes_cached(cache_key: tuple[str, str], raw: bytes) -> AttributesDocument:
+    """Parse once per (scope, key), or not at all for a document too big to keep."""
+    doc = _ATTRS_CACHE.get(cache_key)
+    if doc is not None:
+        _ATTRS_CACHE.move_to_end(cache_key)
+        return doc
+    doc = parse_attributes(raw)
+    if len(raw) > _ATTRS_CACHE_MAX_BYTES:
+        return doc
+    _ATTRS_CACHE[cache_key] = doc
+    _ATTRS_CACHE.move_to_end(cache_key)
+    while len(_ATTRS_CACHE) > _ATTRS_CACHE_ENTRIES:
+        _ATTRS_CACHE.popitem(last=False)
+    return doc
+
+
+def clear_asset_attributes_cache() -> None:
+    """Test hook. The cache is keyed by an immutable revision, so nothing in production needs it."""
+    _ATTRS_CACHE.clear()
+
+
+def _attributes_to_dict(node: str, attrs: NodeAttributes, revision: str | None, provider: str) -> dict:
+    return {
+        "node": node,
+        "provider": provider,
+        "revision": revision,
+        "kind": attrs.kind,
+        "own": dict(attrs.own),
+        "groups": {name: dict(props) for name, props in attrs.groups.items()},
+        "quantities": {name: dict(props) for name, props in attrs.quantities.items()},
+    }
+
+
+@router.get("/scopes/{scope}/assets/attributes/{provider}/{collection}/{node}")
+async def api_asset_attributes(
+    provider: str,
+    collection: str,
+    node: str,
+    subject: str | None = None,
+    revision: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """What one node IS -- its own attributes, its property groups and its quantities.
+
+    Fetched per selection rather than carried in the spine: most nodes are never selected, and a
+    spine that carried every node's properties would pay for all of them to answer for the few.
+
+    ``subject`` names the subject whose publish COVERS this node, exactly as the build request
+    does. It defaults to the node itself, which is right when the node was published in its own
+    right; a node covered by a publish rooted above it has no manifest of its own, and the caller
+    already resolved the covering subject to draw the row's badge.
+
+    404 means "nothing recorded for this node", which is the same answer for a provider that
+    publishes no attributes, a document that does not mention the node, and a node that is not
+    published at all. A caller asking what something is cannot act differently on those three.
+    """
+    live = _is_published(provider) is False and hasattr(asset_provider(provider), "attributes")
+    if live:
+        attrs = await asyncio.to_thread(
+            lambda: asset_provider(provider).attributes(scope_obj, collection, node, revision=revision)
+        )
+        if attrs is None:
+            raise HTTPException(status_code=404, detail=f"no attributes recorded for node {node!r}")
+        return JSONResponse(_attributes_to_dict(node, attrs, revision, provider))
+
+    if not _is_published(provider):
+        # A live provider that does not answer attributes is not an error in the abstraction --
+        # the capability is optional -- so it reads as "nothing recorded" like any other absence.
+        raise HTTPException(status_code=404, detail=f"provider {provider!r} records no attributes")
+
+    manifest, resolved_revision = await _manifest_for_node(ctx, scope_obj, collection, subject or node, revision)
+    entry = next((a for a in manifest.artefacts if a.role == ATTRIBUTES_ROLE), None)
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"subject {manifest.subject!r} at {resolved_revision} publishes no attributes",
+        )
+    key = entry.key or asset_key(collection, manifest.subject, manifest.revision, entry.file)
+    try:
+        raw = await ctx.storage.get_bytes(scope_obj, key)
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=f"no attributes blob at {key}") from exc
+    try:
+        doc = _attributes_cached((scope_obj.prefix(), key), raw)
+    except AttributesError as exc:
+        # The blob IS there and core cannot read it: a 502, not a 404, or the caller goes looking
+        # for a missing file that is not missing.
+        raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+    attrs = doc.node(node)
+    if attrs is None:
+        raise HTTPException(status_code=404, detail=f"no attributes recorded for node {node!r}")
+    return JSONResponse(_attributes_to_dict(node, attrs, manifest.revision, manifest.provider))
 
 
 @router.get("/scopes/{scope}/assets/delivery/{provider}/{collection}/{node}")
