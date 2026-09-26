@@ -78,11 +78,11 @@ def _assert_ran(run) -> None:
     assert not run.failed, "the emitted script did not run cleanly:\n" + run.describe()
 
 
-def emit(part: ada.Part, workdir: pathlib.Path, driver: str, name: str = "model") -> pathlib.Path:
+def emit(part: ada.Part, workdir: pathlib.Path, driver: str, name: str = "model", **kwargs) -> pathlib.Path:
     """Write the writer's script, then append a driver that loads, solves or interrogates it."""
     workdir.mkdir(parents=True, exist_ok=True)
     script = workdir / (name + ".py")
-    part.to_abaqus_cae_script(script)
+    part.to_abaqus_cae_script(script, **kwargs)
     with script.open("a", encoding="utf-8") as handle:
         handle.write("\n\n# --- appended by tests/core/cadit/cae/test_cae_licensed_acceptance.py\n")
         handle.write(driver)
@@ -765,7 +765,10 @@ def offset_run(tmp_path_factory):
     assembly = ada.from_genie_xml(path)
 
     workdir = tmp_path_factory.mktemp("cae_offsets")
-    script = emit(assembly, workdir, OFFSET_DRIVER, name="offsets")
+    # plates=False: every member of this model lies ON one of its plates, and that pair cannot be
+    # expressed in one CAE part at all -- the shared edge produces no beam elements (measured; see
+    # ada.cadit.cae.plates.BEAM_ON_PLATE_REFUSAL). The subject here is the offsets.
+    script = emit(assembly, workdir, OFFSET_DRIVER, name="offsets", plates=False)
     return assembly, run_cae_script(script, workdir)
 
 

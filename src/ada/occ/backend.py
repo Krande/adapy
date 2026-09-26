@@ -350,6 +350,60 @@ class OccBackend:
         brepgprop.SurfaceProperties(shape, props)
         return props.Mass()
 
+    def interior_point_on_face(self, shape: ShapeHandle):
+        """A point strictly inside ``shape``'s first face, the surface normal there, and a
+        parametric clearance from the face's trimming.
+
+        Written for the Abaqus/CAE writer, which has to locate an imported spline face by a point
+        on it -- CAE discards the face names on import (measured), so a point is all there is. The
+        scan is classified with ``BRepTopAdaptor_FClass2d`` rather than merely bounded by
+        ``UVBounds``, because a trimmed patch's parameter box is larger than the face it bounds: on
+        a Genie ``curved_shell`` the box was ``u 0.393..1.285, v -3.094..0`` and the point that
+        came out, ``(23.503447064906872, 22.211667940320915, 11.042436011849915)``, was inside the
+        trimmed region and resolved to exactly one face in CAE. ``clearance`` is the chosen
+        sample's distance from the parametric border, scaled to 0..1 -- a relative measure of how
+        comfortably interior the point is, not a length.
+        """
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepTools import breptools
+        from OCC.Core.BRepTopAdaptor import BRepTopAdaptor_FClass2d
+        from OCC.Core.GeomLProp import GeomLProp_SLProps
+        from OCC.Core.gp import gp_Pnt2d
+        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_IN
+        from OCC.Core.TopExp import TopExp_Explorer
+
+        explorer = TopExp_Explorer(shape, TopAbs_FACE)
+        if not explorer.More():
+            raise ValueError("shape holds no face, so there is no point on one to find")
+        face = explorer.Current()
+        surface = BRep_Tool.Surface(face)
+        u_min, u_max, v_min, v_max = breptools.UVBounds(face)
+        classifier = BRepTopAdaptor_FClass2d(face, 1e-09)
+        steps = 21
+        best = None
+        for i in range(1, steps):
+            for j in range(1, steps):
+                u = u_min + (u_max - u_min) * i / steps
+                v = v_min + (v_max - v_min) * j / steps
+                if classifier.Perform(gp_Pnt2d(u, v)) != TopAbs_IN:
+                    continue
+                score = min(i, steps - i) * min(j, steps - j)
+                if best is None or score > best[0]:
+                    best = (score, u, v)
+        if best is None:
+            raise ValueError("no sample of the face's parameter box classified as inside its trimming")
+        score, u, v = best
+        props = GeomLProp_SLProps(surface, u, v, 1, 1e-07)
+        if not props.IsNormalDefined():
+            raise ValueError("the surface normal is undefined at the interior point found")
+        point = props.Value()
+        normal = props.Normal()
+        return (
+            (point.X(), point.Y(), point.Z()),
+            (normal.X(), normal.Y(), normal.Z()),
+            4.0 * score / float(steps * steps),
+        )
+
     def shape_type(self, shape: ShapeHandle) -> str:
         from OCC.Core.TopAbs import (
             TopAbs_COMPOUND,

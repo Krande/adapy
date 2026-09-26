@@ -190,6 +190,10 @@ MOMENT_KEYWORDS = ("cm1", "cm2", "cm3")
 #: not enough to know what it would answer.
 CARRIED_ELEMENT_TYPES = ("B31", "B32", "B33")
 
+#: Shell element codes this writer will mesh a plate face with. ``S4R`` is the one measured against a
+#: closed form on this writer's own output; see :func:`check_shell_element_type`.
+CARRIED_SHELL_ELEMENT_TYPES = ("S4R", "S4", "S8R")
+
 #: Below this a ``Bc`` magnitude is "fixed", not a prescribed displacement. A tolerance and not
 #: a rounding: the value emitted is always the magnitude adapy holds, unrounded; this only
 #: decides whether the emitted script's comment calls the support prescribed.
@@ -389,6 +393,28 @@ def check_element_type(element_type: str) -> str:
             "measured against a closed form on this writer's own output (B31 linear Timoshenko, B32 "
             "quadratic Timoshenko, B33 cubic Euler-Bernoulli). 'It is a beam element' is not enough to "
             "know what a code would answer.".format(element_type, ", ".join(CARRIED_ELEMENT_TYPES))
+        )
+    return code
+
+
+def check_shell_element_type(element_type: str) -> str:
+    """The shell element code the plate faces are meshed with, or a refusal.
+
+    Restricted for the reason :func:`check_element_type` restricts the beam codes: the element
+    decides the physics of the answer. ``S4R`` is the one measured against a closed form on this
+    writer's own output -- a 4 m x 0.5 m strip, 10 mm, at a 0.05 m seed under 1000 Pa gave
+    ``max U3 = -0.173292979598045`` against ``5 q L**4 / (384 D) = 0.1733333...``, relative 2.3e-04.
+    ``S4`` and ``S8R`` are admitted as the same element fully integrated and its quadratic
+    counterpart; anything else is refused rather than passed through.
+    """
+    code = str(element_type).strip().upper()
+    if code not in CARRIED_SHELL_ELEMENT_TYPES:
+        raise AnalysisNotSupported(
+            "shell_element_type={0!r} is refused. This writer meshes plate faces with {1} and nothing "
+            "else. S4R is the code whose answer against a closed form has been measured on this "
+            "writer's own output (a simply supported strip in cylindrical bending, 2.3e-04 relative); "
+            "'it is a shell element' is not enough to know what another code would "
+            "answer.".format(element_type, ", ".join(CARRIED_SHELL_ELEMENT_TYPES))
         )
     return code
 
@@ -783,6 +809,11 @@ def vertex_index(part_plans, tol: float) -> list[tuple[tuple[float, float, float
 
     The same arithmetic the topology guard is stated with: a member's two ends, plus every
     point where another member's end lands strictly inside it, deduplicated at ``tol``.
+
+    A part carrying plates contributes its ACIS body's own vertices as well, which are the plate
+    corners. Those are places the emitted geometry genuinely has a vertex, so a support or a load
+    sitting on one is expressible -- before plates existed there was nothing there to find, and
+    such a record would have been refused for landing nowhere.
     """
     index: list[tuple[tuple[float, float, float], str]] = []
     for part_plan in part_plans:
@@ -790,6 +821,7 @@ def vertex_index(part_plans, tol: float) -> list[tuple[tuple[float, float, float
         for member in part_plan.members:
             points.append(tuple(float(c) for c in member.p1))
             points.append(tuple(float(c) for c in member.p2))
+        points += [tuple(float(c) for c in point) for point in getattr(part_plan, "plate_vertices", ())]
         topology = part_plan.topology
         if topology is not None:
             for name in sorted(topology.splits):
@@ -803,6 +835,7 @@ __all__ = [
     "BC_KEYWORDS",
     "CARRIED_BC_TYPES",
     "CARRIED_ELEMENT_TYPES",
+    "CARRIED_SHELL_ELEMENT_TYPES",
     "CARRIED_LOAD_TYPES",
     "FORCE_KEYWORDS",
     "MAGNITUDE_TOL",
@@ -817,6 +850,7 @@ __all__ = [
     "StepPlan",
     "analysis_fems",
     "check_element_type",
+    "check_shell_element_type",
     "plan_analysis",
     "refuse_untranslated_concept_analysis",
     "vertex_index",

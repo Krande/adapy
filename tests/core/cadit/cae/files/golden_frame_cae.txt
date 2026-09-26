@@ -14,8 +14,10 @@
 #                     below is stated at. CAE's own merge tolerance is 1e-06.
 # parts             : 1
 # beams             : 3
+# plates            : 0, over 0 imported face(s)
 # materials         : 1
 # beam sections     : 3
+# shell sections    : 0
 #
 # Every physical object in the source part was translated.
 #
@@ -75,6 +77,7 @@ EXPECTED_TOPOLOGY = {
     'Frame': {
         'edges': 4,
         'vertices': 5,
+        'faces': 0,
         'edges_per_member': {
             'brace': 1,
             'col1': 1,
@@ -117,6 +120,7 @@ _RESULT = {
         'orientations': 0,
     },
     'edges_per_member': {},
+    'plates': {},
     'curve_length_error': {},
     'section_offsets': {},
     'mesh': {},
@@ -131,13 +135,22 @@ _RESULT = {
 }
 
 
-def _result_path():
-    """Next to this script, so the sidecar travels with the artefact that produced it."""
+def _beside_script(name):
+    """A path next to this script, so its sidecars travel with the artefact that produced them.
+
+    Used for the result file and for the ACIS body a plate model imports. Relative to the script
+    rather than to the working directory on purpose: `abaqus cae noGUI=` is run from wherever the
+    caller happens to be, and the .sat has to be found from the .py it belongs to.
+    """
     try:
         here = os.path.dirname(os.path.abspath(__file__))
     except NameError:
         here = os.getcwd()
-    return os.path.join(here, RESULT_NAME)
+    return os.path.join(here, name)
+
+
+def _result_path():
+    return _beside_script(RESULT_NAME)
 
 
 def _write_result():
@@ -243,6 +256,16 @@ def _guard_topology(model):
     EXPECTED_TOPOLOGY was computed from the adapy model -- every member's endpoints were
     known there -- so this compares the kernel against an independent statement of what it
     should have built, not against its own bookkeeping.
+
+    A part carrying PLATES is checked differently, and the difference is measured rather than a
+    concession. Its faces are counted exactly -- adapy authored every one of them into the ACIS
+    body. Its beam edges are counted as "edges that bound no face", which is the same statement
+    about the wires as before: an imported plate contributes boundary edges adapy does not
+    enumerate, and a member's endpoint landing on one SPLITS it (measured: a column landing on the
+    midpoint of a plate's boundary took the part from 4 edges / 4 vertices to 7 / 7). So the total
+    edge and vertex counts of a plate part are not adapy's to state, and claiming them would be
+    stating CAE's own imprint back to itself. The vertex count is recorded instead of asserted, and
+    the wires' connectivity still has a number on it.
     """
     problems = []
     for part_name in sorted(EXPECTED_TOPOLOGY.keys()):
@@ -250,10 +273,18 @@ def _guard_topology(model):
         part = model.parts[part_name]
         built_edges = len(part.edges)
         built_vertices = len(part.vertices)
+        built_faces = len(part.faces)
+        free_edges = 0
+        for edge in part.edges:
+            if len(edge.getFaces()) == 0:
+                free_edges += 1
         record = _RESULT['guards'].setdefault(part_name, {})
         record['expected_edges'] = expected['edges']
         record['expected_vertices'] = expected['vertices']
+        record['expected_faces'] = expected['faces']
         record['built_vertices'] = built_vertices
+        record['built_faces'] = built_faces
+        record['edges_bounding_no_face'] = free_edges
         disagree = []
         for set_name in sorted(expected['edges_per_member'].keys()):
             wanted = expected['edges_per_member'][set_name]
@@ -263,6 +294,14 @@ def _guard_topology(model):
                     set_name, wanted, built))
         if disagree:
             problems.append('part {0!r}: {1}'.format(part_name, '; '.join(disagree)))
+        if built_faces != expected['faces']:
+            problems.append('part {0!r}: adapy authored {1} face(s) into the ACIS body, CAE imported '
+                            '{2}'.format(part_name, expected['faces'], built_faces))
+        if expected['faces']:
+            if free_edges != expected['edges']:
+                problems.append('part {0!r}: adapy described {1} beam edge(s), and CAE holds {2} edge(s) '
+                                'that bound no face'.format(part_name, expected['edges'], free_edges))
+            continue
         if built_edges != expected['edges']:
             problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
                 part_name, expected['edges'], built_edges))
@@ -301,15 +340,24 @@ def _member_edges(part_name, set_name, edges):
 
 
 def _guard_every_edge_sectioned(model):
-    """Guard 1: every edge carries exactly one section, and every section an orientation.
+    """Guard 1: every face and every beam edge carries exactly one section, and every beam
+    section an orientation.
 
     Imprinting can leave a sub-edge no cylinder claimed, and a duplicated wire is an edge
-    no cylinder claims either. Neither shows up anywhere else.
+    no cylinder claims either. A face nobody located is a face with no thickness. None of
+    the three shows up anywhere else.
 
     This guard used to claim it caught connectivity as well. It does not, and the
     measurements are in _guard_topology above: a disconnected frame reaches this check
     with every one of its edges sectioned. Do not delete that guard on the strength of
     this one.
+
+    **A plate's own boundary edges legitimately carry no section**, so the edge clause is not
+    "every edge" once a plate is present: measured on a part holding one imported plate and two
+    wires, 7 edges of which 2 carried a beam section and the other 5 were the plate's boundary.
+    The clause becomes "every edge either carries exactly one section or bounds a face", which is
+    strictly stronger than relaxing it to "some edges", because an unclaimed sub-edge of a wire
+    bounds nothing and so still fails.
 
     Read back from the kernel's own sectionAssignments and the kernel's own sets -- not
     from this script's bookkeeping -- so a bug in the bookkeeping cannot make the guard
@@ -319,6 +367,8 @@ def _guard_every_edge_sectioned(model):
     for part_name in sorted(_RESULT['created']['parts']):
         part = model.parts[part_name]
         covered = {}
+        faces_covered = {}
+        beam_assignments = 0
         for assignment in part.sectionAssignments:
             set_name = assignment.region[0]
             if set_name not in part.sets.keys():
@@ -326,11 +376,21 @@ def _guard_every_edge_sectioned(model):
                                 "part's sets, so its coverage cannot be verified".format(
                                     part_name, assignment.region))
                 continue
-            for edge in part.sets[set_name].edges:
+            region_set = part.sets[set_name]
+            if len(region_set.edges):
+                beam_assignments += 1
+            for edge in region_set.edges:
                 covered.setdefault(edge.index, []).append(set_name)
+            for face in region_set.faces:
+                faces_covered.setdefault(face.index, []).append(set_name)
         all_indices = set([edge.index for edge in part.edges])
-        unassigned = sorted(all_indices - set(covered.keys()))
+        all_faces = set([face.index for face in part.faces])
+        # An edge bounding a face is a plate boundary: it is meant to carry no beam section.
+        bounding = set([edge.index for edge in part.edges if len(edge.getFaces())])
+        unassigned = sorted(all_indices - set(covered.keys()) - bounding)
         doubled = sorted([index for index in covered if len(covered[index]) > 1])
+        faces_unassigned = sorted(all_faces - set(faces_covered.keys()))
+        faces_doubled = sorted([index for index in faces_covered if len(faces_covered[index]) > 1])
         orientations = len(part.beamSectionOrientations)
         # update(), not assignment: _guard_topology has already recorded what adapy expected
         # for this part, and overwriting it would drop the connectivity verdict from the
@@ -340,7 +400,13 @@ def _guard_every_edge_sectioned(model):
             'edges_with_a_section': len(covered),
             'edges_with_no_section': len(unassigned),
             'edges_with_two_sections': len(doubled),
+            'plate_boundary_edges': len(bounding),
+            'faces': len(all_faces),
+            'faces_with_a_section': len(faces_covered),
+            'faces_with_no_section': len(faces_unassigned),
+            'faces_with_two_sections': len(faces_doubled),
             'section_assignments': len(part.sectionAssignments),
+            'beam_section_assignments': beam_assignments,
             'orientations': orientations,
             'sets': len(part.sets.keys()),
         })
@@ -348,24 +414,38 @@ def _guard_every_edge_sectioned(model):
         _RESULT['created']['orientations'] += orientations
         for set_name in sorted(part.sets.keys()):
             _RESULT['created']['sets'].append(set_name)
-        # A section without an orientation is a beam whose profile is turned an unknown
-        # way round -- it meshes and solves, and its weak axis is wherever CAE defaulted.
-        if orientations < len(part.sectionAssignments):
-            problems.append('part {0!r}: {1} section assignments but only {2} beam orientations, so at '
-                            'least one member\'s profile is turned an unknown way round'.format(
-                                part_name, len(part.sectionAssignments), orientations))
-        if not all_indices:
-            problems.append('part {0!r} has no edges at all: no geometry was built'.format(part_name))
+        # A beam section without an orientation is a beam whose profile is turned an unknown
+        # way round -- it meshes and solves, and its weak axis is wherever CAE defaulted. Counted
+        # against the EDGE assignments only: a shell section takes no beam orientation, so
+        # comparing against every assignment would fail every model carrying a plate.
+        if orientations < beam_assignments:
+            problems.append('part {0!r}: {1} beam section assignments but only {2} beam orientations, so '
+                            'at least one member\'s profile is turned an unknown way round'.format(
+                                part_name, beam_assignments, orientations))
+        if not all_indices and not all_faces:
+            problems.append('part {0!r} has no edges and no faces at all: no geometry was '
+                            'built'.format(part_name))
             continue
+        if faces_unassigned:
+            problems.append('part {0!r}: {1} of {2} faces carry a shell section; faces {3} carry none '
+                            '(pointOn {4}). A face with no section has no thickness and no material, and '
+                            'Abaqus will not mesh it'.format(
+                                part_name, len(faces_covered), len(all_faces), faces_unassigned,
+                                [part.faces[i].pointOn for i in faces_unassigned[:8]]))
+        if faces_doubled:
+            problems.append('part {0!r}: faces {1} carry more than one shell section, so which thickness '
+                            'applies is ambiguous'.format(part_name, faces_doubled))
         if unassigned:
             problems.append('part {0!r}: {1} of {2} edges carry a section assignment; edges {3} carry '
-                            'none (pointOn {4})'.format(part_name, len(covered), len(all_indices), unassigned,
-                                                        [part.edges[i].pointOn for i in unassigned[:8]]))
+                            'none and bound no face either (pointOn {4})'.format(
+                                part_name, len(covered), len(all_indices), unassigned,
+                                [part.edges[i].pointOn for i in unassigned[:8]]))
         if doubled:
             problems.append('part {0!r}: edges {1} carry more than one section assignment, so which '
                             'section applies is ambiguous'.format(part_name, doubled))
     if problems:
-        _fail('every edge must end with exactly one section assignment -- ' + ' | '.join(problems))
+        _fail('every face, and every edge that is not a plate boundary, must end with exactly one '
+              'section assignment -- ' + ' | '.join(problems))
 
 
 def _guard_bounding_box(model):
@@ -430,7 +510,7 @@ def build(model):
     model.BeamSection(name='sec_IPE300_S355', profile='IPE300', material='S355', integration=DURING_ANALYSIS)
     _RESULT['created']['sections'].append('sec_IPE300_S355')
 
-    # --- part 'Frame', 3 member(s)
+    # --- part 'Frame', 3 member(s), 0 plate(s) over 0 face(s)
     part_0 = model.Part(name='Frame', dimensionality=THREE_D, type=DEFORMABLE_BODY)
     _RESULT['created']['parts'].append('Frame')
     # Every wire first. Coincident endpoints merge, and a member landing mid-span

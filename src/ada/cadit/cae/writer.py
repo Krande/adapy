@@ -124,6 +124,7 @@ from .analysis import (
     AnalysisNotSupported,
     AnalysisPlan,
     check_element_type,
+    check_shell_element_type,
     plan_analysis,
     vertex_index,
 )
@@ -135,6 +136,14 @@ from .curves import (
     sample_member_curve,
 )
 from .names import CaeNameError, NameRegistry, dump_name_map
+from .plates import (
+    PLATE_AREA_REL_TOL,
+    PLATE_NORMAL_TOL,
+    PlateNotSupported,
+    PlatePlan,
+    check_no_beam_on_a_plate,
+    plate_body,
+)
 from .topology import (
     CAE_MERGE_TOL,
     PartTopology,
@@ -334,6 +343,19 @@ class _MemberPlan:
 
 
 @dataclass
+class _ShellSectionUse:
+    """One (thickness, material) pair, which is one CAE ``HomogeneousShellSection``.
+
+    Thickness and material are all a homogeneous shell section binds, so every plate of the same
+    gauge in the same grade shares one -- unlike a beam section, which also binds an offset.
+    """
+
+    cae_section_name: str
+    cae_material_name: str
+    thickness: float
+
+
+@dataclass
 class _PartPlan:
     part_name: str
     cae_part_name: str
@@ -342,6 +364,25 @@ class _PartPlan:
     #: What CAE must end up holding for this part. ``None`` only while the part is being
     #: filled in; every part in a finished plan carries one.
     topology: PartTopology | None = None
+    #: The plates this part owns, each pointing at the faces of the ACIS body below. Empty for
+    #: the beams-only part this writer began as.
+    plates: list[PlatePlan] = field(default_factory=list)
+    #: The ACIS body's text and the filename it is written to beside the script, or ``""`` when
+    #: the part owns no plates. The part is then built by ``PartFromGeometryFile`` rather than
+    #: by ``Part()``: a SAT import *creates* a part, so it cannot be added to one.
+    sat_text: str = ""
+    sat_name: str = ""
+    #: Every vertex of that body, so the bounding-box guard and the analysis both know a plate
+    #: corner is a place the emitted geometry has a vertex.
+    plate_vertices: list[tuple[float, float, float]] = field(default_factory=list)
+
+    @property
+    def has_plates(self) -> bool:
+        return bool(self.plates)
+
+    @property
+    def face_count(self) -> int:
+        return sum(len(plate.faces) for plate in self.plates)
 
 
 @dataclass
@@ -355,6 +396,8 @@ class _Plan:
     parts: list[_PartPlan] = field(default_factory=list)
     materials: list[_MaterialRow] = field(default_factory=list)
     sections: list[_SectionUse] = field(default_factory=list)
+    #: One ``HomogeneousShellSection`` per (thickness, material) pair any plate needs.
+    shell_sections: list[_ShellSectionUse] = field(default_factory=list)
     skipped: list[SkippedObject] = field(default_factory=list)
     registries: dict[str, NameRegistry] = field(default_factory=dict)
     #: The supports, loads and steps this model carries, resolved and refused by
@@ -366,12 +409,19 @@ class _Plan:
     #: analysis.
     mesh_size: float | None = None
     element_type: str = ""
+    #: The shell element the plate faces are meshed with. Separate from ``element_type``
+    #: because a mixed model needs both, and the mesher takes one per region shape.
+    shell_element_type: str = ""
     job_name: str = ""
     submit: bool = False
 
     @property
     def meshed(self) -> bool:
         return self.mesh_size is not None
+
+    @property
+    def has_plates(self) -> bool:
+        return any(part_plan.has_plates for part_plan in self.parts)
 
 
 def _load_profile_spec():
@@ -693,6 +743,30 @@ def check_unit_scale(unit_scale: float) -> None:
 _SET_SCOPE = "sets"
 
 
+#: Characters a SAT sidecar's filename may hold. The ACIS body is written next to the script and
+#: named after the CAE part, and a CAE part name legally holds a space, a dash and a **slash**
+#: (measured: ``PL_1/2`` was accepted) -- which is a directory separator, not a filename. So the
+#: filename is sanitised separately from the CAE name, and :func:`build_plan` refuses a collision
+#: between two parts rather than letting one body overwrite the other's.
+_SAT_FILENAME_CHARACTERS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+
+def _sat_filename(prefix: str, cae_part_name: str) -> str:
+    stem = "".join(c if c in _SAT_FILENAME_CHARACTERS else "_" for c in cae_part_name)
+    return "{0}_{1}.sat".format(prefix, stem) if prefix else "{0}.sat".format(stem)
+
+
+def _thickness_suffix(thickness: float) -> str:
+    """A traceable, CAE-legal name fragment for a shell thickness.
+
+    Same rule as :func:`_offset_suffix` and for the same measured reason -- CAE rejects a dot in a
+    name outright -- so 0.012 becomes ``0p012``, at six significant figures. Two thicknesses that
+    agree to six figures would share a section name, which :func:`build_plan` checks for.
+    """
+    text = "%.6g" % float(thickness)
+    return text.replace("-", "m").replace(".", "p").replace("+", "")
+
+
 def _offset_suffix(offset: tuple[float, float] | None) -> str:
     """A traceable, CAE-legal name fragment for a section offset.
 
@@ -818,8 +892,11 @@ def build_plan(
     *,
     mesh_size: float | None = None,
     element_type: str = "B31",
+    shell_element_type: str = "S4R",
     job_name: str = "adapy_job",
     submit: bool = False,
+    plates: bool = True,
+    sat_prefix: str = "",
 ) -> _Plan:
     """Resolve the whole emission before any text is written.
 
@@ -829,12 +906,14 @@ def build_plan(
     profile_spec = _load_profile_spec()
     check_unit_scale(unit_scale)
     mesh_size, element_type, job_name = check_mesh_and_job(mesh_size, element_type, job_name, submit)
+    shell_element_type = check_shell_element_type(shell_element_type)
 
     plan = _Plan(
         root_name=root.name,
         model_name=model_name,
         mesh_size=mesh_size,
         element_type=element_type,
+        shell_element_type=shell_element_type,
         job_name=job_name,
         submit=submit,
         units=str(getattr(getattr(root, "units", ""), "value", getattr(root, "units", ""))),
@@ -858,22 +937,71 @@ def build_plan(
 
     # Sorted, and sorted again inside each part: WS-C's golden files depend on the
     # emission being a function of the model alone, not of dict insertion order.
+    shell_sections_seen: dict[str, _ShellSectionUse] = {}
+    sat_names_seen: dict[str, str] = {}
+
+    def material_for(mat: Material, owner: str) -> str:
+        """Register one material once, and refuse two different ones sharing a name.
+
+        Shared by beams and plates so a plate in S355 and a beam in S355 are the same CAE
+        material -- and so that two *different* materials called S355 are caught whichever kind
+        of object brought the second one in.
+        """
+        cae_material_name = plan.registries["materials"].allocate_shared(mat.name)
+        row = _material_row(mat, cae_material_name)
+        previous_row = materials_seen.get(cae_material_name)
+        if previous_row is not None and previous_row != row:
+            raise CaeNameError(
+                "two different materials are both named {0!r} ({1} vs {2}); CAE would keep "
+                "only one of them (the second reached the writer through {3})".format(
+                    mat.name, previous_row.describe(), row.describe(), owner
+                )
+            )
+        materials_seen[cae_material_name] = row
+        return cae_material_name
+
+    # Sorted, and sorted again inside each part: WS-C's golden files depend on the
+    # emission being a function of the model alone, not of dict insertion order.
     for part in sorted(root.get_all_subparts(include_self=True), key=lambda p: p.name):
-        untranslated = list(part.plates) + list(part.pipes) + list(part.walls) + list(part.shapes) + list(part.masses)
+        untranslated = list(part.pipes) + list(part.walls) + list(part.shapes) + list(part.masses)
         for other in sorted(untranslated, key=lambda o: (type(o).__name__, o.name)):
             plan.skipped.append(
                 SkippedObject(
                     name=other.name,
                     kind=type(other).__name__,
                     reason=(
-                        "the CAE writer translates beams only; this object is absent from the emitted "
-                        "model rather than approximated by one"
+                        "the CAE writer translates beams and plates; this object is absent from the "
+                        "emitted model rather than approximated by one"
                     ),
                 )
             )
+        if not plates:
+            for plate in sorted(part.plates, key=lambda o: (type(o).__name__, o.name)):
+                plan.skipped.append(
+                    SkippedObject(
+                        name=plate.name,
+                        kind=type(plate).__name__,
+                        reason=(
+                            "this call passed plates=False, so the plates are absent from the emitted "
+                            "model rather than approximated by one"
+                        ),
+                    )
+                )
+
+        # The plates first, because the body they are authored into is also what says which
+        # beams lie on a plate -- and those are refused, so nothing else about this part is
+        # worth planning until that is known.
+        try:
+            body = plate_body(part) if plates else None
+            if body is not None:
+                check_no_beam_on_a_plate(part.name, body)
+        except PlateNotSupported as exc:
+            # One exception type for "this model cannot be expressed as a CAE model", as with a
+            # CurveNotSupported and an AnalysisNotSupported.
+            raise CaeWriteError(str(exc)) from exc
 
         beams = sorted(part.beams, key=lambda b: b.name)
-        if not beams:
+        if body is None and not beams:
             continue
 
         part_plan = _PartPlan(
@@ -882,6 +1010,50 @@ def build_plan(
             cae_instance_name=plan.registries["instances"].allocate_unique("{0}-1".format(part.name)),
         )
         set_names = plan.registries[_SET_SCOPE]
+
+        if body is not None:
+            part_plan.sat_text = body.sat_text
+            part_plan.sat_name = _sat_filename(sat_prefix, part_plan.cae_part_name)
+            previous_part = sat_names_seen.get(part_plan.sat_name)
+            if previous_part is not None:
+                raise CaeWriteError(
+                    "parts {0!r} and {1!r} would both write their ACIS body to {2!r}. A CAE part name "
+                    "may legally hold characters a filename may not (a slash, measured as accepted), so "
+                    "the sidecar's name is sanitised -- and two parts whose names differ only in those "
+                    "characters would then overwrite each other's geometry. Rename one of "
+                    "them.".format(previous_part, part.name, part_plan.sat_name)
+                )
+            sat_names_seen[part_plan.sat_name] = part.name
+            part_plan.plate_vertices = list(body.vertices)
+            for plate in body.plates:
+                owner = "plate {0!r}".format(plate.plate_name)
+                source_plate = next(pl for pl in part.plates if pl.name == plate.plate_name)
+                plate.cae_set_name = set_names.allocate_unique(plate.plate_name)
+                plate.material_name = material_for(source_plate.material, owner)
+                cae_section_name = plan.registries["sections"].allocate_shared(
+                    "sh_{0}_{1}".format(_thickness_suffix(plate.thickness), plate.material_name)
+                )
+                previous_shell = shell_sections_seen.get(cae_section_name)
+                if previous_shell is not None and previous_shell.thickness != plate.thickness:
+                    # The suffix rounds to six significant figures for readability, so two
+                    # thicknesses differing below that would share a name and CAE would keep only
+                    # one of the sections -- silently, since it replaces rather than refuses.
+                    raise CaeNameError(
+                        "two different plate thicknesses both name the shell section {0!r} ({1} vs {2}); "
+                        "CAE would keep only one of them".format(
+                            cae_section_name, previous_shell.thickness, plate.thickness
+                        )
+                    )
+                shell_sections_seen.setdefault(
+                    cae_section_name,
+                    _ShellSectionUse(
+                        cae_section_name=cae_section_name,
+                        cae_material_name=plate.material_name,
+                        thickness=plate.thickness,
+                    ),
+                )
+                plate.cae_section_name = cae_section_name
+                part_plan.plates.append(plate)
 
         for bm in beams:
             check_beam_shape(bm)
@@ -910,16 +1082,7 @@ def build_plan(
             if curved:
                 check_n1_holds_along_the_curve(bm, path)
 
-            mat = bm.material
-            cae_material_name = plan.registries["materials"].allocate_shared(mat.name)
-            row = _material_row(mat, cae_material_name)
-            previous_row = materials_seen.get(cae_material_name)
-            if previous_row is not None and previous_row != row:
-                raise CaeNameError(
-                    "two different materials are both named {0!r} ({1} vs {2}); CAE would keep "
-                    "only one of them".format(mat.name, previous_row.describe(), row.describe())
-                )
-            materials_seen[cae_material_name] = row
+            cae_material_name = material_for(bm.material, "beam {0!r}".format(bm.name))
 
             sec: Section = bm.section
             try:
@@ -990,11 +1153,13 @@ def build_plan(
 
     if not plan.parts:
         raise CaeWriteError(
-            "nothing to write: {0!r} holds no beams, and the CAE writer translates beams only.".format(root.name)
+            "nothing to write: {0!r} holds no beams and no plates, and the CAE writer translates "
+            "those two.".format(root.name)
         )
 
     plan.materials = [materials_seen[name] for name in sorted(materials_seen)]
     plan.sections = [sections_seen[name] for name in sorted(sections_seen)]
+    plan.shell_sections = [shell_sections_seen[name] for name in sorted(shell_sections_seen)]
 
     # The analysis last, because it is resolved *against* the geometry: every support and
     # load has to land on a vertex the plan above will build, which is only knowable once
@@ -1068,9 +1233,18 @@ def _offset_argument(use: _SectionUse) -> str:
 
 
 def _bounding_boxes(plan: _Plan) -> dict[str, tuple[tuple, tuple]]:
+    """The corners the script checks its own vertices against, per part.
+
+    Over *vertices*, which is what the guard measures, so a plate contributes the corners of the
+    ACIS body adapy authored rather than its outline: a curved plate's face bulges away from its
+    boundary and an arc's does too, and neither bulge is a vertex. A member's endpoint landing on a
+    plate boundary splits that edge (measured, 4 edges became 7) and adds a vertex *between* two
+    existing ones, so it cannot widen the box either.
+    """
     boxes = {}
     for part_plan in plan.parts:
-        points = np.asarray([m.p1 for m in part_plan.members] + [m.p2 for m in part_plan.members], dtype=float)
+        raw = [m.p1 for m in part_plan.members] + [m.p2 for m in part_plan.members] + part_plan.plate_vertices
+        points = np.asarray(raw, dtype=float)
         boxes[part_plan.cae_part_name] = (
             tuple(float(x) for x in points.min(axis=0)),
             tuple(float(x) for x in points.max(axis=0)),
@@ -1087,6 +1261,8 @@ def _bbox_tolerance(boxes: dict) -> float:
 
 def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_name: str = "") -> list[str]:
     beams = sum(len(p.members) for p in plan.parts)
+    plates = sum(len(p.plates) for p in plan.parts)
+    faces = sum(p.face_count for p in plan.parts)
     curved = sum(1 for p in plan.parts for m in p.members if m.is_curved)
     offsets = sum(1 for use in plan.sections if use.offset is not None)
     lines = [
@@ -1106,16 +1282,48 @@ def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_nam
         "#                     below is stated at. CAE's own merge tolerance is {0}.".format(_num(CAE_MERGE_TOL)),
         "# parts             : {0}".format(len(plan.parts)),
         "# beams             : {0}".format(beams),
-        "# materials         : {0}".format(len(plan.materials)),
-        "# beam sections     : {0}".format(len(plan.sections)),
-        "#",
     ]
     # Said only when there is something to say: a straight, offset-free model's header reads
     # exactly as it did before curves and offsets existed.
     if curved:
-        lines[-3:-3] = [
+        lines += [
             "#                     {0} of them curved, drawn as WireSpline through points on their".format(curved),
             "#                     exact curve -- a BeamCurved's ngeom spline, a BeamRevolve's arc.",
+        ]
+    lines += [
+        "# plates            : {0}, over {1} imported face(s)".format(plates, faces),
+        "# materials         : {0}".format(len(plan.materials)),
+        "# beam sections     : {0}".format(len(plan.sections)),
+        "# shell sections    : {0}".format(len(plan.shell_sections)),
+        "#",
+    ]
+    if plates:
+        lines += [
+            "# The plates are imported from the ACIS body adapy's own SAT writer produced, one file per",
+            "# part, written beside this script:",
+        ]
+        lines += [
+            "#   {0}  ({1} plate(s), {2} face(s))".format(
+                part_plan.sat_name, len(part_plan.plates), part_plan.face_count
+            )
+            for part_plan in plan.parts
+            if part_plan.has_plates
+        ]
+        lines += [
+            "# Each face is located by findAt at a point adapy computed strictly inside it: CAE discards",
+            "# the ACIS face names on import (measured -- part.sets is empty afterwards), so a point is",
+            "# the only handle there is. Every face ends with a HomogeneousShellSection at",
+            "# offsetType=MIDDLE_SURFACE, which is adapy's own convention: the polygon a Plate carries is",
+            "# the surface its FEM mesh puts nodes on, and the Sesam writer writes no eccentricity for a",
+            "# plain plate.",
+            "#",
+            "# A beam whose axis lies ON a plate is REFUSED rather than built, and the reason is measured:",
+            "# in Abaqus/CAE 2025 an edge shared with a face takes a beam section, reads it back, exports",
+            "# a '*Beam Section' keyword -- and produces no elements at all when the part is meshed",
+            "# ({'S4R': 96} with no B31, against {'S4R': 96, 'B31': 12} for the same beam moved clear of",
+            "# the plate). A beam meeting a plate at a POINT is fine and is built; its node comes out",
+            "# shared by shell and beam elements.",
+            "#",
         ]
     if offsets:
         lines += [
@@ -1207,13 +1415,22 @@ from caeModules import *
 
 
 _RUNTIME_HELPERS = '''
-def _result_path():
-    """Next to this script, so the sidecar travels with the artefact that produced it."""
+def _beside_script(name):
+    """A path next to this script, so its sidecars travel with the artefact that produced them.
+
+    Used for the result file and for the ACIS body a plate model imports. Relative to the script
+    rather than to the working directory on purpose: `abaqus cae noGUI=` is run from wherever the
+    caller happens to be, and the .sat has to be found from the .py it belongs to.
+    """
     try:
         here = os.path.dirname(os.path.abspath(__file__))
     except NameError:
         here = os.getcwd()
-    return os.path.join(here, RESULT_NAME)
+    return os.path.join(here, name)
+
+
+def _result_path():
+    return _beside_script(RESULT_NAME)
 
 
 def _write_result():
@@ -1319,6 +1536,16 @@ def _guard_topology(model):
     EXPECTED_TOPOLOGY was computed from the adapy model -- every member's endpoints were
     known there -- so this compares the kernel against an independent statement of what it
     should have built, not against its own bookkeeping.
+
+    A part carrying PLATES is checked differently, and the difference is measured rather than a
+    concession. Its faces are counted exactly -- adapy authored every one of them into the ACIS
+    body. Its beam edges are counted as "edges that bound no face", which is the same statement
+    about the wires as before: an imported plate contributes boundary edges adapy does not
+    enumerate, and a member's endpoint landing on one SPLITS it (measured: a column landing on the
+    midpoint of a plate's boundary took the part from 4 edges / 4 vertices to 7 / 7). So the total
+    edge and vertex counts of a plate part are not adapy's to state, and claiming them would be
+    stating CAE's own imprint back to itself. The vertex count is recorded instead of asserted, and
+    the wires' connectivity still has a number on it.
     """
     problems = []
     for part_name in sorted(EXPECTED_TOPOLOGY.keys()):
@@ -1326,10 +1553,18 @@ def _guard_topology(model):
         part = model.parts[part_name]
         built_edges = len(part.edges)
         built_vertices = len(part.vertices)
+        built_faces = len(part.faces)
+        free_edges = 0
+        for edge in part.edges:
+            if len(edge.getFaces()) == 0:
+                free_edges += 1
         record = _RESULT['guards'].setdefault(part_name, {})
         record['expected_edges'] = expected['edges']
         record['expected_vertices'] = expected['vertices']
+        record['expected_faces'] = expected['faces']
         record['built_vertices'] = built_vertices
+        record['built_faces'] = built_faces
+        record['edges_bounding_no_face'] = free_edges
         disagree = []
         for set_name in sorted(expected['edges_per_member'].keys()):
             wanted = expected['edges_per_member'][set_name]
@@ -1339,6 +1574,14 @@ def _guard_topology(model):
                     set_name, wanted, built))
         if disagree:
             problems.append('part {0!r}: {1}'.format(part_name, '; '.join(disagree)))
+        if built_faces != expected['faces']:
+            problems.append('part {0!r}: adapy authored {1} face(s) into the ACIS body, CAE imported '
+                            '{2}'.format(part_name, expected['faces'], built_faces))
+        if expected['faces']:
+            if free_edges != expected['edges']:
+                problems.append('part {0!r}: adapy described {1} beam edge(s), and CAE holds {2} edge(s) '
+                                'that bound no face'.format(part_name, expected['edges'], free_edges))
+            continue
         if built_edges != expected['edges']:
             problems.append('part {0!r}: adapy described {1} edge(s), CAE built {2}'.format(
                 part_name, expected['edges'], built_edges))
@@ -1377,15 +1620,24 @@ def _member_edges(part_name, set_name, edges):
 
 
 def _guard_every_edge_sectioned(model):
-    """Guard 1: every edge carries exactly one section, and every section an orientation.
+    """Guard 1: every face and every beam edge carries exactly one section, and every beam
+    section an orientation.
 
     Imprinting can leave a sub-edge no cylinder claimed, and a duplicated wire is an edge
-    no cylinder claims either. Neither shows up anywhere else.
+    no cylinder claims either. A face nobody located is a face with no thickness. None of
+    the three shows up anywhere else.
 
     This guard used to claim it caught connectivity as well. It does not, and the
     measurements are in _guard_topology above: a disconnected frame reaches this check
     with every one of its edges sectioned. Do not delete that guard on the strength of
     this one.
+
+    **A plate's own boundary edges legitimately carry no section**, so the edge clause is not
+    "every edge" once a plate is present: measured on a part holding one imported plate and two
+    wires, 7 edges of which 2 carried a beam section and the other 5 were the plate's boundary.
+    The clause becomes "every edge either carries exactly one section or bounds a face", which is
+    strictly stronger than relaxing it to "some edges", because an unclaimed sub-edge of a wire
+    bounds nothing and so still fails.
 
     Read back from the kernel's own sectionAssignments and the kernel's own sets -- not
     from this script's bookkeeping -- so a bug in the bookkeeping cannot make the guard
@@ -1395,6 +1647,8 @@ def _guard_every_edge_sectioned(model):
     for part_name in sorted(_RESULT['created']['parts']):
         part = model.parts[part_name]
         covered = {}
+        faces_covered = {}
+        beam_assignments = 0
         for assignment in part.sectionAssignments:
             set_name = assignment.region[0]
             if set_name not in part.sets.keys():
@@ -1402,11 +1656,21 @@ def _guard_every_edge_sectioned(model):
                                 "part's sets, so its coverage cannot be verified".format(
                                     part_name, assignment.region))
                 continue
-            for edge in part.sets[set_name].edges:
+            region_set = part.sets[set_name]
+            if len(region_set.edges):
+                beam_assignments += 1
+            for edge in region_set.edges:
                 covered.setdefault(edge.index, []).append(set_name)
+            for face in region_set.faces:
+                faces_covered.setdefault(face.index, []).append(set_name)
         all_indices = set([edge.index for edge in part.edges])
-        unassigned = sorted(all_indices - set(covered.keys()))
+        all_faces = set([face.index for face in part.faces])
+        # An edge bounding a face is a plate boundary: it is meant to carry no beam section.
+        bounding = set([edge.index for edge in part.edges if len(edge.getFaces())])
+        unassigned = sorted(all_indices - set(covered.keys()) - bounding)
         doubled = sorted([index for index in covered if len(covered[index]) > 1])
+        faces_unassigned = sorted(all_faces - set(faces_covered.keys()))
+        faces_doubled = sorted([index for index in faces_covered if len(faces_covered[index]) > 1])
         orientations = len(part.beamSectionOrientations)
         # update(), not assignment: _guard_topology has already recorded what adapy expected
         # for this part, and overwriting it would drop the connectivity verdict from the
@@ -1416,7 +1680,13 @@ def _guard_every_edge_sectioned(model):
             'edges_with_a_section': len(covered),
             'edges_with_no_section': len(unassigned),
             'edges_with_two_sections': len(doubled),
+            'plate_boundary_edges': len(bounding),
+            'faces': len(all_faces),
+            'faces_with_a_section': len(faces_covered),
+            'faces_with_no_section': len(faces_unassigned),
+            'faces_with_two_sections': len(faces_doubled),
             'section_assignments': len(part.sectionAssignments),
+            'beam_section_assignments': beam_assignments,
             'orientations': orientations,
             'sets': len(part.sets.keys()),
         })
@@ -1424,24 +1694,38 @@ def _guard_every_edge_sectioned(model):
         _RESULT['created']['orientations'] += orientations
         for set_name in sorted(part.sets.keys()):
             _RESULT['created']['sets'].append(set_name)
-        # A section without an orientation is a beam whose profile is turned an unknown
-        # way round -- it meshes and solves, and its weak axis is wherever CAE defaulted.
-        if orientations < len(part.sectionAssignments):
-            problems.append('part {0!r}: {1} section assignments but only {2} beam orientations, so at '
-                            'least one member\\'s profile is turned an unknown way round'.format(
-                                part_name, len(part.sectionAssignments), orientations))
-        if not all_indices:
-            problems.append('part {0!r} has no edges at all: no geometry was built'.format(part_name))
+        # A beam section without an orientation is a beam whose profile is turned an unknown
+        # way round -- it meshes and solves, and its weak axis is wherever CAE defaulted. Counted
+        # against the EDGE assignments only: a shell section takes no beam orientation, so
+        # comparing against every assignment would fail every model carrying a plate.
+        if orientations < beam_assignments:
+            problems.append('part {0!r}: {1} beam section assignments but only {2} beam orientations, so '
+                            'at least one member\\'s profile is turned an unknown way round'.format(
+                                part_name, beam_assignments, orientations))
+        if not all_indices and not all_faces:
+            problems.append('part {0!r} has no edges and no faces at all: no geometry was '
+                            'built'.format(part_name))
             continue
+        if faces_unassigned:
+            problems.append('part {0!r}: {1} of {2} faces carry a shell section; faces {3} carry none '
+                            '(pointOn {4}). A face with no section has no thickness and no material, and '
+                            'Abaqus will not mesh it'.format(
+                                part_name, len(faces_covered), len(all_faces), faces_unassigned,
+                                [part.faces[i].pointOn for i in faces_unassigned[:8]]))
+        if faces_doubled:
+            problems.append('part {0!r}: faces {1} carry more than one shell section, so which thickness '
+                            'applies is ambiguous'.format(part_name, faces_doubled))
         if unassigned:
             problems.append('part {0!r}: {1} of {2} edges carry a section assignment; edges {3} carry '
-                            'none (pointOn {4})'.format(part_name, len(covered), len(all_indices), unassigned,
-                                                        [part.edges[i].pointOn for i in unassigned[:8]]))
+                            'none and bound no face either (pointOn {4})'.format(
+                                part_name, len(covered), len(all_indices), unassigned,
+                                [part.edges[i].pointOn for i in unassigned[:8]]))
         if doubled:
             problems.append('part {0!r}: edges {1} carry more than one section assignment, so which '
                             'section applies is ambiguous'.format(part_name, doubled))
     if problems:
-        _fail('every edge must end with exactly one section assignment -- ' + ' | '.join(problems))
+        _fail('every face, and every edge that is not a plate boundary, must end with exactly one '
+              'section assignment -- ' + ' | '.join(problems))
 
 
 def _guard_bounding_box(model):
@@ -1545,6 +1829,121 @@ def _curved_member_edges(part_name, set_name, part, points, expected_length):
 '''
 
 
+#: Emitted only when the model carries a plate. Everything about locating an imported face, and
+#: the guard that says the faces CAE imported are the plates adapy described.
+_PLATE_HELPER = '''
+def _plate_faces(part_name, plate_name, part, points):
+    """The faces of one plate, found by a point on each, as one FaceArray.
+
+    findAt does **not** raise when it finds nothing. Measured: it prints
+    'Warning: findAt could not find a geometric entity at (...)' and returns an empty sequence, so
+    a script that trusted it would build a set holding fewer faces than the plate has and say
+    nothing. Worse, a point lying on the edge two faces share returns **one** of them, arbitrarily
+    -- which is why adapy chooses the point furthest from the face's boundary rather than its
+    centroid (the centroid of a C-shaped outline falls outside it, also measured), and why the
+    coverage guard counts faces off the kernel rather than trusting these lookups.
+
+    The FaceArray is assembled by slicing rather than by handing findAt every point at once, so a
+    lookup that fails can name its own point.
+    """
+    indices = []
+    for point in points:
+        hits = part.faces.findAt((point,))
+        if len(hits) != 1:
+            _fail('plate {0!r} of part {1!r}: findAt at {2} found {3} face(s), not one. adapy computed '
+                  'that point strictly inside the face it authored into the ACIS body, so either the '
+                  'body CAE imported is not the body adapy wrote, or the point fell on a boundary -- '
+                  'findAt returns nothing at all off the body (with only a warning) and returns one '
+                  'arbitrary face for a point on an edge two faces share.'.format(
+                      plate_name, part_name, point, len(hits)))
+        index = hits[0].index
+        if index in indices:
+            _fail('plate {0!r} of part {1!r}: two of its interior points resolve to the same face '
+                  '(index {2}). Its faces would then be one face given one section, and the rest of '
+                  'them none.'.format(plate_name, part_name, index))
+        indices.append(index)
+    faces = part.faces[indices[0]:indices[0] + 1]
+    for index in indices[1:]:
+        faces = faces + part.faces[index:index + 1]
+    return faces
+
+
+def _guard_plate_faces(model):
+    """Every plate's area and every face's normal, against what adapy measured.
+
+    The area is the check that makes an arc and a spline honest: the boundary polygon adapy walks
+    out of the ACIS body is inscribed in a curved edge, so it is NOT what is compared -- adapy's own
+    area is (``poly.get_area()`` for a flat plate, the CAD backend's measurement of the bare face
+    for a curved one), against the sum of the faces CAE imported for that plate.
+
+    Measured, which is why the tolerance is what it is: a flat 3x2 m plate split by a stiffener gave
+    3.0 + 3.0 against 6.0, exactly; a tilted 2x1.5 gave 2.99999999016774 against 3.0; and a real
+    Genie curved_shell gave 6.91520453146419 against adapy's 6.915204361623685. The comparison is
+    absolute and scaled by the expected area on purpose: a spline face Abaqus considers invalid
+    reports ``getSize() == 0.0`` rather than raising, and a relative form would divide by that zero
+    instead of failing on it.
+
+    The normal is checked because the convention was measured rather than documented: a plate
+    declared +z imports with getNormal() == (0, 0, 1) and the same outline declared -z with
+    (0, 0, -1). Nothing flips anything, and this is what says so on every run.
+    """
+    problems = []
+    for part_name in sorted(PLATES.keys()):
+        part = model.parts[part_name]
+        for plate in PLATES[part_name]:
+            areas = []
+            normals = []
+            for point in plate['points']:
+                hits = part.faces.findAt((point,))
+                if len(hits) != 1:
+                    problems.append('plate {0!r}: findAt at {1} no longer finds exactly one face'.format(
+                        plate['name'], point))
+                    continue
+                face = hits[0]
+                areas.append(face.getSize(printResults=False))
+                normal = face.getNormal(point=point)
+                normals.append((normal[0], normal[1], normal[2]))
+            total = 0.0
+            for one in areas:
+                total += one
+            expected = plate['area']
+            tolerance = abs(expected) * PLATE_AREA_REL_TOL
+            record = {
+                'faces': len(areas),
+                'area_built': total,
+                'area_expected': expected,
+                'area_error': total - expected,
+                'thickness': plate['t'],
+                'section': plate['section'],
+            }
+            _RESULT['plates'][plate['name']] = record
+            if abs(total - expected) > tolerance:
+                problems.append('plate {0!r} of part {1!r}: adapy measured {2!r} of area and CAE '
+                                'imported {3!r} over {4} face(s) (off by {5!r}, tolerance {6!r}). A '
+                                'getSize() of 0.0 means Abaqus considers the face invalid -- it then '
+                                'refuses to mesh it as well, with "contains invalid geometry".'.format(
+                                    plate['name'], part_name, expected, total, len(areas),
+                                    total - expected, tolerance))
+            worst = 0.0
+            for normal in normals:
+                for axis in range(3):
+                    difference = abs(normal[axis] - plate['normal'][axis])
+                    if difference > worst:
+                        worst = difference
+            record['normal_error'] = worst
+            if normals and worst > PLATE_NORMAL_TOL:
+                problems.append('plate {0!r} of part {1!r}: adapy declared the normal {2} and CAE '
+                                'reports {3} (worst component off by {4!r}, tolerance {5!r}). The shell '
+                                'section is assigned MIDDLE_SURFACE, so a flipped normal does not move '
+                                'the reference surface -- but it does flip the sign of every pressure '
+                                'and of SPOS/SNEG output on that face.'.format(
+                                    plate['name'], part_name, plate['normal'], normals[0], worst,
+                                    PLATE_NORMAL_TOL))
+    if problems:
+        _fail('the plate faces CAE imported are not the plates adapy described -- ' + ' | '.join(problems))
+'''
+
+
 #: Emitted only when at least one section carries an offset, for the same reason.
 _SECTION_OFFSET_GUARD = '''
 def _guard_section_offsets(model):
@@ -1585,7 +1984,7 @@ def _guard_section_offsets(model):
 #: analysis: a CAE support, load and step all attach to **vertices**, so a model can carry a
 #: complete analysis definition and no mesh at all, and this writer lets it.
 _MESH_HELPER = '''
-def _mesh_part(part_name, part, size, element_code, element_code_name):
+def _mesh_part(part_name, part, size, element_code, element_code_name, shell_code, shell_code_name):
     """Seed, type and mesh one part, then record and check what came out of it.
 
     ``seedPart`` gives an edge ``round(length / size)`` elements, so a seed that divides a
@@ -1593,25 +1992,39 @@ def _mesh_part(part_name, part, size, element_code, element_code_name):
     6 m column and an 8 m girder at size 1.0: nodes at exactly 0, 1, 2 ... 6 and 0 ... 8. That
     is what lets an independent reader ask for a displacement at a *position* rather than at a
     node number, which is the only way two solvers that meshed separately can be compared.
+
+    A part carrying faces is typed twice, once per element shape: CAE takes one ElemType per
+    region and the two families are separate. The face assignment goes first because it is the
+    one that owns the boundary edges; the edge assignment then covers the wires.
     """
     part.seedPart(size=size, deviationFactor=0.1, minSizeFactor=0.1)
-    part.setElementType(regions=(part.edges,),
-                        elemTypes=(ElemType(elemCode=element_code, elemLibrary=STANDARD),))
+    if len(part.faces):
+        part.setElementType(regions=(part.faces,),
+                            elemTypes=(ElemType(elemCode=shell_code, elemLibrary=STANDARD),))
+    if len(part.edges):
+        part.setElementType(regions=(part.edges,),
+                            elemTypes=(ElemType(elemCode=element_code, elemLibrary=STANDARD),))
     part.generateMesh()
     counts = {}
     for set_name in sorted(part.sets.keys()):
         counts[set_name] = len(part.sets[set_name].elements)
+    by_type = {}
+    for element in part.elements:
+        key = str(element.type)
+        by_type[key] = by_type.get(key, 0) + 1
     _RESULT['mesh'][part_name] = {
         'elements': len(part.elements),
         'nodes': len(part.nodes),
         'element_type': element_code_name,
+        'shell_element_type': shell_code_name,
+        'elements_by_type': by_type,
         'seed': size,
         'elements_per_member': counts,
     }
     if len(part.elements) == 0:
-        _fail('part {0!r} meshed to nothing: {1} edge(s) seeded at {2!r} produced no element at all, so '
-              'there is no analysis in this model however complete its loads look.'.format(
-                  part_name, len(part.edges), size))
+        _fail('part {0!r} meshed to nothing: {1} edge(s) and {2} face(s) seeded at {3!r} produced no '
+              'element at all, so there is no analysis in this model however complete its loads '
+              'look.'.format(part_name, len(part.edges), len(part.faces), size))
     bare = []
     for set_name in sorted(counts.keys()):
         if counts[set_name] == 0:
@@ -1915,6 +2328,8 @@ def _tail(plan: _Plan) -> str:
     with a footnote.
     """
     calls = []
+    if plan.has_plates:
+        calls.append("    _guard_plate_faces(model)\n")
     if any(use.offset is not None for use in plan.sections):
         calls.append("    _guard_section_offsets(model)\n")
     if not plan.analysis.is_empty:
@@ -1955,6 +2370,9 @@ def _expected_topology_source(plan: _Plan) -> list[str]:
             "    {0!r}: {{".format(part_plan.cae_part_name),
             "        'edges': {0},".format(topology.edges),
             "        'vertices': {0},".format(topology.vertices),
+            # Non-zero marks a part built by importing an ACIS body, which is checked on its
+            # faces and on its face-free edges rather than on totals adapy cannot state.
+            "        'faces': {0},".format(part_plan.face_count),
             "        'edges_per_member': {",
         ]
         lines += [
@@ -1962,6 +2380,58 @@ def _expected_topology_source(plan: _Plan) -> list[str]:
             for name in sorted(topology.edges_per_member)
         ]
         lines += ["        },", "    },"]
+    lines += ["}", ""]
+    return lines
+
+
+def _plates_source(plan: _Plan) -> list[str]:
+    """The plate guard's data, as source: the point that finds each face, and what it must measure.
+
+    Nothing here is recomputed in the kernel. The points come from the ACIS body adapy authored --
+    walked out of its own plane faces, or found parametrically on a spline face through the CAD
+    backend -- and the areas from adapy's own measurement of each plate. Asking CAE to recompute
+    either would be asking the model whether it agrees with itself.
+    """
+    if not plan.has_plates:
+        return []
+    lines = [
+        "# One entry per plate, per part. 'points' holds one point per face the plate resolves to in",
+        "# the ACIS body written beside this script -- strictly interior, and chosen to maximise its",
+        "# clearance from the face's boundary rather than as a centroid: measured, the area centroid of",
+        "# a C-shaped outline falls in its notch and findAt there returns 0 faces with only a warning,",
+        "# and a point on an edge two faces share returns one of the two arbitrarily.",
+        "#",
+        "# CAE discards the ACIS face names on import (measured: part.sets is empty afterwards), so a",
+        "# point is the only handle there is. 'sat_face' is carried for traceability alone.",
+        "PLATE_AREA_REL_TOL = {0}".format(_num(PLATE_AREA_REL_TOL)),
+        "PLATE_NORMAL_TOL = {0}".format(_num(PLATE_NORMAL_TOL)),
+        "PLATES = {",
+    ]
+    for part_plan in plan.parts:
+        if not part_plan.has_plates:
+            continue
+        lines.append("    {0!r}: [".format(part_plan.cae_part_name))
+        for plate in part_plan.plates:
+            lines += [
+                "        {",
+                "            'name': {0!r},".format(plate.cae_set_name),
+                "            'source': {0!r},".format(plate.plate_name),
+                "            'kind': {0!r},".format(plate.kind),
+                "            'section': {0!r},".format(plate.cae_section_name),
+                "            't': {0},".format(_num(plate.thickness)),
+                "            'area': {0},".format(_num(plate.area)),
+                "            'normal': {0},".format(_pt(plate.normal)),
+                "            'sat_face': [{0}],".format(", ".join(repr(f.sat_face_name) for f in plate.faces)),
+                "            'points': (",
+            ]
+            lines += [
+                "                {0},  # {1}, {2} clear of its own boundary".format(
+                    _pt(face.point), face.sat_face_name, _num(face.clearance)
+                )
+                for face in plate.faces
+            ]
+            lines += ["            ),", "        },"]
+        lines.append("    ],")
     lines += ["}", ""]
     return lines
 
@@ -2091,7 +2561,9 @@ def _planned_names_source(plan: _Plan) -> list[str]:
         "instances": [p.cae_instance_name for p in plan.parts],
         "materials": [row.cae_name for row in plan.materials],
         "profiles": sorted({use.cae_profile_name for use in plan.sections}),
-        "sections": [use.cae_section_name for use in plan.sections],
+        # Beam and shell sections share one CAE repository, so both belong in one list here.
+        "sections": [use.cae_section_name for use in plan.sections]
+        + [shell.cae_section_name for shell in plan.shell_sections],
     }
     if not plan.analysis.is_empty:
         planned["steps"] = [step.cae_name for step in plan.analysis.steps]
@@ -2155,6 +2627,7 @@ def render_script(
         "",
     ]
     lines += _expected_topology_source(plan)
+    lines += _plates_source(plan)
     lines += _section_offsets_source(plan)
     lines += _analysis_source(plan, displacements_name)
     lines += _planned_names_source(plan)
@@ -2176,6 +2649,7 @@ def render_script(
         "        'orientations': 0,",
         "    },",
         "    'edges_per_member': {},",
+        "    'plates': {},",
         "    'curve_length_error': {},",
         "    'section_offsets': {},",
         "    'mesh': {},",
@@ -2193,6 +2667,8 @@ def render_script(
     ]
     lines += ["    ],", "}", ""]
     lines += _RUNTIME_HELPERS.split("\n")
+    if plan.has_plates:
+        lines += _PLATE_HELPER.split("\n")
     if any(member.is_curved for part_plan in plan.parts for member in part_plan.members):
         lines += _CURVED_MEMBER_HELPER.split("\n")
     if any(use.offset is not None for use in plan.sections):
@@ -2283,6 +2759,20 @@ def render_script(
             )
         lines.append("    _RESULT['created']['sections'].append({0!r})".format(use.cae_section_name))
 
+    if plan.shell_sections:
+        lines += [
+            "",
+            "    # --- shell sections, one per (thickness, material) pair. A homogeneous shell section",
+            "    # binds only those two, so every plate of the same gauge in the same grade shares one.",
+        ]
+        for shell in plan.shell_sections:
+            lines += [
+                "    model.HomogeneousShellSection(name={0!r}, material={1!r}, thickness={2})".format(
+                    shell.cae_section_name, shell.cae_material_name, _num(shell.thickness)
+                ),
+                "    _RESULT['created']['sections'].append({0!r})".format(shell.cae_section_name),
+            ]
+
     # Every call below is emitted inline, one statement per member, the way CAE's own
     # journal would write it: a helper that took the coordinates as arguments would hide
     # the model's graph behind a single call site, and that graph — which section covers
@@ -2291,10 +2781,36 @@ def render_script(
         part_var = "part_{0}".format(part_index)
         lines += [
             "",
-            "    # --- part {0!r}, {1} member(s)".format(part_plan.part_name, len(part_plan.members)),
-            "    {0} = model.Part(name={1!r}, dimensionality=THREE_D, type=DEFORMABLE_BODY)".format(
-                part_var, part_plan.cae_part_name
+            "    # --- part {0!r}, {1} member(s), {2} plate(s) over {3} face(s)".format(
+                part_plan.part_name, len(part_plan.members), len(part_plan.plates), part_plan.face_count
             ),
+        ]
+        if part_plan.has_plates:
+            lines += [
+                "    # The plates arrive as the ACIS body adapy already writes for Genie -- arcs analytic,",
+                "    # splines as NURBS patches, and the plates already split along every beam axis lying",
+                "    # on them. Rebuilding the outlines in CAE would instead compound the losses the Genie",
+                "    # reader documents (best-fit planes, chorded splines).",
+                "    #",
+                "    # PartFromGeometryFile CREATES the part, so the wires below are added to it rather",
+                "    # than the other way round. openAcis needs caeModules imported (measured: without it",
+                "    # mdb has no geometry importers at all) and scaleFromFile=OFF because adapy's units",
+                "    # are the model's, not the file's.",
+                "    _acis_{0} = mdb.openAcis(_beside_script({1!r}), scaleFromFile=OFF)".format(
+                    part_index, part_plan.sat_name
+                ),
+                "    {0} = model.PartFromGeometryFile(name={1!r}, geometryFile=_acis_{2}, combine=True,".format(
+                    part_var, part_plan.cae_part_name, part_index
+                ),
+                "                                    dimensionality=THREE_D, type=DEFORMABLE_BODY)",
+            ]
+        else:
+            lines.append(
+                "    {0} = model.Part(name={1!r}, dimensionality=THREE_D, type=DEFORMABLE_BODY)".format(
+                    part_var, part_plan.cae_part_name
+                )
+            )
+        lines += [
             "    _RESULT['created']['parts'].append({0!r})".format(part_plan.cae_part_name),
             "    # Every wire first. Coincident endpoints merge, and a member landing mid-span",
             "    # imprints a split, so a member located before its neighbours exist would miss",
@@ -2360,16 +2876,43 @@ def render_script(
                     part_var, region_var, _pt(member.n1)
                 ),
             ]
+        for plate_index, plate in enumerate(part_plan.plates):
+            faces_var = "faces_{0}_{1}".format(part_index, plate_index)
+            region_var = "plate_region_{0}_{1}".format(part_index, plate_index)
+            lines += [
+                "",
+                "    # plate {0!r}: {1}, t={2}, {3} face(s) of the imported body".format(
+                    plate.plate_name, plate.kind, _num(plate.thickness), len(plate.faces)
+                ),
+                "    {0} = _plate_faces({1!r}, {2!r}, {3}, PLATES[{1!r}][{4}]['points'])".format(
+                    faces_var, part_plan.cae_part_name, plate.cae_set_name, part_var, plate_index
+                ),
+                "    {0} = {1}.Set(name={2!r}, faces={3})".format(region_var, part_var, plate.cae_set_name, faces_var),
+                # MIDDLE_SURFACE, and that is adapy's own convention rather than a default: the
+                # polygon a Plate carries is the surface adapy's FEM mesh puts its nodes on, and
+                # the Sesam writer emits no eccentricity for a plain plate. (The *solid*
+                # representation differs -- Config().geom_thickness_anchor is 'as_is', so
+                # solid_geom extrudes from the polygon along +normal -- and that is about drawing,
+                # not about analysis.)
+                "    {0}.SectionAssignment(region={1}, sectionName={2!r}, offsetType=MIDDLE_SURFACE,".format(
+                    part_var, region_var, plate.cae_section_name
+                ),
+                "                          thicknessAssignment=FROM_SECTION)",
+            ]
         if plan.meshed:
             # After the sections, and before the instance: a dependent instance picks the
             # part's mesh up on its own, so nothing has to be regenerated afterwards.
             lines += [
                 "",
-                "    # --- mesh part {0!r} at a {1} seed with {2} elements".format(
-                    part_plan.part_name, _num(plan.mesh_size), plan.element_type
+                "    # --- mesh part {0!r} at a {1} seed with {2} (edges) and {3} (faces)".format(
+                    part_plan.part_name, _num(plan.mesh_size), plan.element_type, plan.shell_element_type
                 ),
-                "    _mesh_part({0!r}, {1}, {2}, {3}, {3!r})".format(
-                    part_plan.cae_part_name, part_var, _num(plan.mesh_size), plan.element_type
+                "    _mesh_part({0!r}, {1}, {2}, {3}, {3!r}, {4}, {4!r})".format(
+                    part_plan.cae_part_name,
+                    part_var,
+                    _num(plan.mesh_size),
+                    plan.element_type,
+                    plan.shell_element_type,
                 ),
             ]
 
@@ -2516,15 +3059,30 @@ def write_cae_script(
     unit_scale: float = 1.0,
     mesh_size: float | None = None,
     element_type: str = "B31",
+    shell_element_type: str = "S4R",
     job_name: str | None = None,
     submit: bool = False,
+    plates: bool = True,
 ) -> list[pathlib.Path]:
-    """Write ``destination``: an Abaqus/CAE script that rebuilds ``root`` as wires.
+    """Write ``destination``: an Abaqus/CAE script that rebuilds ``root`` as editable geometry.
 
-    Returns the paths *this call* wrote — the script, plus a ``<stem>.name_map.json``
-    sidecar when sanitisation changed any name. ``<stem>.cae_build_result.json`` is
-    written by the script itself, when CAE runs it, and ``<stem>.cae_displacements.json``
-    as well when ``submit`` is set.
+    Returns the paths *this call* wrote — the script, one ``<stem>_<part>.sat`` per part that
+    owns plates, plus a ``<stem>.name_map.json`` sidecar when sanitisation changed any name.
+    ``<stem>.cae_build_result.json`` is written by the script itself, when CAE runs it, and
+    ``<stem>.cae_displacements.json`` as well when ``submit`` is set.
+
+    **The ``.sat`` files are not optional extras.** The emitted script imports each one with
+    ``mdb.openAcis``, resolved next to the script, so moving the script without them leaves a run
+    that fails in the kernel on the first plate. Anything that copies the script somewhere to run
+    it has to copy them too.
+
+    ``plates=False`` leaves every plate untranslated and listed as such, which is what this writer
+    did before plates existed. It is there for one case and it is a real one: a beam whose axis lies
+    *on* a plate cannot be expressed in the same CAE part as that plate — measured, the shared edge
+    produces no beam elements at all — and neither half of such a pair can be dropped without
+    writing the wrong structure, so the default is to refuse the model and name the members. Every
+    plate in adapy's own GeniE fixtures is stiffened that way, so the switch is the difference
+    between "beams, as before" and "nothing at all" for those.
 
     ``unit_scale`` must be ``1.0``; see :func:`check_unit_scale`.
 
@@ -2549,10 +3107,13 @@ def write_cae_script(
         unit_scale=unit_scale,
         mesh_size=mesh_size,
         element_type=element_type,
+        shell_element_type=shell_element_type,
         # The script's own stem, so the ODB and its sidecars sit next to the script that
         # produced them under a name a reader can tie back to it.
         job_name=stem if job_name is None else job_name,
         submit=submit,
+        plates=plates,
+        sat_prefix=stem,
     )
 
     result_name = "{0}.cae_build_result.json".format(stem)
@@ -2569,16 +3130,25 @@ def write_cae_script(
     destination.write_text(text, encoding="utf-8")
     written = [destination]
 
+    for part_plan in plan.parts:
+        if not part_plan.has_plates:
+            continue
+        sat_path = destination.parent / part_plan.sat_name
+        sat_path.write_text(part_plan.sat_text, encoding="utf-8")
+        written.append(sat_path)
+
     name_map_path = destination.parent / "{0}.name_map.json".format(stem)
     if dump_name_map(plan.registries, name_map_path):
         written.append(name_map_path)
 
     logger.info(
-        "Abaqus/CAE script %r written: %d part(s), %d beam(s), %d untranslated object(s), "
-        "%d support(s), %d load(s), %d step(s)",
+        "Abaqus/CAE script %r written: %d part(s), %d beam(s), %d plate(s) over %d face(s), "
+        "%d untranslated object(s), %d support(s), %d load(s), %d step(s)",
         str(destination),
         len(plan.parts),
         sum(len(p.members) for p in plan.parts),
+        sum(len(p.plates) for p in plan.parts),
+        sum(p.face_count for p in plan.parts),
         len(plan.skipped),
         len(plan.analysis.bcs),
         len(plan.analysis.loads),
@@ -2586,8 +3156,8 @@ def write_cae_script(
     )
     if plan.skipped:
         logger.warning(
-            "%d physical object(s) are absent from the CAE script: it translates beams only. They are "
-            "listed in the script header and in %s.",
+            "%d physical object(s) are absent from the CAE script: it translates beams and plates. They "
+            "are listed in the script header and in %s.",
             len(plan.skipped),
             result_name,
         )
@@ -2605,9 +3175,12 @@ __all__ = [
     "FIELD_OUTPUT_REQUEST_NAME",
     "FIELD_OUTPUT_VARIABLES",
     "MIN_BEAM_LENGTH",
+    "PLATE_AREA_REL_TOL",
+    "PLATE_NORMAL_TOL",
     "REFUSED_BEAM_TYPES",
     "SOLVER_SUCCESS_MARKER",
     "CaeWriteError",
+    "PlateNotSupported",
     "SkippedObject",
     "UnsupportedBeamError",
     "beam_endpoints",
@@ -2617,6 +3190,7 @@ __all__ = [
     "check_beam_shape",
     "check_mesh_and_job",
     "check_n1_holds_along_the_curve",
+    "check_shell_element_type",
     "check_unit_scale",
     "render_script",
     "write_cae_script",

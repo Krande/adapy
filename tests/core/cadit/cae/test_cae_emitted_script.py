@@ -290,6 +290,8 @@ def test_the_script_states_the_topology_the_kernel_must_have_built(frame_model, 
         "Frame": {
             "edges": 4,
             "vertices": 5,
+            # Zero faces marks a beams-only part, whose edge and vertex totals adapy can state.
+            "faces": 0,
             "edges_per_member": {"brace": 1, "col1": 1, "girder": 2},
         }
     }

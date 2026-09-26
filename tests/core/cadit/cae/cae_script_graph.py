@@ -207,6 +207,24 @@ class ScriptGraph:
             return self._var_values[value.src]
         return value
 
+    def plates_table(self) -> dict:
+        """The script's own ``PLATES`` table, or ``{}`` for a model with no plates.
+
+        Read off the module-level assignment rather than reconstructed from the calls: it is the
+        same table the guard inside the script reads, so a check written against it is checking the
+        thing the kernel will act on. A beams-only script emits no such assignment at all -- the
+        helper that uses it is conditional too -- so its absence is not a failure.
+        """
+        for node in self.tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "PLATES"
+            ):
+                return ast.literal_eval(node.value)
+        return {}
+
 
 # --------------------------------------------------------------------- helpers
 
@@ -259,6 +277,40 @@ def _wire_segments(graph: ScriptGraph) -> list[tuple[tuple, tuple, int]]:
                     _fail("WirePolyLine on line {} draws a zero-length member".format(call.lineno))
                 segments.append((p1, p2, call.lineno))
     return segments
+
+
+def _region_set(graph: ScriptGraph, call: Call, what: str) -> Call:
+    """The ``Set``/``Surface`` call behind a ``region=``, checked for being one and for coming first."""
+    region = call.kw("region")
+    if region is None and call.args:
+        region = call.args[0]
+    if region is None:
+        _fail("{} on line {} has no region= argument".format(what, call.lineno))
+    if isinstance(region, (tuple, list)) and len(region) == 0:
+        _fail("{} on line {} is given an empty region".format(what, call.lineno))
+    set_call = graph.resolve_call(region)
+    if set_call is None or set_call.method not in ("Set", "Surface"):
+        _fail(
+            "{} on line {} does not take its region from a Set(...) -- got {!r}".format(
+                what, call.lineno, call.raw_kwargs.get("region", "?")
+            )
+        )
+    if set_call.lineno > call.lineno:
+        _fail("{} on line {} uses a region defined later, on line {}".format(what, call.lineno, set_call.lineno))
+    return set_call
+
+
+def is_face_assignment(graph: ScriptGraph, call: Call) -> bool:
+    """Whether a ``SectionAssignment``'s region is a set of faces rather than of edges.
+
+    Two kinds of section assignment now reach the same checks -- a shell section on a plate's faces
+    and a beam section on a member's edges -- and almost everything the beam checks assert
+    (a bounding cylinder, an orientation vector) is meaningless for a face. They are told apart by
+    what the ``Set`` is built from, not by the section's name, so a writer that emitted a shell
+    section onto an edge set would be caught rather than excused.
+    """
+    set_call = _region_set(graph, call, "SectionAssignment")
+    return set_call.kw("faces") is not None
 
 
 def _region_lookup(graph: ScriptGraph, call: Call, what: str) -> Call:
@@ -354,10 +406,10 @@ def check_names_unique(graph: ScriptGraph) -> None:
     though CAE itself scopes sets to their part.
     """
     namespaces = {
-        "part": ("Part",),
+        "part": ("Part", "PartFromGeometryFile"),
         "material": ("Material",),
         "profile": tuple(sorted(PROFILE_METHODS)),
-        "section": ("BeamSection",),
+        "section": ("BeamSection", "HomogeneousShellSection"),
         "instance": ("Instance",),
         "set": ("Set",),
     }
@@ -402,8 +454,40 @@ def check_profiles_and_materials_defined_before_use(graph: ScriptGraph) -> None:
                 )
 
 
+def check_shell_sections_are_complete(graph: ScriptGraph) -> None:
+    """A HomogeneousShellSection needs a material that exists and a thickness that is a length."""
+    materials = graph.created_names("Material")
+    for call in graph.by_method("HomogeneousShellSection"):
+        ref = call.kw("material")
+        if not isinstance(ref, str):
+            _fail("the HomogeneousShellSection on line {} has no literal material= name".format(call.lineno))
+        if ref not in materials:
+            _fail(
+                "the HomogeneousShellSection on line {} refers to the material {!r}, which is never "
+                "created".format(call.lineno, ref)
+            )
+        if materials[ref].lineno > call.lineno:
+            _fail(
+                "the HomogeneousShellSection on line {} uses the material {!r} before it is created on "
+                "line {}".format(call.lineno, ref, materials[ref].lineno)
+            )
+        thickness = call.kw("thickness")
+        if not isinstance(thickness, (int, float)) or isinstance(thickness, bool):
+            _fail(
+                "the HomogeneousShellSection on line {} has no numeric thickness= -- got {!r}".format(
+                    call.lineno, call.raw_kwargs.get("thickness", "?")
+                )
+            )
+        if not thickness > 0.0:
+            _fail(
+                "the HomogeneousShellSection on line {} has thickness={!r}, which is not a "
+                "length".format(call.lineno, thickness)
+            )
+
+
 def check_sections_defined_before_use(graph: ScriptGraph) -> None:
-    sections = graph.created_names("BeamSection")
+    # Beam and shell sections share one CAE repository, and one SectionAssignment call takes either.
+    sections = graph.created_names("BeamSection", "HomogeneousShellSection")
     for call in graph.by_method("SectionAssignment"):
         ref = call.kw("sectionName")
         if not isinstance(ref, str):
@@ -421,7 +505,9 @@ def check_sections_defined_before_use(graph: ScriptGraph) -> None:
 
 
 def check_every_part_instanced_once(graph: ScriptGraph) -> None:
-    parts = graph.created_names("Part")
+    # A part carrying plates is created by PartFromGeometryFile, not by Part: importing an ACIS body
+    # *creates* the part, so the wires are added to it rather than the other way round.
+    parts = graph.created_names("Part", "PartFromGeometryFile")
     if not parts:
         _fail("the emitted script creates no Part at all")
     instanced: dict[str, int] = {}
@@ -429,7 +515,7 @@ def check_every_part_instanced_once(graph: ScriptGraph) -> None:
         ref = call.kw("part")
         producer = graph.resolve_call(ref)
         part_name = None
-        if producer is not None and producer.method == "Part":
+        if producer is not None and producer.method in ("Part", "PartFromGeometryFile"):
             part_name = producer.kw("name")
         elif isinstance(ref, str):
             part_name = ref
@@ -444,12 +530,26 @@ def check_every_part_instanced_once(graph: ScriptGraph) -> None:
             _fail("the part {!r} is instanced {} times; it must be instanced exactly once".format(name, count))
 
 
+def beam_assignments(graph: ScriptGraph) -> list[Call]:
+    """Every ``SectionAssignment`` whose region is a set of edges."""
+    return [call for call in graph.by_method("SectionAssignment") if not is_face_assignment(graph, call)]
+
+
+def face_assignments(graph: ScriptGraph) -> list[Call]:
+    """Every ``SectionAssignment`` whose region is a set of faces."""
+    return [call for call in graph.by_method("SectionAssignment") if is_face_assignment(graph, call)]
+
+
 def check_every_member_is_sectioned_and_oriented(graph: ScriptGraph) -> None:
-    """One wire, one section assignment, one orientation -- and all three on the same region."""
+    """One wire, one section assignment, one orientation -- and all three on the same region.
+
+    Over the EDGE assignments only. A model of plates alone draws no wire at all and is still a
+    model, so "no WirePolyLine" is a failure only when something claims to be a member.
+    """
     segments = _wire_segments(graph)
-    if not segments:
-        _fail("the emitted script draws no WirePolyLine at all")
-    assigned = [_region_key(graph, c) for c in graph.by_method("SectionAssignment")]
+    if not segments and not graph.by_method("SectionAssignment"):
+        _fail("the emitted script draws no WirePolyLine at all and assigns no section either")
+    assigned = [_region_key(graph, c) for c in beam_assignments(graph)]
     oriented = [_region_key(graph, c) for c in graph.by_method("assignBeamSectionOrientation")]
     if sorted(assigned) != sorted(set(assigned)):
         _fail("a region is given a section assignment more than once: {}".format(sorted(assigned)))
@@ -463,7 +563,7 @@ def check_every_member_is_sectioned_and_oriented(graph: ScriptGraph) -> None:
             "no orientation for {}, no section for {}".format(missing_orientation, missing_section)
         )
     if len(assigned) != len(segments):
-        _fail("{} members are drawn but {} regions get a section assignment".format(len(segments), len(assigned)))
+        _fail("{} members are drawn but {} regions get a beam section assignment".format(len(segments), len(assigned)))
 
 
 def _axis_positions(segment, c1, cyl_dir, span) -> list[float] | None:
@@ -495,7 +595,7 @@ def check_members_are_located_by_a_cylinder_spanning_them(graph: ScriptGraph) ->
     """
     segments = _wire_segments(graph)
     unmatched = list(segments)
-    for call in graph.by_method("SectionAssignment"):
+    for call in beam_assignments(graph):
         set_name = _region_key(graph, call)
         lookup = _region_lookup(graph, call, "SectionAssignment")
         c1, c2 = _cylinder_axis(lookup, graph)
@@ -727,11 +827,164 @@ def check_analysis_references_resolve(graph: ScriptGraph) -> None:
         )
 
 
+def check_plate_faces_are_sectioned(graph: ScriptGraph) -> None:
+    """Every plate's faces are located once, set once, and given one shell section of its thickness.
+
+    This is the licence-free half of "every face has a section with the plate's thickness". It reads
+    the script's own ``PLATES`` table -- which the guard inside the script also reads, and which adapy
+    computed from the ACIS body it authored -- and follows each plate through
+    ``_plate_faces`` -> ``Set`` -> ``SectionAssignment`` -> ``HomogeneousShellSection``.
+
+    Four things are asserted that nothing else here would catch:
+
+    * a plate named in ``PLATES`` and never located at all;
+    * a plate located twice, or a plate given a shell section twice;
+    * a face set given a beam orientation, which a face has no use for and which would mean the
+      writer had confused the two kinds of region;
+    * the thickness the section carries being something other than the plate's own ``t``. That is the
+      defect with no other witness: a shell section with the wrong thickness builds, meshes, solves
+      and is a different structure.
+    """
+    plates = graph.plates_table()
+    located = {}
+    for call in graph.by_method("_plate_faces"):
+        args = call.args
+        if len(args) < 4 or not isinstance(args[1], str):
+            _fail("the _plate_faces call on line {} does not name the plate it locates".format(call.lineno))
+        name = args[1]
+        if name in located:
+            _fail(
+                "the plate {!r} is located twice, on lines {} and {}; its faces would be sectioned "
+                "twice".format(name, located[name].lineno, call.lineno)
+            )
+        located[name] = call
+    expected = sorted({plate["name"] for rows in plates.values() for plate in rows})
+    if sorted(located) != expected:
+        _fail("the plates the script states ({}) are not the plates it locates ({})".format(expected, sorted(located)))
+    if not expected:
+        return
+
+    sections = graph.created_names("HomogeneousShellSection")
+    thickness_of = {name: call.kw("thickness") for name, call in sections.items()}
+    stated = {plate["name"]: plate for rows in plates.values() for plate in rows}
+    covered = {}
+    for call in face_assignments(graph):
+        set_call = _region_set(graph, call, "SectionAssignment")
+        set_name = set_call.kw("name")
+        if not isinstance(set_name, str):
+            _fail("the face SectionAssignment on line {} names no set".format(call.lineno))
+        if set_name not in stated:
+            _fail(
+                "the face SectionAssignment on line {} covers the set {!r}, which is not a plate the "
+                "script states".format(call.lineno, set_name)
+            )
+        if set_name in covered:
+            _fail(
+                "the plate {!r} is given a shell section twice, on lines {} and {}".format(
+                    set_name, covered[set_name], call.lineno
+                )
+            )
+        covered[set_name] = call.lineno
+        producer = graph.resolve_call(set_call.kw("faces"))
+        if producer is None or producer.method != "_plate_faces":
+            _fail(
+                "the Set {!r} on line {} takes its faces from {!r} rather than from _plate_faces, so "
+                "nothing says the faces are the ones adapy located".format(
+                    set_name, set_call.lineno, set_call.raw_kwargs.get("faces", "?")
+                )
+            )
+        if producer.args[1] != set_name:
+            _fail(
+                "the Set {!r} on line {} is built from the faces of the plate {!r}".format(
+                    set_name, set_call.lineno, producer.args[1]
+                )
+            )
+        section_name = call.kw("sectionName")
+        if section_name not in sections:
+            _fail("the plate {!r} is given the section {!r}, which is never created".format(set_name, section_name))
+        thickness = thickness_of[section_name]
+        wanted = stated[set_name]["t"]
+        if thickness != wanted:
+            _fail(
+                "the plate {!r} is {!r} thick in the model and its shell section {!r} is {!r}".format(
+                    set_name, wanted, section_name, thickness
+                )
+            )
+        if call.raw_kwargs.get("offsetType") != "MIDDLE_SURFACE":
+            _fail(
+                "the plate {!r} is assigned its section at offsetType={!r}; adapy's plate polygon is "
+                "the surface its own FEM mesh puts nodes on, so MIDDLE_SURFACE is the convention and "
+                "anything else moves the reference surface silently".format(
+                    set_name, call.raw_kwargs.get("offsetType", "?")
+                )
+            )
+    missing = sorted(set(stated) - set(covered))
+    if missing:
+        _fail("the plate(s) {} are located and never given a shell section".format(missing))
+    oriented = {_region_key(graph, c) for c in graph.by_method("assignBeamSectionOrientation")}
+    confused = sorted(set(stated) & oriented)
+    if confused:
+        _fail("the plate(s) {} are given a beam section orientation, which a face has no use for".format(confused))
+
+
+def check_the_acis_body_is_imported_for_every_plate_part(graph: ScriptGraph) -> None:
+    """A part with plates is built from an ``openAcis`` body, resolved relative to the script.
+
+    ``mdb.openAcis`` needs ``from caeModules import *`` (measured: without it ``mdb`` has no geometry
+    importers at all), which ``check_preamble`` already insists on. What is left to say is that the
+    body actually reaches ``PartFromGeometryFile``, that its filename is one the writer wrote beside
+    the script rather than a path from the machine that produced it, and that the scale is not taken
+    from the file -- adapy's coordinates are the model's units.
+    """
+    opened = []
+    for call in graph.by_method("openAcis"):
+        argument = call.args[0] if call.args else call.kw("fileName")
+        producer = graph.resolve_call(argument)
+        if producer is None or producer.method != "_beside_script":
+            _fail(
+                "the openAcis on line {} takes its path from a call this reader cannot follow, so the "
+                "body would be looked for in whatever directory the run started in".format(call.lineno)
+            )
+        name = producer.args[0] if producer.args else None
+        if not isinstance(name, str) or not name.endswith(".sat"):
+            _fail("the openAcis on line {} does not name a .sat file".format(call.lineno))
+        # A symbolic constant is a bare Name in the script, so it never becomes a literal: the
+        # source text is what says which constant was emitted.
+        if call.raw_kwargs.get("scaleFromFile") != "OFF":
+            _fail(
+                "the openAcis on line {} passes scaleFromFile={!r}; adapy's coordinates are the "
+                "model's units and must not be rescaled by the file".format(
+                    call.lineno, call.raw_kwargs.get("scaleFromFile", "?")
+                )
+            )
+        opened.append(call)
+    from_geometry = graph.by_method("PartFromGeometryFile")
+    if len(from_geometry) != len(opened):
+        _fail("{} ACIS bodies are opened and {} parts are built from one".format(len(opened), len(from_geometry)))
+    for call in from_geometry:
+        producer = graph.resolve_call(call.kw("geometryFile"))
+        if producer is None or producer.method != "openAcis":
+            _fail(
+                "the PartFromGeometryFile on line {} takes geometryFile={!r}, which is not an openAcis "
+                "result".format(call.lineno, call.raw_kwargs.get("geometryFile", "?"))
+            )
+        if producer.lineno > call.lineno:
+            _fail("the PartFromGeometryFile on line {} uses a body opened later".format(call.lineno))
+        if call.kw("combine") is not True:
+            _fail(
+                "the PartFromGeometryFile on line {} passes combine={!r}; the body adapy authors is one "
+                "body and has to arrive as one part".format(call.lineno, call.raw_kwargs.get("combine", "?"))
+            )
+
+
 ALL_CHECKS = (
     check_preamble,
     check_names_unique,
     check_profiles_and_materials_defined_before_use,
     check_sections_defined_before_use,
+    check_shell_sections_are_complete,
+    check_plate_faces_are_sectioned,
+    check_the_acis_body_is_imported_for_every_plate_part,
     check_every_part_instanced_once,
     check_every_member_is_sectioned_and_oriented,
     check_members_are_located_by_a_cylinder_spanning_them,

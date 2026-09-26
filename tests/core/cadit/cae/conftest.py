@@ -56,3 +56,52 @@ def frame_model() -> ada.Assembly:
         ada.Beam("brace", (3, 0, 4), (3, 2, 0), angle, "S355"),
     )
     return ada.Assembly("CaeFrame") / part
+
+
+@pytest.fixture(scope="session")
+def plate_model() -> ada.Assembly:
+    """The fixed model behind the plate half of the verification: two plates and two members.
+
+    A deck at ``z = 0`` and a bulkhead at ``y = 0`` meeting along the deck's own boundary edge, so
+    the two plates share topology in the ACIS body. A girder 0.5 m below the deck, and a column
+    from the girder up to ``(0, 2, 0)`` -- the **midpoint of the deck's boundary edge**, which is
+    the case that genuinely connects: measured, CAE splits that edge and the resulting node comes
+    out shared by shell and beam elements (``['S4R', 'S4R', 'B31']``).
+
+    Nothing here lies *on* a plate, and that is the point of the layout rather than an accident: a
+    member whose axis lies on a face cannot be expressed in the same CAE part as that face at all
+    (the shared edge produces no beam elements -- see
+    :data:`ada.cadit.cae.plates.BEAM_ON_PLATE_REFUSAL`), so a model that exercises plates *and*
+    beams together has to keep them apart in exactly this way.
+    """
+    part = ada.Part("PlateFrame")
+    part / (
+        ada.Plate("deck", [(0, 0), (6, 0), (6, 4), (0, 4)], 0.012, mat="S355"),
+        ada.Plate(
+            "bulkhead",
+            [(0, 0), (6, 0), (6, 3), (0, 3)],
+            0.010,
+            mat="S355",
+            origin=(0, 0, 0),
+            xdir=(1, 0, 0),
+            normal=(0, -1, 0),
+        ),
+        ada.Beam("girder", (0, 2, -0.5), (6, 2, -0.5), "IPE300", "S355"),
+        ada.Beam("column", (0, 2, -0.5), (0, 2, 0), "IPE300", "S355"),
+    )
+    return ada.Assembly("CaePlates") / part
+
+
+@pytest.fixture(scope="session")
+def plate_specimen_source(plate_model, tmp_path_factory) -> str:
+    """The writer's own output for :func:`plate_model`, for the graph checks to be shown teeth on.
+
+    Generated rather than committed, unlike ``specimen_frame_cae.py``: a hand-written plate specimen
+    would have to carry a hand-written ACIS body beside it, and the thing the plate checks read is
+    the ``PLATES`` table the writer computes from that body. The independent oracles for the
+    *content* are the golden file and the licensed run; what this specimen is for is showing that
+    each plate check rejects a defect.
+    """
+    workdir = tmp_path_factory.mktemp("cae_plate_specimen")
+    written = plate_model.get_part("PlateFrame").to_abaqus_cae_script(workdir / "specimen_plates.py")
+    return written[0].read_text(encoding="utf-8")

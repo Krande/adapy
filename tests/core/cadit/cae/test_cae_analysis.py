@@ -303,7 +303,7 @@ def test_the_mesh_block_seeds_types_and_meshes_each_part(tmp_path):
     assert calls[0].raw_kwargs == {}
     assert "from mesh import ElemType" in source
     assert "elemCode=element_code" in source, "the element code is passed, not hardcoded in the helper"
-    assert "_mesh_part('PortalFrame', part_0, 1.0, B32, 'B32')" in source
+    assert "_mesh_part('PortalFrame', part_0, 1.0, B32, 'B32', S4R, 'S4R')" in source
 
 
 def test_no_mesh_is_emitted_without_a_mesh_size(tmp_path):

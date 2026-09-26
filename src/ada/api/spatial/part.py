@@ -1803,8 +1803,10 @@ class Part(BackendGeom):
         unit_scale: float = 1.0,
         mesh_size: float | None = None,
         element_type: str = "B31",
+        shell_element_type: str = "S4R",
         job_name: str | None = None,
         submit: bool = False,
+        plates: bool = True,
     ) -> list[pathlib.Path]:
         """Write an Abaqus/CAE script that rebuilds this part as **editable geometry**.
 
@@ -1813,8 +1815,9 @@ class Part(BackendGeom):
         first-class model objects, but the geometry arrives as an *orphan mesh* —
         ``edges 0, faces 0, cells 0``. There is nothing to re-mesh, nothing to attach a
         brace to, nothing to edit. This writer builds the geometry instead: one CAE part
-        per adapy part, one wire per beam, with sections and orientations assigned to
-        edges rather than to elements.
+        per adapy part, one wire per beam and the plates as the ACIS body adapy already
+        writes, with sections and orientations assigned to edges and faces rather than to
+        elements.
 
         Beams are translated: straight ones as wires, and ``BeamCurved``/``BeamRevolve``
         along their own exact curve as a spline whose arc length is checked against the
@@ -1827,8 +1830,27 @@ class Part(BackendGeom):
         ``BeamTapered`` (CAE accepts one but segfaults writing its deck), a ``BeamSweep``
         whose path has several legs, a *varying* offset (one section offset cannot express
         ``e1 != e2``), an axial offset, an offset on a curve, and a member meeting another
-        away from its ends. Plates and other objects are omitted and listed in the
-        script's header and result sidecar.
+        away from its ends.
+
+        **Plates** are imported from the ACIS body adapy's own SAT writer produces — one
+        ``.sat`` per part, written beside the script — so arcs stay analytic, a curved plate
+        stays a NURBS patch, and a plate crossed by its neighbours arrives already split.
+        Each face is located by a point adapy computes strictly inside it (CAE discards the
+        ACIS face names on import, measured) and given a ``HomogeneousShellSection`` at
+        ``offsetType=MIDDLE_SURFACE``, which is adapy's own convention: the polygon a
+        ``Plate`` carries is the surface its FEM mesh puts nodes on. The emitted script
+        checks each plate's area and each face's normal against adapy's own.
+
+        A beam whose axis lies **on** a plate is refused, with the measurement: in
+        Abaqus/CAE an edge shared with a face takes a beam section, reads it back, exports a
+        ``*Beam Section`` keyword and then produces **no elements at all** when the part is
+        meshed. Neither half of such a pair can be dropped without writing the wrong
+        structure, so ``plates=False`` is the way to write such a model — beams as before,
+        every plate listed as untranslated. A beam meeting a plate at a *point* is fine and
+        is built; its node comes out shared by shell and beam elements.
+
+        Pipes, walls, shapes and masses are omitted and listed in the script's header and
+        result sidecar.
 
         The **analysis** comes too, when the model carries one: ``ada.fem.Bc`` records
         become ``DisplacementBC`` objects on assembly-level vertex sets (a non-zero
@@ -1850,6 +1872,12 @@ class Part(BackendGeom):
         :param mesh_size: element seed size in the model's own units, or ``None`` to emit
             the geometry — and any analysis definition, which attaches to vertices — without
             meshing it.
+        :param shell_element_type: the shell element the plate faces become: ``S4R``
+            (the default, and the code whose answer against a closed form was measured on
+            this writer's own output), ``S4`` or ``S8R``. Anything else is refused.
+        :param plates: ``False`` leaves every plate untranslated and listed as such, as this
+            writer did before plates were carried. Needed for a model whose members lie on
+            its plates, which cannot be expressed as one CAE part at all.
         :param element_type: the beam element the members become: ``B31`` (linear
             Timoshenko, the default and the like-for-like match for Sestra's ``BEAS``),
             ``B32`` (quadratic Timoshenko) or ``B33`` (cubic Euler-Bernoulli). Anything else
@@ -1859,9 +1887,11 @@ class Part(BackendGeom):
         :param submit: also run the job in the same CAE session, check that the reaction
             total is the load adapy described, and write the nodal displacements to
             ``<stem>.cae_displacements.json``. Needs ``mesh_size``.
-        :return: the paths this call wrote — the script, plus ``<stem>.name_map.json``
-            if sanitising names for CAE changed any of them. The script itself writes
-            ``<stem>.cae_build_result.json`` when CAE runs it.
+        :return: the paths this call wrote — the script, one ``<stem>_<part>.sat`` per part
+            that owns plates, plus ``<stem>.name_map.json`` if sanitising names for CAE
+            changed any of them. The ``.sat`` files are not optional: the script imports them
+            by a path relative to itself, so anything that moves the script has to move them
+            too. The script itself writes ``<stem>.cae_build_result.json`` when CAE runs it.
         """
         from ada.cadit.cae.writer import write_cae_script
 
@@ -1872,8 +1902,10 @@ class Part(BackendGeom):
             unit_scale=unit_scale,
             mesh_size=mesh_size,
             element_type=element_type,
+            shell_element_type=shell_element_type,
             job_name=job_name,
             submit=submit,
+            plates=plates,
         )
 
     def to_aveva_mac(

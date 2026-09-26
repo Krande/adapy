@@ -609,9 +609,13 @@ def test_a_real_genie_model_with_offsets_writes(fem_files, tmp_path):
     """
     assembly = ada.from_genie_xml(fem_files / "sesam/varying_offset/beams_constant_offset.xml")
 
-    _, text = emit(assembly, tmp_path)
+    # plates=False, because every one of this model's seven members lies ON one of its plates
+    # and that pair cannot be expressed in one CAE part at all -- see
+    # test_a_genie_model_whose_members_lie_on_its_plates_is_refused_by_name, which pins the
+    # refusal and the switch out of it. This test's subject is the offsets.
+    _, text = emit(assembly, tmp_path, plates=False)
 
-    plan = build_plan(assembly)
+    plan = build_plan(assembly, plates=False)
     offsets = {use.cae_section_name: use.offset for use in plan.sections if use.offset is not None}
     assert len(offsets) == 6, "six of the seven members carry an offset"
     assert offsets["sec_UNP180_S355_off_0_0p09"] == pytest.approx((0.0, 0.09))
@@ -916,34 +920,64 @@ def test_a_destination_that_is_not_a_script_is_refused(tmp_path):
 # --------------------------------------------------------------------------------------
 
 
-def test_a_plate_is_listed_as_untranslated_rather_than_dropped_in_silence(tmp_path):
+def test_a_plate_is_listed_as_untranslated_when_the_caller_says_plates_false(tmp_path):
+    """``plates=False`` is the pre-plate behaviour, and it has to stay reachable.
+
+    It is the only way to write a model whose members lie on its plates, which cannot be
+    expressed as one CAE part at all -- so the absence has to be visible, in the header and in
+    the sidecar, exactly as every other untranslated object's is.
+    """
     assembly = ada.Assembly("A")
     part = assembly.add_part(ada.Part("P"))
     part.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3), "IPE300"))
     part.add_plate(a_plate())
-    _, text = emit(assembly, tmp_path)
+    _, text = emit(assembly, tmp_path, plates=False)
     assert "NOT translated by this writer" in text
     assert "Plate 'pl1'" in text
     assert '"name": "pl1"' in text  # and in the machine-readable result sidecar
     assert "model.Part(name='P'," in text  # the beams are still built
+    assert "mdb.openAcis(" not in text  # and no ACIS body was imported
+    assert "HomogeneousShellSection" not in text
+    assert "PLATES = {" not in text
 
 
-def test_a_part_with_no_beams_becomes_no_cae_part(tmp_path):
+def test_a_part_with_no_beams_and_no_plates_becomes_no_cae_part(tmp_path):
     assembly = ada.Assembly("A")
     with_beams = assembly.add_part(ada.Part("Deck"))
     with_beams.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3), "IPE300"))
-    empty = assembly.add_part(ada.Part("Empty"))
-    empty.add_plate(a_plate())
+    assembly.add_part(ada.Part("Empty"))
     _, text = emit(assembly, tmp_path)
     assert text.count("model.Part(name=") == 1
     assert "'Empty'" not in text
 
 
-def test_a_model_with_no_beams_at_all_is_refused(tmp_path):
+def test_a_part_holding_only_plates_still_becomes_a_cae_part(tmp_path):
+    """A plate part needs no beams to be worth building, and it is built by a different call.
+
+    PartFromGeometryFile *creates* the part from the ACIS body, so ``model.Part(...)`` is not
+    what a plate part is made with -- which is why "a part with no beams is no part" could not
+    survive plates.
+    """
+    assembly = ada.Assembly("A")
+    assembly.add_part(ada.Part("Deck")).add_plate(a_plate())
+    _, text = emit(assembly, tmp_path)
+    assert "model.Part(name=" not in text
+    assert "model.PartFromGeometryFile(name='Deck'" in text
+    assert "mdb.openAcis(_beside_script('out_Deck.sat'), scaleFromFile=OFF)" in text
+
+
+def test_a_model_with_neither_beams_nor_plates_is_refused(tmp_path):
+    assembly = ada.Assembly("A")
+    assembly.add_part(ada.Part("P"))
+    with pytest.raises(CaeWriteError, match="holds no beams and no plates"):
+        assembly.to_abaqus_cae_script(tmp_path / "out.py")
+
+
+def test_a_model_of_plates_alone_is_refused_when_plates_are_switched_off(tmp_path):
     assembly = ada.Assembly("A")
     assembly.add_part(ada.Part("P")).add_plate(a_plate())
-    with pytest.raises(CaeWriteError, match="holds no beams"):
-        assembly.to_abaqus_cae_script(tmp_path / "out.py")
+    with pytest.raises(CaeWriteError, match="holds no beams and no plates"):
+        assembly.to_abaqus_cae_script(tmp_path / "out.py", plates=False)
 
 
 def test_a_zero_length_beam_is_refused(tmp_path):
@@ -1043,14 +1077,36 @@ def test_parts_are_emitted_in_name_order_whatever_order_they_were_added(tmp_path
 
 
 class FakeEdge:
-    def __init__(self, index):
+    """``faces`` is what tells a plate boundary edge from a wire: measured on Abaqus 2025,
+    ``edge.getFaces()`` is empty for a wire and holds the face indices for a boundary."""
+
+    def __init__(self, index, faces=()):
         self.index = index
         self.pointOn = ((float(index), 0.0, 0.0),)
+        self._faces = tuple(faces)
+
+    def getFaces(self):
+        return self._faces
+
+
+class FakeFace:
+    def __init__(self, index, area=1.0, normal=(0.0, 0.0, 1.0)):
+        self.index = index
+        self.pointOn = ((float(index), 0.5, 0.0),)
+        self._area = area
+        self._normal = normal
+
+    def getSize(self, printResults=True):
+        return self._area
+
+    def getNormal(self, point=None):
+        return self._normal
 
 
 class FakeSet:
-    def __init__(self, edges):
+    def __init__(self, edges, faces=()):
         self.edges = edges
+        self.faces = tuple(faces)
 
 
 class FakeVertex:
@@ -1068,13 +1124,26 @@ class FakePart:
 
     The attribute names and the shape of ``sectionAssignments[i].region`` are the ones
     measured on Abaqus 2025: ``region`` is a tuple whose first element is the set name.
+
+    ``sets`` maps a set name to the EDGE indices it holds, and ``face_sets`` to the FACE
+    indices -- two mappings rather than one, because the guard now has two clauses and an
+    assignment covering faces takes no beam orientation. ``boundary_edges`` names the edges
+    that bound a face, which are the ones legitimately carrying no section.
     """
 
-    def __init__(self, edge_count, sets, vertices=()):
-        self.edges = [FakeEdge(i) for i in range(edge_count)]
+    def __init__(self, edge_count, sets, vertices=(), faces=0, face_sets=None, boundary_edges=(), face_areas=None):
+        boundary = set(boundary_edges)
+        self.edges = [FakeEdge(i, faces=(0,) if i in boundary else ()) for i in range(edge_count)]
+        areas = face_areas or {}
+        self.faces = [FakeFace(i, area=areas.get(i, 1.0)) for i in range(faces)]
+        face_sets = face_sets or {}
         self.sets = {name: FakeSet([self.edges[i] for i in indices]) for name, indices in sets.items()}
-        self.sectionAssignments = [FakeAssignment(name) for name in sorted(sets)]
-        self.beamSectionOrientations = list(self.sectionAssignments)
+        for name, indices in face_sets.items():
+            self.sets[name] = FakeSet([], faces=[self.faces[i] for i in indices])
+        self.sectionAssignments = [FakeAssignment(name) for name in sorted(self.sets)]
+        # Only the EDGE assignments get an orientation, which is what CAE does: a shell
+        # section takes none, so counting every assignment would fail every plate model.
+        self.beamSectionOrientations = [FakeAssignment(name) for name in sorted(sets)]
         self.vertices = [FakeVertex(p) for p in vertices]
 
 
@@ -1189,7 +1258,7 @@ def test_guard_one_catches_a_part_with_no_geometry_at_all(tmp_path, monkeypatch)
     namespace["_guard_every_edge_sectioned"](FakeModel({"Frame": FakePart(0, {})}))
     assert exits == [1]
     result = json.loads((tmp_path / "out.cae_build_result.json").read_text())
-    assert "has no edges at all" in result["errors"][0]
+    assert "has no edges and no faces at all" in result["errors"][0]
 
 
 def test_guard_one_catches_an_edge_claimed_by_two_sections(tmp_path, monkeypatch):
@@ -1438,6 +1507,9 @@ def test_the_emitted_script_states_the_topology_and_both_tolerances(tmp_path, mo
         "Frame": {
             "edges": 6,
             "vertices": 7,
+            # A beams-only part: zero faces is what tells the guard to check the edge and
+            # vertex totals rather than the faces and the face-free edges.
+            "faces": 0,
             "edges_per_member": {"brace": 1, "col1": 1, "col2": 1, "girder": 2, "skew": 1},
         }
     }
@@ -2077,7 +2149,7 @@ def test_the_expected_topology_of_a_curve_is_stated_in_the_emitted_script(tmp_pa
     namespace, _ = load_emitted_script(text, tmp_path, monkeypatch)
 
     assert namespace["EXPECTED_TOPOLOGY"] == {
-        "Curves": {"edges": 2, "vertices": 3, "edges_per_member": {"BeamRevolve": 1, "tie": 1}}
+        "Curves": {"edges": 2, "vertices": 3, "faces": 0, "edges_per_member": {"BeamRevolve": 1, "tie": 1}}
     }
     assert namespace["CURVE_LENGTH_REL_TOL"] == 1e-04
 

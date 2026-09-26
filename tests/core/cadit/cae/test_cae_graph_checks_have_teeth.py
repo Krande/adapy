@@ -39,22 +39,32 @@ from .cae_script_graph import (
     check_members_are_located_by_a_cylinder_spanning_them,
     check_names_unique,
     check_orientation_vectors,
+    check_plate_faces_are_sectioned,
     check_preamble,
     check_profiles_and_materials_defined_before_use,
     check_python_floor,
     check_sections_defined_before_use,
+    check_shell_sections_are_complete,
+    check_the_acis_body_is_imported_for_every_plate_part,
 )
 
 
 @dataclass(frozen=True)
 class Defect:
-    """One writer defect, expressed as a single unique text edit of the specimen."""
+    """One writer defect, expressed as a single unique text edit of one specimen.
+
+    ``specimen`` names which one. ``"frame"`` is the hand-written, kernel-validated beams-only
+    script in ``files/``; ``"plates"`` is the writer's own output for ``plate_model``, because a
+    hand-written plate specimen would have to carry a hand-written ACIS body beside it and the plate
+    checks read the ``PLATES`` table the writer computes *from* that body.
+    """
 
     name: str
     anchor: str
     replacement: str
     caught_by: object
     message: str
+    specimen: str = "frame"
 
     def apply(self, source: str) -> str:
         return source.replace(self.anchor, self.replacement)
@@ -284,7 +294,88 @@ DEFECTS = (
         check_python_floor,
         "would print a tuple",
     ),
+    # --- plates: the shell section, the faces it covers, and the body they came from ------------
+    Defect(
+        "shell_section_thickness_is_not_a_length",
+        "model.HomogeneousShellSection(name='sh_0p012_S355', material='S355', thickness=0.012)",
+        "model.HomogeneousShellSection(name='sh_0p012_S355', material='S355', thickness=0.0)",
+        check_shell_sections_are_complete,
+        "which is not a length",
+        specimen="plates",
+    ),
+    Defect(
+        "shell_section_material_never_created",
+        "model.HomogeneousShellSection(name='sh_0p01_S355', material='S355', thickness=0.01)",
+        "model.HomogeneousShellSection(name='sh_0p01_S355', material='S275', thickness=0.01)",
+        check_shell_sections_are_complete,
+        "which is never created",
+        specimen="plates",
+    ),
+    Defect(
+        "a_plate_gets_the_wrong_thickness",
+        "sectionName='sh_0p012_S355', offsetType=MIDDLE_SURFACE",
+        "sectionName='sh_0p01_S355', offsetType=MIDDLE_SURFACE",
+        check_plate_faces_are_sectioned,
+        "thick in the model and its shell section",
+        specimen="plates",
+    ),
+    Defect(
+        "a_plate_is_never_given_a_shell_section",
+        "    part_0.SectionAssignment(region=plate_region_0_1, sectionName='sh_0p012_S355', "
+        "offsetType=MIDDLE_SURFACE,\n"
+        "                          thicknessAssignment=FROM_SECTION)\n",
+        "",
+        check_plate_faces_are_sectioned,
+        "located and never given a shell section",
+        specimen="plates",
+    ),
+    Defect(
+        "a_plate_is_sectioned_somewhere_other_than_its_mid_surface",
+        "sectionName='sh_0p01_S355', offsetType=MIDDLE_SURFACE",
+        "sectionName='sh_0p01_S355', offsetType=TOP_SURFACE",
+        check_plate_faces_are_sectioned,
+        "moves the reference surface silently",
+        specimen="plates",
+    ),
+    Defect(
+        "a_plate_is_located_twice",
+        "faces_0_1 = _plate_faces('PlateFrame', 'deck', part_0, PLATES['PlateFrame'][1]['points'])",
+        "faces_0_1 = _plate_faces('PlateFrame', 'bulkhead', part_0, PLATES['PlateFrame'][1]['points'])",
+        check_plate_faces_are_sectioned,
+        "is located twice",
+        specimen="plates",
+    ),
+    Defect(
+        "the_acis_body_is_rescaled_by_its_own_file",
+        ".sat'), scaleFromFile=OFF)",
+        ".sat'), scaleFromFile=ON)",
+        check_the_acis_body_is_imported_for_every_plate_part,
+        "must not be rescaled by the file",
+        specimen="plates",
+    ),
+    Defect(
+        "the_acis_body_is_looked_for_in_the_working_directory",
+        "_acis_0 = mdb.openAcis(_beside_script('specimen_plates_PlateFrame.sat'), scaleFromFile=OFF)",
+        "_acis_0 = mdb.openAcis('specimen_plates_PlateFrame.sat', scaleFromFile=OFF)",
+        check_the_acis_body_is_imported_for_every_plate_part,
+        "whatever directory the run started in",
+        specimen="plates",
+    ),
+    Defect(
+        "the_imported_body_arrives_as_several_parts",
+        "geometryFile=_acis_0, combine=True",
+        "geometryFile=_acis_0, combine=False",
+        check_the_acis_body_is_imported_for_every_plate_part,
+        "has to arrive as one part",
+        specimen="plates",
+    ),
 )
+
+
+@pytest.fixture
+def specimens(specimen_source, plate_specimen_source) -> dict:
+    """The sources a defect can be injected into, by the name its ``specimen`` field carries."""
+    return {"frame": specimen_source, "plates": plate_specimen_source}
 
 
 def test_the_specimen_is_accepted(specimen_source):
@@ -314,16 +405,17 @@ def test_the_defect_table_is_populated_and_unambiguous():
 
 
 @pytest.mark.parametrize("defect", DEFECTS, ids=lambda d: d.name)
-def test_each_anchor_matches_the_specimen_exactly_once(defect, specimen_source):
+def test_each_anchor_matches_the_specimen_exactly_once(defect, specimens):
     """A mutation that matched nothing -- or matched twice -- would prove nothing about the checker."""
-    assert specimen_source.count(defect.anchor) == 1, "anchor for {!r} is not unique".format(defect.name)
-    assert defect.apply(specimen_source) != specimen_source
+    source = specimens[defect.specimen]
+    assert source.count(defect.anchor) == 1, "anchor for {!r} is not unique".format(defect.name)
+    assert defect.apply(source) != source
 
 
 @pytest.mark.parametrize("defect", DEFECTS, ids=lambda d: d.name)
-def test_the_named_check_rejects_the_defect(defect, specimen_source):
+def test_the_named_check_rejects_the_defect(defect, specimens):
     """The declared check must reject it on its own, so 'which check caught it' is unambiguous."""
-    mutated = defect.apply(specimen_source)
+    mutated = defect.apply(specimens[defect.specimen])
     graph = ScriptGraph(mutated, name="mutated/" + defect.name)
 
     with pytest.raises(CaeGraphError) as caught:
@@ -333,10 +425,10 @@ def test_the_named_check_rejects_the_defect(defect, specimen_source):
 
 
 @pytest.mark.parametrize("defect", DEFECTS, ids=lambda d: d.name)
-def test_the_whole_pass_rejects_the_defect(defect, specimen_source):
+def test_the_whole_pass_rejects_the_defect(defect, specimens):
     """And the pass a caller actually runs must reject it too, whatever order the checks run in."""
     with pytest.raises(CaeGraphError):
-        check_emitted_script(defect.apply(specimen_source), name="mutated/" + defect.name)
+        check_emitted_script(defect.apply(specimens[defect.specimen]), name="mutated/" + defect.name)
 
 
 # --------------------------------------------------------------------------------------------------
