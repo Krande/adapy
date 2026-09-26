@@ -23,6 +23,11 @@ even as an empty dict, which retains nothing — disables the convention. Passin
 or no metadata, falls through to the convention; if neither applies, no DOF gets code 4
 and nothing is logged. :func:`retained_dofs` is the entry point that applies that rule.
 
+A prescribed displacement (a settlement) takes two cards, not one: FIX code 2 on BNBCD says
+*which* DOFs are prescribed and a BNDISPL record in a load case says *by how much*. See
+:func:`prescribed_displacements` and :func:`bndispl_str`; neither card does anything without the
+other, measured against Sestra.
+
 Everything else in here is the BLDEP companion codes; see :func:`bnbcd_str`.
 """
 
@@ -45,9 +50,15 @@ if TYPE_CHECKING:
 # every DOF carrying it becomes part of the superelement's external interface.
 FREE = 0
 FIXED = 1
-PRESCRIBED = 2  # never written: ada's Bc magnitudes are not carried into BNDISPL yet
+PRESCRIBED = 2  # a settlement; its value goes on a BNDISPL record, see bndispl_str
 DEPENDENT = 3
 RETAINED = 4
+
+#: BNDISPL's DTYPE. "Invalid DTYPE on BNDISPL card. Supported values are 1 (displacement) and
+#: 3 (acceleration)" -- Sestra V11.3-00's own diagnostic, in ``Bin/DataAccess.dll``. A ``Bc``
+#: magnitude is a displacement; DTYPE 3 written instead leaves a static run with no
+#: displacement result at all (measured, see :func:`bndispl_str`).
+DTYPE_DISPLACEMENT = 1
 
 #: ``to_fem(..., metadata={RETAINED_KEY: {"<nset name>": [1, 2, 3, 4, 5, 6]}})``
 RETAINED_KEY = "sesam_retained_dofs"
@@ -247,19 +258,99 @@ def _fixed_dofs(bc) -> set[int]:
     return {int(d) for d in dofs if d is not None and not isinstance(d, str)}
 
 
+def prescribed_displacements(fems: Sequence[FEM]) -> dict[int, dict[int, float]]:
+    """``{node id: {dof: value}}`` -- the settlements that become BNDISPL records.
+
+    A ``Bc`` carrying ``magnitudes`` is a *prescribed* displacement, not a support: the Abaqus
+    data line ``push, 3, 3, -0.02`` moves that node 20 mm down. It used to be written as an
+    ordinary clamp (FIX code 1) with the value dropped, so a settlement silently became a rigid
+    support -- a different structure, and one whose reaction forces are the ones the engineer
+    is usually after.
+
+    Only a nonzero magnitude counts. A prescribed zero *is* a fixed support, so writing it as
+    code 2 plus a BNDISPL of 0.0 would change the text of every deck that has one without
+    changing the model it describes.
+
+    ``fems`` is the same sequence :func:`bnbcd_str` takes -- the writer passes the BCs BNBCD can
+    hold (``not_held.bc_is_held``), so a velocity BC's magnitude cannot arrive here as a
+    displacement. Two BCs prescribing one DOF differently leave the later one's value, which is
+    how the fixed DOFs of two BCs already merge.
+    """
+    out: dict[int, dict[int, float]] = {}
+    for fem in fems:
+        if fem is None:
+            continue
+        for bc in fem.bcs:
+            if bc.fem_set.type != "nset":
+                continue
+            for dof, magnitude in zip(bc.dofs, bc.magnitudes or ()):
+                if isinstance(dof, str) or magnitude is None or float(magnitude) == 0.0:
+                    continue
+                for mem in bc.fem_set.members:
+                    out.setdefault(int(mem.id), {})[int(dof)] = float(magnitude)
+    return out
+
+
+def bndispl_str(prescribed: dict[int, dict[int, float]], ndofs: NodeDofs | None = None, lid: int = 1) -> str:
+    """The BNDISPL block: one record per node with a prescribed displacement, node id order.
+
+    ``BNDISPL  LLC  DTYPE  COMPLX  0`` then ``NODENO  NDOF`` and NDOF values -- the same
+    four-field FORTRAN rows as BNLOAD (``write_loads.load_force``). ``COMPLX`` 0: no phase
+    shift, so no imaginary half follows ("BNDISPL card is too short for complex loads and dof
+    count given in NDOF field", Sestra V11.3-00's own diagnostic).
+
+    The record lives in a **load case** (``LLC``), which is the part of this that is not obvious:
+    a prescribed displacement is loading in Sesam, not boundary data. Measured on a 1 m IPE300
+    cantilever, tip dz = -0.01 prescribed, Sestra V11.3-00 solving it:
+
+    * FIX code 2 **and** this record: the SIN gives the tip Z = -0.01 exactly, and its rotation
+      free (RY = 6.907e-3), which is the settlement asked for.
+    * FIX code 2, no BNDISPL: "WARNING ... No load is specified", no displacement result at all.
+    * this record, FIX code 1 instead of 2: the value is ignored, tip Z = 0.0.
+
+    So the two cards are one statement and neither half is optional. ``lid`` is the load case
+    number the caller is writing (``write_loads.step_loads_str`` owns that numbering).
+    """
+    from .writer import ALL_SIX_DOF
+
+    if ndofs is None:
+        ndofs = ALL_SIX_DOF
+
+    out = ""
+    for nid in sorted(prescribed or {}):
+        ndof = ndofs.ndof(nid)
+        beyond = sorted(dof for dof in prescribed[nid] if dof > ndof)
+        if beyond:
+            raise ValueError(
+                f"sesam writer: a displacement is prescribed on dof(s) {beyond} of node {nid}, which has "
+                f"{ndof} dofs (NDOF={ndof}). A node attached only to solid elements has no rotational "
+                "dofs for a prescribed rotation to act on."
+            )
+        vals = [prescribed[nid].get(dof, 0.0) for dof in range(1, ndof + 1)]
+        out += write_ff(
+            "BNDISPL",
+            [(lid, DTYPE_DISPLACEMENT, 0, 0), (nid, ndof) + tuple(vals[:2]), tuple(vals[2:ndof])],
+        )
+    return out
+
+
 def bnbcd_str(
     fems: Sequence[FEM],
     lin_deps: Sequence[BldepRecord] = (),
     retained: dict[int, tuple[int, ...]] | None = None,
     ndofs: NodeDofs | None = None,
+    prescribed: dict[int, dict[int, float]] | None = None,
 ) -> str:
     """The BNBCD block: one record per node that has anything to say about its DOFs.
 
     Three sources are merged into the six FIX codes of each node:
 
-    * ``fem.bcs`` -> code 1 on every DOF the boundary condition names. Two BCs touching
-      the same node merge into one record holding the union of their DOFs (the writer
-      used to emit one record per BC, which left the same node declared twice).
+    * ``fem.bcs`` -> code 1 on every DOF the boundary condition names, or code 2 where
+      ``prescribed`` (``{node id: {dof: value}}`` from :func:`prescribed_displacements`)
+      carries a value for it -- a settlement, whose value goes on the BNDISPL record
+      :func:`bndispl_str` writes. Two BCs touching the same node merge into one record
+      holding the union of their DOFs (the writer used to emit one record per BC, which
+      left the same node declared twice).
     * ``lin_deps`` (the BLDEP records, see ``write_constraints.BldepRecord``) -> code 3
       on each dependent DOF of the dependent node, and an explicit all-free record for
       each independent (master) node. BLDEP is only valid alongside these codes, manual
@@ -322,12 +413,13 @@ def bnbcd_str(
             fixed_dofs = _fixed_dofs(bc)
             for mem in bc.fem_set.members:
                 node = node_codes(mem.id)
+                settled = (prescribed or {}).get(int(mem.id), {})
                 for dof in range(1, 7):
-                    # As before: a named DOF is written as fixed regardless of its
-                    # magnitude. Prescribed values (code 2) are not emitted by ada.
+                    # A named DOF is fixed unless a magnitude was given for it, in which case
+                    # it is prescribed and BNDISPL carries the value.
                     if dof in fixed_dofs:
                         check_dof(mem.id, dof, f'boundary condition "{bc.name}"')
-                        node[dof - 1] = FIXED
+                        node[dof - 1] = PRESCRIBED if dof in settled else FIXED
 
     chained_master_warned = False
     for record in lin_deps:

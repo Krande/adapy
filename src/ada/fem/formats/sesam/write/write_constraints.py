@@ -65,7 +65,9 @@ def bldep_records(fem: FEM, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
     if ndofs is None:
         ndofs = ALL_SIX_DOF
     rep = report()
-    records: list[BldepRecord] = []
+    # Each record is carried with the name of the constraint that produced it: ``_merged`` has to
+    # say which two constraints disagree when they claim one (slave_dof, master_dof).
+    owned: list[tuple[str, BldepRecord]] = []
     claimed: dict[tuple[int, int], str] = {}
     for constraint in fem.constraints.values():
         # A rigid body links every slave node rigidly to the master (reference) node — the
@@ -90,34 +92,93 @@ def bldep_records(fem: FEM, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
         else:
             rep.omitted(STAGE, "Constraint", constraint.name, f'a "{constraint.type}" constraint has no Sesam form')
             continue
-        records += new
-        for key in {(r.slave, dof) for r in new for dof in r.slave_dofs}:
+        owned += [(constraint.name, r) for r in new]
+        for key in sorted({(r.slave, dof) for r in new for dof in r.slave_dofs}):
             first = claimed.setdefault(key, constraint.name)
             if first != constraint.name:
                 rep.suspect(
                     STAGE,
                     "Constraint",
                     constraint.name,
-                    "makes a dof dependent that another constraint already does; Sesam sums linear dependencies",
+                    "makes a dof dependent that another constraint already does; nothing in the "
+                    "deck says which of the two relations is meant",
                     node=key[0],
                     dof=key[1],
                     other=first,
                 )
 
-    return _merged(records)
+    return _merged(owned)
 
 
-def _merged(records: list[BldepRecord]) -> list[BldepRecord]:
-    """One record per (slave, master) pair, in first-seen order.
+#: How close two betas have to be to count as the same dependency declared twice rather than two
+#: different ones. Duplicates come from the same arithmetic (the same ``*Equation`` read twice,
+#: the same lever arm through ``LinDep``) and agree bit for bit; the window is here only so that
+#: float noise is not read as a deliberately different coefficient.
+_BETA_SAME = 1e-12
+
+
+def _merged(owned: list[tuple[str, BldepRecord]]) -> list[BldepRecord]:
+    """One record per (slave, master) pair, and one term per (slave_dof, master_dof), in
+    first-seen order. ``owned`` pairs each record with the name of the constraint it came from.
 
     The manual (BLDEP, section 7.2.14): "The same combination of SLAVE and MASTER may occur
     only once." Two equations relating the same pair of nodes -- or an equation with two
     terms on one independent node -- therefore share one record holding all their terms.
+
+    A ``(slave_dof, master_dof)`` may not repeat *inside* that record either, and used to: the
+    terms were concatenated, and Sestra adds the betas of a repeated pair together. A deck
+    declaring ``u(1,1) = 1.0 * u(2,1)`` twice came out as ``NDDOF 1 NDEP 2`` with beta 1.0
+    twice, which is ``u(1,1) = 2.0 * u(2,1)`` -- the dependency doubled, with nothing in the
+    written deck to show it had been meant once. What produced the repeat decides what to do
+    with it:
+
+    * the same beta twice is one dependency declared twice (the same ``*Equation`` pasted in
+      again, two Abaqus keywords the reader turned into the same relation). Written once, and
+      noted -- nothing is lost.
+    * two different betas are two incompatible statements about one dof: a ``*Tie`` and an
+      ``*Equation`` over the same node pair, which is a modelling error in the source deck.
+      Summing them is not what either constraint says and neither is averaging, so the later
+      one is refused by name in the report and the first-declared relation is what is written.
     """
-    merged: dict[tuple[int, int], list] = {}
-    for r in records:
-        merged.setdefault((r.slave, r.master), []).extend(r.terms)
-    return [BldepRecord(s, m, tuple(terms)) for (s, m), terms in merged.items()]
+    rep = report()
+    merged: dict[tuple[int, int], dict[tuple[int, int], float]] = {}
+    owners: dict[tuple[int, int, int, int], str] = {}
+    for name, r in owned:
+        terms = merged.setdefault((r.slave, r.master), {})
+        for s_dof, m_dof, beta in r.terms:
+            first = owners.setdefault((r.slave, r.master, s_dof, m_dof), name)
+            if (s_dof, m_dof) not in terms:
+                terms[(s_dof, m_dof)] = beta
+                continue
+            kept = terms[(s_dof, m_dof)]
+            if abs(beta - kept) <= _BETA_SAME * max(1.0, abs(beta), abs(kept)):
+                rep.note(
+                    STAGE,
+                    "Constraint",
+                    name,
+                    "declares a linear dependency another constraint already declares; it is "
+                    "written once, as Sestra would otherwise add the two together",
+                    node=r.slave,
+                    master=r.master,
+                    dof=s_dof,
+                    beta=beta,
+                    other=first,
+                )
+            else:
+                rep.omitted(
+                    STAGE,
+                    "Constraint",
+                    name,
+                    "gives a dof a different dependency on the same master dof than another "
+                    "constraint already does; BLDEP holds one, so the first one is kept",
+                    node=r.slave,
+                    master=r.master,
+                    dof=s_dof,
+                    beta=beta,
+                    kept=kept,
+                    other=first,
+                )
+    return [BldepRecord(s, m, tuple((sd, md, b) for (sd, md), b in terms.items())) for (s, m), terms in merged.items()]
 
 
 def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: NodeDofs) -> None:

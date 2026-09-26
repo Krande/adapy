@@ -1303,13 +1303,23 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
                 mpc_dict[(f"{block_name}_{t.lower()}", t)] = mpc_dict.pop((block_name, t))
 
     def mpc_nodes(refs) -> list:
-        """The nodes an MPC names: a node id, or every node of a named set."""
+        """The nodes an MPC names: a node -- by bare id, or instance-qualified as ``p-1.4`` --
+        or every node of a named set.
+
+        The instance-qualified form is what Abaqus/CAE writes for an ``*MPC`` inside an
+        ``*Assembly``, and ``get_set_from_assembly`` resolves it to the *node*, not to a set:
+        ``BEAM, P-1.4, P-1.6`` reached ``ref.members`` and took the whole import down with
+        ``AttributeError: 'NodeProxy' object has no attribute 'members'``. The same deck written
+        flat, with bare ids, read fine, so only assembly decks were affected.
+        """
         nodes = []
         for ref in refs:
             if isinstance(ref, (int, np.integer)):
                 nodes.append(fem.nodes.from_id(int(ref)))
-            else:
+            elif isinstance(ref, FemSet):
                 nodes.extend(ref.members)
+            else:
+                nodes.append(ref)
         return nodes
 
     def get_mpc(mpc_name, mpc_type, mpc_values):
