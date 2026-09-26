@@ -23,15 +23,27 @@ def _deck_for(section: str, tmp_path):
     return (tmp_path / "m" / "mT1.FEM").read_text()
 
 
-def test_channel_falls_back_to_the_general_section(tmp_path):
-    """No GCHAN writer, so the GBEAMG stiffness record has to stand on its own."""
+def test_channel_writes_gchan_and_reads_back(tmp_path):
+    """A channel is a GCHAN (manual 7.3.4) beside its GBEAMG stiffness; it used to be the
+    GBEAMG alone, and read back as a general section."""
     text = _deck_for("UNP180x10", tmp_path)
-    assert "GCHAN" not in text
     match = cards.GBEAMG.to_ff_re().search(text)
     assert match is not None
     # The stiffness is really there, not a record of zeros: UNP180 has an area of
     # about 2.8e-3 m2.
     assert float(match.groupdict()["area"]) > 1e-3
+
+    sec = ada.Section.from_str("UNP180x10")
+    back = next(iter(ada.from_fem(tmp_path / "m" / "mT1.FEM").get_by_name("T1").sections))
+    assert back.type == sec.type
+    assert (back.h, back.w_top, back.w_btn, back.t_w, back.t_ftop, back.t_fbtn) == (
+        sec.h,
+        sec.w_top,
+        sec.w_btn,
+        sec.t_w,
+        sec.t_ftop,
+        sec.t_fbtn,
+    )
 
 
 def test_circular_writes_a_thickness_instead_of_none(tmp_path):

@@ -276,9 +276,9 @@ def test_reading_a_deck_creates_no_empty_bc_for_the_supernodes(tmp_path, both_re
     assert bc_nodes == set(fixed_ids), "only the real support comes back as a Bc"
     for bc in fem.bcs:
         assert bc.dofs == [1, 2, 3]
-    assert [s.name for s in fem.sets if s.name.startswith("bc") and s.name.endswith("_set")] == [
-        f"bc{nid}_set" for nid in sorted(fixed_ids)
-    ]
+    # The support comes back on the node set it was written on, not on one generated set per node.
+    assert [bc.fem_set.name for bc in fem.bcs] == ["support_set"]
+    assert [s.name for s in fem.sets if s.name.startswith("bc") and s.name.endswith("_set")] == []
 
 
 def test_write_read_write_keeps_the_same_code_4_nodes(tmp_path, both_reader_paths):

@@ -145,6 +145,11 @@ def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata
         return False
 
 
+#: Formats whose writer writes a multi-part assembly as one (parts, instances, assembly-level
+#: data), so the model is handed over as it is rather than merged into one part first.
+_WRITES_ASSEMBLIES = frozenset({FEATypes.ABAQUS})
+
+
 def write_to_fem(
     assembly: Assembly,
     name: str,
@@ -175,9 +180,14 @@ def write_to_fem(
         # Multi-instance models: the single-part writers (Sesam/MED/Genie) need one merged FEM.
         # Build a TEMPORARY single-part assembly from a non-destructive merge and export that,
         # so the caller's assembly tree (and its per-part FEMs) is never mutated.
+        #
+        # Not for a writer that writes assemblies itself: Abaqus has parts, instances and
+        # assembly-level data, and merging first renamed every part and dropped what the merge
+        # does not carry (assembly-level amplitudes, interactions, reference points) -- so a
+        # deck read and written back came out as a different model.
         write_assembly = assembly
         fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
-        if len(fem_parts) > 1:
+        if len(fem_parts) > 1 and fem_format not in _WRITES_ASSEMBLIES:
             from ada import Assembly
             from ada.fem.concat import concatenate_fem_to_single_part
 

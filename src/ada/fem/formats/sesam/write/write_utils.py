@@ -1,4 +1,39 @@
+import contextlib
+import contextvars
+
 import numpy as np
+
+#: Significant digits a Sesam number keeps: every field is E16.8 (a digit, 8 decimals).
+SIGNIFICANT_DIGITS = 9
+
+
+class Rounding:
+    """How much E16.8 took off the numbers written while it was active: a count, and the
+    worst relative change."""
+
+    def __init__(self):
+        self.count = 0
+        self.max_rel = 0.0
+
+    def record(self, value: float, written: float) -> None:
+        self.count += 1
+        rel = abs(written - value) / abs(value)
+        if rel > self.max_rel:
+            self.max_rel = rel
+
+
+_rounding: contextvars.ContextVar[Rounding | None] = contextvars.ContextVar("sesam_rounding", default=None)
+
+
+@contextlib.contextmanager
+def track_rounding():
+    """Count the numbers :func:`format_data` rounds inside the block."""
+    tracker = Rounding()
+    token = _rounding.set(tracker)
+    try:
+        yield tracker
+    finally:
+        _rounding.reset(token)
 
 
 def write_ff(flag: str, data):
@@ -35,9 +70,11 @@ def format_data(d):
     # common case.
     if isinstance(d, (float, int, np.integer, np.floating)) and not isinstance(d, bool):
         d = make_zero(d)
-        if d >= 0:
-            return f"  {d:<14.8E}"
-        return f" {d:<15.8E}"
+        text = f"  {d:<14.8E}" if d >= 0 else f" {d:<15.8E}"
+        tracker = _rounding.get()
+        if tracker is not None and float(text) != d:
+            tracker.record(float(d), float(text))
+        return text
     elif isinstance(d, str):
         return d
     else:

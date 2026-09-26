@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from .helper_utils import get_instance_name
+from ..grammar import format_number, render_keyword
+from .helper_utils import get_instance_name, is_connector_set
 from .write_orientations import csys_str
 
 if TYPE_CHECKING:
@@ -11,21 +12,24 @@ if TYPE_CHECKING:
     from ada.fem import Connector, ConnectorSection
 
 
-def format_2d_column_data(data: list[list[str | int]], column_widths: list[int], separator: str = ", ") -> str:
-    # Prepare the format string based on column widths
-    format_str = separator.join(f"{{:<{width}}}" for width in column_widths)
-
-    # Format each row in the data
-    formatted_rows = [format_str.format(*row) for row in data]
-
-    # Join all rows into a single string with newline characters
-    result = "\n".join(formatted_rows)
-
-    return result
-
-
 def connectors_str(fem: FEM) -> str:
     return "\n".join([connector_str(con, True) for con in fem.elements.connectors])
+
+
+def connector_sets_str(fems) -> str:
+    """The parts' connector-only element sets, at assembly level where their connectors are.
+    The set named after a connector is written with it (connector_str); any other -- a set a BC
+    or history output names -- was not written at all, so what referred to it named nothing."""
+    out = ""
+    for fem in fems:
+        own = {con.name for con in fem.elements.connectors}
+        for fem_set in fem.sets:
+            if fem_set.type != "elset" or fem_set.name in own or not is_connector_set(fem_set):
+                continue
+            ids = [str(m.id) for m in fem_set.members]
+            rows = [", ".join(ids[i : i + 16]) for i in range(0, len(ids), 16)]
+            out += "\n" + render_keyword("Elset", [("elset", fem_set.name)], rows)
+    return out
 
 
 def connector_sections_str(fem: FEM) -> str:
@@ -33,96 +37,91 @@ def connector_sections_str(fem: FEM) -> str:
 
 
 def connector_str(connector: "Connector", written_on_assembly_level: bool) -> str:
-    csys_ref = "" if connector.csys is None else f'\n "{connector.csys.name}",'
+    section_data = [f" {connector.con_type},"]
+    if connector.csys is not None:
+        section_data.append(f' "{connector.csys.name}",')
 
     end1 = get_instance_name(connector.n1, written_on_assembly_level)
     end2 = get_instance_name(connector.n2, written_on_assembly_level)
-    return f"""**
-** ----------------------------------------------------------------
-** Connector element representing {connector.name}
-** ----------------------------------------------------------------
-**
-*Elset, elset={connector.name}
- {connector.id},
-*Element, type=CONN3D2
- {connector.id}, {end1}, {end2}
-*Connector Section, elset={connector.name}, behavior={connector.con_sec.name}
- {connector.con_type},{csys_ref}
-**
-{csys_str(connector.csys, written_on_assembly_level)}
-**"""
+    rule = "-" * 64
+    return (
+        render_keyword(
+            "Elset",
+            [("elset", connector.name)],
+            [f" {connector.id},"],
+            ["", rule, f"Connector element representing {connector.name}", rule, ""],
+        )
+        + render_keyword("Element", [("type", "CONN3D2")], [f" {connector.id}, {end1}, {end2}"])
+        + render_keyword(
+            "Connector Section",
+            [("elset", connector.name), ("behavior", connector.con_sec.name)],
+            section_data,
+        )
+        + f"**\n{csys_str(connector.csys, written_on_assembly_level)}\n**"
+    )
+
+
+def _component_blocks(keyword: str, comp, extra=()) -> str:
+    """One ``*<keyword>`` block per component. ``comp`` is a scalar (component 1) or a list
+    indexed by component - 1 whose entries are scalars (linear) or ``[[x, y, ...], ...]``
+    tables (nonlinear, one dependency column when a row has more than two values)."""
+    if isinstance(comp, (int, float)):
+        return render_keyword(keyword, [("component", 1), *extra], [f"{format_number(comp)},"])
+    out = ""
+    for i, entry in enumerate(comp):
+        if entry is None:  # a component with no value of its own
+            continue
+        if not isinstance(entry, Iterable):
+            out += render_keyword(keyword, [("component", i + 1), *extra], [f"{format_number(entry)},"])
+        else:
+            rows = [", ".join(format_number(x) for x in row) for row in entry]
+            # Every table carries its OWN component number: nonlinear damping used to be
+            # written as component=1 for every component, so they all landed on DOF 1.
+            params = [("nonlinear", None), ("component", i + 1), ("DEPENDENCIES", 1), *extra]
+            out += render_keyword(keyword, params, rows)
+    return out
 
 
 def connector_elastic_str(con_sec: ConnectorSection) -> str:
-    elast = con_sec.elastic_comp
-    if isinstance(elast, float):
-        return """\n*Connector Elasticity, component=1\n{0:.3E},""".format(elast)
-
-    conn_txt = ""
-    for i, comp in enumerate(elast):
-        if isinstance(comp, Iterable) is False:
-            conn_txt += """\n*Connector Elasticity, component={1} \n{0:.3E},""".format(comp, i + 1)
-        else:
-            conn_txt += f"\n*Connector Elasticity, nonlinear, component={i + 1}, DEPENDENCIES=1"
-            for val in comp:
-                conn_txt += "\n" + ", ".join([f"{x:>12.3E}" if u <= 1 else f",{x:>12d}" for u, x in enumerate(val)])
-
-    return conn_txt
-
-
-def connector_plastic_str(con_sec: ConnectorSection) -> str:
-    plastic_comp = con_sec.plastic_comp
-    if plastic_comp is None:
-        return ""
-
-    conn_txt = ""
-    for i, comp in enumerate(plastic_comp):
-        conn_txt += """\n*Connector Plasticity, component={}\n*Connector Hardening, definition=TABULAR""".format(i + 1)
-        for val in comp:
-            force, motion, rate = val
-            conn_txt += "\n{}, {}, {}".format(force, motion, rate)
-
-    return conn_txt
+    return _component_blocks("Connector Elasticity", con_sec.elastic_comp)
 
 
 def connector_damping_str(con_sec: ConnectorSection) -> str:
-    extra_header_str = con_sec.metadata.get("abaqus", {}).get("extra_damper_args", "")
-    if extra_header_str:
-        extra_header_str = f", {extra_header_str}"
+    extra = con_sec.metadata.get("abaqus", {}).get("extra_damper_args", "")
+    extra_params = [(extra, None)] if extra else []
+    return _component_blocks("Connector Damping", con_sec.damping_comp, extra_params)
 
-    damping = con_sec.damping_comp
-    if isinstance(damping, float):
-        return f"\n*Connector Damping, component=1{extra_header_str}\n{damping:.3E},"
 
-    conn_txt = ""
-    for i, comp in enumerate(damping):
-        conn_txt += "\n*Connector Damping, "
-        if isinstance(comp, float):
-            conn_txt += f"component={i + 1} "
-            conn_txt += f"\n{comp:.3E},"
-        else:
-            conn_txt += f"component=1, nonlinear, DEPENDENCIES=1{extra_header_str}"
-            table_str = format_2d_column_data(comp, [12] * len(comp[0]))
-            conn_txt += f"\n{table_str}"
-
-    return conn_txt
+def connector_plastic_str(con_sec: ConnectorSection) -> str:
+    if con_sec.plastic_comp is None:
+        return ""
+    out = ""
+    for i, comp in enumerate(con_sec.plastic_comp):
+        out += render_keyword("Connector Plasticity", [("component", i + 1)])
+        out += render_keyword(
+            "Connector Hardening",
+            [("definition", "TABULAR")],
+            [", ".join(format_number(v) for v in row) for row in comp],
+        )
+    return out
 
 
 def connector_rigid_str(con_sec: ConnectorSection) -> str:
-    rigid_dofs = con_sec.rigid_dofs
-
-    if rigid_dofs is None:
+    if con_sec.rigid_dofs is None:
         return ""
-
-    return "\n*Connector Elasticity, rigid\n " + ", ".join(["{0}".format(x) for x in rigid_dofs])
+    return render_keyword(
+        "Connector Elasticity", [("rigid", None)], [" " + ", ".join(str(x) for x in con_sec.rigid_dofs)]
+    )
 
 
 def connector_section_str(con_sec: "ConnectorSection") -> str:
-    conn_txt = """*Connector Behavior, name={0}""".format(con_sec.name)
-
-    conn_txt += connector_elastic_str(con_sec)
-    conn_txt += connector_damping_str(con_sec)
-    conn_txt += connector_plastic_str(con_sec)
-    conn_txt += connector_rigid_str(con_sec)
-
-    return conn_txt
+    """The ``*Connector Behavior`` block and the blocks that belong to it, newline-terminated
+    -- the writer writes these back to back, and a section that ended mid-line used to glue
+    the next ``*Connector Behavior`` onto its last data line, where the reader took it as data."""
+    return (
+        render_keyword("Connector Behavior", [("name", con_sec.name)])
+        + connector_elastic_str(con_sec)
+        + connector_damping_str(con_sec)
+        + connector_plastic_str(con_sec)
+        + connector_rigid_str(con_sec)
+    )

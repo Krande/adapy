@@ -22,7 +22,8 @@ def test_read_shell_section(shell_beam_section, re_in, part):
     res = list(get_shell_sections_from_inp(shell_beam_section, part.fem))
     assert len(res) == 1
     m = res[0]
-    assert m.name == "sh1"
+    # The name CAE wrote in the ``** Section:`` comment above the block, not a generated one.
+    assert m.name == "Section-87-MAT"
     assert m.elset.name == "MAT"
     assert m.material.name == "S355"
 
@@ -36,5 +37,6 @@ def test_read_beam_section(shell_beam_section, re_in, part):
     fs3 = res[2]
 
     assert fs1.name == "BSEC8"
-    assert fs2.name == "BSEC9"
-    assert fs3.name == "BG500X"
+    # The ``** Section: <name>  Profile: <profile>`` comment's name, not the elset's.
+    assert fs2.name == "Section-9-BSEC9"
+    assert fs3.name == "Section-10-BG500X"

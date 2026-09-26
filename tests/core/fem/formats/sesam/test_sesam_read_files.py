@@ -16,7 +16,9 @@ def test_read_hinged_beams_and_mass(example_files):
     assert cog.p[1] == pytest.approx(4.78227)
     assert cog.p[2] == pytest.approx(0.884281)
 
-    assert len(p.fem.sections.lines) == 11
+    # The 11 beams share 7 sets of section data (profile, material, orientation), and the
+    # reader groups them so: one section per group, not one per element.
+    assert len(p.fem.sections.lines) == 7
     p.fem.sections.merge_by_properties()
     assert len(p.fem.sections.lines) == 7
     assert len(p.materials) == 1

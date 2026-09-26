@@ -227,6 +227,20 @@ class ElemProxy(Elem):
         self._block.elsets[self._row] = value
 
     @property
+    def formulation_override(self):
+        """The source type's name this row was read as, else its shape (``Elem``'s contract)."""
+        form = self.formulation
+        return form.name if form is not None else self.type
+
+    @property
+    def formulation(self):
+        """The row's source :class:`~ada.fem.formulations.Formulation` (``Elem``'s contract)."""
+        from ada.fem.formulations import as_formulation
+
+        forms = self._block.formulations
+        return as_formulation(forms[self._row] if forms is not None else None)
+
+    @property
     def eccentricity(self):
         return self._block.ecc.get(self._row)
 

@@ -1,72 +1,105 @@
-import re
 from typing import TYPE_CHECKING
 
 from ada.config import logger
-from ada.core.utils import roundoff
 from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
 
-from .helper_utils import _re_in
+from ..write.write_materials import SPECIFIC_DAMPING
+from .keywords import validate
+from .lexer import KeywordBlock, comment_property, mark_read, tokenize
 
 if TYPE_CHECKING:
     from ada import Assembly
 
+# The property blocks a *Material owns. Abaqus nests by adjacency: the material's definition
+# runs until the next block that is not one of these.
+_MATERIAL_PROPERTIES = (
+    "DENSITY",
+    "ELASTIC",
+    "PLASTIC",
+    "EXPANSION",
+    "DAMAGE INITIATION",
+    "DAMAGE EVOLUTION",
+    "DEPVAR",
+    "USER MATERIAL",
+    "SPECIFIC HEAT",
+    "CONDUCTIVITY",
+    # Not data-bearing, but part of the material: *No Compression ended the material early
+    # (it was not in this list), so a *Density or *Expansion after it was never read.
+    "NO COMPRESSION",
+    "DAMPING",
+)
+
 
 def get_materials_from_bulk(assembly: "Assembly", bulk_str):
-    re_str = (
-        r"(\*Material,\s*name=.*?)(?=\*|\Z)(?!\*Elastic|\*Density|\*Plastic|"
-        r"\*Damage Initiation|\*Damage Evolution|\*Expansion)"
-    )
-    re_materials = re.compile(re_str, _re_in)
-    for m in re_materials.finditer(bulk_str):
-        mat = mat_str_to_mat_obj(m.group())
-        assembly.add_material(mat)
+    mark_read("MATERIAL", *_MATERIAL_PROPERTIES)
+    blocks = tokenize(bulk_str)
+    for i, block in enumerate(blocks):
+        if block.keyword != "MATERIAL":
+            continue
+        validate(block)
+        properties: dict[str, KeywordBlock] = {}
+        for sub in blocks[i + 1 :]:
+            if sub.keyword not in _MATERIAL_PROPERTIES:
+                break
+            # First wins: a repeated property block is a temperature/field table continuation
+            # rather than a replacement, and only the first block carries the base values.
+            properties.setdefault(sub.keyword, sub)
+        assembly.add_material(_build_material(block, properties))
 
 
-def mat_str_to_mat_obj(mat_str) -> Material:
-    rd = roundoff
+def _first_value(block: KeywordBlock | None, column: int = 0):
+    if block is None or not block.data_lines:
+        return None
+    values = [x.strip() for x in block.data_lines[0].split(",")]
+    if column >= len(values) or values[column] == "":
+        return None
+    return values[column]
 
-    # Name
-    name = re.search(r"name=(.*?)\n", mat_str, _re_in).group(1).split("=")[-1].strip()
 
-    # Density
-    density_ = re.search(r"\*Density\n(.*?)(?:,|$)", mat_str, _re_in)
-    if density_ is not None:
-        density = rd(density_.group(1).strip().split(",")[0].strip(), 10)
+def _build_material(block: KeywordBlock, properties: dict[str, KeywordBlock]) -> Material:
+    """Values as written, as floats. They went through ``roundoff`` (a fixed number of
+    decimals), which changed an elastic modulus or a plastic stress on every read."""
+    name = block.params.get("NAME")
+
+    density_block = properties.get("DENSITY")
+    if density_block is not None and _first_value(density_block) is not None:
+        density = float(_first_value(density_block))
     else:
+        # No *Density is a massless material -- Abaqus's own reading of it.
         logger.warning('No density flag found for material "{}"'.format(name))
-        density = None
+        density = 0.0
 
-    # Elastic
-    re_elastic_ = re.search(r"\*Elastic(?:,\s*type=(.*?)|)\n(.*?)(?:\*|$)", mat_str, _re_in)
-    if re_elastic_ is not None:
-        re_elastic = re_elastic_.group(2).strip().split(",")
-        young, poisson = rd(re_elastic[0]), rd(re_elastic[1])
-    else:
+    elastic_block = properties.get("ELASTIC")
+    young = poisson = None
+    if elastic_block is not None and elastic_block.data_lines:
+        young, poisson = _first_value(elastic_block), _first_value(elastic_block, 1)
+        young = float(young) if young is not None else None
+        poisson = float(poisson) if poisson is not None else None
+    if young is None and poisson is None:
         logger.warning('No Elastic properties found for material "{name}"'.format(name=name))
-        young, poisson = None, None
 
-    # Plastic
-    re_plastic_ = re.search(r"\*Plastic\n(.*?)(?:\*|\Z)", mat_str, _re_in)
-    if re_plastic_ is not None:
-        re_plastic = [tuple(x.split(",")) for x in re_plastic_.group(1).strip().splitlines()]
-        sig_p = [rd(x[0]) for x in re_plastic]
-        eps_p = [rd(x[1]) for x in re_plastic]
-    else:
-        eps_p, sig_p = None, None
+    plastic_block = properties.get("PLASTIC")
+    eps_p = sig_p = None
+    if plastic_block is not None and plastic_block.data_lines:
+        rows = [tuple(x.split(",")) for x in plastic_block.data_lines]
+        sig_p = [float(x[0]) for x in rows]
+        eps_p = [float(x[1]) for x in rows]
 
-    # Expansion
-    re_zeta = re.search(r"\*Expansion(?:,\s*type=(.*?)|)\n(.*?)(?:\*|$)", mat_str, _re_in)
-    if re_zeta is not None:
-        zeta = float(re_zeta.group(2).split(",")[0].strip())
-    else:
-        zeta = 0.0
+    # *Expansion is thermal expansion (``alpha``); it was read into ``zeta``, the damping. A deck
+    # with no *Expansion expands by nothing -- not by CarbonSteel's default.
+    alpha_value = _first_value(properties.get("EXPANSION"))
+    alpha = float(alpha_value) if alpha_value is not None else 0.0
+    # Specific damping has no Abaqus keyword; adapy's writer carries it in a comment (see
+    # write_materials.SPECIFIC_DAMPING). A deck from anywhere else has none.
+    zeta_text = comment_property(elastic_block, SPECIFIC_DAMPING).get(SPECIFIC_DAMPING) if elastic_block else None
+    zeta = float(zeta_text) if zeta_text is not None else 0.0
 
     # Return material object. Only pass mechanical properties that the deck actually
     # specified — a material with no *Elastic / *Density (e.g. a user-material or a deck
     # that defines them elsewhere) then keeps CarbonSteel's defaults rather than carrying
     # None, which would crash every downstream writer (IFC/Sesam materials) on float(None).
-    mat_kwargs = dict(zeta=zeta, plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p))
+    mat_kwargs = dict(zeta=zeta, alpha=alpha, plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p))
     if density is not None:
         mat_kwargs["rho"] = density
     if young is not None:
@@ -74,4 +107,12 @@ def mat_str_to_mat_obj(mat_str) -> Material:
     if poisson is not None:
         mat_kwargs["v"] = poisson
     model = CarbonSteel(**mat_kwargs)
-    return Material(name=name, mat_model=model)
+
+    damping_block = properties.get("DAMPING")
+    if damping_block is not None:
+        alpha, beta = damping_block.params.get("ALPHA"), damping_block.params.get("BETA")
+        model.rayleigh_damping.alpha = float(alpha) if alpha is not None else None
+        model.rayleigh_damping.beta = float(beta) if beta is not None else None
+
+    metadata = {"no_compression": True} if "NO COMPRESSION" in properties else {}
+    return Material(name=name, mat_model=model, metadata=metadata)

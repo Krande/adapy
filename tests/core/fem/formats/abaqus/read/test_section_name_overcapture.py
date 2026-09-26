@@ -1,18 +1,19 @@
-"""A card's value groups must stay on the card's own line.
+"""A block's name comes from its own comment line, and cannot come from anywhere else.
 
-The Abaqus reader's regexes are compiled with ``re.DOTALL``, where ``.`` matches a newline. A
-non-greedy ``.*?`` is then not the bound it looks like: it expands as little as possible *until
-the rest of the pattern matches*, so a group whose terminator is absent from its own line keeps
-growing until the terminator turns up somewhere else in the deck.
+Abaqus/CAE writes a keyword block's name in the comment directly above it -- ``** Section: Cast node``,
+``** Name: BC-1  Type: Displacement/Rotation``, ``** Interaction: Real-1``. The regex reader
+matched that prefix with a pattern under ``re.DOTALL``, where ``.`` matches a newline and a
+non-greedy ``.*?`` expands until the *rest* of the pattern matches rather than stopping at the
+end of the line. Starting at a shell section's comment, ``re_solid``'s name group ran on to the
+next ``*Solid Section`` -- on a 463k-element deck, 1.18M lines later. That name reached
+``make_name_fem_ready``, which strips ``=`` (hence a deck echoed back with every equals sign
+gone) and logged the whole megabyte: one record, 1,178,653 lines of stderr.
 
-That is what ``re_solid``'s optional ``** Section: <name>`` prefix did. Starting the match at a
-*shell* section's comment, the name group ran on to the next ``*Solid Section`` -- on a
-463k-element deck, 1.18M lines later. The name reached ``make_name_fem_ready``, which strips
-``=`` (hence a deck echoed back with every ``=`` gone) and logs a >25-characters notice with the
-whole megabyte inlined: one log record, 1,178,653 lines of stderr.
-
-So each test below states the distance between the decoy comment and the real card, and asserts
-the captured name is the name -- independent of that distance.
+The lexer removes the class of bug rather than the instance. A block's ``comments`` are the
+unbroken run of comment lines immediately above its keyword line, captured while tokenizing, so
+there is no pattern that could reach past them and nothing for a distance to affect. Each test
+below still states the distance between a decoy comment and the real block, because that is what
+used to decide the outcome.
 """
 
 from __future__ import annotations
@@ -23,72 +24,69 @@ import pytest
 
 import ada
 from ada.core.utils import make_name_fem_ready
-from ada.fem.formats.abaqus.read import cards
-from ada.fem.formats.abaqus.read.helper_utils import AbaFF
+from ada.fem.formats.abaqus.read.lexer import comment_property, iter_keywords
 
 
 def _filler(lines: int) -> str:
-    """Keyword blocks between the decoy comment and the card we want matched."""
+    """Keyword blocks between the decoy comment and the block we want."""
     return "".join(f"*Elset, elset=junk{i}\n 1, 2, 3\n" for i in range(lines))
 
 
 @pytest.mark.parametrize("distance", [0, 10, 500])
-def test_solid_section_name_stops_at_its_own_line(distance):
-    """The reproduction of the flood, shrunk: a shell section's ``** Section:`` comment first, a
-    solid section's much later, and only the latter belongs to the solid section."""
+def test_solid_section_name_comes_from_its_own_comment(distance):
+    """The reproduction of the flood, shrunk: a shell section's ``** Section:`` comment first,
+    a solid section's much later, and only the latter belongs to the solid section."""
     bulk = (
         "** Section: Shell t40\n*Shell Section, elset=plate_t40, material=Steel\n0.04, 5\n"
         + _filler(distance)
         + "** Section: Cast node\n*Solid Section, elset=solids, material=Steel\n"
     )
 
-    m = cards.re_solid.search(bulk)
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
 
-    assert m is not None
-    assert m.group("name") == "Cast node"
-    assert "\n" not in m.group("name")
-    assert m.group("elset") == "solids"
-    assert m.group("material") == "Steel"
+    assert comment_property(block, "Section") == {"Section": "Cast node"}
+    assert block.params["ELSET"] == "solids"
+    assert block.params["MATERIAL"] == "Steel"
 
 
 def test_solid_section_without_a_name_comment_still_parses():
-    """The prefix is optional, and stays optional -- the reader falls back to a generated name."""
+    """The comment is optional, and stays optional -- the reader falls back to a generated name."""
     bulk = "*Solid Section, elset=solids, material=Steel\n, \n"
 
-    m = cards.re_solid.search(bulk)
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
 
-    assert m is not None
-    assert m.group("name") is None
-    assert m.group("elset") == "solids"
-    assert m.group("material") == "Steel"
+    assert comment_property(block, "Section") == {}
+    assert block.params["ELSET"] == "solids"
+    assert block.params["MATERIAL"] == "Steel"
 
 
-def test_boundary_condition_name_stops_at_its_own_line():
-    """``re_bcs`` carries the same optional ``** Name: ... Type: ...`` prefix, and a deck is full
-    of those comments for things that are not boundary conditions (loads, interactions)."""
+def test_a_comment_separated_from_its_card_is_not_attached():
+    """Only the *unbroken* run directly above the keyword line counts. A comment with a data
+    line or a blank line after it annotates whatever it was written about, not the next block."""
+    bulk = "** Section: Not mine\n*Elset, elset=junk\n1, 2, 3\n*Solid Section, elset=solids, material=Steel\n"
+
+    block = next(iter_keywords(bulk, "SOLID SECTION"))
+
+    assert comment_property(block, "Section") == {}
+
+
+def test_boundary_condition_name_comes_from_its_own_comment():
+    """A deck is full of ``** Name: ... Type: ...`` comments for things that are not boundary
+    conditions (loads, interactions), and the nearest one used to win however far away it was."""
     bulk = (
         "** Name: Load-1   Type: Concentrated force\n*Cload\n1, 3, -1000.0\n"
         + _filler(200)
         + "** Name: BC-1 Type: Displacement/Rotation\n*Boundary\nfixed, 1, 6\n*Step\n"
     )
 
-    m = cards.re_bcs.search(bulk)
+    block = next(iter_keywords(bulk, "BOUNDARY"))
 
-    assert m is not None
-    assert m.group("name") == "BC-1"
-    assert m.group("type") == "Displacement/Rotation"
-    assert "\n" not in m.group("name")
+    assert comment_property(block, "Name", "Type") == {"Name": "BC-1", "Type": "Displacement/Rotation"}
 
 
-def test_abaff_nameprop_stops_at_its_own_line():
-    """``AbaFF``'s ``nameprop`` builds ``\\*\\*\\s*<Prop>:\\s*(?P<name>...)\\n\\*<flag>``. The
-    ``\\n`` looks like a bound but the ``\\*<flag>`` after it is the real terminator, so a name
-    comment belonging to a different keyword used to capture everything up to the next match."""
-    flag = AbaFF(
-        "Contact Pair",
-        [("interaction=", "type=|"), ("surf1", "surf2")],
-        nameprop=("Interaction", "name"),
-    )
+def test_contact_pair_name_comes_from_its_own_comment():
+    """The same shape again, on the block that ``AbaFF``'s ``nameprop`` used to build a pattern
+    for: its ``\\n`` looked like a bound, but the ``\\*<flag>`` after it was the real terminator."""
     bulk = (
         "** Interaction: Decoy\n*Surface Interaction, name=IntProp-1\n1.,\n"
         + _filler(300)
@@ -96,16 +94,15 @@ def test_abaff_nameprop_stops_at_its_own_line():
         "surf_a, surf_b\n"
     )
 
-    m = flag.regex.search(bulk)
+    block = next(iter_keywords(bulk, "CONTACT PAIR"))
 
-    assert m is not None
-    assert m.group("name") == "Real-1"
-    assert "\n" not in m.group("name")
+    assert comment_property(block, "Interaction") == {"Interaction": "Real-1"}
+    assert block.params["INTERACTION"] == "IntProp-1"
 
 
 def test_no_fem_section_name_in_a_real_deck_spans_a_line(example_files):
     """End to end on a deck that has the construct: ``UUea.inp`` carries a ``** Section:``
-    comment above its solid section, so this covers the whole read path, not just the regex."""
+    comment above its solid section, so this covers the whole read path, not just the lexer."""
     a = ada.from_fem(example_files / "fem_files/abaqus/UUea.inp")
 
     sections = [fs for part in a.get_all_parts_in_assembly(True) for fs in part.fem.sections]
@@ -117,7 +114,7 @@ def test_no_fem_section_name_in_a_real_deck_spans_a_line(example_files):
 
 
 def test_make_name_fem_ready_bounds_what_it_logs():
-    """Defence in depth: even with the regexes fixed, a pathological name must not be able to
+    """Defence in depth: even with the reader fixed, a pathological name must not be able to
     flood a terminal. The returned name is untouched; only the log record is bounded.
 
     A handler rather than ``caplog``: ``ada.config.configure_logger`` sets ``propagate = False``

@@ -9,7 +9,7 @@ writer (Sesam ``writer.to_fem``, ``fem/formats/general.py``, ``fem/formats/utils
 
 So a two-part model exported to Sesam came out with every beam back on its own axis, every
 hinge fully fixed and every point mass gone -- silently, and only on the multi-part path:
-GECCEN 1 -> 0, BELFIX 1 -> 0, BNMASS 1 -> 0 against the identical single-part model. That
+GECCEN 1 -> 0, BELFIX 1 -> 0, mass 1 -> 0 against the identical single-part model. That
 made ``feat(fem): write beam end eccentricities as GECCEN`` produce nothing at all there.
 
 The assertions are on deck text rather than on object attributes wherever a record exists
@@ -103,6 +103,35 @@ def _field(text: str, regex, field: str) -> list[int]:
     return [int(float(m.groupdict()[field])) for m in regex.finditer(text)]
 
 
+#: GELMNT1 ELTYP of a 1-noded mass element, the form a point mass is written in.
+_MASS_ELTYP = 11
+
+
+def _eltyps(text: str) -> dict[int, int]:
+    return {
+        int(float(m.groupdict()["elno"])): int(float(m.groupdict()["eltyp"]))
+        for m in cards.GELMNT1.to_ff_re().finditer(text)
+    }
+
+
+def _mass_nodes(text: str) -> list[int]:
+    """The node of every mass element (GELMNT1 ELTYP 11)."""
+    return [
+        int(float(m.groupdict()["nids"].split()[0]))
+        for m in cards.GELMNT1.to_ff_re().finditer(text)
+        if int(float(m.groupdict()["eltyp"])) == _MASS_ELTYP
+    ]
+
+
+def _beam_eccnos(text: str) -> list[int]:
+    eltyps = _eltyps(text)
+    return [
+        int(float(m.groupdict()["eccno"]))
+        for m in cards.GELREF1.to_ff_re().finditer(text)
+        if eltyps[int(float(m.groupdict()["elno"]))] != _MASS_ELTYP
+    ]
+
+
 @pytest.fixture
 def decks(tmp_path) -> tuple[str, str]:
     """``(single, multi)`` deck text for the two equivalent models."""
@@ -163,8 +192,8 @@ def test_every_merged_element_still_references_its_eccentricity(decks):
     points at is as good as absent. Both ends of a beam here share one vector, so each
     element is written with a single positive eccno, and the two beams' differ."""
     single, multi = decks
-    eccnos = _field(multi, cards.GELREF1.to_ff_re(), "eccno")
-    assert eccnos == _field(single, cards.GELREF1.to_ff_re(), "eccno")
+    eccnos = _beam_eccnos(multi)
+    assert eccnos == _beam_eccnos(single)
     assert len(eccnos) == len(set(eccnos)) == 2
     assert all(no > 0 for no in eccnos)
 
@@ -176,24 +205,25 @@ def test_belfix_count_survives_the_merge(decks):
     assert _count(multi, "BELFIX") == _count(single, "BELFIX") == 2
 
 
-def test_bnmass_count_survives_the_merge(decks):
+def test_mass_count_survives_the_merge(decks):
     """A mass's value lives only on the ``Mass`` object beside the packed row, so a merge
-    that carries blocks alone loses the whole BNMASS block."""
+    that carries blocks alone loses every mass element and its MGMASS."""
     single, multi = decks
-    assert _count(multi, "BNMASS") == _count(single, "BNMASS") == 2
+    assert _count(multi, "MGMASS") == _count(single, "MGMASS") == 2
+    assert len(_mass_nodes(multi)) == len(_mass_nodes(single)) == 2
 
 
-def test_bnmass_records_are_identical_across_the_two_decks(decks):
-    """Same nodes, same NDOF, same components -- the split into parts is invisible."""
+def test_mass_records_are_identical_across_the_two_decks(decks):
+    """Same nodes, same NDOF, same matrix -- the split into parts is invisible."""
     single, multi = decks
 
     def records(text):
         return sorted(
-            (int(float(m.groupdict()["nodeno"])), int(float(m.groupdict()["ndof"])), m.groupdict()["content"].split())
-            for m in cards.re_bnmass.finditer(text)
+            (int(float(m.groupdict()["ndof"])), m.groupdict()["bulk"].split()) for m in cards.re_mgmass.finditer(text)
         )
 
     assert records(multi) == records(single)
+    assert sorted(_mass_nodes(multi)) == sorted(_mass_nodes(single))
 
 
 # ── the offsets: nothing may collide, and every reference must follow its row ─────────
@@ -205,7 +235,7 @@ def test_merged_node_and_element_ids_stay_distinct(decks):
     nodes = _field(multi, cards.GNODE.to_ff_re(), "nodeno")
     elems = _field(multi, cards.GELMNT1.to_ff_re(), "elno")
     assert len(nodes) == len(set(nodes)) == 4
-    assert len(elems) == len(set(elems)) == 2  # the two beams; the mass rows are unsectioned
+    assert len(elems) == len(set(elems)) == 4  # the two beams and the two mass elements
 
 
 def test_the_two_masses_land_on_two_different_nodes(decks):
@@ -213,7 +243,7 @@ def test_the_two_masses_land_on_two_different_nodes(decks):
     special's node references were not offset with everything else, both records would name
     the same node and one mass would overwrite the other."""
     _, multi = decks
-    nodes = _field(multi, cards.re_bnmass, "nodeno")
+    nodes = _mass_nodes(multi)
     assert len(nodes) == len(set(nodes)) == 2
 
 
@@ -318,7 +348,7 @@ def test_single_part_export_never_goes_through_the_merge(tmp_path, monkeypatch):
     monkeypatch.setattr(concat_mod, "concatenate_fem_to_single_part", boom)
 
     text = _deck(_single_part_assembly(), tmp_path, "single")
-    assert (_count(text, "GECCEN"), _count(text, "BELFIX"), _count(text, "BNMASS")) == (2, 2, 2)
+    assert (_count(text, "GECCEN"), _count(text, "BELFIX"), _count(text, "MGMASS")) == (2, 2, 2)
 
 
 # ── the other home for a special: added, not packed ───────────────────────────────────
@@ -351,5 +381,5 @@ def test_masses_added_after_packing_are_carried_too(tmp_path):
     assert {m.id for m in masses}.isdisjoint({el.id for el in merged.fem.elements.lines})
 
     text = _deck(ada.Assembly("W") / merged, tmp_path, "overflow")
-    nodes = _field(text, cards.re_bnmass, "nodeno")
+    nodes = _mass_nodes(text)
     assert len(nodes) == len(set(nodes)) == 2

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada import FEM
-from ada.config import logger
 from ada.fem import Constraint
 from ada.fem.common import LinDep
 from ada.fem.surfaces import surface_nodes
 
+from .not_held import STAGE, report
 from .write_utils import write_ff
+
+if TYPE_CHECKING:
+    from .writer import NodeDofs
 
 
 @dataclass(frozen=True)
@@ -44,25 +48,170 @@ class BldepRecord:
         return write_ff("BLDEP", rows)
 
 
-def bldep_records(fem: FEM) -> list[BldepRecord]:
+def bldep_records(fem: FEM, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
     """Every BLDEP record this FEM's constraints produce, in constraint order.
 
     Split out of :func:`constraint_str` because the BNBCD block is written *before* the
     BLDEP block (GeniE's order, see ``writer.to_fem``) while its FIX codes are derived
     from these records — so they have to be computed before either block is emitted.
+
+    A constraint BLDEP cannot express is left out and reported, never raised on: a tie or an
+    MPC costs the model that one constraint, not the whole deck. ``ndofs`` (the per-node dof
+    count, :class:`writer.NodeDofs`) only decides what is reported: whether a coupling that
+    leaves slave rotations free drops a dof the node actually has.
     """
+    from .writer import ALL_SIX_DOF
+
+    if ndofs is None:
+        ndofs = ALL_SIX_DOF
+    rep = report()
     records: list[BldepRecord] = []
+    claimed: dict[tuple[int, int], str] = {}
     for constraint in fem.constraints.values():
         # A rigid body links every slave node rigidly to the master (reference) node — the
         # same kinematic relation Sesam expresses with BLDEP linear-dependency cards, so it
         # writes identically to a coupling.
         if constraint.type in (constraint.TYPES.COUPLING, constraint.TYPES.RIGID_BODY):
-            records += coupling_records(constraint)
+            new = coupling_records(constraint)
+            _report_coupling(constraint, new, ndofs)
         elif constraint.type == constraint.TYPES.SHELL2SOLID:
-            records += shell2solid_records(constraint)
+            new = shell2solid_records(constraint)
+            if new:
+                rep.approximated(
+                    STAGE,
+                    "Constraint",
+                    constraint.name,
+                    "shell-to-solid coupling written as rigid links to the nearest shell node, "
+                    "stiffer than a distributing coupling",
+                    n_links=len(new),
+                )
+        elif constraint.type == constraint.TYPES.EQUATION:
+            new = equation_records(constraint)
         else:
-            raise NotImplementedError(f'Constraint type "{constraint.type}" is not yet supported')
+            rep.omitted(STAGE, "Constraint", constraint.name, f'a "{constraint.type}" constraint has no Sesam form')
+            continue
+        records += new
+        for key in {(r.slave, dof) for r in new for dof in r.slave_dofs}:
+            first = claimed.setdefault(key, constraint.name)
+            if first != constraint.name:
+                rep.suspect(
+                    STAGE,
+                    "Constraint",
+                    constraint.name,
+                    "makes a dof dependent that another constraint already does; Sesam sums linear dependencies",
+                    node=key[0],
+                    dof=key[1],
+                    other=first,
+                )
 
+    return _merged(records)
+
+
+def _merged(records: list[BldepRecord]) -> list[BldepRecord]:
+    """One record per (slave, master) pair, in first-seen order.
+
+    The manual (BLDEP, section 7.2.14): "The same combination of SLAVE and MASTER may occur
+    only once." Two equations relating the same pair of nodes -- or an equation with two
+    terms on one independent node -- therefore share one record holding all their terms.
+    """
+    merged: dict[tuple[int, int], list] = {}
+    for r in records:
+        merged.setdefault((r.slave, r.master), []).extend(r.terms)
+    return [BldepRecord(s, m, tuple(terms)) for (s, m), terms in merged.items()]
+
+
+def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: NodeDofs) -> None:
+    """Say where the rigid links :func:`coupling_records` writes differ from the coupling.
+
+    What is written is the rigid-body motion of each slave's *translations* (dofs 1-3). A
+    coupling that also holds slave rotations -- a rigid body always does, a kinematic
+    coupling when it names dofs 4-6 -- leaves them free here; one naming fewer than all three
+    translations gets all three. An undeclared dof list on a hand-built coupling is its
+    constructor default, not a statement, and is taken to mean the translations.
+    """
+    if not records:
+        return
+    from ada.fem.constraints import expand_dofs
+
+    rep = report()
+    if constraint.type == constraint.TYPES.RIGID_BODY:
+        declared = set(range(1, 7))
+    elif constraint.dofs_declared:
+        declared = set(expand_dofs(constraint.dofs))
+    else:
+        return
+
+    rot = sorted(declared & {4, 5, 6})
+    n_free = sum(1 for r in records for dof in rot if dof <= ndofs.ndof(r.slave))
+    if n_free:
+        rep.approximated(
+            STAGE,
+            "Constraint",
+            constraint.name,
+            "slave rotations are left free; BLDEP is written for the three translations only",
+            dofs=rot,
+            n_slaves=len(records),
+        )
+    missing = sorted({1, 2, 3} - declared)
+    if missing:
+        rep.approximated(
+            STAGE,
+            "Constraint",
+            constraint.name,
+            "all three slave translations are made dependent, not only the declared ones",
+            undeclared_dofs=missing,
+        )
+
+
+def equation_records(constraint: Constraint) -> list[BldepRecord]:
+    """An ``*Equation`` as BLDEP linear dependencies, exactly.
+
+    ``sum_i A_i u(n_i, d_i) = 0`` with the first term the eliminated one is
+    ``u(n_1, d_1) = sum_{i>1} (-A_i / A_1) u(n_i, d_i)`` -- one dependent dof depending on
+    the others with factor ``beta_i = -A_i / A_1``, which is what BLDEP's ``(s_i, m_i,
+    beta_i)`` triplets say, one record per independent node (manual, section 7.2.14).
+
+    A term naming a node set stands for each of its nodes in turn, as in Abaqus: the i-th
+    equation takes the i-th node of every set, so the sets must be equally long. An
+    equation that relates a node to itself has no BLDEP form (SLAVE and MASTER are two
+    nodes); it is left out and reported, as is one with unequal set lengths.
+    """
+    from ada.fem import FemSet
+
+    rep = report()
+    terms = constraint.equation_terms or ()
+    if len(terms) < 2:
+        rep.omitted(STAGE, "Constraint", constraint.name, "an equation of fewer than two terms has no BLDEP form")
+        return []
+
+    columns = [list(ref.members) if isinstance(ref, FemSet) else [ref] for ref, _, _ in terms]
+    lengths = {len(c) for c in columns if len(c) != 1}
+    if len(lengths) > 1:
+        rep.omitted(STAGE, "Constraint", constraint.name, "the node sets of an equation differ in length")
+        return []
+    n_eq = lengths.pop() if lengths else 1
+
+    records = []
+    for i in range(n_eq):
+        nodes = [c[i] if len(c) > 1 else c[0] for c in columns]
+        slave, s_dof, s_coef = nodes[0], int(terms[0][1]), float(terms[0][2])
+        by_master: dict[int, dict[int, float]] = {}
+        for node, (_, dof, coef) in zip(nodes[1:], terms[1:]):
+            if node.id == slave.id:
+                rep.omitted(
+                    STAGE,
+                    "Constraint",
+                    constraint.name,
+                    "an equation relating two dofs of one node has no BLDEP form",
+                    node=slave.id,
+                )
+                return []
+            per = by_master.setdefault(node.id, {})
+            per[int(dof)] = per.get(int(dof), 0.0) - float(coef) / s_coef
+        records += [
+            BldepRecord(slave.id, m, tuple((s_dof, m_dof, beta) for m_dof, beta in per.items()))
+            for m, per in by_master.items()
+        ]
     return records
 
 
@@ -92,10 +241,7 @@ def coupling_records(constraint: Constraint) -> list[BldepRecord]:
     """
     masters = surface_nodes(constraint.m_set)
     if not masters:
-        logger.warning(
-            "sesam writer: coupling %s has no master node and is written as nothing.",
-            constraint.name,
-        )
+        report().omitted(STAGE, "Constraint", constraint.name, "a coupling with no master node")
         return []
     master = masters[0]
 
@@ -126,12 +272,13 @@ def shell2solid_records(constraint: Constraint) -> list[BldepRecord]:
     masters = surface_nodes(constraint.m_set)  # shell edge
     slaves = surface_nodes(constraint.s_set)  # solid face
     if not masters or not slaves:
-        logger.warning(
-            "sesam writer: shell-to-solid coupling %s has an empty side (%d shell / %d solid nodes) "
-            "and is written as nothing.",
+        report().omitted(
+            STAGE,
+            "Constraint",
             constraint.name,
-            len(masters),
-            len(slaves),
+            "a shell-to-solid coupling with an empty side",
+            n_shell=len(masters),
+            n_solid=len(slaves),
         )
         return []
 

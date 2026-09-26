@@ -162,6 +162,7 @@ GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
 GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
 GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "NLOBY|", "NLOBZ|"))
+GCHAN = DataCard("GCHAN", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "unused|", "k|", "NLOBY|", "NLOBZ|"))
 # Generic beam properties — area + moments of inertia only, no
 # profile geometry. The streaming bake uses these to synthesise a
 # tubular approximation for elements that reference a sec_id with
@@ -218,6 +219,7 @@ re_belfix = get_ff_regex(
     "a6|",
 )
 re_mgsprng = get_ff_regex("MGSPRNG", "matno", "ndof", "bulk")
+re_mshglsp = get_ff_regex("MSHGLSP", "matno", "matknd", "ndof1", "ndof2", "bulk")
 # BNMASS carries NDOF mass components, which is not always six: a solid-type node has
 # NDOF=3 and three translational components (GNODE's NDOF, manual printed 5-91; the writer
 # now emits that -- see ``sesam/write/writer.NodeDofs``). Named fields m1..m6 made a
@@ -230,9 +232,14 @@ re_bldep = get_ff_regex("BLDEP", "slave", "master", "nddof", "ndep", "bulk")
 
 GSETMEMB = DataCard("GSETMEMB", ("nfield", "isref", "index", "istype", "isorig", "members"))
 re_setmembs = GSETMEMB.to_ff_re()
+#: A whole GSETMEMB record: its first line and the indented continuation lines after it.
+re_setmemb_records = re.compile(r"^GSETMEMB[^\n]*(?:\n[ \t]+[^\n]*)*", re.MULTILINE)
 
 TDSETNAM = DataCard("TDSETNAM", ("nfield", "isref", "codnam", "codtxt", "set_name"))
 re_setnames = TDSETNAM.to_ff_re()
+
+TDNODE = DataCard("TDNODE", ("nfield", "nodeno", "codnam", "codtxt", "text"))
+re_tdnode = TDNODE.to_ff_re()
 
 # Materials
 

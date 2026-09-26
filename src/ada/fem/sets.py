@@ -38,6 +38,7 @@ class FemSet(FemBase):
         set_type: Literal["nset", "elset"] = None,
         metadata=None,
         parent=None,
+        id_backed: bool = True,
     ):
         super().__init__(name, metadata, parent)
         from ada.fem import Elem
@@ -57,7 +58,7 @@ class FemSet(FemBase):
         else:
             if set_type is None:
                 set_type = eval_set_type_from_members(members)
-            if members and self._members_are_local_proxies(members, parent, set_type):
+            if id_backed and members and self._members_are_local_proxies(members, parent, set_type):
                 # Array-backed proxies belonging to THIS FEM's store -> store ids, not
                 # the proxies, so a per-element elset doesn't pin a Python object per
                 # member (Sesam emits ~one elset per element). refs are registered via

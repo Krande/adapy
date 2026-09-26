@@ -2,25 +2,18 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Bc
 
-from .helper_utils import get_instance_name
+from ..grammar import format_number
+from ..mapping import bc_types
+from .helper_utils import get_instance_name, render_block
 
 if TYPE_CHECKING:
     from ada import Assembly
 
 
-aba_bc_map = {
-    Bc.TYPES.DISPL: "Displacement/Rotation",
-    Bc.TYPES.VELOCITY: "Velocity/Angular velocity",
-    Bc.TYPES.CONN_DISPL: "Connector displacement",
-    Bc.TYPES.CONN_VEL: "Connector velocity",
-}
-
-
-valid_aba_bcs = list(aba_bc_map.values()) + [
-    "symmetry/antisymmetry/encastre",
-    "displacement/rotation",
-    "velocity/angular velocity",
-]
+def abaqus_bc_type(bc_type: str) -> str:
+    """The name CAE gives ``bc_type`` in the comment above ``*Boundary`` -- from the one table the
+    reader also reads it back through (:func:`..mapping.bc_types`)."""
+    return bc_types().to_abaqus(bc_type)
 
 
 def boundary_conditions_str(assembly: "Assembly"):
@@ -28,39 +21,26 @@ def boundary_conditions_str(assembly: "Assembly"):
 
 
 def bc_str(bc: "Bc", written_on_assembly_level: bool) -> str:
-    ampl_ref_str = ""
-    if bc.amplitude is not None:
-        ampl_ref_str = ", amplitude=" + bc.amplitude.name
+    params = [] if bc.amplitude is None else [("amplitude", bc.amplitude.name)]
 
     fem_set = bc.fem_set
     inst_name = get_instance_name(fem_set, written_on_assembly_level)
 
-    if bc.type in valid_aba_bcs:
-        aba_type = bc.type
-    else:
-        aba_type = aba_bc_map[bc.type]
+    aba_type = abaqus_bc_type(bc.type)
 
-    dofs_str = ""
+    lines = []
     for dof, magn in zip(bc.dofs, bc.magnitudes):
         if dof is None:
             continue
-        magn_str = f", {magn:.6E}" if magn is not None else ""
+        magn_str = f", {format_number(magn)}" if magn is not None else ""
         if bc.type in [Bc.TYPES.CONN_DISPL, Bc.TYPES.CONN_VEL] or isinstance(dof, str):
-            dofs_str += f" {inst_name}, {dof}{magn_str}\n"
+            lines.append(f" {inst_name}, {dof}{magn_str}")
         else:
-            dofs_str += f" {inst_name}, {dof}, {dof}{magn_str}\n"
+            lines.append(f" {inst_name}, {dof}, {dof}{magn_str}")
 
-    dofs_str = dofs_str.rstrip()
     add_map = {
-        Bc.TYPES.CONN_DISPL: ("*Connector Motion", ", type=DISPLACEMENT"),
-        Bc.TYPES.CONN_VEL: ("*Connector Motion", ", type=VELOCITY"),
+        Bc.TYPES.CONN_DISPL: ("Connector Motion", [("type", "DISPLACEMENT")]),
+        Bc.TYPES.CONN_VEL: ("Connector Motion", [("type", "VELOCITY")]),
     }
-
-    if bc.type in add_map.keys():
-        bcstr, add_str = add_map[bc.type]
-    else:
-        bcstr, add_str = "*Boundary", ""
-
-    return f"""** Name: {bc.name} Type: {aba_type}
-{bcstr}{ampl_ref_str}{add_str}
-{dofs_str}"""
+    keyword, add_params = add_map.get(bc.type, ("Boundary", []))
+    return render_block(keyword, params + add_params, lines or [""], [f"Name: {bc.name} Type: {aba_type}"])
