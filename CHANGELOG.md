@@ -2,6 +2,15 @@
 
 
 
+## v0.91.0 (2026-09-26)
+
+### Feature
+
+* feat: concept objects from a provider, and a clash check that starts from a node (#397)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`7062524`](https://github.com/Krande/adapy/commit/706252468fc493362d4920232f0742c15a825f97))
+
+
 ## v0.90.0 (2026-09-26)
 
 ### Feature
