@@ -260,6 +260,36 @@ def check_agreement() -> list[bool]:
         )
     )
 
+    # The two checks above are written as multiples of compare.REL_TOL, which makes them
+    # self-consistent and blind to the one thing they look like they are checking: the *value* of
+    # the tolerance. Found by mutation -- raising REL_TOL from 1e-2 to 1e-1 leaves every check in
+    # this file passing, while the real comparison would then call a 5% disagreement between two
+    # solvers a match. These next three are stated in absolute terms so they cannot drift with it.
+    results.append(
+        _expect(
+            "a flat 2% disagreement fails, whatever REL_TOL has been set to",
+            not compare.compare(ref, _table("abaqus", _scaled(1.02))).ok,
+        )
+    )
+    results.append(
+        _expect(
+            "and a flat 0.1% disagreement passes, so the tolerance is not merely tiny",
+            compare.compare(ref, _table("abaqus", _scaled(1.001))).ok,
+        )
+    )
+    # The band REL_TOL has to live in, from both ends and with the measurements that set them.
+    # Below 4.945e-03 it rejects the correct Sestra/Abaqus pair, whose worst significant residual
+    # is GIRDER_3QTR.r2 at that value -- a shear-rigid/shear-flexible difference at a point where
+    # cancellation amplifies it elevenfold, not a defect. Above 2e-2 it starts admitting genuine
+    # disagreement: the B31-at-1.0m element error is 7.4e-03 and must stay visible.
+    results.append(
+        _expect(
+            "REL_TOL sits above the measured worst residual and below a defect-admitting value",
+            4.945e-03 < compare.REL_TOL <= 2.0e-02,
+            f"{compare.REL_TOL:.1e}",
+        )
+    )
+
     # And a genuine difference hiding under the floor must still fail if it exceeds it.
     creeping = dict(_REFERENCE)
     creeping["BASE_L"] = (1.0e-3, 0.0, 0.0, 0.0, 0.0, 0.0)
