@@ -12,12 +12,26 @@ agreement and no material calibration is needed -- E, P and L all cancel. For an
 **The acceptance model must keep its asymmetric member, and here is exactly what it buys.** A pure
 reversal of ``n1`` is invisible to *every* deflection measurement, on any section: every second moment
 of area is quadratic in position and therefore invariant under a 180 degree rotation. So the claim
-"an asymmetric profile catches a sign flip" is not quite right, and the sign is pinned instead by
-`test_cae_orientation_convention.py`. What the asymmetric member does catch, and what no doubly
-symmetric member can, is a **mirrored frame** -- ``n2 = n1 x t`` where the convention is ``t x n1``,
-or a profile placed left-handed. That reverses the sign of the product of inertia, and with it the
-sign of the cross-axis deflection this test measures. Do not "simplify" the L away to an I-beam: the
-I-beam's ``Iyz`` is zero and the handedness check goes with it.
+"an asymmetric profile catches a sign flip" is not quite right. What the asymmetric member does catch,
+and what no doubly symmetric member can, is a **mirrored frame** -- ``n2 = n1 x t`` where the
+convention is ``t x n1``, or a profile placed left-handed. That reverses the sign of the product of
+inertia, and with it the sign of the cross-axis deflection this test measures. Do not "simplify" the L
+away to an I-beam: the I-beam's ``Iyz`` is zero and the handedness check goes with it.
+
+**The sign itself is pinned here too, by a first moment instead of a second one.** Second moments are
+invariant under a 180 degree rotation; a *centre of mass* is not, and CAE reports one for a sectioned
+wire with no analysis job at all. `test_the_wider_flange_sits_below_the_beam_axis` gives a member an
+I-section whose bottom flange is wider than its top and asserts that the centre of mass CAE computes
+lies **below** the beam axis, by exactly the centroid offset of the outline *adapy itself draws* for
+that section. That is the only check in this repo that settles ``n1``'s sign against adapy's geometry
+rather than against another writer: the cross-writer equality in `test_cae_orientation_convention.py`
+asserts that the CAE writer agrees with the INP writer, and the INP writer's own sign has never been
+validated against anything physical -- so an error shared by both would pass it in silence.
+
+`test_a_channel_model_passes_abaqus_datacheck` is the other measurement-shaped test here, and it
+exists because a plausible mapping already failed it once: CAE has a ``ChannelProfile``, and the deck
+CAE writes from one is rejected by Abaqus' own preprocessor. Nothing short of running the solver's
+input processor says so, which is what this test does.
 """
 
 from __future__ import annotations
@@ -441,3 +455,252 @@ def test_the_asymmetric_member_deflects_off_axis_by_its_own_product_of_inertia(c
         "a mirrored local frame.".format(coupling_1, -properties.Iyz / properties.Iy)
     )
     assert coupling_2 == pytest.approx(-properties.Iyz / properties.Iz, rel=RATIO_TOL_ASYMMETRIC)
+
+
+# ------------------------------------------------- the sign of n1, from a first moment of area
+
+#: Bottom flange (``w_btn``, which Abaqus calls ``b1``) deliberately wider than the top one, and every
+#: other dimension distinct. adapy's own I outline puts ``w_btn`` at ``-h/2``, so the centroid of this
+#: section sits *below* the beam axis -- which is the whole measurement.
+UNEQUAL_I = dict(h=0.81, w_btn=0.41, w_top=0.31, t_w=0.021, t_ftop=0.025, t_fbtn=0.029)
+
+CENTROID_DRIVER = """
+from mesh import ElemType
+import regionToolset
+
+_m = mdb.models['Model-1']
+_p = _m.parts['Centroid']
+_set = _p.sets['unequal_i']
+_n1 = _p.beamSectionOrientations[0].n1
+_section_name = _p.sectionAssignments[0].sectionName
+print('PROBE n1 {0!r} {1!r} {2!r}'.format(_n1[0], _n1[1], _n1[2]))
+_p.seedPart(size=1.0, deviationFactor=0.1, minSizeFactor=0.1)
+_p.setElementType(regions=(_p.edges,), elemTypes=(ElemType(elemCode=B31, elemLibrary=STANDARD),))
+_p.generateMesh()
+
+
+def _report(tag, part, region):
+    props = part.getMassProperties(regions=region)
+    com = props['centerOfMass']
+    print('PROBE {0} volume {1!r}'.format(tag, props['volume']))
+    print('PROBE {0} com {1!r} {2!r} {3!r}'.format(tag, com[0], com[1], com[2]))
+
+
+_report('written', _p, regionToolset.Region(edges=_set.edges))
+
+# The control: the same wire, the same section, n1 negated and nothing else changed. If the
+# measurement above were insensitive to the sign these two would come back identical, so the
+# test asserts on both.
+_q = _m.Part(name='Flipped', dimensionality=THREE_D, type=DEFORMABLE_BODY)
+_q.WirePolyLine(points=((__P1__, __P2__),), mergeType=IMPRINT, meshable=ON)
+_flipped = _q.Set(name='all', edges=_q.edges)
+_q.SectionAssignment(region=_flipped, sectionName=_section_name)
+_q.assignBeamSectionOrientation(region=_flipped, method=N1_COSINES,
+                               n1=(-_n1[0], -_n1[1], -_n1[2]))
+_q.seedPart(size=1.0, deviationFactor=0.1, minSizeFactor=0.1)
+_q.setElementType(regions=(_q.edges,), elemTypes=(ElemType(elemCode=B31, elemLibrary=STANDARD),))
+_q.generateMesh()
+_report('flipped', _q, regionToolset.Region(edges=_flipped.edges))
+"""
+
+
+def outline_centroid_along_up(sec: ada.Section) -> float:
+    """Where adapy's *own drawn outline* puts this section's centroid, along the profile height.
+
+    Deliberately not ``sec.properties`` and deliberately not the INP writer: this is the polygon
+    :func:`ada.sections.profiles.build_section_profile` produces, which is what adapy renders and
+    exports everywhere else. Local 2D ``y`` is the profile height, which Abaqus reaches as
+    ``n2 = t x n1`` and adapy calls ``beam.up``.
+    """
+    from ada.sections.profiles import build_section_profile
+
+    points = [(float(p[0]), float(p[1])) for p in build_section_profile(sec, True).outer_curve.points2d]
+    twice_area = 0.0
+    moment = 0.0
+    for index, (x0, y0) in enumerate(points):
+        x1, y1 = points[(index + 1) % len(points)]
+        cross = x0 * y1 - x1 * y0
+        twice_area += cross
+        moment += (y0 + y1) * cross
+    return moment / (3.0 * twice_area)
+
+
+@pytest.fixture(scope="session")
+def centroid_run(tmp_path_factory):
+    """One member with an unequal-flange I, measured in the kernel -- no analysis job needed."""
+    sec = ada.Section("IUNEQUAL", "IG", **UNEQUAL_I)
+    part = ada.Part("Centroid")
+    part / ada.Beam("unequal_i", (0, 0, 0), (LENGTH, 0, 0), sec, "S355")
+    assembly = ada.Assembly("Centroid") / part
+    beam = part.beams[0]
+    start, end = beam.axis_global()
+
+    workdir = tmp_path_factory.mktemp("cae_centroid")
+    driver = CENTROID_DRIVER.replace("__P1__", repr(tuple(round(float(v), 9) for v in start))).replace(
+        "__P2__", repr(tuple(round(float(v), 9) for v in end))
+    )
+    script = emit(part, workdir, driver, name="centroid")
+    return assembly, run_cae_script(script, workdir)
+
+
+def measured_mass_properties(run, tag) -> tuple[float, tuple[float, ...]]:
+    volume = float(run.value("PROBE {0} volume".format(tag)))
+    com = tuple(float(v) for v in run.value("PROBE {0} com".format(tag)).split(" "))
+    return volume, com
+
+
+def test_the_wider_flange_sits_below_the_beam_axis(centroid_run):
+    """The sign of ``n1``, settled against adapy's geometry by a measurement in the CAE kernel.
+
+    Every second moment of area is quadratic in position, so ``n1`` and ``-n1`` give identical bending
+    stiffness about both axes and no deflection measurement can tell them apart. First moments are
+    linear and are therefore *not* invariant: put the wider flange of an I-section on one side of the
+    axis and the centre of mass moves to that side. ``part.getMassProperties()`` reports it, in the
+    same run that built the model and with no solver involved.
+
+    So: ``w_btn`` 0.41 against ``w_top`` 0.31, and adapy's own outline puts ``w_btn`` at ``-h/2``.
+    Projected on ``beam.up`` -- the direction Abaqus derives as ``n2 = t x n1`` -- the centre of mass
+    must be negative, and equal to the centroid of that outline. Measured on Abaqus 2025:
+    ``-0.0441890415587341`` against adapy's outline centroid ``-0.044189041558734175``. Agreement to
+    the last digit either number carries, which makes this an identity rather than a tolerance.
+
+    Flip ``n1``'s sign anywhere between ``Beam.yvec`` and the emitted script and this is what notices.
+    `test_cae_orientation_convention.py` compares the CAE writer against the INP writer, and the INP
+    writer's sign has never been checked against anything physical -- so if both were wrong the same
+    way, that comparison would agree and only this test would fail.
+    """
+    assembly, run = centroid_run
+    _assert_ran(run)
+    beam = assembly.get_by_name("unequal_i")
+    sec = beam.section
+    assert sec.w_btn > sec.w_top, "precondition: the bottom flange is the wider one"
+    up = tuple(float(v) for v in beam.up)
+
+    volume, com = measured_mass_properties(run, "written")
+
+    # First, that CAE integrated the cross-section adapy meant -- otherwise the offset below would be
+    # the right number for the wrong profile. 1e-6 and no tighter: CAE integrates a profile
+    # numerically and the residual measured here is a systematic 3e-8, while a swapped or dropped
+    # dimension moves the area by percent.
+    assert volume / LENGTH == pytest.approx(sec.properties.Ax, rel=1e-6), (
+        "CAE's section area is {:.9g} but adapy's is {:.9g}: the profile itself did not survive, so "
+        "its centroid says nothing".format(volume / LENGTH, sec.properties.Ax)
+    )
+
+    offset = along(com, up)
+    expected = outline_centroid_along_up(sec)
+
+    assert offset < 0.0, (
+        "the centre of mass is {:.6g} along up, but the wider flange (w_btn={:.3g} > w_top={:.3g}) is "
+        "drawn at -h/2, so it must lie below the axis. A positive value means n1 is reversed.".format(
+            offset, sec.w_btn, sec.w_top
+        )
+    )
+    assert offset == pytest.approx(expected, rel=1e-9), (
+        "CAE puts the centre of mass {:.9g} along up; the centroid of the outline adapy draws for this "
+        "section is {:.9g}".format(offset, expected)
+    )
+
+
+def test_reversing_n1_moves_the_centre_of_mass_to_the_other_side(centroid_run):
+    """The teeth of the test above, asserted rather than assumed.
+
+    A measurement insensitive to what it claims to measure is worse than none, and "a centre of mass
+    detects a sign flip" is the same kind of claim that was already wrong once here in the other
+    direction -- the cantilever ratio, which cannot detect one. So the driver builds a second member
+    differing from the first *only* in the sign of ``n1``, and this asserts its centre of mass is the
+    mirror image: same distance, other side.
+    """
+    assembly, run = centroid_run
+    _assert_ran(run)
+    up = tuple(float(v) for v in assembly.get_by_name("unequal_i").up)
+
+    written_volume, written_com = measured_mass_properties(run, "written")
+    flipped_volume, flipped_com = measured_mass_properties(run, "flipped")
+
+    assert flipped_volume == pytest.approx(written_volume, rel=1e-12), "the control must differ only in n1"
+    assert along(flipped_com, up) == pytest.approx(-along(written_com, up), rel=1e-9), (
+        "n1 and -n1 gave centres of mass {:.9g} and {:.9g} along up. Were these equal, the measurement "
+        "would be blind to the sign and the test above would prove nothing.".format(
+            along(written_com, up), along(flipped_com, up)
+        )
+    )
+
+
+# ------------------------------------------- a channel, through the solver's own input processor
+
+CHANNEL_DRIVER = """
+from mesh import ElemType
+
+_m = mdb.models['Model-1']
+_p = _m.parts['Channels']
+for _k in sorted(_m.profiles.keys()):
+    print('PROBE profile {0} {1}'.format(_k, _m.profiles[_k].__class__.__name__))
+_p.seedPart(size=1.0, deviationFactor=0.1, minSizeFactor=0.1)
+_p.setElementType(regions=(_p.edges,), elemTypes=(ElemType(elemCode=B31, elemLibrary=STANDARD),))
+_p.generateMesh()
+
+_a = _m.rootAssembly
+_inst = _a.instances[sorted(_a.instances.keys())[0]]
+_a.Set(name='root', vertices=_inst.vertices.findAt(((0.0, 0.0, 0.0),)))
+_m.EncastreBC(name='fix', createStepName='Initial', region=_a.sets['root'])
+_m.StaticStep(name='Step-1', previous='Initial')
+
+_job = mdb.Job(name='channel_dc', model='Model-1')
+_job.submit(consistencyChecking=OFF, datacheckJob=True)
+_job.waitForCompletion()
+print('PROBE datacheck status {0}'.format(_job.status))
+"""
+
+
+@pytest.fixture(scope="session")
+def channel_run(tmp_path_factory):
+    """A channel member, built in CAE and then handed to Abaqus' input file processor."""
+    part = ada.Part("Channels")
+    part / ada.Beam("chan", (0, 0, 0), (4, 0, 0), "UNP200x10", "S355")
+    assembly = ada.Assembly("Chan") / part
+
+    workdir = tmp_path_factory.mktemp("cae_channel")
+    script = emit(part, workdir, CHANNEL_DRIVER, name="channel")
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_a_channel_model_passes_abaqus_datacheck(channel_run):
+    """A channel must reach the solver, and only the solver can say whether it does.
+
+    This is the test the ``ChannelProfile`` mapping failed. CAE has a profile class named after the
+    shape; it builds; the model opens in the GUI; and the INP that CAE's own exporter writes from it is
+    refused by Abaqus' input file processor::
+
+        ***ERROR: in keyword *BEAMSECTION, file "chan_job.inp", line 29: Illegal value "CHANNEL"
+                  for parameter "section".
+        ***ERROR: ELEMENT 1 INSTANCE CHANPART-1 IS MISSING A BEAM SECTION DEFINITION
+
+    No test that reads the emitted script, and none that interrogates the CAE model afterwards, can see
+    that -- every one of them was green on the mapping that produced it. So a channel goes all the way
+    to ``datacheck`` here, and the assertion is on Abaqus' verdict and its own ``.dat``.
+
+    The profile assertion belongs with it: a deck that datachecks clean because the channel had
+    silently become something else would satisfy the verdict alone.
+    """
+    _, run = channel_run
+    _assert_ran(run)
+
+    profiles = dict(line.split(" ", 1) for line in run.values("PROBE profile"))
+    assert profiles == {"UNP200": "GeneralizedProfile"}, (
+        "a channel has to be a generalized section in CAE as well as in the INP; CAE's ChannelProfile "
+        "builds fine and then cannot be solved"
+    )
+    # Not `job.status`: measured, it reads `None` in a noGUI session even for a datacheck that
+    # finished cleanly, so it is printed for diagnosis and asserted on nowhere. Abaqus' own verdict
+    # is the last line of the job log, and its reasons are in the .dat.
+    log = run.workdir / "channel_dc.log"
+    dat = run.workdir / "channel_dc.dat"
+    assert log.is_file() and dat.is_file(), "Abaqus wrote no job files, so nothing was checked:\n" + run.describe()
+    text = dat.read_text(encoding="utf-8", errors="replace")
+    verdict = log.read_text(encoding="utf-8", errors="replace")
+    errors = [line.strip() for line in text.splitlines() if "***ERROR" in line]
+
+    assert errors == [], "abaqus datacheck rejected the deck CAE exported for a channel:\n" + "\n".join(errors)
+    assert "ANALYSIS DATACHECK COMPLETE" in text, "the datacheck did not run to completion:\n" + text[-2000:]
+    assert "COMPLETED" in verdict, "Abaqus did not report the job as COMPLETED:\n" + verdict

@@ -394,9 +394,14 @@ def channel(sec: Section, return_solid=False) -> SectionProfile:
 #
 # Everything about the CAE side below was measured against an Abaqus 2025 kernel rather than
 # recalled: each class was constructed with distinct values and its members read back, so the
-# argument at position k is the one that came back holding value k. ``ChannelProfile`` has no
-# docstring in the API at all ("AbaqusMethod -> no details available"), so for that one the probe is
-# the only source there is.
+# argument at position k is the one that came back holding value k.
+#
+# And a class existing is not evidence that it can be used. ``ChannelProfile`` is the proof: it is
+# there, it is named after the shape, it builds -- and the deck CAE writes from it is refused by
+# Abaqus' own preprocessor. So the question each mapping below had to answer was not "is there a
+# class for this shape" but "does a solver accept the deck that comes out of it", and the authority
+# for that is ``abaqus datacheck``, never the API surface. See
+# :data:`CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS`.
 
 log_fin = "Please check your result and input. This is not a validated method of solving this issue"
 
@@ -408,7 +413,6 @@ log_fin = "Please check your result and input. This is not a validated method of
 #: walls and no error anywhere.
 CAE_PROFILE_ARGUMENTS: dict[str, tuple[str, ...]] = {
     "BoxProfile": ("a", "b", "uniformThickness", "t1", "t2", "t3", "t4"),
-    "ChannelProfile": ("l", "h", "b1", "b2", "t1", "t2", "t3", "o"),
     "CircularProfile": ("r",),
     "GeneralizedProfile": ("area", "i11", "i12", "i22", "j", "gammaO", "gammaW"),
     "IProfile": ("l", "h", "b1", "b2", "t1", "t2", "t3"),
@@ -416,6 +420,21 @@ CAE_PROFILE_ARGUMENTS: dict[str, tuple[str, ...]] = {
     "PipeProfile": ("r", "t"),
     "RectangularProfile": ("a", "b"),
     "TProfile": ("b", "h", "l", "tf", "tw"),
+}
+
+#: CAE profile classes that exist on ``mdb.models[..]``, build without complaint, and must still
+#: never reach a :class:`ProfileSpec`, with the measurement that says so. They are listed here rather
+#: than merely left out of :data:`CAE_PROFILE_ARGUMENTS` so that reaching for one -- which the API
+#: surface positively invites, since the class is right there and named after the shape -- fails at
+#: construction with the reason instead of failing in someone's solver run.
+CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS: dict[str, str] = {
+    "ChannelProfile": (
+        "Abaqus/Standard rejects the section=CHANNEL that Abaqus/CAE itself writes for one -- "
+        '***ERROR: in keyword *BEAMSECTION ... Illegal value "CHANNEL" for parameter "section" -- '
+        "and CAE's own getMassProperties() returns mass=None for a member carrying it. Measured on "
+        "Abaqus 2025 via abaqus datacheck, identically for o=0 and o=0.05, so no argument avoids it. "
+        "Use GeneralizedProfile: see ada.sections.profiles._channel_spec."
+    ),
 }
 
 #: ``cae_kwargs`` entries whose value is an ``abaqusConstants`` symbol rather than a number. They
@@ -460,6 +479,9 @@ class ProfileSpec:
     inp_extra_rows: tuple[tuple[float, ...], ...] = ()
 
     def __post_init__(self):
+        rejected = CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS.get(self.cae_class)
+        if rejected is not None:
+            raise ValueError(f"CAE's {self.cae_class} cannot be used: {rejected}")
         expected = CAE_PROFILE_ARGUMENTS.get(self.cae_class)
         if expected is None:
             raise ValueError(f"No probed argument list for CAE profile class {self.cae_class!r}")
@@ -611,39 +633,53 @@ def channel_midline_rows(sec: Section) -> tuple[tuple[float, ...], ...]:
 
 
 def _channel_spec(sec: Section) -> ProfileSpec:
-    """A channel: ``section=ARBITRARY`` in the INP, and a real ``ChannelProfile`` in CAE.
+    """A channel: ``section=ARBITRARY`` in the INP, a generalized section in CAE.
 
-    Abaqus' beam library has no channel keyword -- ``section=CHANNEL`` does not exist, even though
-    Abaqus/CAE writes one from its own ``ChannelProfile``, and Abaqus/Standard then **rejects its own
-    preprocessor's output**::
+    The two routes part company here, and neither half of that is a preference. CAE does have a
+    ``ChannelProfile``, and it is the only target that keeps the shape, which is what makes it
+    tempting. It cannot be used. Abaqus/CAE 2025 builds one happily and writes it out as
+    ``section=CHANNEL`` with ``l, h, b1, b2, t1, t2, t3, o`` -- and Abaqus/Standard then **rejects its
+    own preprocessor's output**. Measured on a deck CAE exported from a ``ChannelProfile`` built by
+    this mapping, run through ``abaqus datacheck``::
 
-        ***ERROR: in keyword *BEAMSECTION, line 105: Illegal value "CHANNEL" for parameter
-                  "section". The value may be misspelled, obsolete, or invalid.
+        ***ERROR: in keyword *BEAMSECTION, file "chan_job.inp", line 29: Illegal value
+                  "CHANNEL" for parameter "section". The value may be misspelled, obsolete,
+                  or invalid.
+        ***ERROR: ELEMENT 1 INSTANCE CHANPART-1 IS MISSING A BEAM SECTION DEFINITION
+        Abaqus Error: Analysis Input File Processor exited with an error
 
-    ``ARBITRARY`` is the keyword that does exist for this shape, and a channel is genuinely
-    thin-walled, so the three wall segments of :func:`channel_midline_rows` describe it exactly -- as
-    against a generalized section, which keeps only the five integrated properties and loses the
-    outline, the stress recovery points and the shear centre with it.
+    Two independent confirmations that the shape is a picture and nothing more: the failure is
+    identical for ``o=0`` and ``o=0.05``, so no argument of ``ChannelProfile`` avoids it, and CAE's
+    own ``part.getMassProperties()`` returns ``mass=None, centerOfMass=(None, None, None)`` for a
+    member carrying such a section -- the kernel will not integrate the profile either. So a
+    ``ChannelProfile`` yields a model that opens in the GUI and cannot be meshed-and-solved, or handed
+    to anyone, or weighed. The CAE route therefore takes a generalized section, which *analyses*, with
+    the section properties adapy computed, at the cost of the outline in the viewer. The same
+    ``abaqus datacheck``, on the deck CAE exports from the generalized section::
 
-    The CAE side keeps the ``ChannelProfile``, because in CAE the shape is what the user sees and
-    edits and it is not passed through the preprocessor.
+        *beamgeneralsection, elset=..., poisson=0.3, density=7850, material=S355, section=GENERAL
+        ANALYSIS DATACHECK COMPLETE WITH 1 WARNING MESSAGES ON THE DAT FILE
 
-    ``o`` is the one argument with no documentation anywhere in the API. It is the horizontal offset
-    of the section origin: it is the only argument ``ChannelProfile`` has that ``IProfile`` does not,
-    an I-section needs none because it is symmetric about its web while a channel is not, and it is
-    the only one the kernel accepts a *negative* value for -- every dimension is validated positive.
-    adapy's channel outline puts the web at x=0, i.e. on the beam axis, so the offset is zero.
+    -- zero errors, and the one warning is that density is given on both the material and the
+    section, which is how a ``BEFORE_ANALYSIS`` section has to be written.
+
+    The INP route does better, and does not have to give the outline up: ``section=ARBITRARY`` exists,
+    it is legal, and a channel is genuinely thin-walled, so the three wall segments of
+    :func:`channel_midline_rows` describe it exactly. That is a strictly better deck than a
+    generalized section, which keeps only five integrated numbers and loses the outline, the stress
+    recovery points and the shear centre with it. So the two routes carry different things, and the
+    warning below says which of them loses what rather than letting one pretend otherwise.
     """
-    rows = channel_midline_rows(sec)
-    cae_dims = (sec.h / 2, sec.h, sec.w_btn, sec.w_top, sec.t_fbtn, sec.t_ftop, sec.t_w, 0.0)
-    return _spec(
-        BaseTypes.CHANNEL,
-        "ARBITRARY",
-        rows[0],
-        "ChannelProfile",
-        dict(zip(CAE_PROFILE_ARGUMENTS["ChannelProfile"], cae_dims)),
-        extra_rows=rows[1:],
+    logger.warning(
+        f"Section {sec.name}: an Abaqus INP carries this channel as section=ARBITRARY, which traces "
+        f"its three walls exactly, but a CAE export carries it as a generalized section -- CAE's "
+        f"ChannelProfile writes a section=CHANNEL that Abaqus/Standard's own preprocessor rejects, "
+        f"and CAE cannot even compute the mass of a member holding one. So the CAE model has this "
+        f"channel's stiffness and mass but not its shape."
     )
+    rows = channel_midline_rows(sec)
+    general = _general_spec(sec, BaseTypes.CHANNEL)
+    return dataclasses.replace(general, inp_kind="ARBITRARY", inp_dims=rows[0], inp_extra_rows=rows[1:])
 
 
 def _general_spec(sec: Section, base_type: BaseTypes) -> ProfileSpec:

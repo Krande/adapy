@@ -15,9 +15,11 @@ kernel and are not what reading the API would tell you:
 
 * ``ArbitraryProfile`` is **thin-walled**, so a filled outline (adapy's POLY) cannot use it;
 * there is no ``section=T``, and Abaqus/CAE itself writes a T as an I with the bottom flange zeroed;
-* there *is* a ``ChannelProfile`` in CAE and there is **no** ``section=CHANNEL`` in Abaqus/Standard --
-  the solver rejects the deck CAE writes for one. The INP keyword that does exist for that shape is
-  ``ARBITRARY``, which traces the channel's three walls by centreline and thickness.
+* there *is* a ``ChannelProfile`` in CAE and it is unusable -- Abaqus/Standard refuses the
+  ``section=CHANNEL`` that CAE's own preprocessor writes for one, and CAE will not even compute the
+  mass of a member carrying it. The INP keyword that does exist for that shape is ``ARBITRARY``,
+  which traces the channel's three walls by centreline and thickness; CAE has no equivalent, so
+  there the channel is a generalized section.
 
 Each of those is pinned, because each is a plausible-sounding change away from a wrong model.
 """
@@ -35,6 +37,7 @@ from ada.fem.formats.abaqus.write.write_sections import (
 from ada.sections.categories import BaseTypes
 from ada.sections.profiles import (
     CAE_PROFILE_ARGUMENTS,
+    CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS,
     ProfileSpec,
     eval_general_properties,
     profile_spec,
@@ -197,23 +200,31 @@ def test_a_t_profile_becomes_a_cae_t_profile():
     assert spec.cae_kwargs == dict(b=0.33, h=0.83, l=0.415, tf=0.027, tw=0.023)
 
 
-def test_a_channel_is_an_arbitrary_section_not_a_channel_one():
-    """``section=CHANNEL`` is what CAE writes and what Abaqus/Standard refuses.
+def test_a_channel_is_an_arbitrary_section_in_the_inp_and_a_generalized_one_in_cae():
+    """A channel must not use CAE's ``ChannelProfile``, and the reason is a solver run, not taste.
 
-    Probed, on a deck adapy itself produced::
+    ``ChannelProfile`` exists, builds, and is a dead end. Measured on Abaqus 2025, on the INP that CAE
+    itself exported from one, through ``abaqus datacheck``::
 
-        ***ERROR: in keyword *BEAMSECTION, line 105: Illegal value "CHANNEL" for parameter
-                  "section". The value may be misspelled, obsolete, or invalid.
+        ***ERROR: in keyword *BEAMSECTION, file "chan_job.inp", line 29: Illegal value
+                  "CHANNEL" for parameter "section".
+        ***ERROR: ELEMENT 1 INSTANCE CHANPART-1 IS MISSING A BEAM SECTION DEFINITION
+        Abaqus Error: Analysis Input File Processor exited with an error
 
-    CAE having a profile class is not evidence the solver has a keyword. Emitting ``CHANNEL`` here
-    would turn every channel in a deck into a fatal input error. ``ARBITRARY`` is the keyword that
-    does exist, and it is not a fallback: a channel is thin-walled, so three segments given by
+    -- and ``part.getMassProperties()`` on the same member returns ``mass=None``, so the kernel will
+    not integrate the profile either. A shape that only renders is worth less than a section that
+    analyses, so the CAE route takes a generalized section, whose deck CAE exports and ``datacheck``
+    accepts with **zero errors**. Regressing that to ``ChannelProfile`` turns every channel in a deck
+    into a model that cannot be solved -- which is why
+    :data:`CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS` makes the attempt raise.
+
+    The INP route is not so constrained, and that is the half worth stating separately:
+    ``section=ARBITRARY`` is legal, and a channel is thin-walled, so three segments given by
     centreline and thickness describe it exactly -- against a generalized section, which keeps five
-    integrated numbers and throws the outline away.
-
-    The midline arithmetic is asserted here rather than only through the writer, because the reader
-    reconstructs ``h`` and ``w`` from these very coordinates: ``x1`` is half a web thickness inside
-    the flange tip and ``y`` half a flange thickness inside each outer face.
+    integrated numbers and throws the outline away. The midline arithmetic is asserted here rather
+    than only through the writer, because the reader reconstructs ``h`` and ``w`` from these very
+    coordinates: ``x1`` is half a web thickness inside the flange tip, and each flange lies half a
+    flange thickness inside its outer face.
     """
     sec = asymmetric("CHASYM", "UNP", **CHANNEL_ASYM)
 
@@ -225,8 +236,34 @@ def test_a_channel_is_an_arbitrary_section_not_a_channel_one():
     y_btn = -(sec.h - sec.t_fbtn) / 2
     assert spec.inp_dims == (3, tip, y_btn, 0.0, y_btn, sec.t_fbtn)
     assert spec.inp_extra_rows == ((0.0, y_top, sec.t_w), (tip, y_top, sec.t_ftop))
-    assert spec.cae_class == "ChannelProfile"
-    assert spec.cae_kwargs == dict(l=0.12, h=0.24, b1=0.084, b2=0.074, t1=0.0124, t2=0.0114, t3=0.0084, o=0.0)
+
+    assert spec.cae_class == "GeneralizedProfile"
+    gp = eval_general_properties(sec)
+    assert spec.cae_kwargs == dict(
+        area=gp.Ax, i11=gp.Iy, i12=gp.Iyz, i22=gp.Iz, j=gp.Ix, gammaO=0.0, gammaW=0.0
+    ), "the CAE side must carry the properties adapy computed, not a second derivation"
+
+
+def test_the_channel_profile_class_cannot_be_reached_by_accident():
+    """The guard that makes the measurement structural instead of a comment.
+
+    ``mdb.models[..].ChannelProfile`` is right there, named after the shape, and builds without a
+    murmur -- so "CAE has a ChannelProfile, use it" is a one-line change anybody would consider
+    reasonable. It has to fail at construction, with the datacheck error in the message, rather than
+    in a solver run days later.
+    """
+    assert "ChannelProfile" not in CAE_PROFILE_ARGUMENTS, "a rejected class needs no argument list"
+    reason = "one class is refused outright and this is it; another needs the measurement to justify it"
+    assert set(CAE_PROFILE_CLASSES_THE_SOLVER_REJECTS) == {"ChannelProfile"}, reason
+
+    with pytest.raises(ValueError, match=r"Illegal value .CHANNEL."):
+        ProfileSpec(
+            base_type=BaseTypes.CHANNEL,
+            inp_kind="ARBITRARY",
+            inp_dims=(3, 0.07075, -0.09425, 0.0, -0.09425, 0.0115),
+            cae_class="ChannelProfile",
+            cae_kwargs=dict(l=0.1, h=0.2, b1=0.075, b2=0.075, t1=0.0115, t2=0.0115, t3=0.0085, o=0.0),
+        )
 
 
 def test_a_poly_is_refused_rather_than_given_invented_properties():
@@ -286,10 +323,16 @@ def test_every_section_type_is_mapped():
 #: The constructor arguments the Abaqus 2025 kernel reports for each class, in positional order --
 #: a second copy of the probe result, so that editing the table in the source cannot quietly change
 #: what the writers emit. Obtained by calling each class with distinct values and reading its members
-#: back, plus the API docstrings where they exist (``ChannelProfile`` has none).
+#: back, plus the API docstrings where they exist.
+#:
+#: ``ChannelProfile`` is deliberately absent: its arguments were probed too, but the class cannot be
+#: used at all (see `test_a_channel_is_a_generalized_section_on_both_routes`), and an argument list
+#: sitting here is an invitation to use it. Its last argument ``o`` is the reason the list is not kept
+#: "for reference": ``o`` has no documentation anywhere in the API, and what it does could only be
+#: established by building a member with it and measuring -- which is exactly what nothing downstream
+#: of a ``ChannelProfile`` will do. It was never proved, so it is not recorded.
 PROBED_CAE_ARGUMENTS = {
     "BoxProfile": ("a", "b", "uniformThickness", "t1", "t2", "t3", "t4"),
-    "ChannelProfile": ("l", "h", "b1", "b2", "t1", "t2", "t3", "o"),
     "CircularProfile": ("r",),
     "GeneralizedProfile": ("area", "i11", "i12", "i22", "j", "gammaO", "gammaW"),
     "IProfile": ("l", "h", "b1", "b2", "t1", "t2", "t3"),
