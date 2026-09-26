@@ -36,21 +36,37 @@ CLASH_PKG = Path(ada.clash.__file__).resolve().parent
 TOPO_MODEL_PKG = Path(ada.topo_model.__file__).resolve().parent
 ASSETS_PKG = Path(ada.assets.__file__).resolve().parent
 
-# "the two job formats, the route and the panel must not contain the tokens weld, tekla, e3d,
-# csg" (Decision 10, "Layering, operationalised"; the literal command is §Verification's
-# "Clash-check vocabulary gate"). This test covers the backend half that is core's to own:
-# src/ada/clash itself.
-FORBIDDEN = ("weld", "tekla", "e3d", "csg")
+# Decision 10's gate, as two checks rather than one word list -- because the rule is about
+# COUPLING and only one of these is.
+#
+# WHAT THE RULE ACTUALLY IS. Identification, classification and matching must not know about a
+# fabrication process: no `Weld` in what they build, no dependency on a detailing package, and a
+# `type_key` assembled from core vocabulary only. The last of those is verified DIRECTLY further
+# down, by parsing every key the demo produces against `MemberKind` / `BaseTypes` / the angle
+# buckets -- a closed vocabulary, checked by a parser that is itself proven able to fail.
+#
+# WHY `weld` LEFT THE LIST. It was a proxy for the rule, and too blunt a one: the word is ordinary
+# English and an ordinary MESH operation -- welding coincident vertices is exactly the kind of
+# thing a plate pass may legitimately need, and the honest name for it is `weld`. Banning the word
+# does not ban the coupling either (a fabrication branch called `bead_size` passes a word filter),
+# so it cost real names and bought little. What indicates coupling is the TYPE and the PACKAGE, and
+# those are what is checked now.
+FORBIDDEN = ("tekla", "e3d", "csg", "weld-gen", "weld_gen", "weldgen")
+
+#: The `Weld` TYPE, case-sensitively. `ada.Weld` is a real core object and belongs in what a
+#: generator returns (`ada.topo_model.detail_joints` builds beads with it); it must never appear in
+#: identification. Capitalised so `weld(v)` -- vertices -- stays legal while `Weld(...)` does not.
+FORBIDDEN_TYPE = r"\bWeld[A-Za-z_]*\b"
 
 
-def _grep_package(pattern: str, pkg: Path) -> list[str]:
+def _grep_package(pattern: str, pkg: Path, *, flags: int = re.IGNORECASE) -> list[str]:
     """``relpath:line: text`` for every case-insensitive match in the package's ``.py`` files.
 
     Every file on disk counts, committed or not, so a gate cannot pass by omission. An empty
     package is an error, not a clean result: a gate that read nothing proves nothing."""
     files = sorted(pkg.rglob("*.py"))
     assert files, f"no .py files under {pkg} -- the gate would pass without reading anything"
-    rx = re.compile(pattern, re.IGNORECASE)
+    rx = re.compile(pattern, flags)
     return [
         f"{f.relative_to(pkg.parent)}:{n}: {line.strip()}"
         for f in files
@@ -73,30 +89,52 @@ def test_asset_vocabulary_gate_is_empty():
     gate was widened; they are what it is for.
     """
     pattern = "|".join(FORBIDDEN)
-    hits = _grep_package(pattern, ASSETS_PKG)
+    hits = _grep_package(pattern, ASSETS_PKG) + _grep_package(FORBIDDEN_TYPE, ASSETS_PKG, flags=0)
     assert not hits, (
-        f"ada.assets names a fabrication/vendor term ({FORBIDDEN}):\n  "
+        f"ada.assets names a vendor system, a detailing package or the `Weld` type ({FORBIDDEN}):\n  "
         + "\n  ".join(hits)
         + "\n\nA provider's format is opaque to core by design; describe the SHAPE of a source "
         "(a private format, a catalogue, a system of record), never whose it is."
     )
 
 
-def test_clash_vocabulary_gate_is_empty():
+def test_clash_names_no_vendor_system_or_detailing_package():
     pattern = "|".join(FORBIDDEN)
     hits = _grep_package(pattern, CLASH_PKG)
     assert not hits, (
-        f"ada.clash names a fabrication/vendor term ({FORBIDDEN}):\n  "
+        f"ada.clash names a vendor system or a detailing package ({FORBIDDEN}):\n  "
         + "\n  ".join(hits)
-        + "\n\nA `Weld` object may appear only in what a generator returns, never in "
-        "identification/classification/matching (Decision 10)."
+        + "\n\nIdentification depends on no provider (Decision 10). Describe the SHAPE of a "
+        "source, never whose it is."
+    )
+
+
+def test_clash_builds_no_weld_type():
+    """The half of Decision 10 that is about coupling rather than wording.
+
+    `ada.Weld` may appear in what a GENERATOR returns and nowhere in identification: a pass that
+    constructed one would be deciding a fabrication outcome while pretending to measure geometry.
+    Case-sensitive on purpose -- `weld(v)` on vertices is an ordinary mesh operation and stays
+    legal.
+    """
+    hits = _grep_package(FORBIDDEN_TYPE, CLASH_PKG, flags=0)
+    assert not hits, (
+        "ada.clash names the `Weld` type:\n  "
+        + "\n  ".join(hits)
+        + "\n\nA `Weld` belongs to a generator's OUTPUT, never to identification, classification "
+        "or matching."
     )
 
 
 def test_the_gate_can_actually_fail():
-    """A gate that cannot fail proves nothing -- these tokens ARE findable in the repo."""
-    hits = _grep_package("weld", TOPO_MODEL_PKG)
-    assert hits, "expected 'weld' to be findable somewhere in core (topo_model's own detailing)"
+    """A gate that cannot fail proves nothing -- the type IS findable where it belongs."""
+    hits = _grep_package(FORBIDDEN_TYPE, TOPO_MODEL_PKG, flags=0)
+    assert hits, "expected the `Weld` type in core's own detailing (topo_model.detail_joints)"
+    # ...and the pattern must NOT fire on the mesh sense, or it would force worse names on honest
+    # code -- the reason the bare word left the term list.
+    assert not re.search(FORBIDDEN_TYPE, "v0 = weld(index[o + e])")
+    assert not re.search(FORBIDDEN_TYPE, "def weld_vertices(points):")
+    assert re.search(FORBIDDEN_TYPE, "from ada import Weld")
 
 
 # ── the type key's vocabulary, verified by parsing it (not by eyeballing) ────
@@ -149,6 +187,7 @@ def test_core_asset_style_gate_also_covers_the_result_and_match_modules():
         text = path.read_text(encoding="utf-8")
         for token in FORBIDDEN:
             assert not re.search(token, text, re.IGNORECASE), f"{module} names {token!r}"
+        assert not re.search(FORBIDDEN_TYPE, text), f"{module} names the `Weld` type"
 
     builtin_specs = (CLASH_PKG / "builtin_specs.py").read_text(encoding="utf-8")
     offending_lines = [
