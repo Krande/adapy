@@ -145,8 +145,21 @@ def main(argv: list[str] | None = None) -> int:
     print(report.format_table())
 
     print()
-    abaqus_hand = compare.hand_check(abaqus_table)
+    # Abaqus' section=PIPE integrates the wall as a line, so the closed form must be given that
+    # section and not adapy's exact annulus -- a different question from which beam theory the
+    # element uses, and 0.276% wider than the bracket's slack. See hand_check's docstring.
+    abaqus_hand = compare.hand_check(
+        abaqus_table,
+        inertia=model.abaqus_pipe_inertia(),
+        inertia_note="thin-walled pi rm^3 t, the section Abaqus itself integrates",
+    )
     print(compare.format_hand_check(abaqus_hand))
+    adapy_inertia = model.section_properties()["Iy"]
+    print(
+        f"  (the model's own exact annulus is {adapy_inertia:.6e} m4, "
+        f"{100 * (adapy_inertia / abaqus_hand.inertia - 1):.3f}% higher; feeding that here instead "
+        f"would shift the bracket below Abaqus by 0.077% and fail a correct translation)"
+    )
     if not abaqus_hand.ok:
         print(
             "HAND CHECK FAILED for Abaqus -- outside the band spanned by both closed forms.",

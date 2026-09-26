@@ -179,6 +179,24 @@ def section_properties() -> dict[str, float]:
     }
 
 
+def abaqus_pipe_inertia() -> float:
+    """The second moment **Abaqus** integrates for this model's section, not the one adapy holds.
+
+    :data:`SECTION` is tubular, so the CAE writer gives it a ``PipeProfile`` and the deck a
+    ``section=PIPE``, and Abaqus integrates that wall as a line: the thin-walled ``pi rm^3 t``
+    rather than the exact annulus. 0.276% below ``section_properties()["Iy"]`` here.
+
+    This is what the Abaqus side of the hand check must be fed -- see
+    :func:`hand_check.thin_walled_pipe_inertia` and :mod:`hand_check`'s docstring. Read off the
+    model's own section, like everything else in this module, so changing :data:`SECTION` cannot
+    leave a stale number behind.
+    """
+    from . import hand_check
+
+    bm = ada.Beam("probe", (0, 0, 0), (1, 0, 0), SECTION)
+    return hand_check.thin_walled_pipe_inertia(radius=float(bm.section.r), thickness=float(bm.section.wt))
+
+
 def assert_probes_are_seeded(fem) -> None:
     """Raise unless every :data:`PROBE_POINTS` coordinate is an actual node of ``fem``.
 

@@ -20,6 +20,7 @@ Run it after any change to :mod:`compare` or :mod:`displacements`::
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 
@@ -370,8 +371,128 @@ def check_hand_check() -> list[bool]:
     return results
 
 
+def check_solver_section_idealisation() -> list[bool]:
+    """The section the *solver* integrates is not always the one the model holds.
+
+    Abaqus' ``section=PIPE`` treats the wall as a line. That is 0.276% low on this frame's tube,
+    which is larger than the 0.2% of slack at each end of the admissible bracket, so a correct
+    Abaqus answer fails the hand check if the closed form is fed adapy's exact annulus. These
+    checks pin both halves: the corrected comparison passes, the uncorrected one does *not*, and
+    the override still cannot absorb a genuine error.
+    """
+    print("\nsolver section idealisation (the closed form must use the solver's own section):")
+    from . import hand_check as hc
+
+    results = []
+    adapy_inertia = model.section_properties()["Iy"]
+    pipe_inertia = model.abaqus_pipe_inertia()
+
+    # Measured against the kernel on a cantilever under a pure end moment; the licensed
+    # test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one is what holds it there.
+    results.append(
+        _expect(
+            "the thin-walled formula reproduces Abaqus' measured effective I (2.693525e-05)",
+            abs(pipe_inertia / 2.693525e-05 - 1) < 1e-05,
+            f"{pipe_inertia:.6e}, rel {abs(pipe_inertia / 2.693525e-05 - 1):.2e}",
+        )
+    )
+    results.append(
+        _expect(
+            "and it is 0.276% below the model's exact annulus",
+            abs(pipe_inertia / adapy_inertia - 0.99724) < 1e-05,
+            f"{pipe_inertia / adapy_inertia:.6f} of {adapy_inertia:.6e}",
+        )
+    )
+
+    # The measured B32 sway. Feeding the closed form the section Abaqus integrates admits it;
+    # feeding the model's own section does not. Without the override there is no way to pass
+    # both this and the "2% error is rejected" check below, which is the point.
+    measured_b32 = _table("abaqus", _scaled(2.474589e-02 / 2.468646e-02))
+    corrected = compare.hand_check(measured_b32, inertia=pipe_inertia)
+    results.append(
+        _expect(
+            "the measured B32 sway is inside the bracket for the section Abaqus integrates",
+            corrected.ok,
+            f"nearest {corrected.nearest.formulation} at rel {corrected.nearest.rel_diff:.3e}",
+        )
+    )
+    results.append(
+        _expect(
+            "and it is identified as shear-flexible, at a far tighter rel than the bracket",
+            corrected.nearest.formulation == "timoshenko" and corrected.nearest.rel_diff < 1e-04,
+            f"rel {corrected.nearest.rel_diff:.3e}",
+        )
+    )
+    uncorrected = compare.hand_check(measured_b32)
+    results.append(
+        _expect(
+            "the same sway against the model's own section falls outside it -- the 0.077% miss",
+            not uncorrected.ok,
+            f"bracket top {uncorrected.bracket[1]:.6e} vs {uncorrected.solver_value:.6e}",
+        )
+    )
+
+    # The override shifts which section is being checked against; it must not loosen the check.
+    # A 2% error is beyond any beam theory and stays rejected with the pipe section in hand.
+    results.append(
+        _expect(
+            "a 2% sway error is still rejected with the solver's own section",
+            not compare.hand_check(_table("abaqus", _scaled(1.02)), inertia=pipe_inertia).ok,
+        )
+    )
+    # The override must not be a loosening device. The bracket is in fact very slightly *narrower*
+    # for the thin-walled section, and for a reason worth recording: the gap between the two beam
+    # theories is set by phi = 12 E I / (G As L^2), which is proportional to I, so a smaller I
+    # means shear matters slightly less and the two theories sit closer -- 0.6345% apart instead
+    # of 0.6363%. Anyone "fixing" this class of miss by widening a tolerance instead would make
+    # the bracket wider, and this check is what fires.
+    pipe_width = corrected.bracket[1] / corrected.bracket[0]
+    exact_width = uncorrected.bracket[1] / uncorrected.bracket[0]
+    results.append(
+        _expect(
+            "the bracket is no wider for the pipe section than for the exact one",
+            pipe_width <= exact_width,
+            f"{pipe_width:.9f} vs {exact_width:.9f} (narrower by {exact_width - pipe_width:.2e}, "
+            f"because phi scales with I)",
+        )
+    )
+    # The report must say which section it used, or a pass hides what it was a pass against.
+    results.append(
+        _expect(
+            "the printed report names the section the closed forms were evaluated with",
+            f"{pipe_inertia:.6e}" in compare.format_hand_check(corrected),
+        )
+    )
+
+    # Sestra needs no override: adapy writes its exact Iy straight into GBEAMG.
+    results.append(
+        _expect(
+            "Sestra's default is the model's own section, unchanged",
+            compare.hand_check(_table("sestra", _REFERENCE)).inertia == adapy_inertia,
+        )
+    )
+    # Only bending differs between the two section definitions: 2 pi rm t and pi (ro^2 - ri^2) are
+    # the same number algebraically, so the areas -- and with them the axial term -- are identical.
+    ro, t = 0.1, 0.01
+    results.append(
+        _expect(
+            "the thin-walled and exact sections have the same area, so only bending moves",
+            abs(2 * math.pi * (ro - t / 2) * t / model.section_properties()["area"] - 1) < 1e-09,
+            f"thin-wall {2 * math.pi * (ro - t / 2) * t:.9e} vs model {model.section_properties()['area']:.9e}",
+        )
+    )
+    results.append(
+        _expect(
+            "and the formula is being asked about this model's actual section",
+            abs(hc.thin_walled_pipe_inertia(radius=ro, thickness=t) / pipe_inertia - 1) < 1e-12,
+            f"OD{2 * ro * 1000:.0f}x{t * 1000:.0f}",
+        )
+    )
+    return results
+
+
 def main() -> int:
-    results = check_loud_failures() + check_agreement() + check_hand_check()
+    results = check_loud_failures() + check_agreement() + check_hand_check() + check_solver_section_idealisation()
     failed = results.count(False)
     print(f"\n{len(results) - failed}/{len(results)} checks passed")
     return 1 if failed else 0

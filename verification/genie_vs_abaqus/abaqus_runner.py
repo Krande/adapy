@@ -72,8 +72,8 @@ significant residual anywhere in the table is 4.9e-03, half the budget.
 thin-walled and adapy's is not.** Isolated on a cantilever under a *pure end moment* (``B33``, so
 no shear; a moment, so no torsion), M = 1000 N m, L = 4 m, E = 210 GPa, the same ``OD200x10``:
 ``ur2 = 7.071638e-04`` rad, so ``I = M L / (E theta) = 2.693525e-05`` m4. adapy's exact annulus
-``pi/4 (ro^4 - ri^4)`` is ``2.700984e-05`` -- Abaqus is **0.276% lower**, and within 2.2e-4 of the
-thin-walled midline value ``pi rm^3 t = 2.692935e-05``. The two *areas* are identical, because
+``pi/4 (ro^4 - ri^4)`` is ``2.700984e-05`` -- Abaqus is **0.276% lower**, and within 7.4e-07 of the
+thin-walled midline value ``pi rm^3 t = 2.693523e-05``. The two *areas* are identical, because
 ``2 pi rm t`` and ``pi (ro^2 - ri^2)`` are algebraically the same number, so only bending moves.
 (Pinned as a licensed test: ``test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one``.)
 
@@ -82,6 +82,18 @@ Fold that one factor in and Abaqus reproduces both closed forms:
 * Euler-Bernoulli 2.452209e-02 x (I_ada / I_aba) = 2.459000e-02, against ``B33``'s 2.459902e-02;
 * Timoshenko      2.467747e-02 x (I_ada / I_aba) = 2.474578e-02, against ``B32``'s 2.474589e-02
   -- agreement to 4e-06 relative.
+
+Those two lines scale the *whole* closed form by the inertia ratio, which is a shade rough: the
+Timoshenko shear parameter ``phi = 12 E I / (G As L^2)`` is itself proportional to ``I``, so a
+smaller ``I`` also means slightly less shear flexibility. Re-deriving properly with the thin-walled
+section throughout gives 2.474540e-02, i.e. **1.981e-05** from ``B32`` -- a hundred times inside
+:data:`hand_check.HAND_CHECK_REL_TOL`, and the number the report now prints. Worth noting the
+cruder estimate lands *nearer* (4e-06 against 1.98e-05), which is not a coincidence: it is what
+you would see if Abaqus keeps a transverse shear stiffness set by the true wall area -- and
+``2 pi rm t`` and ``pi (ro^2 - ri^2)`` are the same number, so it has one available -- while
+integrating bending off the midline. Stated as the observation it is; isolating Abaqus' ``As`` the
+way the end-moment probe isolated its ``I`` would settle it, and nothing here depends on the
+answer.
 
 That second line is the strongest single statement available about this translation: **Abaqus'
 shear-flexible answer is the Timoshenko closed form for the section Abaqus itself integrates, to
@@ -94,10 +106,20 @@ discretisation. Nothing in it was budgeted for a 0.276% *section* difference bet
 form's ``I`` and the solver's, so the bracket cannot hold a Timoshenko-family Abaqus element on a
 tube however correct the translation: the Timoshenko end of the band is Timoshenko + 0.2% and
 Abaqus lands at Timoshenko + 0.276%. ``B32`` misses it by 0.077%. That is a finding about the
-budget rather than about the writer, and it is reported as one: no tolerance in this package has
-been touched, ``REL_TOL`` and ``HAND_CHECK_REL_TOL`` are as their authors set them, and the way
-to close it would be to widen the bracket by the *measured* section difference -- deliberately,
-in :mod:`hand_check`, with this number in the comment -- rather than by feel.
+budget rather than about the writer, **Closed, and not by widening anything.** ``REL_TOL``
+and ``HAND_CHECK_REL_TOL`` are still exactly as their authors set them. What was wrong was the
+*input*: both closed forms take ``I`` as given, so the ``I`` fed in has to be the one the solver
+integrates -- the rule :func:`hand_check.sway_timoshenko` already states for ``shear_area``,
+applied to bending too. The Abaqus side is now evaluated with
+:func:`model.abaqus_pipe_inertia`, and the check that was missing the bracket by 0.077% passes at
+**1.981e-05** relative -- some 140x tighter than the 2.773e-03 it was missing by, and a hundred
+times inside the tolerance, because it is now comparing two statements about the same section. The bracket itself is unchanged at 1.0% wide and
+still spans only the two beam theories, so it rejects a 2% error exactly as before (pinned in
+:func:`selftest.check_solver_section_idealisation`, which also asserts the *uncorrected* form
+still fails -- otherwise the fix would be untested). Which section Abaqus integrates is a
+separate and much sharper question, policed by the licensed
+``test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one``: two questions, two
+checks.
 
 What the emitted script checks before this module reads anything
 ===============================================================

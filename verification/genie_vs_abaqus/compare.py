@@ -343,6 +343,12 @@ class HandCheckReport:
     rows: list[HandCheckRow]
     bracket: tuple[float, float]
     rel_tol: float
+    #: The second moment both closed forms were evaluated with -- the one *this solver*
+    #: integrates, which is not always the one the model holds. Reported so a passing check
+    #: cannot hide which section it was a check against.
+    inertia: float = 0.0
+    #: Where that number came from, for the printed report.
+    inertia_note: str = ""
 
     @property
     def ok(self) -> bool:
@@ -359,7 +365,13 @@ class HandCheckReport:
         return [r.formulation for r in self.rows if r.matches]
 
 
-def hand_check(table: DisplacementTable, *, probe: str | None = None) -> HandCheckReport:
+def hand_check(
+    table: DisplacementTable,
+    *,
+    probe: str | None = None,
+    inertia: float | None = None,
+    inertia_note: str = "",
+) -> HandCheckReport:
     """Check a table's sway against the closed forms in :mod:`hand_check`.
 
     Passes when the measured sway lies inside the admissible bracket -- between the
@@ -367,6 +379,14 @@ def hand_check(table: DisplacementTable, *, probe: str | None = None) -> HandChe
     :data:`hand_check.HAND_CHECK_REL_TOL`. A shear-flexible element (Sestra ``BEAS``, Abaqus
     ``B31``) will sit at the Timoshenko end, a shear-rigid one (``B33``) at the
     Euler-Bernoulli end, and both are correct; the report says which.
+
+    ``inertia`` is the second moment *this solver* integrates. Pass it whenever the solver
+    idealises the section -- Abaqus' ``section=PIPE`` treats the wall as a line, 0.276% low on a
+    tube, which is larger than the bracket's slack and would fail a correct translation. ``None``
+    means the model's own exact value. The bracket still spans only the two beam theories either
+    way, so this cannot be used to absorb a real error: a 2% sway is outside it whichever
+    ``inertia`` is given. See :mod:`hand_check`'s docstring for the two-checks-two-questions
+    split, and :func:`model.abaqus_pipe_inertia` for the value to pass here.
     """
     from . import hand_check as hc
     from . import model
@@ -377,7 +397,7 @@ def hand_check(table: DisplacementTable, *, probe: str | None = None) -> HandChe
             f"{table.solver} has no probe '{probe}' to hand-check; it carries " f"{sorted(table.displacements)}."
         )
     measured = table.component(probe, "u1")
-    predictions = hc.portal_frame_predictions()
+    predictions = hc.portal_frame_predictions(inertia=inertia)
 
     rows = []
     for name, prediction in predictions.items():
@@ -400,6 +420,8 @@ def hand_check(table: DisplacementTable, *, probe: str | None = None) -> HandChe
         rows=rows,
         bracket=hc.admissible_bracket(predictions),
         rel_tol=hc.HAND_CHECK_REL_TOL,
+        inertia=model.section_properties()["Iy"] if inertia is None else inertia,
+        inertia_note=inertia_note or ("the model's own exact section" if inertia is None else ""),
     )
 
 
@@ -421,6 +443,10 @@ def format_hand_check(report: HandCheckReport) -> str:
     low, high = report.bracket
     nearest = report.nearest
     lines.append("-" * len(head))
+    lines.append(
+        f"closed forms evaluated with I = {report.inertia:.6e} m4"
+        + (f" ({report.inertia_note})" if report.inertia_note else "")
+    )
     lines.append(
         f"admissible bracket [{low:.6e}, {high:.6e}] (both closed forms +/- {report.rel_tol:.1e}): "
         f"{'PASS' if report.ok else 'FAIL'}"

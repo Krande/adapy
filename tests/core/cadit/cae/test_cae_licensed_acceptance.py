@@ -1155,8 +1155,12 @@ def test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one(analysis_
     rotation = abs(nodal(displacements)[(CANTILEVER_LENGTH, 0.0, 0.0)][4])
     measured = END_MOMENT * CANTILEVER_LENGTH / (e_mod * rotation)
 
+    # 1e-05 rather than something looser: measured 2.693525e-05 against the formula's 2.693523e-05
+    # is agreement to 7.4e-07, so this leaves 13x of headroom and still notices a 0.001% drift. At
+    # 1e-03 a future Abaqus could move its pipe integration by 0.1% -- a third of the whole effect
+    # this test exists to quantify -- without the test saying a word.
     assert measured == pytest.approx(
-        thin_walled, rel=1e-03
+        thin_walled, rel=1e-05
     ), "Abaqus' effective I is {:.6e}; thin-walled pi rm^3 t is {:.6e} and adapy's annulus {:.6e}".format(
         measured, thin_walled, adapy_inertia
     )

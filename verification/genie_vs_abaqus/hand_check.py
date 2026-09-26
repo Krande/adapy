@@ -42,6 +42,21 @@ two formulations plus 0.2% of slack at each end), so the hand check cannot polic
 more tightly than that across two element libraries. It can and does police the things that
 actually go wrong, which are all much larger -- a pinned base instead of a fixed one is 4.3x.
 
+**The bracket spans beam theories, not section idealisations.** Both forms take ``I`` as given,
+so the value fed in must be the one the *solver* integrates -- the same rule this module already
+states for ``shear_area`` in :func:`sway_timoshenko`. That is not a formality: Abaqus'
+``section=PIPE`` integrates the wall as a *line*, so its second moment is the thin-walled
+:func:`thin_walled_pipe_inertia` and not the exact annulus ``Section.properties.Iy`` is, and on
+this frame's ``OD200x10`` that is 0.276% low -- larger than the 0.2% of slack at each end of the
+bracket. Feeding adapy's ``I`` to a solver that integrates a different section makes a correct
+translation fail by 0.077%, which is a units-style error in miniature: comparing two things that
+were never the same quantity. So the caller passes ``inertia`` (see
+:func:`portal_frame_predictions`), and what polices the *section* is a separate, sharper check --
+the licensed ``test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one``, which
+measures Abaqus' effective ``I`` from a rotation under a pure end moment and pins its ratio to
+adapy's. Two questions, two checks; widening the bracket to cover both would have answered
+neither, and would have cost every future section 0.28% of resolution it does not need.
+
 What both forms still neglect: axial flexibility of the columns and girder. The columns do
 carry axial force (the girder's end shears), which lets the top corners move vertically --
 about 15 um here, visible in the solved model -- and feeds back into the sway at the 1e-4
@@ -51,6 +66,7 @@ is why it is 2e-3 rather than something tighter.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 #: Tolerance applied to each closed form individually, relative.
@@ -68,6 +84,25 @@ from dataclasses import dataclass
 #: widen the admissible bracket between them -- never as a single pass/fail against one of
 #: them. See :func:`admissible_bracket` for why.
 HAND_CHECK_REL_TOL = 2.0e-3
+
+
+def thin_walled_pipe_inertia(*, radius: float, thickness: float) -> float:
+    """``pi rm^3 t`` -- the second moment of a tube whose wall is integrated as a line.
+
+    ``radius`` is the outer radius and ``rm = radius - thickness / 2`` the midline one. This is
+    what **Abaqus** ``section=PIPE`` uses; adapy's ``Section.properties.Iy`` is the exact annulus
+    ``pi/4 (ro^4 - ri^4)``, which for an ``OD200x10`` is 0.276% larger.
+
+    Measured, not assumed: on a cantilever under a pure end moment (no shear, no torsion) Abaqus
+    2025 gives an effective ``I`` of ``2.693525e-05`` m4 for that section, and this formula gives
+    ``2.693523e-05`` -- agreement to 7.4e-07 relative. The licensed
+    ``test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one`` is what holds that, and
+    is where a future Abaqus changing its mind would show up.
+
+    The two *areas* are identical -- ``2 pi rm t`` and ``pi (ro^2 - ri^2)`` are the same number
+    algebraically -- so only bending is affected, which is why weighing the part finds nothing.
+    """
+    return math.pi * (radius - thickness / 2.0) ** 3 * thickness
 
 
 @dataclass(frozen=True)
@@ -203,10 +238,16 @@ def admissible_bracket(
     return min(deltas) * (1.0 - rel_tol), max(deltas) * (1.0 + rel_tol)
 
 
-def portal_frame_predictions() -> dict[str, SwayPrediction]:
+def portal_frame_predictions(*, inertia: float | None = None) -> dict[str, SwayPrediction]:
     """Both closed forms for the model in :mod:`model`, fed from the model's own section.
 
     Returns ``{"euler-bernoulli": ..., "timoshenko": ...}``.
+
+    ``inertia`` overrides the second moment, and must be given as the one the solver being
+    checked actually integrates -- see :func:`thin_walled_pipe_inertia` and the module docstring
+    for why that is a different question from which beam theory it uses. ``None`` means adapy's
+    exact ``Section.properties.Iy``, which is right for Sestra: adapy writes that number straight
+    into the ``GBEAMG`` record, so there is no idealisation between the model and the solver.
     """
     from . import model
 
@@ -216,7 +257,7 @@ def portal_frame_predictions() -> dict[str, SwayPrediction]:
         height=model.HEIGHT,
         span=model.SPAN,
         e_mod=props["E"],
-        i_column=props["Iy"],
+        i_column=props["Iy"] if inertia is None else inertia,
     )
     return {
         "euler-bernoulli": sway_euler_bernoulli(**common),
