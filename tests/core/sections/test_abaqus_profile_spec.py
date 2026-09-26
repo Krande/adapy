@@ -32,6 +32,7 @@ import pytest
 import ada
 from ada.fem import FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_sections import (
+    channel_arbitrary_lines,
     line_cross_sec_type_str,
     line_section_props,
 )
@@ -272,6 +273,32 @@ def test_the_channels_two_spellings_are_one_polyline():
     assert table[1] == (x2, y2, t1)
     assert table[2:] == inp_rows[1:], "every later row is the keyword's own row, unchanged"
     assert profile_spec(sec).cae_kwargs["table"] == table
+
+
+def test_the_name_the_reader_points_at_still_yields_the_block_it_reads():
+    """``read_sections.channel_from_arbitrary``'s docstring names ``channel_arbitrary_lines`` as the
+    thing it is the inverse of, and that function now forwards to the shared mapping. So it has no
+    caller, and an uncalled function is exactly where a second spelling of the same numbers survives
+    a change to the first. Pin the two together instead of deleting a name the reader cites.
+
+    The reader's own acceptance conditions are asserted with it, because they are what the layout has
+    to satisfy: six values on the first row starting with ``3``, then two rows of three, the web on
+    ``x=0``, the flange tips equal and positive, and the top above the bottom.
+    """
+    sec = ada.Section("UNP200", from_str="UNP200x10")
+    fem_sec = _fem_section(sec)
+
+    block = channel_arbitrary_lines(sec)
+
+    assert block == line_section_props(fem_sec).rsplit("\n", 1)[0]
+    rows = [[float(v) for v in line.split(",") if v.strip()] for line in block.splitlines()]
+    assert len(rows) == 3 and len(rows[0]) == 6 and rows[0][0] == 3
+    assert len(rows[1]) == len(rows[2]) == 3
+    _, x1, y1, x2, y2, _ = rows[0]
+    (x3, y3, _), (x4, y4, _) = rows[1], rows[2]
+    assert x2 == x3 == 0.0, "the web centreline is the local-2 axis"
+    assert x1 == x4 > 0.0, "both flange tips, on the same side"
+    assert y1 == y2 < 0.0 < y3 == y4, "bottom flange below, top flange above"
 
 
 def test_the_channel_profile_class_cannot_be_reached_by_accident():
