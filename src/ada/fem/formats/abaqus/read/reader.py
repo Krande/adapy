@@ -1249,8 +1249,9 @@ def _coupling_dofs(sub: KeywordBlock, name: str | None) -> np.ndarray:
 def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     """Every constraint keyword in ``bulk_str``, as :class:`~ada.fem.Constraint` objects.
 
-    **``m_set`` is the independent side and ``s_set`` the dependent side, for every type.** That
-    is worth stating because ``*Tie`` used to be stored the other way round: Abaqus' data line is
+    **``m_set`` is the independent side and ``s_set`` the dependent side** for ``*Tie``,
+    ``*Coupling``, ``*Rigid Body``, ``*Shell to Solid Coupling`` and ``*Equation``. That is worth
+    stating because ``*Tie`` used to be stored the other way round: Abaqus' data line is
     ``secondary, main``, and the reader put the first surface -- the *dependent* one -- into
     ``m_set``. The Abaqus writer wrote ``m_set, s_set`` back out, so the round trip agreed with
     itself while both ends were wrong, and any writer that trusted ``m_set`` to be the master (as
@@ -1262,9 +1263,18 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         LinDepSolidSurf, LinDepPlSurf
         ^ secondary -> s_set   ^ main -> m_set
 
-    The other three two-operand types already agreed with that convention and are unchanged:
-    ``*Shell to Solid Coupling`` names the shell edge -- the independent side -- first, and
-    ``*Coupling`` / ``*Rigid Body`` name their reference node in a parameter.
+    The other three already agreed: ``*Shell to Solid Coupling`` names the shell edge -- the
+    independent side -- first, and ``*Coupling`` / ``*Rigid Body`` name their reference node in a
+    parameter.
+
+    ``*MPC`` is the exception, deliberately left as it is. Abaqus eliminates the **first** node on
+    an MPC data line, so ``BEAM, 2007, 161`` makes 2007 dependent -- and this reader puts 2007 in
+    ``m_set``, the same inversion ``*Tie`` had. It is latent rather than live: no writer reads an
+    MPC's sides as independent/dependent (the Sesam writer has no MPC form at all and reports the
+    constraint as omitted), and the Abaqus writer emits ``m_set, s_set`` again, so the round trip
+    is self-consistent. Flipping it would also flip what ``ada.fem.conversion_utils``'s
+    ``convert_ecc_to_mpc`` writes for every beam offset -- which of its two nodes it means to
+    eliminate is not established anywhere -- so it is named here rather than changed blind.
 
     ** Constraint: Container_RigidBody
     *Rigid Body, ref node=container_rp, elset=container
@@ -1402,11 +1412,17 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         validate(block)
         block_name = comment_property(block, "Constraint").get("Constraint") or next(mpc_names)
         block_types: list[str] = []
+        extra_nodes = 0
         for line in block.data_lines:
-            fields = [x.strip() for x in line.split(",")]
+            fields = [x.strip() for x in line.split(",") if x.strip()]
             if len(fields) < 3:
                 logger.warning("abaqus read: *MPC (line %d) data line %r needs three fields", block.lineno, line)
                 continue
+            # A Constraint holds one node pair per MPC, so the nodes past the second are dropped.
+            # SLIDER takes three, LINK and TIE two, and a user MPC any number; dropping the third
+            # node of a SLIDER leaves a constraint that is not the one the deck wrote, with only
+            # the two nodes it kept to show for it. Counted here and reported per block below.
+            extra_nodes += len(fields) - 3
             mpc_type, m, s = fields[0], fields[1], fields[2]
             if mpc_type not in block_types:
                 block_types.append(mpc_type)
@@ -1425,6 +1441,19 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
                 n2_ = get_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
             mpc_dict[key].append((n1_, n2_))
+        if extra_nodes:
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                READER_STAGE,
+                "*MPC",
+                block_name,
+                "an MPC data line names more than two nodes; a constraint holds one node pair, so "
+                "the nodes past the second are not read",
+                count=extra_nodes,
+                types=sorted(block_types),
+                first_line=block.lineno,
+            )
         if len(block_types) > 1:  # a block mixing types: one constraint per type, told apart by suffix
             for t in block_types:
                 mpc_dict[(f"{block_name}_{t.lower()}", t)] = mpc_dict.pop((block_name, t))

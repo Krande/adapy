@@ -147,3 +147,34 @@ def test_an_empty_sub_keyword_couples_all_six_dofs(tmp_path):
 
     assert expand_dofs(_coupling(a).dofs) == (1, 2, 3, 4, 5, 6)
     assert [f.kind for f in report.findings if f.keyword == "*KINEMATIC"] == ["note"]
+
+
+def test_an_mpc_line_naming_a_third_node_says_the_node_was_not_read(tmp_path):
+    """``SLIDER`` takes three nodes; a ``Constraint`` holds one node pair, so the third is lost.
+
+    The reader dropped it in silence -- the constraint that comes out is not the one the deck
+    wrote, and there is nothing to say so. The pair that *is* read is still read; what is named
+    is the node that is not.
+    """
+    text = "\n".join(
+        [
+            _PART,
+            "*Assembly, name=a",
+            "*Instance, name=p-1, part=p",
+            "*End Instance",
+            "*Node",
+            "97, 0., 0., 1.",
+            "98, 1., 0., 1.",
+            "99, 2., 0., 1.",
+            "** Constraint: sl1",
+            "*MPC",
+            "SLIDER, 97, 98, 99",
+            "*End Assembly",
+            _TAIL,
+        ]
+    )
+    a, report = _read(tmp_path, text)
+    assert "sl1" in a.fem.constraints, "the node pair that fits is still read"
+    (finding,) = [f for f in report.findings if f.keyword == "*MPC"]
+    assert finding.kind == "omitted" and finding.subject == "sl1"
+    assert finding.count == 1 and finding.details["types"] == ["SLIDER"]
