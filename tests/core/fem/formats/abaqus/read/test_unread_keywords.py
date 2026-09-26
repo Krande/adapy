@@ -1,10 +1,14 @@
 """Every keyword the reader does not read is reported, once per keyword, through the conversion report.
 
 A deck may use any keyword Abaqus has, and the reader reads a few dozen. Before this, the rest
-went nowhere: a local coordinate system (``*System``), a load, an amplitude or a material law the
-reader has no handler for vanished without a word, and a converted model could be missing them
-with nothing to say so. What counts as read is what the reader *asked for* while reading
+went nowhere: a geometric imperfection (``*Imperfection``), a load, an amplitude or a material
+law the reader has no handler for vanished without a word, and a converted model could be missing
+them with nothing to say so. What counts as read is what the reader *asked for* while reading
 (``lexer.track_reads``), not a list kept beside it.
+
+``*System`` used to be the example here. It is read now -- see
+:mod:`~ada.fem.formats.abaqus.read.read_systems`, which applies the transform and reports the one
+case it cannot determine -- so an unread keyword that is still unread stands in its place.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ def _read(tmp_path, text: str, name: str = "deck.inp"):
 def test_unread_keywords_are_reported_once_each_and_read_ones_are_not(tmp_path):
     deck = (
         "*Heading\nsynthetic\n"
-        "*System\n0., 0., 0., 1., 0., 0.\n"
+        "*Imperfection, file=job, step=1\n1, 0.01\n"
         + _MESH
         + "*Amplitude, name=ramp\n0., 0., 1., 1.\n"
         + "*Constraint Controls, print=yes\n"
@@ -71,8 +75,8 @@ def test_unread_keywords_are_reported_once_each_and_read_ones_are_not(tmp_path):
     for kw in (*read, "*AMPLITUDE", "*STEP", "*STATIC", "*CLOAD"):
         assert kw not in found, kw
 
-    # a local coordinate system silently ignored would move every node after it
-    assert found["*SYSTEM"].kind == "omitted"
+    # model data with no handler: reported, so the model is not quietly missing it
+    assert found["*IMPERFECTION"].kind == "omitted"
 
     # counted per keyword, not per block, with where to look
     temp = found["*TEMPERATURE"]
@@ -134,11 +138,11 @@ def test_outside_a_collector_it_still_logs(tmp_path):
             records.append(record)
 
     path = tmp_path / "deck.inp"
-    path.write_text("*System\n0., 0., 0., 1., 0., 0.\n" + _MESH)
+    path.write_text("*Imperfection, file=job, step=1\n1, 0.01\n" + _MESH)
     handler = _Collect(logging.WARNING)
     logger.addHandler(handler)
     try:
         ada.from_fem(path, "abaqus")
     finally:
         logger.removeHandler(handler)
-    assert any("*SYSTEM" in r.getMessage() for r in records)
+    assert any("*IMPERFECTION" in r.getMessage() for r in records)

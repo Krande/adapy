@@ -56,6 +56,7 @@ from .read_steps import (
     read_steps,
     read_transforms,
 )
+from .read_systems import SystemTally, find_local_systems, system_in_force
 
 part_name_counter = Counter(1, "Part")
 
@@ -440,8 +441,15 @@ def _build_array_nodes_elements(bulk_str, fem) -> None:
 
 def get_nodes_from_inp_arrays(bulk_str):
     """Parse *Node blocks into packed (coords (n,3), node_ids (n,)) arrays plus inline
-    nset declarations as ``(name, [ids])`` — no Node objects."""
+    nset declarations as ``(name, [ids])`` — no Node objects.
+
+    Coordinates are transformed out of the ``*System`` in force into the global frame, exactly
+    as :func:`get_nodes_from_inp` does. The two node readers must agree about where a node is.
+    """
     import numpy as np
+
+    systems = find_local_systems(bulk_str)
+    tally = SystemTally()
 
     ids: list[int] = []
     xyz: list = []
@@ -461,12 +469,14 @@ def get_nodes_from_inp_arrays(bulk_str):
             block_xyz = np.column_stack([res_[:, 1:3], np.zeros(res_.shape[0])])
         else:
             raise ValueError(f"Abaqus *Node block has {res.size} values; not divisible by 4 (3D) or 3 (2D)")
+        block_xyz = tally.to_global(block_xyz, system_in_force(systems, block.start))
         block_ids = [int(x) for x in res_[:, 0]]
         ids.extend(block_ids)
         xyz.extend(block_xyz.tolist())
         if block.params.get("NSET") is not None:
             nsets.append((block.params.get("NSET"), block_ids))
 
+    tally.report()
     coords = np.array(xyz, dtype=np.float64) if xyz else np.zeros((0, 3))
     node_ids = np.array(ids, dtype=np.int64) if ids else np.zeros((0,), dtype=np.int64)
     return coords, node_ids, nsets
@@ -710,7 +720,14 @@ def import_multiple_inps(input_files_dir):
 
 
 def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
-    """Extract node information from abaqus input file string"""
+    """Extract node information from abaqus input file string.
+
+    Coordinates are given in the ``*System`` in force where the block sits, which is not always
+    the global frame -- see :mod:`~ada.fem.formats.abaqus.read.read_systems`. The transform is
+    applied here, so every consumer of a ``Node`` gets a global coordinate.
+    """
+    systems = find_local_systems(bulk_str)
+    tally = SystemTally()
 
     def getnodes(block: KeywordBlock):
         validate(block)
@@ -726,14 +743,16 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
         # code keeps its (x, y, z) assumption.
         if res.size % 4 == 0:
             res_ = res.reshape(int(res.size / 4), 4)
-            members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
+            xyz = res_[:, 1:4]
         elif res.size % 3 == 0:
             res_ = res.reshape(int(res.size / 3), 3)
-            members = [Node((n[1], n[2], 0.0), int(n[0]), parent=parent) for n in res_]
+            xyz = np.column_stack([res_[:, 1:3], np.zeros(res_.shape[0])])
         else:
             raise ValueError(
                 f"Abaqus *Node block has {res.size} values; " f"not divisible by 4 (3D) or 3 (2D) — malformed?"
             )
+        xyz = tally.to_global(xyz, system_in_force(systems, block.start))
+        members = [Node(p, int(nid), parent=parent) for p, nid in zip(xyz, res_[:, 0])]
         nset = block.params.get("NSET")
         if nset is not None:
             parent.sets.add(FemSet(nset, members, "nset", parent=parent))
@@ -741,6 +760,7 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
 
     blocks = (b for b in iter_keywords(bulk_str, "NODE") if not is_ref_point_block(b))
     nodes = list(chain.from_iterable(map(getnodes, blocks)))
+    tally.report()
 
     return Nodes(nodes, parent=parent)
 
@@ -1159,8 +1179,92 @@ def get_surfaces_from_bulk(bulk_str, parent):
     return surf_d
 
 
-def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
+#: ``*Tie`` parameters that are read into ``metadata`` and written back out, but that nothing
+#: acts on. Each of them *narrows* which secondary nodes the tie constrains, and every writer
+#: constrains the whole secondary region, so the model that comes out is tied over more nodes
+#: than the deck asked for. Reported once per tie, by name, so the engineer can see which tie
+#: is wider than the deck says -- keeping them in the metadata and saying nothing left
+#: ``tied nset=only34`` producing a tie on every node of the surface with nothing to show for it.
+_TIE_PARAMS_NOT_HONOURED = {
+    "TIED NSET": (
+        "the tied nset parameter is not applied, so the tie constrains every node of the "
+        "secondary region rather than the named node set"
+    ),
+    "CYCLIC SYMMETRY": "cyclic symmetry is not applied, so the tie is read as an ordinary surface tie",
+}
+
+
+def _report_tie_not_honoured(block: KeywordBlock, name: str | None) -> None:
+    from ada.fem.formats import conversion_report
+
+    report = conversion_report.current()
+    for param, reason in _TIE_PARAMS_NOT_HONOURED.items():
+        if param in block.params:
+            report.omitted(READER_STAGE, "*TIE", name, reason, value=block.params.get(param), first_line=block.lineno)
+
+
+#: The sub-keyword that follows a ``*Coupling``, and the coupling type it makes. Which one it is
+#: changes the physics -- a kinematic coupling is rigid, a distributing one spreads the load by
+#: weights -- so it is kept in ``metadata["coupling_type"]`` for the writers to report on rather
+#: than being thrown away. Abaqus spells the distributing form three ways depending on the
+#: element types involved. The sub-keyword used to have to be ``*Kinematic``: a ``*Coupling``
+#: followed by ``*Distributing`` matched nothing and the whole constraint left the model.
+_COUPLING_SUBTYPES = {
+    "KINEMATIC": "kinematic",
+    "DISTRIBUTING": "distributing",
+    "STRUCTURAL DISTRIBUTING": "distributing",
+    "CONTINUUM DISTRIBUTING": "distributing",
+}
+
+
+def _coupling_dofs(sub: KeywordBlock, name: str | None) -> np.ndarray:
+    """A ``*Kinematic`` / ``*Distributing`` block's data lines as ``(n, 2)`` first/last DOFs.
+
+    A data line giving only a first DOF constrains that one DOF, which is why this is not
+    ``np.fromstring(...).reshape(-1, 2)`` -- that raised ``ValueError`` on any odd number of
+    values, so ``*Kinematic`` followed by a bare ``1,`` took the whole import down. An empty
+    block couples every DOF the nodes have, which is all six here.
     """
+    from ada.fem.formats import conversion_report
+
+    ranges = []
+    for line in sub.data_lines:
+        fields = [f.strip() for f in line.split(",") if f.strip()]
+        if not fields:
+            continue
+        first = int(float(fields[0]))
+        ranges.append([first, int(float(fields[1])) if len(fields) > 1 else first])
+    if not ranges:
+        conversion_report.current().note(
+            READER_STAGE,
+            f"*{sub.keyword}",
+            name,
+            "the block lists no degrees of freedom, so all six are coupled",
+            first_line=sub.lineno,
+        )
+        return np.array([[1, 6]], dtype=int)
+    return np.array(ranges, dtype=int)
+
+
+def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
+    """Every constraint keyword in ``bulk_str``, as :class:`~ada.fem.Constraint` objects.
+
+    **``m_set`` is the independent side and ``s_set`` the dependent side, for every type.** That
+    is worth stating because ``*Tie`` used to be stored the other way round: Abaqus' data line is
+    ``secondary, main``, and the reader put the first surface -- the *dependent* one -- into
+    ``m_set``. The Abaqus writer wrote ``m_set, s_set`` back out, so the round trip agreed with
+    itself while both ends were wrong, and any writer that trusted ``m_set`` to be the master (as
+    the Sesam writer's ``coupling_records`` and ``shell2solid_records`` both do) produced a model
+    with the dependent and independent sides exchanged. Such a model still runs and still
+    analyses, which is why this is spelled out rather than left to the reader of the code::
+
+        *Tie, name=Constraint-2, adjust=yes
+        LinDepSolidSurf, LinDepPlSurf
+        ^ secondary -> s_set   ^ main -> m_set
+
+    The other three two-operand types already agreed with that convention and are unchanged:
+    ``*Shell to Solid Coupling`` names the shell edge -- the independent side -- first, and
+    ``*Coupling`` / ``*Rigid Body`` name their reference node in a parameter.
 
     ** Constraint: Container_RigidBody
     *Rigid Body, ref node=container_rp, elset=container
@@ -1182,12 +1286,16 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         if surfaces is None:
             continue
         # ADJUST is optional per the guide; a *Tie without it is legal and used to not match.
-        msurf = get_set_from_assembly(surfaces[0], fem, "surface")
-        ssurf = get_set_from_assembly(surfaces[1], fem, "surface")
+        name = block.params.get("NAME")
+        # ``secondary, main`` -- the FIRST surface is the dependent one, so it is the ``s_set``.
+        # See the module note on constraint sides above.
+        ssurf = get_set_from_assembly(surfaces[0], fem, "surface")
+        msurf = get_set_from_assembly(surfaces[1], fem, "surface")
         pos_tol = block.params.get("POSITION TOLERANCE")
+        _report_tie_not_honoured(block, name)
         constraints.append(
             Constraint(
-                block.params.get("NAME"),
+                name,
                 Constraint.TYPES.TIE,
                 msurf,
                 ssurf,
@@ -1205,7 +1313,7 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
-    mark_read("COUPLING", "KINEMATIC")
+    mark_read("COUPLING", *_COUPLING_SUBTYPES)
     all_blocks = tokenize(bulk_str)
     for i, block in enumerate(all_blocks):
         if block.keyword != "COUPLING":
@@ -1222,16 +1330,24 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
         surf = fem.surfaces[sf]
 
-        # The DOF table belongs to the *Kinematic block that follows the *Coupling.
-        kinematic = next((c for c in all_blocks[i + 1 :][:1] if c.keyword == "KINEMATIC"), None)
-        if kinematic is None:
-            logger.warning("abaqus read: *Coupling %r (line %d) has no *Kinematic block", name, block.lineno)
+        # The DOF table belongs to the sub-keyword block that follows the *Coupling.
+        sub = next((c for c in all_blocks[i + 1 :][:1]), None)
+        coupling_type = None if sub is None else _COUPLING_SUBTYPES.get(sub.keyword)
+        if coupling_type is None:
+            # Not a log line: a *Coupling that vanishes from the model is a construct the
+            # conversion did not carry across, and the report is where those are collected.
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                READER_STAGE,
+                "*COUPLING",
+                name,
+                "is not followed by *Kinematic or *Distributing, so nothing says what it couples",
+                followed_by=None if sub is None else f"*{sub.keyword}",
+                first_line=block.lineno,
+            )
             continue
-        res = np.fromstring(list_cleanup(kinematic.data_text), sep=",", dtype=int)
-        size = res.size
-        cols = 2
-        rows = int(size / cols)
-        dofs = res.reshape(rows, cols)
+        dofs = _coupling_dofs(sub, name)
 
         csys_name = block.params.get("ORIENTATION")
         csys = None
@@ -1240,7 +1356,18 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
             if csys is None:
                 raise ValueError(f'Csys "{csys_name}" was not found on part {fem}')
 
-        couplings.append(Constraint(name, Constraint.TYPES.COUPLING, ref_set, surf, csys=csys, dofs=dofs, parent=fem))
+        couplings.append(
+            Constraint(
+                name,
+                Constraint.TYPES.COUPLING,
+                ref_set,
+                surf,
+                csys=csys,
+                dofs=dofs,
+                metadata=dict(coupling_type=coupling_type),
+                parent=fem,
+            )
+        )
 
     # Shell to Solid Couplings
     sh2solids = []
