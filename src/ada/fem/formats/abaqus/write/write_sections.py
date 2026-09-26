@@ -1,3 +1,4 @@
+import dataclasses
 from typing import TYPE_CHECKING
 
 from ada.config import logger
@@ -138,26 +139,47 @@ def line_temperature_str(fem_sec: FemSection):
 
 
 def eval_general_properties(section: Section) -> GeneralProperties:
-    gp = section.properties
+    """The section properties to write on a ``*Beam General Section``, with missing ones filled in.
+
+    Returns a **copy**. ``Section.properties`` caches its result, so writing into it would make an
+    Abaqus export permanently change the model: a Sesam or IFC export later in the same process
+    would then inherit whatever this function substituted.
+
+    ``None`` is the only marker for "never computed" -- every field of
+    :class:`~ada.sections.concept.GeneralProperties` defaults to ``None``. **Zero is a computed
+    answer and is kept.** That distinction is the whole point of this function's shape: ``Iyz`` is
+    exactly ``0`` for every section symmetric about an axis (box, tubular, I, circular, flatbar,
+    channel -- only ``calc_angular`` returns a non-zero one), and treating that zero as missing used
+    to substitute ``(Iy + Iz) / 2``. That value is the *largest* a product of inertia may legally
+    take, so it then failed the positive-definiteness test below and inflated ``Iy`` as well: a
+    UNP200 channel went out with ``Iy`` 4.8x too large and a fabricated ``I12``, and a UNP300 5.6x.
+    Both numbers reached the deck behind a log line, which is the worst way for a section to be
+    wrong.
+
+    Where a value genuinely is unknown, the substitute is the neutral one -- ``0.0`` for ``Iyz`` --
+    not the extreme of its range.
+    """
+    gp = dataclasses.replace(section.properties)
     name = section.name
-    if gp.Ix <= 0.0:
-        gp.Ix = 1
-        logger.warning(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iy <= 0.0:
-        gp.Iy = 2
-        logger.warning(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iz <= 0.0:
-        gp.Iz = 2
-        logger.warning(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iyz <= 0.0:
-        gp.Iyz = (gp.Iy + gp.Iz) / 2
-        logger.warning(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
-    if gp.Iy * gp.Iz - gp.Iyz**2 < 0:
-        old_y = str(gp.Iy)
-        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz**2) / gp.Iz)
-        logger.warning(
-            f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
+
+    # A real cross-section has none of these at or below zero, so here 0.0 does mean "no data".
+    for attr, fallback in (("Ix", 1.0), ("Iy", 2.0), ("Iz", 2.0)):
+        value = getattr(gp, attr)
+        if value is None or value <= 0.0:
+            setattr(gp, attr, fallback)
+            logger.warning(f"Section {name} {attr} is {value}. Substituting {fallback}. {log_fin}")
+
+    if gp.Iyz is None:
+        gp.Iyz = 0.0
+        logger.warning(f"Section {name} has no Iyz. Substituting 0.0, i.e. symmetric. {log_fin}")
+
+    # With a real Iyz this cannot fail for a physically possible section, so a failure means the
+    # input is inconsistent. Say so instead of adjusting Iy until the inequality holds -- a section
+    # quietly made 10% stiffer is the failure this function used to produce.
+    if gp.Iy * gp.Iz - gp.Iyz**2 < 0 or not -(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2:
+        raise ValueError(
+            f"Section {name}: I(11)*I(22) - I(12)**2 must be positive and I(12) must lie within "
+            f"+/-(I(11) + I(22))/2, but Iy={gp.Iy}, Iz={gp.Iz}, Iyz={gp.Iyz}. These properties "
+            f"describe no real cross-section, so Abaqus would reject the section."
         )
-    if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
-        raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
     return gp
