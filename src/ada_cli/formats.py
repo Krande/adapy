@@ -13,6 +13,13 @@ Two extensions name more than one FEM format -- ``.inp`` is Abaqus and Calculix,
 is Sesam and USFOS -- so each extension has exactly one *default owner* here, chosen to
 match what ``ada.fem.formats.general.interpret_fem_format_from_path`` already does, and
 the minority dialect is reached with ``--to``.
+
+``xml`` and ``gnx`` are the inverse case: one model, two containers. A ``.gnx`` is the
+GeniE workspace -- the same concept XML zipped with its ACIS body -- so they are separate
+format names claiming separate extensions, and ``--to`` cannot be used to put one
+container under the other's name (see ``_CONTAINER_FORMATS`` in ``ada.api.cli``). The name
+``gnx`` rather than a flag on ``xml`` follows the REST layer, whose
+``_GXML_TARGETS = {"xml", "gnx"}`` already treats them as two targets.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ READ_FORMATS: dict[str, tuple[str, ...]] = {
     "ifc": ("ifc",),
     "step": ("step", "stp"),
     "xml": ("xml",),
+    "gnx": ("gnx",),
     "acis": ("sat", "acis"),
     "abaqus": ("inp",),
     "sesam": ("fem", "sif"),
@@ -36,6 +44,7 @@ WRITE_FORMATS: dict[str, tuple[str, ...]] = {
     "step": ("step", "stp"),
     "gltf": ("gltf", "glb"),
     "xml": ("xml",),
+    "gnx": ("gnx",),
     "abaqus": ("inp",),
     "calculix": ("inp",),
     "sesam": ("fem",),
@@ -71,6 +80,7 @@ DEFAULT_READ_BY_EXT: dict[str, str] = {
     "step": "step",
     "stp": "step",
     "xml": "xml",
+    "gnx": "gnx",
     "sat": "acis",
     "acis": "acis",
     "inp": "abaqus",
@@ -87,6 +97,7 @@ DEFAULT_WRITE_BY_EXT: dict[str, str] = {
     "gltf": "gltf",
     "glb": "gltf",
     "xml": "xml",
+    "gnx": "gnx",
     "inp": "abaqus",
     "fem": "sesam",
     "med": "code_aster",
@@ -122,6 +133,11 @@ def format_table_text() -> str:
         "There is no --from calculix: a Calculix deck is an Abaqus deck to the reader, so",
         "read one with --from abaqus. Calculix .frd results are not read at all -- they are",
         "results, not a model. A .rmed IS read, as a mesh; its result fields are ignored.",
+        "",
+        "xml and gnx are one model in two containers: a .gnx is the GeniE workspace, the",
+        "concept XML zipped with its ACIS body, which is what GeniE opens directly. The",
+        "extension picks the container and --to cannot override it - naming a .gnx and",
+        "passing --to xml (or the reverse) is refused rather than writing the wrong one.",
         "",
         "Output formats (--to):",
         "",
