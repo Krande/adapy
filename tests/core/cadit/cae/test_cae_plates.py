@@ -644,3 +644,155 @@ def test_the_minimum_clearance_is_a_fraction_of_the_faces_own_size_and_not_an_ab
     planned = plate_body(one_part(small)).plates[0]
 
     assert planned.faces[0].clearance == pytest.approx(0.001)
+
+
+def test_a_face_that_no_plate_claims_is_refused(monkeypatch):
+    """Every face of the imported part has to end with a shell section, and a face nobody owns is a
+    face the emitted model would carry with no thickness and no material -- which Abaqus then refuses
+    to mesh (``contains invalid geometry`` is the nearest it gets to saying so).
+
+    The condition is injected, because it is a failure of the SAT writer's own ``face_map`` and not
+    something a model can be built to provoke: it would mean adapy authored a face and then did not
+    record which plate it came from. A guard whose branch has never been executed is a guard nobody
+    has seen work.
+    """
+    from ada.cadit.sat.write import writer as sat_writer_module
+
+    original = sat_writer_module.part_to_sat_writer
+
+    def forgetful(part, imprint=True):
+        writer = original(part, imprint=imprint)
+        for guid in list(writer.face_map):
+            writer.face_map[guid] = writer.face_map[guid][:-1]
+        return writer
+
+    monkeypatch.setattr(sat_writer_module, "part_to_sat_writer", forgetful)
+    part = one_part(a_deck(), ada.Beam("stf1", (0, 1, 0), (3, 1, 0), "HP200x10", "S355"))
+
+    with pytest.raises(PlateNotSupported, match="no plate claims"):
+        plate_body(part)
+
+
+# ------------------------------------------------------------------- a pressure on a plate's faces
+
+
+def a_strip_with_a_pressure(*, partial=False, nodes_instead=False, two_plates=False) -> ada.Assembly:
+    """A meshed strip carrying one ``Load`` of type ``pressure`` over its own element set.
+
+    ``ada.fem.loads.LoadTypes.all`` does not list ``pressure`` -- the constructor sets the type
+    without going through the validating setter -- so nothing in adapy builds one of these today.
+    That is why the model is assembled here rather than taken from a fixture, and it is also why the
+    translation is narrow: what it has to carry is the record's own shape, not a corpus.
+    """
+    from ada.fem import FemSet, Load, StepImplicitStatic
+
+    plates = [ada.Plate("deck", [(0, 0), (4, 0), (4, 0.5), (0, 0.5)], 0.010, mat="S355")]
+    if two_plates:
+        plates.append(ada.Plate("other", [(0, 2), (4, 2), (4, 2.5), (0, 2.5)], 0.010, mat="S355"))
+    part = ada.Part("Strip") / plates
+    assembly = ada.Assembly("A") / part
+    fem = part.to_fem_obj(0.25, "shell")
+    part.fem = fem
+    if nodes_instead:
+        acting_on = fem.add_set(FemSet("some_nodes", list(fem.nodes)[:4], FemSet.TYPES.NSET))
+    elif partial:
+        whole = list(fem.elsets["eldeck_sh"].members)
+        acting_on = fem.add_set(FemSet("half", whole[: len(whole) // 2], FemSet.TYPES.ELSET))
+    elif two_plates:
+        acting_on = fem.add_set(
+            FemSet(
+                "both",
+                list(fem.elsets["eldeck_sh"].members) + list(fem.elsets["elother_sh"].members),
+                FemSet.TYPES.ELSET,
+            )
+        )
+    else:
+        acting_on = fem.elsets["eldeck_sh"]
+    step = assembly.fem.add_step(StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    step.add_load(Load("q", "pressure", 1000.0, fem_set=acting_on))
+    return assembly
+
+
+def test_a_pressure_on_a_plate_becomes_a_surface_and_a_pressure(tmp_path):
+    assembly = a_strip_with_a_pressure()
+
+    plan = build_plan(assembly)
+
+    assert len(plan.analysis.pressures) == 1
+    pressure = plan.analysis.pressures[0]
+    assert pressure.cae_name == "q"
+    assert pressure.cae_surface_name == "q_surf"
+    assert pressure.plate_set_name == "deck"
+    assert pressure.magnitude == 1000.0
+    assert pressure.step == "static"
+    assert pressure.element_count == 64
+    assert len(pressure.points) == 1, "one point per face of the plate it acts on"
+
+    _, text = emit(assembly, tmp_path)
+    assert "_pressure_surface(assembly, 'q_surf', 'Strip-1', ((" in text
+    assert "model.Pressure(name='q', createStepName='static'," in text
+    assert "region=assembly.surfaces['q_surf'], magnitude=1000.0)" in text
+    assert "'surfaces': ['q_surf']," in text
+    assert "'loads': ['q']," in text
+
+
+def test_the_emitted_pressure_states_which_way_a_positive_magnitude_pushes(tmp_path):
+    """Abaqus' own convention, and it is not guessable from the call: a positive pressure acts INTO
+    the surface, against ``side1``'s outward normal -- which is the plate's declared normal, measured
+    to survive the ACIS import unflipped."""
+    _, text = emit(a_strip_with_a_pressure(), tmp_path)
+
+    assert "side1Faces, and that fixes the sign" in text
+    assert "whose normal is +z pushes it in -z" in text
+
+
+def test_a_pressure_on_a_node_set_is_refused():
+    with pytest.raises(CaeWriteError, match="is a Node and not an element"):
+        build_plan(a_strip_with_a_pressure(nodes_instead=True))
+
+
+def test_a_pressure_over_part_of_a_plate_is_refused_rather_than_spread_over_all_of_it():
+    """A CAE Surface is made of WHOLE faces, so this would become more load than the model describes,
+    applied where it does not."""
+    with pytest.raises(CaeWriteError, match="of the 64 elements the plate 'deck' was meshed into"):
+        build_plan(a_strip_with_a_pressure(partial=True))
+
+
+def test_a_pressure_spanning_two_plates_is_refused():
+    with pytest.raises(CaeWriteError, match="elements come from 2 different plates"):
+        build_plan(a_strip_with_a_pressure(two_plates=True))
+
+
+def test_a_pressure_is_refused_when_the_plate_it_acts_on_is_not_emitted():
+    """A pressure onto nothing is worse than a refusal. With the plate present but a *second* plate
+    carrying the load, the record names a plate that is not in the emitted model."""
+    from ada.fem import FemSet, Load, StepImplicitStatic
+
+    kept = ada.Plate("deck", [(0, 0), (4, 0), (4, 0.5), (0, 0.5)], 0.010, mat="S355")
+    part = ada.Part("Strip") / kept
+    assembly = ada.Assembly("A") / part
+    fem = part.to_fem_obj(0.25, "shell")
+    part.fem = fem
+    # A set of the deck's elements, but the plate they were meshed from is then taken out of the part
+    # -- which is what a pressure naming a plate the writer did not emit looks like from here.
+    elset = fem.elsets["eldeck_sh"]
+    step = assembly.fem.add_step(StepImplicitStatic("s", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    step.add_load(Load("q", "pressure", 1000.0, fem_set=elset))
+    # ``other`` is never added to the part, so the writer emits no face for it.
+    other = ada.Plate("other", [(0, 2), (4, 2), (4, 2.5), (0, 2.5)], 0.010, mat="S355")
+    for element in elset.members:
+        element.refs[:] = [other if isinstance(ref, ada.Plate) else ref for ref in element.refs]
+    assert isinstance(elset, FemSet)
+
+    with pytest.raises(CaeWriteError, match=r"the plates it emitted are \['deck'\]"):
+        build_plan(assembly)
+
+
+def test_pressure_is_no_longer_in_the_refused_load_types():
+    """The refusal message it used to carry said the emitted model 'has no face for it to act on',
+    which stopped being true when plates arrived. A message that has become untrue is worse than no
+    message, so the type is carried instead."""
+    from ada.cadit.cae.analysis import CARRIED_LOAD_TYPES, REFUSED_LOAD_TYPES
+
+    assert "pressure" in CARRIED_LOAD_TYPES
+    assert "pressure" not in REFUSED_LOAD_TYPES

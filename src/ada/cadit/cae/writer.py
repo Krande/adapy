@@ -89,13 +89,18 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    The solver can, and that is where the sign of the projection was pinned; see
    :func:`beam_section_offset`.
 
-10. **Every support and load arrives, at a vertex, or nothing is written.** The analysis
+10. **Every support and load arrives, at a vertex or on a plate's faces, or nothing is
+   written.** The analysis
    comes from ``FEM.bcs`` and the ``Load`` records inside ``FEM.steps`` -- see
    :mod:`ada.cadit.cae.analysis` on which of adapy's two stores that is and why. A support
    or load whose node is not at a vertex of the emitted geometry is refused rather than
    attached to a located mesh node, which would hold exactly until the part was meshed
-   again. Every load type but ``force`` is refused *by name at plan time*, which is the
-   thing adapy's Sesam writer does not do: the same case there falls off the end of
+   again. A ``pressure`` is the exception that needs a face rather than a vertex: it becomes a
+   ``Pressure`` on an assembly ``Surface`` over the whole of one plate, resolved through
+   ``Elem.refs`` -- which names the plate a shell element was meshed from -- and refused when the
+   element set covers only part of a plate, because a CAE surface is made of whole faces and the
+   load would silently spread over all of it. Every other load type is refused *by name at plan
+   time*, which is the thing adapy's Sesam writer does not do: the same case there falls off the end of
    ``load_str`` returning ``None`` and surfaces as ``TypeError: can only concatenate str
    (not "NoneType") to str`` several frames from the cause. A ``Bc`` **magnitude** is
    written as a prescribed displacement, which the Sesam writer also does not do -- it
@@ -1249,7 +1254,17 @@ def build_plan(
     # every part's topology -- member ends plus imprinted split points -- has been computed.
     try:
         plan.analysis, analysis_registries = plan_analysis(
-            root, vertex_index(plan.parts, plan.joint_tol), plan.registries[_SET_SCOPE], plan.joint_tol
+            root,
+            vertex_index(plan.parts, plan.joint_tol),
+            plan.registries[_SET_SCOPE],
+            plan.joint_tol,
+            # A CAE Pressure acts on a Surface, so a pressure load has to resolve to the whole of
+            # one plate this writer emitted -- which is only knowable once the plates are planned.
+            plates={
+                plate.plate_name: (part_plan.cae_instance_name, tuple(face.point for face in plate.faces))
+                for part_plan in plan.parts
+                for plate in part_plan.plates
+            },
         )
     except AnalysisNotSupported as exc:
         # Re-raised as the writer's own error, the way a CurveNotSupported is, so a caller has
@@ -1586,6 +1601,7 @@ def _guard_no_name_collisions(model):
         'boundary conditions': model.boundaryConditions.keys(),
         'loads': model.loads.keys(),
         'assembly sets': model.rootAssembly.sets.keys(),
+        'assembly surfaces': model.rootAssembly.surfaces.keys(),
         'field output requests': model.fieldOutputRequests.keys(),
     }
     clashes = []
@@ -2182,6 +2198,36 @@ def _analysis_region(assembly, set_name, instance_name, points, source_set_name)
     _RESULT['created']['regions'].append(set_name)
 
 
+def _pressure_surface(assembly, surface_name, instance_name, points, plate_name):
+    """One assembly-level Surface over the faces of one plate, found by that plate\'s own points.
+
+    ``side1Faces``, which is what fixes the sign: Abaqus takes a positive pressure as acting INTO
+    the surface, against side1\'s outward normal -- and side1\'s normal is the plate\'s declared
+    normal, measured to survive the ACIS import unflipped. So a positive magnitude on a plate whose
+    normal is +z pushes it in -z.
+
+    findAt is checked rather than trusted, for the reason _plate_faces gives: it warns and returns an
+    empty sequence for a point it cannot place, so the surface could otherwise come out holding fewer
+    faces than the plate has -- a pressure over part of a plate, silently, which is exactly what the
+    adapy side refused a partial element set for.
+    """
+    instance = assembly.instances[instance_name]
+    found = []
+    for point in points:
+        hits = instance.faces.findAt((point,))
+        if len(hits) != 1:
+            _fail('the pressure surface {0!r} on plate {1!r}: findAt at {2} found {3} face(s), not one. '
+                  'adapy computed that point strictly inside the face it authored, so the pressure '
+                  'would act on fewer faces than the plate has.'.format(
+                      surface_name, plate_name, point, len(hits)))
+        found.append(hits[0].index)
+    faces = instance.faces[found[0]:found[0] + 1]
+    for index in found[1:]:
+        faces = faces + instance.faces[index:index + 1]
+    assembly.Surface(name=surface_name, side1Faces=faces)
+    _RESULT.setdefault('pressure_faces', {})[surface_name] = len(found)
+
+
 def _guard_analysis(model):
     """Every planned step, support, load and region exists in the model CAE holds.
 
@@ -2196,6 +2242,7 @@ def _guard_analysis(model):
         ('boundary condition', PLANNED_ANALYSIS['bcs'], model.boundaryConditions.keys()),
         ('load', PLANNED_ANALYSIS['loads'], model.loads.keys()),
         ('region', PLANNED_ANALYSIS['regions'], model.rootAssembly.sets.keys()),
+        ('pressure surface', PLANNED_ANALYSIS['surfaces'], model.rootAssembly.surfaces.keys()),
     ):
         existing = list(present)
         for name in planned:
@@ -2206,6 +2253,7 @@ def _guard_analysis(model):
         'boundary_conditions': list(model.boundaryConditions.keys()),
         'loads': list(model.loads.keys()),
         'regions': list(PLANNED_ANALYSIS['regions']),
+        'surfaces': list(model.rootAssembly.surfaces.keys()),
         'applied_force_from_adapy': list(APPLIED_FORCE),
     }
     if problems:
@@ -2633,8 +2681,13 @@ def _analysis_source(plan: _Plan, displacements_name: str) -> list[str]:
         "PLANNED_ANALYSIS = {",
         "    'steps': [{0}],".format(", ".join(repr(step.cae_name) for step in analysis.steps)),
         "    'bcs': [{0}],".format(", ".join(repr(bc.cae_name) for bc in analysis.bcs)),
-        "    'loads': [{0}],".format(", ".join(repr(name) for name in _planned_load_names(analysis))),
+        "    'loads': [{0}],".format(
+            ", ".join(repr(name) for name in _planned_load_names(analysis) + [p.cae_name for p in analysis.pressures])
+        ),
         "    'regions': [{0}],".format(", ".join(repr(region.cae_set_name) for region in analysis.regions)),
+        # A CAE Pressure acts on a Surface, which lives in its own assembly repository -- so a
+        # pressure is the one analysis record whose region is not in 'regions'.
+        "    'surfaces': [{0}],".format(", ".join(repr(p.cae_surface_name) for p in analysis.pressures)),
         "}",
         "APPLIED_FORCE = ({0})".format(", ".join(_num(c) for c in analysis.applied_resultant())),
         "",
@@ -2690,8 +2743,12 @@ def _planned_names_source(plan: _Plan) -> list[str]:
     if not plan.analysis.is_empty:
         planned["steps"] = [step.cae_name for step in plan.analysis.steps]
         planned["boundary conditions"] = [bc.cae_name for bc in plan.analysis.bcs]
-        planned["loads"] = _planned_load_names(plan.analysis)
+        planned["loads"] = _planned_load_names(plan.analysis) + [
+            pressure.cae_name for pressure in plan.analysis.pressures
+        ]
         planned["assembly sets"] = [region.cae_set_name for region in plan.analysis.regions]
+        # A Surface is its own assembly repository, so a pressure's region is checked separately.
+        planned["assembly surfaces"] = [pressure.cae_surface_name for pressure in plan.analysis.pressures]
         planned["field output requests"] = [FIELD_OUTPUT_REQUEST_NAME] if plan.analysis.steps else []
     lines = [
         "# Every name this script creates. CAE does not refuse a reused name -- it replaces the",
@@ -2755,7 +2812,7 @@ def render_script(
     lines += _planned_names_source(plan)
     lines += [
         "_RESULT = {",
-        "    'schema': 'ada.cae_build_result/4',",
+        "    'schema': 'ada.cae_build_result/5',",
         "    'ok': False,",
         "    'model': MODEL_NAME,",
         "    'source_part': {0!r},".format(plan.root_name),
@@ -3165,6 +3222,41 @@ def _analysis_lines(plan: _Plan) -> list[str]:
             "    # {0!r} ({1}), adapy Bc type {2!r}".format(bc.bc_name, note, bc.bc_type),
             "    model.DisplacementBC(name={0!r}, createStepName={1!r},".format(bc.cae_name, bc.step),
             "                         region=assembly.sets[{0!r}], {1})".format(bc.region, values),
+        ]
+
+    if analysis.pressures:
+        lines += [
+            "",
+            "    # --- pressures. A CAE Pressure acts on a SURFACE -- one side of one or more faces --",
+            "    # so each of these covers the whole of one plate, which is what the adapy side checks",
+            "    # before getting here: a set covering part of a plate is refused rather than quietly",
+            "    # becoming a pressure over all of it.",
+            "    #",
+            "    # side1Faces, and that fixes the sign: Abaqus takes a positive pressure as acting INTO",
+            "    # the surface, against side1's own outward normal, which is the plate's declared normal",
+            "    # (measured to survive the ACIS import unflipped). So a positive magnitude on a plate",
+            "    # whose normal is +z pushes it in -z.",
+        ]
+    for pressure in analysis.pressures:
+        points = ", ".join(_pt(point) for point in pressure.points)
+        if len(pressure.points) == 1:
+            points += ","
+        lines += [
+            "    # {0!r}: {1} over the {2} face(s) of plate {3!r}, from the {4} element(s) of the".format(
+                pressure.load_name,
+                _num(pressure.magnitude),
+                len(pressure.points),
+                pressure.plate_set_name,
+                pressure.element_count,
+            ),
+            "    # adapy set {0!r}".format(pressure.source_set_name),
+            "    _pressure_surface(assembly, {0!r}, {1!r}, ({2}), {3!r})".format(
+                pressure.cae_surface_name, pressure.cae_instance_name, points, pressure.plate_set_name
+            ),
+            "    model.Pressure(name={0!r}, createStepName={1!r},".format(pressure.cae_name, pressure.step),
+            "                   region=assembly.surfaces[{0!r}], magnitude={1})".format(
+                pressure.cae_surface_name, _num(pressure.magnitude)
+            ),
         ]
 
     if analysis.loads:

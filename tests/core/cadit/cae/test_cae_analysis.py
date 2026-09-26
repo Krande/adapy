@@ -380,13 +380,20 @@ def refuse_gravity() -> ada.Assembly:
 
 
 def refuse_pressure() -> ada.Assembly:
+    """A pressure is CARRIED now -- on a plate. On a model of beams alone there is no face for it to
+    act on, and this is the refusal that says so.
+
+    ``LoadPressure`` takes a ``Surface`` and leaves ``fem_set`` unset, which is a second reason the
+    record cannot be placed: adapy's own two spellings of "where a pressure acts" do not agree, and
+    the CAE writer resolves the element-set one (``Elem.refs`` names the plate a shell was meshed
+    from). See ``test_cae_plates.py`` for the pressure that IS carried.
+    """
     from ada.fem import Surface
+    from ada.fem.loads import LoadPressure
 
     assembly = portal_frame()
     part = assembly.get_by_name("PortalFrame")
     top_l = part.fem.sets.get_nset_from_name("TOP_L")
-    from ada.fem.loads import LoadPressure
-
     assembly.fem.steps[0].add_load(LoadPressure("p", 1.0e5, Surface("s", Surface.TYPES.NODE, top_l, parent=part.fem)))
     return assembly
 
@@ -474,7 +481,7 @@ REFUSALS = {
     # the type and would still raise, and it is not the same thing. A refusal that cannot say why is
     # barely a refusal.
     "a gravity load": (refuse_gravity, "density it multiplies"),
-    "a pressure load": (refuse_pressure, "no face for it to act on"),
+    "a pressure load on a beams-only model": (refuse_pressure, "nothing for it to act on"),
     "an eigenvalue step": (refuse_eigen_step, "StepEigen"),
     "a velocity boundary condition": (refuse_velocity_bc, "prescribes a rate"),
     "a support at a mid-span mesh node": (refuse_mid_span_support, "no vertex there"),

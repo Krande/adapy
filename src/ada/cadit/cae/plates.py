@@ -45,12 +45,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.config import get_logger
-
 if TYPE_CHECKING:
     from ada import Part
-
-logger = get_logger()
 
 
 class PlateNotSupported(Exception):

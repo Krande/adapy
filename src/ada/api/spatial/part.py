@@ -1856,10 +1856,12 @@ class Part(BackendGeom):
         become ``DisplacementBC`` objects on assembly-level vertex sets (a non-zero
         magnitude included, as the prescribed displacement it is — which adapy's Sesam
         writer does not carry), the ``ada.fem.Load`` records inside ``ada.fem.FEM.steps``
-        become a ``ConcentratedForce`` and a ``Moment`` each, and every
+        become a ``ConcentratedForce`` and a ``Moment`` each, a ``pressure`` load becomes a
+        ``Pressure`` over the whole of the plate its element set was meshed from, and every
         ``StepImplicitStatic`` becomes a ``StaticStep`` chained through ``previous``. Every
-        other load type, every non-static step, and any support or load whose node is not at
-        a vertex of the emitted geometry is **refused by name** rather than dropped. See
+        other load type, every non-static step, a pressure covering only part of a plate, and
+        any support or load whose node is not at a vertex of the emitted geometry are
+        **refused by name** rather than dropped. See
         :mod:`ada.cadit.cae.analysis` for the whole list and for which of adapy's two stores
         for this is read.
 

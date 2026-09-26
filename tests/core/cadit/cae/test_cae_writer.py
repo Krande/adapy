@@ -1162,6 +1162,7 @@ class FakeModel:
         boundary_conditions=None,
         loads=None,
         assembly_sets=None,
+        assembly_surfaces=None,
         field_output_requests=None,
     ):
         self.parts = parts
@@ -1175,6 +1176,9 @@ class FakeModel:
         self.rootAssembly = types.SimpleNamespace(
             instances=instances if instances is not None else {},
             sets=assembly_sets if assembly_sets is not None else {},
+            # A CAE Pressure's region is a Surface, which is its own assembly repository -- so guard
+            # 7 checks that namespace too and the stand-in has to have one.
+            surfaces=assembly_surfaces if assembly_surfaces is not None else {},
         )
 
 
@@ -1327,7 +1331,7 @@ def test_guard_five_records_the_reason_and_forces_a_non_zero_status(tmp_path, mo
     result = json.loads(sidecar.read_text())
     assert result["ok"] is False
     assert result["errors"] == ["something went wrong halfway"]
-    assert result["schema"] == "ada.cae_build_result/4"
+    assert result["schema"] == "ada.cae_build_result/5", "plates added 'plates', 'pressure_faces' and four guard keys"
 
 
 def test_the_sidecar_name_follows_the_script_stem(tmp_path):

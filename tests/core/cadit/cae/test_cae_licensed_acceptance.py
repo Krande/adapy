@@ -1536,3 +1536,65 @@ def test_a_stringer_stiffens_the_strip_by_the_amount_two_springs_in_parallel_wou
     measured = abs(float(stiff.value("PROBE max_u3"))) / abs(float(bare.value("PROBE max_u3")))
     assert measured == pytest.approx(expected_ratio, rel=STRIP_TOL)
     assert measured < 0.5, "and it is unmissably stiffer, not marginally"
+
+
+# ------------------------------------------------------- the writer's own pressure, in the kernel
+
+PRESSURE_DRIVER = """
+_m = mdb.models['Model-1']
+_a = _m.rootAssembly
+print('PROBE surfaces {0}'.format(sorted(_a.surfaces.keys())))
+_surf = _a.surfaces['q_surf']
+print('PROBE surface_faces {0}'.format(len(_surf.faces)))
+print('PROBE loads {0}'.format(sorted(_m.loads.keys())))
+# Measured: a Pressure has no `magnitude` attribute -- the value it was created with reads back
+# out of `.magnitudes`, and what settles it for the solver is the *Dsload line anyway.
+print('PROBE load_attrs {0}'.format([_x for _x in dir(_m.loads['q']) if not _x.startswith('_')]))
+mdb.Job(name='pressure_export', model='Model-1').writeInput(consistencyChecking=OFF)
+print('PROBE inp pressure_export.inp')
+"""
+
+
+def strip_with_a_pressure() -> ada.Assembly:
+    """The strip, its own element set, and one ``Load`` of type ``pressure`` over the whole of it."""
+    from ada.fem import Load, StepImplicitStatic
+
+    part = ada.Part("Strip")
+    part / ada.Plate("deck", [(0, 0), (STRIP_L, 0), (STRIP_L, STRIP_B), (0, STRIP_B)], STRIP_T, mat="S355")
+    assembly = ada.Assembly("PressureSite") / part
+    part.fem = part.to_fem_obj(0.25, "shell")
+    step = assembly.fem.add_step(StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    step.add_load(Load("q", "pressure", STRIP_Q, fem_set=part.fem.elsets["eldeck_sh"]))
+    return assembly
+
+
+@pytest.fixture(scope="session")
+def pressure_run(tmp_path_factory):
+    assembly = strip_with_a_pressure()
+    workdir = tmp_path_factory.mktemp("cae_pressure")
+    script = emit(assembly, workdir, PRESSURE_DRIVER, name="press", mesh_size=STRIP_SEED)
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_a_pressure_the_writer_wrote_arrives_as_a_dsload_on_the_plates_faces(pressure_run):
+    """The one analysis record whose region is a ``Surface`` rather than a ``Set``, end to end.
+
+    The deck is where it counts: a ``Pressure`` that built in the GUI and reached no elements would
+    still read back off ``model.loads``, exactly as a beam section on an ordinary shared edge does.
+    ``*Dsload`` naming the surface is what says the solver will see it.
+    """
+    _, run = pressure_run
+    _assert_ran(run)
+
+    assert run.value("PROBE surfaces") == "['q_surf']"
+    assert run.value("PROBE surface_faces") == "1", "the whole plate, which is one face here"
+    assert run.value("PROBE loads") == "['q']"
+    # Measured: a `Pressure` object has NO attribute carrying the magnitude back -- its surface is
+    # `region` and the value is nowhere in `dir()`. So the only place the number can be read is the
+    # deck, which is the place that matters anyway.
+    assert "magnitude" not in run.value("PROBE load_attrs")
+    assert "region" in run.value("PROBE load_attrs")
+
+    text = (run.workdir / "pressure_export.inp").read_text(encoding="utf-8")
+    assert "*Dsload" in text
+    assert re.search(r"q_surf,\s*P,\s*1000", text) is not None, text[-3000:]

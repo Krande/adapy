@@ -133,8 +133,15 @@ REFUSED_BC_TYPES = {
     ),
 }
 
-#: The one ``Load.type`` this writer carries.
-CARRIED_LOAD_TYPES = ("force",)
+#: The ``Load.type`` values this writer carries.
+#:
+#: ``pressure`` arrived with plates and is narrower than ``force``: a CAE ``Pressure`` acts on a
+#: *surface*, so the record has to resolve to the whole of one plate this writer emitted. Note that
+#: ``ada.fem.loads.LoadTypes.all`` does not even list ``pressure`` -- the constructor sets the type
+#: without going through the validating setter -- so nothing in adapy builds one today. It is carried
+#: because the emitted model now has faces for one to act on, and because the alternative was to keep
+#: a refusal message that had become untrue.
+CARRIED_LOAD_TYPES = ("force", "pressure")
 
 #: Every other ``Load.type``, and why each is refused rather than approximated.
 REFUSED_LOAD_TYPES = {
@@ -160,11 +167,6 @@ REFUSED_LOAD_TYPES = {
     "mass": (
         "a mass load is a point mass, which is an element and not a load. This writer builds beams "
         "only, and a MassPoint in the source part is already reported as untranslated"
-    ),
-    "pressure": (
-        "a pressure load acts on a surface, and this writer translates beams only -- the emitted model "
-        "has no face for it to act on. (adapy's Sesam writer cannot write one either, but it fails "
-        "with a TypeError several frames from the cause rather than saying so)"
     ),
 }
 
@@ -271,6 +273,37 @@ class LoadPlan:
 
 
 @dataclass(frozen=True)
+class PressurePlan:
+    """One adapy ``Load`` of type ``pressure`` as one CAE ``Pressure`` on one plate's faces.
+
+    A CAE ``Pressure`` acts on a **surface**, which is a side of one or more faces -- so this is the
+    one analysis record that needs the geometry to carry a plate at all, and the one whose region is
+    a ``Surface`` rather than a ``Set``.
+
+    ``side1Faces`` is used, and the sign follows from that: Abaqus takes a positive pressure as acting
+    **into** the surface, i.e. against ``side1``'s own outward normal, which is the plate's declared
+    normal (measured to survive the ACIS import unflipped). So a positive magnitude on a plate whose
+    normal is ``+z`` pushes it in ``-z``. That is Abaqus' convention rather than a choice made here,
+    and it is written into the emitted script's comment so a reader is not left to infer it.
+    """
+
+    load_name: str
+    cae_name: str
+    #: The assembly-level ``Surface`` this creates, and the instance whose faces it names.
+    cae_surface_name: str
+    cae_instance_name: str
+    #: The part-level set the plate's faces are in, for the emitted comment and the sidecar.
+    plate_set_name: str
+    #: One interior point per face, the same points the plate itself was located by.
+    points: tuple[tuple[float, float, float], ...]
+    step: str
+    magnitude: float
+    #: The adapy ``FemSet`` this came from, and how many elements it held.
+    source_set_name: str
+    element_count: int
+
+
+@dataclass(frozen=True)
 class StepPlan:
     """One adapy ``StepImplicitStatic`` as a CAE ``StaticStep``."""
 
@@ -293,10 +326,11 @@ class AnalysisPlan:
     steps: list[StepPlan] = field(default_factory=list)
     bcs: list[BcPlan] = field(default_factory=list)
     loads: list[LoadPlan] = field(default_factory=list)
+    pressures: list[PressurePlan] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
-        return not (self.steps or self.bcs or self.loads)
+        return not (self.steps or self.bcs or self.loads or self.pressures)
 
     def applied_resultant(self) -> tuple[float, float, float]:
         """The total applied force, summed over every load and every node it acts on.
@@ -443,6 +477,87 @@ def _node_positions(fem_set, owner: str) -> tuple[tuple[float, float, float], ..
             )
         positions.append(tuple(float(c) for c in member.p))
     return tuple(sorted(positions))
+
+
+def _pressure_plate(load: Load, plates: dict, owner: str) -> tuple[str, tuple]:
+    """Which emitted plate a pressure load acts on, or a refusal naming what was found instead.
+
+    Resolved through adapy's own linkage rather than geometrically: ``Elem.refs`` holds the source
+    object a shell element was meshed from (verified: a 48-element mesh of one plate reports that
+    ``Plate`` in every element's ``refs``), so the question "which plate is this elset" has an answer
+    that does not depend on this module guessing at positions.
+
+    Three things are refused, each because a CAE ``Pressure`` cannot express it:
+
+    * a set of nodes rather than elements -- a pressure has no meaning at a point;
+    * elements from more than one plate, because one ``Surface`` names one plate's faces here and
+      splitting the record would change which load case is which;
+    * a set covering only **part** of a plate. A CAE surface is made of whole faces, so a pressure on
+      half a plate would silently become a pressure on all of it -- which is the class of
+      plausible-but-wrong output this writer exists to refuse.
+    """
+    from ada import Plate
+    from ada.api.plates import PlateCurved
+    from ada.fem import Elem
+
+    fem_set = load.fem_set
+    if fem_set is None:
+        raise AnalysisNotSupported("{0} has no fem_set, so there is nothing for it to act on".format(owner))
+    members = list(getattr(fem_set, "members", []) or [])
+    if not members:
+        raise AnalysisNotSupported(
+            "{0} acts on the empty set {1!r}. An empty region is not 'no load' -- it is a record that "
+            "was meant to act somewhere and does not.".format(owner, fem_set.name)
+        )
+    sources = {}
+    for member in members:
+        if not isinstance(member, Elem):
+            raise AnalysisNotSupported(
+                "{0} acts on the set {1!r}, whose member {2!r} is a {3} and not an element. A CAE "
+                "Pressure acts on a surface, which is made of faces; a node set has none.".format(
+                    owner, fem_set.name, getattr(member, "name", member), type(member).__name__
+                )
+            )
+        for ref in member.refs:
+            if isinstance(ref, (Plate, PlateCurved)):
+                sources.setdefault(ref.name, []).append(member)
+    if not sources:
+        raise AnalysisNotSupported(
+            "{0} acts on the element set {1!r}, and not one of its {2} elements was meshed from a "
+            "plate (Elem.refs names no Plate). A CAE Pressure needs a plate's faces to act "
+            "on.".format(owner, fem_set.name, len(members))
+        )
+    if len(sources) > 1:
+        raise AnalysisNotSupported(
+            "{0} acts on the element set {1!r}, whose elements come from {2} different plates: {3}. "
+            "One CAE Surface names one plate's faces, so this record cannot be written as one "
+            "object; split it per plate in the source model.".format(owner, fem_set.name, len(sources), sorted(sources))
+        )
+    plate_name = sorted(sources)[0]
+    if plate_name not in plates:
+        raise AnalysisNotSupported(
+            "{0} acts on the plate {1!r}, which this writer did not emit -- the plates it emitted are "
+            "{2}. A pressure on a plate that is not in the model would be written onto nothing.".format(
+                owner, plate_name, sorted(plates)
+            )
+        )
+    fem = getattr(fem_set, "parent", None)
+    if fem is not None:
+        whole = [
+            element
+            for element in getattr(fem, "elements", [])
+            if any(getattr(ref, "name", None) == plate_name for ref in element.refs)
+        ]
+        if len(whole) > len(sources[plate_name]):
+            raise AnalysisNotSupported(
+                "{0} acts on {1} of the {2} elements the plate {3!r} was meshed into. A CAE Surface is "
+                "made of WHOLE faces, so this would become a pressure over the entire plate -- more "
+                "load than the model describes, applied where it does not. Split the plate in the "
+                "source model if the pressure genuinely covers only part of it.".format(
+                    owner, len(sources[plate_name]), len(whole), plate_name
+                )
+            )
+    return plate_name, plates[plate_name]
 
 
 def _resolve_region(
@@ -627,6 +742,7 @@ def plan_analysis(
     vertices: list[tuple[tuple[float, float, float], str]],
     part_set_names: NameRegistry,
     tol: float,
+    plates: dict | None = None,
 ) -> tuple[AnalysisPlan, dict[str, NameRegistry]]:
     """Resolve every support, load and step before a line of the analysis is written.
 
@@ -640,10 +756,12 @@ def plan_analysis(
 
     registries = {
         "assembly sets": NameRegistry("assembly sets"),
+        "assembly surfaces": NameRegistry("assembly surfaces"),
         "boundary conditions": NameRegistry("boundary conditions"),
         "loads": NameRegistry("loads"),
         "steps": NameRegistry("steps"),
     }
+    plates = plates or {}
     plan = AnalysisPlan()
     fems = analysis_fems(root)
 
@@ -745,6 +863,9 @@ def plan_analysis(
                 "{0} is of type {1!r}, which this writer has never seen. It carries {2} and will not "
                 "guess at anything else.".format(owner, load.type, ", ".join(repr(t) for t in CARRIED_LOAD_TYPES))
             )
+        if load.type == "pressure":
+            add_pressure(load, step_name, owner)
+            return
         region = region_for(load.fem_set, owner)
         forces, moments = _load_components(load, owner)
         registries["loads"].allocate_unique(load.name)
@@ -757,6 +878,32 @@ def plan_analysis(
                 moments=moments,
                 follower=bool(load.follower_force),
                 node_count=len(region.points),
+            )
+        )
+
+    def add_pressure(load: Load, step_name: str, owner: str) -> None:
+        """One ``Pressure`` on the whole of one plate's faces, or a refusal naming why not."""
+        if load.amplitude is not None:
+            raise AnalysisNotSupported(
+                "{0} carries the amplitude {1!r}. This writer emits no Amplitude objects, so the "
+                "pressure would be written at its full magnitude for the whole step -- the same load, "
+                "on a different history.".format(owner, getattr(load.amplitude, "name", load.amplitude))
+            )
+        plate_name, (instance_name, points) = _pressure_plate(load, plates, owner)
+        cae_name = registries["loads"].allocate_unique(load.name)
+        surface_name = registries["assembly surfaces"].allocate_unique("{0}_surf".format(load.name))
+        plan.pressures.append(
+            PressurePlan(
+                load_name=load.name,
+                cae_name=cae_name,
+                cae_surface_name=surface_name,
+                cae_instance_name=instance_name,
+                plate_set_name=plate_name,
+                points=tuple(points),
+                step=step_name,
+                magnitude=float(load.magnitude),
+                source_set_name=load.fem_set.name,
+                element_count=len(list(load.fem_set.members)),
             )
         )
 
@@ -846,6 +993,7 @@ __all__ = [
     "AnalysisPlan",
     "BcPlan",
     "LoadPlan",
+    "PressurePlan",
     "RegionPlan",
     "StepPlan",
     "analysis_fems",

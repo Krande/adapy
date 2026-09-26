@@ -106,7 +106,7 @@ PLANNED_NAMES = {
 }
 
 _RESULT = {
-    'schema': 'ada.cae_build_result/4',
+    'schema': 'ada.cae_build_result/5',
     'ok': False,
     'model': MODEL_NAME,
     'source_part': 'Frame',
@@ -223,6 +223,7 @@ def _guard_no_name_collisions(model):
         'boundary conditions': model.boundaryConditions.keys(),
         'loads': model.loads.keys(),
         'assembly sets': model.rootAssembly.sets.keys(),
+        'assembly surfaces': model.rootAssembly.surfaces.keys(),
         'field output requests': model.fieldOutputRequests.keys(),
     }
     clashes = []
