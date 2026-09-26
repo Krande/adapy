@@ -99,7 +99,9 @@ def test_keywords_read_by_hand_matching_are_not_reported(tmp_path):
         _MESH + "*Surface Interaction, name=rough\n*Friction\n0.3,\n*Surface Behavior, pressure-overclosure=HARD\n"
         "*Node, nset=rp\n9, 0.5, 0.5, 2.\n"
         "*Surface, type=NODE, name=top\nbase, 1.\n"
-        "*Coupling, constraint name=c1, ref node=rp, surface=top\n*Kinematic\n"
+        # The *Kinematic block carries a DOF line so that the coupling reader's own note about an
+        # empty one -- a finding about the constraint, not an unread keyword -- stays out of the way.
+        "*Coupling, constraint name=c1, ref node=rp, surface=top\n*Kinematic\n1, 6\n"
     )
     _, _, found = _read(tmp_path, deck)
     for kw in ("*SURFACE INTERACTION", "*FRICTION", "*SURFACE BEHAVIOR", "*COUPLING", "*KINEMATIC"):

@@ -138,13 +138,26 @@ def test_a_malformed_system_raises_rather_than_guessing(data, reason):
 
 
 def test_both_node_readers_agree(tmp_path):
-    """``get_nodes_from_inp_arrays`` is the packed path the array-backed mesh takes. Two node
-    readers that disagree about where a node is would be worse than neither applying the
-    transform."""
-    from ada.fem.formats.abaqus.read.reader import get_nodes_from_inp_arrays
+    """There are two node readers and both are reached: ``get_nodes_from_inp`` builds ``Node``
+    objects (the ``*Assembly`` path), ``get_nodes_from_inp_arrays`` the packed arrays the
+    array-backed mesh takes. Each is driven directly here, because a given deck exercises one or
+    the other -- and two node readers that disagree about where a node is would be worse than
+    neither applying the transform at all.
+    """
+    from ada.fem import FEM
+    from ada.fem.formats.abaqus.read.reader import (
+        get_nodes_from_inp,
+        get_nodes_from_inp_arrays,
+    )
 
     text = "*System\n0., -660., 0.\n" + _NODES
+
     coords, ids, _ = get_nodes_from_inp_arrays(text)
     assert list(ids) == [1, 2, 3, 4]
     assert np.allclose(coords[0], [0.0, -660.0, 0.0])
     assert np.allclose(coords[1], [1.0, -660.0, 0.0])
+
+    by_id = {n.id: n for n in get_nodes_from_inp(text, FEM("f"))}
+    assert np.allclose(by_id[1].p, [0.0, -660.0, 0.0])
+    assert np.allclose(by_id[2].p, [1.0, -660.0, 0.0])
+    assert np.allclose([by_id[i].p for i in (1, 2, 3, 4)], coords), "the two readers must agree"
