@@ -2,7 +2,8 @@
 
 Core dispatches on which methods a provider has, the same "presence IS the declaration"
 convention core already uses for optional catalogue methods. That is what lets a mesh catalogue,
-a private-format CSG store and the in-tree IFC provider ride one pipeline without core growing a
+a provider with a private source format and the in-tree IFC provider ride one pipeline without
+core growing a
 branch per vendor.
 
 Only ``AssetTreeProvider`` is required. A provider that merely publishes into the store needs no

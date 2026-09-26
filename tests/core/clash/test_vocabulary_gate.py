@@ -1,6 +1,13 @@
-"""The CI gate Decision 10 names, made a test: ``src/ada/clash`` must never name a fabrication
-process, a vendor system or a provider package -- and a joint's ``type_key`` must be built from
-core vocabulary only. Follows the shape of ``tests/core/assets/test_layering_gate.py``.
+"""The CI gate Decision 10 names, made a test: ``src/ada/clash`` and ``src/ada/assets`` must never
+name a fabrication process, a vendor system or a provider package -- and a joint's ``type_key``
+must be built from core vocabulary only. Follows the shape of
+``tests/core/assets/test_layering_gate.py``.
+
+Both packages are public and both are provider seams, which is the same rule twice: core's job is
+to describe the SHAPE of a source -- a private format, a catalogue, a system of record -- and never
+whose it is. The formats core genuinely implements (``ada.cadit.*``) are a different matter and are
+not read by this gate: naming a format you can write is documentation, naming one you deliberately
+cannot read is a leak.
 """
 
 from __future__ import annotations
@@ -10,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+import ada.assets
 import ada.clash
 import ada.topo_model
 from ada.api.connections.spec import MemberKind
@@ -26,6 +34,7 @@ from ada.topo_model import build_topo_model
 #: actually ships, in a checkout and in an install alike.
 CLASH_PKG = Path(ada.clash.__file__).resolve().parent
 TOPO_MODEL_PKG = Path(ada.topo_model.__file__).resolve().parent
+ASSETS_PKG = Path(ada.assets.__file__).resolve().parent
 
 # "the two job formats, the route and the panel must not contain the tokens weld, tekla, e3d,
 # csg" (Decision 10, "Layering, operationalised"; the literal command is §Verification's
@@ -48,6 +57,29 @@ def _grep_package(pattern: str, pkg: Path) -> list[str]:
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
         if rx.search(line)
     ]
+
+
+def test_asset_vocabulary_gate_is_empty():
+    """``ada.assets`` is held to the same vocabulary as ``ada.clash``, and for a stronger reason.
+
+    The asset grammar's whole claim is that a provider may keep a source format core has no reader
+    for: the manifest carries opaque artefact roles, the build options are forwarded unread, and
+    the concepts seam exists so core never learns what it is reading. A comment here naming one
+    vendor's format is that claim leaking -- it says the design had a particular source in mind,
+    and the next reader writes the next branch for it.
+
+    It is also a PUBLIC package, so a term that names a customer's system or an internal project
+    does not belong in it whatever the design says. Two such mentions had already shipped when this
+    gate was widened; they are what it is for.
+    """
+    pattern = "|".join(FORBIDDEN)
+    hits = _grep_package(pattern, ASSETS_PKG)
+    assert not hits, (
+        f"ada.assets names a fabrication/vendor term ({FORBIDDEN}):\n  "
+        + "\n  ".join(hits)
+        + "\n\nA provider's format is opaque to core by design; describe the SHAPE of a source "
+        "(a private format, a catalogue, a system of record), never whose it is."
+    )
 
 
 def test_clash_vocabulary_gate_is_empty():

@@ -94,9 +94,9 @@ test("two jobs with the same label do not overwrite each other", withCleanStore(
 test("a caller may name its own store key", withCleanStore(() => {
   // For a caller that wants one toast per logical operation rather than per job —
   // a two-job chain that should read as one piece of work.
-  const key = trackJob({ jobId: "job-3", scopeUrl: "shared", label: "Export", storeKey: "e3d:export" });
-  assert.equal(key, "e3d:export");
-  assert.equal(useConversionStore.getState().jobs["e3d:export"].jobId, "job-3");}));
+  const key = trackJob({ jobId: "job-3", scopeUrl: "shared", label: "Export", storeKey: "cad:export" });
+  assert.equal(key, "cad:export");
+  assert.equal(useConversionStore.getState().jobs["cad:export"].jobId, "job-3");}));
 
 test("a derived key is carried when the caller knows it, and empty when it does not", withCleanStore(() => {
   const withKey = trackJob({
