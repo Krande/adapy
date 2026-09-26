@@ -149,7 +149,7 @@ def test_invalid_to_choice_is_an_argparse_error(capsys):
 
 def test_convert_namespace_attribute_names():
     """The namespace is the contract between this parser and ``ada.api.cli._cmd_convert``, which
-    is in a different package and reads these seven names. Renaming a ``dest`` here would break it
+    is in a different package and reads these eight names. Renaming a ``dest`` here would break it
     at runtime and nowhere else, so pin the names and the ``None`` defaults."""
     args = ada_cli.main._build_parser().parse_args(["convert", "in.inp", "out.FEM"])
 
@@ -160,6 +160,7 @@ def test_convert_namespace_attribute_names():
     assert args.split is False
     assert args.limit is None
     assert args.strict is False
+    assert args.superelement is None
 
     args = ada_cli.main._build_parser().parse_args(
         ["convert", "in.dat", "out.fem", "--from", "abaqus", "--to", "usfos", "--split", "--limit", "5"]
@@ -479,3 +480,12 @@ def test_the_summary_survives_a_log_file_raising_the_console_handler(example_fil
     assert "*CLOAD" in err
     # And the finding is in the log file too, for whoever reads that instead.
     assert "*CLOAD" in log.read_text(encoding="utf-8")
+
+
+def test_superelement_is_accepted_and_typed():
+    parse = ada_cli.main._build_parser().parse_args
+    assert parse(["convert", "in.inp", "outT10.FEM", "--superelement", "10"]).superelement == 10
+    assert parse(["convert", "--superelement", "3", "in.inp", "o.FEM"]).superelement == 3
+
+    with pytest.raises(SystemExit):
+        parse(["convert", "in.inp", "o.FEM", "--superelement", "not-a-number"])

@@ -35,6 +35,7 @@ from ada_cli.formats import (
     READ_FORMATS,
     SHARED_WRITE_EXT,
     WRITE_FORMATS,
+    primary_name,
 )
 from ada_cli.main import _build_parser
 
@@ -120,7 +121,9 @@ def test_fem_write_primary_covers_exactly_the_fem_write_formats():
         set(FEM_WRITE_PRIMARY), set(FEM_WRITE_FORMATS), "FEM_WRITE_PRIMARY", "FEM_WRITE_FORMATS"
     )
     for name, pattern in FEM_WRITE_PRIMARY.items():
-        rendered = pattern.format(name="nm")
+        # Through the helper, so a pattern that grows a new field fails here rather than at the
+        # call site that forgot to supply it.
+        rendered = primary_name(name, "nm")
         assert rendered and "{" not in rendered, f"FEM_WRITE_PRIMARY[{name!r}] = {pattern!r} is not a filename pattern"
 
 
@@ -273,7 +276,7 @@ def test_primary_pattern_matches_what_each_writer_produces(fmt: str, fem_write_o
         pytest.fail(f"the {fmt} writer raised {type(error).__name__}: {error}")
 
     pattern = FEM_WRITE_PRIMARY[fmt]
-    primary = produced / pattern.format(name=_MODEL_NAME)
+    primary = produced / primary_name(fmt, _MODEL_NAME)
     assert primary.is_file(), (
         f"FEM_WRITE_PRIMARY[{fmt!r}] = {pattern!r} promises {primary.name!r}, which the {fmt} writer did not "
         f"produce.\n  looked in: {produced}\n  found:     {listing or ['nothing']}\n"
@@ -290,7 +293,7 @@ def test_writers_leave_only_the_sidecars_the_docs_promise(fmt: str, fem_write_ou
     if error is not None:
         pytest.skip(f"the {fmt} writer raised {type(error).__name__} — covered by the primary-file test")
 
-    primary = FEM_WRITE_PRIMARY[fmt].format(name=_MODEL_NAME)
+    primary = primary_name(fmt, _MODEL_NAME)
     sidecars = sorted(set(listing) - {primary})
     expected = sorted(s.format(name=_MODEL_NAME) for s in _DOCUMENTED_SIDECARS[fmt])
     assert sidecars == expected, (

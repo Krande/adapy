@@ -27,12 +27,37 @@ if TYPE_CHECKING:
     from ada import Material
 
 
+def _superelement_number(value) -> int:
+    """The super element number to write, validated.
+
+    ``None`` means 1 -- a single, first-level super element, which is what this writer produces
+    unless told otherwise. Anything that is not a whole number >= 1 raises: Sesam numbers super
+    elements from 1, and a bad number would name the file *and* misidentify the deck inside it,
+    which Presel would then read as some other super element entirely. That is caller error, not
+    something to approximate.
+    """
+    if value is None:
+        return 1
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"sesam_superelement must be an integer, got {value!r}")
+    number = int(value)
+    if number < 1:
+        raise ValueError(f"sesam_superelement must be 1 or greater, got {number}")
+    return number
+
+
 def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=False):
-    """Write a Sesam input interface file (``<name>T1.FEM``).
+    """Write a Sesam input interface file (``<name>T<n>.FEM``).
 
     Sesam-specific ``metadata`` keys:
 
     * ``"control_file"`` — an existing Sestra control file to reuse.
+    * ``"sesam_superelement"`` — the super element number, an int >= 1, default 1. It is
+      written as IDENT's ``SELTYP`` **and** it names the file, because Sesam ties the two
+      together: ``T<n>.FEM`` holds super element ``n``, and Presel matches the number in the
+      deck against the number it expects from the file. Writing one and not the other gives a
+      deck Presel reads as a different super element than the assembly asked for, so they are
+      one argument here rather than two.
     * ``"sesam_retained_dofs"`` — ``{node set name: [dofs]}``, dofs being ints in 1..6,
       naming the DOFs to write on BNBCD with FIX code 4, i.e. the nodes that become
       supernodes: the superelement's external interface that Presel matches against the
@@ -86,6 +111,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     if "control_file" not in metadata.keys():
         metadata["control_file"] = None
 
+    seltyp = _superelement_number(metadata.get("sesam_superelement"))
+
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     # Merging a multi-instance model is ``fem.formats.general``'s job, not this writer's: it
     # builds a temporary single-part assembly from a non-destructive merge and hands that
@@ -114,7 +141,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     assembly.consolidate_materials()
     materials = assembly.get_all_materials(True)
 
-    inp_file_path = (analysis_dir / f"{name}T1").with_suffix(".FEM")
+    inp_file_path = (analysis_dir / f"{name}T{seltyp}").with_suffix(".FEM")
+    logger.info("writing super element %s to %s (IDENT SELTYP %s)", seltyp, inp_file_path.name, seltyp)
 
     fems = [part.fem, assembly.fem]
     # One step is written: the first, the assembly's before the part's. Its loads are the
@@ -148,7 +176,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
 
     with open(inp_file_path, "w") as d, track_rounding() as rounding:
-        d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user))
+        d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user, seltyp=float(seltyp)))
         d.write(units)
         d.write(materials_str(materials))
         d.write("".join(property_records(sp, spring_matnos[sp.id]) for sp in part.fem.springs.values()))

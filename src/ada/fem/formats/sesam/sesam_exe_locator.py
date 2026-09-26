@@ -6,16 +6,26 @@ import xml.etree.ElementTree as ET
 _VERSION_DIR_RE = re.compile(r"V(?P<major>\d+)\.(?P<minor>\d+)-(?P<patch>\d+)")
 
 
-def _find_latest_dnv_exe(product_prefix: str, exe_name: str) -> str | None:
-    """Newest ``<program files>/DNV/<product_prefix> Vxx.yy-zz/Program/<exe_name>``.
+def _find_latest_dnv_exe(product_prefix: str, exe_name: str, subdir: str = "Program") -> str | None:
+    """Newest ``<program files>/DNV/<product_prefix> Vxx.yy-zz/<subdir>/<exe_name>``.
 
     A fallback for when ApplicationVersions.xml points at an uninstalled default
     (the manager leaves stale ``IsDefault`` entries): walk the DNV install root,
     keep the version dirs whose exe actually exists, and return the highest
     ``Vmajor.minor-patch``. ``product_prefix`` is e.g. ``"GeniE"``.
+
+    Both program-files roots are walked: the 64-bit products live under ``Program Files``,
+    while Presel is a 32-bit install under ``Program Files (x86)`` with its exe in ``Bin``.
     """
     candidates: list[tuple[tuple[int, int, int], str]] = []
-    for root in {os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), r"C:\Program Files"}:
+    roots = {
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramW6432"),
+        os.environ.get("ProgramFiles(x86)"),
+        r"C:\Program Files",
+        r"C:\Program Files (x86)",
+    }
+    for root in roots:
         if not root:
             continue
         dnv = pathlib.Path(root) / "DNV"
@@ -25,7 +35,7 @@ def _find_latest_dnv_exe(product_prefix: str, exe_name: str) -> str | None:
             m = _VERSION_DIR_RE.search(ver_dir.name)
             if m is None:
                 continue
-            exe = ver_dir / "Program" / exe_name
+            exe = ver_dir / subdir / exe_name
             if exe.is_file():
                 key = (int(m.group("major")), int(m.group("minor")), int(m.group("patch")))
                 candidates.append((key, str(exe)))
@@ -102,6 +112,18 @@ def get_prepost_default_exe_path() -> str | None:
     if prepost_exe_env_var:
         return prepost_exe_env_var
     return _get_default_exe_path("Prepost")
+
+
+def get_presel_default_exe_path() -> str | None:
+    """Presel, the superelement assembler -- the program that checks a T-file's number.
+
+    ``ADA_PRESEL_EXE`` wins; then the version manager's default; then the newest install
+    found on disk. Presel ships 32-bit, under ``Program Files (x86)``, with the exe in ``Bin``.
+    """
+    presel_exe_env_var = os.getenv("ADA_PRESEL_EXE")
+    if presel_exe_env_var:
+        return presel_exe_env_var
+    return _get_default_exe_path("Presel") or _find_latest_dnv_exe("Presel", "Presel.exe", subdir="Bin")
 
 
 _SESTRA_VERSION_RE = re.compile(r"V(?P<version>\d+\.\d+-\d+)")
