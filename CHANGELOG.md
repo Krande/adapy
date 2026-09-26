@@ -2,6 +2,15 @@
 
 
 
+## v0.89.0 (2026-09-26)
+
+### Feature
+
+* feat: registerAssetTreeClient (#392)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b4782a4`](https://github.com/Krande/adapy/commit/b4782a42162fa3ce74029e9d353c8b6fce917d00))
+
+
 ## v0.88.0 (2026-09-25)
 
 ### Feature
