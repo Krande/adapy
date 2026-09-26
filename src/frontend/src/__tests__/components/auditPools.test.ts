@@ -20,12 +20,12 @@ const worker = (over: Partial<WorkerEntry>): WorkerEntry => ({
 
 test("replicas of one image collapse to a single choice", () => {
   const pools = groupWorkersByImage([
-    worker({ worker_id: "a", capabilities: ["base", "weld-gen", "abaqus"] }),
-    worker({ worker_id: "b", capabilities: ["base", "weld-gen", "abaqus"] }),
+    worker({ worker_id: "a", capabilities: ["base", "detailing", "abaqus"] }),
+    worker({ worker_id: "b", capabilities: ["base", "detailing", "abaqus"] }),
   ]);
   assert.equal(pools.length, 1, "one image should be one choice");
   assert.equal(pools[0].replicas, 2);
-  assert.deepEqual(pools[0].capabilities, ["abaqus", "base", "weld-gen"]);
+  assert.deepEqual(pools[0].capabilities, ["abaqus", "base", "detailing"]);
 });
 
 test("offline workers are not offered", () => {
@@ -39,13 +39,13 @@ test("offline workers are not offered", () => {
 });
 
 test("a sweep routes to base when the image serves it", () => {
-  const pools = groupWorkersByImage([worker({ capabilities: ["weld-gen", "base"] })]);
+  const pools = groupWorkersByImage([worker({ capabilities: ["detailing", "base"] })]);
   assert.equal(pools[0].routeCapability, "base");
 });
 
 test("a specialised image is still reachable via its own capability", () => {
-  const pools = groupWorkersByImage([worker({ image_tag: "wg", capabilities: ["weld-gen"] })]);
-  assert.equal(pools[0].routeCapability, "weld-gen");
+  const pools = groupWorkersByImage([worker({ image_tag: "wg", capabilities: ["detailing"] })]);
+  assert.equal(pools[0].routeCapability, "detailing");
 });
 
 test("two images sharing a route are marked unenforceable", () => {
@@ -62,14 +62,14 @@ test("two images sharing a route are marked unenforceable", () => {
 test("a sole provider is enforceable", () => {
   const pools = groupWorkersByImage([
     worker({ worker_id: "a", image_tag: "img-a", capabilities: ["base"] }),
-    worker({ worker_id: "b", image_tag: "img-b", capabilities: ["weld-gen"] }),
+    worker({ worker_id: "b", image_tag: "img-b", capabilities: ["detailing"] }),
   ]);
   assert.ok(pools.every((p) => p.enforceable));
 });
 
 test("the busiest fleet is offered first", () => {
   const pools = groupWorkersByImage([
-    worker({ worker_id: "a", image_tag: "small", capabilities: ["weld-gen"] }),
+    worker({ worker_id: "a", image_tag: "small", capabilities: ["detailing"] }),
     worker({ worker_id: "b", image_tag: "big", capabilities: ["base"] }),
     worker({ worker_id: "c", image_tag: "big", capabilities: ["base"] }),
   ]);

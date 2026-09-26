@@ -77,12 +77,12 @@ beforeEach(() => resetRegistry());
 test("a provider id is namespaced to its plugin, like every other slot", () => {
   registerPlugin({
     id: "alpha",
-    renderableFileProviders: [{ id: "csg", claims: () => true, open: async () => {} }],
+    renderableFileProviders: [{ id: "native", claims: () => true, open: async () => {} }],
   });
   const [plugin] = getRegisteredPlugins();
   assert.deepEqual(
     plugin.renderableFileProviders.map((r) => r.id),
-    ["alpha:csg"],
+    ["alpha:native"],
   );
 });
 
@@ -103,7 +103,7 @@ test("isRenderableByPlugin ignores activation predicates", () => {
     id: "alpha",
     activationPredicate: () => false,
     renderableFileProviders: [
-      { id: "csg", claims: (k) => k.endsWith(".db"), open: async () => {} },
+      { id: "native", claims: (k) => k.endsWith(".db"), open: async () => {} },
     ],
   });
   assert.equal(isRenderableByPlugin("a.db"), true);
@@ -158,7 +158,7 @@ test("a plugin whose claims() threw is disabled and stops claiming", () => {
     id: "alpha",
     renderableFileProviders: [
       {
-        id: "csg",
+        id: "native",
         claims: () => {
           throw new Error("boom");
         },
