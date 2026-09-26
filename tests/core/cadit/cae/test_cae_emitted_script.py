@@ -12,6 +12,7 @@ this repo's other script-emitting writer: it builds a model, calls the writer, a
 
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 import re
@@ -19,6 +20,7 @@ import re
 import pytest
 
 import ada
+from ada.geom import curves as gc
 from ada.sections.categories import BaseTypes
 
 from .cae_script_graph import CaeGraphError, ScriptGraph, check_emitted_script
@@ -149,27 +151,94 @@ def test_a_dot_in_a_name_is_sanitised_and_recorded(tmp_path):
     assert candidates, "names were changed but no name_map sidecar was written (looked for {})".format(sidecar)
 
 
-@pytest.mark.parametrize(
-    "beam",
-    [
-        pytest.param(
-            ada.BeamTapered("t1", (0, 0, 0), (2, 0, 0), "IPE300", "IPE200", mat="S355"),
-            id="tapered",
-        ),
-        pytest.param(
-            ada.Beam("e1", (0, 0, 0), (2, 0, 0), "IPE300", "S355", e1=(0, 0, 0.66)),
-            id="eccentric",
-        ),
-    ],
-)
-def test_phase_one_refuses_what_it_cannot_carry(beam, tmp_path):
-    """A tapered member emitted as a prism, or an offset silently dropped, opens and solves and is wrong."""
+#: What the writer must refuse, as **factories**: built inside the test, not in the decorator.
+#: Constructing a model at import time makes a failure to build the fixture a collection error
+#: for the whole session rather than one failing test.
+REFUSALS = {
+    "tapered": lambda: ada.BeamTapered("t1", (0, 0, 0), (2, 0, 0), "IPE300", "IPE200", mat="S355"),
+    "varying-offset": lambda: ada.Beam("e1", (0, 0, 0), (2, 0, 0), "IPE300", "S355", e1=(0, 0, 0.66)),
+    "axial-offset": lambda: ada.Beam("e2", (0, 0, 0), (2, 0, 0), "IPE300", "S355", e1=(0.5, 0, 0.1), e2=(0.5, 0, 0.1)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REFUSALS))
+def test_the_writer_refuses_what_it_cannot_carry(case, tmp_path):
+    """A tapered member emitted as a prism, or an offset silently dropped, opens and solves and is wrong.
+
+    The two offset cases are the ones a *single* ``*Beam Section Offset`` cannot express: an
+    offset at one end only, and an offset with a component along the member's own axis. A
+    constant transverse offset is no longer here, because it is now carried exactly -- see
+    the test below.
+    """
     part = ada.Part("Refuse")
-    part / beam
+    part / REFUSALS[case]()
     ada.Assembly("A") / part
 
     with pytest.raises(Exception):
         part.to_abaqus_cae_script(tmp_path / "refused.py")
+
+
+def test_a_constant_offset_is_carried_by_the_section_itself(tmp_path):
+    """No extra nodes and no constraints: the offset is a property of the beam section.
+
+    This is the thing adapy's INP writer cannot do -- it converts an eccentricity into a new
+    node plus an ``*MPC BEAM`` link, which turns a section property into topology. The wire
+    here stays exactly where ``Beam.axis_global()`` puts it, and the graph pass still passes,
+    so nothing about locating or sectioning the member changed.
+    """
+    part = ada.Part("Offset")
+    part / ada.Beam("bm", (0, 0, 0), (4, 0, 0), "IPE300", "S355", e1=(0, 0, -0.4), e2=(0, 0, -0.4))
+    ada.Assembly("A") / part
+
+    destination, source = emit(part, tmp_path, name="offset")
+
+    graph = check_emitted_script(source, name="offset.py")
+    sections = graph.by_method("BeamSection")
+    assert len(sections) == 1
+    assert sections[0].kwargs["beamSectionOffset"] == pytest.approx((0.0, -0.4))
+    ((polyline,),) = [c.kwargs["points"] for c in graph.by_method("WirePolyLine")]
+    assert polyline == ((0.0, 0.0, 0.0), (4.0, 0.0, 0.0)), "the wire is at the nodes, not at the offset"
+    # No constraint and no extra node anywhere: one wire, one section, and that is the model.
+    assert graph.by_method("Equation", "MultipointConstraint", "Coupling", "Node") == []
+    assert len(graph.by_method("WirePolyLine")) == 1
+    assert destination.exists()
+
+
+def test_a_curved_member_is_drawn_as_a_spline_on_its_own_curve(tmp_path):
+    """A quarter circle of radius 2, carried as the rational spline an ACIS intcurve is.
+
+    The graph pass is deliberately *not* run here, and cannot be: it reads ``WirePolyLine``
+    calls as the members and insists every region is located by ``getByBoundingCylinder``, and
+    a curve is neither -- a cylinder round a quarter arc's chord returns 0 edges, measured.
+    What replaces it for a curved member is the in-kernel arc-length check, which is stronger
+    than anything a text pass could say; see ``_curved_member_edges`` in the writer.
+    """
+    curve = gc.RationalBSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(2.0, 0.0, 0.0), (2.0, 2.0, 0.0), (0.0, 2.0, 0.0)],
+        curve_form=gc.BSplineCurveFormEnum.CIRCULAR_ARC,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=gc.KnotType.UNSPECIFIED,
+        weights_data=[1.0, math.cos(math.pi / 4.0), 1.0],
+    )
+    part = ada.Part("Arc")
+    part / ada.BeamCurved("arc", (2.0, 0.0, 0.0), (0.0, 2.0, 0.0), curve, "IPE300", mat="S355")
+    ada.Assembly("A") / part
+
+    _, source = emit(part, tmp_path, name="arc")
+
+    graph = ScriptGraph(source, name="arc.py")
+    splines = graph.by_method("WireSpline")
+    assert len(splines) == 1
+    assert graph.by_method("WirePolyLine") == []
+    located = [c for c in graph.calls if c.method == "_curved_member_edges"]
+    assert len(located) == 1
+    assert located[0].args[-1] == pytest.approx(math.pi, rel=1e-09), "the arc length, not the chord sum"
+    assert splines[0].raw_kwargs["smoothClosedSpline"] == "OFF"
+    assert graph.by_method("getByBoundingCylinder") == [], "a cylinder round an arc's chord finds nothing"
 
 
 def test_unit_scale_is_refused_and_the_coordinates_are_the_models_own(frame_model, tmp_path):

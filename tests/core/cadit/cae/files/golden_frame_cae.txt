@@ -98,7 +98,7 @@ PLANNED_NAMES = {
 }
 
 _RESULT = {
-    'schema': 'ada.cae_build_result/2',
+    'schema': 'ada.cae_build_result/3',
     'ok': False,
     'model': MODEL_NAME,
     'source_part': 'Frame',
@@ -113,6 +113,8 @@ _RESULT = {
         'orientations': 0,
     },
     'edges_per_member': {},
+    'curve_length_error': {},
+    'section_offsets': {},
     'guards': {},
     'errors': [],
     'skipped': [
@@ -402,7 +404,7 @@ def build(model):
     model.IProfile(name='IPE300', l=0.15, h=0.3, b1=0.15, b2=0.15, t1=0.0107, t2=0.0107, t3=0.0071)
     _RESULT['created']['profiles'].append('IPE300')
 
-    # --- beam sections, one per (profile, material) pair
+    # --- beam sections, one per (profile, material, offset) triple
     model.BeamSection(name='sec_BG200x200x10_S355', profile='BG200x200x10', material='S355', integration=DURING_ANALYSIS)
     _RESULT['created']['sections'].append('sec_BG200x200x10_S355')
     model.BeamSection(name='sec_HP200x10_S355', profile='HP200x10', material='S355', integration=DURING_ANALYSIS)
@@ -453,7 +455,7 @@ def main():
     # Before anything is built: CAE would replace a reused name rather than refuse it.
     _guard_no_name_collisions(model)
     build(model)
-    # Topology first of the three post-build guards, because it is the one that says
+    # Topology first of the post-build guards, because it is the one that says
     # whether the thing CAE built is even the same structure adapy described.
     _guard_topology(model)
     _guard_every_edge_sectioned(model)

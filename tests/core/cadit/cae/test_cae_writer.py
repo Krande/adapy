@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import pathlib
 import sys
 import types
@@ -29,23 +30,32 @@ from ada.api.beams.beam_curved import BeamCurved
 from ada.api.beams.beam_revolved import BeamRevolve
 from ada.api.beams.beam_swept import BeamSweep
 from ada.api.beams.beam_tapered import BeamTapered
-from ada.api.curves import CurveOpen2d
+from ada.api.curves import CurveOpen2d, CurveRevolve
 from ada.api.transforms import Placement
+from ada.cadit.cae.curves import (
+    MAX_TURN_RADIANS,
+    CurveNotSupported,
+    sample_member_curve,
+)
 from ada.cadit.cae.names import (
     CaeNameError,
     NameRegistry,
     dump_name_map,
     sanitise_cae_name,
 )
+from ada.cadit.cae.topology import Segment, find_crossings
 from ada.cadit.cae.writer import (
+    CURVE_N1_MIN_SIN,
     CaeWriteError,
     UnsupportedBeamError,
     beam_endpoints,
     beam_n1,
+    beam_section_offset,
     build_plan,
-    check_beam_has_no_eccentricity,
-    check_beam_is_straight,
+    check_beam_shape,
+    check_n1_holds_along_the_curve,
 )
+from ada.geom import curves as gc
 from ada.sections.concept import GeneralProperties
 
 # --------------------------------------------------------------------------------------
@@ -103,6 +113,76 @@ def one_beam(**beam_kwargs):
 def emit(assembly, tmp_path, name="out.py", **kwargs):
     written = assembly.to_abaqus_cae_script(tmp_path / name, **kwargs)
     return written, written[0].read_text(encoding="utf-8")
+
+
+def exact_arc_spline(radius=2.0, start=0.0, end=math.pi / 2.0, z=0.0):
+    """A rational quadratic B-spline that **is** a circular arc, not a fit to one.
+
+    This is the form an ACIS ``intcurve`` takes and therefore what adapy's Genie reader hands
+    a ``BeamCurved``: three control points and a middle weight of ``cos(half sweep)``. Using
+    an exact arc rather than an arbitrary spline is what lets these tests compare the emitted
+    arc length against a closed-form number -- ``radius * sweep`` -- instead of against
+    another sampling of the same code.
+    """
+    half = (end - start) / 2.0
+    weight = math.cos(half)
+    middle_radius = radius / weight
+    middle_angle = start + half
+    return gc.RationalBSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[
+            (radius * math.cos(start), radius * math.sin(start), z),
+            (middle_radius * math.cos(middle_angle), middle_radius * math.sin(middle_angle), z),
+            (radius * math.cos(end), radius * math.sin(end), z),
+        ],
+        curve_form=gc.BSplineCurveFormEnum.CIRCULAR_ARC,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=gc.KnotType.UNSPECIFIED,
+        weights_data=[1.0, weight, 1.0],
+    )
+
+
+def a_curved_beam(kind="BeamCurved", name=None, sec="IPE300", **kwargs):
+    """One member of each curved class, all three describing a quarter circle of radius 2.
+
+    The same shape three ways, so a test can ask what the *writer* does with a curve without
+    also depending on which container it arrived in.
+    """
+    name = name or kind
+    if kind == "BeamCurved":
+        curve = exact_arc_spline()
+        p1 = tuple(float(c) for c in curve.control_points_list[0])
+        p2 = tuple(float(c) for c in curve.control_points_list[-1])
+        return BeamCurved(name, p1, p2, curve, sec, mat="S355", **kwargs)
+    if kind == "BeamRevolve":
+        curve = CurveRevolve((2.0, 0.0, 0.0), (0.0, 2.0, 0.0), radius=2.0, rot_axis=(0.0, 0.0, 1.0))
+        return BeamRevolve(name, curve, sec, mat="S355", **kwargs)
+    if kind == "BeamSweep":
+        # A filleted corner. Note this is NOT a single curved leg: CurveOpen2d decomposes it
+        # into line-arc-line, which the writer refuses -- see
+        # test_a_swept_path_is_refused_for_having_several_legs. The class is still not refused
+        # by type, which is what the shape guard's test uses this for.
+        curve = CurveOpen2d(
+            [(0.0, 0.0), (2.0, 0.0, 0.5), (2.0, 2.0)],
+            origin=(0.0, 0.0, 0.0),
+            xdir=(1.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+        )
+        return BeamSweep(name, curve, sec, mat="S355", **kwargs)
+    raise AssertionError("no fixture for {0!r}".format(kind))
+
+
+def a_curved_model(kind="BeamCurved", extra=(), part_name="Curves"):
+    part = ada.Part(part_name)
+    part.add_beam(a_curved_beam(kind))
+    for bm in extra:
+        part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+    return assembly
 
 
 # --------------------------------------------------------------------------------------
@@ -199,39 +279,76 @@ def test_two_beams_whose_names_collide_in_cae_are_refused(tmp_path):
 
 
 # --------------------------------------------------------------------------------------
-# Guard 2 — refuse Beam subclasses, by exact type
+# Guard 2 — a beam's shape, by exact type: three curved classes built, the taper refused
 # --------------------------------------------------------------------------------------
 
 
-def _refused_beams():
-    from ada import CurveRevolve
-
-    return [
-        BeamTapered("tapered", (0, 0, 0), (0, 0, 3), "IPE300", "IPE200"),
-        BeamCurved("curved", (0, 0, 0), (0, 0, 3), None, "IPE300"),
-        BeamRevolve("revolved", CurveRevolve((0, 0, 0), (3, 0, 3), radius=4.0, rot_axis=(0, 1, 0)), "IPE300"),
-        BeamSweep(
-            "swept",
-            CurveOpen2d([(0, 0), (1, 0), (2, 1)], origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1)),
-            "IPE300",
-        ),
-    ]
+#: The ``Beam`` subclasses that must be refused, as **factories** rather than instances.
+#:
+#: This used to be a function called *inside* the ``parametrize`` decorator, so it ran at
+#: import time -- which means a failure to construct any one of these objects killed
+#: collection for the whole test session instead of failing one test. Every entry is built
+#: lazily now, inside the test that needs it, and the dict key supplies the readable id.
+REFUSED_BEAM_FACTORIES = {
+    "BeamTapered": lambda: BeamTapered("tapered", (0, 0, 0), (0, 0, 3), "IPE300", "IPE200"),
+}
 
 
-@pytest.mark.parametrize("bm", _refused_beams(), ids=lambda b: type(b).__name__)
-def test_every_beam_subclass_is_refused(bm):
-    """And ``isinstance`` would let all four through: that is why the test is exact-type.
+@pytest.mark.parametrize("kind", sorted(REFUSED_BEAM_FACTORIES))
+def test_a_refused_beam_subclass_is_refused_by_exact_type(kind):
+    """``isinstance`` would let it through, which is why the test is exact-type.
 
-    A ``BeamRevolve`` emitted as the straight chord between its endpoints opens, meshes
-    and solves, so nothing downstream would report it.
+    ``BeamTapered`` is the only one left of the original four, and it is not refused out of
+    caution: CAE accepts ``beamShape=TAPERED`` and reads it back, and then writing the INP
+    kills the kernel.
     """
+    bm = REFUSED_BEAM_FACTORIES[kind]()
     assert isinstance(bm, ada.Beam), "if this fails the test has stopped testing anything"
-    with pytest.raises(UnsupportedBeamError, match=type(bm).__name__):
-        check_beam_is_straight(bm)
+    with pytest.raises(UnsupportedBeamError, match=kind):
+        check_beam_shape(bm)
+
+
+def test_the_tapered_refusal_cites_the_segfault_rather_than_a_preference():
+    """The reason is a measurement, and the message has to carry it or it reads as timidity.
+
+    Isolated on Abaqus 2025 by building the same model four ways: the straight
+    constant-section deck wrote, the straight TAPERED one segfaulted. So the taper is
+    provably the cause and the curve is provably innocent -- which matters twice over now
+    that the curve is supported and the taper is not.
+    """
+    with pytest.raises(UnsupportedBeamError) as raised:
+        check_beam_shape(REFUSED_BEAM_FACTORIES["BeamTapered"]())
+
+    message = str(raised.value)
+    assert "SEGMENTATION FAULT" in message
+    assert "code 11 (0XB)" in message
+    assert "straight_constant  -> WROTE OK" in message
 
 
 def test_a_straight_beam_is_not_refused():
-    check_beam_is_straight(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300"))
+    check_beam_shape(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300"))
+
+
+def test_a_beam_subclass_nobody_has_seen_is_still_refused():
+    """The exactness of the type test is what makes a new subclass a refusal, not a chord."""
+
+    class BeamSomethingNew(ada.Beam):
+        pass
+
+    with pytest.raises(UnsupportedBeamError, match="BeamSomethingNew"):
+        check_beam_shape(BeamSomethingNew("odd", (0, 0, 0), (0, 0, 3), "IPE300"))
+
+
+@pytest.mark.parametrize("kind", ["BeamCurved", "BeamRevolve", "BeamSweep"])
+def test_the_curved_classes_are_no_longer_refused_by_type(kind):
+    """All three carry the exact curve, so there is nothing to approximate on the way in.
+
+    Whether a given member can be *drawn* is then a question about its curve rather than its
+    class, and is refused separately and by name -- which is the point of splitting the two
+    checks. ``BeamSweep`` is the case where that distinction bites: its class passes here and
+    its usual multi-leg path does not pass the curve check.
+    """
+    check_beam_shape(a_curved_beam(kind))
 
 
 def test_a_refused_subclass_stops_the_whole_write(tmp_path):
@@ -247,32 +364,242 @@ def test_a_refused_subclass_stops_the_whole_write(tmp_path):
 
 
 # --------------------------------------------------------------------------------------
-# Guard 3 — refuse eccentricity
+# Guard 3 — a constant eccentricity becomes the section's own offset; the rest is refused
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("end", ["e1", "e2"])
-def test_a_beam_with_an_offset_is_refused(end):
-    bm = ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", **{end: (0.0, 0.66, 0.0)})
-    with pytest.raises(UnsupportedBeamError, match="non-null {0}".format(end)):
-        check_beam_has_no_eccentricity(bm)
+def test_a_constant_offset_is_projected_onto_the_sections_own_axes():
+    """The member runs along +z with ``n1 = yvec``; the offset is stated in ``(n1, n2)``.
+
+    For a vertical member adapy gives ``up = (0, 1, 0)`` and ``yvec = (1, 0, 0)``, so
+    ``n2 = t x n1 = (0, 1, 0)`` and a global offset of ``(0, 0.4, 0)`` reads as ``(0, 0.4)``:
+    nothing along n1, all of it along n2. The literal pair is asserted as well as the
+    projection formula, because a test that only re-derives the formula from the same two
+    vectors the code used cannot tell a wrong frame from a right one.
+    """
+    bm = ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0))
+    n1 = np.asarray(beam_n1(bm))
+    axis = np.asarray([0.0, 0.0, 1.0])
+    n2 = np.cross(axis, n1)
+
+    offset = beam_section_offset(bm)
+
+    assert offset == pytest.approx((float(np.dot((0.0, 0.4, 0.0), n1)), float(np.dot((0.0, 0.4, 0.0), n2))))
+    assert offset == pytest.approx((0.0, 0.4))
+
+
+def test_the_projection_keeps_the_offsets_length_and_loses_nothing():
+    """A skew member, where neither component is zero and no axis is aligned with anything.
+
+    This is the test that would catch a projection onto the wrong pair of vectors: any
+    orthonormal pair reproduces the length, but only ``(yvec, t x yvec)`` reproduces the two
+    components, and the residual perpendicular to both has to be zero or part of the offset
+    was thrown away.
+    """
+    bm = ada.Beam("skew", (0, 0, 0), (6, 3, 4), "IPE300", e1=(0.11, -0.23, 0.07), e2=(0.11, -0.23, 0.07))
+    start, end = beam_endpoints(bm)
+    axis = np.asarray(end) - np.asarray(start)
+    axis = axis / np.linalg.norm(axis)
+    n1 = np.asarray(beam_n1(bm))
+    n2 = np.cross(axis, n1)
+    ecc = np.asarray([0.11, -0.23, 0.07])
+    # A section offset has no axial component, so the member is chosen with the offset already
+    # perpendicular to its axis -- which is what the writer insists on; see the test below.
+    ecc = ecc - float(np.dot(ecc, axis)) * axis
+    bm.e1 = tuple(ecc)
+    bm.e2 = tuple(ecc)
+
+    a1, a2 = beam_section_offset(bm)
+
+    assert (a1 * a1 + a2 * a2) ** 0.5 == pytest.approx(float(np.linalg.norm(ecc)), rel=1e-12)
+    assert np.allclose(a1 * n1 + a2 * n2, ecc, atol=1e-12)
+    assert abs(a1) > 1e-3 and abs(a2) > 1e-3, "the fixture must exercise both components"
 
 
 def test_an_explicit_zero_offset_is_not_an_offset():
-    """adapy stores a ``Direction`` either way, so ``(0,0,0)`` must not refuse a model."""
-    check_beam_has_no_eccentricity(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0, 0, 0), e2=(0, 0, 0)))
+    """adapy stores a ``Direction`` either way, so ``(0,0,0)`` must not put an offset on a section."""
+    assert beam_section_offset(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0, 0, 0), e2=(0, 0, 0))) is None
 
 
-def test_no_offset_at_all_is_fine():
-    check_beam_has_no_eccentricity(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300"))
+def test_no_offset_at_all_is_none():
+    assert beam_section_offset(ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300")) is None
 
 
-def test_an_eccentric_beam_stops_the_whole_write(tmp_path):
-    assembly = one_beam(e1=(0.0, 0.0, 0.66))
+@pytest.mark.parametrize(
+    "e1,e2",
+    [
+        ((0.0, 0.4, 0.0), (0.0, 0.2, 0.0)),
+        ((0.0, 0.4, 0.0), None),
+        (None, (0.0, 0.4, 0.0)),
+    ],
+)
+def test_a_varying_offset_is_still_refused(e1, e2):
+    """One 2-tuple cannot say 'this much at one end and that much at the other'.
+
+    The ``None`` cases matter as much as the unequal pair: an offset at one end only is a
+    varying offset, and treating a missing ``e2`` as "the same as e1" would move the far end
+    of the member by the whole offset without a word.
+    """
+    kwargs = {}
+    if e1 is not None:
+        kwargs["e1"] = e1
+    if e2 is not None:
+        kwargs["e2"] = e2
+    bm = ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", **kwargs)
+    with pytest.raises(UnsupportedBeamError, match="VARYING offset"):
+        beam_section_offset(bm)
+
+
+def test_an_axial_offset_is_refused_because_no_section_offset_can_express_it():
+    """A section offset moves the cross-section sideways; it cannot move a member along itself.
+
+    adapy's Genie reader strips the axial component for most offset containers precisely
+    because it would otherwise extend a member past its landing wall -- an audit model has 280
+    stiffeners like that. Whatever survives to here has to be refused rather than dropped.
+    """
+    bm = ada.Beam("bm", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0.0, 0.4, 0.25), e2=(0.0, 0.4, 0.25))
+    with pytest.raises(UnsupportedBeamError, match="AXIAL component"):
+        beam_section_offset(bm)
+
+
+def test_an_offset_on_a_curved_member_is_refused():
+    """``(n1, n2)`` rotates along a curve; adapy's ``e1`` is one global vector.
+
+    CAE accepts the combination (probed), so nothing downstream would complain -- which is
+    exactly why it is refused here.
+    """
+    bm = a_curved_beam("BeamCurved", e1=(0.0, 0.0, 0.2), e2=(0.0, 0.0, 0.2))
+    with pytest.raises(UnsupportedBeamError, match="curved AND carries an offset"):
+        beam_section_offset(bm, curved=True)
+
+
+def test_a_varying_offset_stops_the_whole_write(tmp_path):
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    part.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0.0, 0.0, 0.66)))
     destination = tmp_path / "out.py"
     with pytest.raises(UnsupportedBeamError, match="0.66"):
         assembly.to_abaqus_cae_script(destination)
     assert not destination.exists()
+
+
+def test_a_constant_offset_reaches_the_emitted_beam_section(tmp_path):
+    _, text = emit(one_beam(e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)), tmp_path)
+
+    assert "beamSectionOffset=(0.0, 0.4)" in text
+    assert "'sec_IPE300_S355_off_0_0p4': ((0.0, 0.4), 'beamSectionOffset')" in text
+    # ... and the wire is still drawn between the nodes, not through the offset points: the
+    # whole point of the section offset is that the geometry stays where the model has it.
+    assert "points=(((0.0, 0.0, 0.0), (0.0, 0.0, 3.0)),)" in text
+
+
+def test_a_model_with_no_offsets_emits_no_offset_argument_at_all(tmp_path):
+    """A feature that changes the output of models it does not apply to is a feature nobody asked for."""
+    _, text = emit(one_beam(), tmp_path)
+
+    assert "beamSectionOffset" not in text
+    assert "centroid=" not in text
+    assert "SECTION_OFFSETS" not in text, "no offsets means no offset table and no offset guard"
+    assert "_guard_section_offsets" not in text
+    assert "CURVE_LENGTH_REL_TOL" not in text, "and no curves means no curve machinery either"
+    assert "WireSpline" not in text
+
+
+def test_a_generalized_section_carries_its_offset_as_centroid(tmp_path):
+    """Measured: a BEFORE_ANALYSIS section REFUSES ``beamSectionOffset`` outright.
+
+    ``BeamSection(..., beamSectionOffset=...)`` and ``setValues(beamSectionOffset=...)`` both
+    raise ``TypeError: keyword error on beamSectionOffset``, although the attribute exists and
+    reads back ``[0.0, 0.0]``. It takes ``centroid``, which CAE writes as ``*Centroid`` -- and
+    the solver reproduced adapy's own ``*MPC BEAM`` route with it to every printed digit. This
+    is not a cosmetic difference: a channel has to go through a generalized section on both
+    Abaqus routes, so without this every channel with an offset would fail the build.
+    """
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    part.add_beam(ada.Beam("bm", (0, 0, 0), (0, 0, 3), general_section(), e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)))
+
+    _, text = emit(assembly, tmp_path)
+
+    assert "integration=BEFORE_ANALYSIS" in text
+    assert "centroid=(0.0, 0.4)" in text
+    assert "beamSectionOffset=" not in text
+    assert "'centroid')" in text, "the guard has to read back the attribute that was written"
+
+
+def test_the_same_profile_at_two_offsets_is_two_sections(tmp_path):
+    """The offset belongs to the section, so two offsets are two sections and not one.
+
+    Sharing the section would give one of the two members the other's eccentricity, which is
+    the silent coordinate error in a new place.
+    """
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    part.add_beam(ada.Beam("a", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)))
+    part.add_beam(ada.Beam("b", (1, 0, 0), (1, 0, 3), "IPE300", e1=(0.0, 0.1, 0.0), e2=(0.0, 0.1, 0.0)))
+    part.add_beam(ada.Beam("c", (2, 0, 0), (2, 0, 3), "IPE300"))
+
+    plan = build_plan(assembly)
+
+    assert [use.cae_section_name for use in plan.sections] == [
+        "sec_IPE300_S355",
+        "sec_IPE300_S355_off_0_0p1",
+        "sec_IPE300_S355_off_0_0p4",
+    ]
+    assert [use.offset for use in plan.sections] == [None, (0.0, 0.1), (0.0, 0.4)]
+    _, text = emit(assembly, tmp_path)
+    assert text.count("model.IProfile(") == 1, "one profile, three sections"
+
+
+def test_a_real_genie_model_with_offsets_writes(fem_files, tmp_path):
+    """``beams_constant_offset.xml``, which used to raise ``UnsupportedBeamError``.
+
+    Seven Genie members, six with a constant offset, among them a channel (which has to
+    become a generalized section and therefore a ``*Centroid``) and an angle (whose offset is
+    an explicit ``-0.0`` and must not be treated as an offset at all). Built for real in
+    Abaqus 2025 from exactly this file: 7 edges, 14 vertices, every offset read back.
+    """
+    assembly = ada.from_genie_xml(fem_files / "sesam/varying_offset/beams_constant_offset.xml")
+
+    _, text = emit(assembly, tmp_path)
+
+    plan = build_plan(assembly)
+    offsets = {use.cae_section_name: use.offset for use in plan.sections if use.offset is not None}
+    assert len(offsets) == 6, "six of the seven members carry an offset"
+    assert offsets["sec_UNP180_S355_off_0_0p09"] == pytest.approx((0.0, 0.09))
+    assert "centroid=(0.0, 0.09)" in text, "the channel's offset cannot go in beamSectionOffset"
+    assert text.count("beamSectionOffset=(") == 5
+    # The angle's offset is an explicit (0, 0, -0.0), which is not an offset.
+    assert "sec_HP180x10_S355'" in text
+    assert "sec_HP180x10_S355_off" not in text
+
+
+def test_every_offset_in_adapys_own_genie_corpus_is_constant(fem_files):
+    """Which is the justification for refusing the varying case rather than implementing it.
+
+    Stated as a test because it is the evidence, and because the day a fixture with a varying
+    offset arrives is the day this has to be revisited -- better that it fails here, next to
+    the reasoning, than that someone rediscovers the refusal from a stack trace.
+    """
+    constant = 0
+    varying = 0
+    for name in sorted(p.name for p in (fem_files / "sesam/varying_offset").glob("*.xml")):
+        for bm in ada.from_genie_xml(fem_files / "sesam/varying_offset" / name).get_all_physical_objects(
+            by_type=ada.Beam
+        ):
+            ends = [
+                (0.0, 0.0, 0.0) if getattr(bm, label) is None else tuple(float(c) for c in getattr(bm, label))
+                for label in ("e1", "e2")
+            ]
+            if max(abs(c) for end in ends for c in end) <= 1e-09:
+                continue
+            if max(abs(a - b) for a, b in zip(*ends)) > 1e-09:
+                varying += 1
+            else:
+                constant += 1
+
+    assert varying == 0, "a varying offset has arrived in the corpus; the refusal needs revisiting"
+    assert constant == 8, "the fixtures changed; check what the offsets are now"
 
 
 # --------------------------------------------------------------------------------------
@@ -546,7 +873,7 @@ def test_a_plate_is_listed_as_untranslated_rather_than_dropped_in_silence(tmp_pa
     part.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3), "IPE300"))
     part.add_plate(a_plate())
     _, text = emit(assembly, tmp_path)
-    assert "NOT translated by phase 1" in text
+    assert "NOT translated by this writer" in text
     assert "Plate 'pl1'" in text
     assert '"name": "pl1"' in text  # and in the machine-readable result sidecar
     assert "model.Part(name='P'," in text  # the beams are still built
@@ -862,7 +1189,7 @@ def test_guard_five_records_the_reason_and_forces_a_non_zero_status(tmp_path, mo
     result = json.loads(sidecar.read_text())
     assert result["ok"] is False
     assert result["errors"] == ["something went wrong halfway"]
-    assert result["schema"] == "ada.cae_build_result/2"
+    assert result["schema"] == "ada.cae_build_result/3"
 
 
 def test_the_sidecar_name_follows_the_script_stem(tmp_path):
@@ -1323,3 +1650,626 @@ def test_the_collision_guard_runs_before_anything_is_built(tmp_path):
     body = text.split("def main():", 1)[1]
 
     assert body.index("_guard_no_name_collisions(model)") < body.index("build(model)")
+
+
+# --------------------------------------------------------------------------------------
+# Curved members: the wire, the sampling, and what the topology guard can still assert
+# --------------------------------------------------------------------------------------
+
+
+QUARTER_ARC_LENGTH = 2.0 * math.pi / 2.0  #: radius 2, sweep pi/2
+
+
+#: The two classes adapy's Genie reader actually produces, and the two whose path is a
+#: single curved leg. ``BeamSweep``'s is not: see test_a_swept_path_is_refused_for_having
+#: _several_legs.
+SAMPLED_CURVED_KINDS = {"BeamCurved": (0.0, 0.0, 0.0), "BeamRevolve": (2.0, 2.0, 0.0)}
+
+
+@pytest.mark.parametrize("kind", sorted(SAMPLED_CURVED_KINDS))
+def test_a_curved_member_is_sampled_on_its_own_exact_curve(kind):
+    """Each class carries the curve; neither needs fitting.
+
+    The samples have to lie *on* the curve, not near it, which for these two fixtures -- the
+    same quarter circle of radius 2 reached two different ways -- means a constant radius
+    about the arc's own centre, to the last bit a float carries.
+    """
+    bm = a_curved_beam(kind)
+    p1, p2 = beam_endpoints(bm)
+
+    points, arc_length = sample_member_curve(bm, p1, p2, 1e-04)
+
+    assert points[0] == pytest.approx(p1) and points[-1] == pytest.approx(p2)
+    assert len(points) >= 9
+    radii = np.linalg.norm(np.asarray(points) - np.asarray(SAMPLED_CURVED_KINDS[kind]), axis=1)
+    assert radii == pytest.approx(2.0, abs=1e-12), "every sample must sit on the arc, not near it"
+    assert arc_length == pytest.approx(QUARTER_ARC_LENGTH, rel=1e-09)
+
+
+def test_the_arc_length_is_the_curves_and_not_the_sum_of_the_chords():
+    """The bug this test exists for was live and sat one hair inside its own tolerance.
+
+    A chord polyline is systematically *short*: at the 33 points a quarter circle gets here it
+    is 1.0e-04 of the arc short, which is forty times the spline's own error -- so a guard
+    that compared CAE's spline against the chord sum would have been measuring adapy's
+    sampling and would have read 9.78e-05 against a 1.0e-04 tolerance for no reason. It did,
+    until the arc length was Richardson-extrapolated instead.
+    """
+    bm = a_curved_beam("BeamCurved")
+    p1, p2 = beam_endpoints(bm)
+
+    points, arc_length = sample_member_curve(bm, p1, p2, 1e-04)
+
+    chords = float(np.linalg.norm(np.diff(np.asarray(points), axis=0), axis=1).sum())
+    assert arc_length == pytest.approx(QUARTER_ARC_LENGTH, rel=1e-09)
+    assert chords < arc_length, "the chord sum must be short of the arc, or this test proves nothing"
+    assert abs(chords - QUARTER_ARC_LENGTH) / QUARTER_ARC_LENGTH > 1e-05, (
+        "the chord deficit has to be big enough to matter against CURVE_LENGTH_REL_TOL, "
+        "or the distinction this test defends is academic"
+    )
+
+
+@pytest.mark.parametrize("sweep", [math.pi / 8.0, math.pi / 2.0])
+def test_the_sample_spacing_is_a_turning_angle_and_not_a_point_count(sweep):
+    """A gentle arc gets fewer points than a tight one, in metres and in millimetres alike.
+
+    A fixed count would over-sample one and under-sample the other, and an absolute chord
+    tolerance would change behaviour with the model's units -- the mistake the cylinder
+    fractions exist to avoid, in a new place.
+    """
+    curve = exact_arc_spline(radius=2.0, start=0.0, end=sweep)
+    p1 = tuple(float(c) for c in curve.control_points_list[0])
+    p2 = tuple(float(c) for c in curve.control_points_list[-1])
+    bm = BeamCurved("arc", p1, p2, curve, "IPE300", mat="S355")
+
+    points, _ = sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+    chords = np.diff(np.asarray(points), axis=0)
+    units = chords / np.linalg.norm(chords, axis=1)[:, None]
+    turns = np.arccos(np.clip(np.einsum("ij,ij->i", units[:-1], units[1:]), -1.0, 1.0))
+    assert turns.max() <= MAX_TURN_RADIANS
+    # and not wastefully far inside it: halving the count would break the criterion
+    assert turns.max() > MAX_TURN_RADIANS / 2.5
+
+
+def test_the_same_arc_in_millimetres_is_sampled_at_the_same_points_scaled():
+    """The turning-angle criterion is dimensionless, so a unit change must not change it."""
+    fine = a_curved_beam("BeamCurved")
+    big_curve = exact_arc_spline(radius=2000.0)
+    big = BeamCurved(
+        "arc_mm",
+        tuple(float(c) for c in big_curve.control_points_list[0]),
+        tuple(float(c) for c in big_curve.control_points_list[-1]),
+        big_curve,
+        "IPE300",
+        mat="S355",
+    )
+
+    metres, _ = sample_member_curve(fine, *beam_endpoints(fine), 1e-04)
+    millimetres, _ = sample_member_curve(big, *beam_endpoints(big), 1e-01)
+
+    assert len(metres) == len(millimetres)
+    assert np.allclose(np.asarray(millimetres) / 1000.0, np.asarray(metres), atol=1e-09)
+
+
+def test_a_curve_whose_ends_are_not_the_members_nodes_is_refused():
+    """A curve that does not start where the member starts is not that member's axis.
+
+    Snapping it into place would move the geometry to fit the bookkeeping, which is the one
+    thing this writer never does -- and the ends are what every joint in the part is computed
+    from, so a curve 4 units adrift would silently build a different structure.
+    """
+    curve = exact_arc_spline()
+    bm = BeamCurved("adrift", (0.0, 0.0, 0.0), (0.0, 2.0, 0.0), curve, "IPE300", mat="S355")
+
+    with pytest.raises(CurveNotSupported, match="not this member's axis"):
+        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+
+def test_a_curve_parameterised_backwards_is_reversed_rather_than_refused():
+    """Which way round a curve runs says nothing about the member."""
+    curve = exact_arc_spline()
+    p1 = tuple(float(c) for c in curve.control_points_list[0])
+    p2 = tuple(float(c) for c in curve.control_points_list[-1])
+    forwards = BeamCurved("f", p1, p2, curve, "IPE300", mat="S355")
+    backwards = BeamCurved("b", p2, p1, curve, "IPE300", mat="S355")
+
+    ahead, length_ahead = sample_member_curve(forwards, *beam_endpoints(forwards), 1e-04)
+    behind, length_behind = sample_member_curve(backwards, *beam_endpoints(backwards), 1e-04)
+
+    assert behind == tuple(reversed(ahead))
+    assert length_behind == pytest.approx(length_ahead, rel=1e-12)
+
+
+def test_a_beamcurved_with_no_curve_is_refused_and_names_the_beam():
+    bm = BeamCurved("nothing", (0, 0, 0), (0, 0, 3), None, "IPE300", mat="S355")
+    part = ada.Part("P")
+    part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(UnsupportedBeamError, match="'nothing'"):
+        build_plan(assembly)
+
+
+def test_a_straight_curve_container_is_refused_rather_than_splined():
+    """A spline through a polyline's corners rounds them off, which is a silent change of shape."""
+    curve = gc.PolyLine(points=[(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 0.0, 0.0)])
+    bm = BeamCurved("kinked", (0.0, 0.0, 0.0), (2.0, 0.0, 0.0), curve, "IPE300", mat="S355")
+
+    with pytest.raises(CurveNotSupported, match="piecewise straight"):
+        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+
+def test_a_swept_path_is_refused_for_having_several_legs():
+    """And this is the honest limit of ``BeamSweep`` support, not an edge case.
+
+    ``BeamSweep`` is no longer refused *by type* -- the shape guard accepts it -- but a
+    ``CurveOpen2d`` decomposes a filleted corner into **four** ``segments3d`` legs for a three-point
+    filleted corner -- a closer from the last point back to the first, then line, arc, line --
+    and a two-point one into a single straight leg. So in practice every ``BeamSweep``
+    reaching this writer is refused by its path rather than by its class: each leg is its own
+    CAE edge, and this writer draws one wire per member and locates a curved one by findAt,
+    which returns only the sub-edge containing the point. Supporting the chain means locating
+    a member leg by leg, and the refusal says so rather than pretending otherwise.
+    """
+    bm = a_curved_beam("BeamSweep")
+
+    with pytest.raises(CurveNotSupported, match="sweep path has 4 legs"):
+        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+
+def test_a_two_point_sweep_is_refused_for_being_straight_rather_than_curved():
+    curve = CurveOpen2d([(0.0, 0.0), (2.0, 0.0)], origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
+    bm = BeamSweep("flat", curve, "IPE300", mat="S355")
+
+    with pytest.raises(CurveNotSupported, match="straight line, not a curve"):
+        sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+
+
+def test_a_curved_member_is_drawn_as_a_spline_and_located_by_its_own_points(tmp_path):
+    _, text = emit(a_curved_model("BeamCurved"), tmp_path)
+
+    assert "WireSpline(points=curve_0_0, mergeType=IMPRINT, meshable=ON, smoothClosedSpline=OFF)" in text
+    assert "WirePolyLine" not in text, "the only member here is curved"
+    assert "_curved_member_edges('Curves', 'BeamCurved', part_0, curve_0_0, " in text
+    assert ".edges.getByBoundingCylinder(" not in text
+    # ... and the arc length the guard compares against is stated in the script itself.
+    assert (
+        "_curved_member_edges('Curves', 'BeamCurved', part_0, curve_0_0, {0!r})".format(QUARTER_ARC_LENGTH)[:60] in text
+    )
+
+
+def test_a_mixed_part_keeps_the_cylinder_for_its_straight_members(tmp_path):
+    """The two location strategies coexist, and neither is applied to the other's member.
+
+    A cylinder round a curve finds nothing -- measured, 0 edges round a quarter arc's chord --
+    and ``findAt`` on a straight member that a brace might split would section part of it and
+    leave the rest bare. So the split is not a tidiness question.
+    """
+    straight = ada.Beam("tie", (0.0, 2.0, 0.0), (0.0, 5.0, 0.0), "IPE300", "S355")
+
+    _, text = emit(a_curved_model("BeamRevolve", extra=[straight]), tmp_path)
+
+    assert text.count("WireSpline(") == 1
+    assert text.count("WirePolyLine(") == 1
+    assert text.count("= _curved_member_edges(") == 1
+    assert text.count(".edges.getByBoundingCylinder(") == 1
+    assert text.count("_member_edges('Curves', 'tie'") == 1
+
+
+def test_a_curved_member_is_one_sub_edge_and_adds_only_its_two_endpoints():
+    """Built for real in Abaqus 2025: an arc plus a straight member sharing its end gives
+    ``edges=2 vertices=3``, and the arc alone gives ``edges=1 vertices=2`` at every sample
+    count from 3 to 65 points.
+    """
+    straight = ada.Beam("tie", (0.0, 2.0, 0.0), (0.0, 5.0, 0.0), "IPE300", "S355")
+    topology = build_plan(a_curved_model("BeamRevolve", extra=[straight])).parts[0].topology
+
+    assert topology.edges_per_member == {"BeamRevolve": 1, "tie": 1}
+    assert topology.edges == 2
+    assert topology.vertices == 3
+    assert topology.splits["BeamRevolve"] == ()
+
+
+def test_a_member_landing_on_a_curves_interior_is_refused_not_predicted():
+    """Measured: a straight wire landing on a spline wire's midpoint imprints it.
+
+    The part went from ``2 edges / 3 vertices`` to ``3 edges / 4 vertices``, so the split is
+    real. Where along the spline CAE puts the new vertex is the spline's own
+    parameterisation's business, though, so the member's sub-edge count cannot be stated from
+    anything adapy holds -- and this writer asserts every member's sub-edge count. Refusing is
+    what keeps that assertion true of every model it accepts.
+    """
+    arc = a_curved_beam("BeamCurved", name="arc")
+    points, _ = sample_member_curve(arc, *beam_endpoints(arc), 1e-04)
+    middle = points[len(points) // 2]
+    brace = ada.Beam("brace", middle, (middle[0] + 1.0, middle[1] + 1.0, 0.0), "IPE300", "S355")
+    part = ada.Part("X")
+    part.add_beam(arc)
+    part.add_beam(brace)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(CaeWriteError) as raised:
+        build_plan(assembly)
+
+    message = str(raised.value)
+    assert "meets the curved member 'arc'" in message
+    assert "away from that curve's ends" in message
+    assert "2 edges / 3 vertices to 3 edges / 4 vertices" in message
+
+
+def test_a_curves_endpoint_still_splits_the_straight_member_it_lands_inside():
+    """Adding a curve to a part must not weaken the prediction for anything else in it.
+
+    The curve's own ends are points like any other, so the existing arithmetic applies to
+    them -- measured in the kernel: a straight member whose interior an arc's endpoint lands
+    on came back as 2 sub-edges, and its bounding cylinder found both.
+    """
+    arc = a_curved_beam("BeamCurved", name="arc")  # runs (2,0,0) -> (0,2,0)
+    through = ada.Beam("through", (0.0, 0.0, 0.0), (4.0, 0.0, 0.0), "IPE300", "S355")
+    part = ada.Part("Y")
+    part.add_beam(arc)
+    part.add_beam(through)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member == {"arc": 1, "through": 2}
+    assert topology.splits["through"] == ((2.0, 0.0, 0.0),)
+    assert topology.vertices == 4
+
+
+def test_a_member_clear_of_a_curve_is_not_refused():
+    """Refusing every part that happens to contain a curve would be the easy wrong answer."""
+    arc = a_curved_beam("BeamCurved", name="arc")
+    clear = ada.Beam("clear", (0.0, 0.0, 3.0), (4.0, 0.0, 3.0), "IPE300", "S355")
+    part = ada.Part("Z")
+    part.add_beam(arc)
+    part.add_beam(clear)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    topology = build_plan(assembly).parts[0].topology
+
+    assert topology.edges_per_member == {"arc": 1, "clear": 1}
+
+
+def test_the_crossing_scan_reads_the_curves_whole_path_and_not_its_chord():
+    """The pair scan filters by bounding box, and an arc reaches outside the box of its ends.
+
+    A 144-degree arc of radius 2 starting on the +x axis has its endpoints at y = 0 and
+    y = 1.176, so the box of its two *ends* stops at y = 1.176 -- while the arc itself reaches
+    y = 2. A brace standing on the arc's topmost point therefore shares no bounding box with
+    the chord at all, and a scan that took the box from the endpoints would never compare the
+    pair: the refusal would go quiet on a crossing CAE will happily imprint.
+
+    The first version of this test used a quarter arc and did **not** catch that, because a
+    quarter arc's endpoint box already contains the whole arc. The two assertions below are
+    what make this one about the box: the arc passes through the point, and the point is
+    outside the box of the ends. ``find_crossings`` on the chord alone is checked as well, so
+    the difference is demonstrated rather than asserted of the implementation.
+    """
+    curve = exact_arc_spline(radius=2.0, start=0.0, end=0.8 * math.pi)
+    p1 = tuple(float(c) for c in curve.control_points_list[0])
+    p2 = tuple(float(c) for c in curve.control_points_list[-1])
+    arc = BeamCurved("arc", p1, p2, curve, "IPE300", mat="S355")
+    points, _ = sample_member_curve(arc, *beam_endpoints(arc), 1e-04)
+    top = (0.0, 2.0, 0.0)
+    assert (
+        min(np.linalg.norm(np.asarray(points) - np.asarray(top), axis=1)) < 1e-02
+    ), "the fixture's arc must pass through its topmost point, or this test is not the one described"
+    assert max(p1[1], p2[1]) < top[1] - 0.5, "and that point must lie outside the box of the arc's own ends"
+
+    brace = ada.Beam("brace", (0.0, 2.0, -1.0), (0.0, 2.0, 1.0), "IPE300", "S355")
+    chord_only = [
+        Segment(name="arc", p1=p1, p2=p2),
+        Segment(name="brace", p1=(0.0, 2.0, -1.0), p2=(0.0, 2.0, 1.0)),
+    ]
+    assert find_crossings(chord_only, 1e-04) == [], "the chord does not come near this brace"
+
+    part = ada.Part("W")
+    part.add_beam(arc)
+    part.add_beam(brace)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(CaeWriteError, match="meets the curved member 'arc'"):
+        build_plan(assembly)
+
+
+def test_a_curved_member_does_not_turn_the_per_member_prediction_off_for_the_part():
+    """The point of refusing contact on a curve: nothing in the part goes unasserted.
+
+    Every member, curved or not, has a stated sub-edge count, and the part has a stated edge
+    and vertex total -- which is what the emitted script compares the kernel against.
+    """
+    straight = ada.Beam("tie", (0.0, 2.0, 0.0), (0.0, 5.0, 0.0), "IPE300", "S355")
+    brace = ada.Beam("brace", (0.0, 3.5, 0.0), (2.0, 3.5, 0.0), "IPE300", "S355")
+    plan = build_plan(a_curved_model("BeamRevolve", extra=[straight, brace]))
+    topology = plan.parts[0].topology
+
+    assert sorted(topology.edges_per_member) == ["BeamRevolve", "brace", "tie"]
+    assert topology.edges_per_member == {"BeamRevolve": 1, "brace": 1, "tie": 2}
+    assert topology.edges == 4
+    assert topology.vertices == 5
+
+
+def test_the_expected_topology_of_a_curve_is_stated_in_the_emitted_script(tmp_path, monkeypatch):
+    straight = ada.Beam("tie", (0.0, 2.0, 0.0), (0.0, 5.0, 0.0), "IPE300", "S355")
+    _, text = emit(a_curved_model("BeamRevolve", extra=[straight]), tmp_path)
+
+    namespace, _ = load_emitted_script(text, tmp_path, monkeypatch)
+
+    assert namespace["EXPECTED_TOPOLOGY"] == {
+        "Curves": {"edges": 2, "vertices": 3, "edges_per_member": {"BeamRevolve": 1, "tie": 1}}
+    }
+    assert namespace["CURVE_LENGTH_REL_TOL"] == 1e-04
+
+
+# --------------------------------------------------------------------------------------
+# The curved member's own in-kernel guard, against a stand-in edge array
+# --------------------------------------------------------------------------------------
+
+
+class FakeCurveEdge:
+    def __init__(self, index, length):
+        self.index = index
+        self._length = length
+
+    def getSize(self, printResults=True):
+        return self._length
+
+
+class FakeCurveEdges(list):
+    """A part's edge array, for the curved-member locator and nothing else.
+
+    ``hits`` is what each successive ``findAt`` returns, as a list of edge indices -- measured
+    behaviour on Abaqus 2025 is that ``findAt`` warns and returns an **empty** sequence for a
+    point that is on no edge, rather than raising, so an empty list here is a faithful
+    stand-in for that and not an invention.
+    """
+
+    def __init__(self, hits, lengths):
+        super().__init__([FakeCurveEdge(index, lengths[index]) for index in range(len(lengths))])
+        self._hits = [list(hit) for hit in hits]
+
+    def findAt(self, *specs):
+        indices = self._hits.pop(0) if self._hits else []
+        return [self[index] for index in indices]
+
+
+class FakeCurvedPart:
+    def __init__(self, edges):
+        self.edges = edges
+
+
+ARC_POINTS = ((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 1.5, 0.0), (3.0, 1.0, 0.0), (4.0, 0.0, 0.0))
+
+
+def curved_guard(tmp_path, monkeypatch, hits, lengths, expected):
+    """Run the emitted script's own curved-member locator over a stand-in part."""
+    _, text = emit(a_curved_model("BeamCurved"), tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    part = FakeCurvedPart(FakeCurveEdges(hits, lengths))
+    result = namespace["_curved_member_edges"]("Curves", "arc", part, ARC_POINTS, expected)
+    return namespace, exits, result
+
+
+def read_error(tmp_path):
+    return json.loads((tmp_path / "out.cae_build_result.json").read_text())["errors"][0]
+
+
+def test_the_curved_guard_passes_when_every_sample_is_on_one_edge_of_the_right_length(tmp_path, monkeypatch):
+    namespace, exits, edges = curved_guard(tmp_path, monkeypatch, [[0], [0], [0]], [5.0], 5.0)
+
+    assert exits == []
+    assert [edge.index for edge in edges] == [0]
+    assert namespace["_RESULT"]["edges_per_member"]["arc"] == 1
+    assert namespace["_RESULT"]["curve_length_error"]["arc"] == 0.0
+
+
+def test_the_curved_guard_catches_a_sample_point_that_is_on_no_edge(tmp_path, monkeypatch):
+    """Measured: ``findAt`` 1.4e-03 off a spline already reports "could not find a geometric
+    entity" and returns an empty sequence. So this is the check that the wire CAE built
+    actually passes through the points adapy sampled.
+    """
+    curved_guard(tmp_path, monkeypatch, [[0], [], [0]], [5.0], 5.0)
+
+    assert "lies on no edge at all" in read_error(tmp_path)
+
+
+def test_the_curved_guard_catches_a_curve_cae_split_anyway(tmp_path, monkeypatch):
+    """The backstop for a contact on a curve that the plan-time refusal did not see."""
+    curved_guard(tmp_path, monkeypatch, [[0], [0], [1]], [3.0, 2.0], 5.0)
+
+    error = read_error(tmp_path)
+    assert "lie on 2 different edges" in error
+    assert "sub-edge count is now unknown" in error
+
+
+def test_the_curved_guard_catches_a_wire_that_is_not_that_curve(tmp_path, monkeypatch):
+    """A chord instead of the arc is about 10% short, which is four orders past the tolerance."""
+    curved_guard(tmp_path, monkeypatch, [[0], [0], [0]], [4.5], 5.0)
+
+    error = read_error(tmp_path)
+    assert "adapy sampled its arc length as 5.0 and CAE built 4.5" in error
+    assert "relative difference of 0.1" in error
+
+
+def test_the_curved_guard_tolerates_the_splines_own_interpolation_error(tmp_path, monkeypatch):
+    """2.6e-06 is what the emitted sampling measured, so 1e-04 must not be tight enough to fail it."""
+    _, exits, _ = curved_guard(tmp_path, monkeypatch, [[0], [0], [0]], [5.0 * (1.0 - 2.6e-06)], 5.0)
+
+    assert exits == []
+
+
+# --------------------------------------------------------------------------------------
+# The offset's own in-kernel guard
+# --------------------------------------------------------------------------------------
+
+
+class FakeSection:
+    def __init__(self, **values):
+        for key, value in values.items():
+            setattr(self, key, value)
+
+
+def offset_guard(tmp_path, monkeypatch, sections):
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    part.add_beam(ada.Beam("bm1", (0, 0, 0), (0, 0, 3), "IPE300", e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)))
+    _, text = emit(assembly, tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    namespace["_guard_section_offsets"](FakeModel({}, sections=sections))
+    return namespace, exits
+
+
+def test_the_offset_guard_passes_when_cae_holds_what_adapy_projected(tmp_path, monkeypatch):
+    namespace, exits = offset_guard(
+        tmp_path,
+        monkeypatch,
+        {"sec_IPE300_S355_off_0_0p4": FakeSection(beamSectionOffset=[0.0, 0.4])},
+    )
+
+    assert exits == []
+    assert namespace["_RESULT"]["section_offsets"] == {"sec_IPE300_S355_off_0_0p4": [[0.0, 0.4], "beamSectionOffset"]}
+
+
+def test_the_offset_guard_catches_an_offset_that_did_not_arrive(tmp_path, monkeypatch):
+    """CAE ignores an offset in every geometric query it offers, so nothing else would notice."""
+    _, exits = offset_guard(
+        tmp_path,
+        monkeypatch,
+        {"sec_IPE300_S355_off_0_0p4": FakeSection(beamSectionOffset=[0.0, 0.0])},
+    )
+
+    assert exits == [1]
+    error = read_error(tmp_path)
+    assert "adapy projected the offset (0.0, 0.4) onto its (n1, n2) axes and CAE holds (0.0, 0.0)" in error
+    assert "eccentricity silently dropped" in error
+
+
+def test_the_offset_guard_catches_a_section_that_was_never_created(tmp_path, monkeypatch):
+    _, exits = offset_guard(tmp_path, monkeypatch, {})
+
+    assert exits == [1]
+    assert "carries an offset but does not exist" in read_error(tmp_path)
+
+
+def test_the_offset_guard_reads_the_keyword_the_section_kind_actually_takes(tmp_path, monkeypatch):
+    """A generalized section's offset lives in ``centroid``; reading ``beamSectionOffset``
+    there would read an attribute CAE refuses to let the script write, and would therefore
+    always find (0, 0) and always fail.
+    """
+    assembly = ada.Assembly("A")
+    part = assembly.add_part(ada.Part("P"))
+    part.add_beam(ada.Beam("bm", (0, 0, 0), (0, 0, 3), general_section(), e1=(0.0, 0.4, 0.0), e2=(0.0, 0.4, 0.0)))
+    _, text = emit(assembly, tmp_path)
+    namespace, exits = load_emitted_script(text, tmp_path, monkeypatch)
+    section = FakeSection(centroid=[0.0, 0.4], beamSectionOffset=[0.0, 0.0])
+
+    namespace["_guard_section_offsets"](FakeModel({}, sections={"sec_GEN_S355_off_0_0p4": section}))
+
+    assert exits == []
+    assert namespace["_RESULT"]["section_offsets"]["sec_GEN_S355_off_0_0p4"][1] == "centroid"
+
+
+def test_a_curve_whose_tangent_turns_onto_its_own_n1_is_refused():
+    """The orientation failure a straight member cannot have.
+
+    ``N1_COSINES`` gives Abaqus one vector for the whole member and it projects that vector
+    perpendicular to each element's tangent, so where the two line up there is nothing left to
+    project. A straight member has one tangent and :func:`beam_n1` already refuses a degenerate
+    ``yvec``; a curve's tangent turns, and an arc that turns nearly 180 degrees sweeps its
+    tangent right onto an ``n1`` lying in the arc's own plane. Measured on this fixture, the
+    smallest sin between the two falls from 0.71 at a quarter arc to 0.039 at 0.98 pi.
+    """
+    curve = exact_arc_spline(radius=2.0, start=0.0, end=0.98 * math.pi)
+    p1 = tuple(float(c) for c in curve.control_points_list[0])
+    p2 = tuple(float(c) for c in curve.control_points_list[-1])
+    # up along the arc's own axis puts n1 in the arc's plane, where the tangent also lives.
+    bm = BeamCurved("swinger", p1, p2, curve, "IPE300", mat="S355", up=(0.0, 0.0, 1.0))
+    part = ada.Part("Swing")
+    part.add_beam(bm)
+    assembly = ada.Assembly("A")
+    assembly.add_part(part)
+
+    with pytest.raises(UnsupportedBeamError) as raised:
+        build_plan(assembly)
+
+    message = str(raised.value)
+    assert "comes within sin=" in message
+    assert "turned an arbitrary way round" in message
+
+
+def test_an_arc_whose_n1_stays_clear_of_its_tangent_is_not_refused():
+    """The ordinary case: a stiffener arc in a plane, oriented out of that plane.
+
+    Refusing every curve would be the easy wrong answer here too, so the fixture that passes
+    is asserted next to the one that does not.
+    """
+    bm = a_curved_beam("BeamCurved", name="arc")
+    points, _ = sample_member_curve(bm, *beam_endpoints(bm), 1e-04)
+    n1 = np.asarray(beam_n1(bm))
+    tangents = np.diff(np.asarray(points), axis=0)
+    tangents = tangents / np.linalg.norm(tangents, axis=1)[:, None]
+
+    check_n1_holds_along_the_curve(bm, points)
+
+    assert float(np.linalg.norm(np.cross(tangents, n1), axis=1).min()) > CURVE_N1_MIN_SIN
+
+
+def test_the_curve_and_offset_machinery_stays_inside_the_python_2_syntax_floor(tmp_path):
+    """The existing floor test uses a straight, offset-free frame, so it never sees this code.
+
+    Two whole helper functions and a data table are emitted only when a model needs them, and
+    a f-string in either would be a SyntaxError in an older Abaqus kernel rather than an error
+    anyone could read.
+    """
+    straight = ada.Beam("tie", (0.0, 2.0, 0.0), (0.0, 5.0, 0.0), "IPE300", "S355")
+    offset = ada.Beam("off", (0.0, 8.0, 0.0), (4.0, 8.0, 0.0), "IPE300", "S355", e1=(0, 0, -0.4), e2=(0, 0, -0.4))
+    _, text = emit(a_curved_model("BeamRevolve", extra=[straight, offset]), tmp_path)
+
+    assert "_curved_member_edges" in text and "_guard_section_offsets" in text, "the fixture must emit both"
+    tree = ast.parse(text)
+    forbidden = {"JoinedStr", "FormattedValue", "AnnAssign", "NamedExpr"}
+    assert sorted({type(node).__name__ for node in ast.walk(tree)} & forbidden) == []
+
+
+def test_the_segment_distance_solve_agrees_with_brute_force():
+    """The one piece of non-obvious arithmetic the curve refusal rests on.
+
+    ``_segment_to_polyline`` is the clamped segment/segment closest-approach solve, written
+    branchlessly so it runs over a whole polyline at once -- and a mis-clamped branch there
+    would make the refusal miss a crossing rather than raise, which is the failure mode that
+    does not announce itself. So it is checked against a dense parameter sweep over random
+    pairs, including the parallel, touching and zero-length cases the closed form has to
+    special-case.
+    """
+    from ada.cadit.cae.topology import _segment_to_polyline
+
+    rng = np.random.default_rng(20250926)
+    pairs = [
+        # random, then the awkward ones: parallel, collinear, crossing, and degenerate
+        (rng.normal(size=(2, 3)), rng.normal(size=(2, 3))),
+        (np.array([[0.0, 0, 0], [4, 0, 0]]), np.array([[0.0, 1, 0], [4, 1, 0]])),
+        (np.array([[0.0, 0, 0], [4, 0, 0]]), np.array([[5.0, 0, 0], [9, 0, 0]])),
+        (np.array([[0.0, 0, 0], [4, 0, 0]]), np.array([[2.0, -1, 0], [2, 1, 0]])),
+        (np.array([[0.0, 0, 0], [4, 0, 0]]), np.array([[2.0, 0, 0], [2, 0, 0]])),
+        (np.array([[1.0, 1, 1], [1, 1, 1]]), np.array([[0.0, 0, 0], [2, 0, 0]])),
+    ] + [(rng.normal(size=(2, 3)), rng.normal(size=(2, 3))) for _ in range(40)]
+    sweep = np.linspace(0.0, 1.0, 401)
+
+    for first, second in pairs:
+        distance, _, _ = _segment_to_polyline(
+            first[0], first[1] - first[0], second[:1], (second[1] - second[0])[None, :]
+        )
+        on_first = first[0] + sweep[:, None] * (first[1] - first[0])
+        on_second = second[0] + sweep[:, None] * (second[1] - second[0])
+        brute = np.linalg.norm(on_first[:, None, :] - on_second[None, :, :], axis=2).min()
+
+        assert float(distance[0]) <= brute + 1e-09, "the closed form must not be beaten by a coarse sweep"
+        assert float(distance[0]) == pytest.approx(brute, abs=5e-03), "nor miss the minimum by a margin"

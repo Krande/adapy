@@ -59,11 +59,31 @@ _PARALLEL_SIN_SQUARED = 1e-12
 
 @dataclass(frozen=True)
 class Segment:
-    """One straight member, in the coordinates the script will draw it at."""
+    """One member, in the coordinates the script will draw it at.
+
+    ``points`` is ``None`` for a straight member, whose whole geometry is ``p1 -> p2``. A
+    **curved** member carries the polyline CAE's ``WireSpline`` interpolates, whose first
+    and last entries are ``p1`` and ``p2``. Everything in this module that asks "where does
+    this member go" has to read :attr:`path` rather than the two ends, because a curve's
+    ends say nothing about what it passes near -- which is the whole difficulty a curved
+    member adds to the topology guard.
+    """
 
     name: str
     p1: tuple[float, float, float]
     p2: tuple[float, float, float]
+    points: tuple[tuple[float, float, float], ...] | None = None
+
+    @property
+    def is_curved(self) -> bool:
+        return self.points is not None
+
+    @property
+    def path(self) -> tuple[tuple[float, float, float], ...]:
+        """Every point of the member's geometry: two for a straight one, the samples for a curve."""
+        if self.points is None:
+            return (self.p1, self.p2)
+        return self.points
 
 
 @dataclass(frozen=True)
@@ -71,7 +91,8 @@ class Crossing:
     """Two members that meet somewhere other than at an end of at least one of them."""
 
     #: ``"crossing"`` -- they pass through each other at a point interior to both;
-    #: ``"overlap"`` -- they are collinear and share a length, not just a point.
+    #: ``"overlap"`` -- they are collinear and share a length, not just a point;
+    #: ``"on_curve"`` -- one of them touches the *interior* of a curved member.
     kind: str
     first: str
     second: str
@@ -81,6 +102,10 @@ class Crossing:
         where = "(" + ", ".join("{0:.12g}".format(c) for c in self.point) + ")"
         if self.kind == "overlap":
             return "{0!r} and {1!r} are collinear and overlap along their length, from about {2}".format(
+                self.first, self.second, where
+            )
+        if self.kind == "on_curve":
+            return "{0!r} meets the curved member {1!r} at about {2}, away from that curve's ends".format(
                 self.first, self.second, where
             )
         return "{0!r} and {1!r} cross at about {2}, which is interior to both".format(self.first, self.second, where)
@@ -147,16 +172,20 @@ def _point_inside(point, segment: Segment, tol: float):
 
 
 def _box(segment: Segment, tol: float):
-    """The member's axis-aligned bounding box, grown by ``tol``."""
+    """The member's axis-aligned bounding box, grown by ``tol``.
+
+    Over the member's whole :attr:`~Segment.path`, not its two ends: an arc bulges outside
+    the box of its chord (a quarter circle of radius 2 reaches 0.59 beyond it), so a box
+    taken from the endpoints would filter out the very pair a brace-on-the-arc crossing
+    lives in and the refusal would go quiet.
+    """
+    path = segment.path
     low = []
     high = []
     for axis in range(3):
-        a = segment.p1[axis]
-        b = segment.p2[axis]
-        if a > b:
-            a, b = b, a
-        low.append(a - tol)
-        high.append(b + tol)
+        values = [point[axis] for point in path]
+        low.append(min(values) - tol)
+        high.append(max(values) + tol)
     return tuple(low), tuple(high)
 
 
@@ -240,7 +269,138 @@ def find_crossings(segments, tol: float) -> list[Crossing]:
     return crossings
 
 
+def _segment_to_polyline(start, direction, others_start, others_direction):
+    """Closest approach of one segment to each of ``others``, clamped to both ends.
+
+    Returns ``(distance, s, t)`` arrays, with ``s`` and ``t`` in [0, 1] along the first
+    segment and along each of the others. The standard clamped segment/segment solve, done
+    branchlessly with ``np.where`` so it runs over a whole polyline at once.
+
+    The textbook form of this solve has a hole, and a brute-force check over random and
+    awkward pairs found it: for a **zero-length** other segment its parallel branch pins
+    ``s = 0`` and then neither ``t`` clamp fires, so it reports the distance from this
+    segment's *start* to the point rather than from the segment. A duplicated sample point in
+    a curve's polyline is exactly that case, and the consequence would be a contact the
+    refusal silently misses -- so a degenerate other segment is solved as point-to-segment at
+    the end instead.
+    """
+    u = np.asarray(direction, dtype=float)
+    w = np.asarray(start, dtype=float) - others_start
+    v = others_direction
+    a = float(np.dot(u, u))
+    b = v @ u
+    c = np.einsum("ij,ij->i", v, v)
+    d = w @ u
+    e = np.einsum("ij,ij->i", w, v)
+    denominator = a * c - b * b
+    tiny = np.finfo(float).eps * (1.0 + a) * (1.0 + c)
+    parallel = denominator <= tiny
+
+    s_num = np.where(parallel, 0.0, b * e - c * d)
+    s_den = np.where(parallel, 1.0, denominator)
+    t_num = np.where(parallel, e, a * e - b * d)
+    t_den = np.where(parallel, np.where(c > 0.0, c, 1.0), denominator)
+
+    # s below its low end / above its high end: pin s and re-solve t on the pinned line.
+    below = s_num < 0.0
+    above = s_num > s_den
+    t_num = np.where(below, e, np.where(above, e + b, t_num))
+    t_den = np.where(below | above, np.where(c > 0.0, c, 1.0), t_den)
+    s_num = np.where(below, 0.0, np.where(above, s_den, s_num))
+
+    # ... then the same for t, which can move s again.
+    t_low = t_num < 0.0
+    t_high = t_num > t_den
+    s_low_pin = -d
+    s_high_pin = -d + b
+    s_num = np.where(
+        t_low,
+        np.where(s_low_pin < 0.0, 0.0, np.where(s_low_pin > a, s_den, s_low_pin)),
+        np.where(
+            t_high,
+            np.where(s_high_pin < 0.0, 0.0, np.where(s_high_pin > a, s_den, s_high_pin)),
+            s_num,
+        ),
+    )
+    s_den = np.where(
+        (t_low & (s_low_pin >= 0.0) & (s_low_pin <= a)) | (t_high & (s_high_pin >= 0.0) & (s_high_pin <= a)),
+        a if a > 0.0 else 1.0,
+        s_den,
+    )
+    t_num = np.where(t_low, 0.0, np.where(t_high, t_den, t_num))
+
+    s = np.where(s_den == 0.0, 0.0, s_num / s_den)
+    t = np.where(t_den == 0.0, 0.0, t_num / t_den)
+    # An other-segment of zero length is a point: project it onto this segment instead.
+    point_like = c <= 0.0
+    if point_like.any():
+        projection = np.clip(-d / a, 0.0, 1.0) if a > 0.0 else np.zeros_like(c)
+        s = np.where(point_like, projection, s)
+        t = np.where(point_like, 0.0, t)
+    offset = w + s[:, None] * u - t[:, None] * v
+    return np.linalg.norm(offset, axis=1), s, t
+
+
+def _path_arrays(segment: Segment):
+    """``(points, chord directions, cumulative arc length, total length)`` for one member."""
+    points = np.asarray(segment.path, dtype=float)
+    directions = points[1:] - points[:-1]
+    lengths = np.linalg.norm(directions, axis=1)
+    cumulative = np.concatenate([[0.0], np.cumsum(lengths)])
+    return points, directions, cumulative, float(cumulative[-1])
+
+
+def _curve_contact(first: Segment, second: Segment, tol: float) -> Crossing | None:
+    """Refuse any contact that lands on the *interior* of a curved member.
+
+    Measured on Abaqus 2025: a straight wire whose end lands on the midpoint of a spline
+    wire imprints it -- the part went from 2 edges / 3 vertices to **3 edges / 4 vertices**.
+    So a curve can be split exactly as a straight member can, but *where* the split falls
+    along it is decided by the spline's own parameterisation, which nothing on adapy's side
+    knows. A curved member's sub-edge count therefore cannot be predicted from its geometry
+    the way a straight member's can, and this writer's standing rule for something it cannot
+    state is to refuse it rather than approximate it -- the same rule that refuses a straight
+    crossing and a tapered member.
+
+    The prize for refusing is that every model the writer *does* accept has an exact
+    prediction for every member, curved ones included: one sub-edge each. A curved member
+    never turns the per-member guard off for the part it is in.
+
+    A contact at a curve's own **end** is ordinary and is not reported: that is a joint, and
+    if it lands inside a straight member the existing arithmetic predicts that member's
+    split.
+    """
+    points_a, dirs_a, cumulative_a, length_a = _path_arrays(first)
+    points_b, dirs_b, cumulative_b, length_b = _path_arrays(second)
+    if length_a <= 0.0 or length_b <= 0.0:
+        return None
+    starts_b = points_b[:-1]
+    for index in range(len(dirs_a)):
+        distance, s, t = _segment_to_polyline(points_a[index], dirs_a[index], starts_b, dirs_b)
+        close = np.flatnonzero(distance <= tol)
+        for other in close:
+            along_a = cumulative_a[index] + s[other] * float(np.linalg.norm(dirs_a[index]))
+            along_b = cumulative_b[other] + t[other] * float(np.linalg.norm(dirs_b[other]))
+            for segment, along, length, partner in (
+                (first, along_a, length_a, second),
+                (second, along_b, length_b, first),
+            ):
+                if not segment.is_curved:
+                    continue
+                if tol < along < length - tol:
+                    where = points_a[index] + s[other] * dirs_a[index]
+                    return Crossing(
+                        kind="on_curve",
+                        first=partner.name,
+                        second=segment.name,
+                        point=tuple(float(c) for c in where),
+                    )
+    return None
+
+
 def _pair_crossing(first: Segment, second: Segment, tol: float) -> Crossing | None:
+    if first.is_curved or second.is_curved:
+        return _curve_contact(first, second, tol)
     a = np.asarray(first.p1, dtype=float)
     b = np.asarray(first.p2, dtype=float)
     c = np.asarray(second.p1, dtype=float)
@@ -337,6 +497,18 @@ def expected_topology(segments, tol: float) -> PartTopology:
     A user who tightens ``general_point_tol`` below 1e-6 inverts the middle band: CAE
     would then merge joints adapy does not, and the same guard fires from the other side,
     reporting sub-edges the kernel built that adapy did not predict.
+
+    **Curved members** are stated as exactly **one** sub-edge, and that is a prediction
+    rather than an exemption. A curve's endpoints say nothing about what it crosses, and a
+    spline's sub-edge count under imprinting is not a function of anything adapy holds --
+    where along the spline CAE would place an imprinted vertex is the spline's own
+    parameterisation's business. So instead of guessing, the writer **refuses** any model in
+    which something touches a curved member away from its ends
+    (:func:`_curve_contact`), and every model that survives that refusal has a curve that
+    CAE builds as one edge -- measured, at every sample count from 3 to 65 points. A curved
+    member's own endpoints still split the straight members they land inside, by the same
+    arithmetic as any other endpoint, so adding a curve to a part does not weaken the
+    prediction for anything else in it.
     """
     ordered = sorted(segments, key=lambda s: s.name)
     endpoints: list[tuple[float, float, float]] = []
@@ -350,6 +522,12 @@ def expected_topology(segments, tol: float) -> PartTopology:
         # Both directions: a brace landing on a girder splits the girder, and the same
         # pair read the other way round splits nothing.
         for through, lander in ((ordered[first], ordered[second]), (ordered[second], ordered[first])):
+            if through.is_curved:
+                # A curved through-member's splits are refused by the writer, not counted
+                # here -- see _curve_contact. So anything reaching this point has already
+                # been shown not to touch the curve away from its ends, and the curve is
+                # one sub-edge.
+                continue
             for point in (lander.p1, lander.p2):
                 if _point_inside(point, through, tol) is not None:
                     landing[through.name].append(tuple(float(c) for c in point))
