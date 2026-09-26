@@ -14,6 +14,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
+from ada.assets.attributes import (
+    ATTRIBUTES_ROLE,
+    AttributesError,
+    NodeAttributes,
+    parse_attributes,
+)
 from ada.assets.index import AssetIndex, fold_listing
 from ada.assets.keys import ASSET_PREFIX, asset_key
 from ada.assets.manifest import (
@@ -104,6 +110,46 @@ class PublishedAssetProvider:
             return None
         key = mesh_artefact.key or asset_key(collection, node, manifest.revision, mesh_artefact.file)
         return MeshDelivery(url=key, revision=manifest.revision)
+
+    # -- attributes ---------------------------------------------------------------------------
+
+    def attributes(
+        self,
+        scope: Any = None,
+        collection: str = "",
+        node: str = "",
+        *,
+        subject: str | None = None,
+        revision: str | None = None,
+    ) -> NodeAttributes | None:
+        """One node's own facts, from the published ``attributes.json``.
+
+        ``subject`` is the subject whose publish COVERS the node, which is the node itself when it
+        was published in its own right and an ancestor when it was not -- the same distinction the
+        build route makes, and for the same reason: coverage is the point of publishing a root.
+
+        Three absences answer the same way, with ``None``: the subject publishes no attributes
+        artefact, the artefact exists and does not mention this node, or nothing is published at
+        all. A caller asking what a node is gets "nothing recorded" for all three, because that is
+        what each of them means to it.
+        """
+        manifest = self.manifest(collection, subject or node, revision=revision)
+        if manifest is None:
+            return None
+        entry = next((a for a in manifest.artefacts if a.role == ATTRIBUTES_ROLE), None)
+        if entry is None:
+            return None
+        key = entry.key or asset_key(collection, manifest.subject, manifest.revision, entry.file)
+        try:
+            raw = self._reader.get_bytes(key)
+        except (FileNotFoundError, KeyError):
+            # The manifest names a blob the store does not have. Reported as absent rather than
+            # raised: a half-written publish must not make a selection panel throw.
+            return None
+        try:
+            return parse_attributes(raw).node(node)
+        except AttributesError as exc:
+            raise ValueError(f"{key}: {exc}") from exc
 
     def manifest(self, collection: str, subject: str, *, revision: str | None = None) -> AssetManifest | None:
         """Read ``asset.json``. Resolves to the newest revision that HAS one.

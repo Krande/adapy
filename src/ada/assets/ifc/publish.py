@@ -47,6 +47,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
+from ada.assets.attributes import ATTRIBUTES_FILENAME, ATTRIBUTES_ROLE, build_attributes
+from ada.assets.ifc.attributes import attributes_for_nodes
 from ada.assets.ifc.index import (
     IFC_INDEX_FILENAME,
     IFC_INDEX_ROLE,
@@ -247,6 +249,7 @@ def publish_ifc(
     source: str | None = None,
     extracted_at: str | None = None,
     published_at: str | None = None,
+    structure_only: bool = False,
     dry_run: bool = False,
     replace: bool = False,
 ) -> PublishResult:
@@ -258,6 +261,11 @@ def publish_ifc(
     ``source=<existing collection-level key>`` (leaf-without-stem, only with ``leaf``): reuse an
     already-published source blob instead of uploading a fresh one, and record
     ``hierarchy_revision`` against the nearest already-published ancestor.
+
+    ``structure_only=True`` publishes the TREE and what each node IS, and promises no geometry:
+    every subject claims ``delivery='none'``, no spine row claims anything, and the source blob is
+    not stored. See :func:`_derive_ifc_plan` for why not storing it is the honest half of the flag
+    rather than an optimisation bolted onto it.
 
     A direct, side-effecting entry point: derives the plan (:func:`_derive_ifc_plan`, occupancy
     enforced) and writes it here. ``ada.assets.ifc.publisher.IfcAssetPublisher.derive()`` is the
@@ -273,6 +281,7 @@ def publish_ifc(
         source=source,
         extracted_at=extracted_at,
         published_at=published_at,
+        structure_only=structure_only,
         enforce_occupancy=True,
         replace=replace,
     )
@@ -297,17 +306,44 @@ def _derive_ifc_plan(
     source: str | None = None,
     extracted_at: str | None = None,
     published_at: str | None = None,
+    structure_only: bool = False,
     enforce_occupancy: bool,
     replace: bool = False,
 ) -> _DerivedIfcPlan:
     """The one derivation behind both ``publish_ifc`` and ``IfcAssetPublisher.derive()`` --
     identical logic, only whether occupancy is enforced HERE differs (see the module docstring).
     Never writes: the caller decides that.
+
+    ``structure_only`` -- THE TREE WITHOUT A GEOMETRY PROMISE. Three things follow from one
+    decision, and they are not separable:
+
+    * every subject claims ``delivery='none'`` and carries no ``BuildSpec``. A claim is a promise
+      that a capability can produce geometry for the node; making it and then having nothing to
+      build from is the failure this flag exists to avoid, not a state to publish.
+    * no spine row claims anything (``delivery_ids=()``), so the browser draws a tree it can
+      expand and read and offers no Load it cannot honour.
+    * **the source blob is not stored.** The build spec is its only reader -- the sweep works off
+      the STAGED file and each subject's published ``ifc.index.json``, never the stored source, so
+      change detection is unaffected. Keeping it would mean writing several hundred megabytes that
+      nothing in this revision can read.
+
+    ``attributes.json`` is still written, and is most of the point: the tree plus what each node IS
+    is exactly what a structure-only publish is for.
+
+    Promoting one to buildable is a republish rather than a patch, which is correct -- a geometry
+    promise is about specific source bytes, and the revision that made no promise never held them.
+    At the same revision that needs ``replace``.
     """
     if root is not None and leaf is not None:
         raise IfcPublishError("pass at most one of root= / leaf=, not both")
     if source is not None and leaf is None:
         raise IfcPublishError("source= (leaf-without-stem) requires leaf=")
+    if structure_only and source is not None:
+        raise IfcPublishError(
+            "source= names a published source blob for a BUILD to read, and structure_only=True "
+            "publishes no build claim -- passing both asks for geometry from a publish that "
+            "promises none"
+        )
 
     raw = store.get_bytes(staged_key)
     tmp = tempfile.NamedTemporaryFile(suffix=".ifc", delete=False)
@@ -351,8 +387,12 @@ def _derive_ifc_plan(
                         f"{ASSET_PREFIX}/{collection}/{subject}/{revision}/ is already occupied; pass replace=True"
                     )
         source_key = asset_key(collection, collection, revision, SOURCE_FILENAME)
-        planned.append((source_key, raw))
+        if not structure_only:
+            planned.append((source_key, raw))
         source_ref = {"key": source_key}
+        source_artefact = (
+            None if structure_only else ArtefactEntry(role="source", key=source_key, sha256=_sha(raw), size=len(raw))
+        )
 
         for subject in root_ids:
             _publish_one_subject(
@@ -365,9 +405,10 @@ def _derive_ifc_plan(
                 revision=revision,
                 instant=instant,
                 published_at=published_at,
-                source_artefact=ArtefactEntry(role="source", key=source_key, sha256=_sha(raw), size=len(raw)),
+                source_artefact=source_artefact,
                 source_ref=source_ref,
                 hierarchy_revision=None,
+                structure_only=structure_only,
                 planned=planned,
             )
             subjects.append(subject)
@@ -377,7 +418,7 @@ def _derive_ifc_plan(
             provider=IFC_PROVIDER_ID,
             collection=collection,
             produced_at=instant,
-            nodes=node_dicts(index_nodes, delivery_ids=root_ids),
+            nodes=node_dicts(index_nodes, delivery_ids=() if structure_only else root_ids),
             root=None,
             depth=2,
         )
@@ -394,11 +435,19 @@ def _derive_ifc_plan(
             produced_at=instant,
             published_at=published_at,
             delivery="none",
-            artefacts=(
-                ArtefactEntry(
-                    role="hierarchy", file=HIERARCHY_FILENAME, sha256=_sha(index_bytes), size=len(index_bytes)
-                ),
-                ArtefactEntry(role="source", file=SOURCE_FILENAME, sha256=_sha(raw), size=len(raw)),
+            artefacts=tuple(
+                a
+                for a in (
+                    ArtefactEntry(
+                        role="hierarchy", file=HIERARCHY_FILENAME, sha256=_sha(index_bytes), size=len(index_bytes)
+                    ),
+                    (
+                        None
+                        if structure_only
+                        else ArtefactEntry(role="source", file=SOURCE_FILENAME, sha256=_sha(raw), size=len(raw))
+                    ),
+                )
+                if a is not None
             ),
             counts=counts,
         )
@@ -413,17 +462,19 @@ def _derive_ifc_plan(
                 f"{ASSET_PREFIX}/{collection}/{target}/{revision}/ is already occupied; pass replace=True"
             )
 
+        hierarchy_revision = _hierarchy_revision_for(store, collection, _ancestor_chain(nodes, target))
         if source is not None:
             source_key = source
             source_artefact = ArtefactEntry(role="source", key=source_key, sha256="", size=0)
             source_ref = {"key": source_key}
-            hierarchy_revision = _hierarchy_revision_for(store, collection, _ancestor_chain(nodes, target))
         else:
             source_key = asset_key(collection, target, revision, SOURCE_FILENAME)
-            planned.append((source_key, raw))
-            source_artefact = ArtefactEntry(role="source", file=SOURCE_FILENAME, sha256=_sha(raw), size=len(raw))
             source_ref = {"key": source_key}
-            hierarchy_revision = _hierarchy_revision_for(store, collection, _ancestor_chain(nodes, target))
+            if structure_only:
+                source_artefact = None
+            else:
+                planned.append((source_key, raw))
+                source_artefact = ArtefactEntry(role="source", file=SOURCE_FILENAME, sha256=_sha(raw), size=len(raw))
 
         counts = _publish_one_subject(
             store,
@@ -438,6 +489,7 @@ def _derive_ifc_plan(
             source_artefact=source_artefact,
             source_ref=source_ref,
             hierarchy_revision=hierarchy_revision,
+            structure_only=structure_only,
             planned=planned,
         )
         subjects.append(target)
@@ -462,13 +514,14 @@ def _publish_one_subject(
     revision: str,
     instant: str,
     published_at: str,
-    source_artefact: ArtefactEntry,
+    source_artefact: ArtefactEntry | None,
     source_ref: dict,
     hierarchy_revision: str | None,
     planned: list[tuple[str, bytes]],
+    structure_only: bool = False,
 ) -> dict[str, int]:
-    """One subject's own hierarchy.json + ifc.index.json + asset.json, appended to ``planned``
-    in that order -- the per-subject half of the write-order contract (the manifest is written
+    """One subject's own hierarchy.json + ifc.index.json + attributes.json + asset.json, appended
+    to ``planned`` in that order -- the per-subject half of the write-order contract (the manifest is written
     last because it is the one file whose mere presence a reader treats as "this revision is
     complete"). Returns this subject's own ``counts``, for a scoped (``--root``/``--leaf``)
     publish's plan to report."""
@@ -476,7 +529,7 @@ def _publish_one_subject(
         provider=IFC_PROVIDER_ID,
         collection=collection,
         produced_at=instant,
-        nodes=node_dicts(subject_nodes, delivery_ids=(subject,)),
+        nodes=node_dicts(subject_nodes, delivery_ids=() if structure_only else (subject,)),
         root=subject,
         depth=_max_depth(subject_nodes),
     )
@@ -491,6 +544,21 @@ def _publish_one_subject(
     index_bytes = index_to_json(index_entries)
     index_key = asset_key(collection, subject, revision, IFC_INDEX_FILENAME)
     planned.append((index_key, index_bytes))
+
+    # What each node IS, for the selection panel. Written here, on a walk the publish is already
+    # making, so that answering a click needs neither ifcopenshell nor the source file -- see
+    # `ada.assets.attributes`. Nodes with nothing to say are dropped by `build_attributes`, which
+    # on a spatial-heavy subtree is most of them.
+    attributes_doc = build_attributes(
+        provider=IFC_PROVIDER_ID,
+        collection=collection,
+        root=subject,
+        produced_at=instant,
+        nodes=attributes_for_nodes(ifc_file, [n.id for n in subject_nodes]),
+    )
+    attributes_bytes = attributes_doc.to_json()
+    attributes_key = asset_key(collection, subject, revision, ATTRIBUTES_FILENAME)
+    planned.append((attributes_key, attributes_bytes))
 
     leaves = sum(1 for n in subject_nodes if n.leaf)
     counts = {"nodes": len(subject_nodes), "leaves": leaves}
@@ -513,18 +581,40 @@ def _publish_one_subject(
         node=subject,
         produced_at=instant,
         published_at=published_at,
-        delivery="build",
+        delivery="none" if structure_only else "build",
         change=change,
         hierarchy_revision=hierarchy_revision,
-        build=_build_spec(source_key_ref=source_ref, hierarchy_key=hierarchy_key, node_id=subject),
-        artefacts=(
-            source_artefact,
-            ArtefactEntry(
-                role="hierarchy", file=HIERARCHY_FILENAME, sha256=_sha(hierarchy_bytes), size=len(hierarchy_bytes)
-            ),
-            ArtefactEntry(
-                role=IFC_INDEX_ROLE, file=IFC_INDEX_FILENAME, sha256=_sha(index_bytes), size=len(index_bytes)
-            ),
+        build=(
+            None
+            if structure_only
+            else _build_spec(source_key_ref=source_ref, hierarchy_key=hierarchy_key, node_id=subject)
+        ),
+        # `source_artefact` is None for a structure-only publish -- there is no stored source to
+        # name -- and the filter is what keeps that from becoming an entry pointing at nothing.
+        artefacts=tuple(
+            a
+            for a in (
+                source_artefact,
+                ArtefactEntry(
+                    role="hierarchy",
+                    file=HIERARCHY_FILENAME,
+                    sha256=_sha(hierarchy_bytes),
+                    size=len(hierarchy_bytes),
+                ),
+                ArtefactEntry(
+                    role=IFC_INDEX_ROLE,
+                    file=IFC_INDEX_FILENAME,
+                    sha256=_sha(index_bytes),
+                    size=len(index_bytes),
+                ),
+                ArtefactEntry(
+                    role=ATTRIBUTES_ROLE,
+                    file=ATTRIBUTES_FILENAME,
+                    sha256=_sha(attributes_bytes),
+                    size=len(attributes_bytes),
+                ),
+            )
+            if a is not None
         ),
         counts=counts,
     )

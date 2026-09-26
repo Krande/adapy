@@ -6,6 +6,12 @@ import hashlib
 import json
 from typing import Iterable
 
+from ada.assets.attributes import (
+    ATTRIBUTES_FILENAME,
+    ATTRIBUTES_ROLE,
+    NodeAttributes,
+    build_attributes,
+)
 from ada.assets.keys import asset_key, revision_from_instant
 from ada.assets.manifest import (
     HIERARCHY_FILENAME,
@@ -192,6 +198,34 @@ def publish_fixture(
             mesh_key = asset_key(collection, node["id"], revision, MESH_FILENAME)
             store.put(mesh_key, glb)
             artefacts.append(ArtefactEntry(role="mesh", file=MESH_FILENAME, sha256=_sha(glb), size=len(glb)))
+        # Attributes for the LEAVES only, and from the vendor's own columns. Two things are being
+        # demonstrated: the artefact is not IFC-shaped (this fixture has no kernel and no schema),
+        # and a subject that publishes none is a normal subject rather than a broken one -- which
+        # is what lets the route's "nothing recorded" answer be tested against a real absence.
+        if node["leaf"]:
+            attrs_doc = build_attributes(
+                provider=FIXTURE_PROVIDER_ID,
+                collection=collection,
+                root=node["id"],
+                produced_at=instant,
+                nodes={
+                    node["id"]: NodeAttributes(
+                        kind=node["kind"],
+                        own={"title": node["label"], "ref": node["id"]},
+                        groups={"vendor": {"cat": node["kind"], "line": node["id"]}},
+                    )
+                },
+            )
+            attrs_bytes = attrs_doc.to_json()
+            store.put(asset_key(collection, node["id"], revision, ATTRIBUTES_FILENAME), attrs_bytes)
+            artefacts.append(
+                ArtefactEntry(
+                    role=ATTRIBUTES_ROLE,
+                    file=ATTRIBUTES_FILENAME,
+                    sha256=_sha(attrs_bytes),
+                    size=len(attrs_bytes),
+                )
+            )
         manifest = AssetManifest(
             provider=FIXTURE_PROVIDER_ID,
             collection=collection,

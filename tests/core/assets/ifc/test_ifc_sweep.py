@@ -195,3 +195,23 @@ def test_run_ifc_sweep_records_through_the_injected_recorder(published_v1):
     assert modified_row["action"] == "modified"
     site_b_row = next(r for r in rows if r["node_ref"] == names1["SiteB"])
     assert "action" not in site_b_row
+
+
+def test_a_structure_only_publish_is_still_swept():
+    """The flag drops the STORED source, and change detection never read it.
+
+    The sweep works off the staged newer file and each subject's published ``ifc.index.json``, so a
+    structure-only revision -- tree and attributes, no geometry promise, no source blob -- still
+    answers "what moved since this was published". Pinned because "no source" would be a quiet way
+    to lose the change feed, and the flag's own docstring claims it does not.
+    """
+    store = FakeStore()
+    store.put_bytes(V1_STAGED, _raw(V1))
+    publish_ifc(store, collection="plant-a", staged_key=V1_STAGED, extracted_at=V1_INSTANT, structure_only=True)
+    assert not [k for k in store.blobs if k.endswith("source.ifc") and not k.startswith("assets/_staging/")]
+
+    store.put_bytes(V2_STAGED, _raw(V2))
+    result = _sweep(store)
+
+    verdicts = {r.node_ref: r.action for r in result.rows if r.action is not None}
+    assert sorted(verdicts.values()) == ["added", "deleted", "modified"]

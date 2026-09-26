@@ -53,7 +53,17 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 //          out of every list by 1.4.0's own predicate, silently — which is
 //          precisely the "fails from inside the plugin with nothing naming
 //          the mismatch" case a minor bump exists to turn into one log line.
-export const PLUGIN_API_VERSION = "1.5.0";
+//   1.6.0  `registerAssetTreeClient` — a plugin supplies a BROWSER-SIDE client for one asset
+//          provider, and core's reading paths dispatch to it per call instead of the REST
+//          route. It exists for a provider that must be read as the SIGNED-IN USER: a
+//          service authenticating the person cannot be proxied by a worker without either
+//          handing the worker that identity or flattening every user to one service account.
+//          The same reasoning already produced `registerExternalModelClient`
+//          (`services/externalModelClients.ts:117`); this is that shape for assets.
+//          A minor bump by the criterion above: it is a registry a plugin DEPENDS on, and a
+//          plugin built against it and loaded into 1.5.0 core would register into nothing —
+//          its collections would simply not appear, with no line naming the mismatch.
+export const PLUGIN_API_VERSION = "1.6.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
