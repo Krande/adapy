@@ -1795,6 +1795,39 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
+    def to_abaqus_cae_script(
+        self,
+        destination: str | pathlib.Path,
+        *,
+        model_name: str = "Model-1",
+        unit_scale: float = 1.0,
+    ) -> list[pathlib.Path]:
+        """Write an Abaqus/CAE script that rebuilds this part as **editable geometry**.
+
+        adapy's other Abaqus output is an INP, and importing one into CAE was measured:
+        materials, typed profiles, beam sections, assignments and sets all arrive as
+        first-class model objects, but the geometry arrives as an *orphan mesh* —
+        ``edges 0, faces 0, cells 0``. There is nothing to re-mesh, nothing to attach a
+        brace to, nothing to edit. This writer builds the geometry instead: one CAE part
+        per adapy part, one wire per beam, with sections and orientations assigned to
+        edges rather than to elements.
+
+        Phase 1 translates **straight beams only**. Curved/tapered/swept/revolved beams
+        and beams with an ``e1``/``e2`` offset are *refused*, because a straight wire
+        would misrepresent them silently; plates and other objects are omitted and
+        listed in the script's header and result sidecar.
+
+        :param destination: the ``.py`` script to write.
+        :param model_name: the CAE model to build into.
+        :param unit_scale: multiplies every coordinate and every profile dimension.
+        :return: the paths this call wrote — the script, plus ``<stem>.name_map.json``
+            if sanitising names for CAE changed any of them. The script itself writes
+            ``<stem>.cae_build_result.json`` when CAE runs it.
+        """
+        from ada.cadit.cae.writer import write_cae_script
+
+        return write_cae_script(self, destination, model_name=model_name, unit_scale=unit_scale)
+
     def to_aveva_mac(
         self,
         destination_file: str | pathlib.Path | io.TextIOBase,
