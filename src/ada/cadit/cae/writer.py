@@ -3393,7 +3393,6 @@ def render_script(
             lines += _spline_lines(
                 part_var,
                 _curve_var(part_index, member_index),
-                member.beam_name,
                 member.path,
                 member.curve_length,
                 "{0!r}".format(member.beam_name),
@@ -3528,7 +3527,7 @@ def _curve_var(part_index: int, member_index: int, leg_index: int | None = None)
     return "curve_{0}_{1}_{2}".format(part_index, member_index, leg_index)
 
 
-def _spline_lines(part_var: str, points_var: str, beam_name: str, path, curve_length: float, what: str) -> list[str]:
+def _spline_lines(part_var: str, points_var: str, path, curve_length: float, what: str) -> list[str]:
     """The comment and the ``WireSpline`` call for one sampled polyline."""
     lines = [
         "    # {0}: {1} points on its exact curve, spaced so consecutive chords turn by no".format(what, len(path)),
@@ -3575,7 +3574,6 @@ def _leg_wire_lines(part_var: str, part_index: int, member_index: int, member: _
         lines += _spline_lines(
             part_var,
             _curve_var(part_index, member_index, leg_index),
-            member.beam_name,
             leg.path,
             leg.curve_length,
             "{0!r} leg {1}/{2}".format(member.beam_name, leg_index + 1, len(member.legs)),
