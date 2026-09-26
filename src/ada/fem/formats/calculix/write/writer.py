@@ -11,12 +11,12 @@ from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_bc import abaqus_bc_type
 from ada.fem.formats.abaqus.write.write_sections import (
-    eval_general_properties,
     shell_section_str,
     solid_section_str,
 )
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.steps import StepExplicit
+from ada.sections.profiles import eval_general_properties
 
 from ..compatibility import check_compatibility
 from .templates import main_header_str
