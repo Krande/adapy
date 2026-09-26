@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada import FEM
 from ada.fem.shapes.definitions import MassTypes
 
+from .not_held import STAGE, report
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -40,7 +41,9 @@ def _bnmass_components(mass, n_members: int) -> list[float]:
 
 
 def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
-    """The BNMASS block.
+    """The BNMASS block: the masses that are not a mass element on one node
+    (``write_point_elements.is_mass_element``) -- a nonstructural mass on nodes, lumped onto
+    them. One over elements has no BNMASS form and is left out and reported.
 
     BNMASS declares an NDOF of its own and then lists exactly that many mass components,
     so it has to agree with what GNODE says about the node (:class:`writer.NodeDofs`): a
@@ -53,15 +56,34 @@ def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     ``writer._carries_rotational_stiffness``. Left at ``None``, the dof counts are derived
     from ``fem``.
     """
+    from .write_point_elements import is_mass_element
     from .writer import node_dofs
 
     if ndofs is None:
         ndofs = node_dofs(fem)
 
+    rep = report()
     out_str = ""
-
     for mass in fem.elements.masses:
+        if is_mass_element(mass):
+            continue  # a mass element: write_point_elements
         members = list(mass.members)
+        if mass.type == MassTypes.NONSTRUCTURAL:
+            if any(getattr(m, "nodes", None) is not None for m in members):
+                # An element region: its members are elements, whose ids this loop used to
+                # write into BNMASS's *node* field, and the value is a mass per length/area/
+                # volume, not a total. BNMASS has no distributed form.
+                rep.omitted(STAGE, "Mass", mass.name, "a non-structural mass over elements has no nodal BNMASS form")
+                continue
+            rep.approximated(
+                STAGE, "Mass", mass.name, "a non-structural mass is lumped equally onto its nodes", n_nodes=len(members)
+            )
+        elif mass.type == MassTypes.ROTARYI:
+            raw = mass._mass
+            if isinstance(raw, (list, tuple)) and any(float(x) != 0.0 for x in raw[3:]):
+                rep.approximated(
+                    STAGE, "Mass", mass.name, "BNMASS has no products of inertia; only I11, I22, I33 are written"
+                )
         comps = _bnmass_components(mass, max(1, len(members)))
         for m in members:
             ndof = ndofs.ndof(m.id)

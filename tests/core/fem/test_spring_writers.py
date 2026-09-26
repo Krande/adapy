@@ -8,9 +8,9 @@ never emits the same spring twice.**
 Before the change, abaqus, calculix, vtu and ifc each raised on a model with a spring
 (ValueError / AttributeError), which cost the caller the whole export.
 
-No writer here can be round-tripped: adapy reads springs back from Sesam only, and the
-Sesam writer does not emit them (see `test_sesam_reports_the_springs_it_drops`). So the
-assertions check each format's own output instead of a read-back.
+Abaqus and Sesam read their springs back (`test_abaqus_reads_the_spring_back`,
+`test_sesam_reads_the_spring_back`; the zoo's round trips cover the rest). The other formats
+cannot be round-tripped, so their assertions check each format's own output instead.
 """
 
 from __future__ import annotations
@@ -64,16 +64,27 @@ def test_a_spring_does_not_abort_the_export(fem_format, needs_step, tmp_path):
 
 def test_abaqus_writes_the_spring_once(tmp_path):
     """`springs_str` owns spring output. The element walk newly reaches springs too, so
-    without a branch of its own each spring would be defined twice — once as a
-    `*ELEMENT, type=SPRING1` row and once as a `*Spring` card."""
+    without a branch of its own each spring would be defined twice — once by the element
+    table and once by `springs_str`."""
     _model().to_fem("ab", "abaqus", scratch_dir=tmp_path, overwrite=True)
     deck = "\n".join(p.read_text() for p in (tmp_path / "ab").rglob("*.inp"))
 
-    assert "*Spring, elset=spr1_set" in deck
+    # One SPRING1 element per stiffness term, each with its own *Spring; the first keeps the id.
+    assert deck.count("*Element, type=SPRING1") == 6
+    assert deck.count("*Spring, elset=spr1_") == 6
+    assert f"\n{SPRING_ID}, 1\n" in deck
+    # The element table's own header style: it must not have written the spring as well.
     assert "*ELEMENT, type=SPRING" not in deck
-    # Only the element table would carry the spring's own type name.
-    element_headers = [ln for ln in deck.splitlines() if ln.startswith("*ELEMENT")]
-    assert all("SPRING" not in h for h in element_headers)
+
+
+def test_abaqus_reads_the_spring_back(tmp_path):
+    """The deck used to put the element row under *Spring and never define the element, so
+    there was nothing to read back; the reader had no *Spring support either."""
+    _model().to_fem("ab", "abaqus", scratch_dir=tmp_path, overwrite=True)
+    back = ada.from_fem(next((tmp_path / "ab").rglob("ab.inp")), "abaqus")
+    (spring,) = [s for p in back.get_all_parts_in_assembly() for s in p.fem.springs.values()]
+    assert (spring.name, spring.id, spring.fem_set.name) == ("spr1", SPRING_ID, "spr1_set")
+    np.testing.assert_array_equal(spring.stiff, np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]))
 
 
 def test_code_aster_writes_the_spring_as_a_point_cell(tmp_path):
@@ -101,13 +112,14 @@ def test_calculix_reports_the_spring_it_drops(tmp_path, warnings_visible):
     assert "SpringTypes.SPRING1=1" in warnings_visible.text
 
 
-def test_sesam_reports_the_springs_it_drops(tmp_path, warnings_visible):
-    """The Sesam reader builds springs off GELMNT1 eltyp 18/40, but the writer emits no
-    GELMNT1+MGSPRNG pair for them — so a Sesam round trip loses them. Known gap; the
-    point of the test is that it is a loud one."""
+def test_sesam_reads_the_spring_back(tmp_path):
+    """The writer used to emit no GELMNT1 + MGSPRNG pair, so the spring was lost. It is now a
+    GSPR element with its stiffness record and a TDELEM carrying its name and node set."""
     _model().to_fem("se", "sesam", scratch_dir=tmp_path, overwrite=True)
-
-    assert "skipping 1 spring element(s)" in warnings_visible.text
+    back = ada.from_fem(next(tmp_path.rglob("seT1.FEM")), "sesam")
+    (spring,) = [s for p in back.get_all_parts_in_assembly() for s in p.fem.springs.values()]
+    assert (spring.name, spring.id, spring.fem_set.name) == ("spr1", SPRING_ID, "spr1_set")
+    np.testing.assert_array_equal(spring.stiff, np.diag([1e5, 2e5, 3e5, 4e5, 5e5, 6e5]))
 
 
 def test_usfos_reports_the_springs_it_drops(tmp_path, warnings_visible):

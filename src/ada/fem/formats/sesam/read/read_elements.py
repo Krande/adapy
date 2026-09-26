@@ -1,9 +1,7 @@
-from itertools import chain
+from itertools import count
 
 import numpy as np
 
-from ada.config import logger
-from ada.core.utils import roundoff
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
@@ -60,15 +58,14 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
             spring_elem[el_no] = dict(gelmnt=d)
             return None
 
-        metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
-        elem = Elem(el_no, nodes, el_type, None, parent=fem, metadata=metadata)
-
         if el_type == Elem.EL_TYPES.MASS_SHAPES.MASS:
-            logger.warning("Mass element interpretation in sesam is undergoing changes. Results should be checked")
+            # Built by get_mass from its MGMASS, as on the array path. A plain Elem here as well
+            # put two elements of that id in the container, plus a generated set ``m<id>``.
             mass_elem[el_no] = dict(gelmnt=d)
-            fem.sets.add(FemSet(f"m{el_no}", [elem], FemSet.TYPES.ELSET, parent=fem))
+            return None
 
-        return elem
+        metadata = dict(eltyad=str_to_int(d["eltyad"]), eltyp=eltyp)
+        return Elem(el_no, nodes, el_type, None, parent=fem, metadata=metadata)
 
     elements = FemElements(
         filter(lambda x: x is not None, map(grab_elements, cards.GELMNT1.to_ff_re().finditer(bulk_str))), fem_obj=fem
@@ -109,7 +106,9 @@ def get_elements_arrays(bulk_str: str):
     return by_type, mass_elem, spring_elem, ext_map
 
 
-def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None = None) -> FemElements:
+def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None = None) -> list[Mass]:
+    """The deck's masses, added to ``fem.elements`` by id: each mass element (GELMNT1 ELTYP 11)
+    with its own id, and each BNMASS on a new one."""
     # Generated BNMASS element ids must clear BOTH the current (internal) element
     # numbering AND the external ids structural elements will be renumbered into
     # (renumber_map values) later — otherwise a generated mass id collides with a
@@ -127,7 +126,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
         # NDOF components, padded to six: a solid-type node has NDOF=3 and carries only
         # the translational masses (see cards.re_bnmass).
         ndof = str_to_int(d["ndof"])
-        vals = [roundoff(x) for x in d["content"].split()][:ndof]
+        vals = [float(x) for x in d["content"].split()][:ndof]
         mass_in = (vals + [0.0] * 6)[:6]
         masses = [m for m in mass_in if m != 0.0]
         if checkEqual2(masses):
@@ -138,102 +137,187 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None
 
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
-        el_id = max(fem.elements.max_el_id, max_external) + 1
-        elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem), skip_grouping=True)
-        mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
-
-        elset = fem.sets.add(FemSet(f"m{nodeno}", [elem], FemSet.TYPES.ELSET, parent=fem))
-        elem.mass_props = mass
-        elem.elset = elset
+        # The Mass is the element: a plain MASS Elem of the same id used to go in beside it,
+        # which is why the caller's ``+=`` renumbered every mass -- and with them the mass
+        # elements a deck names by id.
+        mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=next(bn_ids))
+        fem.elements.add(mass)
+        mass.elset = fem.sets.add(FemSet(f"m{nodeno}", [mass], FemSet.TYPES.ELSET, parent=fem))
         return mass
 
-    def find_mgmass(match) -> Mass:
-        d = match.groupdict()
-        matno = str_to_int(d["matno"])
-        mat_mass_map = {str_to_int(val["section_data"]["matno"]): val for key, val in mass_elem.items()}
-        mass_el: dict = mat_mass_map.get(matno, None)
-        if mass_el is None:
-            raise ValueError()
-        ndof = str_to_int(d["ndof"])
-        if ndof != 6:
-            raise NotImplementedError("Only mass matrices with 6 DOF are currently supported for reading")
+    first_mass_element = max(mass_elem, default=0)
+    bn_ids = count(max(fem.elements.max_el_id, max_external, first_mass_element) + 1)
+    tdelem = element_names(bulk_str)
+    mgmass = {matno: m for matno, m in (lower_matrix(x) for x in cards.re_mgmass.finditer(bulk_str))}
 
-        r = [float(x) for x in d["bulk"].split()]
-        A = np.matrix(
-            [
-                [r[0], 0.0, 0.0, 0.0, 0.0, 0.0],
-                [r[1], r[6], 0.0, 0.0, 0.0, 0.0],
-                [r[2], r[7], r[11], 0.0, 0.0, 0.0],
-                [r[3], r[8], r[12], r[15], 0.0, 0.0],
-                [r[4], r[9], r[13], r[16], r[18], 0.0],
-                [r[5], r[10], r[14], r[17], r[19], r[20]],
-            ]
-        )
-        # use symmetry to complete the 6x6 matrix
-        mass_matrix_6x6 = np.tril(A) + np.triu(A.T, 1)
-        nodeno = gelmnt_point_node_id(mass_el["gelmnt"])
-        elno = str_to_int(mass_el["gelmnt"].get("elno"))
-        no = fem.nodes.from_id(nodeno)
-        fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
-
-        mass_type = Mass.PTYPES.ANISOTROPIC
-        mass = Mass(f"m{nodeno}", fem_set, mass_matrix_6x6, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=elno)
+    def mass_from_element(elno: int, mass_el: dict) -> Mass:
+        """A mass element (GELMNT1 ELTYP 11) and the MGMASS its GELREF1 MATNO names."""
+        matno = str_to_int(mass_el["section_data"]["matno"])
+        if matno not in mgmass:
+            raise ValueError(f"Mass element {elno} refers to MGMASS {matno}, which the deck does not have")
+        matrix = mgmass[matno]
+        no = fem.nodes.from_id(gelmnt_point_node_id(mass_el["gelmnt"]))
+        name = tdelem.get(elno, (None, []))[0] or f"m{no.id}"
+        value, mass_type, ptype = point_mass_from_matrix(matrix)
+        mass = Mass(name, [no], value, mass_type, ptype=ptype, parent=fem, mass_id=elno)
         mass_el["el"] = mass
+        fem.elements.add(mass)
         return mass
 
-    bn_masses = map(find_bnmass, cards.re_bnmass.finditer(bulk_str))
-    mg_masses = map(find_mgmass, cards.re_mgmass.finditer(bulk_str))
-    return FemElements(chain(bn_masses, mg_masses), fem_obj=fem)
+    masses = [
+        mass_from_element(elno, mass_el) for elno, mass_el in sorted(mass_elem.items()) if "section_data" in mass_el
+    ]
+    return list(map(find_bnmass, cards.re_bnmass.finditer(bulk_str))) + masses
+
+
+def lower_matrix(match) -> tuple[int, np.ndarray]:
+    """``(matno, full symmetric matrix)`` of an MGMASS / MGSPRNG record.
+
+    The record holds the NDOF x NDOF matrix's terms on and below the diagonal, column by
+    column (manual 7.4.7, 7.4.8), so how many values belong to it follows from NDOF alone:
+    Sesam pads a record out to whole lines, and a re-exported .SIN can carry a padding slot
+    past the matrix."""
+    d = match.groupdict()
+    ndof = str_to_int(d["ndof"])
+    values = [float(x) for x in d["bulk"].split()][: ndof * (ndof + 1) // 2]
+    return str_to_int(d["matno"]), _lower_by_columns(values, ndof)
+
+
+def point_mass_from_matrix(matrix: np.ndarray):
+    """``(value, mass type, point mass type)`` for adapy's ``Mass`` from a mass matrix.
+
+    A translational diagonal is a point mass -- isotropic when its three terms agree -- and a
+    rotational block alone a rotary inertia (``I11, I22, I33, I12, I13, I23``), which is
+    what the writer makes of them (``write_point_elements.mass_matrix``). Anything else --
+    the two coupled, or translational terms off the diagonal -- stays the full matrix."""
+    m = np.zeros((6, 6))
+    n = matrix.shape[0]
+    m[:n, :n] = matrix
+    trans, rot = m[:3, :3], m[3:, 3:]
+    uncoupled = not np.any(m[:3, 3:])
+    if uncoupled and not np.any(rot) and not np.any(trans - np.diag(np.diag(trans))):
+        diag = [float(x) for x in np.diag(trans)]
+        if diag[0] == diag[1] == diag[2]:
+            return diag[0], Mass.TYPES.MASS, Mass.PTYPES.ISOTROPIC
+        return diag, Mass.TYPES.MASS, Mass.PTYPES.ANISOTROPIC
+    if uncoupled and not np.any(trans):
+        inertia = [rot[0, 0], rot[1, 1], rot[2, 2], rot[0, 1], rot[0, 2], rot[1, 2]]
+        return [float(x) for x in inertia], Mass.TYPES.ROT_INERTIA, None
+    return m, Mass.TYPES.MASS, Mass.PTYPES.ANISOTROPIC
+
+
+def attach_named_sets(fem: FEM) -> None:
+    """Point a mass element at the deck's own element set for it, the one holding just it,
+    once the sets are read. (A spring's set is linked by :func:`link_spring_sets`.)"""
+    elsets = {}
+    for fs in fem.sets.elements.values():
+        elsets.setdefault(frozenset(m.id for m in fs.members), fs)
+    for mass in fem.elements.masses:
+        if mass.elset is None and mass.id is not None:
+            mass.elset = elsets.get(frozenset([mass.id]))
+
+
+def _lower_by_columns(values: list[float], n: int) -> np.ndarray:
+    """A symmetric n x n matrix from its lower triangle stored column by column (MGSPRNG,
+    MSHGLSP: ``K(1,1), K(2,1) ... K(n,1), K(2,2) ...``)."""
+    k = np.zeros((n, n))
+    it = iter(values)
+    for j in range(n):
+        for i in range(j, n):
+            k[i, j] = next(it)
+    return k + k.T - np.diag(np.diag(k))
+
+
+def element_names(bulk_str: str) -> dict[int, tuple[str | None, list[str]]]:
+    """``{element number: (name, comment lines)}`` from TDELEM records (section 4.2.1)."""
+    out = {}
+    lines = bulk_str.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("TDELEM"):
+            continue
+        fields = [float(x) for x in line[8:].split()]
+        elno, codnam, codtxt = int(fields[1]), int(fields[2]), int(fields[3])
+        n_name, n_text = codnam // 100, codtxt // 100
+        text = [ln[8:].strip() for ln in lines[i + 1 : i + 1 + n_name + n_text]]
+        out[elno] = (text[0] if n_name else None, text[n_name:])
+    return out
 
 
 def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
-    """Build the deck's Spring elements.
+    """Build the deck's Spring elements: element type 18 (GSPR) with MGSPRNG, and type 40
+    (GLSH) with a general-spring MSHGLSP.
 
     Returns a list, not the name-keyed dict it used to: ``FEM.springs`` is now a view
     derived from ``FEM.elements``, so the caller adds these through ``add_spring`` and
     there is no dict for anyone to assign over.
+
+    A TDELEM record gives a spring its name and, in a ``Nset: <set>`` comment, the node set
+    it was defined on (the writer's ``write_springs``). Without one a spring is named
+    ``spr<element number>`` on a set of its own. The node set is linked to the deck's set of
+    that name by :func:`link_spring_sets` once the sets are read.
     """
+    from ada.fem.formats import conversion_report
+
+    from ..write.write_springs import NSET_COMMENT, two_node_matrix
 
     matno_map = {str_to_int(sp["section_data"]["matno"]): sp for sp in spring_elem.values()}
+    names = element_names(bulk_str)
 
-    def find_mgspring(m):
-        nonlocal matno_map
-        d = m.groupdict()
-        matno = str_to_int(d["matno"])
-        ndof = str_to_int(d["ndof"])
+    def build(matno: int, stiff: np.ndarray, two_node: bool) -> Spring | None:
         res: dict = matno_map.get(matno, None)
         if res is None:
-            raise ValueError()
-
+            raise ValueError(f"no spring element refers to stiffness record MATNO {matno}")
         elid = str_to_int(res["section_data"]["elno"])
+        name, comments = names.get(elid, (None, []))
+        name = name or f"spr{elid}"
+        nset = next((c[len(NSET_COMMENT) :] for c in comments if c.startswith(NSET_COMMENT)), f"{name}_set")
+        node_ids = gelmnt_node_ids(res["gelmnt"]["nids"])
+        nodes = [fem.nodes.from_id(n) for n in (node_ids if two_node else node_ids[:1])]
+        fs = FemSet(nset, nodes, FemSet.TYPES.NSET, parent=fem)
+        return Spring(name, elid, "SPRING2" if two_node else "SPRING1", fem_set=fs, stiff=stiff, parent=fem)
+
+    def find_mgspring(m):
+        d = m.groupdict()
+        ndof = str_to_int(d["ndof"])
         # MGSPRNG carries the lower triangle of an ndof x ndof stiffness matrix, so how
         # many values belong to it follows from ndof alone. Sesam pads a record out to a
         # whole number of slots, and re-exporting a .SIN through its input deck carries
         # that padding into the deck: a 6-DOF spring arrives with 22 values, not 21.
-        # Consuming the extra one opened a seventh row, and the symmetric assembly below
-        # then failed on `operands could not be broadcast together with shapes (7,6) (6,7)`.
-        bulk = d["bulk"].split()[: ndof * (ndof + 1) // 2]
+        values = [float(x) for x in d["bulk"].split()[: ndof * (ndof + 1) // 2]]
+        return build(str_to_int(d["matno"]), _lower_by_columns(values, ndof), two_node=False)
 
-        spr_name = f"spr{elid}"
-        n1 = fem.nodes.from_id(gelmnt_point_node_id(res["gelmnt"]))
-        a = 1
-        row = 0
-        spring = []
-        subspring = []
-        for dof in bulk:
-            subspring.append(float(dof.strip()))
-            a += 1
-            if a > ndof - row:
-                spring.append(subspring)
-                subspring = []
-                a = 1
-                row += 1
-        # Left-pad each triangle row back out to the full ndof width. Was hardcoded to
-        # 6, which only ever agreed with the rows for a 6-DOF spring.
-        new_s = [[0.0] * (ndof - len(row)) + row for row in spring]
-        spring_matrix = np.array(new_s)
-        spring_matrix = spring_matrix + spring_matrix.T - np.diag(np.diag(spring_matrix))
-        fs = FemSet(f"{spr_name}_set", [n1], FemSet.TYPES.NSET, parent=fem)
-        return Spring(spr_name, elid, "SPRING1", fem_set=fs, stiff=spring_matrix, parent=fem)
+    def find_mshglsp(m):
+        d = m.groupdict()
+        matno = str_to_int(d["matno"])
+        n1, n2 = str_to_int(d["ndof1"]), str_to_int(d["ndof2"])
+        n = n1 + n2
+        values = [float(x) for x in d["bulk"].split()[: n * (n + 1) // 2]]
+        k = _lower_by_columns(values, n)
+        # adapy's two-node spring is a set of links, ``k`` at (i, j) between DOF i of the
+        # first node and DOF j of the second: the coupling block holds them, and the matrix
+        # is exactly theirs only if assembling them gives it back.
+        stiff = -k[:n1, n1:] if n1 == n2 else None
+        if stiff is None or not np.array_equal(two_node_matrix(stiff), k):
+            conversion_report.current().omitted(
+                "sesam reader",
+                "MSHGLSP",
+                str(matno),
+                "a general two-node spring matrix that is not a set of DOF-to-DOF springs has no adapy form",
+            )
+            return None
+        return build(matno, stiff + 0.0, two_node=True)
 
-    return list(map(find_mgspring, cards.re_mgsprng.finditer(bulk_str)))
+    springs = [find_mgspring(m) for m in cards.re_mgsprng.finditer(bulk_str)]
+    springs += [find_mshglsp(m) for m in cards.re_mshglsp.finditer(bulk_str)]
+    return [sp for sp in springs if sp is not None]
+
+
+def link_spring_sets(fem: FEM) -> None:
+    """Point each spring at the deck's node set of its name, or register the set it was
+    built with when the deck has none."""
+    for spring in fem.springs.values():
+        existing = fem.sets.nodes.get(spring.fem_set.name)
+        if existing is None:
+            fem.sets.add(spring.fem_set)
+        else:
+            spring._fem_set = existing

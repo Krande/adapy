@@ -238,6 +238,15 @@ def _resolve_nset(fems: Sequence[FEM], set_name: str):
     )
 
 
+def _fixed_dofs(bc) -> set[int]:
+    """The DOFs a BC fixes. ``ENCASTRE`` is all six: it was matched against 1..6 as if it were
+    a DOF number, matched none, and an encastred node was written free."""
+    dofs = bc.dofs if isinstance(bc.dofs, (list, tuple)) else [bc.dofs]
+    if any(isinstance(d, str) and d.lower() == "encastre" for d in dofs):
+        return set(ALL_DOFS)
+    return {int(d) for d in dofs if d is not None and not isinstance(d, str)}
+
+
 def bnbcd_str(
     fems: Sequence[FEM],
     lin_deps: Sequence[BldepRecord] = (),
@@ -310,12 +319,13 @@ def bnbcd_str(
                     bc.fem_set.name,
                 )
                 continue
+            fixed_dofs = _fixed_dofs(bc)
             for mem in bc.fem_set.members:
                 node = node_codes(mem.id)
                 for dof in range(1, 7):
                     # As before: a named DOF is written as fixed regardless of its
                     # magnitude. Prescribed values (code 2) are not emitted by ada.
-                    if dof in bc.dofs:
+                    if dof in fixed_dofs:
                         check_dof(mem.id, dof, f'boundary condition "{bc.name}"')
                         node[dof - 1] = FIXED
 

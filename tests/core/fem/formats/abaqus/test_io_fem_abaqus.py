@@ -1,9 +1,16 @@
-from ada.fem.formats.abaqus.read import cards
-from ada.fem.formats.abaqus.read.read_sections import conn_from_groupdict
+"""The blocks these fixtures carry, read through the lexer.
+
+These used to assert on the named groups of one regex per keyword. They now assert on the
+parsed block, which is the thing the readers actually consume — and which does not care what
+order a deck happens to write its parameters in.
+"""
+
+from ada.fem.formats.abaqus.read.lexer import comment_property, iter_keywords, tokenize
+from ada.fem.formats.abaqus.read.read_sections import get_connector_sections_from_bulk
 
 
 def test_consec(consec):
-    assertions = [
+    expected = [
         {
             "elset": "Wire-1-Set-1",
             "behavior": "ConnProp-1_VISC_DAMPER_ELEM",
@@ -17,50 +24,71 @@ def test_consec(consec):
             "csys": '"Datum csys-2",',
         },
     ]
-    for i, m in enumerate(cards.connector_section.regex.finditer(consec)):
-        d = m.groupdict()
-        assert assertions[i] == d
+    blocks = list(iter_keywords(consec, "CONNECTOR SECTION"))
+    assert len(blocks) == len(expected)
+    for block, want in zip(blocks, expected):
+        assert block.params["ELSET"] == want["elset"]
+        assert block.params["BEHAVIOR"] == want["behavior"]
+        # The two data lines are the connection type and the coordinate system.
+        assert block.data_lines == (want["contype"], want["csys"])
 
 
 def test_conn_beha(conbeh):
-    results = list(cards.connector_behaviour.regex.finditer(conbeh))
-    assert len(results) == 1
+    behaviors = list(iter_keywords(conbeh, "CONNECTOR BEHAVIOR"))
+    assert len(behaviors) == 1
+    assert behaviors[0].params["NAME"] == "ConnProp-1_VISC_DAMPER_ELEM"
 
-    result = results[0]
-    gd = result.groupdict()
-    assert gd["name"] == "ConnProp-1_VISC_DAMPER_ELEM"
-    assert gd["component"] == "1"
+    elasticity = list(iter_keywords(conbeh, "CONNECTOR ELASTICITY"))
+    assert len(elasticity) == 1
+    assert elasticity[0].params["COMPONENT"] == "1"
+    # ``nonlinear`` is a flag: it carries no value, and presence is its meaning.
+    assert "NONLINEAR" in elasticity[0].params
+    assert elasticity[0].params["NONLINEAR"] is None
 
-    conn = conn_from_groupdict(gd, None)
+    conn = get_connector_sections_from_bulk(conbeh, None)["ConnProp-1_VISC_DAMPER_ELEM"]
     assert conn.name == "ConnProp-1_VISC_DAMPER_ELEM"
+    # one component, nonlinear: a table of (force, displacement) rows
     assert len(conn.elastic_comp) == 1
+    assert all(len(row) >= 2 for row in conn.elastic_comp[0])
+
+
+def test_connector_sections_are_owned_by_the_behavior_above_them(conbeh):
+    sections = get_connector_sections_from_bulk(conbeh, None)
+    assert list(sections) == ["ConnProp-1_VISC_DAMPER_ELEM"]
 
 
 def test_shell2solid(shell2solids):
-    for m in cards.sh2so_re.regex.finditer(shell2solids):
-        _ = m.groupdict()
-        # print(_)
+    for block in iter_keywords(shell2solids, "SHELL TO SOLID COUPLING"):
+        assert block.params["CONSTRAINT NAME"]
+        assert len(block.data_lines[0].split(",")) == 2
 
 
 def test_couplings(couplings):
-    for m in cards.coupling.regex.finditer(couplings):
-        _ = m.groupdict()
-        # print(_)
+    blocks = list(iter_keywords(couplings, "COUPLING"))
+    assert blocks
+    for block in blocks:
+        assert block.params["CONSTRAINT NAME"]
+        assert block.params["REF NODE"]
+        assert block.params["SURFACE"]
 
 
 def test_surfaces(surfaces):
-    for m in cards.surface.regex.finditer(surfaces):
-        _ = m.groupdict()
-        # print(_)
+    blocks = list(iter_keywords(surfaces, "SURFACE"))
+    assert blocks
+    for block in blocks:
+        assert block.params["NAME"]
+        assert block.data_lines
 
 
 def test_contact_pairs(interactions):
-    for m in cards.contact_pairs.regex.finditer(interactions):
-        _ = m.groupdict()
-        # print(_)
+    blocks = list(iter_keywords(interactions, "CONTACT PAIR"))
+    assert blocks
+    for block in blocks:
+        assert block.params["INTERACTION"]
+        # The pair's name lives in the comment directly above it, never further away.
+        assert comment_property(block, "Interaction").get("Interaction") is not None
 
 
 def test_contact_general(interactions):
-    for m in cards.contact_general.regex.finditer(interactions):
-        _ = m.groupdict()
-        # pprint.pprint(_, indent=4)
+    keywords = [c.keyword for c in tokenize(interactions)]
+    assert "CONTACT" in keywords or "CONTACT PAIR" in keywords

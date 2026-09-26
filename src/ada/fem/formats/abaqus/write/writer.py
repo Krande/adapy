@@ -7,14 +7,14 @@ from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
-from .write_connectors import connector_section_str, connector_str
+from .write_connectors import connector_section_str, connector_sets_str, connector_str
 from .write_constraints import constraints_str
 from .write_elements import elements_str
 from .write_interactions import eval_interactions, int_prop_str
 from .write_main_inp import write_main_inp_str
 from .write_masses import masses_str
 from .write_materials import materials_str
-from .write_nodes import nodes_str
+from .write_nodes import nodes_str, rp_str
 from .write_orientations import orientations_str
 from .write_parts import write_all_parts
 from .write_predefined_state import predefined_fields_str
@@ -76,6 +76,7 @@ def to_fem(
         if len(all_connectors) > 0:
             for con in all_connectors:
                 d.write(connector_str(con, True))
+            d.write(connector_sets_str(all_fem_parts))
             # d.write(connectors_str(afem))
         else:
             d.write("** No Connectors")
@@ -90,6 +91,8 @@ def to_fem(
         if len(afem.nodes) > 0:
             assembly_nodes_str = nodes_str(afem)
         d.write(f"{assembly_nodes_str}\n")
+        if len(afem.ref_points) > 0:
+            d.write(f"{rp_str(afem)}\n")
         d.write(f"{nsets_str(afem, True)}\n")
         d.write(f"{elsets_str(afem, True)}\n")
         d.write(f"{surfaces_str(afem, True)}\n")

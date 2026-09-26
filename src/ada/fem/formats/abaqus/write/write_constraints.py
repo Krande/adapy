@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 from ada.fem import Constraint, FemSet, Surface
 
-from .helper_utils import get_instance_name
+from ..grammar import format_number, render_keyword
+from .helper_utils import get_instance_name, render_block
 from .write_orientations import csys_str
 from .write_surfaces import surface_str
 
@@ -29,24 +30,47 @@ def constraint_str(constraint: Constraint, on_assembly_level: bool):
         return _tie(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.RIGID_BODY:
         rnode = get_instance_name(constraint.m_set, on_assembly_level)
-        return f"*Rigid Body, ref node={rnode}, elset={get_instance_name(constraint.s_set, on_assembly_level)}"
+        elset = get_instance_name(constraint.s_set, on_assembly_level)
+        # The name has nowhere else to go: *Rigid Body takes none, so CAE writes it as a comment.
+        return render_block(
+            "Rigid Body", [("ref node", rnode), ("elset", elset)], (), [f"Constraint: {constraint.name}"]
+        )
     elif constraint.type == Constraint.TYPES.MPC:
         return _mpc(constraint, on_assembly_level)
     elif constraint.type == Constraint.TYPES.SHELL2SOLID:
         return _shell2solid(constraint, on_assembly_level)
+    elif constraint.type == Constraint.TYPES.EQUATION:
+        return _equation(constraint, on_assembly_level)
     else:
         raise NotImplementedError(f"{constraint.type}")
 
 
+def _equation(constraint: Constraint, on_assembly_level: bool) -> str:
+    """``*Equation``: the number of terms, then ``node or set, dof, coefficient`` four terms to a
+    line, in the constraint's own order -- the first term is the DOF Abaqus eliminates."""
+    terms = constraint.equation_terms or ()
+    fields = [
+        f"{get_instance_name(ref, on_assembly_level)}, {int(dof)}, {format_number(float(coef))}"
+        for ref, dof, coef in terms
+    ]
+    lines = [str(len(terms))] + [", ".join(fields[i : i + 4]) for i in range(0, len(fields), 4)]
+    return render_keyword("Equation", (), lines, [f"Constraint: {constraint.name}"]).rstrip()
+
+
 def _coupling(constraint: Constraint, on_assembly_level: bool):
-    dofs_str = "".join(
-        [f" {x[0]}, {x[1]}\n" if not isinstance(x, int) else f" {x}, {x}\n" for x in constraint.dofs]
-    ).rstrip()
+    dofs = [f" {x[0]}, {x[1]}" if not isinstance(x, int) else f" {x}, {x}" for x in constraint.dofs]
 
     if type(constraint.s_set) is FemSet:
+        # *Coupling takes a SURFACE; adapy's coupling holds a node set, so a node surface over it
+        # is written. Named as the set (surfaces and sets are separate namespaces in Abaqus), so
+        # the name comes back -- ``<constraint>_surf`` read back as a different operand.
+        surf_name = constraint.s_set.name
+        parent = constraint.s_set.parent
+        if parent is not None and surf_name in parent.surfaces:
+            surf_name = f"{constraint.name}_surf"
         new_surf = surface_str(
             Surface(
-                f"{constraint.name}_surf",
+                surf_name,
                 Surface.TYPES.NODE,
                 constraint.s_set,
                 1.0,
@@ -54,66 +78,66 @@ def _coupling(constraint: Constraint, on_assembly_level: bool):
             ),
             on_assembly_level,
         )
-        surface_ref = f"{constraint.name}_surf"
+        surface_ref = surf_name
         add_str = new_surf
     else:
         add_str = "**"
         surface_ref = get_instance_name(constraint.s_set, on_assembly_level)
 
+    params = []
+    new_csys_str = ""
     if constraint.csys is not None:
         new_csys_str = "\n" + csys_str(constraint.csys, on_assembly_level)
-        cstr = f", Orientation={constraint.csys.name.upper()}"
-    else:
-        cstr = ""
-        new_csys_str = ""
+        # The name as *Orientation defines it (upper-casing it made the reference and the
+        # definition two different strings to anything that compares names exactly).
+        params = [("Orientation", constraint.csys.name)]
 
-    rnode = f"{get_instance_name(constraint.m_set.members[0], on_assembly_level)}"
-    return f"""** ----------------------------------------------------------------
+    # The reference node's SET when it is a named set of the model (the name then survives), its
+    # node id otherwise.
+    m_set = constraint.m_set
+    named = isinstance(m_set, FemSet) and m_set.parent is not None and m_set.name in m_set.parent.nsets
+    rnode = get_instance_name(m_set if named else m_set.members[0], on_assembly_level)
+    params = [("CONSTRAINT NAME", constraint.name), ("REF NODE", rnode), ("SURFACE", surface_ref), *params]
+    return (
+        f"""** ----------------------------------------------------------------
 ** Coupling element {constraint.name}
 ** ----------------------------------------------------------------{new_csys_str}
 ** COUPLING {constraint.name}
 {add_str}
-*COUPLING, CONSTRAINT NAME={constraint.name}, REF NODE={rnode}, SURFACE={surface_ref}{cstr}
-*KINEMATIC
-{dofs_str}""".rstrip()
+"""
+        + render_keyword("COUPLING", params)
+        + render_keyword("KINEMATIC", (), dofs)
+    ).rstrip()
 
 
 def _mpc(constraint, on_assembly_level: bool):
     mpc_type = constraint.mpc_type
     m_members = constraint.m_set.members
     s_members = constraint.s_set.members
-    mpc_vars = "\n".join(
-        [
-            f" {mpc_type},{get_instance_name(m, on_assembly_level):>8},{get_instance_name(s, on_assembly_level):>8}"
-            for m, s in zip(m_members, s_members)
-        ]
-    )
-    return f"** Constraint: {constraint.name}\n*MPC\n{mpc_vars}"
+    mpc_vars = [
+        f" {mpc_type},{get_instance_name(m, on_assembly_level):>8},{get_instance_name(s, on_assembly_level):>8}"
+        for m, s in zip(m_members, s_members)
+    ]
+    return render_block("MPC", (), mpc_vars or [""], [f"Constraint: {constraint.name}"])
 
 
 def _shell2solid(constraint, on_assembly_level: bool):
     mname = constraint.m_set.name
     sname = constraint.s_set.name
-    influence = constraint.influence_distance
-    influence_str = "" if influence is None else f", influence distance={influence}"
-    return (
-        f"** Constraint: {constraint.name}\n*Shell to Solid Coupling, "
-        f"constraint name={constraint.name}{influence_str}\n{mname}, {sname}"
-    )
+    params = [("constraint name", constraint.name)]
+    if constraint.influence_distance is not None:
+        params.append(("influence distance", format_number(constraint.influence_distance)))
+    return render_block("Shell to Solid Coupling", params, [f"{mname}, {sname}"], [f"Constraint: {constraint.name}"])
 
 
 def _tie(constraint: Constraint, on_assembly_level: bool) -> str:
     num = 80
-    pos_tol_str = ""
-    if constraint.pos_tol is not None:
-        pos_tol_str = f", position tolerance={constraint.pos_tol},"
-
-    coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(constraint.name) + "**" + num * "-" + "\n"
     name = constraint.name
+    params = [("name", name), ("adjust", constraint.metadata.get("adjust", "no"))]
+    if constraint.pos_tol is not None:
+        params.append(("position tolerance", format_number(constraint.pos_tol)))
 
-    adjust = constraint.metadata.get("adjust", "no")
-
-    coupl_text += f"""** Constraint: {name}
-*Tie, name={name}, adjust={adjust}{pos_tol_str}
-{constraint.m_set.name}, {constraint.s_set.name}"""
-    return coupl_text
+    coupl_text = "**" + num * "-" + """\n** COUPLING {}\n""".format(name) + "**" + num * "-" + "\n"
+    return coupl_text + render_block(
+        "Tie", params, [f"{constraint.m_set.name}, {constraint.s_set.name}"], [f"Constraint: {name}"]
+    )

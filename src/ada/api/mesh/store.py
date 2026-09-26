@@ -35,9 +35,20 @@ class ElemArrayBlock:
     ``conn`` rows are **node row-indices** into the owning store's ``coords``.
     """
 
-    __slots__ = ("ctype", "conn", "el_ids", "fem_secs", "elsets", "ecc", "hinge", "metadata", "_eid2row")
+    __slots__ = (
+        "ctype",
+        "conn",
+        "el_ids",
+        "fem_secs",
+        "elsets",
+        "formulations",
+        "ecc",
+        "hinge",
+        "metadata",
+        "_eid2row",
+    )
 
-    def __init__(self, ctype, conn: np.ndarray, el_ids: np.ndarray, fem_secs=None, elsets=None):
+    def __init__(self, ctype, conn: np.ndarray, el_ids: np.ndarray, fem_secs=None, elsets=None, formulations=None):
         self.ctype = ctype
         self.conn = np.ascontiguousarray(conn, dtype=np.int32)
         self.el_ids = np.ascontiguousarray(el_ids, dtype=np.int64)
@@ -48,6 +59,10 @@ class ElemArrayBlock:
         # rows); rare ones (eccentricity, hinge) as sparse row-keyed dicts.
         self.fem_secs: list | None = fem_secs
         self.elsets: list | None = elsets
+        # The solver element type each row was read as (``"CPS3"``, ``"S4R"``), where one was:
+        # ``ctype`` is the SHAPE, and several formulations share a shape. A writer that knows
+        # only the shape writes its default type -- a plane-stress triangle came back a shell.
+        self.formulations: list | None = formulations
         self.ecc: dict[int, object] = {}
         self.hinge: dict[int, object] = {}
         self.metadata: dict[int, dict] = {}
@@ -265,6 +280,9 @@ class MeshArrays:
                 blk.fem_secs = [getattr(e, "fem_sec", None) for e in elems]
             if any(getattr(e, "elset", None) is not None for e in elems):
                 blk.elsets = [getattr(e, "elset", None) for e in elems]
+            forms = [getattr(e, "formulation", None) for e in elems]
+            if any(f is not None for f in forms):
+                blk.formulations = forms
             for i, e in enumerate(elems):
                 if getattr(e, "eccentricity", None) is not None:
                     blk.ecc[i] = e.eccentricity

@@ -10,7 +10,7 @@ name, the point-mass type and the ``members`` list had nowhere to go and were dr
 with the object.
 
 Nothing complained. ``fem.elements.masses`` simply went empty, and every writer that
-iterates it -- Sesam ``BNMASS``, Abaqus ``*Mass``, Usfos ``NODEMASS`` -- wrote no record
+iterates it -- Sesam ``MGMASS``, Abaqus ``*Mass``, Usfos ``NODEMASS`` -- wrote no record
 at all. The mass was gone from the exported deck.
 
 The fix keeps the objects: the packed rows stay in their blocks (so element iteration,
@@ -35,7 +35,8 @@ from ada.config import logger
 from ada.fem import FEM, Elem, FemSet, Mass, Spring
 from ada.fem.containers import FemElements
 from ada.fem.formats.sesam.read import cards
-from ada.fem.formats.sesam.write.write_masses import mass_str
+from ada.fem.formats.sesam.read.read_elements import lower_matrix
+from ada.fem.formats.sesam.write.write_point_elements import point_elements_str
 from ada.fem.formats.sesam.write.writer import node_dofs
 from ada.fem.shapes.definitions import MassTypes, SolidShapes
 
@@ -68,13 +69,10 @@ def _mass_fem(mass_value, mass_type, path: str) -> FEM:
     return fem
 
 
-def _bnmass(text: str) -> dict[int, tuple[int, list[float]]]:
-    """{node id: (NDOF, components)} parsed back out of a BNMASS block."""
-    out = {}
-    for m in cards.re_bnmass.finditer(text):
-        d = m.groupdict()
-        out[int(float(d["nodeno"]))] = (int(float(d["ndof"])), [float(x) for x in d["content"].split()])
-    return out
+def _mgmass(text: str) -> list[tuple[int, list[float]]]:
+    """[(NDOF, matrix diagonal)] parsed back out of the MGMASS records (a point mass is a mass
+    element with an MGMASS matrix; see ``write_point_elements``)."""
+    return [(k.shape[0], np.diag(k).tolist()) for _, k in (lower_matrix(m) for m in cards.re_mgmass.finditer(text))]
 
 
 @pytest.fixture
@@ -89,39 +87,39 @@ def warnings_visible(monkeypatch, caplog):
 # ── the defect ───────────────────────────────────────────────────────────────────
 
 
-def test_point_mass_writes_bnmass_on_the_object_path():
+def test_point_mass_writes_mgmass_on_the_object_path():
     """Today's good behaviour, pinned first so the array-path assertions below have
     something to be equal to."""
     fem = _mass_fem(12.0, MassTypes.MASS, "object")
 
-    assert _bnmass(mass_str(fem, node_dofs(fem))) == {MASS_NODE: (3, [12.0, 12.0, 12.0])}
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_point_mass_writes_the_same_bnmass_after_packing(path):
+def test_point_mass_writes_the_same_mgmass_after_packing(path):
     """The reported defect: on ``array`` this used to be the empty string."""
     fem = _mass_fem(12.0, MassTypes.MASS, path)
 
-    assert _bnmass(mass_str(fem, node_dofs(fem))) == {MASS_NODE: (3, [12.0, 12.0, 12.0])}
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
 
 
 @pytest.mark.parametrize("path", PATHS)
-def test_rotary_inertia_writes_the_same_bnmass_after_packing(path):
+def test_rotary_inertia_writes_the_same_mgmass_after_packing(path):
     """ROTARYI is the case that also drives the node to 6 dofs, so it exercises both the
     mass values and the NDOF field they have to agree with."""
     fem = _mass_fem([1.0, 2.0, 3.0], MassTypes.ROTARYI, path)
 
     assert node_dofs(fem).ndof(MASS_NODE) == 6
-    assert _bnmass(mass_str(fem, node_dofs(fem))) == {MASS_NODE: (6, [0.0, 0.0, 0.0, 1.0, 2.0, 3.0])}
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(6, [0.0, 0.0, 0.0, 1.0, 2.0, 3.0])]
 
 
-def test_bnmass_block_is_byte_identical_across_the_two_paths():
+def test_mass_records_are_byte_identical_across_the_two_paths():
     """Not just equal values -- the same bytes, for both mass kinds. ``to_array_backed``
     must be invisible in the deck."""
     for value, mass_type in ((12.0, MassTypes.MASS), ([1.0, 2.0, 3.0], MassTypes.ROTARYI)):
         obj = _mass_fem(value, mass_type, "object")
         arr = _mass_fem(value, mass_type, "array")
-        assert mass_str(arr, node_dofs(arr)) == mass_str(obj, node_dofs(obj)) != ""
+        assert point_elements_str(arr, node_dofs(arr)) == point_elements_str(obj, node_dofs(obj)) != ""
 
 
 # ── what survives the packing ────────────────────────────────────────────────────
@@ -220,7 +218,7 @@ def test_a_mass_block_with_no_object_behind_it_warns(warnings_visible):
     fem.elements._packed_specials.clear()  # what a block-only merge leaves behind
 
     assert list(fem.elements.masses) == []
-    assert mass_str(fem, node_dofs(fem)) == ""
+    assert point_elements_str(fem, node_dofs(fem)) == ""
     assert "1 packed mass/spring/connector element(s) carry no Mass" in warnings_visible.text
 
 

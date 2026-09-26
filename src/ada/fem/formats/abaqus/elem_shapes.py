@@ -70,7 +70,7 @@ ada_to_abaqus_format = {
     # to the base type, so it maps to the same canonical shape.
     so.HEX8: ("C3D8", "C3D8R", "C3D8H", "C3D8P", "C3D8RP"),
     so.HEX20: ("C3D20", "C3D20R", "C3D20RH", "C3D20P", "C3D20RP"),
-    so.HEX27: ("C3D27",),
+    so.HEX27: ("C3D27", "C3D27R"),
     so.TETRA: ("C3D4", "C3D4P"),
     so.TETRA10: ("C3D10", "C3D10P", "C3D10MP"),
     so.PYRAMID5: ("C3D5", "C3D5H"),

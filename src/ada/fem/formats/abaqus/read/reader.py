@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import functools
 import mmap
 import os
 import pathlib
-import re
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING, Dict, List, Union
@@ -24,18 +24,38 @@ from ada.fem import (
     PredefinedField,
     Surface,
 )
+from ada.fem.constraints import PreDefTypes
 from ada.fem.containers import FemSets
 from ada.fem.formats.utils import str_to_int
-from ada.fem.interactions import ContactTypes
+from ada.fem.interactions import ContactTypes, IntPropTypes
 from ada.fem.shapes import ElemType
 
-from . import cards
-from .helper_utils import _re_in, get_set_from_assembly, list_cleanup
+from ..mapping import bc_types
+from .helper_utils import get_set_from_assembly, list_cleanup
+from .keywords import validate
+from .lexer import (
+    KeywordBlock,
+    comment_property,
+    iter_enclosed,
+    iter_keywords,
+    mark_read,
+    tokenize,
+    track_reads,
+)
 from .read_elements import get_elem_from_bulk_str, update_connector_data
 from .read_masses import get_mass_from_bulk
 from .read_materials import get_materials_from_bulk
 from .read_orientations import get_lcsys_from_bulk
+from .read_ref_points import add_ref_points_from_bulk, is_ref_point_block, node_by_id
 from .read_sections import get_connector_sections_from_bulk, get_sections_from_inp
+from .read_springs import get_springs_from_bulk, link_spring_sets
+from .read_steps import (
+    HISTORY_KEYWORDS,
+    first_step_offset,
+    read_amplitudes,
+    read_steps,
+    read_transforms,
+)
 
 part_name_counter = Counter(1, "Part")
 
@@ -54,7 +74,18 @@ class InstanceData:
 
 
 def read_fem(fem_file, fem_name=None) -> Assembly:
-    """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file."""
+    """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file.
+
+    Every keyword in the deck that is not read is recorded in the active conversion report (see
+    :func:`report_unread_keywords`), so a caller can say exactly what did not come across.
+    """
+    with track_reads() as read:
+        assembly, bulk_str, history_start = _read_fem(fem_file, fem_name)
+    report_unread_keywords(bulk_str, read, history_start)
+    return assembly
+
+
+def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
     from ada import Assembly
 
     logger.info("Starting import of Abaqus input file")
@@ -69,16 +100,18 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
     lbulk = bulk_str.lower()
     ass_start = lbulk.find("\n*assembly")
     ass_end = lbulk.rfind("\n*end assembly")
-    step_start = lbulk.rfind("\n*step")
+    # History data starts at the FIRST *Step (read_steps.first_step_offset); the end of the deck
+    # when there is none. Cutting at the last one read an earlier step's data as model data,
+    # and with no step at all a -1 here sliced off the deck's last character.
+    step_start = first_step_offset(bulk_str)
 
     ass_start = ass_start + 1 if ass_start != -1 else ass_start
     ass_end = ass_end + 1 if ass_end != -1 else ass_end
-    step_start = step_start + 1 if step_start != -1 else step_start
 
     if ass_start == -1 and ass_end == -1:
         uses_assembly_parts = False
-        assembly_str = bulk_str
-        props_str = bulk_str
+        assembly_str = bulk_str[:step_start]
+        props_str = bulk_str[:step_start]
     else:
         uses_assembly_parts = True
         assembly_str = bulk_str[ass_start : ass_end + 2]
@@ -89,21 +122,26 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
 
     get_materials_from_bulk(assembly, props_str)
     get_intprop_from_lines(assembly, props_str)
+    # Before anything that names one: a BC's AMPLITUDE= is resolved as the BC is read.
+    read_amplitudes(props_str, assembly.fem)
 
     ass_data = extract_instance_data(assembly_str[:inst_end])
 
     part_list = import_parts(bulk_str[:ass_start], ass_data, assembly)
     if len(part_list) == 0:
-        add_fem_without_assembly(bulk_str, assembly)
+        add_fem_without_assembly(bulk_str[:step_start], assembly)
 
     if uses_assembly_parts is True:
         ass_sets = assembly_str[inst_end:]
         assembly.fem.nodes += get_nodes_from_inp(ass_sets, assembly.fem)
+        add_ref_points_from_bulk(ass_sets, assembly.fem)
         assembly.fem.lcsys.update(get_lcsys_from_bulk(ass_sets, assembly.fem))
         assembly.fem.connector_sections.update(get_connector_sections_from_bulk(props_str, assembly.fem))
-        assembly.fem.elements += get_elem_from_bulk_str(ass_sets, assembly.fem)
+        _add_keeping_ids(assembly.fem, get_elem_from_bulk_str(ass_sets, assembly.fem))
         assembly.fem.elements.build_sets()
+        _add_keeping_ids(assembly.fem, get_springs_from_bulk(ass_sets, assembly.fem))
         assembly.fem.sets += get_sets_from_bulk(ass_sets, assembly.fem)
+        link_spring_sets(assembly.fem)
         assembly.fem.sets.link_data()
 
         update_connector_data(ass_sets, assembly.fem)
@@ -115,24 +153,136 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
             logger.error(e)
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
-        assembly.fem.elements += get_mass_from_bulk(ass_sets, assembly.fem)
+        _add_keeping_ids(assembly.fem, get_mass_from_bulk(ass_sets, assembly.fem))
 
     add_interactions_from_bulk_str(props_str, assembly)
     get_initial_conditions_from_str(assembly, props_str)
-    return assembly
+    read_transforms(assembly_str, assembly.fem)
+    read_steps(bulk_str[step_start:], assembly)
+    assembly.fem.metadata.pop("_abaqus_transforms", None)
+    # The assembly and its end are found by string search above, not by asking for the keyword.
+    mark_read("ASSEMBLY", "END ASSEMBLY")
+    return assembly, bulk_str, step_start
+
+
+def _surface_or_set(name: str, fem: FEM):
+    """A *Shell to Solid Coupling operand: a surface, per the Keywords Guide -- or, where the
+    deck has no surface of that name, the node/element set adapy's own writer has always put
+    there. (That writer output is not valid Abaqus; reading it back still must not fail.)"""
+    try:
+        return get_set_from_assembly(name, fem, "surface")
+    except KeyError:
+        for kind in ("nset", "elset"):
+            try:
+                return get_set_from_assembly(name, fem, kind)
+            except KeyError:
+                continue
+        raise
+
+
+def by_name(mapping, name: str):
+    """``mapping[name]`` the way Abaqus looks names up: case-insensitively. A deck may define
+    ``cpl_csys`` and refer to ``CPL_CSYS``; both are one name to Abaqus."""
+    if name in mapping:
+        return mapping[name]
+    key = name.lower()
+    return next((v for k, v in mapping.items() if k.lower() == key), None)
+
+
+def _add_keeping_ids(fem: FEM, elements) -> None:
+    """Add a deck's elements to ``fem`` under the ids the deck gave them.
+
+    ``FemElements.__add__`` renumbers what it adds from ``max_id + 1`` -- right for merging two
+    unrelated meshes, wrong for reading: a deck's ids are part of its data (its sets, sections
+    and connector sections name elements by id), so a renumbered element is no longer the one
+    they refer to. A clash is an error, as a duplicate element id in a deck is.
+    """
+    from ada.api.mesh.containers import ArrayElements
+
+    array_backed = isinstance(fem.elements, ArrayElements)  # groups itself as it adds
+    for el in elements:
+        fem.elements.add(el, skip_grouping=not array_backed)
+    if not array_backed:
+        fem.elements._group_by_types()
+
+
+#: The ``stage`` of every finding the reader records.
+READER_STAGE = "abaqus reader"
+
+
+def report_unread_keywords(bulk_str: str, read: set[str], history_start: int) -> None:
+    """Record every keyword in the deck that the reader did not read, one finding per keyword.
+
+    ``read`` is what the reader actually asked for while reading (see ``lexer.track_reads``), so
+    this cannot drift from the code the way a hand-kept list would. A keyword is reported:
+
+    * as a ``note`` when it changes nothing in the model -- a title, an output/print request, a
+      solver control (``keywords.NO_MODEL_EFFECT``, ``keywords.SOLVER_CONTROLS``);
+    * as ``omitted`` when it sits in history data (from the first ``*Step`` on) and is not one
+      of the keywords the step reader reads (``read_steps.HISTORY_KEYWORDS``);
+    * as ``omitted`` when no reader asked for it at all.
+
+    Counted per keyword, never per block: a deck with a thousand ``*Cload`` blocks is one line
+    saying a thousand. Line numbers are in the deck with its ``*Include`` files expanded.
+    """
+    from ada.fem.formats import conversion_report
+
+    from .keywords import NO_MODEL_EFFECT, SOLVER_CONTROLS
+
+    unread: dict[tuple[str, bool], list[int]] = {}
+    for block in tokenize(bulk_str):
+        in_history = block.start >= history_start
+        if block.keyword in (HISTORY_KEYWORDS if in_history else read):
+            continue
+        entry = unread.setdefault((block.keyword, in_history), [0, block.lineno])
+        entry[0] += 1
+
+    report = conversion_report.current()
+    for (keyword, in_history), (count, first_line) in sorted(unread.items()):
+        subject = f"{count} block{'s' if count != 1 else ''}, first at line {first_line}"
+        details = dict(blocks=count, first_line=first_line)
+        if keyword in NO_MODEL_EFFECT:
+            report.note(
+                READER_STAGE, f"*{keyword}", subject, "not read: no effect on the model", count=count, **details
+            )
+        elif keyword in SOLVER_CONTROLS:
+            report.note(
+                READER_STAGE,
+                f"*{keyword}",
+                subject,
+                "not read: a solver control, no model data",
+                count=count,
+                **details,
+            )
+        elif in_history:
+            report.omitted(
+                READER_STAGE,
+                f"*{keyword}",
+                subject,
+                "no reader for this keyword in a step",
+                count=count,
+                **details,
+            )
+        else:
+            report.omitted(READER_STAGE, f"*{keyword}", subject, "no reader for this keyword", count=count, **details)
 
 
 def read_bulk_w_includes(inp_path) -> str:
     if isinstance(inp_path, str):
         inp_path = pathlib.Path(inp_path).resolve().absolute()
 
-    re_bulk_include = re.compile(r"\*Include,\s*input=(.*?)$", _re_in)
     bulk_repl = dict()
     with open(inp_path, "r") as inpDeck:
         bulk_str = inpDeck.read()
-        for m in re_bulk_include.finditer(bulk_str):
-            search_key = m.group(0)
-            filepath = (inp_path.parent / m.group(1).replace("\\", "/")).resolve()
+        for block in iter_keywords(bulk_str, "INCLUDE"):
+            validate(block)
+            included = block.params.get("INPUT")
+            if included is None:
+                continue
+            # The keyword line as written is the text to splice the file in for -- a quoted
+            # path with a comma in it parses correctly here and would not have before.
+            search_key = block.keyword_line
+            filepath = (inp_path.parent / included.replace("\\", "/")).resolve()
             with open(filepath, "r") as d:
                 bulk_repl[search_key] = d.read()
 
@@ -154,10 +304,10 @@ def import_bulk2(file_path, buffer_function):
 
 def extract_instance_data(assembly_bulk) -> dict[str, List[InstanceData]]:
     ass_data = {}
-    for m in cards.inst_matches.finditer(assembly_bulk):
-        d = m.groupdict()
-        inst_name, part_name, bulk_str = d["inst_name"], d["part_name"], d["bulk_str"]
-        inst_data = get_instance_data(inst_name, part_name, bulk_str)
+    for block, body in iter_enclosed(assembly_bulk, "INSTANCE", "END INSTANCE"):
+        validate(block)
+        inst_name, part_name = block.params.get("NAME"), block.params.get("PART")
+        inst_data = get_instance_data(inst_name, part_name, body, block)
         if inst_data.part_ref not in ass_data.keys():
             ass_data[inst_data.part_ref] = []
         ass_data[inst_data.part_ref].append(inst_data)
@@ -168,10 +318,9 @@ def extract_instance_data(assembly_bulk) -> dict[str, List[InstanceData]]:
 def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembly: Assembly) -> List[Part]:
     part_list = []
 
-    for m in cards.parts_matches.finditer(bulk_str):
-        d = m.groupdict()
-        name = d.get("name")
-        part_bulk_str = d.get("bulk_str")
+    for block, part_bulk_str in iter_enclosed(bulk_str, "PART", "END PART"):
+        validate(block)
+        name = block.params.get("NAME")
 
         for i in instance_data[name]:
             p_bulk_str = i.instance_bulk if part_bulk_str == "" and i.instance_bulk != "" else part_bulk_str
@@ -181,15 +330,28 @@ def import_parts(bulk_str, instance_data: dict[str, List[InstanceData]], assembl
 
 
 def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
-    part_name_matches = list(cards.part_names.finditer(bulk_str))
-    p_nmatch = tuple(part_name_matches)
+    # ``** PART INSTANCE: <name>`` is a comment, and the deck below it is that part. Reading
+    # it off the block it annotates means the name is whatever is on that one line.
+    #
+    # The FIRST such comment names the part and starts its body, as it always has: a flat deck
+    # CAE writes for several instances carries one comment per instance, all read as one part
+    # here, and the regex reader this replaced took the first. Requiring exactly one would
+    # rename that part to a generated name -- same model, different name in every consumer.
+    tagged = next(
+        (
+            (props["PART INSTANCE"], block)
+            for block in tokenize(bulk_str)
+            if (props := comment_property(block, "PART INSTANCE"))
+        ),
+        None,
+    )
 
-    if len(p_nmatch) != 1:
+    if tagged is None:
         p_bulk = bulk_str
         p_name = None
     else:
-        p_name = p_nmatch[0].group(1)
-        p_bulk = p_nmatch[0].group(2)
+        p_name, tag_block = tagged
+        p_bulk = bulk_str[tag_block.start :]
 
     p_name = next(part_name_counter) if p_name is None else p_name
     inst = InstanceData("", p_name, "")
@@ -211,8 +373,11 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
         _build_array_nodes_elements(bulk_str, fem)
     else:
         fem.nodes = get_nodes_from_inp(bulk_str, fem)
+        add_ref_points_from_bulk(bulk_str, fem)
         fem.elements = get_elem_from_bulk_str(bulk_str, fem)
     fem.elements.build_sets()
+    # Before the sets: a deck's *Elset may list spring elements.
+    _add_keeping_ids(fem, get_springs_from_bulk(bulk_str, fem))
 
     # Abaqus applies the instance translation first, then rotates about the axis (whose two
     # points are given in the already-translated/global frame — here point1 equals the
@@ -222,9 +387,10 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     if instance_data.transform.rotation is not None:
         fem.nodes.move(rotate=instance_data.transform.rotation)
     fem.sets += get_sets_from_bulk(bulk_str, fem)
+    link_spring_sets(fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
-    fem.elements += get_mass_from_bulk(bulk_str, fem)
+    _add_keeping_ids(fem, get_mass_from_bulk(bulk_str, fem))
     fem.surfaces.update(get_surfaces_from_bulk(bulk_str, fem))
     fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
     fem.constraints = get_constraints_from_inp(bulk_str, fem)
@@ -248,15 +414,17 @@ def _build_array_nodes_elements(bulk_str, fem) -> None:
     coords, node_ids, nsets = get_nodes_from_inp_arrays(bulk_str)
     store = MeshArrays(coords, node_ids)
     by_type, overflow = get_elem_arrays(bulk_str)
-    for ctype, (el_ids, conns, elsets) in by_type.items():
+    for ctype, (el_ids, conns, elsets, formulations) in by_type.items():
         blk = store.add_elem_block_from_id_conn(
             ctype, np.array(el_ids, dtype=np.int64), np.array(conns, dtype=np.int64)
         )
         if any(e is not None for e in elsets):
             blk.elsets = elsets
+        blk.formulations = formulations
 
     fem.nodes = ArrayNodes(store, parent=fem)
     fem.elements = ArrayElements(store, fem_obj=fem)
+    add_ref_points_from_bulk(bulk_str, fem)  # before the overflow elements, which may name them
 
     # node sets declared inline on *Node blocks (id-backed)
     for set_name, ids in nsets:
@@ -275,17 +443,14 @@ def get_nodes_from_inp_arrays(bulk_str):
     nset declarations as ``(name, [ids])`` — no Node objects."""
     import numpy as np
 
-    re_no = re.compile(
-        r"^\*Node\s*(?:,\s*nset=(?P<nset>.*?)\n|\n)(?P<members>(?:.*?)(?=\*|\Z))",
-        _re_in,
-    )
     ids: list[int] = []
     xyz: list = []
     nsets: list = []
-    for m in re_no.finditer(bulk_str):
-        d = m.groupdict()
-        raw = "\n".join(line for line in d["members"].splitlines() if not line.lstrip().startswith("**"))
-        res = np.fromstring(list_cleanup(raw), sep=",", dtype=np.float64)
+    for block in iter_keywords(bulk_str, "NODE"):
+        if is_ref_point_block(block):
+            continue
+        validate(block)
+        res = np.fromstring(list_cleanup("\n".join(block.data_lines)), sep=",", dtype=np.float64)
         if res.size == 0:
             continue
         if res.size % 4 == 0:
@@ -299,8 +464,8 @@ def get_nodes_from_inp_arrays(bulk_str):
         block_ids = [int(x) for x in res_[:, 0]]
         ids.extend(block_ids)
         xyz.extend(block_xyz.tolist())
-        if d["nset"] is not None:
-            nsets.append((d["nset"], block_ids))
+        if block.params.get("NSET") is not None:
+            nsets.append((block.params.get("NSET"), block_ids))
 
     coords = np.array(xyz, dtype=np.float64) if xyz else np.zeros((0, 3))
     node_ids = np.array(ids, dtype=np.int64) if ids else np.zeros((0,), dtype=np.int64)
@@ -318,10 +483,6 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
     CONTAINER20FT-10000KG, 2, 0.
     CONTAINER20FT-10000KG, 3, 4.1
     """
-    if bulk_str.find("*Initial Conditions") == -1:
-        return
-
-    re_str = r"(?:^\*\*\s*Name:\s*(?P<name>\S+)\s*Type:\s*(?P<type>\S+)\n)+\*Initial Conditions, type=.*?\n(?P<conditions>[\s\S]*?(?=\*|\Z))"
 
     def sort_props(line):
         ev = [x.strip() for x in line.split(",")]
@@ -337,12 +498,14 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
             magn = None
         return set_name, dofs, magn
 
-    def grab_init_props(m):
-        d = m.groupdict()
-        bc_name = d.get("name")
-        bc_type = d.get("type")
-        bcs = d.get("conditions")
-        props = [sort_props(line) for line in bcs.splitlines() if line != ""]
+    def grab_init_props(block: KeywordBlock):
+        comment = comment_property(block, "Name", "Type")
+        bc_name = comment.get("Name")
+        # TYPE is the block's own required parameter. The ``** Name: ... Type: ...`` comment
+        # above it is CAE's label for the same thing, spelled for a reader ("Geostatic
+        # stress") rather than for the solver, so the parameter is the one to believe.
+        bc_type = block.params.get("TYPE")
+        props = [sort_props(line) for line in block.data_lines]
         set_name, dofs, magn = list(zip(*props))
         fem_set = None
         set_name_up = set_name[0]
@@ -368,8 +531,20 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
 
         return PredefinedField(bc_name, bc_type, fem_set, dofs, magn, parent=assembly.fem)
 
-    for match in re.finditer(re_str, bulk_str, _re_in):
-        assembly.fem.add_predefined_field(grab_init_props(match))
+    for block in iter_keywords(bulk_str, "INITIAL CONDITIONS"):
+        validate(block)
+        field_type = block.params.get("TYPE")
+        if field_type is None or field_type.upper() not in PreDefTypes.all:
+            # adapy models VELOCITY and INITIAL STATE; a deck's geostatic stress, void ratio
+            # or pore pressure is read past rather than aborting the import — the same policy
+            # the element reader applies to element types it has no mapping for.
+            logger.warning(
+                "abaqus read: *Initial Conditions (line %d) type %r is not supported — skipping",
+                block.lineno,
+                field_type,
+            )
+            continue
+        assembly.fem.add_predefined_field(grab_init_props(block))
 
 
 def get_intprop_from_lines(assembly: Assembly, bulk_str):
@@ -379,70 +554,140 @@ def get_intprop_from_lines(assembly: Assembly, bulk_str):
     0.,
     *Surface Behavior, pressure-overclosure=HARD
     """
-    re_str = r"(\*Surface Interaction, name=.*?)(?=\*)(?!\*Friction|\*Surface Behavior|\*Surface Smoothing)"
-    # surf_interact = AbaFF("Surface Interaction", [("name=",), ("bulk>",)], [("Friction", [(), ("bulkFRIC>",)])])
-
     assembly.fem.metadata["surf_smoothing"] = []
-    for m in cards.surface_smoothing.regex.finditer(bulk_str):
-        d = m.groupdict()
-        assembly.fem.metadata["surf_smoothing"].append(d)
+    for block in iter_keywords(bulk_str, "SURFACE SMOOTHING"):
+        validate(block)
+        assembly.fem.metadata["surf_smoothing"].append(dict(name=block.params.get("NAME"), bulk=block.data_text))
 
-    for m in re.findall(re_str, bulk_str, _re_in):
-        name = re.search(r"name=(.*?)\n", m, _re_in).group(1)
-        re_fric = re.search(r"\*Friction\n(.*?),", m, _re_in)
-        fric = None
-        if re_fric is not None:
-            fric = re_fric.group(1)
-        props = dict(name=name, friction=fric)
-        res = re.search(
-            r"\*Surface Behavior,\s*(?P<btype>.*?)(?:=(?P<behaviour>.*?)(?:$\n(?P<tabular>.*?)(?:\*|\Z)|$)|$)",
-            m,
-            _re_in,
-        )
-        if res is not None:
-            res = res.groupdict()
-            btype = res["btype"]
-            behave = res["behaviour"] if btype.upper() != "PENALTY" else btype
-            tabular = res["tabular"]
-            if tabular is not None:
-                tab_list = []
-                for line in tabular.splitlines():
-                    tab_list.append(tuple(np.fromstring(line, dtype=float, sep=",")))
-                tabular = tab_list
-                props.update(dict(pressure_overclosure=behave, tabular=tabular))
+    mark_read("SURFACE INTERACTION", "FRICTION", "SURFACE BEHAVIOR")
+    all_blocks = tokenize(bulk_str)
+    for i, block in enumerate(all_blocks):
+        if block.keyword != "SURFACE INTERACTION":
+            continue
+        validate(block)
+        props = dict(name=block.params.get("NAME"), friction=None)
+        # *Friction and *Surface Behavior belong to the interaction above them; the run ends
+        # at the first block that is neither.
+        for sub_block in all_blocks[i + 1 :]:
+            if sub_block.keyword == "FRICTION":
+                validate(sub_block)
+                if sub_block.data_lines:
+                    props["friction"] = float(sub_block.data_lines[0].split(",")[0])
+            elif sub_block.keyword == "SURFACE BEHAVIOR":
+                validate(sub_block)
+                behave = _surface_behaviour(sub_block)
+                if sub_block.data_lines:
+                    tabular = [tuple(np.fromstring(line, dtype=float, sep=",")) for line in sub_block.data_lines]
+                    props["tabular"] = tabular
+                if behave is not None and behave.upper() in IntPropTypes.all:
+                    props["pressure_overclosure"] = behave
+                elif behave is not None:
+                    # Abaqus has more pressure-overclosure relationships than adapy models
+                    # (LINEAR, EXPONENTIAL, SCALE FACTOR). Keeping the property with the
+                    # default relationship preserves the name a *Contact Pair refers to;
+                    # dropping it would break that lookup for an attribute we don't use.
+                    logger.warning(
+                        "abaqus read: *Surface Behavior (line %d) relationship %r is not supported — "
+                        "keeping interaction property %r with the default",
+                        sub_block.lineno,
+                        behave,
+                        props["name"],
+                    )
+            else:
+                break
         assembly.fem.add_interaction_property(InteractionProperty(**props))
 
 
-def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
+def _surface_behaviour(block: KeywordBlock) -> str | None:
+    """The pressure-overclosure relationship on a ``*Surface Behavior`` block.
+
+    Written either as a value (``pressure-overclosure=HARD``) or as a bare flag
+    (``, penalty``), so the flag's own name is the answer when it carries no value.
+    """
+    for name, value in block.params.items():
+        return value if value is not None else name
+    return None
+
+
+def _two_surfaces(block: KeywordBlock) -> tuple[str, str] | None:
+    """The master/slave surface pair on a keyword block's single data line.
+
+    ``*Tie``, ``*Contact Pair`` and ``*Shell to Solid Coupling`` all name their two surfaces
+    this way. A block without them is reported and skipped rather than aborting the import.
+    """
+    if not block.data_lines:
+        logger.warning("abaqus read: *%s (line %d) has no surface data line", block.keyword, block.lineno)
+        return None
+    fields = [x.strip() for x in block.data_lines[0].split(",") if x.strip() != ""]
+    if len(fields) < 2:
+        logger.warning(
+            "abaqus read: *%s (line %d) names %d surface(s), expected 2", block.keyword, block.lineno, len(fields)
+        )
+        return None
+    return fields[0], fields[1]
+
+
+def _general_contact_interaction(bulk_str: str, contact_block: KeywordBlock) -> str | None:
+    """The interaction property assigned by a general ``*Contact`` block.
+
+    ``*Contact Property Assignment`` names it on a data line whose last field is the
+    property; the blocks in between belong to the same block.
+    """
+    # Only the assignment's property name is read; the other *Contact ... blocks this walks past
+    # (inclusions, formulation, initialisation) are not, and are reported as such.
+    mark_read("CONTACT PROPERTY ASSIGNMENT")
+    seen = False
+    for block in tokenize(bulk_str):
+        # By position, not identity: iter_keywords' blocks come from the tokenizer cache, and a
+        # fresh tokenize() builds new objects, so ``is`` never matched and no general contact
+        # was ever read.
+        if block.start == contact_block.start:
+            seen = True
+            continue
+        if not seen:
+            continue
+        if block.keyword == "CONTACT PROPERTY ASSIGNMENT":
+            for line in block.data_lines:
+                fields = [x.strip() for x in line.split(",") if x.strip() != ""]
+                if fields:
+                    return fields[-1]
+        elif not block.keyword.startswith("CONTACT") and block.keyword != "SURFACE PROPERTY ASSIGNMENT":
+            return None
+    return None
+
+
+def get_instance_data(inst_name, p_ref, inst_bulk, block: KeywordBlock | None = None) -> InstanceData:
     """Move/rotate data lines are specified here:
 
     https://abaqus-docs.mit.edu/2017/English/SIMACAEKEYRefMap/simakey-r-instance.htm
-    """
 
-    move_rot = re.compile(r"(?:^\s*(.*?),\s*(.*?),\s*(.*?)$)", _re_in)
+    They are the ``*Instance`` block's own data lines: the first is a translation, the second
+    a rotation. Taking them from the block rather than scanning the instance body means a
+    node or element line inside the body can never be mistaken for a placement.
+    """
     transform: Union[Transform, None] = Transform()
-    mr = move_rot.finditer(inst_bulk)
-    if mr is not None:
-        for j, mo in enumerate(mr):
-            content = mo.group(0)
-            if "*" in content or j == 2 or content == "":
-                break
-            if j == 0:
-                # Transform's fields are translation/rotation — setting .move/.rotate created
-                # phantom attributes, so the instance placement was silently dropped (every
-                # instance landed at the part origin). This matters once instances are merged.
-                transform.translation = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
-            if j == 1:
-                # Abaqus *Instance rotation line: a, b, c, d, e, f, angle — two points
-                # (a,b,c) and (d,e,f) defining the axis, plus the angle. The axis DIRECTION is
-                # point2 - point1; using point2 directly (a position ~1000 units off) rotated
-                # the instance about a bogus far axis, severely distorting + flinging it.
-                r = [float(x) for x in mo.group(3).split(",")]
-                x1, y1, z1 = float(mo.group(1)), float(mo.group(2)), r[0]
-                origin = (x1, y1, z1)
-                vector = (r[1] - x1, r[2] - y1, r[3] - z1)
-                angle = r[4]
-                transform.rotation = Rotation(origin, vector, angle)
+    data_lines = block.data_lines[:2] if block is not None else ()
+
+    for j, line in enumerate(data_lines):
+        values = [x.strip() for x in line.split(",") if x.strip() != ""]
+        if j == 0:
+            if len(values) < 3:
+                logger.warning("abaqus read: *Instance %r translation line needs 3 values", inst_name)
+                continue
+            # Transform's fields are translation/rotation — setting .move/.rotate created
+            # phantom attributes, so the instance placement was silently dropped (every
+            # instance landed at the part origin). This matters once instances are merged.
+            transform.translation = tuple(float(v) for v in values[:3])
+        elif j == 1:
+            if len(values) < 7:
+                logger.warning("abaqus read: *Instance %r rotation line needs 7 values", inst_name)
+                continue
+            # Abaqus *Instance rotation line: a, b, c, d, e, f, angle — two points
+            # (a,b,c) and (d,e,f) defining the axis, plus the angle. The axis DIRECTION is
+            # point2 - point1; using point2 directly (a position ~1000 units off) rotated
+            # the instance about a bogus far axis, severely distorting + flinging it.
+            x1, y1, z1, x2, y2, z2, angle = (float(v) for v in values[:7])
+            transform.rotation = Rotation((x1, y1, z1), (x2 - x1, y2 - y1, z2 - z1), angle)
 
     return InstanceData(p_ref, inst_name, inst_bulk, transform)
 
@@ -466,22 +711,14 @@ def import_multiple_inps(input_files_dir):
 
 def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
     """Extract node information from abaqus input file string"""
-    re_no = re.compile(
-        r"^\*Node\s*(?:,\s*nset=(?P<nset>.*?)\n|\n)(?P<members>(?:.*?)(?=\*|\Z))",
-        _re_in,
-    )
 
-    def getnodes(m):
-        d = m.groupdict()
-        # ``**`` is an Abaqus comment line. The non-greedy ``members``
-        # group can swallow comment lines between the last numeric
-        # node row and the next ``*Directive`` (e.g. ada's own writer
-        # emits a ``** No Nodes`` placeholder in the assembly-level
-        # node section when all nodes live at part level). Strip
-        # those lines before handing the buffer to ``np.fromstring``
-        # so the parser doesn't choke on non-numeric tokens.
-        raw_members = "\n".join(line for line in d["members"].splitlines() if not line.lstrip().startswith("**"))
-        res = np.fromstring(list_cleanup(raw_members), sep=",", dtype=np.float64)
+    def getnodes(block: KeywordBlock):
+        validate(block)
+        # ``block.data_lines`` has already dropped the ``**`` comment lines that can sit
+        # between the last numeric row and the next keyword (ada's own writer emits a
+        # ``** No Nodes`` placeholder in the assembly-level node section when every node
+        # lives at part level), so ``np.fromstring`` never sees a non-numeric token.
+        res = np.fromstring(list_cleanup("\n".join(block.data_lines)), sep=",", dtype=np.float64)
         # 3D nodes are ``id, x, y, z``; 2D models (plane-stress /
         # plane-strain / axisymmetric / membrane decks) drop the z
         # column so each row is ``id, x, y``. Pick the layout that
@@ -497,11 +734,13 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
             raise ValueError(
                 f"Abaqus *Node block has {res.size} values; " f"not divisible by 4 (3D) or 3 (2D) — malformed?"
             )
-        if d["nset"] is not None:
-            parent.sets.add(FemSet(d["nset"], members, "nset", parent=parent))
+        nset = block.params.get("NSET")
+        if nset is not None:
+            parent.sets.add(FemSet(nset, members, "nset", parent=parent))
         return members
 
-    nodes = list(chain.from_iterable(map(getnodes, re_no.finditer(bulk_str))))
+    blocks = (b for b in iter_keywords(bulk_str, "NODE") if not is_ref_point_block(b))
+    nodes = list(chain.from_iterable(map(getnodes, blocks)))
 
     return Nodes(nodes, parent=parent)
 
@@ -544,20 +783,27 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
     # resolve string references through it.
     parsed: dict[tuple[str, str], "FemSet"] = {}
 
-    def get_set(match):
-        name = match.group(2)
-        set_type = match.group(1)
-        set_type_l = set_type.lower()
-        internal = True if match.group(3) is not None else False
-        instance = match.group(4)
-        generate = True if match.group(5) is not None else False
-        members_str = match.group(6)
+    def get_set(block: KeywordBlock):
+        validate(block)
+        set_type = block.keyword.lower()
+        set_type_l = set_type
+        # The set's name is the value of the parameter that shares the keyword's name:
+        # ``*Elset, elset=...`` / ``*Nset, nset=...``.
+        name = block.params.get(block.keyword)
+        internal = "INTERNAL" in block.params
+        instance = block.params.get("INSTANCE")
+        generate = "GENERATE" in block.params
+        members_str = block.data_text
         gen_mem = str_to_ints(members_str) if generate is True else []
         raw_members = [] if generate is True else str_to_ints(members_str)
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
         parent_instance = get_parent_instance(instance)
 
-        from_id_fn = parent_instance.elements.from_id if set_type_l == "elset" else parent_instance.nodes.from_id
+        from_id_fn = (
+            parent_instance.elements.from_id
+            if set_type_l == "elset"
+            else functools.partial(node_by_id, parent_instance)
+        )
 
         resolved: list = []
         for ref in raw_members:
@@ -578,10 +824,25 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                             composed = fs
                             break
                 if composed is None:
-                    logger.warning(
-                        "abaqus read: set %r references unknown sub-set %r — skipping that member",
+                    # A set defined another way -- ``*Element, elset=right`` names a set
+                    # without an *Elset block -- is already on the FEM, not in ``parsed``. An
+                    # ``instance.set`` reference names a set of that instance's part.
+                    owner, set_ref = parent_instance, ref
+                    if "." in ref:
+                        inst, set_ref = ref.split(".", 1)
+                        owner = next((p.fem for p in all_parts if p.fem.instance_name == inst), None)
+                    if owner is not None:
+                        pool = owner.elsets if set_type_l == "elset" else owner.nsets
+                        composed = by_name(pool, set_ref)
+                if composed is None:
+                    from ada.fem.formats import conversion_report
+
+                    conversion_report.current().omitted(
+                        READER_STAGE,
+                        f"*{set_type_l.upper()}",
                         name,
-                        ref,
+                        "references a set that is not defined",
+                        missing=ref,
                     )
                     continue
                 resolved.extend(composed.members)
@@ -596,18 +857,22 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                     exc,
                 )
 
+        # Object members, not ids: these sets are read once and walked many times (set
+        # composition, instance re-parenting, export), and re-resolving every id on each
+        # walk doubled the read time of a CAE deck while saving no memory.
         fem_set = FemSet(
             name,
             resolved,
             set_type=set_type,
             metadata=metadata,
             parent=parent_instance,
+            id_backed=False,
         )
         parsed[(set_type_l, name)] = fem_set
 
         return fem_set
 
-    return FemSets([get_set(x) for x in cards.re_sets.finditer(bulk_str)], parent=fem)
+    return FemSets([get_set(c) for c in iter_keywords(bulk_str, "ELSET", "NSET")], parent=fem)
 
     # import concurrent.futures
     # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -636,12 +901,18 @@ _NAMED_BC_DOFS = {
 def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
     bc_counter = Counter(1, "bc")
 
-    def get_dofs(content: str):
+    def get_dofs(data_lines: tuple[str, ...]):
+        """One data line constrains a DOF range; several constrain one DOF each.
+
+        Which of the two it is used to be decided by counting newlines in the matched block,
+        which made it depend on whether the block happened to end in one. The line count says
+        it directly.
+        """
         set_name = None
         dofs = []
         magn = []
-        if content.count("\n") == 1:
-            temp = content.split(",")
+        if len(data_lines) == 1:
+            temp = data_lines[0].split(",")
             set_name = temp[0].strip()
             dof_in = temp[1].strip().replace("\n", "")
             low = dof_in.lower()
@@ -654,24 +925,42 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
                 dofs = [x if x in constrained else None for x in range(1, 7)]
             else:
                 dof = str_to_int(temp[1])
-                if len(temp) == 2:
-                    dofs = [x if dof == x else None for x in range(1, 7)]
-                else:
-                    dof_end = str_to_int(temp[2])
-                    dofs = [x if dof <= x <= dof_end else None for x in range(1, 7)]
+                # ``node, first_dof, last_dof, magnitude`` — last_dof may be written blank,
+                # which per the guide means the single DOF given as first_dof. It reads as an
+                # empty field rather than a missing one when a magnitude follows it.
+                last = temp[2].strip() if len(temp) > 2 else ""
+                dof_end = str_to_int(last) if last else dof
+                dofs = [x if dof <= x <= dof_end else None for x in range(1, 7)]
+                if len(temp) > 3 and temp[3].strip():
+                    # Bc.magnitudes pairs with Bc.dofs position by position: the line's one
+                    # magnitude applies to every DOF in its range, and to no other.
+                    value = float(temp[3])
+                    magn = [value if d is not None else None for d in dofs]
 
         else:
-            for line in content.splitlines():
+            # One line per DOF (or DOF range), each ``node, first_dof, last_dof, magnitude``.
+            # Collected into the same six-slot form as the one-line case, so a BC reads as one
+            # shape whichever way the deck wrote it -- and writes back as that shape.
+            by_dof: dict[int, float | None] = {}
+            named: list[str] = []
+            for line in data_lines:
                 ev = [x.strip() for x in line.split(",")]
                 set_name = ev[0]
                 try:
-                    dofs.append(int(ev[1]))
-                except BaseException as e:
-                    logger.debug(e)
-                    dofs.append(ev[1])
-                if len(ev) > 3:
-                    magn.append(ev[2])
-        magn = None if len(magn) == 0 else magn
+                    first = int(ev[1])
+                except ValueError:
+                    named.append(ev[1])  # a named restraint (ENCASTRE, XSYMM, ...) on this line
+                    continue
+                last = int(ev[2]) if len(ev) > 2 and ev[2] else first
+                value = float(ev[3]) if len(ev) > 3 and ev[3] else None
+                for d in range(first, last + 1):
+                    by_dof[d] = value
+            if named and not by_dof:
+                dofs = named if len(named) > 1 else named[0]
+            else:
+                dofs = [x if x in by_dof else None for x in range(1, 7)]
+                magn = [by_dof.get(x) if x in by_dof else None for x in range(1, 7)]
+        magn = None if all(m is None for m in magn) else magn
         return set_name, dofs, magn
 
     def get_nset(part_instance_name, set_name):
@@ -679,11 +968,14 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
             if p.fem.instance_name == part_instance_name:
                 return p.fem.sets.get_nset_from_name(set_name)
 
-    def get_bc(match):
-        d = match.groupdict()
-        bc_name = d["name"] if d["name"] is not None else next(bc_counter)
-        bc_type = d["type"]
-        set_name, dofs, magn = get_dofs(d["content"])
+    def get_bc(block: KeywordBlock, data_lines: tuple[str, ...]):
+        # Abaqus/CAE writes ``** Name: BC-1  Type: Displacement/Rotation`` directly above the
+        # block. Reading it from this block's own comments is what stops a load's or an
+        # interaction's identically-shaped comment from being taken as this BC's name.
+        props = comment_property(block, "Name", "Type")
+        bc_name = props.get("Name") or next(bc_counter)
+        bc_type = props.get("Type")
+        set_name, dofs, magn = get_dofs(data_lines)
 
         if "." in set_name:
             part_instance_name, set_name = set_name.split(".")
@@ -695,7 +987,9 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
                 val = str_to_int(set_name)
                 if val in fem.nodes.dmap.keys():
                     node = fem.nodes.from_id(val)
-                    fem_set = FemSet(bc_name + "_set", [node], "nset", parent=fem)
+                    # Registered with the FEM, not just held by the BC: a writer names the set
+                    # the BC points at, and a set nobody defines reads back as a missing one.
+                    fem_set = fem.sets.add(FemSet(bc_name + "_set", [node], "nset", parent=fem))
                 else:
                     raise ValueError(f'Unable to find set "{set_name}" in part {fem}')
 
@@ -704,13 +998,80 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
 
         props = dict()
         if bc_type is not None:
-            props["bc_type"] = bc_type
+            # CAE's name for the type, through the same table the writer writes it from. A type
+            # adapy has no row for keeps the deck's own text rather than failing the read.
+            table = bc_types()
+            props["bc_type"] = table.from_abaqus(bc_type) if table.knows(bc_type) else bc_type
         if magn is not None:
             props["magnitudes"] = magn
+        amplitude = _bc_amplitude(block, bc_name)
+        if amplitude is not None:
+            props["amplitude"] = amplitude
 
         return Bc(bc_name, fem_set, dofs, parent=fem, **props)
 
-    return [get_bc(match_in) for match_in in cards.re_bcs.finditer(bulk_str)]
+    def _bc_amplitude(block: KeywordBlock, bc_name: str):
+        name = block.params.get("AMPLITUDE")
+        if name is None:
+            return None
+        owner = fem.parent.get_assembly() if fem.parent is not None else None
+        amplitude = by_name(owner.fem.amplitudes, name) if owner is not None else None
+        if amplitude is None:
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                READER_STAGE, f"*{block.keyword}", bc_name, "names an amplitude that is not defined", missing=name
+            )
+        return amplitude
+
+    def get_connector_motion(block: KeywordBlock) -> Bc:
+        """``*Connector Motion``: ``connector set, component, magnitude`` lines, the TYPE parameter
+        saying whether the magnitude is a displacement or a velocity."""
+        props = comment_property(block, "Name", "Type")
+        bc_name = props.get("Name") or next(bc_counter)
+        kind = (block.params.get("TYPE") or "DISPLACEMENT").upper()
+        bc_type = Bc.TYPES.CONN_VEL if kind == "VELOCITY" else Bc.TYPES.CONN_DISPL
+        by_dof: dict[int, float | None] = {}
+        set_name = None
+        for line in block.data_lines:
+            ev = [x.strip() for x in line.split(",")]
+            set_name = ev[0]
+            by_dof[int(ev[1])] = float(ev[2]) if len(ev) > 2 and ev[2] else None
+        if "." in set_name:
+            inst, local = set_name.split(".", 1)
+            owner = next(p.fem for p in fem.parent.get_all_parts_in_assembly() if p.fem.instance_name == inst)
+        else:
+            owner, local = fem, set_name
+        fem_set = by_name(owner.elsets, local)
+        if fem_set is None:
+            raise ValueError(f'abaqus read: *Connector Motion names element set "{set_name}", which is not defined')
+        dofs = [x if x in by_dof else None for x in range(1, 7)]
+        magn = [by_dof.get(x) for x in range(1, 7)]
+        props = dict(bc_type=bc_type)
+        if any(m is not None for m in magn):
+            props["magnitudes"] = magn
+        amplitude = _bc_amplitude(block, bc_name)
+        if amplitude is not None:
+            props["amplitude"] = amplitude
+        return Bc(bc_name, fem_set, dofs, parent=fem, **props)
+
+    bcs: List[Bc] = []
+    for block in iter_keywords(bulk_str, "BOUNDARY"):
+        validate(block)
+        # Each data line names its own set or node, and a keyword block may mix them — the deck
+        # written by a solver rather than by CAE gives one line per constrained node. Group
+        # by the name so each becomes its own Bc; the usual single-set block is one group and
+        # so is unchanged.
+        by_set: Dict[str, List[str]] = {}
+        for line in block.data_lines:
+            name = line.split(",")[0].strip()
+            by_set.setdefault(name, []).append(line)
+        for lines in by_set.values():
+            bcs.append(get_bc(block, tuple(lines)))
+    for block in iter_keywords(bulk_str, "CONNECTOR MOTION"):
+        validate(block)
+        bcs.append(get_connector_motion(block))
+    return bcs
 
 
 def get_surfaces_from_bulk(bulk_str, parent):
@@ -729,11 +1090,13 @@ def get_surfaces_from_bulk(bulk_str, parent):
 
     surf_d = dict()
 
-    for m in cards.surface.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["name"].strip()
-        surf_type = d["type"].upper() if d["type"] is not None else "ELEMENT"
-        members_str: str = d["bulk"]
+    for block in iter_keywords(bulk_str, "SURFACE"):
+        validate(block)
+        name = (block.params.get("NAME") or "").strip()
+        # TYPE is optional and defaults to ELEMENT -- the guide's default, and previously
+        # unreachable because the pattern required TYPE to be present and to come first.
+        surf_type = block.params.get("TYPE", "ELEMENT").upper()
+        members_str: str = "\n".join(block.data_lines)
         if members_str.count("\n") >= 1:
             id_refs = [interpret_member(m) for m in members_str.splitlines()]
             set_ref, set_id_ref = None, None
@@ -813,26 +1176,44 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
     rbnames = Counter(1, "rgb")
     conames = Counter(1, "co")
 
-    for m in cards.tie.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["name"]
-        msurf = get_set_from_assembly(d["surf1"], fem, "surface")
-        ssurf = get_set_from_assembly(d["surf2"], fem, "surface")
-        constraints.append(Constraint(name, Constraint.TYPES.TIE, msurf, ssurf, metadata=dict(adjust=d["adjust"])))
+    for block in iter_keywords(bulk_str, "TIE"):
+        validate(block)
+        surfaces = _two_surfaces(block)
+        if surfaces is None:
+            continue
+        # ADJUST is optional per the guide; a *Tie without it is legal and used to not match.
+        msurf = get_set_from_assembly(surfaces[0], fem, "surface")
+        ssurf = get_set_from_assembly(surfaces[1], fem, "surface")
+        pos_tol = block.params.get("POSITION TOLERANCE")
+        constraints.append(
+            Constraint(
+                block.params.get("NAME"),
+                Constraint.TYPES.TIE,
+                msurf,
+                ssurf,
+                pos_tol=float(pos_tol) if pos_tol else None,
+                metadata=dict(adjust=block.params.get("ADJUST")),
+                parent=fem,
+            )
+        )
 
-    for m in cards.rigid_bodies.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = next(rbnames)
-        ref_node = get_set_from_assembly(d["ref_node"], fem, FemSet.TYPES.NSET)
-        elset = get_set_from_assembly(d["elset"], fem, FemSet.TYPES.ELSET)
+    for block in iter_keywords(bulk_str, "RIGID BODY"):
+        validate(block)
+        name = comment_property(block, "Constraint").get("Constraint") or next(rbnames)
+        ref_node = get_set_from_assembly(block.params.get("REF NODE"), fem, FemSet.TYPES.NSET)
+        elset = get_set_from_assembly(block.params.get("ELSET"), fem, FemSet.TYPES.ELSET)
         constraints.append(Constraint(name, Constraint.TYPES.RIGID_BODY, ref_node, elset, parent=fem))
 
     couplings = []
-    for m in cards.coupling.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["constraint_name"]
-        rn = d["ref_node"].strip()
-        sf = d["surface"].strip()
+    mark_read("COUPLING", "KINEMATIC")
+    all_blocks = tokenize(bulk_str)
+    for i, block in enumerate(all_blocks):
+        if block.keyword != "COUPLING":
+            continue
+        validate(block)
+        name = block.params.get("CONSTRAINT NAME")
+        rn = (block.params.get("REF NODE") or "").strip()
+        sf = (block.params.get("SURFACE") or "").strip()
         if rn.isnumeric():
             ref_set = FemSet(next(conames), [fem.nodes.from_id(int(rn))], FemSet.TYPES.NSET, parent=fem)
             fem.sets.add(ref_set)
@@ -841,31 +1222,38 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
 
         surf = fem.surfaces[sf]
 
-        res = np.fromstring(list_cleanup(d["bulk"]), sep=",", dtype=int)
+        # The DOF table belongs to the *Kinematic block that follows the *Coupling.
+        kinematic = next((c for c in all_blocks[i + 1 :][:1] if c.keyword == "KINEMATIC"), None)
+        if kinematic is None:
+            logger.warning("abaqus read: *Coupling %r (line %d) has no *Kinematic block", name, block.lineno)
+            continue
+        res = np.fromstring(list_cleanup(kinematic.data_text), sep=",", dtype=int)
         size = res.size
         cols = 2
         rows = int(size / cols)
         dofs = res.reshape(rows, cols)
 
-        csys_name = d.get("orientation", None)
+        csys_name = block.params.get("ORIENTATION")
+        csys = None
         if csys_name is not None:
-            if csys_name not in fem.lcsys.keys():
+            csys = by_name(fem.lcsys, csys_name)
+            if csys is None:
                 raise ValueError(f'Csys "{csys_name}" was not found on part {fem}')
-            csys = fem.lcsys[csys_name]
-        else:
-            csys = None
 
         couplings.append(Constraint(name, Constraint.TYPES.COUPLING, ref_set, surf, csys=csys, dofs=dofs, parent=fem))
 
     # Shell to Solid Couplings
     sh2solids = []
-    for m in cards.sh2so_re.regex.finditer(bulk_str):
-        d = m.groupdict()
-        name = d["constraint_name"].strip()
-        influence = d["influence_distance"]
-        pos_tol = d["position_tolerance"]
-        surf1 = get_set_from_assembly(d["surf1"], fem, "surface")
-        surf2 = get_set_from_assembly(d["surf2"], fem, "surface")
+    for block in iter_keywords(bulk_str, "SHELL TO SOLID COUPLING"):
+        validate(block)
+        surfaces = _two_surfaces(block)
+        if surfaces is None:
+            continue
+        name = (block.params.get("CONSTRAINT NAME") or "").strip()
+        influence = block.params.get("INFLUENCE DISTANCE")
+        pos_tol = block.params.get("POSITION TOLERANCE")
+        surf1 = _surface_or_set(surfaces[0], fem)
+        surf2 = _surface_or_set(surfaces[1], fem)
         sh2solids.append(
             Constraint(
                 name,
@@ -878,19 +1266,25 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
             )
         )
 
-    # MPC's
+    # MPC's -- one constraint per *MPC block (and per MPC type within it), named from the block's
+    # ``** Constraint:`` comment. Grouping every line of the deck by type merged separate MPCs
+    # into one and lost their names.
     mpc_dict = dict()
-    mpc_re = re.compile(r"\*mpc\n(?P<bulk>.*?)^\*", _re_in)
-    mpc_content = re.compile(r"\s*(?P<mpc_type>.*?),\s*(?P<master>.*?),\s*(?P<slave>.*?)$", _re_in)
-    for match in mpc_re.finditer(bulk_str):
-        d1 = match.groupdict()
-        for subm in mpc_content.finditer(d1["bulk"]):
-            d = subm.groupdict()
-            mpc_type = d["mpc_type"]
-            m = d["master"]
-            s = d["slave"]
-            if mpc_type not in mpc_dict.keys():
-                mpc_dict[mpc_type] = []
+    mpc_names = Counter(1, "mpc")
+    for block in iter_keywords(bulk_str, "MPC"):
+        validate(block)
+        block_name = comment_property(block, "Constraint").get("Constraint") or next(mpc_names)
+        block_types: list[str] = []
+        for line in block.data_lines:
+            fields = [x.strip() for x in line.split(",")]
+            if len(fields) < 3:
+                logger.warning("abaqus read: *MPC (line %d) data line %r needs three fields", block.lineno, line)
+                continue
+            mpc_type, m, s = fields[0], fields[1], fields[2]
+            if mpc_type not in block_types:
+                block_types.append(mpc_type)
+            key = (block_name, mpc_type)
+            mpc_dict.setdefault(key, [])
             try:
                 n1_ = str_to_int(m)
             except BaseException as e:
@@ -903,18 +1297,76 @@ def get_constraints_from_inp(bulk_str: str, fem: FEM) -> Dict[str, Constraint]:
                 logger.debug(e)
                 n2_ = get_set_from_assembly(s, fem, FemSet.TYPES.NSET)
 
-            mpc_dict[mpc_type].append((n1_, n2_))
+            mpc_dict[key].append((n1_, n2_))
+        if len(block_types) > 1:  # a block mixing types: one constraint per type, told apart by suffix
+            for t in block_types:
+                mpc_dict[(f"{block_name}_{t.lower()}", t)] = mpc_dict.pop((block_name, t))
 
-    def get_mpc(mpc_values):
-        m_set, s_set = zip(*mpc_values)
-        mpc_name = mpc_type + "_mpc"
-        mset = FemSet("mpc_" + mpc_type + "_m", m_set, FemSet.TYPES.NSET)
-        sset = FemSet("mpc_" + mpc_type + "_s", s_set, FemSet.TYPES.NSET)
+    def mpc_nodes(refs) -> list:
+        """The nodes an MPC names: a node id, or every node of a named set."""
+        nodes = []
+        for ref in refs:
+            if isinstance(ref, (int, np.integer)):
+                nodes.append(fem.nodes.from_id(int(ref)))
+            else:
+                nodes.extend(ref.members)
+        return nodes
+
+    def get_mpc(mpc_name, mpc_type, mpc_values):
+        m_refs, s_refs = zip(*mpc_values)
+        # Node objects on a set that knows its FEM: built from bare ids with no parent, the sets
+        # could not resolve their members, and writing the MPC back failed.
+        mset = FemSet(mpc_name + "_m", mpc_nodes(m_refs), FemSet.TYPES.NSET, parent=fem)
+        sset = FemSet(mpc_name + "_s", mpc_nodes(s_refs), FemSet.TYPES.NSET, parent=fem)
         return Constraint(mpc_name, Constraint.TYPES.MPC, mset, sset, mpc_type=mpc_type, parent=fem)
 
-    mpcs = [get_mpc(mpc_values_in) for mpc_values_in in mpc_dict.values()]
+    mpcs = [get_mpc(name, mpc_type, values) for (name, mpc_type), values in mpc_dict.items()]
 
-    return {c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs])}
+    return {
+        c.name: c for c in chain.from_iterable([constraints, couplings, sh2solids, mpcs, _equations(bulk_str, fem)])
+    }
+
+
+def _equations(bulk_str: str, fem: FEM) -> list[Constraint]:
+    """``*Equation`` blocks, one constraint per equation. A block may hold several; the first
+    takes the block's ``** Constraint:`` name, the rest that name with ``_<n>``."""
+    eq_names = Counter(1, "eq")
+    parts = fem.parent.get_all_parts_in_assembly() if fem.parent is not None else []
+
+    def operand(ref: str):
+        inst, _, local = ref.rpartition(".")
+        owner = fem if not inst else next((p.fem for p in parts if p.fem.instance_name == inst), None)
+        if owner is None:
+            raise ValueError(f'abaqus read: *Equation names instance "{inst}", which is not in the assembly')
+        if local.isdigit():
+            return node_by_id(owner, int(local))
+        found = by_name(owner.nsets, local) or by_name(owner.ref_sets.nodes, local)
+        if found is None:
+            raise ValueError(f'abaqus read: *Equation names node set "{ref}", which is not defined')
+        return found
+
+    def as_set(ref, name: str) -> FemSet:
+        if isinstance(ref, FemSet):
+            return ref
+        return FemSet(name, [ref], FemSet.TYPES.NSET, parent=ref.parent)
+
+    out = []
+    for block in iter_keywords(bulk_str, "EQUATION"):
+        validate(block)
+        tokens = [t.strip() for line in block.data_lines for t in line.split(",") if t.strip()]
+        block_name = comment_property(block, "Constraint").get("Constraint") or next(eq_names)
+        i, n_eq = 0, 0
+        while i < len(tokens):
+            n = int(tokens[i])
+            raw = tokens[i + 1 : i + 1 + 3 * n]
+            i += 1 + 3 * n
+            terms = [(operand(raw[k]), int(raw[k + 1]), float(raw[k + 2])) for k in range(0, len(raw), 3)]
+            name = block_name if n_eq == 0 else f"{block_name}_{n_eq}"
+            n_eq += 1
+            s_set = as_set(terms[0][0], f"{name}_s")
+            m_set = as_set(terms[1][0], f"{name}_m") if len(terms) > 1 else s_set
+            out.append(Constraint(name, Constraint.TYPES.EQUATION, m_set, s_set, equation_terms=terms, parent=fem))
+    return out
 
 
 def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
@@ -937,23 +1389,62 @@ def add_interactions_from_bulk_str(bulk_str, assembly: Assembly) -> None:
 
         return surf
 
-    for m in cards.contact_pairs.regex.finditer(bulk_str):
-        d = m.groupdict()
-        intprop = assembly.fem.intprops[d["interaction"]]
-        surf1 = resolve_surface_ref(d["surf1"])
-        surf2 = resolve_surface_ref(d["surf2"])
-
-        assembly.fem.add_interaction(Interaction(d["name"], ContactTypes.SURFACE, surf1, surf2, intprop, metadata=d))
-
-    for m in cards.contact_general.regex.finditer(bulk_str):
-        s = m.start()
-        e = m.endpos
-        interact_str = bulk_str[s:e]
-        d = m.groupdict()
-        intprop = assembly.fem.intprops[d["interaction"]]
-        # surf1 = resolve_surface_ref(d["surf1"])
-        # surf2 = resolve_surface_ref(d["surf2"])
-
+    for block in iter_keywords(bulk_str, "CONTACT PAIR"):
+        validate(block)
+        surfaces = _two_surfaces(block)
+        if surfaces is None:
+            continue
+        name = comment_property(block, "Interaction").get("Interaction") or next(gen_name)
+        intprop = by_name(assembly.fem.intprops, block.params.get("INTERACTION"))
+        surf1 = resolve_surface_ref(surfaces[0])
+        surf2 = resolve_surface_ref(surfaces[1])
+        # The fields the writer writes, under the names it reads them from -- not the raw
+        # parameter dict, which the writer never looks at, so a round trip lost them.
+        metadata = {}
+        if "SMALL SLIDING" in block.params:
+            metadata["small_sliding"] = "small sliding"
+        if block.params.get("ADJUST") is not None:
+            adjust = block.params.get("ADJUST")
+            try:
+                metadata["adjust"] = float(adjust)
+            except ValueError:
+                metadata["adjust"] = adjust  # a node set name
+        if block.params.get("GEOMETRIC CORRECTION") is not None:
+            metadata["geometric_correction"] = block.params.get("GEOMETRIC CORRECTION")
+        kwargs = {}
+        if block.params.get("TYPE") is not None:
+            kwargs["surface_type"] = block.params.get("TYPE")
         assembly.fem.add_interaction(
-            Interaction(next(gen_name), "general", None, None, intprop, metadata=dict(aba_bulk=interact_str))
+            Interaction(
+                name,
+                ContactTypes.SURFACE,
+                surf1,
+                surf2,
+                intprop,
+                constraint=block.params.get("MECHANICAL CONSTRAINT"),
+                metadata=metadata,
+                **kwargs,
+            )
         )
+
+    mark_read("CONTACT INCLUSIONS")
+    blocks = tokenize(bulk_str)
+    for block in iter_keywords(bulk_str, "CONTACT"):
+        validate(block)
+        intprop_name = _general_contact_interaction(bulk_str, block)
+        if intprop_name is None:
+            logger.warning("abaqus read: *Contact (line %d) has no property assignment", block.lineno)
+            continue
+        intprop = by_name(assembly.fem.intprops, intprop_name)
+        name = comment_property(block, "Interaction").get("Interaction") or next(gen_name)
+        # Typed, from the blocks that make it up. This used to keep bulk_str[block.start:] --
+        # the WHOLE rest of the deck -- as verbatim text, which the writer then wrote back.
+        metadata = {"contact_mod": block.params.get("OP") or "NEW"}
+        at = next((k for k, b in enumerate(blocks) if b.start == block.start), None)
+        after = blocks[at + 1 :] if at is not None else []
+        inclusions = next((b for b in after[:3] if b.keyword == "CONTACT INCLUSIONS"), None)
+        if inclusions is not None:
+            flags = [k for k, v in inclusions.params.items() if v is None]
+            if flags:
+                metadata["contact_inclusions"] = ", ".join(flags)
+        assembly.fem.add_interaction(Interaction(name, ContactTypes.GENERAL, None, None, intprop, metadata=metadata))

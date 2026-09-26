@@ -167,6 +167,28 @@ export type ResolutionMode =
   | { readonly kind: "as-of"; readonly revision: string }
   | { readonly kind: "run"; readonly revision: string };
 
+// --- attributes ------------------------------------------------------------------
+
+// `GET /assets/attributes/{provider}/{collection}/{node}` answers ONE node. The
+// document behind it covers a whole subject, and the route extracts from it, so
+// what arrives here is proportional to the selection rather than to the subtree.
+//
+// A 404 is the ordinary answer for "nothing recorded" -- a provider that
+// publishes no attributes, a document that does not mention the node, and a node
+// that is not published all reach it -- so a caller renders absence, not an error.
+export interface WireNodeAttributes {
+  readonly node: string;
+  readonly provider: string;
+  readonly revision: string | null;
+  readonly kind: string | null;
+  /** The entity's own facts, by name. */
+  readonly own: Readonly<Record<string, unknown>>;
+  /** Named property sets, keeping the source's own grouping. */
+  readonly groups: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  /** Quantities, kept apart so a consumer after numbers need not guess a group name. */
+  readonly quantities: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
+
 // --- delivery claims -------------------------------------------------------------
 //
 // `GET /assets/delivery/{provider}/{collection}/{node}` answers one of these two

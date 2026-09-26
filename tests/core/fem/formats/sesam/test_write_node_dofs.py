@@ -48,7 +48,7 @@ from ada.fem.formats.sesam.write.write_bcs import (
 )
 from ada.fem.formats.sesam.write.write_constraints import bldep_records
 from ada.fem.formats.sesam.write.write_loads import load_force
-from ada.fem.formats.sesam.write.write_masses import mass_str
+from ada.fem.formats.sesam.write.write_point_elements import point_elements_str
 from ada.fem.formats.sesam.write.writer import (
     ALL_SIX_DOF,
     NodeDofs,
@@ -161,12 +161,11 @@ def _bnbcd(text: str) -> dict[int, tuple[int, list[int]]]:
     return out
 
 
-def _bnmass(text: str) -> dict[int, tuple[int, list[float]]]:
-    out = {}
-    for m in cards.re_bnmass.finditer(text):
-        d = m.groupdict()
-        out[int(float(d["nodeno"]))] = (int(float(d["ndof"])), [float(x) for x in d["content"].split()])
-    return out
+def _mgmass(text: str) -> list[tuple[int, list[float]]]:
+    """[(NDOF, matrix diagonal)] of the MGMASS records (a point mass is a mass element)."""
+    from ada.fem.formats.sesam.read.read_elements import lower_matrix
+
+    return [(k.shape[0], np.diag(k).tolist()) for _, k in (lower_matrix(m) for m in cards.re_mgmass.finditer(text))]
 
 
 # ── the mesh rule ────────────────────────────────────────────────────────────────
@@ -332,30 +331,28 @@ def test_bldep_dependent_dof_above_its_ndof_raises():
         bnbcd_str([fem], [record], None, node_dofs(fem))
 
 
-# ── BNMASS ───────────────────────────────────────────────────────────────────────
+# ── MGMASS ───────────────────────────────────────────────────────────────────────
 
 
-def test_bnmass_on_a_3_dof_node_carries_three_components():
+def test_mgmass_on_a_3_dof_node_is_three_by_three():
+    """MGMASS's NDOF must equal the node's (manual 7.4.7)."""
     fem = _solid_with_mass_fem(12.0, MassTypes.MASS)
-    text = mass_str(fem, node_dofs(fem))
-    assert _bnmass(text) == {5: (3, [12.0, 12.0, 12.0])}
-    # and the reader gets it back, so the writer is not producing a deck ada can't read
-    assert int(float(next(cards.re_bnmass.finditer(text)).groupdict()["ndof"])) == 3
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(3, [12.0, 12.0, 12.0])]
 
 
-def test_bnmass_on_a_6_dof_node_is_unchanged():
+def test_mgmass_on_a_6_dof_node_is_unchanged():
     fem = _solid_with_mass_fem([1.0, 2.0, 3.0], MassTypes.ROTARYI)
-    assert _bnmass(mass_str(fem, node_dofs(fem))) == {5: (6, [0.0, 0.0, 0.0, 1.0, 2.0, 3.0])}
+    assert _mgmass(point_elements_str(fem, node_dofs(fem))) == [(6, [0.0, 0.0, 0.0, 1.0, 2.0, 3.0])]
 
 
 def test_rotary_inertia_written_onto_a_3_dof_node_raises():
     """The guard, driven with a NodeDofs that disagrees with the mass. ``node_dofs`` would
     never say this -- a rotary inertia promotes its node -- but the check has to be at the
-    record, because that is where a truncated BNMASS would silently drop the inertia."""
+    record, because that is where a truncated MGMASS would silently drop the inertia."""
     fem = _solid_with_mass_fem([1.0, 2.0, 3.0], MassTypes.ROTARYI)
     lying = NodeDofs(np.array([5], dtype=np.int64), np.array([False]))
-    with pytest.raises(ValueError, match=r"rotary inertia on dof\(s\) \[4, 5, 6\] of node 5"):
-        mass_str(fem, lying)
+    with pytest.raises(ValueError, match=r"terms on dofs its node\(s\) do not have \(NDOF=3\)"):
+        point_elements_str(fem, lying)
 
 
 # ── BNLOAD ───────────────────────────────────────────────────────────────────────

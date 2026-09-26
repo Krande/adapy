@@ -2,6 +2,24 @@
 
 
 
+## v0.90.0 (2026-09-26)
+
+### Feature
+
+* feat(abaqus): one grammar for reading and writing; full round-trip coverage, Abaqus and Sesam (#386)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`f950c6d`](https://github.com/Krande/adapy/commit/f950c6dad67eaa0b10aa2e992180f6218881fc79))
+
+
+## v0.89.0 (2026-09-26)
+
+### Feature
+
+* feat: registerAssetTreeClient (#392)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`b4782a4`](https://github.com/Krande/adapy/commit/b4782a42162fa3ce74029e9d353c8b6fce917d00))
+
+
 ## v0.88.0 (2026-09-25)
 
 ### Feature

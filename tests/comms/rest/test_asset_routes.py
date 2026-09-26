@@ -18,6 +18,7 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from tests.core.assets.fixture_provider import FIXTURE_PROVIDER_ID  # noqa: E402
 from tests.core.assets.fixture_provider.provider import (  # noqa: E402
     FakeStore,
     publish_fixture,
@@ -198,3 +199,82 @@ def test_files_listing_accepts_a_bounded_prefix(client_and_revision):
     # ... and it is genuinely narrower than the unbounded listing.
     everything = client.get("/api/scopes/user:me/files").json()["files"]
     assert len(keys) < len(everything)
+
+
+# --- attributes -----------------------------------------------------------------------------------
+#
+# The route serves ONE node out of a document that covers a subject, so these are about what
+# crosses the wire and about the three absences that all mean "nothing recorded".
+
+
+def test_attributes_answers_one_node_from_the_published_document(client_and_revision):
+    client, revision = client_and_revision
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a"))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["node"] == "pump-a"
+    assert body["provider"] == FIXTURE_PROVIDER_ID
+    assert body["revision"] == revision
+    assert body["own"]["ref"] == "pump-a"
+    assert body["groups"]["vendor"]["cat"] == body["kind"]
+
+
+def test_attributes_never_ships_the_whole_subject_to_answer_one_selection(client_and_revision):
+    """The document covers a subtree; the reply is one node. That is the reason it is a route
+    rather than a blob the browser fetches."""
+    client, _ = client_and_revision
+    body = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a")).json()
+    assert set(body) == {"node", "provider", "revision", "kind", "own", "groups", "quantities"}
+
+
+def test_a_subject_that_publishes_no_attributes_reads_as_nothing_recorded(client_and_revision):
+    """``unit-1`` is a branch: the fixture writes attributes for leaves only."""
+    client, _ = client_and_revision
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/unit-1"))
+    assert r.status_code == 404
+    assert "publishes no attributes" in r.json()["detail"]
+
+
+def test_a_node_the_document_does_not_mention_is_a_404_too(client_and_revision):
+    """Same answer as "no artefact": a caller asking what something is cannot act differently."""
+    client, _ = client_and_revision
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a"), params={"subject": "pump-b"})
+    assert r.status_code == 404
+
+
+def test_an_unpublished_node_is_a_404_and_not_a_500(client_and_revision):
+    client, _ = client_and_revision
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/no-such-node"))
+    assert r.status_code == 404
+
+
+def test_an_unreadable_attributes_blob_is_a_502_because_the_blob_is_there(client_and_revision, tmp_path):
+    """A stored document core cannot read is not a missing one -- calling it missing sends the
+    caller looking for the wrong problem."""
+    from ada.comms.rest.routes.assets import clear_asset_attributes_cache
+
+    client, revision = client_and_revision
+    blob = tmp_path / "users" / "local-dev" / "assets" / COLLECTION / "pump-a" / revision / "attributes.json"
+    blob.write_text('{"schema": "ada.assets/attributes@99", "nodes": {}}', encoding="utf-8")
+    clear_asset_attributes_cache()
+
+    r = client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a"))
+    assert r.status_code == 502
+    assert "schema" in r.json()["detail"]
+
+
+def test_the_document_is_parsed_once_per_revision(client_and_revision, monkeypatch):
+    """The cache needs no invalidation: a revision's bytes never change, and a republish is a NEW
+    revision at a new key. So a second selection in the same subject must not re-parse."""
+    from ada.comms.rest.routes import assets as assets_routes
+
+    client, _ = client_and_revision
+    assets_routes.clear_asset_attributes_cache()
+
+    calls = []
+    real = assets_routes.parse_attributes
+    monkeypatch.setattr(assets_routes, "parse_attributes", lambda raw: (calls.append(1), real(raw))[1])
+
+    for _ in range(3):
+        assert client.get(_scope_url(f"attributes/{FIXTURE_PROVIDER_ID}/{COLLECTION}/pump-a")).status_code == 200
+    assert len(calls) == 1
