@@ -24,7 +24,12 @@ import pathlib
 import pytest
 
 import ada
-from ada.api.cli import _cmd_convert, _deck_name, _resolve_superelement, _sesam_superelement
+from ada.api.cli import (
+    _cmd_convert,
+    _deck_name,
+    _resolve_superelement,
+    _sesam_superelement,
+)
 from ada_cli import CliUsageError
 
 
