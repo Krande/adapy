@@ -251,10 +251,15 @@ def test_the_orientations_read_back_from_the_kernel_are_the_beams_yvecs(frame_ru
 def test_an_inp_exported_from_cae_reads_back_into_adapy(frame_run):
     """The round trip, and the limit that makes it usable.
 
-    adapy's INP reader has no ``RECT`` branch and ``cards.re_beam`` matches ``*Beam Section`` only, so
-    ``*Beam General Section`` is invisible to it: a FLATBAR, a CHANNEL or a POLY member reads back as
-    *nothing*, and "0 sections against 0 sections" would pass. So the compared model is restricted to
-    I / BOX / L, and **the absence of a section is a hard failure here**, not a silent pass.
+    adapy's INP reader has no ``RECT`` branch, so a FLATBAR or a POLY member reads back as *nothing*,
+    and "0 sections against 0 sections" would pass. So the compared model is restricted to I / BOX / L,
+    and **the absence of a section is a hard failure here**, not a silent pass.
+
+    Members are matched by **elset**, not by the section's name. Abaqus/CAE writes the section's own
+    name in the ``** Section:`` comment above the block and the member's name on ``elset=``, and the
+    reader reads that comment -- so a section comes back as ``sec_BG200x200x10_S355`` rather than
+    inheriting its set's name. That is the right way round; a section renamed after one of its sets was
+    the bug. It does mean the elset is what still carries the member, so that is what this matches on.
     """
     assembly, run = frame_run
     _assert_ran(run)
@@ -272,7 +277,11 @@ def test_an_inp_exported_from_cae_reads_back_into_adapy(frame_run):
         "catch, not a pass".format(len(fem.sections), len(expected))
     )
     for section in fem.sections:
-        beam = expected[section.name]
+        member = section.elset if isinstance(section.elset, str) else section.elset.name
+        assert member in expected, "section {!r} came back on elset {!r}, which is not a member".format(
+            section.name, member
+        )
+        beam = expected[member]
         assert section.section.type == beam.section.type, "member {!r} changed section type".format(beam.name)
         assert tuple(float(v) for v in section.local_y) == pytest.approx(
             tuple(float(v) for v in beam.yvec), abs=1e-6

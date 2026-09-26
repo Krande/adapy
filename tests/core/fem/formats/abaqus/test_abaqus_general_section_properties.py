@@ -27,7 +27,14 @@ from ada.sections import GeneralProperties
 
 @pytest.fixture
 def channel() -> ada.Section:
-    """A channel -- the profile that reaches the GENERAL path in the Abaqus writer today."""
+    """A channel: the profile the defect was found on, and a computed ``Iyz`` of exactly zero.
+
+    A channel no longer *reaches* the GENERAL path -- the writer traces one as ``section=ARBITRARY``
+    now -- but these tests are about ``eval_general_properties`` itself, and what they need is a
+    section whose product of inertia was computed and came out zero. That is still every channel, and
+    it is also every box, tubular, I, circular and flatbar, so the fixture stays the profile the
+    measurement was made on.
+    """
     return ada.Section("UNP200", from_str="UNP200x10")
 
 
@@ -115,18 +122,49 @@ def test_a_missing_or_non_positive_second_moment_is_still_substituted(attr):
     assert getattr(gp, attr) > 0.0
 
 
-def test_a_channel_in_a_written_deck_carries_its_true_inertia(tmp_path):
-    """End to end: the number that reaches the *Beam General Section* data line."""
-    bm = ada.Beam("BM", (0, 0, 0), (2, 0, 0), "UNP200x10")
+def test_a_declared_general_section_in_a_written_deck_carries_its_true_inertia(tmp_path):
+    """End to end: the number that reaches the *Beam General Section* data line.
+
+    This used to be written with a channel, because a channel was the profile that *reached* the
+    GENERAL path. It no longer is: the Abaqus writer gained ``section=ARBITRARY``, which traces a
+    channel's three walls exactly, so no channel goes out as a generalized section any more. The
+    defect this guards is untouched by that -- it lives in ``eval_general_properties``, which every
+    ``*Beam General Section`` still goes through -- so the test moves to the case that reaches it
+    today: a section **declared** GENERAL, carrying properties symmetric about an axis.
+
+    Those properties are a real channel's, so the numbers below are the same ones the original
+    measurement was made on. Measured on 0.90.0 with the fix reverted, this exact deck:
+
+        Iy   1.9270167e-05  ->  9.2119969e-05   (x 4.78)
+        Iyz            0.0  ->  1.0488131e-05   (fabricated from a computed zero)
+
+    Both behind a log line, and written into the cached ``GeneralProperties`` as well, so a later
+    export in the same process inherited them.
+    """
+    channel_props = ada.Section("UNP200", from_str="UNP200x10").properties
+    sec = ada.Section(
+        "GENCHAN",
+        sec_type="GENERAL",
+        genprops=GeneralProperties(
+            Ax=channel_props.Ax,
+            Ix=channel_props.Ix,
+            Iy=channel_props.Iy,
+            Iz=channel_props.Iz,
+            Iyz=0.0,
+        ),
+    )
+    true_iy = sec.properties.Iy
+    assert sec.properties.Iyz == 0.0, "precondition: the declared product of inertia is a computed zero"
+
+    bm = ada.Beam("BM", (0, 0, 0), (2, 0, 0), sec=sec)
     p = ada.Part("P") / bm
     a = ada.Assembly("A") / p
-    true_iy = bm.section.properties.Iy
 
     p.fem = p.to_fem_obj(mesh_size=100.0, experimental_bm_splitting=False)
-    a.to_fem("chan", fem_format="abaqus", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    a.to_fem("gen", fem_format="abaqus", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
 
-    deck = (tmp_path / "chan" / "chan.inp").read_text()
-    assert "*Beam General Section" in deck, "precondition: a channel goes out as a GENERAL section"
+    deck = (tmp_path / "gen" / "gen.inp").read_text()
+    assert "*Beam General Section" in deck, "precondition: a declared GENERAL section goes out as one"
 
     lines = deck.splitlines()
     idx = next(i for i, ln in enumerate(lines) if ln.startswith("*Beam General Section"))
@@ -134,3 +172,4 @@ def test_a_channel_in_a_written_deck_carries_its_true_inertia(tmp_path):
     assert any(
         v == pytest.approx(true_iy, rel=1e-9) for v in numbers
     ), f"the deck should carry the section's own Iy={true_iy:.6e}; its data line was {numbers}"
+    assert numbers[2] == 0.0, f"and its computed zero Iyz, not a substitute; the data line was {numbers}"
