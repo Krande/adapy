@@ -25,7 +25,7 @@
 # |        `\             |        `\          |         \            |             \
 # 0----------1 --> u      0-----3----1         0---3---4---1          0---3---4---5---1
 # """
-from ada.fem.shapes.definitions import ShellShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes
 
 _TRI_CORNER_EDGES = [[0, 1], [1, 2], [2, 0]]
 _QUAD_CORNER_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0]]
@@ -107,4 +107,28 @@ shell_abaqus_edges = {
     ShellShapes.QUAD: _QUAD_ABAQUS_EDGES,
     ShellShapes.QUAD8: _QUAD8_ABAQUS_EDGES,
     ShellShapes.QUAD9: _QUAD8_ABAQUS_EDGES,
+}
+
+
+# ---------------------------------------------------------------------------
+# The *shape* of each Abaqus shell edge, in the same order as
+# ``shell_abaqus_edges``. A shell edge is a one-dimensional facet, and a caller
+# evaluating shape functions along it needs to know whether it carries a mid-side
+# node. Node count alone is ambiguous -- three nodes is a LINE3 edge or a TRI3
+# face -- so the topology is stated.
+_TRI_ABAQUS_EDGE_SHAPES = (LineShapes.LINE,) * 3
+_TRI6_ABAQUS_EDGE_SHAPES = (LineShapes.LINE3,) * 3
+_QUAD_ABAQUS_EDGE_SHAPES = (LineShapes.LINE,) * 4
+_QUAD8_ABAQUS_EDGE_SHAPES = (LineShapes.LINE3,) * 4
+
+#: ``{shape: (shape of edge E1, shape of edge E2, ...)}`` -- aligned one-to-one with
+#: :data:`shell_abaqus_edges`. TRI7 / QUAD9 carry a *centre* node, which lies on no
+#: edge, so their edges are those of TRI6 / QUAD8.
+shell_abaqus_edge_shapes = {
+    ShellShapes.TRI: _TRI_ABAQUS_EDGE_SHAPES,
+    ShellShapes.TRI6: _TRI6_ABAQUS_EDGE_SHAPES,
+    ShellShapes.TRI7: _TRI6_ABAQUS_EDGE_SHAPES,
+    ShellShapes.QUAD: _QUAD_ABAQUS_EDGE_SHAPES,
+    ShellShapes.QUAD8: _QUAD8_ABAQUS_EDGE_SHAPES,
+    ShellShapes.QUAD9: _QUAD8_ABAQUS_EDGE_SHAPES,
 }
