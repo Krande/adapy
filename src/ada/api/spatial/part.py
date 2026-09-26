@@ -1812,10 +1812,19 @@ class Part(BackendGeom):
         per adapy part, one wire per beam, with sections and orientations assigned to
         edges rather than to elements.
 
-        Phase 1 translates **straight beams only**. Curved/tapered/swept/revolved beams
-        and beams with an ``e1``/``e2`` offset are *refused*, because a straight wire
-        would misrepresent them silently; plates and other objects are omitted and
-        listed in the script's header and result sidecar.
+        Beams are translated: straight ones as wires, and ``BeamCurved``/``BeamRevolve``
+        along their own exact curve as a spline whose arc length is checked against the
+        curve's in the kernel. A constant ``e1``/``e2`` offset becomes the section's own
+        offset (``*Beam Section Offset``, or ``*Centroid`` for a generalized section,
+        which CAE refuses the former on) -- verified against adapy's ``*MPC BEAM`` route
+        through the solver, to identical displacements.
+
+        Still *refused*, each because it would otherwise be silently misrepresented: a
+        ``BeamTapered`` (CAE accepts one but segfaults writing its deck), a ``BeamSweep``
+        whose path has several legs, a *varying* offset (one section offset cannot express
+        ``e1 != e2``), an axial offset, an offset on a curve, and a member meeting another
+        away from its ends. Plates and other objects are omitted and listed in the
+        script's header and result sidecar.
 
         :param destination: the ``.py`` script to write.
         :param model_name: the CAE model to build into.
