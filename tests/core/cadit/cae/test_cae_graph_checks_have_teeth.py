@@ -31,6 +31,7 @@ from .cae_script_graph import (
     ALL_CHECKS,
     CaeGraphError,
     ScriptGraph,
+    check_analysis_references_resolve,
     check_emitted_script,
     check_every_member_is_sectioned_and_oriented,
     check_every_part_instanced_once,
@@ -63,6 +64,18 @@ _ORIENT_COL1 = "region=region_col1, method=N1_COSINES, n1=(1.0, 0.0, 0.0)"
 _GIRDER_CYLINDER = "center1=(-0.01, 0.0, 4.0), center2=(6.01, 0.0, 4.0), radius=0.001"
 _GIRDER_LOOKUP = "edges_girder = p.edges.getByBoundingCylinder({})".format(_GIRDER_CYLINDER)
 _INSTANCE = 'a.Instance(name="Frame-1", part=p, dependent=ON)'
+
+
+def wrapped(*arguments: str) -> str:
+    """Anchor text for a call black has wrapped one argument per line, at one indent level.
+
+    An anchor that spans lines is still exact text -- black's output is deterministic -- and
+    building it from the arguments keeps it readable and keeps the indentation in one place. A
+    rewrap shows up as `test_each_anchor_matches_the_specimen_exactly_once` failing, which is what
+    that test is for: a mutation that has quietly stopped mutating proves nothing.
+    """
+    return "\n".join("        " + argument for argument in arguments)
+
 
 DEFECTS = (
     # --- orientation ---------------------------------------------------------------------------
@@ -203,6 +216,37 @@ DEFECTS = (
         'p.SectionAssignment(region=(), sectionName="sec_HP200")',
         check_members_are_located_by_a_cylinder_spanning_them,
         "empty region",
+    ),
+    # --- the analysis: supports, loads and the step chain --------------------------------------
+    Defect(
+        "load_in_a_step_that_does_not_exist",
+        'm.ConcentratedForce(name="px_F", createStepName="lc1"',
+        'm.ConcentratedForce(name="px_F", createStepName="nowhere"',
+        check_analysis_references_resolve,
+        "neither 'Initial' nor a step this script creates",
+    ),
+    Defect(
+        "load_region_never_built",
+        '_analysis_region(a, "TOP", "Frame-1", ((6.0, 0.0, 4.0),), "TOP")',
+        '_analysis_region(a, "TOPP", "Frame-1", ((6.0, 0.0, 4.0),), "TOPP")',
+        check_analysis_references_resolve,
+        "which is never created",
+    ),
+    # These two anchors span several lines, because black wraps a six-keyword call one argument
+    # per line and the specimen is formatted like the rest of the repo. See `wrapped`.
+    Defect(
+        "a_support_that_restrains_nothing",
+        wrapped("u1=0.0,", "u2=0.0,", "u3=0.0,", "ur1=0.0,", "ur2=0.0,", "ur3=0.0,"),
+        wrapped("u1=UNSET,", "u2=UNSET,", "u3=UNSET,", "ur1=UNSET,", "ur2=UNSET,", "ur3=UNSET,"),
+        check_analysis_references_resolve,
+        "leaves every DOF UNSET",
+    ),
+    Defect(
+        "a_step_chain_that_is_not_a_chain",
+        wrapped('name="lc1",', 'previous="Initial",'),
+        wrapped('name="lc1",', 'previous="lc0",'),
+        check_analysis_references_resolve,
+        "neither 'Initial' nor a step created before it",
     ),
     # --- preamble, failure signalling, syntax floor ---------------------------------------------
     Defect(

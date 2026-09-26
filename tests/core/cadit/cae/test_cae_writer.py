@@ -1079,14 +1079,38 @@ class FakePart:
 
 
 class FakeModel:
-    """Only what the guards read: parts, and the four name spaces guard 7 checks."""
+    """Only what the guards read: parts, and every name space guard 7 checks.
 
-    def __init__(self, parts, materials=None, profiles=None, sections=None, instances=None):
+    ``steps`` defaults to ``{"Initial": ...}`` rather than to empty, because that is what a real
+    CAE model already holds before a script creates anything -- and a step in the source model
+    named ``Initial`` is exactly the collision guard 7 has to catch there.
+    """
+
+    def __init__(
+        self,
+        parts,
+        materials=None,
+        profiles=None,
+        sections=None,
+        instances=None,
+        steps=None,
+        boundary_conditions=None,
+        loads=None,
+        assembly_sets=None,
+        field_output_requests=None,
+    ):
         self.parts = parts
         self.materials = materials if materials is not None else {}
         self.profiles = profiles if profiles is not None else {}
         self.sections = sections if sections is not None else {}
-        self.rootAssembly = types.SimpleNamespace(instances=instances if instances is not None else {})
+        self.steps = {"Initial": object()} if steps is None else steps
+        self.boundaryConditions = boundary_conditions if boundary_conditions is not None else {}
+        self.loads = loads if loads is not None else {}
+        self.fieldOutputRequests = field_output_requests if field_output_requests is not None else {}
+        self.rootAssembly = types.SimpleNamespace(
+            instances=instances if instances is not None else {},
+            sets=assembly_sets if assembly_sets is not None else {},
+        )
 
 
 def load_emitted_script(text, tmp_path, monkeypatch):
@@ -1238,7 +1262,7 @@ def test_guard_five_records_the_reason_and_forces_a_non_zero_status(tmp_path, mo
     result = json.loads(sidecar.read_text())
     assert result["ok"] is False
     assert result["errors"] == ["something went wrong halfway"]
-    assert result["schema"] == "ada.cae_build_result/3"
+    assert result["schema"] == "ada.cae_build_result/4"
 
 
 def test_the_sidecar_name_follows_the_script_stem(tmp_path):

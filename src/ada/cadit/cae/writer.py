@@ -71,6 +71,32 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    The solver can, and that is where the sign of the projection was pinned; see
    :func:`beam_section_offset`.
 
+9. **Every support and load arrives, at a vertex, or nothing is written.** The analysis
+   comes from ``FEM.bcs`` and the ``Load`` records inside ``FEM.steps`` -- see
+   :mod:`ada.cadit.cae.analysis` on which of adapy's two stores that is and why. A support
+   or load whose node is not at a vertex of the emitted geometry is refused rather than
+   attached to a located mesh node, which would hold exactly until the part was meshed
+   again. Every load type but ``force`` is refused *by name at plan time*, which is the
+   thing adapy's Sesam writer does not do: the same case there falls off the end of
+   ``load_str`` returning ``None`` and surfaces as ``TypeError: can only concatenate str
+   (not "NoneType") to str`` several frames from the cause. A ``Bc`` **magnitude** is
+   written as a prescribed displacement, which the Sesam writer also does not do -- it
+   defines ``PRESCRIBED = 2`` and its own comment says the magnitudes "are not carried into
+   BNDISPL yet", so a settlement case silently becomes a fixed support there.
+10. **The solver's own reaction sum is checked against the load adapy described.** With
+   ``submit=True`` the script runs the job and adds up ``RF`` and ``CF`` over every node in
+   the ODB: the two must cancel, and the ``CF`` total must be the resultant adapy computed
+   from its own ``Load`` records. A halved or dropped load is the defect a displacement
+   comparison would otherwise have to infer from the answer, and this states it directly.
+   ``job.status`` is **not** consulted, and that is measured: after ``waitForCompletion()``
+   under ``cae noGUI=`` it reads ``None``, so a check against ``COMPLETED`` would fail every
+   clean run. The ``.sta`` file's own closing line is used instead.
+11. **The displacements are written out where a reader can get at them.** The job's ODB is
+   read in the same run and ``<stem>.cae_displacements.json`` records each node's position
+   and its six components per step. Abaqus splits them across **two** fields --
+   ``U`` is ``(U1, U2, U3)`` and ``UR`` is ``(UR1, UR2, UR3)``, measured -- so a reader that
+   expects six components in one field finds three; the sidecar joins them once, here.
+
 ``unit_scale`` is accepted only as ``1.0``. It used to multiply coordinates and profile
 dimensions, which is a trap and not a feature: ``E`` and the density were left alone, so
 ``unit_scale=1000`` emitted ``IProfile(h=300.0)`` beside ``Elastic(table=((2.1e11, 0.3),))``
@@ -91,6 +117,16 @@ import numpy as np
 
 from ada.config import Config, get_logger
 
+from .analysis import (
+    BC_KEYWORDS,
+    FORCE_KEYWORDS,
+    MOMENT_KEYWORDS,
+    AnalysisNotSupported,
+    AnalysisPlan,
+    check_element_type,
+    plan_analysis,
+    vertex_index,
+)
 from .curves import (
     CURVE_LENGTH_REL_TOL,
     MAX_TURN_RADIANS,
@@ -168,6 +204,44 @@ MIN_BEAM_LENGTH = 1e-09
 #: for these to underflow has already been refused by ``MIN_BEAM_LENGTH``.
 CYLINDER_RADIUS_FRACTION = 1e-04
 CYLINDER_OVERSHOOT_FRACTION = 1e-04
+
+#: The line Abaqus/Standard writes at the end of a ``.sta`` on a clean solve. The emitted
+#: script reads this rather than ``job.status``, and that is measured rather than stylistic:
+#: after ``job.waitForCompletion()`` under ``abaqus cae noGUI=``, ``job.status`` is ``None``
+#: (probed on Abaqus 2025, with ``ABAQUS_DISABLE_MONITORING`` set as the launcher sets it), so
+#: a check against ``COMPLETED`` fails every clean run.
+SOLVER_SUCCESS_MARKER = "THE ANALYSIS HAS COMPLETED SUCCESSFULLY"
+
+#: How closely the solver's own reaction total must cancel the applied load, relative to the
+#: largest force anywhere in the model, with an absolute floor for a model carrying none.
+#:
+#: 1e-04, and the basis is the ODB rather than the solver: **field data in an ODB is single
+#: precision**, so adding up N nodal reactions carries about ``sqrt(N) * eps32 * max`` of
+#: cancellation noise -- roughly 2e-05 of the largest reaction at 100 000 nodes. 1e-04 is about
+#: five times that, and every defect this check exists for is at least half the load: a load
+#: dropped, a load halved, a load applied to the wrong number of nodes. On the portal frame the
+#: numbers are exact anyway -- Abaqus reported ``-10000.0`` against an applied ``10000.0``.
+#:
+#: Scaled by the largest force in the model and not only by the applied resultant, because a
+#: model held by a *prescribed displacement* has no applied force at all and real reactions, and
+#: comparing its round-off against an absolute 1e-06 N would fail a perfectly good solve.
+EQUILIBRIUM_REL_TOL = 1e-04
+EQUILIBRIUM_ABS_FLOOR = 1e-06
+
+#: Field output the emitted script asks for. ``U`` brings ``UR`` with it and ``RF`` brings
+#: ``RM`` (measured: asking for ``('U', 'RF', 'CF')`` produced ``U, UR, RF, RM, CF, CM`` in the
+#: ODB), but both are named anyway so the request says what the script depends on.
+FIELD_OUTPUT_VARIABLES = ("U", "UR", "RF", "RM", "SF", "S", "E")
+
+#: The name of the one field output request the script creates. One, on the first step: a CAE
+#: field output request applies from the step it is created in onwards.
+FIELD_OUTPUT_REQUEST_NAME = "F-adapy"
+
+#: Characters an Abaqus job name may hold. Probed only to the extent that the writer needs:
+#: the job name becomes ``<name>.odb``/``.sta``/``.dat`` on disk and is passed on a command
+#: line, so it is kept to the conservative set rather than sanitised into something the user
+#: did not ask for.
+_JOB_NAME_CHARACTERS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 
 
 class CaeWriteError(Exception):
@@ -283,6 +357,21 @@ class _Plan:
     sections: list[_SectionUse] = field(default_factory=list)
     skipped: list[SkippedObject] = field(default_factory=list)
     registries: dict[str, NameRegistry] = field(default_factory=dict)
+    #: The supports, loads and steps this model carries, resolved and refused by
+    #: :mod:`ada.cadit.cae.analysis`. Empty for a model that carries none.
+    analysis: AnalysisPlan = field(default_factory=AnalysisPlan)
+    #: Element seed size, or ``None`` to emit the geometry (and any analysis definition)
+    #: without meshing it. A CAE model can carry a step, a support and a load with no mesh
+    #: at all -- they attach to vertices -- so the mesh is a separate choice from the
+    #: analysis.
+    mesh_size: float | None = None
+    element_type: str = ""
+    job_name: str = ""
+    submit: bool = False
+
+    @property
+    def meshed(self) -> bool:
+        return self.mesh_size is not None
 
 
 def _load_profile_spec():
@@ -681,7 +770,57 @@ def _part_topology(part_plan: _PartPlan, joint_tol: float) -> PartTopology:
     return expected_topology(segments, joint_tol)
 
 
-def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0) -> _Plan:
+def check_mesh_and_job(
+    mesh_size: float | None, element_type: str, job_name: str, submit: bool
+) -> tuple[float | None, str, str]:
+    """The mesh seed, the element code and the job name, or a refusal for each.
+
+    ``element_type`` is validated even when nothing is meshed: a code the writer would refuse
+    is a statement about the analysis the caller wanted, and accepting it silently because
+    this particular call happens not to reach the mesher is how it would then be trusted.
+    """
+    try:
+        code = check_element_type(element_type)
+    except AnalysisNotSupported as exc:
+        # One exception type for "this model cannot be expressed as a CAE model", the way a
+        # CurveNotSupported is also re-raised as the writer's own error.
+        raise CaeWriteError(str(exc)) from exc
+    size = None
+    if mesh_size is not None:
+        size = float(mesh_size)
+        if not size > 0.0:
+            raise CaeWriteError(
+                "mesh_size={0!r} is not a length. An element seed has to be a positive number in the "
+                "model's own units.".format(mesh_size)
+            )
+    if submit and size is None:
+        raise CaeWriteError(
+            "submit=True with no mesh_size. A job submitted on an unmeshed part has nothing to solve: "
+            "Abaqus writes a deck with no elements in it and the run fails inside the solver rather "
+            "than here. Pass the element seed size you want, in the model's own units."
+        )
+    bad = sorted(set(job_name) - _JOB_NAME_CHARACTERS)
+    if not job_name or bad:
+        raise CaeWriteError(
+            "the job name {0!r} cannot be used: {1}. It becomes <name>.odb, <name>.sta and <name>.dat "
+            "on disk and is passed to the solver on a command line, so it is kept to letters, digits, "
+            "underscore and dash rather than sanitised into a name nobody asked for.".format(
+                job_name, "it is empty" if not job_name else "it holds " + ", ".join(repr(c) for c in bad)
+            )
+        )
+    return size, code, job_name
+
+
+def build_plan(
+    root: Part,
+    model_name: str = "Model-1",
+    unit_scale: float = 1.0,
+    *,
+    mesh_size: float | None = None,
+    element_type: str = "B31",
+    job_name: str = "adapy_job",
+    submit: bool = False,
+) -> _Plan:
     """Resolve the whole emission before any text is written.
 
     Every refusal happens here, so a model that cannot be expressed leaves no
@@ -689,10 +828,15 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
     """
     profile_spec = _load_profile_spec()
     check_unit_scale(unit_scale)
+    mesh_size, element_type, job_name = check_mesh_and_job(mesh_size, element_type, job_name, submit)
 
     plan = _Plan(
         root_name=root.name,
         model_name=model_name,
+        mesh_size=mesh_size,
+        element_type=element_type,
+        job_name=job_name,
+        submit=submit,
         units=str(getattr(getattr(root, "units", ""), "value", getattr(root, "units", ""))),
         # adapy's own definition of "these two points are the same point": the tolerance
         # its FEM node container merges nodes at and its Connections.find() looks for
@@ -851,6 +995,19 @@ def build_plan(root: Part, model_name: str = "Model-1", unit_scale: float = 1.0)
 
     plan.materials = [materials_seen[name] for name in sorted(materials_seen)]
     plan.sections = [sections_seen[name] for name in sorted(sections_seen)]
+
+    # The analysis last, because it is resolved *against* the geometry: every support and
+    # load has to land on a vertex the plan above will build, which is only knowable once
+    # every part's topology -- member ends plus imprinted split points -- has been computed.
+    try:
+        plan.analysis, analysis_registries = plan_analysis(
+            root, vertex_index(plan.parts, plan.joint_tol), plan.registries[_SET_SCOPE], plan.joint_tol
+        )
+    except AnalysisNotSupported as exc:
+        # Re-raised as the writer's own error, the way a CurveNotSupported is, so a caller has
+        # one exception type to catch for "this model cannot be expressed as a CAE model".
+        raise CaeWriteError(str(exc)) from exc
+    plan.registries.update(analysis_registries)
     return plan
 
 
@@ -928,7 +1085,7 @@ def _bbox_tolerance(boxes: dict) -> float:
     return max(1e-06, diagonal * 1e-07)
 
 
-def _header(plan: _Plan, result_name: str, adapy_version: str) -> list[str]:
+def _header(plan: _Plan, result_name: str, adapy_version: str, displacements_name: str = "") -> list[str]:
     beams = sum(len(p.members) for p in plan.parts)
     curved = sum(1 for p in plan.parts for m in p.members if m.is_curved)
     offsets = sum(1 for use in plan.sections if use.offset is not None)
@@ -967,6 +1124,43 @@ def _header(plan: _Plan, result_name: str, adapy_version: str) -> list[str]:
             ),
             "# section's own (n1, n2) axes. Abaqus writes one as '*Beam Section Offset', or as",
             "# '*Centroid' for a generalized section, which refuses the other keyword.",
+            "#",
+        ]
+    analysis = plan.analysis
+    if not analysis.is_empty:
+        lines += [
+            "# ANALYSIS, from ada.fem.Bc records and the ada.fem.Load records inside ada.fem.FEM.steps:",
+            "#   steps             : {0}".format(
+                ", ".join(step.cae_name for step in analysis.steps) or "none (supports only)"
+            ),
+            "#   supports          : {0}".format(
+                ", ".join(
+                    "{0}{1}".format(bc.cae_name, " (prescribed)" if bc.is_prescribed else "") for bc in analysis.bcs
+                )
+                or "none"
+            ),
+            "#   loads             : {0}".format(", ".join(_planned_load_names(analysis)) or "none"),
+            "#   applied resultant : ({0}) N, summed by adapy over its own Load records and each".format(
+                ", ".join(_num(c) for c in analysis.applied_resultant())
+            ),
+            "#                       region's vertex count -- Abaqus applies a ConcentratedForce's full",
+            "#                       component to EVERY node of its region. The solve checks its own",
+            "#                       reaction total against this number.",
+            "#",
+        ]
+    if plan.meshed:
+        lines += [
+            "# MESHED at a {0} seed with {1} elements. seedPart gives an edge round(length/seed)".format(
+                _num(plan.mesh_size), plan.element_type
+            ),
+            "# elements, so a seed that divides a member puts a node at every multiple of it.",
+            "#",
+        ]
+    if plan.submit:
+        lines += [
+            "# SOLVED in this same run: job {0!r}, and the displacements written to".format(plan.job_name),
+            "# {0}. Abaqus splits the six components across TWO ODB fields --".format(displacements_name),
+            "# 'U' is (U1, U2, U3) and 'UR' is (UR1, UR2, UR3), measured -- and that file joins them.",
             "#",
         ]
     if plan.skipped:
@@ -1075,6 +1269,10 @@ def _guard_no_name_collisions(model):
     That is why this cannot be left to the kernel and has to happen before a single object
     is built: once the first Part is replaced, the damage is done and there is nothing to
     abort back to.
+
+    The analysis kinds are here for the same reason and one more: `model.steps` already holds
+    'Initial' before this script creates anything, so a step of that name in the source model
+    would otherwise replace the one every DisplacementBC in the 'Initial' step depends on.
     """
     present = {
         'parts': model.parts.keys(),
@@ -1082,6 +1280,11 @@ def _guard_no_name_collisions(model):
         'profiles': model.profiles.keys(),
         'sections': model.sections.keys(),
         'instances': model.rootAssembly.instances.keys(),
+        'steps': model.steps.keys(),
+        'boundary conditions': model.boundaryConditions.keys(),
+        'loads': model.loads.keys(),
+        'assembly sets': model.rootAssembly.sets.keys(),
+        'field output requests': model.fieldOutputRequests.keys(),
     }
     clashes = []
     for kind in sorted(PLANNED_NAMES.keys()):
@@ -1378,6 +1581,297 @@ def _guard_section_offsets(model):
 '''
 
 
+#: Emitted only when the model is meshed. Meshing is a separate choice from *defining* the
+#: analysis: a CAE support, load and step all attach to **vertices**, so a model can carry a
+#: complete analysis definition and no mesh at all, and this writer lets it.
+_MESH_HELPER = '''
+def _mesh_part(part_name, part, size, element_code, element_code_name):
+    """Seed, type and mesh one part, then record and check what came out of it.
+
+    ``seedPart`` gives an edge ``round(length / size)`` elements, so a seed that divides a
+    member into a whole number of elements puts a node at every multiple of it. Measured on a
+    6 m column and an 8 m girder at size 1.0: nodes at exactly 0, 1, 2 ... 6 and 0 ... 8. That
+    is what lets an independent reader ask for a displacement at a *position* rather than at a
+    node number, which is the only way two solvers that meshed separately can be compared.
+    """
+    part.seedPart(size=size, deviationFactor=0.1, minSizeFactor=0.1)
+    part.setElementType(regions=(part.edges,),
+                        elemTypes=(ElemType(elemCode=element_code, elemLibrary=STANDARD),))
+    part.generateMesh()
+    counts = {}
+    for set_name in sorted(part.sets.keys()):
+        counts[set_name] = len(part.sets[set_name].elements)
+    _RESULT['mesh'][part_name] = {
+        'elements': len(part.elements),
+        'nodes': len(part.nodes),
+        'element_type': element_code_name,
+        'seed': size,
+        'elements_per_member': counts,
+    }
+    if len(part.elements) == 0:
+        _fail('part {0!r} meshed to nothing: {1} edge(s) seeded at {2!r} produced no element at all, so '
+              'there is no analysis in this model however complete its loads look.'.format(
+                  part_name, len(part.edges), size))
+    bare = []
+    for set_name in sorted(counts.keys()):
+        if counts[set_name] == 0:
+            bare.append(set_name)
+    if bare:
+        _fail('part {0!r}: member(s) {1} carry no element after meshing at {2!r}. They are in the '
+              'geometry and absent from the analysis, which is a structure quietly missing a '
+              'member.'.format(part_name, bare, size))
+'''
+
+
+#: Emitted only when the model carries a support, a load or a step.
+_ANALYSIS_HELPER = '''
+def _analysis_region(assembly, set_name, instance_name, points, source_set_name):
+    """One assembly-level vertex Set for a support or a load, located by position.
+
+    Assembly level because that is where an Abaqus load lives: the region has to name the
+    *instance*\\'s vertices, not the part\\'s.
+
+    ``findAt`` warns and returns an EMPTY sequence for a point that is not on a vertex
+    (measured), so a region that does not exist is caught here instead of becoming a support
+    CAE attached to nothing. adapy already refused any record whose node is not at a vertex of
+    this geometry, so a failure here means the geometry CAE built is not the geometry adapy
+    described -- guard 6\\'s subject, reached from the other side.
+    """
+    instance = assembly.instances[instance_name]
+    found = None
+    for point in points:
+        hit = instance.vertices.findAt((point,))
+        if len(hit) == 0:
+            _fail('the support/load region {0!r} (adapy set {1!r}) names the point {2}, and part '
+                  'instance {3!r} has no vertex there -- so the region CAE would hold is not the region '
+                  'adapy resolved against this geometry.'.format(
+                      set_name, source_set_name, point, instance_name))
+        found = hit if found is None else found + hit
+    if len(found) != len(points):
+        _fail('the support/load region {0!r} (adapy set {1!r}) names {2} point(s) and resolved to {3} '
+              'vertex(es). Two of its points are one vertex to CAE and were distinct nodes to adapy, so '
+              'the record would act on fewer places than the model says -- and a ConcentratedForce '
+              'applies its full component to EVERY node of its region, so the applied total moves with '
+              'it.'.format(set_name, source_set_name, len(points), len(found)))
+    assembly.Set(name=set_name, vertices=found)
+    _RESULT['created']['regions'].append(set_name)
+
+
+def _guard_analysis(model):
+    """Every planned step, support, load and region exists in the model CAE holds.
+
+    Read back from the kernel\\'s own repositories rather than from this script\\'s bookkeeping,
+    for the same reason guard 1 is: a name CAE *replaced* rather than created leaves the script
+    running and the model quietly different. A support that did not arrive is the failure this
+    translation exists to prevent, so its absence is a build failure and not a warning.
+    """
+    problems = []
+    for kind, planned, present in (
+        ('step', PLANNED_ANALYSIS['steps'], model.steps.keys()),
+        ('boundary condition', PLANNED_ANALYSIS['bcs'], model.boundaryConditions.keys()),
+        ('load', PLANNED_ANALYSIS['loads'], model.loads.keys()),
+        ('region', PLANNED_ANALYSIS['regions'], model.rootAssembly.sets.keys()),
+    ):
+        existing = list(present)
+        for name in planned:
+            if name not in existing:
+                problems.append('{0} {1!r} is missing'.format(kind, name))
+    _RESULT['analysis'] = {
+        'steps': list(model.steps.keys()),
+        'boundary_conditions': list(model.boundaryConditions.keys()),
+        'loads': list(model.loads.keys()),
+        'regions': list(PLANNED_ANALYSIS['regions']),
+        'applied_force_from_adapy': list(APPLIED_FORCE),
+    }
+    if problems:
+        _fail('the analysis CAE holds is not the analysis adapy described -- ' + ' | '.join(problems)
+              + '. CAE replaces an object whose name is reused rather than refusing it, so a name '
+                'missing here is an object something else took the place of.')
+'''
+
+
+#: Emitted only when ``submit=True``: the job, the two checks that say it really ran, and the
+#: displacements written where a reader outside Abaqus can get at them.
+_SOLVE_HELPER = '''
+def _sum_nodal_field(frame, name):
+    """``(resultant, largest nodal magnitude)`` of a three-component nodal field, or None.
+
+    The largest single nodal magnitude comes back with the sum because it is the scale the
+    cancellation in that sum has to be judged against: ODB field data is single precision, so a
+    sum of N of them carries about sqrt(N) * eps32 * max of noise, and an absolute tolerance
+    would be either useless on a large model or wrong on a small one.
+    """
+    if name not in frame.fieldOutputs.keys():
+        return None
+    total = [0.0, 0.0, 0.0]
+    peak = 0.0
+    for value in frame.fieldOutputs[name].values:
+        data = value.data
+        magnitude = 0.0
+        for axis in range(3):
+            component = float(data[axis])
+            total[axis] = total[axis] + component
+            magnitude = magnitude + component * component
+        magnitude = magnitude ** 0.5
+        if magnitude > peak:
+            peak = magnitude
+    return total, peak
+
+
+def _guard_equilibrium(frame):
+    """The load the solver saw, against the load adapy computed from its own records.
+
+    The check a displacement comparison would otherwise have to *infer* from its answer. A
+    load written to half the nodes it should reach, or dropped, moves this sum by a factor
+    rather than by a rounding -- so it is stated directly, in newtons, against a number this
+    script carries over from the adapy side.
+
+    Two sums, because they answer different questions: the concentrated forces are what
+    ARRIVED, and adding the reactions to them is whether the solver reached equilibrium.
+    """
+    reaction = _sum_nodal_field(frame, 'RF')
+    concentrated = _sum_nodal_field(frame, 'CF')
+    if reaction is None or concentrated is None:
+        _RESULT['equilibrium'] = {'applied_force_from_adapy': list(APPLIED_FORCE)}
+        _fail('the ODB carries no RF and/or CF field, so whether the load arrived cannot be checked. '
+              'Field output was requested as ' + repr(FIELD_OUTPUT_VARIABLES) + '.')
+    reaction, reaction_peak = reaction
+    concentrated, concentrated_peak = concentrated
+    scale = 0.0
+    for axis in range(3):
+        scale = scale + APPLIED_FORCE[axis] * APPLIED_FORCE[axis]
+    scale = scale ** 0.5
+    if reaction_peak > scale:
+        scale = reaction_peak
+    if concentrated_peak > scale:
+        scale = concentrated_peak
+    tolerance = EQUILIBRIUM_ABS_FLOOR
+    if scale * EQUILIBRIUM_REL_TOL > tolerance:
+        tolerance = scale * EQUILIBRIUM_REL_TOL
+    _RESULT['equilibrium'] = {
+        'applied_force_from_adapy': list(APPLIED_FORCE),
+        'concentrated_force_sum': concentrated,
+        'reaction_force_sum': reaction,
+        'largest_nodal_force': scale,
+        'tolerance': tolerance,
+    }
+    arrived = []
+    residual = []
+    for axis in range(3):
+        arrived.append(abs(concentrated[axis] - APPLIED_FORCE[axis]))
+        residual.append(abs(concentrated[axis] + reaction[axis]))
+    if max(arrived) > tolerance:
+        _fail('the load Abaqus applied is not the load adapy described: adapy summed its own Load '
+              'records to ' + repr(tuple(APPLIED_FORCE)) + ' and the ODB concentrated-force total is '
+              + repr(tuple(concentrated)) + ', off by up to ' + repr(max(arrived)) + ' against a '
+              'tolerance of ' + repr(tolerance) + '. A ConcentratedForce applies its full component to '
+              'every node of its region, so a region holding the wrong number of vertices scales this '
+              'total -- and so does a load that was never written.')
+    if max(residual) > tolerance:
+        _fail('the solved model is not in equilibrium: applied ' + repr(tuple(concentrated))
+              + ' against reactions ' + repr(tuple(reaction)) + ', residual up to '
+              + repr(max(residual)) + ' against a tolerance of ' + repr(tolerance) + '.')
+
+
+def _odb_displacements(odb, element_code_name):
+    """Every node position and its six components per step, joined out of TWO ODB fields.
+
+    Abaqus does not store six displacement components in one field: measured on Abaqus 2025,
+    ``U`` has componentLabels ('U1', 'U2', 'U3') and the rotations are a SEPARATE ``UR`` with
+    ('UR1', 'UR2', 'UR3'). A reader expecting six in one place finds three, and then either
+    raises or -- worse -- reports the rotations as zero. So they are joined once, here, and the
+    sidecar states the component order it wrote.
+    """
+    payload = {
+        'schema': 'ada.cae_displacements/1',
+        'job': JOB_NAME,
+        'odb': JOB_NAME + '.odb',
+        'model': MODEL_NAME,
+        'element_type': element_code_name,
+        'components': list(DISPLACEMENT_COMPONENTS),
+        'solver_version': str(odb.jobData.version),
+        'instances': [],
+    }
+    for instance_name in sorted(odb.rootAssembly.instances.keys()):
+        instance = odb.rootAssembly.instances[instance_name]
+        nodes = []
+        for node in instance.nodes:
+            point = node.coordinates
+            nodes.append([int(node.label), float(point[0]), float(point[1]), float(point[2])])
+        nodes.sort()
+        steps = []
+        for step_name in sorted(odb.steps.keys()):
+            step = odb.steps[step_name]
+            frame = step.frames[-1]
+            rows = {}
+            for field_name, offset in (('U', 0), ('UR', 3)):
+                if field_name not in frame.fieldOutputs.keys():
+                    _fail('step {0!r} of {1} carries no {2!r} field, so its {3} cannot be '
+                          'reported.'.format(step_name, payload['odb'], field_name,
+                                             'translations' if offset == 0 else 'rotations'))
+                subset = frame.fieldOutputs[field_name].getSubset(region=instance)
+                for value in subset.values:
+                    label = int(value.nodeLabel)
+                    row = rows.get(label)
+                    if row is None:
+                        row = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                        rows[label] = row
+                    for axis in range(3):
+                        row[offset + axis] = float(value.data[axis])
+            table = []
+            for label in sorted(rows.keys()):
+                table.append([label] + rows[label])
+            steps.append({
+                'name': step_name,
+                'frame': len(step.frames) - 1,
+                'time': float(frame.frameValue),
+                'displacements': table,
+            })
+        payload['instances'].append({'name': instance_name, 'nodes': nodes, 'steps': steps})
+    return payload
+
+
+def solve(model, element_code_name):
+    """Submit the job, prove it finished, check the load arrived, write the displacements."""
+    here = os.path.dirname(_result_path())
+    job = mdb.Job(name=JOB_NAME, model=MODEL_NAME)
+    _RESULT['job'] = JOB_NAME
+    job.submit(consistencyChecking=OFF)
+    job.waitForCompletion()
+    # NOT job.status: measured on Abaqus 2025, it reads None after waitForCompletion under
+    # `abaqus cae noGUI=`, so a check against COMPLETED would fail every clean run. The .sta
+    # file says so itself, and it is the same file adapy reads the solver version out of.
+    sta_path = os.path.join(here, JOB_NAME + '.sta')
+    completed = False
+    if os.path.isfile(sta_path):
+        handle = open(sta_path, 'r')
+        try:
+            completed = SOLVER_SUCCESS_MARKER in handle.read()
+        finally:
+            handle.close()
+    odb_path = os.path.join(here, JOB_NAME + '.odb')
+    if not completed:
+        _fail('the Abaqus/Standard job {0!r} never wrote {1!r} into {0}.sta, so it did not finish. Read '
+              '{0}.msg and {0}.dat: the model was built and verified, and the solve is what '
+              'failed.'.format(JOB_NAME, SOLVER_SUCCESS_MARKER))
+    if not os.path.isfile(odb_path):
+        _fail('the job {0!r} reported success and left no .odb at {1!r}.'.format(JOB_NAME, odb_path))
+    odb = session.openOdb(name=odb_path)
+    try:
+        last = sorted(odb.steps.keys())[-1]
+        _guard_equilibrium(odb.steps[last].frames[-1])
+        payload = _odb_displacements(odb, element_code_name)
+    finally:
+        odb.close()
+    handle = open(os.path.join(here, DISPLACEMENTS_NAME), 'w')
+    try:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True))
+    finally:
+        handle.close()
+    _RESULT['displacements'] = DISPLACEMENTS_NAME
+'''
+
+
 _TAIL = """
 
 def main():
@@ -1414,9 +1908,20 @@ except Exception:
 
 
 def _tail(plan: _Plan) -> str:
-    """``main()``, with the offset guard's call present only when there is an offset to guard."""
-    offsets = any(use.offset is not None for use in plan.sections)
-    return _TAIL.format("    _guard_section_offsets(model)\n" if offsets else "")
+    """``main()``, with each optional guard's call present only when it has something to guard.
+
+    The solve comes last and *before* ``ok`` is set: a job that did not finish, or one whose
+    reaction total is not the load adapy described, is a failed build and not a built model
+    with a footnote.
+    """
+    calls = []
+    if any(use.offset is not None for use in plan.sections):
+        calls.append("    _guard_section_offsets(model)\n")
+    if not plan.analysis.is_empty:
+        calls.append("    _guard_analysis(model)\n")
+    if plan.submit:
+        calls.append("    solve(model, {0!r})\n".format(plan.element_type))
+    return _TAIL.format("".join(calls))
 
 
 def _expected_topology_source(plan: _Plan) -> list[str]:
@@ -1513,6 +2018,72 @@ def _section_offsets_source(plan: _Plan) -> list[str]:
     return lines
 
 
+def _analysis_source(plan: _Plan, displacements_name: str) -> list[str]:
+    """The analysis constants, emitted only when the model carries an analysis.
+
+    A straight geometry-only model emits none of this, for the same reason it emits no curve
+    tolerance and no offset table: what the script carries should be a statement about *this*
+    model and not a list of everything the writer can do.
+    """
+    analysis = plan.analysis
+    if analysis.is_empty:
+        return []
+    lines = [
+        "# The analysis, from ada.fem.Bc records and the ada.fem.Load records inside",
+        "# ada.fem.FEM.steps -- adapy's *other* store, Part.concept_fem, is refused rather than",
+        "# half translated; see ada.cadit.cae.analysis on why there are two and which is which.",
+        "#",
+        "# APPLIED_FORCE is the resultant adapy summed from its own Load records, counting each",
+        "# region's vertices: Abaqus applies a ConcentratedForce's full component to EVERY node",
+        "# of its region, exactly as '*Cload' over a node set does. The emitted script checks the",
+        "# solver's own CF total against it, so a load that did not arrive is reported in newtons",
+        "# rather than inferred from a displacement.",
+        "PLANNED_ANALYSIS = {",
+        "    'steps': [{0}],".format(", ".join(repr(step.cae_name) for step in analysis.steps)),
+        "    'bcs': [{0}],".format(", ".join(repr(bc.cae_name) for bc in analysis.bcs)),
+        "    'loads': [{0}],".format(", ".join(repr(name) for name in _planned_load_names(analysis))),
+        "    'regions': [{0}],".format(", ".join(repr(region.cae_set_name) for region in analysis.regions)),
+        "}",
+        "APPLIED_FORCE = ({0})".format(", ".join(_num(c) for c in analysis.applied_resultant())),
+        "",
+    ]
+    if not plan.submit:
+        return lines
+    lines += [
+        "# The solve. The launcher's exit status and job.status are both useless -- measured:",
+        "# abq<ver>.bat returns 0 whatever happened, and job.status reads None after",
+        "# waitForCompletion() under 'cae noGUI=' -- so the .sta file's own closing line is what",
+        "# says the job finished.",
+        "JOB_NAME = {0!r}".format(plan.job_name),
+        "SOLVER_SUCCESS_MARKER = {0!r}".format(SOLVER_SUCCESS_MARKER),
+        "FIELD_OUTPUT_VARIABLES = {0!r}".format(FIELD_OUTPUT_VARIABLES),
+        "EQUILIBRIUM_REL_TOL = {0}".format(_num(EQUILIBRIUM_REL_TOL)),
+        "EQUILIBRIUM_ABS_FLOOR = {0}".format(_num(EQUILIBRIUM_ABS_FLOOR)),
+        "# Abaqus stores the six components in TWO fields -- 'U' is (U1, U2, U3) and 'UR' is",
+        "# (UR1, UR2, UR3), measured -- so the sidecar joins them and states the order it wrote.",
+        "DISPLACEMENT_COMPONENTS = ('U1', 'U2', 'U3', 'UR1', 'UR2', 'UR3')",
+        "DISPLACEMENTS_NAME = {0!r}".format(displacements_name),
+        "",
+    ]
+    return lines
+
+
+def _planned_load_names(analysis: AnalysisPlan) -> list[str]:
+    """The CAE object names the loads become: ``<load>_F`` and ``<load>_M``.
+
+    The same two names, off the same ``Load.forces``, as adapy's own INP writer's ``*Cload``
+    blocks -- so one adapy ``Load`` is one pair of names on both Abaqus routes and a reader
+    tracing a name back does not have to know which route wrote it.
+    """
+    names = []
+    for load in analysis.loads:
+        if load.has_force:
+            names.append(load.force_name)
+        if load.has_moment:
+            names.append(load.moment_name)
+    return names
+
+
 def _planned_names_source(plan: _Plan) -> list[str]:
     """Every name the script will create, for guard 7 to check against the live model."""
     planned = {
@@ -1522,13 +2093,22 @@ def _planned_names_source(plan: _Plan) -> list[str]:
         "profiles": sorted({use.cae_profile_name for use in plan.sections}),
         "sections": [use.cae_section_name for use in plan.sections],
     }
+    if not plan.analysis.is_empty:
+        planned["steps"] = [step.cae_name for step in plan.analysis.steps]
+        planned["boundary conditions"] = [bc.cae_name for bc in plan.analysis.bcs]
+        planned["loads"] = _planned_load_names(plan.analysis)
+        planned["assembly sets"] = [region.cae_set_name for region in plan.analysis.regions]
+        planned["field output requests"] = [FIELD_OUTPUT_REQUEST_NAME] if plan.analysis.steps else []
     lines = [
         "# Every name this script creates. CAE does not refuse a reused name -- it replaces the",
         "# object and invalidates handles to the old one -- so a second run in one session would",
         "# silently swap them all. Checked before anything is built; see _guard_no_name_collisions.",
         "#",
-        "# Sets are absent deliberately: they live inside a part, and a part whose own name is",
-        "# free is a part this script just created, so its sets cannot collide with anything.",
+        "# A part's own member sets are absent deliberately: they live inside the part, and a part",
+        "# whose own name is free is a part this script just created, so its sets cannot collide.",
+        "# A support's or load's region is an ASSEMBLY set and shares one namespace with every other",
+        "# model, so those are checked. So is every step name -- 'Initial' already exists before this",
+        "# script creates anything, and it is the step every fixed support here is declared in.",
         "PLANNED_NAMES = {",
     ]
     for kind in sorted(planned):
@@ -1537,12 +2117,25 @@ def _planned_names_source(plan: _Plan) -> list[str]:
     return lines
 
 
-def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: str) -> str:
+def render_script(
+    plan: _Plan,
+    result_name: str,
+    cae_name: str,
+    adapy_version: str,
+    displacements_name: str = "",
+) -> str:
     """The emitted CAE script, as text."""
     boxes = _bounding_boxes(plan)
     lines: list[str] = []
-    lines += _header(plan, result_name, adapy_version)
+    lines += _header(plan, result_name, adapy_version, displacements_name)
     lines += _PREAMBLE.split("\n")
+    if plan.meshed:
+        lines += [
+            "# ElemType lives in `mesh` rather than in caeModules, and is what says which beam",
+            "# element the members become. Imported only when this model is meshed.",
+            "from mesh import ElemType",
+            "",
+        ]
 
     description = "adapy concept model {0!r}; units {1}".format(plan.root_name, plan.units)
     lines += [
@@ -1563,10 +2156,11 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
     ]
     lines += _expected_topology_source(plan)
     lines += _section_offsets_source(plan)
+    lines += _analysis_source(plan, displacements_name)
     lines += _planned_names_source(plan)
     lines += [
         "_RESULT = {",
-        "    'schema': 'ada.cae_build_result/3',",
+        "    'schema': 'ada.cae_build_result/4',",
         "    'ok': False,",
         "    'model': MODEL_NAME,",
         "    'source_part': {0!r},".format(plan.root_name),
@@ -1577,12 +2171,18 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
         "        'sections': [],",
         "        'sets': [],",
         "        'instances': [],",
+        "        'regions': [],",
         "        'section_assignments': 0,",
         "        'orientations': 0,",
         "    },",
         "    'edges_per_member': {},",
         "    'curve_length_error': {},",
         "    'section_offsets': {},",
+        "    'mesh': {},",
+        "    'analysis': {},",
+        "    'equilibrium': {},",
+        "    'job': None,",
+        "    'displacements': None,",
         "    'guards': {},",
         "    'errors': [],",
         "    'skipped': [",
@@ -1597,6 +2197,12 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
         lines += _CURVED_MEMBER_HELPER.split("\n")
     if any(use.offset is not None for use in plan.sections):
         lines += _SECTION_OFFSET_GUARD.split("\n")
+    if plan.meshed:
+        lines += _MESH_HELPER.split("\n")
+    if not plan.analysis.is_empty:
+        lines += _ANALYSIS_HELPER.split("\n")
+    if plan.submit:
+        lines += _SOLVE_HELPER.split("\n")
     lines += [
         "",
         "def build(model):",
@@ -1754,6 +2360,18 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
                     part_var, region_var, _pt(member.n1)
                 ),
             ]
+        if plan.meshed:
+            # After the sections, and before the instance: a dependent instance picks the
+            # part's mesh up on its own, so nothing has to be regenerated afterwards.
+            lines += [
+                "",
+                "    # --- mesh part {0!r} at a {1} seed with {2} elements".format(
+                    part_plan.part_name, _num(plan.mesh_size), plan.element_type
+                ),
+                "    _mesh_part({0!r}, {1}, {2}, {3}, {3!r})".format(
+                    part_plan.cae_part_name, part_var, _num(plan.mesh_size), plan.element_type
+                ),
+            ]
 
     lines += [
         "",
@@ -1769,8 +2387,125 @@ def render_script(plan: _Plan, result_name: str, cae_name: str, adapy_version: s
             "    _RESULT['created']['instances'].append({0!r})".format(part_plan.cae_instance_name),
         ]
 
+    lines += _analysis_lines(plan)
     lines += _tail(plan).split("\n")
     return "\n".join(lines)
+
+
+def _analysis_lines(plan: _Plan) -> list[str]:
+    """The supports, loads and steps, as CAE calls. Nothing at all for a model with none.
+
+    The order is the order CAE needs: regions before the objects that name them, and steps
+    before the boundary conditions and loads that are created *in* a step. A
+    ``DisplacementBC`` on the ``'Initial'`` step is the exception that needs no step of its
+    own -- Abaqus creates ``'Initial'`` itself, which is also why guard 7 checks every planned
+    step name against it.
+    """
+    analysis = plan.analysis
+    if analysis.is_empty:
+        return []
+    lines = [
+        "",
+        "    # --- support and load regions: assembly-level vertex sets, located by position.",
+        "    # A load acts on an INSTANCE's vertices, so these cannot be the part-level sets the",
+        "    # members already use -- and a name shared between the two repositories is refused on",
+        "    # the adapy side rather than accepted here, because the result sidecar keys by set name.",
+    ]
+    for region in analysis.regions:
+        points = ", ".join(_pt(point) for point in region.points)
+        if len(region.points) == 1:
+            points += ","
+        lines.append(
+            "    _analysis_region(assembly, {0!r}, {1!r}, ({2}), {3!r})".format(
+                region.cae_set_name, region.cae_instance_name, points, region.source_set_name
+            )
+        )
+
+    if analysis.steps:
+        lines += [
+            "",
+            "    # --- analysis steps, chained through 'previous' in the order adapy holds them.",
+            "    # adapy's Sesam writer emits only the FIRST step of a multi-step model and logs the",
+            "    # rest away; every one of them is written here.",
+        ]
+    for index, step in enumerate(analysis.steps):
+        lines += [
+            "    # {0!r}: total time {1}, increments {2} .. {3}, at most {4}".format(
+                step.step_name, _num(step.total_time), _num(step.min_incr), _num(step.max_incr), step.total_incr
+            ),
+            "    model.StaticStep(name={0!r}, previous={1!r}, timePeriod={2}, initialInc={3},".format(
+                step.cae_name, step.previous, _num(step.total_time), _num(step.init_incr)
+            ),
+            "                     minInc={0}, maxInc={1}, maxNumInc={2}, nlgeom={3})".format(
+                _num(step.min_incr), _num(step.max_incr), step.total_incr, "ON" if step.nl_geom else "OFF"
+            ),
+        ]
+        if index == 0:
+            lines += [
+                "    # One request, on the first step: a CAE field output request applies from the step",
+                "    # it is created in onwards. 'U' brings 'UR' with it and 'RF' brings 'RM' (measured),",
+                "    # and both are named anyway so the request states what this script depends on.",
+                "    model.FieldOutputRequest(name={0!r}, createStepName={1!r},".format(
+                    FIELD_OUTPUT_REQUEST_NAME, step.cae_name
+                ),
+                "                             variables={0!r})".format(FIELD_OUTPUT_VARIABLES),
+            ]
+
+    if analysis.bcs:
+        lines += [
+            "",
+            "    # --- supports. Every DOF the record names is written, with UNSET for the rest, and a",
+            "    # non-zero magnitude is written as the prescribed displacement it is. adapy's Sesam",
+            "    # writer defines PRESCRIBED = 2 and never writes it -- its own comment says the Bc",
+            "    # magnitudes 'are not carried into BNDISPL yet' -- so a settlement case silently becomes",
+            "    # a fixed support there. Abaqus expresses it natively.",
+        ]
+    for bc in analysis.bcs:
+        values = ", ".join(
+            "{0}={1}".format(keyword, "UNSET" if value is None else _num(value))
+            for keyword, value in zip(BC_KEYWORDS, bc.values)
+        )
+        note = "prescribed displacement" if bc.is_prescribed else "fixed"
+        lines += [
+            "    # {0!r} ({1}), adapy Bc type {2!r}".format(bc.bc_name, note, bc.bc_type),
+            "    model.DisplacementBC(name={0!r}, createStepName={1!r},".format(bc.cae_name, bc.step),
+            "                         region=assembly.sets[{0!r}], {1})".format(bc.region, values),
+        ]
+
+    if analysis.loads:
+        lines += [
+            "",
+            "    # --- loads. One adapy Load becomes a ConcentratedForce named '<load>_F' and a Moment",
+            "    # named '<load>_M', off the same Load.forces, under the same two names as adapy's own",
+            "    # INP writer's *Cload blocks -- so one load is one pair of names on both Abaqus routes.",
+            "    # Abaqus applies the full component to EVERY node of the region, exactly as *Cload over",
+            "    # a node set does; APPLIED_FORCE above counts the vertices, and the solve checks it.",
+        ]
+    for load in analysis.loads:
+        follower = ", follower=ON" if load.follower else ""
+        if load.has_force:
+            lines += [
+                "    model.ConcentratedForce(name={0!r}, createStepName={1!r},".format(load.force_name, load.step),
+                "                            region=assembly.sets[{0!r}], {1}{2})".format(
+                    load.region,
+                    ", ".join(
+                        "{0}={1}".format(keyword, _num(value)) for keyword, value in zip(FORCE_KEYWORDS, load.forces)
+                    ),
+                    follower,
+                ),
+            ]
+        if load.has_moment:
+            lines += [
+                "    model.Moment(name={0!r}, createStepName={1!r},".format(load.moment_name, load.step),
+                "                 region=assembly.sets[{0!r}], {1}{2})".format(
+                    load.region,
+                    ", ".join(
+                        "{0}={1}".format(keyword, _num(value)) for keyword, value in zip(MOMENT_KEYWORDS, load.moments)
+                    ),
+                    follower,
+                ),
+            ]
+    return lines
 
 
 def write_cae_script(
@@ -1779,14 +2514,25 @@ def write_cae_script(
     *,
     model_name: str = "Model-1",
     unit_scale: float = 1.0,
+    mesh_size: float | None = None,
+    element_type: str = "B31",
+    job_name: str | None = None,
+    submit: bool = False,
 ) -> list[pathlib.Path]:
     """Write ``destination``: an Abaqus/CAE script that rebuilds ``root`` as wires.
 
     Returns the paths *this call* wrote — the script, plus a ``<stem>.name_map.json``
     sidecar when sanitisation changed any name. ``<stem>.cae_build_result.json`` is
-    written by the script itself, when CAE runs it.
+    written by the script itself, when CAE runs it, and ``<stem>.cae_displacements.json``
+    as well when ``submit`` is set.
 
     ``unit_scale`` must be ``1.0``; see :func:`check_unit_scale`.
+
+    The model's supports, loads and steps are always translated when it has any — they attach
+    to *vertices*, so they need no mesh — and refused rather than approximated when they
+    cannot be; see :mod:`ada.cadit.cae.analysis`. ``mesh_size`` and ``submit`` are separate
+    choices on top of that: no ``mesh_size`` emits the analysis definition without meshing it,
+    and ``submit`` needs a mesh because a job on an unmeshed part has nothing to solve.
     """
     from ada import __version__ as adapy_version
 
@@ -1796,15 +2542,27 @@ def write_cae_script(
             "the CAE writer emits a Python script, so {0!r} needs a .py suffix".format(str(destination))
         )
 
-    plan = build_plan(root, model_name=model_name, unit_scale=unit_scale)
-
     stem = destination.stem
+    plan = build_plan(
+        root,
+        model_name=model_name,
+        unit_scale=unit_scale,
+        mesh_size=mesh_size,
+        element_type=element_type,
+        # The script's own stem, so the ODB and its sidecars sit next to the script that
+        # produced them under a name a reader can tie back to it.
+        job_name=stem if job_name is None else job_name,
+        submit=submit,
+    )
+
     result_name = "{0}.cae_build_result.json".format(stem)
+    displacements_name = "{0}.cae_displacements.json".format(stem)
     text = render_script(
         plan,
         result_name=result_name,
         cae_name="{0}.cae".format(stem),
         adapy_version=adapy_version,
+        displacements_name=displacements_name,
     )
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1816,11 +2574,15 @@ def write_cae_script(
         written.append(name_map_path)
 
     logger.info(
-        "Abaqus/CAE script %r written: %d part(s), %d beam(s), %d untranslated object(s)",
+        "Abaqus/CAE script %r written: %d part(s), %d beam(s), %d untranslated object(s), "
+        "%d support(s), %d load(s), %d step(s)",
         str(destination),
         len(plan.parts),
         sum(len(p.members) for p in plan.parts),
         len(plan.skipped),
+        len(plan.analysis.bcs),
+        len(plan.analysis.loads),
+        len(plan.analysis.steps),
     )
     if plan.skipped:
         logger.warning(
@@ -1838,8 +2600,13 @@ __all__ = [
     "CYLINDER_OVERSHOOT_FRACTION",
     "CYLINDER_RADIUS_FRACTION",
     "ECCENTRICITY_TOL",
+    "EQUILIBRIUM_ABS_FLOOR",
+    "EQUILIBRIUM_REL_TOL",
+    "FIELD_OUTPUT_REQUEST_NAME",
+    "FIELD_OUTPUT_VARIABLES",
     "MIN_BEAM_LENGTH",
     "REFUSED_BEAM_TYPES",
+    "SOLVER_SUCCESS_MARKER",
     "CaeWriteError",
     "SkippedObject",
     "UnsupportedBeamError",
@@ -1848,6 +2615,7 @@ __all__ = [
     "beam_section_offset",
     "build_plan",
     "check_beam_shape",
+    "check_mesh_and_job",
     "check_n1_holds_along_the_curve",
     "check_unit_scale",
     "render_script",

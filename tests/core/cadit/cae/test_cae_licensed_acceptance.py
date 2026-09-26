@@ -37,12 +37,14 @@ input processor says so, which is what this test does.
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import re
 
 import pytest
 
 import ada
+from ada.materials.metals import CarbonSteel
 
 from .abaqus_runner import ERROR_MARKERS, abaqus_available, run_cae_script
 from .conftest import require_writer
@@ -815,3 +817,395 @@ def test_a_channels_offset_survives_as_the_keyword_its_section_kind_accepts(offs
 
     built = json.loads((run.workdir / "offsets.cae_build_result.json").read_text(encoding="utf-8"))
     assert built["ok"] is True, built
+
+
+# ------------------------------------------------------- the analysis: supports, loads, a solve
+
+#: The frame the cross-solver comparison against Sestra is derived from. Rebuilt here rather than
+#: imported from ``verification/`` so the acceptance suite keeps no dependency on that package --
+#: and kept numerically identical to it, because the numbers asserted below are the ones that
+#: comparison turns on.
+PORTAL_HEIGHT = 6.0
+PORTAL_SPAN = 8.0
+PORTAL_SEED = 1.0
+PORTAL_LOAD = 10.0e3
+PORTAL_SECTION = "OD200x10"
+
+#: How far the solved sway may sit from the Euler-Bernoulli closed form. 1% -- the same budget the
+#: cross-solver comparison uses, and for the same reason: the real gap is 0.31%, of which 0.28% is
+#: Abaqus' thin-walled PIPE second moment of area (see
+#: `test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one`) and the rest the axial
+#: flexibility the closed form neglects -- while every translation defect this could have is an
+#: order of magnitude bigger: a pinned base instead of a fixed one is 4.3x, a halved load is 2x.
+PORTAL_SWAY_REL_TOL = 1e-02
+
+
+def portal_sway_euler_bernoulli(*, p_total, height, span, e_mod, inertia) -> float:
+    """Slope-deflection sway of a fixed-base portal frame, one section throughout.
+
+    ``delta = P h^3 / (24 E I) * (4 + 6 beta) / (1 + 6 beta)`` with ``beta = (I/L) / (I/h) = h/L``
+    for a uniform frame. Worth checking at its limits: ``beta -> inf`` (rigid girder) gives
+    ``P h^3 / (24 E I)``, two fixed-fixed columns in parallel; ``beta -> 0`` gives
+    ``P h^3 / (6 E I)``, two cantilevers each carrying ``P/2``. Both are right.
+
+    An independent third opinion rather than a second solver: two writers can agree and both be
+    wrong, and a section modulus out by the same factor in both agrees beautifully.
+    """
+    beta = height / span
+    return (p_total * height**3) / (24.0 * e_mod * inertia) * (4.0 + 6.0 * beta) / (1.0 + 6.0 * beta)
+
+
+def nset_at(fem, name, point):
+    nodes = fem.nodes.get_by_volume(p=point, tol=1e-06)
+    assert len(nodes) == 1, "expected one node at {}, found {}".format(point, len(nodes))
+    from ada.fem import FemSet
+
+    return fem.add_set(FemSet(name, list(nodes), FemSet.TYPES.NSET, parent=fem))
+
+
+def portal_frame() -> ada.Assembly:
+    from ada.fem import Bc, Load, StepImplicitStatic
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    part = ada.Part("PortalFrame")
+    part / (
+        ada.Beam("COL_L", (0, 0, 0), (0, 0, PORTAL_HEIGHT), PORTAL_SECTION, mat),
+        ada.Beam("COL_R", (PORTAL_SPAN, 0, 0), (PORTAL_SPAN, 0, PORTAL_HEIGHT), PORTAL_SECTION, mat),
+        ada.Beam("GIRDER", (0, 0, PORTAL_HEIGHT), (PORTAL_SPAN, 0, PORTAL_HEIGHT), PORTAL_SECTION, mat),
+    )
+    part.fem = part.to_fem_obj(PORTAL_SEED, "line")
+
+    part.fem.add_bc(Bc("FIX_L", nset_at(part.fem, "BASE_L", (0.0, 0.0, 0.0)), [1, 2, 3, 4, 5, 6]))
+    part.fem.add_bc(Bc("FIX_R", nset_at(part.fem, "BASE_R", (PORTAL_SPAN, 0.0, 0.0)), [1, 2, 3, 4, 5, 6]))
+    top_l = nset_at(part.fem, "TOP_L", (0.0, 0.0, PORTAL_HEIGHT))
+    top_r = nset_at(part.fem, "TOP_R", (PORTAL_SPAN, 0.0, PORTAL_HEIGHT))
+
+    assembly = ada.Assembly("PortalSite") / part
+    step = assembly.fem.add_step(StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    # One Load per node rather than one over a two-node set, matching the comparison harness --
+    # which does it that way because adapy's Sesam writer silently loads only members[0].
+    step.add_load(Load("PX_L", Load.TYPES.FORCE, PORTAL_LOAD / 2, fem_set=top_l, dof=[1, 0, 0, 0, 0, 0]))
+    step.add_load(Load("PX_R", Load.TYPES.FORCE, PORTAL_LOAD / 2, fem_set=top_r, dof=[1, 0, 0, 0, 0, 0]))
+    return assembly
+
+
+@pytest.fixture(scope="session")
+def portal_run(tmp_path_factory):
+    """The portal frame: meshed, solved, and its displacements written out, in one CAE run.
+
+    ``B33`` because the closed form this run is checked against is Euler-Bernoulli, and ``B33`` is
+    Abaqus' cubic Euler-Bernoulli beam: the pairing is deliberate, so the residual is the section
+    and the axial term and not a beam theory. The cross-solver comparison against Sestra uses
+    ``B32`` instead, because Sestra's ``BEAS`` is shear-flexible -- see
+    ``verification/genie_vs_abaqus/abaqus_runner.py`` for the measured table of what each of
+    ``B31``, ``B32`` and ``B33`` answers on this exact frame.
+    """
+    assembly = portal_frame()
+    workdir = tmp_path_factory.mktemp("cae_portal")
+    script = workdir / "portal.py"
+    assembly.to_abaqus_cae_script(script, mesh_size=PORTAL_SEED, element_type="B33", submit=True)
+    return assembly, run_cae_script(script, workdir)
+
+
+def sidecars(run, stem: str) -> tuple[dict, dict]:
+    build = json.loads((run.workdir / "{}.cae_build_result.json".format(stem)).read_text(encoding="utf-8"))
+    moved = json.loads((run.workdir / "{}.cae_displacements.json".format(stem)).read_text(encoding="utf-8"))
+    return build, moved
+
+
+def nodal(displacements: dict, step: str = None) -> dict:
+    """``{rounded position: six components}`` for the one instance, at the last frame of ``step``."""
+    (instance,) = displacements["instances"]
+    coords = {row[0]: tuple(round(c, 9) for c in row[1:4]) for row in instance["nodes"]}
+    steps = {entry["name"]: entry for entry in instance["steps"]}
+    entry = steps[step] if step is not None else instance["steps"][-1]
+    return {coords[row[0]]: row[1:] for row in entry["displacements"]}
+
+
+def test_the_portal_frames_solved_sway_is_the_closed_form_sway(portal_run):
+    """The headline: one adapy concept model, carried through the writer, solved, and *right*.
+
+    The closed form is computed from adapy's own section properties, so what this measures is the
+    whole chain -- geometry, section, material, joint continuity, both fixed bases, both loads --
+    against arithmetic that never went near Abaqus. A support translated as pinned instead of fixed
+    is 4.3x this number and a halved load is 2x, so it is not a subtle check.
+    """
+    assembly, run = portal_run
+    _assert_ran(run)
+    build, displacements = sidecars(run, "portal")
+    assert build["ok"] is True, build
+
+    beam = assembly.get_by_name("COL_L")
+    expected = portal_sway_euler_bernoulli(
+        p_total=PORTAL_LOAD,
+        height=PORTAL_HEIGHT,
+        span=PORTAL_SPAN,
+        e_mod=float(beam.material.model.E),
+        inertia=float(beam.section.properties.Iy),
+    )
+    values = nodal(displacements)
+    left = values[(0.0, 0.0, PORTAL_HEIGHT)]
+    right = values[(PORTAL_SPAN, 0.0, PORTAL_HEIGHT)]
+
+    assert left[0] == pytest.approx(
+        expected, rel=PORTAL_SWAY_REL_TOL
+    ), "top-corner sway {:.6e} m against the Euler-Bernoulli closed form {:.6e} m".format(left[0], expected)
+    assert right[0] == pytest.approx(left[0], rel=1e-09), "the load is symmetric, so both corners sway alike"
+    assert values[(0.0, 0.0, 0.0)][0] == pytest.approx(0.0, abs=1e-12), "a fixed base does not move"
+    assert values[(0.0, 0.0, 0.0)][4] == pytest.approx(0.0, abs=1e-12), "nor rotate -- ENCASTRE, not PINNED"
+    # The girder's quarter points are where its antisymmetric S-curve peaks, which makes them the
+    # most sensitive thing in the model to joint-rotation continuity.
+    assert values[(PORTAL_SPAN / 4, 0.0, PORTAL_HEIGHT)][2] == pytest.approx(
+        -values[(3 * PORTAL_SPAN / 4, 0.0, PORTAL_HEIGHT)][2], rel=1e-06
+    )
+
+
+def test_the_solver_reports_the_load_adapy_described(portal_run):
+    """The kernel-side guard: what arrived, in newtons, against adapy's own sum of its Loads.
+
+    The comparison harness ranked "the full 10 kN must arrive" third among the things that break a
+    cross-solver check, and said to read it out of the ``.dat`` by hand. This is the same check,
+    made by the emitted script, failing the build rather than reporting a wrong answer.
+    """
+    _, run = portal_run
+    _assert_ran(run)
+    build, _ = sidecars(run, "portal")
+
+    equilibrium = build["equilibrium"]
+    assert equilibrium["applied_force_from_adapy"] == [PORTAL_LOAD, 0.0, 0.0]
+    assert equilibrium["concentrated_force_sum"] == pytest.approx([PORTAL_LOAD, 0.0, 0.0], abs=1e-06)
+    assert equilibrium["reaction_force_sum"] == pytest.approx([-PORTAL_LOAD, 0.0, 0.0], abs=1e-06)
+    assert build["analysis"]["boundary_conditions"] == ["FIX_L", "FIX_R"]
+    assert build["analysis"]["loads"] == ["PX_L_F", "PX_R_F"]
+    assert sorted(build["analysis"]["regions"]) == ["BASE_L", "BASE_R", "TOP_L", "TOP_R"]
+
+
+def test_the_seed_puts_a_node_at_every_multiple_of_the_element_size(portal_run):
+    """Why a cross-solver comparison may ask for a displacement at a *position* at all.
+
+    ``seedPart(size=1.0)`` on a 6 m column has to give 6 elements with nodes at 0, 1 ... 6, not 7
+    elements at 0.857 m. Two solvers that meshed independently can only be compared at points both
+    of them seeded, and this is the half of that which is Abaqus'.
+    """
+    _, run = portal_run
+    _assert_ran(run)
+    build, displacements = sidecars(run, "portal")
+
+    mesh = build["mesh"]["PortalFrame"]
+    assert mesh["elements_per_member"] == {"COL_L": 6, "COL_R": 6, "GIRDER": 8}
+    assert mesh["element_type"] == "B33"
+    assert mesh["nodes"] == 21, "20 elements over 3 members joined at 2 corners"
+
+    positions = set(nodal(displacements))
+    for probe in (
+        (0.0, 0.0, PORTAL_HEIGHT / 2),
+        (PORTAL_SPAN, 0.0, PORTAL_HEIGHT / 2),
+        (PORTAL_SPAN / 4, 0.0, PORTAL_HEIGHT),
+        (PORTAL_SPAN / 2, 0.0, PORTAL_HEIGHT),
+        (3 * PORTAL_SPAN / 4, 0.0, PORTAL_HEIGHT),
+    ):
+        assert probe in positions, "the mesh has no node at {}, so no comparison can sample it".format(probe)
+
+
+def test_the_displacement_sidecar_joins_the_two_fields_abaqus_splits_them_across(portal_run):
+    """``U`` is (U1, U2, U3) and ``UR`` is (UR1, UR2, UR3) -- measured, and the trap this removes.
+
+    A reader expecting six components in one field gets three, and then reports the rotations as
+    absent or as zero. The loaded corner's own rotation is 2.9e-03 rad here, so "zero" would be a
+    silent, plausible, wrong answer.
+    """
+    _, run = portal_run
+    _assert_ran(run)
+    _, displacements = sidecars(run, "portal")
+
+    assert displacements["components"] == ["U1", "U2", "U3", "UR1", "UR2", "UR3"]
+    assert displacements["solver_version"].startswith("Abaqus/Standard")
+    assert displacements["element_type"] == "B33"
+    values = nodal(displacements)
+    assert len(next(iter(values.values()))) == 6
+    top = values[(0.0, 0.0, PORTAL_HEIGHT)]
+    assert abs(top[4]) > 1e-04, "the loaded corner rotates; a sidecar carrying only U would say it did not"
+    assert top[1] == pytest.approx(0.0, abs=1e-12), "the frame is planar, so nothing moves out of plane"
+
+
+def test_a_load_that_arrives_halved_fails_the_build(portal_run, tmp_path):
+    """The equilibrium guard's teeth, in the kernel, on the writer's own script.
+
+    One of the two ``ConcentratedForce`` calls is zeroed rather than deleted, and that is the point:
+    a *deleted* load is caught earlier and more cheaply by the guard that reads the model's own
+    ``loads`` repository back, so deleting one would have exercised the wrong guard. Halving it
+    leaves an object of the right name in the right place carrying the wrong number -- which is
+    what a translation defect actually looks like -- and only the solver's own reaction total can
+    see it. Without this the equilibrium guard is a claim.
+
+    It is halved rather than zeroed for a measured reason, which is also the kernel corroborating
+    one of the writer's own refusals: CAE will not create a load of nothing at all --
+    ``AbaqusException: Load must be created with a non-zero magnitude unless utilizing a user
+    subroutine.`` -- which is exactly what ``ada.cadit.cae.analysis`` refuses a zero ``Load`` for
+    on the adapy side, and earlier.
+    """
+    _, good = portal_run
+    _assert_ran(good)
+    source = good.script.read_text(encoding="utf-8")
+    anchor = "region=assembly.sets['TOP_R'], cf1=5000.0"
+    assert source.count(anchor) == 1, "anchor matched {} times, not one".format(source.count(anchor))
+    broken = tmp_path / "halved.py"
+    broken.write_text(source.replace(anchor, "region=assembly.sets['TOP_R'], cf1=2500.0"), encoding="utf-8")
+
+    run = run_cae_script(broken, tmp_path)
+
+    if run.licence_denied:
+        pytest.skip("no CAE licence available")
+    assert run.failed, "a deck carrying half its load was reported as a clean run: " + run.describe()
+    assert "build-result sidecar" in run.failure_signals, run.describe()
+    result = run.build_results[0]
+    assert result["ok"] is False
+    assert any("not the load adapy described" in error for error in result["errors"]), result["errors"]
+    arrived = result["equilibrium"]["concentrated_force_sum"]
+    assert arrived == pytest.approx([0.75 * PORTAL_LOAD, 0.0, 0.0], abs=1e-06), arrived
+
+
+# ------------------------------------------------- the PIPE section, and a prescribed support
+
+CANTILEVER_LENGTH = 4.0
+END_MOMENT = 1000.0
+SETTLEMENT = -0.001
+FOLLOWER_FORCE = 1000.0
+
+
+@pytest.fixture(scope="session")
+def analysis_detail_run(tmp_path_factory):
+    """Three independent cantilevers in one part, so three questions cost one CAE token.
+
+    * ``moment_arm`` carries a **pure end moment**, which is the only loading that measures a
+      section's second moment of area cleanly: a tip *force* on an offset or open section turns
+      into a torque through the shear centre, and shear flexibility enters a force-loaded tip.
+      With ``B33`` there is no shear either way, so ``theta = M L / (E I)`` is exact.
+    * ``settling`` carries a **prescribed** support displacement, which adapy's Sesam writer
+      cannot express at all.
+    * ``followed`` carries a **follower** force, so ``follower=ON`` is known to be accepted by the
+      kernel rather than believed to be.
+    """
+    from ada.fem import Bc, Load, StepImplicitStatic
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    part = ada.Part("Cantilevers")
+    part / (
+        ada.Beam("moment_arm", (0, 0, 0), (CANTILEVER_LENGTH, 0, 0), PORTAL_SECTION, mat),
+        ada.Beam("settling", (0, 3, 0), (CANTILEVER_LENGTH, 3, 0), PORTAL_SECTION, mat),
+        ada.Beam("followed", (0, 6, 0), (CANTILEVER_LENGTH, 6, 0), PORTAL_SECTION, mat),
+    )
+    part.fem = part.to_fem_obj(0.5, "line")
+
+    for index, y in enumerate((0.0, 3.0, 6.0)):
+        root = nset_at(part.fem, "ROOT_{}".format(index), (0.0, y, 0.0))
+        part.fem.add_bc(Bc("root_{}".format(index), root, [1, 2, 3, 4, 5, 6]))
+    moment_tip = nset_at(part.fem, "MOMENT_TIP", (CANTILEVER_LENGTH, 0.0, 0.0))
+    settling_tip = nset_at(part.fem, "SETTLING_TIP", (CANTILEVER_LENGTH, 3.0, 0.0))
+    followed_tip = nset_at(part.fem, "FOLLOWED_TIP", (CANTILEVER_LENGTH, 6.0, 0.0))
+    part.fem.add_bc(Bc("settle", settling_tip, [3], magnitudes=[SETTLEMENT]))
+
+    assembly = ada.Assembly("Detail") / part
+    step = assembly.fem.add_step(StepImplicitStatic("lc1", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    step.add_load(Load("M", Load.TYPES.FORCE, -END_MOMENT, fem_set=moment_tip, dof=[0, 0, 0, 0, 1, 0]))
+    step.add_load(
+        Load(
+            "P",
+            Load.TYPES.FORCE,
+            FOLLOWER_FORCE,
+            fem_set=followed_tip,
+            dof=[0, 0, 1, 0, 0, 0],
+            follower_force=True,
+        )
+    )
+
+    workdir = tmp_path_factory.mktemp("cae_detail")
+    script = workdir / "detail.py"
+    assembly.to_abaqus_cae_script(script, mesh_size=0.5, element_type="B33", submit=True)
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_the_abaqus_pipe_sections_second_moment_is_the_thin_walled_one(analysis_detail_run):
+    """Why the cross-solver comparison lands where it does, measured rather than argued.
+
+    Abaqus' ``section=PIPE`` integrates the wall as a **line** of the given thickness, so its
+    second moment of area is the thin-walled ``pi rm^3 t`` and not the exact annulus
+    ``pi/4 (ro^4 - ri^4)`` that adapy's ``Section.properties.Iy`` is. For an ``OD200x10`` that is
+    0.276% low, which is the whole of the systematic gap between Abaqus and both the closed form
+    and Sestra on the portal frame -- see ``verification/genie_vs_abaqus/abaqus_runner.py``.
+
+    The two *areas* are identical, because ``2 pi rm t`` and ``pi (ro^2 - ri^2)`` are the same
+    number algebraically, so only bending is affected. That is why weighing the part would have
+    found nothing, and why a rotation under a pure moment finds it exactly.
+
+    If a future Abaqus integrates a pipe differently, this is the test that says so -- and the
+    number the comparison's residual is explained by would then need re-deriving, rather than a
+    tolerance widening.
+    """
+    assembly, run = analysis_detail_run
+    _assert_ran(run)
+    _, displacements = sidecars(run, "detail")
+
+    beam = assembly.get_by_name("moment_arm")
+    e_mod = float(beam.material.model.E)
+    adapy_inertia = float(beam.section.properties.Iy)
+    radius, thickness = float(beam.section.r), float(beam.section.wt)
+    thin_walled = math.pi * (radius - thickness / 2.0) ** 3 * thickness
+
+    rotation = abs(nodal(displacements)[(CANTILEVER_LENGTH, 0.0, 0.0)][4])
+    measured = END_MOMENT * CANTILEVER_LENGTH / (e_mod * rotation)
+
+    assert measured == pytest.approx(
+        thin_walled, rel=1e-03
+    ), "Abaqus' effective I is {:.6e}; thin-walled pi rm^3 t is {:.6e} and adapy's annulus {:.6e}".format(
+        measured, thin_walled, adapy_inertia
+    )
+    assert measured / adapy_inertia == pytest.approx(
+        0.99724, rel=1e-04
+    ), "the systematic bias the comparison's residual is explained by has moved: Abaqus' I is now {:.6f} of adapy's".format(
+        measured / adapy_inertia
+    )
+    assert float(beam.section.properties.Ax) == pytest.approx(
+        2.0 * math.pi * (radius - thickness / 2.0) * thickness, rel=1e-09
+    ), "the areas are algebraically identical, which is why only bending differs"
+
+
+def test_a_prescribed_support_displacement_reaches_the_solver(analysis_detail_run):
+    """The Sesam gap, closed. ``write_bcs`` there never writes a ``Bc`` magnitude at all.
+
+    Its own comment says so -- ``PRESCRIBED = 2`` is defined, and "ada's Bc magnitudes are not
+    carried into BNDISPL yet" -- so a settlement case silently becomes a fixed support on that
+    route. Here the node ends up exactly where the model said it would.
+    """
+    _, run = analysis_detail_run
+    _assert_ran(run)
+    _, displacements = sidecars(run, "detail")
+
+    tip = nodal(displacements)[(CANTILEVER_LENGTH, 3.0, 0.0)]
+
+    # 1e-06 and not tighter, because an ODB stores field data in **single** precision: this
+    # -0.001 comes back as -0.0010000000474974513, which is float32's nearest neighbour to it and
+    # not a solver residual. Measured, and worth knowing before reading any number out of a
+    # sidecar to nine digits.
+    assert tip[2] == pytest.approx(SETTLEMENT, rel=1e-06), "the prescribed displacement arrived"
+    assert tip[2] != 0.0, "a Bc magnitude dropped in translation reads as a fixed support, which is zero here"
+    assert tip[0] == pytest.approx(0.0, abs=1e-09), "and only in the DOF the record named"
+
+
+def test_a_follower_force_is_accepted_by_the_kernel(analysis_detail_run):
+    """``follower=ON`` is the argument adapy's INP writer already emits, so this route emits it too.
+
+    Its effect is nil in a geometrically linear step, which is exactly why it is checked here: what
+    is being established is that the kernel takes the keyword, so a ``LoadPoint`` -- whose
+    ``follower_force`` defaults to True -- is not quietly written as a fixed-direction load.
+    """
+    _, run = analysis_detail_run
+    _assert_ran(run)
+    build, displacements = sidecars(run, "detail")
+
+    assert "follower=ON" in run.script.read_text(encoding="utf-8")
+    assert build["equilibrium"]["applied_force_from_adapy"] == [0.0, 0.0, FOLLOWER_FORCE]
+    assert build["equilibrium"]["concentrated_force_sum"] == pytest.approx([0.0, 0.0, FOLLOWER_FORCE], abs=1e-04)
+
+    tip = nodal(displacements)[(CANTILEVER_LENGTH, 6.0, 0.0)]
+    assert tip[2] > 0.0, "a +Z tip force deflects the tip in +Z"

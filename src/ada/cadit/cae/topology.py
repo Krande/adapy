@@ -224,8 +224,8 @@ def _candidate_pairs(ordered, tol: float) -> list[tuple[int, int]]:
     return sorted(pairs, key=lambda pair: (ordered[pair[0]].name, ordered[pair[1]].name))
 
 
-def count_distinct_points(points, tol: float) -> int:
-    """How many distinct positions are in ``points``, at ``tol``.
+def distinct_points(points, tol: float) -> list[tuple[float, float, float]]:
+    """One representative per distinct position in ``points``, at ``tol``.
 
     A greedy clustering, over an explicitly sorted sequence so the answer is a function
     of the positions and not of the order they were collected in. Greedy clustering can
@@ -233,6 +233,11 @@ def count_distinct_points(points, tol: float) -> int:
     order after all -- which cannot arise in the models this is used on, because adapy
     shares one ``Node`` object between coincident endpoints, so a real joint is *exactly*
     coincident rather than merely within tolerance.
+
+    The representatives themselves, and not merely how many there are, because a boundary
+    condition or a load has to be matched against the *positions* CAE will hold a vertex at
+    -- see :func:`ada.cadit.cae.analysis.plan_analysis`. Counting and listing come from one
+    function so the two answers cannot drift apart.
     """
     ordered = sorted(tuple(float(c) for c in point) for point in points)
     representatives: list[tuple[float, float, float]] = []
@@ -249,7 +254,12 @@ def count_distinct_points(points, tol: float) -> int:
                 break
         if not matched:
             representatives.append(point)
-    return len(representatives)
+    return representatives
+
+
+def count_distinct_points(points, tol: float) -> int:
+    """How many distinct positions are in ``points``, at ``tol``. See :func:`distinct_points`."""
+    return len(distinct_points(points, tol))
 
 
 def find_crossings(segments, tol: float) -> list[Crossing]:
@@ -554,6 +564,7 @@ __all__ = [
     "PartTopology",
     "Segment",
     "count_distinct_points",
+    "distinct_points",
     "expected_topology",
     "find_crossings",
 ]

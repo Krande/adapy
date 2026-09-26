@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import math
+import re
 from dataclasses import dataclass, field
 
 # The CAE profile constructors, from `dir(model)` on a real Abaqus 2025 kernel.
@@ -594,6 +595,138 @@ def check_python_floor(graph: ScriptGraph) -> None:
                 )
 
 
+#: Every CAE object the analysis emission creates that names a step and a region.
+_STEP_SCOPED_METHODS = ("DisplacementBC", "ConcentratedForce", "Moment")
+#: Abaqus' six ``DisplacementBC`` keywords.
+_BC_KEYWORDS = ("u1", "u2", "u3", "ur1", "ur2", "ur3")
+#: ``<anything>.sets['NAME']`` -- the only shape of region the analysis emission writes. The
+#: receiver is deliberately unconstrained, for the same reason every other check here keys on the
+#: method name: the writer is free to call its locals whatever it likes, and a checker that
+#: insisted on one spelling would be testing a variable name.
+_REGION_SUBSCRIPT = re.compile(r"^[A-Za-z_]\w*\.sets\[(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)\]$")
+
+
+def check_analysis_references_resolve(graph: ScriptGraph) -> None:
+    """Every support and load names a step and a region that exist, and restrains something.
+
+    Nothing here fires on a geometry-only script, which emits none of these calls. On one that
+    carries an analysis, what it catches is the class of defect a *reader* can catch and the
+    kernel cannot usefully report: a load in a step that was never created, a region named
+    before it is built, a ``DisplacementBC`` with every DOF ``UNSET`` (an object that reads as
+    a support and is not one), a ``ConcentratedForce`` of nothing, and a region no support or
+    load ever acts on.
+
+    Regions are read out of the emitted ``_analysis_region`` helper rather than out of a
+    ``Set`` call, because that is where they are created: the helper exists so that a
+    ``findAt`` returning no vertex fails loudly in the kernel, and it keeps its arguments
+    positional so a text reader can see them.
+    """
+    regions: dict[str, int] = {}
+    for call in graph.calls:
+        if call.method != "_analysis_region":
+            continue
+        if len(call.args) < 5:
+            _fail("the _analysis_region on line {} takes {} argument(s), not 5".format(call.lineno, len(call.args)))
+        name, instance, points = call.args[1], call.args[2], call.args[3]
+        if not isinstance(name, str) or not isinstance(instance, str):
+            _fail("the _analysis_region on line {} has no literal set and instance name".format(call.lineno))
+        if name in regions:
+            _fail(
+                "the support/load region {!r} is created twice, on lines {} and {}; CAE would replace "
+                "the first with the second".format(name, regions[name], call.lineno)
+            )
+        if not isinstance(points, tuple) or not points:
+            _fail("the region {!r} on line {} names no point at all".format(name, call.lineno))
+        for point in points:
+            if _as_vec3(point) is None:
+                _fail(
+                    "the region {!r} on line {} names {!r}, which is not three numbers".format(name, call.lineno, point)
+                )
+        regions[name] = call.lineno
+
+    steps: dict[str, int] = {}
+    for call in graph.by_method("StaticStep"):
+        name = call.kw("name")
+        previous = call.kw("previous")
+        if not isinstance(name, str):
+            _fail("the StaticStep on line {} has no literal name=".format(call.lineno))
+        if name in steps:
+            _fail("the step {!r} is created twice, on lines {} and {}".format(name, steps[name], call.lineno))
+        if previous != "Initial" and previous not in steps:
+            _fail(
+                "the step {!r} on line {} follows {!r}, which is neither 'Initial' nor a step created "
+                "before it -- so the step chain is not a chain".format(name, call.lineno, previous)
+            )
+        steps[name] = call.lineno
+
+    used: set[str] = set()
+    for call in graph.by_method("FieldOutputRequest", *_STEP_SCOPED_METHODS):
+        step = call.kw("createStepName")
+        if step != "Initial" and step not in steps:
+            _fail(
+                "the {} on line {} is created in step {!r}, which is neither 'Initial' nor a step this "
+                "script creates".format(call.method, call.lineno, step)
+            )
+        if call.method == "FieldOutputRequest":
+            continue
+        raw = call.raw_kwargs.get("region", "")
+        match = _REGION_SUBSCRIPT.match(raw)
+        if match is None:
+            _fail(
+                "the {} on line {} acts on region {!r}, which is not an assembly set this reader can "
+                "follow".format(call.method, call.lineno, raw)
+            )
+        region = match.group("name")
+        if region not in regions:
+            _fail(
+                "the {} on line {} acts on the region {!r}, which is never created".format(
+                    call.method, call.lineno, region
+                )
+            )
+        if regions[region] > call.lineno:
+            _fail(
+                "the {} on line {} acts on the region {!r} before it is created on line {}".format(
+                    call.method, call.lineno, region, regions[region]
+                )
+            )
+        used.add(region)
+
+    for call in graph.by_method("DisplacementBC"):
+        missing = [keyword for keyword in _BC_KEYWORDS if keyword not in call.raw_kwargs]
+        if missing:
+            _fail(
+                "the DisplacementBC on line {} does not say what it does with {}; every DOF is written, "
+                "with UNSET for the free ones, so a reader never has to know CAE's default".format(call.lineno, missing)
+            )
+        if all(call.raw_kwargs[keyword] == "UNSET" for keyword in _BC_KEYWORDS):
+            _fail(
+                "the DisplacementBC on line {} leaves every DOF UNSET, so it is an object that reads as "
+                "a support and restrains nothing".format(call.lineno)
+            )
+
+    for call in graph.by_method("ConcentratedForce", "Moment"):
+        prefix = "cf" if call.method == "ConcentratedForce" else "cm"
+        components = [call.kw("{}{}".format(prefix, axis)) for axis in (1, 2, 3)]
+        if any(component is None for component in components):
+            _fail(
+                "the {} on line {} does not give all three {}1..{}3 components".format(
+                    call.method, call.lineno, prefix, prefix
+                )
+            )
+        if not any(component for component in components):
+            _fail(
+                "the {} on line {} is zero in every component, so it is a load that loads "
+                "nothing".format(call.method, call.lineno)
+            )
+
+    orphans = sorted(set(regions) - used)
+    if orphans:
+        _fail(
+            "the region(s) {} are created and no support or load acts on them. A region nothing uses is "
+            "a support or a load that did not arrive".format(orphans)
+        )
+
+
 ALL_CHECKS = (
     check_preamble,
     check_names_unique,
@@ -603,6 +736,7 @@ ALL_CHECKS = (
     check_every_member_is_sectioned_and_oriented,
     check_members_are_located_by_a_cylinder_spanning_them,
     check_orientation_vectors,
+    check_analysis_references_resolve,
     check_failure_is_signalled,
     check_python_floor,
 )

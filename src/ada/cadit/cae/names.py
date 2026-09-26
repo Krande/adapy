@@ -111,6 +111,19 @@ class NameRegistry:
         """CAE name -> original, for the names sanitisation actually altered."""
         return dict(self._changed)
 
+    @property
+    def taken(self) -> dict[str, str]:
+        """CAE name -> the original it was claimed for, for every name in this scope.
+
+        Exposed so a *second* scope can refuse a name the first already holds without
+        claiming it. CAE keeps ``part.sets`` and ``rootAssembly.sets`` in separate
+        repositories, so a member's set and a support's region genuinely may share a name
+        there — and must not, because the emitted script's result sidecar keys everything by
+        set name and would then hold one of them over the other. See
+        :func:`ada.cadit.cae.analysis.plan_analysis`.
+        """
+        return dict(self._by_cae)
+
 
 def dump_name_map(registries: dict[str, NameRegistry], path: pathlib.Path) -> bool:
     """Write ``<stem>.name_map.json`` if any name changed; return whether it did.

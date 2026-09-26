@@ -1801,6 +1801,10 @@ class Part(BackendGeom):
         *,
         model_name: str = "Model-1",
         unit_scale: float = 1.0,
+        mesh_size: float | None = None,
+        element_type: str = "B31",
+        job_name: str | None = None,
+        submit: bool = False,
     ) -> list[pathlib.Path]:
         """Write an Abaqus/CAE script that rebuilds this part as **editable geometry**.
 
@@ -1826,19 +1830,51 @@ class Part(BackendGeom):
         away from its ends. Plates and other objects are omitted and listed in the
         script's header and result sidecar.
 
+        The **analysis** comes too, when the model carries one: ``ada.fem.Bc`` records
+        become ``DisplacementBC`` objects on assembly-level vertex sets (a non-zero
+        magnitude included, as the prescribed displacement it is — which adapy's Sesam
+        writer does not carry), the ``ada.fem.Load`` records inside ``ada.fem.FEM.steps``
+        become a ``ConcentratedForce`` and a ``Moment`` each, and every
+        ``StepImplicitStatic`` becomes a ``StaticStep`` chained through ``previous``. Every
+        other load type, every non-static step, and any support or load whose node is not at
+        a vertex of the emitted geometry is **refused by name** rather than dropped. See
+        :mod:`ada.cadit.cae.analysis` for the whole list and for which of adapy's two stores
+        for this is read.
+
         :param destination: the ``.py`` script to write.
         :param model_name: the CAE model to build into.
         :param unit_scale: must be ``1.0``. It used to multiply every coordinate and every
             profile dimension while leaving ``E`` and the density alone, which emitted a
             millimetre model carrying a modulus in pascals — 10⁶ too stiff, unreported.
             See :func:`ada.cadit.cae.writer.check_unit_scale`; convert the model instead.
+        :param mesh_size: element seed size in the model's own units, or ``None`` to emit
+            the geometry — and any analysis definition, which attaches to vertices — without
+            meshing it.
+        :param element_type: the beam element the members become: ``B31`` (linear
+            Timoshenko, the default and the like-for-like match for Sestra's ``BEAS``),
+            ``B32`` (quadratic Timoshenko) or ``B33`` (cubic Euler-Bernoulli). Anything else
+            is refused.
+        :param job_name: the Abaqus job, which names the ``.odb``. Defaults to the script's
+            own stem.
+        :param submit: also run the job in the same CAE session, check that the reaction
+            total is the load adapy described, and write the nodal displacements to
+            ``<stem>.cae_displacements.json``. Needs ``mesh_size``.
         :return: the paths this call wrote — the script, plus ``<stem>.name_map.json``
             if sanitising names for CAE changed any of them. The script itself writes
             ``<stem>.cae_build_result.json`` when CAE runs it.
         """
         from ada.cadit.cae.writer import write_cae_script
 
-        return write_cae_script(self, destination, model_name=model_name, unit_scale=unit_scale)
+        return write_cae_script(
+            self,
+            destination,
+            model_name=model_name,
+            unit_scale=unit_scale,
+            mesh_size=mesh_size,
+            element_type=element_type,
+            job_name=job_name,
+            submit=submit,
+        )
 
     def to_aveva_mac(
         self,

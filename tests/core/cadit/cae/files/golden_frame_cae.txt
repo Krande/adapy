@@ -87,8 +87,11 @@ EXPECTED_TOPOLOGY = {
 # object and invalidates handles to the old one -- so a second run in one session would
 # silently swap them all. Checked before anything is built; see _guard_no_name_collisions.
 #
-# Sets are absent deliberately: they live inside a part, and a part whose own name is
-# free is a part this script just created, so its sets cannot collide with anything.
+# A part's own member sets are absent deliberately: they live inside the part, and a part
+# whose own name is free is a part this script just created, so its sets cannot collide.
+# A support's or load's region is an ASSEMBLY set and shares one namespace with every other
+# model, so those are checked. So is every step name -- 'Initial' already exists before this
+# script creates anything, and it is the step every fixed support here is declared in.
 PLANNED_NAMES = {
     'instances': ['Frame-1'],
     'materials': ['S355'],
@@ -98,7 +101,7 @@ PLANNED_NAMES = {
 }
 
 _RESULT = {
-    'schema': 'ada.cae_build_result/3',
+    'schema': 'ada.cae_build_result/4',
     'ok': False,
     'model': MODEL_NAME,
     'source_part': 'Frame',
@@ -109,12 +112,18 @@ _RESULT = {
         'sections': [],
         'sets': [],
         'instances': [],
+        'regions': [],
         'section_assignments': 0,
         'orientations': 0,
     },
     'edges_per_member': {},
     'curve_length_error': {},
     'section_offsets': {},
+    'mesh': {},
+    'analysis': {},
+    'equilibrium': {},
+    'job': None,
+    'displacements': None,
     'guards': {},
     'errors': [],
     'skipped': [
@@ -184,6 +193,10 @@ def _guard_no_name_collisions(model):
     That is why this cannot be left to the kernel and has to happen before a single object
     is built: once the first Part is replaced, the damage is done and there is nothing to
     abort back to.
+
+    The analysis kinds are here for the same reason and one more: `model.steps` already holds
+    'Initial' before this script creates anything, so a step of that name in the source model
+    would otherwise replace the one every DisplacementBC in the 'Initial' step depends on.
     """
     present = {
         'parts': model.parts.keys(),
@@ -191,6 +204,11 @@ def _guard_no_name_collisions(model):
         'profiles': model.profiles.keys(),
         'sections': model.sections.keys(),
         'instances': model.rootAssembly.instances.keys(),
+        'steps': model.steps.keys(),
+        'boundary conditions': model.boundaryConditions.keys(),
+        'loads': model.loads.keys(),
+        'assembly sets': model.rootAssembly.sets.keys(),
+        'field output requests': model.fieldOutputRequests.keys(),
     }
     clashes = []
     for kind in sorted(PLANNED_NAMES.keys()):
