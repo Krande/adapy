@@ -1841,13 +1841,13 @@ class Part(BackendGeom):
         ``Plate`` carries is the surface its FEM mesh puts nodes on. The emitted script
         checks each plate's area and each face's normal against adapy's own.
 
-        A beam whose axis lies **on** a plate is refused, with the measurement: in
-        Abaqus/CAE an edge shared with a face takes a beam section, reads it back, exports a
+        A beam whose axis lies **on** a plate is built as a CAE ``Stringer`` on the edge the
+        imported body already carries, and draws no wire. That is measured, not stylistic: an
+        *ordinary* edge shared with a face takes a beam section, reads it back, exports a
         ``*Beam Section`` keyword and then produces **no elements at all** when the part is
-        meshed. Neither half of such a pair can be dropped without writing the wrong
-        structure, so ``plates=False`` is the way to write such a model — beams as before,
-        every plate listed as untranslated. A beam meeting a plate at a *point* is fine and
-        is built; its node comes out shared by shell and beam elements.
+        meshed (``{'S4R': 96}`` and no ``B31``); a ``Stringer`` on the same edge gives
+        ``{'S4R': 96, 'B31': 12}`` with every node on the line shared by a shell and a beam
+        element. A beam meeting a plate at a *point* needs neither: its node comes out shared.
 
         Pipes, walls, shapes and masses are omitted and listed in the script's header and
         result sidecar.
