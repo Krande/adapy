@@ -2,6 +2,15 @@
 
 
 
+## v0.93.0 (2026-09-27)
+
+### Feature
+
+* feat(sesam): read BNDISPL and BEUSLO, so a settlement and a pressure survive the way back (#408)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`1ec5167`](https://github.com/Krande/adapy/commit/1ec516746c738581316a7eb0cf73e5f3d3b8a0a0))
+
+
 ## v0.92.0 (2026-09-27)
 
 ### Feature

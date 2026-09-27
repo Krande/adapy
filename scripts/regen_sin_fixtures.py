@@ -49,6 +49,9 @@ _TYPES_TO_COPY = [
     "BNBCD",
     "BLDEP",
     "BEUSLO",
+    # BNBCD FIX code 2's other half: a prescribed displacement is two cards, and a fixture
+    # carrying only the BNBCD half describes a rigid support instead of a settlement.
+    "BNDISPL",
     "BNDOF",
     # Result definitions
     "RDPOINTS",

@@ -73,11 +73,11 @@ def report_bcs(fems: Iterable[FEM], deck_fem: FEM | None = None) -> None:
                 rep.omitted(STAGE, "Bc", bc.name, "on a node outside the part's mesh, which is all the deck holds")
                 continue
             if any(m not in (None, 0, 0.0) for m in (bc.magnitudes or ())):
-                # Written in full now (BNBCD FIX code 2 plus a BNDISPL record), so this is a
-                # note, not an approximation. It stays because a settlement is loading in
-                # Sesam: it lands in one load case, which is a thing to know when reading the
-                # deck, and it is the one BC that does not read back as what was written --
-                # the Sesam reader has no BNDISPL card, so the value is lost on the way in.
+                # Written in full (BNBCD FIX code 2 plus a BNDISPL record) and read back in
+                # full (``read/read_loads``), so this is a note, not an approximation. It stays
+                # because a settlement is *loading* in Sesam: it lands in one load case, which
+                # is a thing to know when reading the deck, and which case it was in comes back
+                # only as the BC's ``sesam_load_case`` metadata -- a Bc belongs to none.
                 rep.note(
                     STAGE,
                     "Bc",
@@ -129,12 +129,15 @@ def report_materials(materials: Iterable[Material]) -> None:
 _NOT_HELD_TABLES = (
     # The surface object itself has no card, but what uses one is written from it: a constraint
     # on the nodes it covers, and a pressure as one BEUSLO per element and side. Naming only the
-    # constraint read as though a surface carrying a pressure had been lost, which it is not.
+    # constraint read as though a surface carrying a pressure had been lost, which it is not --
+    # BEUSLO's SIDE and the sign of its intensity name the face, and the reader rebuilds a
+    # surface on that face from them (``read/read_loads``). Only the surface's *name* is gone.
     (
         "surfaces",
         "Surface",
         "a Sesam file has no surfaces; a constraint using one is written on its nodes and a "
-        "pressure on it as BEUSLO on its elements",
+        "pressure on it as BEUSLO on its elements, which reads back as a surface on that "
+        "element set under a generated name",
     ),
     ("intprops", "InteractionProperty", "a Sesam file has no contact"),
     ("interactions", "Interaction", "a Sesam file has no contact"),

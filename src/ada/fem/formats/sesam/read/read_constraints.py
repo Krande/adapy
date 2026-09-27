@@ -8,8 +8,9 @@ from ada.config import logger
 from ada.fem import FEM, Bc, Constraint, FemSet
 from ada.fem.formats.utils import str_to_int
 
-from ..write.write_bcs import ALL_DOFS, FREE, RETAINED, SUPERNODE_SET_NAME
+from ..write.write_bcs import ALL_DOFS, FREE, PRESCRIBED, RETAINED, SUPERNODE_SET_NAME
 from . import cards
+from .read_loads import SESAM_LOAD_CASE, prescribed_magnitudes
 
 
 def get_constraints(bulk_str, fem: FEM) -> Dict[str, Constraint]:
@@ -231,16 +232,22 @@ def get_bcs(bulk_str, fem: FEM) -> List[Bc]:
 
     BNBCD is per node, and a ``Bc`` is on a node set, so the nodes are grouped back: see
     :func:`group_bcs`. ``fem.sets`` must already hold the deck's sets.
+
+    A DOF with FIX code 2 is *prescribed*, and its value is on a BNDISPL record in a load case,
+    not on BNBCD: the two cards are one statement, measured against Sestra. So the records are
+    paired with the deck's BNDISPL block here (:func:`read_loads.prescribed_magnitudes`) and the
+    value lands in ``Bc.magnitudes`` -- without which a settlement read back as a rigid support.
     """
     retained: dict[int, tuple[int, ...]] = {}
-    fixed = [nd for nd in (grab_bc(m, fem, retained) for m in cards.re_bnbcd.finditer(bulk_str)) if nd is not None]
-    bcs = group_bcs(fem, fixed)
+    records = [nd for nd in (grab_bc(m, fem, retained) for m in cards.re_bnbcd.finditer(bulk_str)) if nd is not None]
+    bcs = group_bcs(fem, prescribed_magnitudes(records, bulk_str))
     add_supernode_set(fem, retained)
     return bcs
 
 
-def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple[int, ...]]]) -> List[Bc]:
-    """``Bc`` objects for ``(node, constrained dofs)``, one per named node set where the deck has one.
+def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> List[Bc]:
+    """``Bc`` objects for ``(node, constrained dofs, magnitudes, load case)``, one per named node
+    set where the deck has one.
 
     Every BNBCD record used to become a ``Bc`` of its own on a generated one-node set
     (``bc<id>_set``), so a boundary condition on a named set came back as one per node, on
@@ -248,19 +255,24 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple[int, ...]]]) -> List[Bc]:
     sets: one set holding exactly those nodes if there is one, else the largest sets whose
     members all carry that pattern and no node already covered (ties in file order). Only
     the nodes no named set covers fall back to a ``Bc`` each, as before.
+
+    The pattern is the DOFs *and* their prescribed magnitudes *and* the load case those came
+    from (``read_loads.SESAM_LOAD_CASE``): one ``Bc`` carries one magnitude per DOF, so two
+    nodes settling by different amounts cannot share one however alike their DOFs are.
     """
-    by_pattern: dict[tuple[int, ...], list[Node]] = {}
-    for node, dofs in fixed:
-        by_pattern.setdefault(dofs, []).append(node)
-    pattern_of = {node.id: dofs for node, dofs in fixed}
+    by_pattern: dict[tuple, list[Node]] = {}
+    for node, dofs, magnitudes, load_case in fixed:
+        by_pattern.setdefault((dofs, magnitudes, load_case), []).append(node)
+    pattern_of = {node.id: key for key, nodes in by_pattern.items() for node in nodes}
 
     nsets = [fs for fs in fem.sets.sets if fs.type == "nset" and len(fs.members) > 0]
     bcs = []
     # Sesam has no name for a boundary condition, so it takes its set's name.
     taken = {b.name for b in fem.bcs}
-    for dofs, nodes in by_pattern.items():
+    for pattern, nodes in by_pattern.items():
+        dofs, magnitudes, load_case = pattern
         ids = {n.id for n in nodes}
-        candidates = [fs for fs in nsets if all(pattern_of.get(m.id) == dofs for m in fs.members)]
+        candidates = [fs for fs in nsets if all(pattern_of.get(m.id) == pattern for m in fs.members)]
         exact = [fs for fs in candidates if {m.id for m in fs.members} == ids]
         chosen = exact[:1]
         if not chosen:
@@ -274,7 +286,7 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple[int, ...]]]) -> List[Bc]:
         for fs in chosen:
             name = fs.name if fs.name not in taken else f"{fs.name}_bc{len(taken)}"
             taken.add(name)
-            bc = Bc(name, fs, list(dofs), parent=fem)
+            bc = _bc(name, fs, dofs, magnitudes, load_case, fem)
             for m in fs.members:
                 m.bc = bc
             bcs.append(bc)
@@ -283,15 +295,32 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple[int, ...]]]) -> List[Bc]:
             if node.id in covered:
                 continue
             fem_set = fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
-            bc = Bc(f"bc{node.id}", fem_set, list(dofs), parent=fem)
+            bc = _bc(f"bc{node.id}", fem_set, dofs, magnitudes, load_case, fem)
             node.bc = bc
             bcs.append(bc)
     return bcs
 
 
-def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None) -> tuple[Node, tuple[int, ...]] | None:
-    """One BNBCD record -> ``(node, constrained dofs)``, or ``None`` when the record declares
-    no constraint.
+def _bc(name: str, fem_set: FemSet, dofs: tuple, magnitudes: tuple, load_case: str | None, fem: FEM) -> Bc:
+    """One ``Bc``, with the load case a prescribed displacement came from in its metadata.
+
+    ``magnitudes`` is all ``None`` for an ordinary support, which is what ``Bc`` fills in when
+    given none at all, so nothing changes for a deck with no BNDISPL record.
+    """
+    bc = Bc(name, fem_set, list(dofs), magnitudes=list(magnitudes), parent=fem)
+    if load_case is not None:
+        bc.metadata[SESAM_LOAD_CASE] = load_case
+    return bc
+
+
+def grab_bc(
+    match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None
+) -> tuple[Node, tuple[int, ...], tuple[int, ...]] | None:
+    """One BNBCD record -> ``(node, constrained dofs, prescribed dofs)``, or ``None`` when the
+    record declares no constraint.
+
+    The prescribed DOFs are the subset carrying FIX code 2, i.e. the ones whose *value* is on a
+    BNDISPL record; :func:`read_loads.prescribed_magnitudes` pairs the two.
 
     ``retained``, when given, collects ``{node id: (dof, ...)}`` for the DOFs carrying FIX
     code 4. They are gathered before the constraint check below so that a constraint-attached
@@ -310,6 +339,7 @@ def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None)
 
     dofs = []
     retained_dofs = []
+    prescribed_dofs = []
     for i, c in enumerate(d["content"].replace("\n", "").split()):
         bc_sestype = str_to_int(c.strip())
         if bc_sestype == RETAINED:
@@ -319,6 +349,8 @@ def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None)
             continue
         # Codes 1 (fixed), 2 (prescribed) and 3 (linearly dependent) all land as an
         # ordinary dof of the Bc, unchanged from before.
+        if bc_sestype == PRESCRIBED:
+            prescribed_dofs.append(i + 1)
         dofs.append(i + 1)
 
     if retained is not None and retained_dofs:
@@ -333,7 +365,7 @@ def grab_bc(match, fem: FEM, retained: dict[int, tuple[int, ...]] | None = None)
     if not dofs:
         return None
 
-    return node, tuple(dofs)
+    return node, tuple(dofs), tuple(prescribed_dofs)
 
 
 def add_supernode_set(fem: FEM, retained: dict[int, tuple[int, ...]]) -> FemSet | None:
