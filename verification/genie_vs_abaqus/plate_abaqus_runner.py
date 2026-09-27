@@ -89,8 +89,8 @@ nodes is the vector Abaqus assembles from the pressure, not a lumping of it. Bot
 this strip with 4-node quads on the identical structured grid, and the evidence that the swap
 changed nothing is that each solver's *own* reaction total comes back at ``q L b``:
 
-    Abaqus (pressure)   2000.0 in z, in-plane components at 1e-13     bare, every seed
-    Sestra (nodal)      2000.0 in z, in-plane components exactly 0    bare, every seed
+    Abaqus (pressure)   2000.0 in z, in-plane 1e-13 .. 5e-12         bare, every seed
+    Sestra (nodal)      2000.0 in z, in-plane components exactly 0   bare, every seed
 
 and on the stiffened strip 1999.999962 (Abaqus) against 1999.999954 (Sestra), 1.9e-08 and 2.3e-08
 of it; and that the two answers converge to the same extrapolant -- 1.720e-05 apart on the bare

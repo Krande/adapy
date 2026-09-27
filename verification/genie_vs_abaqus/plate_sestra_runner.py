@@ -48,7 +48,7 @@ evidence that nothing was lost in the swap is measured on both sides:
 * Sestra's own reaction total comes back ``(0, 0, 2000.0)`` N exactly on the bare strip and
   ``(0, 0, 1999.99996)`` on the stiffened one -- :func:`reaction_total`;
 * and the Abaqus side, given the *pressure* rather than these forces, reacts the same 2000.0 in z
-  (1999.999962 on the stiffened strip) with its in-plane components at 1e-13.
+  (1999.999962 on the stiffened strip) with its in-plane components between 1e-13 and 5e-12.
 
 One correction to :mod:`sestra_runner`'s gap list, which was measured before this branch: gap
 2 no longer holds. ``write_loads.load_force`` now loops ``for node in load.fem_set.members``
