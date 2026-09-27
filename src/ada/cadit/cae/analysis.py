@@ -79,16 +79,26 @@ Refused, each with the measurement or the reason in the message:
   "Non-zero boundary condition in initial step." -- so a prescribed one is written into the
   first ``StaticStep`` and a fixed one into ``'Initial'``; with no step there is nowhere for it
   to go;
-* a support or load whose nodes are **not at a vertex of the emitted geometry**. This is the
-  refusal that keeps the analysis honest about what the writer builds: CAE carries a
-  ``DisplacementBC`` on a geometric vertex, which survives re-meshing, and there is no vertex
-  at a mesh node halfway along a member. Applying it to a located mesh node instead would
-  work exactly once and silently move the next time the part was meshed.
+* a support or load whose nodes are **not a region of the emitted geometry**. adapy gives a ``Bc``
+  through a ``FemSet`` of mesh nodes and CAE carries a support on *geometry*, so the nodes are
+  classified against what this writer is about to build -- see :func:`classify_region`. Three
+  things are carried, each of which survives re-meshing: every node at a **vertex**; every node on
+  **whole edges**, the set holding every node the model has on each of them and covering each end
+  to end; or the set being exactly one plate's whole mesh, which is that plate's **faces**.
+  Anything else is refused by name with the node and the nearest geometry in the message -- a node
+  on nothing, a set covering part of an edge, some of a plate's nodes, a set spread over two
+  instances. Applying a record to a located mesh node instead would work exactly once and silently
+  move the next time the part was meshed;
+* a ``force`` load on an edge or a face region. Abaqus applies a concentrated force's full
+  component to every node of its region, so on geometry that is a total which moves with the mesh
+  seed -- measured, 5 nodes on the strip's supported edge at a 0.125 seed and 9 at 0.0625. The
+  faithful object is a ``LineLoad`` per unit length, and adapy's ``Load`` has no type for one; see
+  :data:`REGION_KIND_REFUSAL`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from .names import NameRegistry
@@ -170,6 +180,40 @@ REFUSED_LOAD_TYPES = {
     ),
 }
 
+#: Why a ``force`` load is refused on a region that is not vertices, per region kind.
+#:
+#: A ``DisplacementBC`` is carried on all three kinds of region; a ``ConcentratedForce`` is not, and
+#: the reason is arithmetic rather than a missing feature. Abaqus applies a concentrated force's full
+#: component to **every node of its region**, exactly as ``*Cload`` over a node set does -- which is
+#: why :meth:`AnalysisPlan.applied_resultant` multiplies by the node count. On a vertex region that
+#: count is a property of the geometry and adapy knows it. On an edge or a face region it is a
+#: property of the *mesh*: measured on the strip's supported edge, 5 nodes at a 0.125 seed and 9 at
+#: 0.0625, so the same script would apply 5P and then 9P for the same model. The faithful object is a
+#: ``LineLoad`` (force per unit length) or a ``Pressure``, and adapy's ``Load`` cannot express the
+#: first at all: ``ada.fem.loads.LoadTypes`` lists ``gravity``, ``acc``, ``acc_rot``, ``force``,
+#: ``force_set``, ``mass`` and ``pressure``, and none of them is a distributed line load -- there is
+#: no per-unit-length magnitude anywhere in the record to write one from.
+REGION_KIND_REFUSAL = {
+    "edge": (
+        "{owner} acts through the set {set_name!r}, whose nodes resolve to whole EDGES of the emitted "
+        "geometry rather than to vertices. A CAE ConcentratedForce on an edge region is not a line "
+        "load: Abaqus applies the full component to every node the mesh puts on the edge, so the "
+        "applied total would be the magnitude times a node count that moves with the seed -- measured "
+        "on this very case, 5 nodes on the edge at a 0.125 seed and 9 at 0.0625. The faithful object is "
+        "a LineLoad, per unit length, and adapy's Load has no type for one (LoadTypes lists gravity, "
+        "acc, acc_rot, force, force_set, mass and pressure) -- there is no per-unit-length magnitude in "
+        "the record to write one from. Put the force at the member's ends, or express the distributed "
+        "load as a pressure on a plate"
+    ),
+    "face": (
+        "{owner} acts through the set {set_name!r}, whose nodes are the whole mesh of one plate, so the "
+        "region is that plate's FACES rather than vertices. A CAE ConcentratedForce over a face region "
+        "applies its full component to every node of the face, which is a total that moves with the "
+        "mesh seed rather than a load the model states. A distributed load over a plate is a Pressure, "
+        "which this writer carries: give the record Load.TYPES.PRESSURE over the plate's element set"
+    ),
+}
+
 #: Abaqus' six ``DisplacementBC`` keywords, in adapy's DOF order 1..6.
 BC_KEYWORDS = ("u1", "u2", "u3", "ur1", "ur2", "ur3")
 
@@ -201,25 +245,112 @@ CARRIED_SHELL_ELEMENT_TYPES = ("S4R", "S4", "S8R")
 #: decides whether the emitted script's comment calls the support prescribed.
 MAGNITUDE_TOL = 1e-12
 
+#: Half-width, in model units, of the boxes an edge region is located by.
+#:
+#: A round-off allowance and **not** a search radius. ``getByBoundingBox`` returns the edges wholly
+#: inside the box, so the box has to contain the run's own endpoints after they have been through
+#: the SAT text and the ACIS import; 1e-07 does that (measured: the strip's four boundary runs came
+#: back 2/2/1/1 edges and 0.5/0.5/4.0/4.0 in length, exactly what adapy predicted). It is also two
+#: orders *below* CAE's own 1e-06 merge tolerance, so a box cannot reach a feature the kernel would
+#: still call distinct, and the in-kernel count and length checks catch it if one ever did.
+EDGE_BOX_TOL = 1e-07
+
+#: How closely the total length CAE measures for an edge region must match adapy's own, relative.
+#:
+#: Measured exact on the case that motivated the whole region: the strip's ``x = 0`` boundary came
+#: back 0.5 from two sub-edges of 0.25, and each long edge 4.0 from one, against adapy's own
+#: 0.5 and 4.0. So this is a noise floor. The comparison is **absolute, scaled by the expected
+#: length**, for the reason :data:`ada.cadit.cae.plates.PLATE_AREA_REL_TOL` is: a degenerate edge
+#: reports ``getSize() == 0.0`` rather than raising, and a relative form would divide by that zero.
+REGION_LENGTH_REL_TOL = 1e-06
+
+#: The same, for the total area of a face region, at the tolerance the plate areas were measured
+#: to (a flat plate exact, a real curved one 2.5e-08, a tilted one 3.3e-09).
+REGION_AREA_REL_TOL = 1e-06
+
 
 class AnalysisNotSupported(Exception):
     """A support, load or step this writer will not approximate."""
 
 
 @dataclass(frozen=True)
+class EdgeSegment:
+    """One straight edge the emitted geometry will hold, and which instance holds it.
+
+    Two sources, both of them things adapy states before a line of the script is written -- which
+    is what makes an edge region checkable rather than hopeful:
+
+    * the ACIS body's own face-bounding edges, **already split by the imprint**. Measured on a
+      4 x 0.5 m strip with a bar along its centreline, the body carries 7 of them and CAE imports
+      exactly 7, the ``x = 0`` and ``x = L`` boundaries each cut into two 0.25 m sub-edges by the
+      bar's ends;
+    * the straight member wires, split at the points where another member's end lands inside them,
+      which is the same arithmetic :func:`ada.cadit.cae.topology.expected_topology` already does.
+    """
+
+    p1: tuple[float, float, float]
+    p2: tuple[float, float, float]
+    cae_instance_name: str
+    #: What this edge is, so a refusal can say what the nearest geometry was.
+    owner: str
+
+    @property
+    def length(self) -> float:
+        return _distance(self.p1, self.p2)
+
+
+@dataclass(frozen=True)
+class RegionBox:
+    """One axis-aligned box that returns every sub-edge of one collinear run of an edge region.
+
+    One box per collinear run, and that is measured rather than tidy: a single box over the strip's
+    two long edges -- parallel, 0.5 m apart -- returned **7 edges totalling 13.0**, which is the
+    whole body, against the 2 edges and 8.0 adapy predicted. The per-box edge count and the
+    region's total length are both asserted in the kernel, so a box that catches something extra
+    fails the build instead of supporting the wrong thing.
+    """
+
+    #: ``(xMin, xMax, yMin, yMax, zMin, zMax)``, in the emitted model's own units.
+    bounds: tuple[float, float, float, float, float, float]
+    #: How many edges ``getByBoundingBox`` must return for this box.
+    edge_count: int
+    #: Their total length, so a message can say which run disagreed.
+    length: float
+
+
+@dataclass(frozen=True)
 class RegionPlan:
-    """One assembly-level CAE ``Set`` of vertices, which is what a BC or a load acts on.
+    """One assembly-level CAE ``Set``, which is what a BC or a load acts on.
 
     Assembly level rather than part level because that is where an Abaqus load lives: the
-    region has to name the *instance*'s vertices, not the part's.
+    region has to name the *instance*'s vertices, edges or faces, not the part's.
+
+    :attr:`kind` says which of the three the adapy ``FemSet``'s nodes resolved to -- see
+    :func:`classify_region`. A ``ConcentratedForce`` is carried on a ``'vertex'`` region only; a
+    ``DisplacementBC`` on any of the three.
     """
 
     cae_set_name: str
     cae_instance_name: str
-    #: The vertex positions, in the emitted model's own units, sorted.
+    #: For ``kind='vertex'`` the vertex positions; for ``'face'`` one interior point per face of
+    #: the plate, the same points the plate itself is located by. Empty for ``'edge'``, which is
+    #: found by bounding box and never by ``findAt``.
     points: tuple[tuple[float, float, float], ...]
     #: The adapy ``FemSet`` this came from, for the emitted script's comment.
     source_set_name: str
+    #: ``'vertex'``, ``'edge'`` or ``'face'``.
+    kind: str = "vertex"
+    #: ``kind='edge'``: one box per collinear run of the edges the region covers.
+    boxes: tuple[RegionBox, ...] = ()
+    #: ``kind='edge'``: how many edges in total, and their total length. Both asserted in-kernel.
+    edge_count: int = 0
+    total_length: float = 0.0
+    #: ``kind='face'``: the plate whose faces these are, and adapy's own area for it.
+    plate_name: str = ""
+    area: float = 0.0
+    #: How many adapy nodes the source set held. In the emitted comment for every kind, because it
+    #: is the number a reader compares the solved mesh against.
+    node_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -455,6 +586,11 @@ def check_shell_element_type(element_type: str) -> str:
 
 def _node_positions(fem_set, owner: str) -> tuple[tuple[float, float, float], ...]:
     """The positions of a ``FemSet``'s nodes, refusing a set that is not nodes."""
+    return tuple(sorted(tuple(float(c) for c in node.p) for node in _set_nodes(fem_set, owner)))
+
+
+def _set_nodes(fem_set, owner: str) -> list:
+    """A ``FemSet``'s nodes, refusing an empty set and one holding anything else."""
     from ada import Node
 
     if fem_set is None:
@@ -466,7 +602,6 @@ def _node_positions(fem_set, owner: str) -> tuple[tuple[float, float, float], ..
             "{0} acts on the empty set {1!r}. An empty region is not 'no support' or 'no load' -- it is "
             "a record that was meant to act somewhere and does not.".format(owner, fem_set.name)
         )
-    positions = []
     for member in members:
         if not isinstance(member, Node):
             raise AnalysisNotSupported(
@@ -475,8 +610,7 @@ def _node_positions(fem_set, owner: str) -> tuple[tuple[float, float, float], ..
                     owner, fem_set.name, set_type, getattr(member, "name", member), type(member).__name__
                 )
             )
-        positions.append(tuple(float(c) for c in member.p))
-    return tuple(sorted(positions))
+    return members
 
 
 def _pressure_plate(load: Load, plates: dict, owner: str) -> tuple[str, tuple]:
@@ -560,14 +694,63 @@ def _pressure_plate(load: Load, plates: dict, owner: str) -> tuple[str, tuple]:
     return plate_name, plates[plate_name]
 
 
-def _resolve_region(
-    positions: tuple[tuple[float, float, float], ...],
+def classify_region(
+    fem_set,
     vertices: list[tuple[tuple[float, float, float], str]],
+    edges: list[EdgeSegment],
+    plates: dict,
     tol: float,
     owner: str,
-    set_name: str,
-) -> str:
-    """Which emitted instance holds a vertex at every one of ``positions``.
+) -> RegionPlan:
+    """Which region of the emitted geometry an adapy ``FemSet`` of nodes resolves to.
+
+    adapy has no geometry sets at concept level: a ``Bc`` and a ``Load`` are given through a
+    ``FemSet`` of **mesh nodes**. CAE, on the other hand, carries a support on *geometry*, which is
+    the whole reason to prefer it -- a region of located mesh nodes would hold exactly until the
+    part was meshed again. So the nodes have to be classified against the geometry this writer is
+    about to build, and the classification is deliberately total: three things are carried and
+    everything else is refused by name, with the node and the nearest geometry in the message.
+
+    Tried in this order, because each is narrower than the next and a set that qualifies as two is
+    better written as the narrower one:
+
+    1. **every node at a vertex** -- the behaviour this writer began with, unchanged. A vertex is a
+       member end, a plate corner, or a point where one member imprints another;
+    2. **every node on edges of the emitted geometry, each of them wholly covered** -- an edge
+       region. "Wholly covered" is two clauses and both are load-bearing, because a
+       ``DisplacementBC`` on an edge region restrains *every* node CAE puts on that edge after
+       meshing (measured: 10 reacting nodes at a 0.125 seed became 18 at 0.0625, with no CAE call
+       between the two solves but ``seedPart`` and ``generateMesh``). So the set must hold **every
+       node this model has on the edge**, and its extreme nodes must reach the edge's own two ends.
+       A set covering half an edge would otherwise become a support over all of it. A *chain* of
+       sub-edges is one region, which is the ordinary case rather than an exotic one: a stiffener's
+       ends cut the plate boundary they land on, so the strip's supported edge is one edge bare and
+       two sub-edges stiffened;
+    3. **exactly one plate's whole mesh** -- a face region, over the faces that plate was authored
+       into. Resolved through ``Elem.refs``, adapy's own record of which plate a shell element was
+       meshed from, rather than geometrically: it is the same linkage a ``pressure`` already uses,
+       and it makes "the set is the plate's mesh" a question with an answer instead of a guess.
+       Measured, a ``DisplacementBC`` on an assembly ``Set(faces=...)`` restrains every one of the
+       165 nodes the face meshed into;
+    4. anything else is refused: a node on no geometry, a set covering part of an edge, a set of
+       some of a plate's nodes, a set spread over two instances.
+    """
+    nodes = _set_nodes(fem_set, owner)
+    positions = tuple(sorted(tuple(float(c) for c in node.p) for node in nodes))
+    set_name = fem_set.name
+
+    region = _vertex_region(positions, vertices, tol, owner, set_name)
+    if region is None:
+        region = _edge_region(fem_set, positions, edges, tol, owner, set_name)
+    if region is None:
+        region = _face_region(fem_set, nodes, plates, owner, set_name)
+    if region is None:
+        raise AnalysisNotSupported(_region_refusal(positions, vertices, edges, tol, owner, set_name))
+    return region
+
+
+def _vertex_region(positions, vertices, tol: float, owner: str, set_name: str) -> RegionPlan | None:
+    """A region of vertices, or ``None`` when some node is not at one.
 
     Matched by *position* rather than through the ``FemSet``'s parentage, on purpose: a node's
     position is the one thing that can be compared against the geometry this writer actually
@@ -576,30 +759,15 @@ def _resolve_region(
     """
     instances: set[str] = set()
     for point in positions:
-        hits = [name for vertex, name in vertices if _distance(vertex, point) <= tol]
+        hits = sorted({name for vertex, name in vertices if _distance(vertex, point) <= tol})
         if not hits:
-            nearest = min(vertices, key=lambda item: _distance(item[0], point), default=None)
-            nearest_text = (
-                "the nearest vertex is at {0} in part instance {1!r}, {2:.6g} length units away".format(
-                    tuple(round(c, 9) for c in nearest[0]), nearest[1], _distance(nearest[0], point)
-                )
-                if nearest is not None
-                else "the emitted model has no vertices at all"
-            )
-            raise AnalysisNotSupported(
-                "{0} acts at {1} through the set {2!r}, and the emitted geometry has no vertex there -- "
-                "{3}. CAE carries a support or a load on a geometric vertex, which is what survives "
-                "re-meshing; there is no vertex partway along a member, and locating a mesh node "
-                "instead would work once and then move silently the next time the part was meshed. "
-                "Split the member at that point in the source model so it becomes a joint, or move the "
-                "record to a member end.".format(owner, tuple(round(c, 9) for c in point), set_name, nearest_text)
-            )
-        if len(set(hits)) > 1:
+            return None
+        if len(hits) > 1:
             raise AnalysisNotSupported(
                 "{0} acts at {1} through the set {2!r}, and more than one emitted part has a vertex "
                 "there: {3}. Which instance CAE should attach it to is then ambiguous, and picking one "
                 "would apply the record to half the structure that meets at that "
-                "point.".format(owner, tuple(round(c, 9) for c in point), set_name, sorted(set(hits)))
+                "point.".format(owner, tuple(round(c, 9) for c in point), set_name, hits)
             )
         instances.add(hits[0])
     if len(instances) > 1:
@@ -608,7 +776,277 @@ def _resolve_region(
             "instance: {2}. One CAE region names one instance's vertices, so this record cannot be "
             "written as one object; split it per part in the source model.".format(owner, set_name, sorted(instances))
         )
-    return instances.pop()
+    return RegionPlan(
+        cae_set_name="",
+        cae_instance_name=instances.pop(),
+        points=positions,
+        source_set_name=set_name,
+        kind="vertex",
+        node_count=len(positions),
+    )
+
+
+def _edge_region(fem_set, positions, edges, tol: float, owner: str, set_name: str) -> RegionPlan | None:
+    """A region of whole edges, or ``None`` when the nodes are not exactly that.
+
+    The completeness test is against the **model's own mesh** rather than against a node count this
+    module would have to guess: every node the owning FEM has on the edge must be in the set. That
+    is the only statement of "the set is this edge" that does not depend on the seed, and it is the
+    same shape of check :func:`_pressure_plate` makes for a plate.
+    """
+    if not edges:
+        return None
+    fem_nodes = _fem_node_positions(fem_set)
+    if fem_nodes is None:
+        return None
+    claimed: list[EdgeSegment] = []
+    for edge in edges:
+        on_set = _nodes_on_segment(positions, edge, tol)
+        if len(on_set) < 2:
+            continue
+        if len(_nodes_on_segment(fem_nodes, edge, tol)) != len(on_set):
+            continue
+        along = [parameter for _, parameter in on_set]
+        if min(along) > tol or max(along) < edge.length - tol:
+            continue
+        claimed.append(edge)
+    if not claimed:
+        return None
+    reached = [False] * len(positions)
+    for edge in claimed:
+        for index, _ in _nodes_on_segment(positions, edge, tol):
+            reached[index] = True
+    if not all(reached):
+        return None
+    instances = sorted({edge.cae_instance_name for edge in claimed})
+    if len(instances) > 1:
+        raise AnalysisNotSupported(
+            "{0} acts through the set {1!r}, whose nodes cover edges of more than one emitted part "
+            "instance: {2}. One CAE region names one instance's edges, so this record cannot be "
+            "written as one object; split it per part in the source model.".format(owner, set_name, instances)
+        )
+    boxes = tuple(_run_box(run) for run in _collinear_runs(claimed, tol))
+    return RegionPlan(
+        cae_set_name="",
+        cae_instance_name=instances[0],
+        points=(),
+        source_set_name=set_name,
+        kind="edge",
+        boxes=boxes,
+        edge_count=len(claimed),
+        total_length=sum(edge.length for edge in claimed),
+        node_count=len(positions),
+    )
+
+
+def _face_region(fem_set, nodes, plates: dict, owner: str, set_name: str) -> RegionPlan | None:
+    """A region over the whole of one plate's faces, or ``None`` when the set is not that plate's mesh.
+
+    ``Elem.refs`` again: a shell element names the ``Plate`` it was meshed from, so "which plate's
+    mesh is this node set" is answered by adapy's own linkage. The test is set equality and not
+    containment -- a set holding *some* of a plate's nodes is refused rather than widened, because a
+    CAE face region restrains every node on the face.
+    """
+    from ada import Plate
+    from ada.api.plates import PlateCurved
+
+    fem = getattr(fem_set, "parent", None)
+    if fem is None or not plates:
+        return None
+    wanted = {node.id for node in nodes}
+    by_plate: dict[str, set] = {}
+    for element in getattr(fem, "elements", []):
+        for ref in element.refs:
+            if isinstance(ref, (Plate, PlateCurved)):
+                by_plate.setdefault(ref.name, set()).update(node.id for node in element.nodes)
+    matches = sorted(name for name in by_plate if by_plate[name] == wanted)
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise AnalysisNotSupported(
+            "{0} acts through the set {1!r}, whose nodes are the whole mesh of {2} different plates at "
+            "once: {3}. One CAE region names one plate's faces here, so which of them the record is "
+            "about cannot be read from the model.".format(owner, set_name, len(matches), matches)
+        )
+    plate_name = matches[0]
+    if plate_name not in plates:
+        raise AnalysisNotSupported(
+            "{0} acts through the set {1!r}, which is the whole mesh of the plate {2!r} -- a plate this "
+            "writer did not emit. The plates it emitted are {3}. A support on a plate that is not in "
+            "the model would be written onto nothing.".format(owner, set_name, plate_name, sorted(plates))
+        )
+    instance_name, points, area = plates[plate_name]
+    return RegionPlan(
+        cae_set_name="",
+        cae_instance_name=instance_name,
+        points=tuple(points),
+        source_set_name=set_name,
+        kind="face",
+        plate_name=plate_name,
+        area=float(area),
+        node_count=len(wanted),
+    )
+
+
+def _region_refusal(positions, vertices, edges, tol: float, owner: str, set_name: str) -> str:
+    """The message for a node set that is none of the three regions, naming the node and why.
+
+    Three distinguishable cases, because "this is not a region" is not actionable on its own: a node
+    that lies on no geometry at all, a node that lies on an edge the set covers only part of, and a
+    set that is neither of those (a mixed set, or some of a plate's nodes).
+    """
+    stray = [point for point in positions if not any(_distance(vertex, point) <= tol for vertex, _ in vertices)]
+    point = stray[0] if stray else positions[0]
+    nearest_vertex = min(vertices, key=lambda item: _distance(item[0], point), default=None)
+    head = "{0} of its {1} node(s) are at no vertex of the emitted geometry -- the first is at {2}, and {3}. ".format(
+        len(stray),
+        len(positions),
+        tuple(round(c, 9) for c in point),
+        (
+            "the nearest vertex is at {0} in part instance {1!r}, {2:.6g} length units away".format(
+                tuple(round(c, 9) for c in nearest_vertex[0]),
+                nearest_vertex[1],
+                _distance(nearest_vertex[0], point),
+            )
+            if nearest_vertex is not None
+            else "the emitted model has no vertices at all"
+        ),
+    )
+
+    detail = ""
+    if not any(_nodes_on_segment((point,), edge, tol) for edge in edges):
+        nearest_edge = min(edges, key=lambda edge: _segment_distance(point, edge)[0], default=None)
+        detail = "It lies on no edge of the emitted geometry either -- {0}. ".format(
+            "the nearest edge is {0}, from {1} to {2}, {3:.6g} away".format(
+                nearest_edge.owner,
+                tuple(round(c, 9) for c in nearest_edge.p1),
+                tuple(round(c, 9) for c in nearest_edge.p2),
+                _segment_distance(point, nearest_edge)[0],
+            )
+            if nearest_edge is not None
+            else "the emitted model has no edges at all"
+        )
+    else:
+        for edge in sorted(edges, key=lambda item: (item.p1, item.p2)):
+            on_set = _nodes_on_segment(positions, edge, tol)
+            if not on_set:
+                continue
+            along = sorted(parameter for _, parameter in on_set)
+            if along[0] <= tol and along[-1] >= edge.length - tol:
+                continue
+            detail = (
+                "Its nodes do lie on {0}, from {1} to {2}, and they reach only {3:.6g} to {4:.6g} of its "
+                "{5:.6g} length. A CAE region is made of WHOLE edges, and a DisplacementBC on one "
+                "restrains every node the mesh puts there -- measured, the same edge carried 5 nodes at "
+                "a 0.125 seed and 9 at 0.0625 -- so a partly covered edge would silently become a "
+                "support over all of it. ".format(
+                    edge.owner,
+                    tuple(round(c, 9) for c in edge.p1),
+                    tuple(round(c, 9) for c in edge.p2),
+                    along[0],
+                    along[-1],
+                    edge.length,
+                )
+            )
+            break
+    return (
+        "{0} acts through the set {1!r}, whose nodes are not a region of the emitted geometry. {2}{3}A "
+        "support or a load is carried three ways and this is none of them: on a geometric VERTEX (every "
+        "node of the set at one), on one or more whole EDGES (every node on an edge, every node the "
+        "model has on that edge in the set, and the edge covered end to end), or over the whole of one "
+        "plate's FACES (the set is exactly that plate's mesh). Those three are what survive "
+        "re-meshing; locating a mesh node instead would work once and then move silently the next time "
+        "the part was meshed. Split the member at that point in the source model so it becomes a "
+        "joint, or give the record the whole edge or the whole plate.".format(owner, set_name, head, detail)
+    )
+
+
+def _fem_node_positions(fem_set) -> tuple[tuple[float, float, float], ...] | None:
+    """Every node position of the FEM a set belongs to, or ``None`` when it belongs to none.
+
+    ``None`` rather than an empty tuple, because the two mean different things: a detached set
+    cannot be shown to cover an edge at all, and falling through to the refusal is right for it.
+    """
+    fem = getattr(fem_set, "parent", None)
+    nodes = getattr(fem, "nodes", None)
+    if nodes is None:
+        return None
+    return tuple(tuple(float(c) for c in node.p) for node in nodes)
+
+
+def _segment_distance(point, segment: EdgeSegment) -> tuple[float, float]:
+    """``(distance from the segment, distance along it from p1)``, the parameter unclamped."""
+    length = segment.length
+    if length <= 0.0:
+        return _distance(segment.p1, point), 0.0
+    axis = tuple((segment.p2[i] - segment.p1[i]) / length for i in range(3))
+    offset = tuple(point[i] - segment.p1[i] for i in range(3))
+    along = sum(offset[i] * axis[i] for i in range(3))
+    clamped = 0.0 if along < 0.0 else (length if along > length else along)
+    foot = tuple(segment.p1[i] + clamped * axis[i] for i in range(3))
+    return _distance(foot, point), along
+
+
+def _line_distance(point, segment: EdgeSegment) -> float:
+    """Distance from the **infinite line** through ``segment``, which is what collinearity is about.
+
+    Not :func:`_segment_distance`: that clamps to the segment, so the far end of the *next* sub-edge
+    of one split boundary reads as a quarter of a metre away from the first and the two would never
+    be grouped -- which is precisely the case the grouping exists for.
+    """
+    length = segment.length
+    if length <= 0.0:
+        return _distance(segment.p1, point)
+    axis = tuple((segment.p2[i] - segment.p1[i]) / length for i in range(3))
+    offset = tuple(point[i] - segment.p1[i] for i in range(3))
+    along = sum(offset[i] * axis[i] for i in range(3))
+    foot = tuple(segment.p1[i] + along * axis[i] for i in range(3))
+    return _distance(foot, point)
+
+
+def _nodes_on_segment(positions, segment: EdgeSegment, tol: float) -> list[tuple[int, float]]:
+    """``(index, distance along the segment)`` for every position lying on it, within ``tol``."""
+    found = []
+    for index, point in enumerate(positions):
+        distance, along = _segment_distance(point, segment)
+        if distance <= tol:
+            found.append((index, along))
+    return found
+
+
+def _collinear_runs(claimed: list[EdgeSegment], tol: float) -> list[list[EdgeSegment]]:
+    """``claimed`` grouped by the infinite line each edge lies on, deterministically.
+
+    One box per run and not one box per region: measured, a single box over the strip's two long
+    edges returned 7 edges totalling 13.0 -- the whole body -- against the 2 and 8.0 adapy
+    predicted. Grouping against the run's first member is enough because every member of a run is
+    on the same line, so the relation is an equivalence rather than a chain.
+    """
+    runs: list[list[EdgeSegment]] = []
+    for edge in sorted(claimed, key=lambda item: (item.p1, item.p2)):
+        for run in runs:
+            head = run[0]
+            if all(_line_distance(point, head) <= tol for point in (edge.p1, edge.p2)):
+                run.append(edge)
+                break
+        else:
+            runs.append([edge])
+    return runs
+
+
+def _run_box(run: list[EdgeSegment]) -> RegionBox:
+    """The tight bounding box of one collinear run, grown by :data:`EDGE_BOX_TOL`."""
+    points = [point for edge in run for point in (edge.p1, edge.p2)]
+    bounds = []
+    for axis in range(3):
+        values = [point[axis] for point in points]
+        bounds.append(min(values) - EDGE_BOX_TOL)
+        bounds.append(max(values) + EDGE_BOX_TOL)
+    return RegionBox(
+        bounds=(bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]),
+        edge_count=len(run),
+        length=sum(edge.length for edge in run),
+    )
 
 
 def _distance(a, b) -> float:
@@ -743,14 +1181,17 @@ def plan_analysis(
     part_set_names: NameRegistry,
     tol: float,
     plates: dict | None = None,
+    edges: list[EdgeSegment] | None = None,
 ) -> tuple[AnalysisPlan, dict[str, NameRegistry]]:
     """Resolve every support, load and step before a line of the analysis is written.
 
     ``vertices`` is ``[(position, cae instance name), ...]`` for every vertex the emitted
     geometry will hold -- member ends plus the points where one member imprints another, which
-    is what :func:`ada.cadit.cae.topology.expected_topology` already computes. ``tol`` is
-    adapy's own ``Config().general_point_tol``, the same tolerance the topology is stated at,
-    so a support lands on a vertex exactly when adapy would call the two points one point.
+    is what :func:`ada.cadit.cae.topology.expected_topology` already computes. ``edges`` is the
+    same statement one dimension up, from :func:`edge_index`. ``tol`` is adapy's own
+    ``Config().general_point_tol``, the same tolerance the topology is stated at, so a support
+    lands on a vertex exactly when adapy would call the two points one point, and a node lies on
+    an edge exactly when adapy would call it on the line.
     """
     refuse_untranslated_concept_analysis(root)
 
@@ -762,36 +1203,33 @@ def plan_analysis(
         "steps": NameRegistry("steps"),
     }
     plates = plates or {}
+    edges = list(edges or ())
     plan = AnalysisPlan()
     fems = analysis_fems(root)
 
     regions: dict[tuple, RegionPlan] = {}
 
-    def region_for(fem_set, owner: str) -> RegionPlan:
+    def region_for(fem_set, owner: str, allowed: tuple[str, ...] = ("vertex", "edge", "face")) -> RegionPlan:
         positions = _node_positions(fem_set, owner)
         key = (fem_set.name, positions)
         existing = regions.get(key)
-        if existing is not None:
-            return existing
-        instance = _resolve_region(positions, vertices, tol, owner, fem_set.name)
-        cae_set_name = registries["assembly sets"].allocate_shared(fem_set.name)
-        if cae_set_name in part_set_names.taken:
-            raise AnalysisNotSupported(
-                "the support/load region {0!r} would become an assembly-level CAE set of that name, and "
-                "a member of this model already claims it for a part-level set. CAE scopes the two "
-                "repositories separately, so it would accept both -- and then the emitted script's "
-                "result sidecar, which keys everything by set name, would hold one of them over the "
-                "other, and a reader tracing the name back to a GeniE object would have no way to tell "
-                "which. Rename one of them.".format(cae_set_name)
-            )
-        plan_region = RegionPlan(
-            cae_set_name=cae_set_name,
-            cae_instance_name=instance,
-            points=positions,
-            source_set_name=fem_set.name,
-        )
-        regions[key] = plan_region
-        return plan_region
+        if existing is None:
+            resolved = classify_region(fem_set, vertices, edges, plates, tol, owner)
+            cae_set_name = registries["assembly sets"].allocate_shared(fem_set.name)
+            if cae_set_name in part_set_names.taken:
+                raise AnalysisNotSupported(
+                    "the support/load region {0!r} would become an assembly-level CAE set of that name, "
+                    "and a member of this model already claims it for a part-level set. CAE scopes the "
+                    "two repositories separately, so it would accept both -- and then the emitted "
+                    "script's result sidecar, which keys everything by set name, would hold one of them "
+                    "over the other, and a reader tracing the name back to a GeniE object would have no "
+                    "way to tell which. Rename one of them.".format(cae_set_name)
+                )
+            existing = replace(resolved, cae_set_name=cae_set_name)
+            regions[key] = existing
+        if existing.kind not in allowed:
+            raise AnalysisNotSupported(REGION_KIND_REFUSAL[existing.kind].format(owner=owner, set_name=fem_set.name))
+        return existing
 
     def add_bc(bc: Bc, step_name: str | None, where: str) -> None:
         """``step_name=None`` means a FEM-level support: the step is chosen by what it holds."""
@@ -866,7 +1304,10 @@ def plan_analysis(
         if load.type == "pressure":
             add_pressure(load, step_name, owner)
             return
-        region = region_for(load.fem_set, owner)
+        # Vertices only, and the whole reason is in REGION_KIND_REFUSAL: Abaqus applies a
+        # concentrated force to every node of its region, so on an edge or a face the applied total
+        # would be a function of the mesh seed rather than of the model.
+        region = region_for(load.fem_set, owner, allowed=("vertex",))
         forces, moments = _load_components(load, owner)
         registries["loads"].allocate_unique(load.name)
         plan.loads.append(
@@ -889,7 +1330,7 @@ def plan_analysis(
                 "pressure would be written at its full magnitude for the whole step -- the same load, "
                 "on a different history.".format(owner, getattr(load.amplitude, "name", load.amplitude))
             )
-        plate_name, (instance_name, points) = _pressure_plate(load, plates, owner)
+        plate_name, (instance_name, points, _area) = _pressure_plate(load, plates, owner)
         cae_name = registries["loads"].allocate_unique(load.name)
         surface_name = registries["assembly surfaces"].allocate_unique("{0}_surf".format(load.name))
         plan.pressures.append(
@@ -978,27 +1419,111 @@ def vertex_index(part_plans, tol: float) -> list[tuple[tuple[float, float, float
     return index
 
 
+def edge_index(part_plans, tol: float) -> list[EdgeSegment]:
+    """Every straight edge the geometry a plan will build is going to hold.
+
+    The companion of :func:`vertex_index` one dimension up, and assembled from the same two places
+    the vertices come from:
+
+    * a part carrying plates contributes its ACIS body's **face-bounding** edges, straight ones
+      only. Those arrive already split by the imprint, which is exactly what makes an edge region
+      work at all on a stiffened plate: measured, the strip's ``x = 0`` boundary is one 0.5 m edge
+      bare and two 0.25 m sub-edges once a bar lands on it, and CAE imports what the body says. A
+      curved boundary edge is counted by :mod:`ada.cadit.cae.plates` and left out here, because a
+      bounding box around an arc is not the arc;
+    * every **straight wire member**, split at the points where another member's end lands strictly
+      inside it -- the same arithmetic ``expected_topology`` already did, read off
+      ``topology.splits``. A curved member contributes nothing: where along a spline CAE puts an
+      imprinted vertex is the spline's own parameterisation's business, which is why the writer
+      refuses a contact on one in the first place. A **stringer** contributes nothing either, and
+      not for want of an edge: its axis *is* one of the plate edges above, and adding it again
+      would double the count the emitted script asserts.
+    """
+    index: list[EdgeSegment] = []
+    for part_plan in part_plans:
+        instance = part_plan.cae_instance_name
+        for start, end in getattr(part_plan, "plate_edges", ()):
+            index.append(
+                EdgeSegment(
+                    p1=tuple(float(c) for c in start),
+                    p2=tuple(float(c) for c in end),
+                    cae_instance_name=instance,
+                    owner="a plate boundary of part {0!r}".format(part_plan.part_name),
+                )
+            )
+        topology = part_plan.topology
+        for member in part_plan.members:
+            if member.is_stringer or member.is_curved:
+                continue
+            splits = () if topology is None else topology.splits.get(member.cae_set_name, ())
+            for start, end in _split_axis(member.p1, member.p2, splits, tol):
+                index.append(
+                    EdgeSegment(
+                        p1=start,
+                        p2=end,
+                        cae_instance_name=instance,
+                        owner="member {0!r}".format(member.beam_name),
+                    )
+                )
+    return index
+
+
+def _split_axis(p1, p2, splits, tol: float) -> list[tuple[tuple[float, ...], tuple[float, ...]]]:
+    """``p1 -> p2`` cut at every split point strictly inside it, in order along the axis."""
+    start = tuple(float(c) for c in p1)
+    end = tuple(float(c) for c in p2)
+    axis = EdgeSegment(p1=start, p2=end, cae_instance_name="", owner="")
+    length = axis.length
+    if length <= 0.0:
+        return []
+    cuts: list[float] = []
+    for point in splits:
+        distance, along = _segment_distance(tuple(float(c) for c in point), axis)
+        if distance > tol or along <= tol or along >= length - tol:
+            continue
+        if any(abs(along - seen) <= tol for seen in cuts):
+            continue
+        cuts.append(along)
+    unit = tuple((end[i] - start[i]) / length for i in range(3))
+    stations = [0.0] + sorted(cuts) + [length]
+    return [
+        (
+            tuple(start[i] + stations[index] * unit[i] for i in range(3)),
+            tuple(start[i] + stations[index + 1] * unit[i] for i in range(3)),
+        )
+        for index in range(len(stations) - 1)
+    ]
+
+
 __all__ = [
     "BC_KEYWORDS",
     "CARRIED_BC_TYPES",
     "CARRIED_ELEMENT_TYPES",
     "CARRIED_SHELL_ELEMENT_TYPES",
     "CARRIED_LOAD_TYPES",
+    "EDGE_BOX_TOL",
     "FORCE_KEYWORDS",
     "MAGNITUDE_TOL",
     "MOMENT_KEYWORDS",
     "REFUSED_BC_TYPES",
     "REFUSED_LOAD_TYPES",
+    "REGION_AREA_REL_TOL",
+    "REGION_KIND_REFUSAL",
+    "REGION_LENGTH_REL_TOL",
     "AnalysisNotSupported",
     "AnalysisPlan",
     "BcPlan",
+    "EdgeSegment",
     "LoadPlan",
     "PressurePlan",
+    "RegionBox",
     "RegionPlan",
     "StepPlan",
     "analysis_fems",
     "check_element_type",
     "check_shell_element_type",
+    "classify_region",
+    "edge_index",
     "plan_analysis",
     "refuse_untranslated_concept_analysis",
     "vertex_index",

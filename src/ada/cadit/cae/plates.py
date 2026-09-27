@@ -174,6 +174,17 @@ class PlateBody:
     #: a support or a load is resolved against -- a plate corner is somewhere a support can
     #: legitimately sit, and before this it was not a place the writer knew about.
     vertices: list[tuple[float, float, float]] = field(default_factory=list)
+    #: The **straight** edges of the body that bound a face, as ``(start, end)`` pairs, sorted.
+    #: These are the plate boundary edges and the imprinted beam axes, already split by the imprint
+    #: -- measured on a 4 x 0.5 m strip with a bar along its centreline, the body carries 7 of them
+    #: and CAE imports exactly 7, the ``x = 0`` and ``x = L`` boundaries each split into two 0.25 m
+    #: sub-edges by the bar's ends. So an edge of the emitted geometry is something adapy can
+    #: *state*, which is what lets a support act along one rather than only at a vertex.
+    boundary_edges: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = field(default_factory=list)
+    #: How many face-bounding edges were **not** straight -- an arc or a spline boundary. Counted
+    #: rather than carried: a bounding box around an arc is not the arc, so a region along one is
+    #: refused, and the count is what lets that refusal say the geometry has curved edges.
+    curved_boundary_edges: int = 0
 
     @property
     def face_count(self) -> int:
@@ -587,6 +598,8 @@ def plate_body(part: Part) -> PlateBody | None:
         tuple(float(c) for c in list(vertex.point.point)[:3]) for vertex in sat_writer.get_entities_by_type(se.Vertex)
     )
 
+    body.boundary_edges, body.curved_boundary_edges = _straight_boundary_edges(sat_writer)
+
     bounding = _edges_bounding_a_face(sat_writer)
     beams_by_guid = {bm.guid: bm.name for bm in part.get_all_physical_objects(by_type=_beam_type())}
     for guid, edge_names in sorted(sat_writer.edge_map.items()):
@@ -599,8 +612,8 @@ def plate_body(part: Part) -> PlateBody | None:
     return body
 
 
-def _edges_bounding_a_face(sat_writer) -> set[str]:
-    """The named SAT edges that bound a face, as opposed to standing free in a wire body.
+def _face_bounding_edges(sat_writer) -> list:
+    """Every SAT edge that bounds a face, as opposed to standing free in a wire body.
 
     ``edge_map`` alone is not the test, and that is the trap this exists for: adapy authors a
     beam axis with no plate under it as a **wire** body, and such an edge still has a coedge and
@@ -608,22 +621,51 @@ def _edges_bounding_a_face(sat_writer) -> set[str]:
     boundary both appeared in ``edge_map``, and neither lies on a plate. A coedge is owned by a
     ``Loop`` when it bounds a face and by a ``Wire`` when it does not (``se.CoEdge.loop``'s own
     type annotation says so), so the owner's type is what separates the two.
+
+    Unnamed edges are included, unlike in :func:`_edges_bounding_a_face`: a plate's own boundary
+    edges carry no ``StringAttribName`` at all (measured -- only the imprinted beam axis does),
+    and they are the very edges a support acts along.
     """
     from ada.cadit.sat.write import sat_entities as se
 
-    bounding: set[str] = set()
+    bounding = []
     for edge in sat_writer.get_entities_by_type(se.Edge):
-        if edge.attrib_name is None:
-            continue
         coedge = edge.coedge
         seen: set[int] = set()
         while coedge is not None and id(coedge) not in seen:
             seen.add(id(coedge))
             if type(coedge.loop) is se.Loop:
-                bounding.add(edge.attrib_name.name)
+                bounding.append(edge)
                 break
             coedge = coedge.partner
     return bounding
+
+
+def _edges_bounding_a_face(sat_writer) -> set[str]:
+    """The *named* face-bounding edges, which is what says a beam's axis lies on a plate."""
+    return {edge.attrib_name.name for edge in _face_bounding_edges(sat_writer) if edge.attrib_name is not None}
+
+
+def _straight_boundary_edges(sat_writer) -> tuple[list, int]:
+    """``(the straight face-bounding edges as (start, end) pairs, how many were curved)``.
+
+    Straightness is read off the edge's own curve record rather than inferred from its endpoints:
+    ACIS parameterises a straight curve by arc length and a circle by angle, and an arc whose two
+    ends happen to be a chord apart is still an arc. ``se.Edge.straight_curve`` holds whichever
+    curve the writer authored, so its exact type is the test.
+    """
+    from ada.cadit.sat.write import sat_entities as se
+
+    straight: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = []
+    curved = 0
+    for edge in _face_bounding_edges(sat_writer):
+        if type(edge.straight_curve) is not se.StraightCurve:
+            curved += 1
+            continue
+        start = tuple(float(c) for c in list(edge.start_pt)[:3])
+        end = tuple(float(c) for c in list(edge.end_pt)[:3])
+        straight.append((start, end))
+    return sorted(straight), curved
 
 
 def _beam_type():

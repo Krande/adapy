@@ -484,7 +484,10 @@ REFUSALS = {
     "a pressure load on a beams-only model": (refuse_pressure, "nothing for it to act on"),
     "an eigenvalue step": (refuse_eigen_step, "StepEigen"),
     "a velocity boundary condition": (refuse_velocity_bc, "prescribes a rate"),
-    "a support at a mid-span mesh node": (refuse_mid_span_support, "no vertex there"),
+    # A mid-span node is at no vertex, and it is also only *part* of the member's edge -- so the
+    # refusal now names both, and the second half is what the edge classifier could have got wrong.
+    "a support at a mid-span mesh node": (refuse_mid_span_support, "at no vertex of the emitted geometry"),
+    "a support on part of a member's edge": (refuse_mid_span_support, r"reach only 3 to 3 of its 6 length"),
     "a support that restrains nothing": (refuse_empty_dofs, "restrains no degree of freedom"),
     "a region named after a member": (refuse_region_name_clash, "already claims it for a part-level set"),
     "a load in a local csys": (refuse_load_in_a_local_csys, "local coordinate system"),

@@ -108,13 +108,23 @@ could emit a model that opens in CAE, meshes, solves and is wrong:
    The solver can, and that is where the sign of the projection was pinned; see
    :func:`beam_section_offset`.
 
-10. **Every support and load arrives, at a vertex or on a plate's faces, or nothing is
+10. **Every support and load arrives, on geometry adapy stated in advance, or nothing is
    written.** The analysis
    comes from ``FEM.bcs`` and the ``Load`` records inside ``FEM.steps`` -- see
-   :mod:`ada.cadit.cae.analysis` on which of adapy's two stores that is and why. A support
-   or load whose node is not at a vertex of the emitted geometry is refused rather than
-   attached to a located mesh node, which would hold exactly until the part was meshed
-   again. A ``pressure`` is the exception that needs a face rather than a vertex: it becomes a
+   :mod:`ada.cadit.cae.analysis` on which of adapy's two stores that is and why. adapy gives a
+   support through a ``FemSet`` of *mesh nodes* and CAE carries one on *geometry*, so the nodes are
+   classified against the geometry this writer is about to build: every node at a **vertex**, every
+   node on **whole edges** (the set holding every node the model has on each of them, end to end),
+   or the set being exactly one plate's whole mesh, which is its **faces**. Anything else is refused
+   rather than attached to a located mesh node, which would hold exactly until the part was meshed
+   again -- measured, an edge region's ``DisplacementBC`` held 10 nodes at a 0.125 seed and 18 at
+   0.0625, so the geometry region is what follows the mesh and a node region would not have. An edge
+   region is located by ``getByBoundingBox``, one box per collinear run, and **never** by ``findAt``:
+   measured, ``findAt`` on a boundary a stiffener has split returns one 0.25 m sub-edge of the 0.5 m
+   support, and one box over two parallel edges returns the whole body (7 edges, 13.0 against 8.0).
+   Both the edge count and the region's total length are asserted in the kernel. A ``force`` load
+   stays vertex-only, because Abaqus applies a concentrated force to every node of its region and on
+   geometry that total moves with the mesh seed. A ``pressure`` is the other face case: it becomes a
    ``Pressure`` on an assembly ``Surface`` over the whole of one plate, resolved through
    ``Elem.refs`` -- which names the plate a shell element was meshed from -- and refused when the
    element set covers only part of a plate, because a CAE surface is made of whole faces and the
@@ -163,10 +173,13 @@ from .analysis import (
     BC_KEYWORDS,
     FORCE_KEYWORDS,
     MOMENT_KEYWORDS,
+    REGION_AREA_REL_TOL,
+    REGION_LENGTH_REL_TOL,
     AnalysisNotSupported,
     AnalysisPlan,
     check_element_type,
     check_shell_element_type,
+    edge_index,
     plan_analysis,
     vertex_index,
 )
@@ -501,6 +514,12 @@ class _PartPlan:
     #: Every vertex of that body, so the bounding-box guard and the analysis both know a plate
     #: corner is a place the emitted geometry has a vertex.
     plate_vertices: list[tuple[float, float, float]] = field(default_factory=list)
+    #: The body's straight face-bounding edges, as ``(start, end)`` pairs -- the plate boundaries and
+    #: the imprinted beam axes, already cut by the imprint. What a support acting *along* an edge is
+    #: resolved against; see :func:`ada.cadit.cae.analysis.edge_index`.
+    plate_edges: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = field(default_factory=list)
+    #: How many of those edges were curved, and so are not somewhere a region can be placed.
+    curved_plate_edges: int = 0
 
     @property
     def has_plates(self) -> bool:
@@ -1404,6 +1423,8 @@ def build_plan(
                 )
             sat_names_seen[part_plan.sat_name] = part.name
             part_plan.plate_vertices = list(body.vertices)
+            part_plan.plate_edges = list(body.boundary_edges)
+            part_plan.curved_plate_edges = body.curved_boundary_edges
             for plate in body.plates:
                 owner = "plate {0!r}".format(plate.plate_name)
                 source_plate = next(pl for pl in part.plates if pl.name == plate.plate_name)
@@ -1583,13 +1604,20 @@ def build_plan(
             vertex_index(plan.parts, plan.joint_tol),
             plan.registries[_SET_SCOPE],
             plan.joint_tol,
-            # A CAE Pressure acts on a Surface, so a pressure load has to resolve to the whole of
-            # one plate this writer emitted -- which is only knowable once the plates are planned.
+            # A CAE Pressure acts on a Surface, and a support over a whole plate on a Set of the same
+            # faces, so both have to resolve to one plate this writer emitted -- which is only
+            # knowable once the plates are planned. The area travels with them because the emitted
+            # script asserts the region it built against adapy's own measurement of the plate.
             plates={
-                plate.plate_name: (part_plan.cae_instance_name, tuple(face.point for face in plate.faces))
+                plate.plate_name: (
+                    part_plan.cae_instance_name,
+                    tuple(face.point for face in plate.faces),
+                    plate.area,
+                )
                 for part_plan in plan.parts
                 for plate in part_plan.plates
             },
+            edges=edge_index(plan.parts, plan.joint_tol),
         )
     except AnalysisNotSupported as exc:
         # Re-raised as the writer's own error, the way a CurveNotSupported is, so a caller has
@@ -2572,6 +2600,103 @@ def _analysis_region(assembly, set_name, instance_name, points, source_set_name)
               'it.'.format(set_name, source_set_name, len(points), len(found)))
     assembly.Set(name=set_name, vertices=found)
     _RESULT['created']['regions'].append(set_name)
+    _RESULT.setdefault('region_kinds', {})[set_name] = 'vertex'
+
+
+def _analysis_edge_region(assembly, set_name, instance_name, boxes, edge_count, total_length,
+                          source_set_name):
+    """One assembly-level Set of geometry EDGES for a support, found by bounding box.
+
+    getByBoundingBox and never findAt, and that is measured rather than stylistic: on a strip whose
+    x = 0 boundary a stiffener has split into two 0.25 m sub-edges, findAt at a point on it returns
+    ONE edge of length 0.25 -- half the support -- and findAt at the split point itself returns one of
+    the two arbitrarily. The boxes return 2 edges totalling 0.5.
+
+    One box per COLLINEAR RUN of the edges the region covers, for the other half of the same
+    measurement: a single box over two parallel edges 0.5 m apart returned 7 edges totalling 13.0,
+    the whole body, against the 2 edges and 8.0 adapy predicted. So the per-box edge count AND the
+    region\\'s total length are both checked here against what adapy computed from its own geometry.
+    An edge region is what makes a support on a plate edge mesh-independent: measured, the same
+    DisplacementBC held 10 nodes at a 0.125 seed and 18 at 0.0625, with nothing between the two
+    solves but a re-seed and a re-mesh.
+    """
+    instance = assembly.instances[instance_name]
+    found = None
+    built = 0.0
+    for bounds, box_count, box_length in boxes:
+        got = instance.edges.getByBoundingBox(xMin=bounds[0], xMax=bounds[1], yMin=bounds[2],
+                                              yMax=bounds[3], zMin=bounds[4], zMax=bounds[5])
+        if len(got) != box_count:
+            _fail('the support/load region {0!r} (adapy set {1!r}): the box x[{2}, {3}] y[{4}, {5}] '
+                  'z[{6}, {7}] returned {8} edge(s) and adapy predicted {9}, of total length {10}. '
+                  'Part instance {11!r} holds {12} edge(s) in all. Fewer means part of the region is '
+                  'not there and the support would act on a fraction of it; more means the box reached '
+                  'geometry the record was never about.'.format(
+                      set_name, source_set_name, bounds[0], bounds[1], bounds[2], bounds[3], bounds[4],
+                      bounds[5], len(got), box_count, box_length, instance_name, len(instance.edges)))
+        for edge in got:
+            built = built + edge.getSize(printResults=False)
+        found = got if found is None else found + got
+    if len(found) != edge_count:
+        _fail('the support/load region {0!r} (adapy set {1!r}) resolved to {2} edge(s) and adapy '
+              'predicted {3}. Two of its runs share an edge, so the region CAE would hold is not the '
+              'region adapy described.'.format(set_name, source_set_name, len(found), edge_count))
+    tolerance = abs(total_length) * REGION_LENGTH_REL_TOL
+    if abs(built - total_length) > tolerance:
+        _fail('the support/load region {0!r} (adapy set {1!r}) is {2} long in CAE and adapy computed '
+              '{3} for the same {4} edge(s) -- {5} out, against a tolerance of {6}. The edge count '
+              'agrees, so this is the geometry: CAE built an edge somewhere other than where adapy put '
+              'it, and the support would run along the wrong length of the '
+              'structure.'.format(set_name, source_set_name, built, total_length, edge_count,
+                                  abs(built - total_length), tolerance))
+    assembly.Set(name=set_name, edges=found)
+    _RESULT['created']['regions'].append(set_name)
+    _RESULT.setdefault('region_kinds', {})[set_name] = 'edge'
+    _RESULT.setdefault('region_edges', {})[set_name] = [len(found), built]
+
+
+def _analysis_face_region(assembly, set_name, instance_name, points, area, plate_name,
+                          source_set_name):
+    """One assembly-level Set over the whole of one plate\\'s FACES, for a support acting over it.
+
+    The faces are located exactly as a pressure surface locates them -- findAt at the points adapy
+    computed strictly inside each one -- and for the same reason: CAE discards the ACIS face names on
+    import, so a point is the only handle. findAt is checked rather than trusted because it warns and
+    returns an empty sequence for a point it cannot place.
+
+    The total area is then compared against adapy\\'s own area for the plate, absolutely and scaled by
+    it: a face Abaqus considers invalid reports getSize() == 0.0 rather than raising, so a relative
+    form would divide by that zero. Measured, a DisplacementBC on such a Set restrained every one of
+    the 165 nodes the face meshed into, and the Set reads back as faces 1, edges 0.
+    """
+    instance = assembly.instances[instance_name]
+    found = []
+    for point in points:
+        hits = instance.faces.findAt((point,))
+        if len(hits) != 1:
+            _fail('the support/load region {0!r} (adapy set {1!r}) on plate {2!r}: findAt at {3} found '
+                  '{4} face(s), not one. adapy computed that point strictly inside the face it '
+                  'authored, so the support would act on fewer faces than the plate '
+                  'has.'.format(set_name, source_set_name, plate_name, point, len(hits)))
+        found.append(hits[0].index)
+    faces = instance.faces[found[0]:found[0] + 1]
+    for index in found[1:]:
+        faces = faces + instance.faces[index:index + 1]
+    built = 0.0
+    for face in faces:
+        built = built + face.getSize(printResults=False)
+    tolerance = abs(area) * REGION_AREA_REL_TOL
+    if abs(built - area) > tolerance:
+        _fail('the support/load region {0!r} (adapy set {1!r}) covers {2} of plate {3!r} in CAE and '
+              'adapy measured {4} -- {5} out, against a tolerance of {6}. A face region restrains '
+              'every node on it, so a region over the wrong faces is a support somewhere else in the '
+              'structure. getSize() reports 0.0 for a face Abaqus considers invalid, which is one way '
+              'to arrive here.'.format(set_name, source_set_name, built, plate_name, area,
+                                       abs(built - area), tolerance))
+    assembly.Set(name=set_name, faces=faces)
+    _RESULT['created']['regions'].append(set_name)
+    _RESULT.setdefault('region_kinds', {})[set_name] = 'face'
+    _RESULT.setdefault('region_faces', {})[set_name] = [len(found), built]
 
 
 def _pressure_surface(assembly, surface_name, instance_name, points, plate_name):
@@ -2629,6 +2754,7 @@ def _guard_analysis(model):
         'boundary_conditions': list(model.boundaryConditions.keys()),
         'loads': list(model.loads.keys()),
         'regions': list(PLANNED_ANALYSIS['regions']),
+        'region_kinds': _RESULT.get('region_kinds', {}),
         'surfaces': list(model.rootAssembly.surfaces.keys()),
         'applied_force_from_adapy': list(APPLIED_FORCE),
     }
@@ -3068,6 +3194,27 @@ def _analysis_source(plan: _Plan, displacements_name: str) -> list[str]:
         "APPLIED_FORCE = ({0})".format(", ".join(_num(c) for c in analysis.applied_resultant())),
         "",
     ]
+    if any(region.kind == "edge" for region in analysis.regions):
+        lines += [
+            "# An edge region is located by getByBoundingBox and NEVER by findAt, and both numbers",
+            "# below are checked in the kernel. Measured on a strip whose x = 0 boundary a stiffener",
+            "# had split into two 0.25 m sub-edges: findAt at a point on it returns ONE edge of length",
+            "# 0.25 -- half the support -- and at the split point returns one of the two arbitrarily.",
+            "# One box per COLLINEAR RUN, too: a single box over the strip's two long edges (parallel,",
+            "# 0.5 m apart) returned 7 edges totalling 13.0, which is the whole body, against the 2",
+            "# edges and 8.0 adapy predicted.",
+            "REGION_LENGTH_REL_TOL = {0}".format(_num(REGION_LENGTH_REL_TOL)),
+            "",
+        ]
+    if any(region.kind == "face" for region in analysis.regions):
+        lines += [
+            "# A face region covers the whole of one plate, so its total area is adapy's own area for",
+            "# that plate. Compared absolutely, scaled by the expected value: a face Abaqus considers",
+            "# invalid reports getSize() == 0.0 rather than raising, and a relative form would divide",
+            "# by that zero instead of failing.",
+            "REGION_AREA_REL_TOL = {0}".format(_num(REGION_AREA_REL_TOL)),
+            "",
+        ]
     if not plan.submit:
         return lines
     lines += [
@@ -3637,20 +3784,59 @@ def _analysis_lines(plan: _Plan) -> list[str]:
         return []
     lines = [
         "",
-        "    # --- support and load regions: assembly-level vertex sets, located by position.",
-        "    # A load acts on an INSTANCE's vertices, so these cannot be the part-level sets the",
-        "    # members already use -- and a name shared between the two repositories is refused on",
-        "    # the adapy side rather than accepted here, because the result sidecar keys by set name.",
+        "    # --- support and load regions: assembly-level sets of the geometry adapy resolved each",
+        "    # record's nodes to. A load acts on an INSTANCE's vertices/edges/faces, so these cannot be",
+        "    # the part-level sets the members already use -- and a name shared between the two",
+        "    # repositories is refused on the adapy side rather than accepted here, because the result",
+        "    # sidecar keys by set name.",
+        "    #",
+        "    # Which of the three a record got is adapy's classification of its FemSet's nodes against",
+        "    # this geometry (ada.cadit.cae.analysis.classify_region): every node at a vertex, every node",
+        "    # on whole edges, or the set being exactly one plate's mesh. Anything else was refused.",
     ]
     for region in analysis.regions:
         points = ", ".join(_pt(point) for point in region.points)
         if len(region.points) == 1:
             points += ","
         lines.append(
-            "    _analysis_region(assembly, {0!r}, {1!r}, ({2}), {3!r})".format(
-                region.cae_set_name, region.cae_instance_name, points, region.source_set_name
+            "    # {0!r}: {1} region from the adapy set {2!r}, {3} node(s)".format(
+                region.cae_set_name, region.kind, region.source_set_name, region.node_count
             )
         )
+        if region.kind == "edge":
+            boxes = ", ".join(
+                "(({0}), {1}, {2})".format(", ".join(_num(c) for c in box.bounds), box.edge_count, _num(box.length))
+                for box in region.boxes
+            )
+            if len(region.boxes) == 1:
+                boxes += ","
+            lines.append(
+                "    _analysis_edge_region(assembly, {0!r}, {1!r}, ({2}), {3}, {4}, {5!r})".format(
+                    region.cae_set_name,
+                    region.cae_instance_name,
+                    boxes,
+                    region.edge_count,
+                    _num(region.total_length),
+                    region.source_set_name,
+                )
+            )
+        elif region.kind == "face":
+            lines.append(
+                "    _analysis_face_region(assembly, {0!r}, {1!r}, ({2}), {3}, {4!r}, {5!r})".format(
+                    region.cae_set_name,
+                    region.cae_instance_name,
+                    points,
+                    _num(region.area),
+                    region.plate_name,
+                    region.source_set_name,
+                )
+            )
+        else:
+            lines.append(
+                "    _analysis_region(assembly, {0!r}, {1!r}, ({2}), {3!r})".format(
+                    region.cae_set_name, region.cae_instance_name, points, region.source_set_name
+                )
+            )
 
     if analysis.steps:
         lines += [
