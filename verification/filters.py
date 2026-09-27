@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import pathlib  # noqa: F401  (kept for type/path manipulation in render helpers)
+import pathlib
 from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
@@ -367,6 +367,18 @@ class Plate(Filter):
     def eig_compare(self) -> TableView:
         return TableView(table_key="plate_eig_compare")
 
+    @attr
+    def geometry_3d(self) -> ThreeDView:
+        return ThreeDView(glb_key="plate_geom", caption="Plate strip geometry.", camera_preset="iso_3")
+
+    @attr
+    def geometry_stiffened_3d(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key="plate_stiffened_geom",
+            caption="Plate strip with a T-profile stiffener on its centreline.",
+            camera_preset="iso_3",
+        )
+
 
 # ---------------------------------------------------------------------
 # Module-level instances. paradoc.filters.discover_filters picks these
@@ -403,7 +415,7 @@ plate = Plate(name="plate", task=TaskHandle.unbound("plate_run_static"))
 
 # ---------------------------------------------------------------------
 # Block-sugar handler for `<!-- paradoc:figure figure_source:
-# eig_modes_section ... -->`. Registered at module load so paradoc
+# fea_modes_compare ... -->`. Registered at module load so paradoc
 # picks it up alongside the @task discovery.
 #
 # Why this lives in filters.py and not tasks.py: paradoc has two
@@ -415,192 +427,195 @@ plate = Plate(name="plate", task=TaskHandle.unbound("plate_run_static"))
 # ---------------------------------------------------------------------
 
 
-class EigModesSection(BaseFigureSource):
-    """Spec for ``figure_source: eig_modes_section``.
+class FeaModesCompare(BaseFigureSource):
+    """Spec for ``figure_source: fea_modes_compare``.
 
-    Expands a comment block into a per-case markdown section for every
-    case under ``assets_dir/`` whose case-name carries ``solver``'s short
-    tag (``ca``, ``ccx``, ``aba``, ``sesam``). Each case yields either a
-    full ``#### Mode N`` walk (``layout=mode_per_section``) or a flat
-    sequence of mode figures (``layout=gallery`` — visual grouping
-    today falls back to mode_per_section without subsection headings).
+    Expands a comment block into the results appendix for one family of cases -- every bundle under
+    ``assets_dir/`` whose name starts with ``case_prefix`` -- organised so the formats can be read
+    against each other: one ``###`` section per mesh configuration, one ``#### Mode N`` per mode, and
+    under it one figure per solver, side by side.
 
-    The block carries no figure of its own; ``figure_title`` is
-    inherited from :class:`BaseFigureSource` and ignored at render
-    time. ``camera_pos`` / ``renderer`` are likewise unused (each mode's
-    poster was baked upstream by ``fea_outputs``); they sit on the spec
-    only because the base class declares them.
+    Grouping by configuration first and by solver last is the point. The previous layout ran one
+    solver's cases end to end, so the Calculix and Code_Aster pictures of the same mode sat pages
+    apart; side by side, a swapped mode pair or a different deflected shape is visible at a glance.
+
+    ``analysis="static"`` drops the per-mode heading: a static case has one displacement step.
+
+    The block carries no figure of its own; ``figure_title`` / ``camera_pos`` / ``renderer`` are
+    inherited from :class:`BaseFigureSource` and unused (the posters were baked upstream).
     """
 
-    figure_source: Literal["eig_modes_section"] = "eig_modes_section"
-    solver: Literal["abaqus", "calculix", "code_aster", "sesam"] = Field(
-        ..., description="Which solver's cases the block expands."
-    )
-    layout: Literal["mode_per_section", "gallery"] = Field(
-        "mode_per_section",
+    figure_source: Literal["fea_modes_compare"] = "fea_modes_compare"
+    case_prefix: str = Field(
+        ...,
         description=(
-            "How to lay out per-case modes. mode_per_section emits "
-            "`#### Mode N` headings between figures; gallery emits a "
-            "flat sequence of figures."
+            "Case-name prefix before the solver token, e.g. `cantilever_EIG`, `plate_EIG`, "
+            "`plate_static`. Case names are `<prefix>_<solver>_<configuration>`."
         ),
     )
+    analysis: Literal["eigen", "static"] = Field("eigen", description="`static` drops the per-mode heading.")
     assets_dir: str = Field(
         "_assets",
-        description=(
-            "Path (relative to the doc / bundle root) where per-case "
-            "FEA bundles live. The filter walks it for "
-            "`<case>/fea.manifest.json`."
-        ),
+        description="Path (relative to the doc root) searched recursively for `<case>/fea.manifest.json`.",
     )
 
 
-register_spec("eig_modes_section", EigModesSection)
+register_spec("fea_modes_compare", FeaModesCompare)
 
 
-# Short-form tokens used in the case-name convention `eig_case_name`
-# produces in tasks.py. Maps spec.solver → the token to substring-match
-# against the case directory's basename. Keep in lockstep with
-# `ada.fem.results.docs`'s naming convention.
-_SOLVER_NAME_TAG = {
-    "abaqus": "aba",
-    "calculix": "ccx",
-    "code_aster": "ca",
-    "sesam": "sesam",
-}
+#: Solver tokens as the case names spell them, in the column order the grid uses. Keep in lockstep
+#: with ``ada.api.fem_tasks.SHORT_NAME_MAP``; the cantilever's Sesam cache spells it both ways.
+_SOLVER_ORDER = ("aba", "ccx", "ca", "ses", "sesam")
+_SOLVER_LABEL = {"aba": "Abaqus", "ccx": "Calculix", "ca": "Code_Aster", "ses": "Sesam", "sesam": "Sesam"}
+
+#: Tailwind utilities the paradoc frontend already ships: one column on a phone, two from `sm` up.
+_GRID_DIV_OPEN = '::: {class="grid grid-cols-1 sm:grid-cols-2 gap-4"}'
+_GRID_DIV_CLOSE = ":::"
 
 
-def _case_matches_solver(case_name: str, solver_tag: str) -> bool:
-    """True if ``case_name`` belongs to ``solver_tag``'s solver.
+def _split_case_name(case_name: str, prefix: str) -> tuple[str, str] | None:
+    """``<prefix>_<solver>_<configuration>`` -> ``(solver, configuration)``, or None if not ours."""
+    head = f"{prefix}_"
+    if not case_name.startswith(head):
+        return None
+    solver, _, config = case_name[len(head) :].partition("_")
+    if solver not in _SOLVER_LABEL or not config:
+        return None
+    return solver, config
 
-    Case names look like ``cantilever_EIG_<tag>_<geom>_<order>_...``.
-    Split on ``_`` and check the position-3 token (after the static
-    ``cantilever`` / ``EIG`` prefix) — substring-matching would
-    misfire on ``sesam`` matching ``ces`` etc.
-    """
-    parts = case_name.split("_")
-    # cantilever_EIG_<tag>_..., so index 2 is the solver token.
-    if len(parts) < 3:
-        return False
-    return parts[2] == solver_tag
+
+def _config_label(config: str) -> str:
+    """``shell_o1_hqTrue_riFalse`` -> ``Shell, 1st order, QUAD``; unknown tokens pass through."""
+    tokens = config.split("_")
+    geom = tokens[0].lower()
+    parts = [geom.capitalize()]
+    for tok in tokens[1:]:
+        if tok in ("o1", "o2"):
+            parts.append("1st order" if tok == "o1" else "2nd order")
+        elif tok.startswith("hq"):
+            hq = tok == "hqTrue"
+            if geom == "solid":
+                parts.append("HEX" if hq else "TET")
+            elif geom == "shell":
+                parts.append("QUAD" if hq else "TRI")
+        elif tok.startswith("ri"):
+            if tok == "riTrue":
+                parts.append("reduced integration")
+        elif tok.startswith("st"):
+            parts.append("stiffened" if tok == "stTrue" else "plain")
+        elif tok.startswith("h") and "p" in tok:
+            parts.append(f"seed {tok[1:].replace('p', '.')} m")
+        else:
+            parts.append(tok)
+    return ", ".join(parts)
 
 
 @register_filter
-class EigModesSectionFilter(FigureSourceFilter):
-    """Block-sugar handler for ``eig_modes_section``.
+class FeaModesCompareFilter(FigureSourceFilter):
+    """Block-sugar handler for ``fea_modes_compare``.
 
-    Walks ``bundle_root/<assets_dir>/`` for per-case FEA bundles
-    (``fea.manifest.json`` + posters baked by the upstream
-    ``fea_outputs`` task), filters by solver, and emits the per-case
-    markdown sections. Returns a mixed list of
-    :class:`MarkdownChunk` (section + mode headings, placeholder text)
-    and :class:`RenderResult` (per-mode figure references); the
-    preprocessor splices them into the document in order.
+    Walks ``doc_root/<assets_dir>/`` for baked bundles (``fea.manifest.json`` + posters, written by
+    the ``fea_outputs`` / ``plate_*_fea_outputs`` tasks), groups them by configuration and returns a
+    mixed list of :class:`MarkdownChunk` (headings, grid fences, placeholders) and
+    :class:`RenderResult` (one per solver per mode) that the preprocessor splices in order.
 
-    The same case-name keys ``to_paradoc_rows`` already registered are
-    reused for ``ThreeDData`` rows so the 3D viewer mounts against the
-    same GLBs (``add_three_d`` uses ``INSERT OR REPLACE``).
+    The grid is a pandoc fenced div; the frontend renders a Div's classes as-is, and each image in it
+    is its own paragraph, so each stays a Figure the 3D viewer mounts on.
     """
 
-    figure_source = "eig_modes_section"
-
-    _PLACEHOLDER = "_Mode-shape figures unavailable for this case._"
+    figure_source = "fea_modes_compare"
 
     def render(self, spec, *, key):  # type: ignore[override]
-        if not isinstance(spec, EigModesSection):
-            raise TypeError(f"EigModesSectionFilter received non-EigModesSection spec: " f"{type(spec).__name__}")
+        if not isinstance(spec, FeaModesCompare):
+            raise TypeError(f"FeaModesCompareFilter received non-FeaModesCompare spec: {type(spec).__name__}")
 
-        solver_tag = _SOLVER_NAME_TAG[spec.solver]
-        # Source FEA bundles live under doc_root (the dir containing
-        # paradoc.toml / tasks.py / filters.py / _assets/), NOT under
-        # bundle_root (which is the markdown build-staging dir under
-        # work_dir). The block-sugar reads pre-baked artefacts from the
-        # source tree; paradoc's static-export step copies them into
-        # the final bundle via the ThreeDData rows fea_outputs emits.
+        # Bundles are read from the source tree (doc_root), not the build staging dir; the static
+        # export copies them into the bundle via the ThreeDData rows each RenderResult registers.
         assets_root = (self.doc_root / spec.assets_dir).resolve()
-
         if not assets_root.is_dir():
-            _eig_logger.warning(
-                "eig_modes_section: assets_dir %s does not exist under " "doc_root; emitting placeholder.",
-                assets_root,
-            )
+            _eig_logger.warning("fea_modes_compare: %s does not exist; emitting placeholder.", assets_root)
             return [MarkdownChunk(text=f"_No FEA bundles found under `{spec.assets_dir}`._")]
 
-        case_dirs = sorted(d for d in assets_root.iterdir() if d.is_dir() and _case_matches_solver(d.name, solver_tag))
+        # configuration -> solver -> case dir
+        groups: dict[str, dict[str, pathlib.Path]] = {}
+        for case_dir in sorted(p for p in assets_root.rglob("*") if p.is_dir()):
+            parsed = _split_case_name(case_dir.name, spec.case_prefix)
+            if parsed is None:
+                continue
+            solver, config = parsed
+            groups.setdefault(config, {})[solver] = case_dir
 
-        if not case_dirs:
-            return [MarkdownChunk(text=f"_No cases for solver `{spec.solver}`._")]
+        if not groups:
+            return [MarkdownChunk(text=f"_No baked cases for `{spec.case_prefix}`._")]
 
         entries: list = []
-        for case_dir in case_dirs:
-            case_name = case_dir.name
-            manifest = case_dir / "fea.manifest.json"
+        for config in sorted(groups):
+            entries.extend(self._render_config(config, groups[config], analysis=spec.analysis))
+        return entries
 
-            # Cache-only / pre-bake state: case dir exists (e.g. mode
-            # GLBs committed) but the bake never ran, so manifest +
-            # posters are absent. Emit the placeholder so the report
-            # reader sees the case exists but has no figures yet.
-            if not manifest.is_file():
-                entries.append(MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n"))
-                continue
+    def _render_config(self, config: str, by_solver: dict[str, pathlib.Path], *, analysis: str) -> list:
+        entries: list = [MarkdownChunk(text=f"\n### {_config_label(config)}\n")]
 
+        loaded: dict[str, FeaDocAssets] = {}
+        unavailable: list[str] = []
+        for solver in sorted(by_solver, key=_SOLVER_ORDER.index):
+            case_dir = by_solver[solver]
             try:
-                assets = assets_from_bundle_dir(case_dir, key=case_name)
-            except Exception as exc:
-                _eig_logger.warning("eig_modes_section: failed to load %s: %s", case_dir, exc)
-                entries.append(MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n"))
+                assets = assets_from_bundle_dir(case_dir, key=case_dir.name)
+            except Exception as exc:  # noqa: BLE001 - a cache-only / half-baked case degrades, not fails
+                _eig_logger.warning("fea_modes_compare: failed to load %s: %s", case_dir, exc)
+                unavailable.append(solver)
                 continue
+            if not assets.poster_paths:
+                unavailable.append(solver)
+                continue
+            loaded[solver] = assets
 
-            entries.extend(self._render_case(assets, layout=spec.layout))
+        if unavailable:
+            names = ", ".join(_SOLVER_LABEL[s] for s in unavailable)
+            entries.append(MarkdownChunk(text=f"\n_Figures unavailable for: {names}._\n"))
+        if not loaded:
+            return entries
 
-        return entries or [MarkdownChunk(text="_No baked FEA cases found._")]
+        # One hash per mesh, not one per figure: every mode of a case shares its GLB.
+        glb_sha = {s: hashlib.sha256(a.mesh_glb_path.read_bytes()).hexdigest() for s, a in loaded.items()}
+        mode_indices = sorted({i for a in loaded.values() for i in a.poster_paths})
+        for mode_idx in mode_indices:
+            if analysis == "eigen":
+                entries.append(MarkdownChunk(text=f"\n#### Mode {mode_idx + 1}\n"))
+            entries.append(MarkdownChunk(text=_GRID_DIV_OPEN))
+            for solver, assets in loaded.items():
+                poster = assets.poster_paths.get(mode_idx)
+                if poster is None:
+                    continue
+                entries.append(self._render_one(solver, assets, glb_sha[solver], mode_idx, poster, analysis=analysis))
+            entries.append(MarkdownChunk(text=_GRID_DIV_CLOSE))
+        return entries
 
-    def _render_case(self, assets: FeaDocAssets, *, layout: str) -> list:
-        """Build chunks + RenderResults for one case.
+    @staticmethod
+    def _render_one(
+        solver: str, assets: FeaDocAssets, glb_sha: str, mode_idx: int, poster: pathlib.Path, *, analysis: str
+    ):
+        caption = _SOLVER_LABEL[solver]
+        freqs = assets.frequencies or []
+        if analysis == "eigen" and mode_idx < len(freqs) and freqs[mode_idx] is not None:
+            caption += f" — mode {mode_idx + 1}, {freqs[mode_idx]:.3f} Hz"
+        elif analysis == "static":
+            caption += " — displacement"
 
-        ``layout='gallery'`` falls back to a flat sequence of figures
-        without subsection headings — visual grouping (CSS grid) is a
-        future iteration. mode_per_section is the default.
-        """
-        case_name = assets.key
-        chunks: list = [MarkdownChunk(text=f"\n### {case_name}\n")]
-
-        if not assets.poster_paths:
-            chunks.append(MarkdownChunk(text=f"\n{self._PLACEHOLDER}\n"))
-            return chunks
-
-        # Source bundles live under doc_root, not bundle_root. Emit
-        # absolute paths in the RenderResult — paradoc's preprocessor
-        # handles absolute png_path via `os.path.relpath(absolute, md_dir)`
-        # and the static-export glb resolver searches absolute paths
-        # first. The user's repo convention has _assets/ next to
-        # tasks.py / filters.py rather than under the markdown source_dir.
-        glb_abs = str(assets.mesh_glb_path)
-        mesh_sha = hashlib.sha256(assets.mesh_glb_path.read_bytes()).hexdigest()
-        mesh_size = assets.mesh_glb_path.stat().st_size
-
-        for mode_idx in sorted(assets.poster_paths.keys()):
-            mode_n = mode_idx + 1
-            poster = assets.poster_paths[mode_idx]
-            png_abs = str(poster)
-
-            if layout == "mode_per_section":
-                chunks.append(MarkdownChunk(text=f"\n#### Mode {mode_n}\n"))
-
-            chunks.append(
-                RenderResult(
-                    png_path=png_abs,
-                    glb_path=glb_abs,
-                    glb_sha256=mesh_sha,
-                    glb_size=mesh_size,
-                    caption=f"{case_name} — mode {mode_n}",
-                    camera_pos="iso_3",
-                    source_type="fea_artefact_bundle_mode_view",
-                    metadata={
-                        "fea_bundle_key": case_name,
-                        "fea_mode_index": mode_idx,
-                        "image_path": png_abs,
-                    },
-                )
-            )
-
-        return chunks
+        # Absolute paths: the preprocessor relpaths png_path against the markdown dir, and the static
+        # export's glb resolver tries absolute paths first.
+        return RenderResult(
+            png_path=str(poster),
+            glb_path=str(assets.mesh_glb_path),
+            glb_sha256=glb_sha,
+            glb_size=assets.mesh_glb_path.stat().st_size,
+            caption=caption,
+            camera_pos="iso_3",
+            source_type="fea_artefact_bundle_mode_view",
+            metadata={
+                "fea_bundle_key": assets.key,
+                "fea_mode_index": mode_idx,
+                "image_path": str(poster),
+            },
+        )
