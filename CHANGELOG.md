@@ -2,6 +2,16 @@
 
 
 
+## v0.93.1 (2026-09-27)
+
+### Fix
+
+* fix(gxml, sat): an HP section keeps its flange on read, and a plate outline keeps its start vertex through the SAT (#406)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`53b6b9d`](https://github.com/Krande/adapy/commit/53b6b9d3e9c366db030d725e6537874896aadd14))
+
+
 ## v0.93.0 (2026-09-27)
 
 ### Feature
