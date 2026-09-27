@@ -369,6 +369,53 @@ def side_node_indices(el_type, side) -> Union[tuple, None]:
     return table[index]
 
 
+def pressure_elsets(region: Union["Surface", FemSet]) -> list[tuple[FemSet, object]]:
+    """A pressure region as ``(FemSet, side)`` pairs -- the element *sets* it names.
+
+    :func:`_region_groups` is the counterpart for formats that write a pressure per element (Sesam's
+    BEUSLO). A format that writes one record per *set* instead -- Calculix's ``*DLOAD``, Code_Aster's
+    ``FORCE_COQUE`` -- needs the set itself to survive, because the set's name is what goes in the
+    deck. The two must agree about which elements are loaded, so they read the same three places a
+    region can hold them: ``fem_set``, ``el_face_index``, and ``id_refs``.
+
+    Raises for a region no set-naming format can express: a node-based surface, a non-element set,
+    and a surface row that names a bare element id rather than a set. Each of those would otherwise
+    become a silently unloaded model.
+    """
+    if isinstance(region, FemSet):
+        if region.type != FemSet.TYPES.ELSET:
+            raise ValueError(f"a pressure on the {region.type} set {region.name!r} needs an element set")
+        return [(region, None)]
+
+    if region.type == SurfTypes.NODE:
+        raise ValueError(f"a pressure on the node-based surface {region.name!r} has no element set to name")
+
+    fem_set = region.fem_set
+    fem_sets = fem_set if isinstance(fem_set, list) else [fem_set]
+    side = region.el_face_index
+    sides = side if isinstance(side, list) else [side] * len(fem_sets)
+    if len(sides) != len(fem_sets):
+        raise ValueError(
+            f"surface {region.name!r} has {len(fem_sets)} FemSet(s) but {len(sides)} el_face_index entries"
+        )
+    pairs = [(fs, sd) for fs, sd in zip(fem_sets, sides) if fs is not None]
+
+    for row in region.id_refs or []:
+        ref, row_side = row[0], (row[1] if len(row) > 1 else None)
+        if not isinstance(ref, str):
+            raise ValueError(
+                f"surface {region.name!r} names element {ref} directly; a pressure written per element "
+                f"set has no line to put it on"
+            )
+        if region.parent is None:
+            raise ValueError(f"surface {region.name!r} references sets by name but has no parent FEM")
+        pairs.append((region.parent.sets.get_elset_from_name(ref), row_side))
+
+    if not pairs:
+        raise ValueError(f"surface {region.name!r} names no element set")
+    return pairs
+
+
 def _region_groups(region: Union["Surface", FemSet]):
     """The region as ``(members, side)`` groups, one per set the region names.
 

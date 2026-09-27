@@ -81,7 +81,9 @@ def test_beuslo_field_layout_for_a_quad_pressure():
         # integration rule, SIDE 1 = the face on the element's positive normal.
         assert ident == [float(el.id), 4.0, 0.0, 1.0]
         # The pressure itself, once per node -- not a force, and not a per-node share of one.
-        assert intensities == [Q, Q, Q, Q]
+        # Negated: a positive BEUSLO intensity pushes along the element's normal, and adapy's
+        # positive face is the one a positive pressure pushes *into*, which is the other way.
+        assert intensities == [-Q, -Q, -Q, -Q]
 
 
 def test_the_record_constants_are_the_values_sestra_accepts():
@@ -103,12 +105,13 @@ def test_ndof_is_the_element_node_count():
         fem, elements = _quad_fem(1, shape=shape)
         head, ident, intensities = _records(load_pressure(_elset_pressure(fem, elements), 1))[0]
         assert ident[1] == float(n), shape
-        assert intensities == [Q] * n, shape
+        assert intensities == [-Q] * n, shape
 
 
-def test_a_negative_face_surface_flips_the_sign_and_names_side_2():
+def test_a_negative_face_surface_keeps_the_magnitude_and_names_side_2():
     """Abaqus puts a positive ``*Dsload P`` into the face it names; BEUSLO always pushes along
-    the element's negative normal, so only the sign can carry a SNEG pressure."""
+    the element's normal whichever SIDE is written, so only the sign can carry which face was
+    meant -- and it is the *positive* face that needs the flip, not the negative one."""
     fem, elements = _quad_fem(2)
     es = fem.add_set(FemSet("SHELLS", elements, FemSet.TYPES.ELSET, parent=fem))
     surf = Surface("SNEG_SURF", Surface.TYPES.ELEMENT, es, el_face_index=-1, parent=fem)
@@ -117,13 +120,13 @@ def test_a_negative_face_surface_flips_the_sign_and_names_side_2():
     assert len(recs) == 2
     for _head, ident, intensities in recs:
         assert ident[3] == 2.0, "SIDE 2 records that the model meant the negative face"
-        assert intensities == [-Q, -Q, -Q, -Q]
+        assert intensities == [Q, Q, Q, Q]
 
-    # ... and the positive face keeps the magnitude as given.
+    # ... and the positive face is the one written negated.
     surf_pos = Surface("SPOS_SURF", Surface.TYPES.ELEMENT, es, el_face_index=1, parent=fem)
     for _head, ident, intensities in _records(load_pressure(LoadPressure("q", Q, surf_pos), 1)):
         assert ident[3] == 1.0
-        assert intensities == [Q, Q, Q, Q]
+        assert intensities == [-Q, -Q, -Q, -Q]
 
 
 def test_a_plain_element_set_is_the_positive_face():
@@ -131,7 +134,7 @@ def test_a_plain_element_set_is_the_positive_face():
     fem, elements = _quad_fem(1)
     _head, ident, intensities = _records(load_pressure(_elset_pressure(fem, elements), 1))[0]
     assert ident[3] == 1.0
-    assert intensities[0] == Q
+    assert intensities[0] == -Q
 
 
 def test_records_are_written_in_element_id_order():

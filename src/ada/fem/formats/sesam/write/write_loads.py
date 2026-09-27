@@ -262,19 +262,40 @@ def _pressure_side_and_sign(side) -> tuple[int, float] | None:
     The sign is the whole point. Measured on one S4R with its nodes counter-clockwise in the
     x-y plane (so its normal is +z), Abaqus 2025 puts ``*Dsload P, 1000.`` at U3 =
     -3.2004021E-03 on the ``SPOS`` face and +3.2004021E-03 on the ``SNEG`` face: a positive
-    pressure pushes *into* the face it is applied to. Measured on the same geometry, a positive
-    BEUSLO intensity pushes along the element's **negative** normal whichever SIDE is written,
-    and reversing the elements' node order reverses it -- so it is the element's own normal that
-    sets the direction, not the global axes and not SIDE.
+    pressure pushes *into* the face it is applied to, which is along the element's **negative**
+    normal for the positive face. That is adapy's convention, and every writer has to match it.
+    Measured on the same geometry, a positive BEUSLO intensity pushes along the element's normal
+    whichever SIDE is written, and reversing the elements' node order reverses it -- so it is the
+    element's own normal that sets the direction, not the global axes and not SIDE.
 
-    The two routes therefore agree with RLOAD = +magnitude on the positive face, and only a
-    negative-face pressure needs the sign flipped. Writing SIDE = 2 there as well keeps the
-    record saying which face the model meant.
+    The two are therefore opposite, and a positive-face pressure is what needs the flip. Writing
+    SIDE = 2 for a negative-face one as well keeps the record saying which face the model meant.
+
+    This was the other way round until the convention was checked across formats, and the story of
+    how is worth keeping, because nothing in the Sestra runs could see it. The reference the BEUSLO
+    sign was tuned against came from ``verification/genie_vs_abaqus``, which applied the same
+    pressure as its exact consistent *nodal* load, with the force ``-PRESSURE * area`` along
+    ``dof=[0, 0, 1]`` -- global **-z** -- on the stated grounds that this was "against the plate's
+    ``+z`` normal". The plate's normal is not +z: gmsh winds every element of that strip with its
+    normal along **-z** (measured, all 128 of them, and identically for the ``"line"`` and
+    ``"shell"`` bm_repr the two builders used). So the reference load ran *along* the element normal
+    rather than into the positive face, the BEUSLO sign was matched to it, and the test that pinned
+    it compared BEUSLO against that same nodal reference -- which makes it a check that BEUSLO
+    reproduces a downward load, not a check of which face the model named. The face mapping was
+    never pinned, which is why this survived.
+
+    What settled it, without a Sestra licence: the same strip through the two solvers that can be
+    run freely. A positive pressure on the positive face gives mid-span ``u3`` = **+0.17306500**
+    from ccx 2.23 and **+0.17319792** from Code_Aster 17.3 -- both +z, i.e. into the positive face,
+    agreeing with Abaqus. Code_Aster's value is the Sestra reference's magnitude to eight digits
+    (0.1731979101896286) with the opposite sign, which is the measurement that says the two decks
+    are the same discretisation and differ only here. See
+    ``tests/fem/test_pressure_load_cross_format.py``.
     """
     if side in _POSITIVE_SIDES:
-        return SIDE_POSITIVE, 1.0
+        return SIDE_POSITIVE, -1.0
     if side in _NEGATIVE_SIDES:
-        return SIDE_NEGATIVE, -1.0
+        return SIDE_NEGATIVE, 1.0
     return None
 
 

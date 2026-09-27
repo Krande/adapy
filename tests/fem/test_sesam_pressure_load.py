@@ -58,6 +58,15 @@ MESH_SIZES = (0.125, 0.0625, 0.03125)
 #: seven significant digits; they are compared **exactly** all the same, because a BEUSLO deck
 #: and a consistent-nodal-load deck differ only in how the same load vector was spelled, so
 #: their solutions are the same floats, not merely close ones. Measured: they are.
+#:
+#: These are **negative** because that nodal load ran along global -z: it was applied as
+#: ``-PRESSURE * area`` on ``dof=[0, 0, 1]``, on the stated grounds that -z was "against the
+#: plate's +z normal". It is not -- gmsh winds every element of this strip with its normal along
+#: **-z** -- so -z is along the normal, which is the face on the element's *negative* side. A
+#: positive pressure on the **positive** face therefore reproduces these numbers negated, and it is
+#: the negative face that reproduces them as they stand. Nothing about the numbers changed when
+#: that was found; only which face they belong to, which the comparison below now says explicitly.
+#: See ``ada.fem.formats.sesam.write.write_loads._pressure_side_and_sign`` for how it was settled.
 NODAL_LOAD_REFERENCE = {
     0.125: -0.1731979101896286,
     0.0625: -0.17329947650432587,
@@ -210,15 +219,18 @@ def test_a_pressure_reaches_sestra_as_the_consistent_load(tmp_path):
         # The reaction is single-precision in the SIN, so a relative tolerance, not equality --
         # and 1e-07 is five orders tighter than one missing element's share (1/128 at the
         # coarsest mesh), which is what this is here to catch.
-        assert reaction[2] == pytest.approx(TOTAL_LOAD, rel=1e-07), f"q L b at seed {mesh_size}"
+        assert reaction[2] == pytest.approx(-TOTAL_LOAD, rel=1e-07), f"q L b at seed {mesh_size}"
         assert reaction[0] == pytest.approx(0.0, abs=1e-06)
         assert reaction[1] == pytest.approx(0.0, abs=1e-06)
-        assert u3 < 0.0, "a positive pressure on the positive face pushes the strip down"
+        assert u3 > 0.0, (
+            "a positive pressure on the positive face pushes into that face, and this mesh's "
+            "element normals are -z, so the positive face looks down and the strip moves up"
+        )
 
     # Exactly, not approximately: a BEUSLO deck and a consistent-nodal-load deck are the same
     # load vector spelled two ways, so they are the same floats. If this ever drifts, BEUSLO's
     # own integration is not the consistent load and the docstring above is wrong.
-    assert measured == NODAL_LOAD_REFERENCE
+    assert measured == {h: -u for h, u in NODAL_LOAD_REFERENCE.items()}
 
     coarse, medium, fine = (measured[h] for h in MESH_SIZES)
     ratio = (medium - coarse) / (fine - medium)
@@ -253,7 +265,7 @@ def test_a_pressure_on_the_negative_face_pushes_the_other_way(tmp_path):
     assert {row[3] for row in pos_rows} == {1.0}
     assert {row[3] for row in neg_rows} == {2.0}
 
-    assert u3_pos == NODAL_LOAD_REFERENCE[mesh_size]
+    assert u3_pos == -NODAL_LOAD_REFERENCE[mesh_size]
     assert u3_neg == -u3_pos, "the same magnitude the other way, not merely a different number"
-    assert reaction_pos[2] == pytest.approx(TOTAL_LOAD, rel=1e-07)
-    assert reaction_neg[2] == pytest.approx(-TOTAL_LOAD, rel=1e-07)
+    assert reaction_pos[2] == pytest.approx(-TOTAL_LOAD, rel=1e-07)
+    assert reaction_neg[2] == pytest.approx(TOTAL_LOAD, rel=1e-07)
