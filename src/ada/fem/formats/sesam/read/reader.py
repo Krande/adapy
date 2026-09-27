@@ -13,6 +13,7 @@ from .read_elements import (
     get_springs,
     link_spring_sets,
 )
+from .read_loads import get_loads
 from .read_materials import get_materials
 from .read_nodes import get_nodes, renumber_nodes
 from .read_sections import get_elrefs, get_sections
@@ -75,6 +76,9 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.sections = get_sections(bulk_str, fem, elrefs)
     fem.constraints.update(get_constraints(bulk_str, fem))
     fem.bcs += get_bcs(bulk_str, fem)
+    # Before the renumber, like get_bcs: a BEUSLO record names the *internal* element number,
+    # which is what fem.elements.from_id resolves until the internal -> external pass below.
+    get_loads(bulk_str, fem)
     renumber_nodes(bulk_str, fem)
     fem.elements.renumber(renumber_map=el_id_map)
 
@@ -121,6 +125,10 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     fem.sections = get_sections(reader_text, fem, elrefs)
     fem.constraints.update(get_constraints(reader_text, fem))
     fem.bcs += get_bcs(reader_text, fem)
+    # Before the renumber, for the same reason as on the object path: BEUSLO's ELNO is the
+    # internal element number. A set this creates is id-backed and _remap_id_backed_sets below
+    # carries it over to the external ids.
+    get_loads(reader_text, fem)
     node_map = renumber_nodes(reader_text, fem)
     fem.elements.renumber(renumber_map=ext_map)
 
