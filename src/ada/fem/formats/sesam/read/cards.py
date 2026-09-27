@@ -302,3 +302,10 @@ re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk
 TDRESREF = DataCard("TDRESREF", ("nfield", "ires", "codnam", "codtxt", "name"))
 re_tdresref = TDRESREF.to_ff_re()
 re_tdload = get_ff_regex("TDLOAD", "nfield", "llc", "codnam", "codtxt", "name")
+
+# Loads
+# BNDISPL is BNLOAD's shape: ``LLC DTYPE COMPLX 0`` / ``NODENO NDOF D1 D2`` / ``D3..Dndof``
+# (see ``sesam/write/write_bcs.bndispl_str``). The NDOF values come back as one lazy blob the
+# reader splits, the same shape as re_bnbcd's ``content``: naming D1..D6 would leave a
+# three-component record — a node attached only to solid elements — unmatchable.
+re_bndispl = get_ff_regex("BNDISPL", "llc", "dtype", "complx", "unused", "nodeno", "ndof", "content")
