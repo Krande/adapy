@@ -2,6 +2,53 @@
 
 
 
+## v0.92.0 (2026-09-27)
+
+### Feature
+
+* feat: fold the FEA format work into one, drop the Abaqus/CAE stack, and verify plates through decks (#407)
+
+Folds the six format-level FEA PRs into one, drops the Abaqus/CAE stack, and gives the verification
+report a plate case built through the deck writers.
+
+Folded: #394 (*Tie -&gt; BLDEP facet interpolation), #395 (Sesam super element number), #396 (a
+symmetric section&#39;s zero product of inertia), #399 (.gnx as a first-class format), #400 (Sesam
+settlement, one BLDEP term per dof pair, instance-qualified *MPC), #404 (surface pressure as BEUSLO).
+
+Dropped: #398, #401, #402, #403, #405 -- src/ada/cadit/cae, Part.to_abaqus_cae_script, its tests and
+verification/genie_vs_abaqus, which drives `abaqus cae noGUI=`. adapy supports formats, not APIs into
+proprietary software, and a verification entry only a CAE licence can reproduce verifies nothing
+anyone can check. Salvaged from it, because it is format-level: a T-profile now reaches an Abaqus
+*Beam Section as section=I with the bottom flange zeroed (it had no mapping at all), and Calculix
+converts a T to a general section as it already did an I.
+
+New: the plate strip case -- an ada.Plate meshed by the meshing module (gmsh), written as a deck per
+solver, checked against 5 q L^4 / (384 D) and f_n = n^2 pi / (2 L^2) sqrt(D / (rho t)). Code_Aster
+lands on the eigen closed form to six digits.
+
+Writer gaps it exposed, each found by running it rather than reading:
+
+* Calculix had no pressure load at all; it now writes *DLOAD ... P. Measured on ccx 2.23 that P, P1
+  and P2 are bit-identical on a shell, so the label carries no face and only the sign can.
+* Code_Aster&#39;s pressure had never run: FORCE_FACE with FY is a traction along global Y, not a normal
+  pressure, and GROUP_MA named the surface, which has no MED counterpart -- every attempt stopped at
+  &lt;EXCEPTION&gt; &lt;MODELISA7_77&gt;. Now FORCE_COQUE=_F(PRES=...) over the element sets, via the new shared
+  ada.fem.surfaces.pressure_elsets.
+* Code_Aster refused any eigenvalue analysis with more than one Bc; ASSEMBLAGE&#39;s CHARGE takes a tuple.
+* The Sesam BEUSLO pressure sign was inverted relative to Abaqus, Calculix and Code_Aster. The
+  reference it was tuned against applied its load along global -z on the grounds that -z was
+  &#34;against the plate&#39;s +z normal&#34;; the strip&#39;s element normals are all -z (measured, all 128), so the
+  reference ran along the normal and the test that pinned it never checked which face was named.
+  Code_Aster reproduces the Sestra magnitude to eight digits with the opposite sign. The measured
+  Sestra numbers are kept exactly as measured; only which face they belong to changed. The Sestra leg
+  runs only where Sestra is installed, so a licensed re-run remains the confirmation worth having.
+
+Co-Authored-By: oleandor &lt;oleandor@gmail.com&gt;
+Co-Authored-By: Claude Fable 5.1 &lt;noreply@anthropic.com&gt;
+Co-Authored-By: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;
+Claude-Session: https://claude.ai/code/session_01KXGBkUbGK6oYWxm5R2WYVB ([`eae9066`](https://github.com/Krande/adapy/commit/eae906610fc80675f9c1b66c06328d765efa2a2f))
+
+
 ## v0.91.1 (2026-09-26)
 
 ### Fix
