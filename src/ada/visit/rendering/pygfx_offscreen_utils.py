@@ -382,6 +382,7 @@ def glb_to_image(
     size: tuple[int, int] = (640, 480),
     line_color: tuple[float, float, float, float] = (0.15, 0.15, 0.15, 1.0),
     line_thickness: float = 1.5,
+    member_thickness: float = 4.0,
 ) -> Image.Image:
     """Render ``glb_path`` to a PIL Image with full GLTF mode fidelity.
 
@@ -481,7 +482,21 @@ def glb_to_image(
                 line_positions = line_positions[:-1]
             if len(line_positions) < 2:
                 continue
+            colors = prim.get("colors")
             try:
+                if colors is not None and len(colors) == len(positions):
+                    # Coloured LINES are members (beam elements), not the
+                    # element wireframe: draw them in their field colour and
+                    # thick enough to read against the surface.
+                    line_colors = colors[indices] if indices is not None else colors
+                    geometry = gfx.Geometry(
+                        positions=line_positions.reshape(-1, 3),
+                        colors=np.ascontiguousarray(line_colors[: len(line_positions)], dtype=np.float32),
+                    )
+                    material = gfx.LineSegmentMaterial(color_mode="vertex", thickness=member_thickness)
+                    group.add(gfx.Line(geometry, material))
+                    drew_any = True
+                    continue
                 geometry = gfx.Geometry(positions=line_positions.reshape(-1, 3))
                 material = gfx.LineSegmentMaterial(color=line_color, thickness=line_thickness)
                 group.add(gfx.Line(geometry, material))
