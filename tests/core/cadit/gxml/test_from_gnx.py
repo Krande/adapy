@@ -27,8 +27,10 @@ import ada
 def _build() -> ada.Assembly:
     """Beams and a plate: the two concept kinds a workspace carries, in one small model.
 
-    ``bm2`` is an asymmetric HP profile on purpose -- a doubly symmetric section round-trips
-    even when half its dimensions are dropped.
+    ``bm2`` is an HP profile on purpose: it is the one shape Genie writes with a single
+    width/thickness pair, so a reader that forgets to mirror them onto both flange slots
+    still round-trips every doubly symmetric section perfectly. That is exactly what
+    happened, and what ``test_round_trip_keeps_sections_by_name_and_by_value`` now pins.
     """
     p = ada.Part("P") / (
         ada.Beam("bm1", (0, 0, 0), (4, 0, 0), "IPE300"),
@@ -90,12 +92,10 @@ def test_from_gnx_takes_an_explicit_signature():
 def round_tripped(tmp_path_factory) -> tuple[ada.Assembly, ada.Assembly, ada.Assembly]:
     """``_build()``, the same model read back from a workspace, and from a plain concept XML.
 
-    The third one is the reference the workspace is held against. One loss in this round trip
-    still belongs to the *reader* rather than to the container, and was measured on the
-    ``.xml`` path as well (see ``_cycles`` below): the plate outline comes back rotated by one
-    vertex. Comparing the workspace against the XML pins the invariant that actually belongs
-    to ``.gnx`` -- the zip carries everything the text carries -- while the comparisons
-    against the source say what the reader does.
+    The third one is the reference the workspace is held against. Nothing is lost on the way
+    through either, so the two comparisons say different things and both are worth making:
+    against the XML pins the invariant that belongs to ``.gnx`` -- the zip carries everything
+    the text carries -- while against the source pins what the reader does.
     """
     tmp = tmp_path_factory.mktemp("from_gnx_rt")
     src = _build()
@@ -104,17 +104,17 @@ def round_tripped(tmp_path_factory) -> tuple[ada.Assembly, ada.Assembly, ada.Ass
     return src, ada.from_gnx(tmp / "rt.gnx"), ada.from_genie_xml(tmp / "rt.xml")
 
 
-def _cycles(points) -> list[tuple[tuple[float, ...], ...]]:
-    """Every rotation of a closed outline, so two outlines can be compared as loops.
+def _outline(points) -> tuple[tuple[float, ...], ...]:
+    """A closed outline as comparable numbers, in order, from its own first vertex.
 
-    The GeniE round trip gives the outline back rotated: a plate entered
-    ``(0,0,0) (0,3,0) (4,3,0) (4,0,0)`` reads back starting at ``(4,0,0)``, because the
-    SAT face's loop has its own first coedge. Same loop, same direction, different entry
-    point -- so rotation is the equivalence, and a *reversal* (which would flip the plate
-    normal) is deliberately still a difference.
+    This used to return *every rotation* of the loop, because the round trip gave the outline
+    back rotated by one vertex: a plate whose ``poly.points3d`` is
+    ``(0,0,0) (0,3,0) (4,3,0) (4,0,0)`` read back starting at ``(4,0,0)``. The rotation was
+    the SAT plate writer's -- its rewind-to-CCW reversed with ``pts[::-1]``, which moves the
+    loop's first coedge, and ``outline[0]`` is the first coedge. It reverses about the first
+    vertex now, so the comparison can be exact in both order and entry point.
     """
-    rounded = [tuple(round(float(v), 9) for v in p) for p in points]
-    return [tuple(rounded[i:] + rounded[:i]) for i in range(len(rounded))]
+    return tuple(tuple(round(float(v), 9) for v in p) for p in points)
 
 
 def test_round_trip_keeps_every_beam_where_it_was(round_tripped):
@@ -133,10 +133,10 @@ def test_round_trip_keeps_every_plate(round_tripped):
     for name, pl in sorted(a.items()):
         assert b[name].t == pytest.approx(pl.t), name
         assert b[name].material.name == pl.material.name, name
-        assert _cycles(b[name].poly.points3d)[0] in _cycles(pl.poly.points3d), (
-            f"{name}: the outline is not the same loop.\n"
-            f"  read:   {_cycles(b[name].poly.points3d)[0]}\n"
-            f"  source: {_cycles(pl.poly.points3d)[0]}"
+        assert _outline(b[name].poly.points3d) == _outline(pl.poly.points3d), (
+            f"{name}: the outline changed.\n"
+            f"  read:   {_outline(b[name].poly.points3d)}\n"
+            f"  source: {_outline(pl.poly.points3d)}"
         )
 
 
@@ -201,7 +201,7 @@ def test_a_workspace_carries_exactly_what_the_concept_xml_carries(round_tripped)
     assert sorted(gp) == sorted(xp)
     for name in sorted(xp):
         assert gp[name].t == pytest.approx(xp[name].t), name
-        assert _cycles(gp[name].poly.points3d)[0] == _cycles(xp[name].poly.points3d)[0], name
+        assert _outline(gp[name].poly.points3d) == _outline(xp[name].poly.points3d), name
 
     gs, xs = _sections(gnx), _sections(xml)
     assert sorted(gs) == sorted(xs)
