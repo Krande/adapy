@@ -1,4 +1,12 @@
-top_level_fem_str = """IDENT     1.00000000E+00  1.00000000E+00  3.00000000E+00  0.00000000E+00
+# IDENT (SIF 4.1.2): SLEVEL, SELTYP, SELMOD.
+#   SLEVEL 1  -- a first-level super element. Basic elements are level 0 and a super
+#               element's level is one above its sub elements, so an assembly is 2 or more.
+#               adapy writes a single first-level super element, never an assembly, so 1.
+#   SELTYP    -- the super element number. Sesam's file naming ties it to the deck's own
+#               name: T<n>.FEM carries super element n, and Presel matches the two. So this
+#               is a field, not a constant, and the writer names the file to agree with it.
+#   SELMOD 3  -- a 3-dimensional model.
+top_level_fem_str = """IDENT     1.00000000E+00  {seltyp:.8E}  3.00000000E+00  0.00000000E+00
 DATE      1.00000000E+00  0.00000000E+00  4.00000000E+00  7.20000000E+01
         DATE:     {date_str}         TIME:          {clock_str}
         PROGRAM:  ADA python          VERSION:       Not Applicable

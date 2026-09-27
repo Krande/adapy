@@ -54,10 +54,22 @@ FEM_WRITE_FORMATS: tuple[str, ...] = ("abaqus", "calculix", "code_aster", "sesam
 FEM_WRITE_PRIMARY: dict[str, str] = {
     "abaqus": "{name}.inp",
     "calculix": "{name}.inp",
-    "sesam": "{name}T1.FEM",
+    "sesam": "{name}T{seltyp}.FEM",
     "usfos": "ufo_bulk.fem",
     "code_aster": "{name}.med",
 }
+
+
+def primary_name(fmt: str, name: str, seltyp: int = 1) -> str:
+    """The file name ``fmt``'s writer gives its primary deck for a model called ``name``.
+
+    ``seltyp`` is the Sesam super element number, which names that format's deck
+    (``<name>T<n>.FEM``) as well as appearing in its IDENT record. Every other format ignores it,
+    so callers that have no super element in hand can leave it at 1 — the knowledge that only one
+    writer numbers its file lives here rather than at each call site.
+    """
+    return FEM_WRITE_PRIMARY[fmt].format(name=name, seltyp=seltyp)
+
 
 #: Extensions that more than one write format claims, and who claims them.
 SHARED_WRITE_EXT: dict[str, tuple[str, ...]] = {
@@ -129,7 +141,7 @@ def format_table_text() -> str:
     for name, exts in WRITE_FORMATS.items():
         note = ""
         if name in FEM_WRITE_PRIMARY:
-            primary = FEM_WRITE_PRIMARY[name].format(name="<name>")
+            primary = primary_name(name, "<name>", seltyp="<n>")
             note = f"  writes {primary}"
             if name == "code_aster":
                 note += " plus .comm and two .json sidecars"

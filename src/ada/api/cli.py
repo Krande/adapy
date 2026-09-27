@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -35,10 +36,10 @@ from ada_cli.formats import (
     DEFAULT_WRITE_BY_EXT,
     FEM_READ_FORMATS,
     FEM_WRITE_FORMATS,
-    FEM_WRITE_PRIMARY,
     READ_FORMATS,
     SHARED_WRITE_EXT,
     WRITE_FORMATS,
+    primary_name,
     suffix,
 )
 
@@ -169,14 +170,36 @@ def _prepare_out(output_file) -> pathlib.Path:
     return out
 
 
+_SESAM_T_NUMBER = re.compile(r"^(?P<prefix>.*?)[Tt](?P<number>\d+)$")
+
+
+def _sesam_superelement(out: pathlib.Path) -> int | None:
+    """The super element number ``OUT``'s name asks for, or ``None`` if it does not say.
+
+    Sesam names an input interface file ``<prefix>T<n>.FEM``, where ``n`` is the super element
+    number that the deck's own IDENT record must also carry — Presel matches the two. So a user
+    who types ``myPrefixT10.FEM`` has already said which super element they want, and reading it
+    from the name is how the file and the deck are kept from disagreeing.
+
+    ``R<n>`` is results and ``L<n>`` loads; only ``T`` is this format, so only ``T`` is matched.
+    """
+    match = _SESAM_T_NUMBER.match(out.stem)
+    return int(match.group("number")) if match else None
+
+
 def _deck_name(out: pathlib.Path, fmt: str) -> str:
     """The ``name`` to hand ``to_fem`` so that its primary file lands on ``out``.
 
-    Normally ``OUT``'s stem. Sesam is the exception: it writes ``<name>T1.FEM`` (``T1`` being
-    Sesam's own suffix for an input deck, ``R1`` for results), so a user who names the target
-    the way Sesam itself would — ``modelT1.FEM`` — must not silently get a ``modelT1T1.FEM``
-    renamed behind their back. Stripping the ``T1`` also keeps ``sestra.inp``'s ``INAM`` /
+    Normally ``OUT``'s stem. Sesam is the exception: it writes ``<name>T<n>.FEM`` (``T`` being
+    Sesam's own marker for an input deck, ``R`` for results), so a user who names the target the
+    way Sesam itself would — ``modelT10.FEM`` — must not silently get a ``modelT10T10.FEM``
+    renamed behind their back. Stripping the ``T<n>`` also keeps ``sestra.inp``'s ``INAM`` /
     ``LNAM`` prefix in agreement with the deck actually on disk.
+
+    A stem that is *only* a T-number (``T100.FEM``, as Presel itself writes) leaves no prefix to
+    keep, so the stem stands as the internal name and the writer's intermediate file doubles the
+    number. That file is renamed onto ``OUT`` immediately, so the only visible trace would be
+    ``INAM`` in a ``sestra.inp``, which is written only for a deck carrying a step.
 
     A dot inside the stem is replaced. The sesam, calculix and code_aster writers build their
     filenames with ``Path.with_suffix``, which *replaces* whatever it takes to be a suffix, so
@@ -188,8 +211,10 @@ def _deck_name(out: pathlib.Path, fmt: str) -> str:
     which could not have carried the dotted name either.
     """
     name = out.stem
-    if fmt == "sesam" and len(name) > 2 and name[-2:].upper() == "T1":
-        name = name[:-2]
+    if fmt == "sesam":
+        match = _SESAM_T_NUMBER.match(name)
+        if match and match.group("prefix"):
+            name = match.group("prefix")
     return name.replace(".", "_")
 
 
@@ -201,7 +226,44 @@ def _listing(directory: pathlib.Path) -> str:
     return "\n".join(f"  {f}" for f in found) if found else "  <empty>"
 
 
-def _write_fem(model, output_file, fmt: str) -> list[pathlib.Path]:
+def _resolve_superelement(out: pathlib.Path, explicit: int | None) -> int:
+    """The Sesam super element number to write, and say where it came from.
+
+    An explicit ``--superelement`` wins; otherwise ``OUT``'s own ``T<n>`` says it. With neither,
+    it is 1 — and that is *said*, not assumed, because a silently defaulted 1 in a file the user
+    named ``…T10.FEM`` is exactly the mismatch this resolution exists to prevent: Presel would
+    read super element 1 from a deck the assembly expects to be 10.
+    """
+    if explicit is not None:
+        if explicit < 1:
+            raise CliUsageError(f"--superelement must be 1 or greater, got {explicit}")
+        from_name = _sesam_superelement(out)
+        if from_name is not None and from_name != explicit:
+            # Refused rather than warned about: honouring either number leaves a file whose name
+            # says one super element and whose IDENT says another, which is the mismatch this
+            # resolution exists to prevent. The user has given two answers to one question.
+            raise CliUsageError(
+                f"--superelement {explicit} contradicts the T-number in '{out.name}', which names "
+                f"super element {from_name}. Sesam expects a deck's IDENT SELTYP and its "
+                f"<prefix>T<n>.FEM name to agree, so pick one: drop the flag, or name the output "
+                f"'{out.stem[: -len(str(from_name)) - 1]}T{explicit}{out.suffix}'."
+            )
+        return explicit
+
+    from_name = _sesam_superelement(out)
+    if from_name is not None:
+        logger.info("super element %s, from the T-number in '%s'", from_name, out.name)
+        return from_name
+
+    logger.info(
+        "'%s' names no super element number, so writing super element 1 "
+        "(IDENT SELTYP 1); name the output '<prefix>T<n>.FEM' or pass --superelement to choose",
+        out.name,
+    )
+    return 1
+
+
+def _write_fem(model, output_file, fmt: str, superelement: int | None = None) -> list[pathlib.Path]:
     """Write a FEM deck so that its primary file *is* ``output_file``.
 
     Returns every path written, primary first. See the module docstring for why this goes
@@ -209,19 +271,24 @@ def _write_fem(model, output_file, fmt: str) -> list[pathlib.Path]:
     """
     out = _prepare_out(output_file)
     name = _deck_name(out, fmt)
+    seltyp = superelement if superelement is not None else 1
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix=".ada-convert-", dir=out.parent))
     try:
+        # ``metadata`` is passed only for sesam: it is the one writer with something to say here,
+        # and a writer that takes no metadata should not be handed the keyword at all.
+        extra = {"metadata": {"sesam_superelement": seltyp}} if fmt == "sesam" else {}
         model.to_fem(
             name,
             fem_format=fmt,
             scratch_dir=tmp,
             overwrite=True,
             write_input_files_only=True,
+            **extra,
         )
 
         produced = tmp / name
-        primary = produced / FEM_WRITE_PRIMARY[fmt].format(name=name)
+        primary = produced / primary_name(fmt, name, seltyp)
         if not primary.is_file():
             raise RuntimeError(
                 f"the {fmt} writer did not produce {primary.name!r}, which "
@@ -258,10 +325,10 @@ def _write_fem(model, output_file, fmt: str) -> list[pathlib.Path]:
             logger.warning("could not remove the temporary directory %s; it can be deleted", tmp)
 
 
-def _write(model, output_file, fmt: str) -> list[pathlib.Path]:
+def _write(model, output_file, fmt: str, superelement: int | None = None) -> list[pathlib.Path]:
     """Write ``model`` as ``fmt`` to ``output_file``. Returns every path written."""
     if fmt in FEM_WRITE_FORMATS:
-        return _write_fem(model, output_file, fmt)
+        return _write_fem(model, output_file, fmt, superelement=superelement)
 
     out = _prepare_out(output_file)
     if fmt == "ifc":
@@ -310,10 +377,13 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     in_fmt = _resolve_read_format(args.input, getattr(args, "from_format", None))
     out_fmt = _resolve_write_format(args.output, getattr(args, "to_format", None))
     out = _validate_out(args.output)
+    # Resolved here, not in _write_fem, so a contradictory --superelement is refused before the
+    # input is read rather than after a multi-minute parse.
+    seltyp = _resolve_superelement(out, getattr(args, "superelement", None)) if out_fmt == "sesam" else None
 
     with conversion_report.collect() as report:
         model = _load(args.input, fmt=in_fmt, split=args.split, limit=args.limit)
-        written = _write(model, args.output, out_fmt)
+        written = _write(model, args.output, out_fmt, superelement=seltyp)
 
     for path in written:
         print(path)

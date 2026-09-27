@@ -193,6 +193,16 @@ surprise.
     ``INFO`` stream is worth keeping but not worth reading as it scrolls past.
     Without the flag nothing changes: every record at ``--log-level`` goes to
     stderr.
+``--superelement``
+    The Sesam super element number, written as the deck's ``IDENT`` ``SELTYP`` and
+    used to name the file ``<prefix>T<N>.FEM``.
+
+    Without it the ``T``-number in the output name decides, so ``myPrefixT10.FEM``
+    is super element 10. With neither, it is 1 -- and the run says so, rather than
+    leaving you to discover it from Presel. Sesam expects the number in the deck and
+    the number in the file name to agree, because Presel matches them when it
+    assembles, so a flag contradicting the name is a usage error rather than a
+    silent override.
 ``--strict``
     Exit ``3`` if anything in the input could not be written to the output, or if
     the input itself looks wrong. Approximations on their own do not fail -- a tie
