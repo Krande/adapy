@@ -100,6 +100,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
         out = load_force(load, lid, ndofs)
         if load.follower_force:
             rep.approximated(STAGE, "Load", load.name, "Sestra is linear; a follower load keeps its direction")
+    elif load.type == Load.TYPES.PRESSURE:
+        out = load_pressure(load, lid)
+        if out == "":
+            return ""
     else:
         rep.omitted(STAGE, "Load", load.name, f'a "{load.type}" load is not written by the Sesam writer')
         return ""
@@ -162,6 +166,189 @@ def _global_forces(load: Load) -> list[float]:
         return forces
     rt = _local_axes(load.csys).T
     return [float(v) for v in np.concatenate([rt @ forces[:3], rt @ forces[3:6]])]
+
+
+#: BEUSLO's LOTYP for a surface pressure: one intensity per element node, normal to the
+#: surface. Measured against Sestra V11.3-00 (see :func:`load_pressure`): LOTYP 2 wants three
+#: components per node ("Can only handle vector lengths that are multiples of 3") and LOTYP 3
+#: is not a load type at all -- Sestra drops the record and warns "No load is specified".
+PRESSURE_LOTYP = 1
+
+#: BEUSLO's SIDE for the face on the element's positive normal, and for the one on its
+#: negative normal.
+#:
+#: Which one is written records the face the model named; it is *not* what sets the direction.
+#: Measured, Sestra V11.3-00 accepts 1, 2 and 3 on an FQUS and returns the bit-identical
+#: result for all three, because it "computes [BEUSLO loads] as if they act in the
+#: middle-plane (for local z = 0) of the element" (Sestra user manual, the FQUS data-type
+#: notes). 0 and 4 and up are refused: "Illegal side index specified on BEUSLO record". So the
+#: sign of RLOAD is what carries the direction -- see :func:`_pressure_side_and_sign`.
+SIDE_POSITIVE = 1
+SIDE_NEGATIVE = 2
+
+#: BEUSLO's LAYER. Zero, always: "At least one element load is specified for a layered element
+#: (LAYER != 0). Layered elements is not supported in this version. These loads are applied
+#: without the layer attribute" -- measured, so a nonzero LAYER buys a warning and nothing else.
+PRESSURE_LAYER = 0
+
+#: BEUSLO's INTNO, the integration rule. Zero, the default: "Non-default integration rule
+#: (INTNO) specified for at least one element load. Only the default rule is supported in this
+#: version. The default rule has been used" -- measured, same story as LAYER.
+PRESSURE_INTNO = 0
+
+#: Surface sides that name the face on an element's *negative* normal. The Abaqus reader
+#: normalises a single-elset shell surface to ``-1`` (``read_steps``/``reader``), a surface
+#: built from nodes with ``shell_positive=False`` carries the same, and a deck that listed its
+#: rows by name carries the label itself.
+_NEGATIVE_SIDES = frozenset({-1, "SNEG"})
+
+#: ... and the ones that name the face on its positive normal. ``None`` is in here too: a plain
+#: element set names no side at all, and Abaqus' own default for a shell surface is SPOS.
+_POSITIVE_SIDES = frozenset({None, "", 1, "SPOS"})
+
+
+def _pressure_region(load: Load):
+    """The region a pressure load acts on: a ``Surface`` if it has one, else its ``FemSet``.
+
+    ``LoadPressure`` (what the Abaqus reader builds from ``*Dsload``) carries a ``Surface`` and
+    no ``fem_set``; a bare ``Load`` of type ``pressure`` carries an element set. Both reach this
+    writer, so both are resolved here rather than at each call site.
+    """
+    surface = getattr(load, "surface", None)
+    return load.fem_set if surface is None else surface
+
+
+def _pressure_side_and_sign(side) -> tuple[int, float] | None:
+    """``(SIDE, sign)`` for one surface side, or ``None`` for a side BEUSLO cannot carry.
+
+    The sign is the whole point. Measured on one S4R with its nodes counter-clockwise in the
+    x-y plane (so its normal is +z), Abaqus 2025 puts ``*Dsload P, 1000.`` at U3 =
+    -3.2004021E-03 on the ``SPOS`` face and +3.2004021E-03 on the ``SNEG`` face: a positive
+    pressure pushes *into* the face it is applied to. Measured on the same geometry, a positive
+    BEUSLO intensity pushes along the element's **negative** normal whichever SIDE is written,
+    and reversing the elements' node order reverses it -- so it is the element's own normal that
+    sets the direction, not the global axes and not SIDE.
+
+    The two routes therefore agree with RLOAD = +magnitude on the positive face, and only a
+    negative-face pressure needs the sign flipped. Writing SIDE = 2 there as well keeps the
+    record saying which face the model meant.
+    """
+    if side in _POSITIVE_SIDES:
+        return SIDE_POSITIVE, 1.0
+    if side in _NEGATIVE_SIDES:
+        return SIDE_NEGATIVE, -1.0
+    return None
+
+
+def load_pressure(load: Load, load_id: int) -> str:
+    """One BEUSLO per shell element of the load's surface, or ``""`` -- which is reported.
+
+    The record, which is not read off a manual -- no Input Interface File manual ships with the
+    installed Sestra -- but off Sestra V11.3-00 and DNV's own SIF type definitions:
+
+    ``BEUSLO   LLC LOTYP COMPLX LAYER / ELNO NDOF INTNO SIDE / RLOAD1..RLOADn``
+
+    Every intensity is the pressure itself, one per node of the element (``NDOF`` = the node
+    count), not a force and not a per-node share of one: measured, NDOF = 1 on a 4-noded FQUS is
+    refused with "Load intensity vector size does not match dof count for load".
+
+    ``ELNO`` is the *internal* element number (Sestra's own accessor is
+    ``BeusloReader::GetInternalElementId``). ``write_elements`` writes GELMNT1 with ELNOX = ELNO
+    = the model's own element id, so the two are the same number here.
+
+    Verified against Sestra on a 4.0 x 0.5 m, 10 mm simply supported strip in cylindrical
+    bending under 1000 Pa (``tests/fem/test_sesam_pressure_load.py``): the BEUSLO deck and a
+    deck carrying the exact consistent nodal load (``q A / 4`` at each node of a bilinear quad)
+    return the **bit-identical** mid-span deflection at three mesh densities --
+    -0.1731979101896286 / -0.17329947650432587 / -0.17332486808300018 at 32 / 64 / 128 elements
+    per span -- converging at order 4.00 on the closed form ``5 q L^4 / (384 D)`` =
+    0.1733333333. So BEUSLO's own load integration *is* the consistent load vector, and the
+    summed reaction is 2000.0 N against ``q L b`` = 2000 exactly.
+
+    What is refused rather than approximated, each by name: a pressure on beams, solids, point
+    masses or springs (BEUSLO's SIDE numbering for a solid face is not established here, and the
+    others have no surface at all), on a node-based surface (BEUSLO names an element and a side),
+    on an element with no Sesam element type, and a ``LoadPressure`` whose magnitude is a total
+    force rather than a pressure.
+    """
+    from ada.fem.shapes.definitions import ShellShapes
+
+    rep = report()
+    region = _pressure_region(load)
+    if region is None:
+        rep.omitted(STAGE, "Load", load.name, "a pressure load naming neither a surface nor an element set")
+        return ""
+
+    distribution = getattr(load, "distribution", None)
+    if distribution is not None and distribution != "uniform":
+        rep.omitted(
+            STAGE, "Load", load.name, f'a "{distribution}" pressure is not a pressure intensity; BEUSLO takes one'
+        )
+        return ""
+
+    groups = _pressure_groups(region)
+    if groups is None:
+        rep.omitted(STAGE, "Load", load.name, "a pressure on a node-based surface has no BEUSLO form")
+        return ""
+
+    out = ""
+    refused: dict[str, list[str]] = {}
+    for members, side in groups:
+        resolved = _pressure_side_and_sign(side)
+        # Sorted by element id: a set is a list and a surface may name several, and the deck
+        # must not depend on which order they came out of the model.
+        for el in sorted(members, key=lambda e: e.id):
+            why = _pressure_refusal(el, resolved, ShellShapes)
+            if why is not None:
+                refused.setdefault(why, []).append(str(el.id))
+                continue
+            beuslo_side, sign = resolved
+            intensity = sign * float(load.magnitude)
+            out += write_ff(
+                "BEUSLO",
+                [
+                    (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
+                    (el.id, len(el.nodes), PRESSURE_INTNO, beuslo_side),
+                    tuple([intensity] * len(el.nodes)),
+                ],
+            )
+    for why, ids in sorted(refused.items()):
+        rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
+    return out
+
+
+def _pressure_groups(region):
+    """The region's ``(members, side)`` groups, or ``None`` if it is node-based.
+
+    ``_region_groups`` is what :func:`ada.fem.surfaces.surface_nodes` resolves a surface with,
+    so a pressure and a constraint see the same region; it keeps each set's side beside its
+    members, which is exactly what a per-element surface load needs. A ``FemSet`` handed over
+    directly comes back as one group with no side.
+    """
+    from ada.fem.sets import FemSet
+    from ada.fem.surfaces import Surface, _region_groups
+
+    if isinstance(region, Surface) and region.type == Surface.TYPES.NODE:
+        return None
+    if isinstance(region, FemSet) and region.type != FemSet.TYPES.ELSET:
+        return None
+    return _region_groups(region)
+
+
+def _pressure_refusal(el, resolved, shell_shapes) -> str | None:
+    """Why BEUSLO cannot carry a pressure on this element, or ``None`` if it can."""
+    from ..common import sesam_reverse
+
+    if not isinstance(el.type, shell_shapes):
+        return (
+            f"a pressure on a {el.type} element has no BEUSLO form; BEUSLO is a shell surface load "
+            "(the Sesam SIDE numbering of a solid face is not established here)"
+        )
+    if el.type not in sesam_reverse:
+        return f"a pressure on a {el.type} element, which has no Sesam element type and is not in the deck"
+    if resolved is None:
+        return "a pressure on a surface side that is not a shell face (SPOS / SNEG)"
+    return None
 
 
 def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
