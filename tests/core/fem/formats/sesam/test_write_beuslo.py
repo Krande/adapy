@@ -273,3 +273,19 @@ def test_an_unsupported_load_type_is_still_reported_omitted():
     with conversion_report.collect() as rep:
         assert loads_str(fem).count("BEUSLO") == 0
     assert any('a "mass" load is not written' in f.reason for f in rep.findings)
+
+
+def test_the_surface_gap_table_names_the_pressure_it_now_carries():
+    """A ``Surface`` still has no card of its own, but the report must not read as though one
+    carrying a pressure had been lost."""
+    from ada.fem.formats.sesam.write.not_held import report_tables
+
+    fem, elements = _quad_fem(1)
+    es = fem.add_set(FemSet("SHELLS", elements, FemSet.TYPES.ELSET, parent=fem))
+    fem.add_surface(Surface("S", Surface.TYPES.ELEMENT, es, el_face_index=1, parent=fem))
+
+    with conversion_report.collect() as rep:
+        report_tables([fem])
+    reasons = [f.reason for f in rep.findings if f.keyword == "Surface"]
+    assert len(reasons) == 1, reasons
+    assert "BEUSLO" in reasons[0], reasons[0]
