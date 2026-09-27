@@ -8,7 +8,8 @@ objects compared field by field -- magnitude, dofs, set membership, face, load c
 The pressure is applied on *both* faces because that is where the sign lives. BEUSLO cannot say
 "which face" with SIDE (Sestra computes the load in the element's mid-plane and returns the
 bit-identical result for SIDE 1, 2 and 3), so the writer puts the direction in the sign of
-RLOAD: ``+q`` on the positive face, ``-q`` with SIDE 2 on the negative one. A reader that
+RLOAD: ``-q`` on the positive face, ``+q`` with SIDE 2 on the negative one (a positive RLOAD
+pushes along the element's positive normal, which is *out of* the positive face). A reader that
 ignored either half would give a plausible-looking model with the pressure pushing the wrong
 way, which no deflection comparison inside one solver can see.
 """
@@ -119,6 +120,7 @@ def test_the_plain_support_is_untouched(round_tripped):
 
 
 def test_the_positive_face_pressure_comes_back_positive_on_the_positive_face(round_tripped):
+    """The deck carries ``-1000`` and SIDE 1, and what went in was ``+1000`` on ``SPOS``."""
     load = _load(round_tripped, 1)
 
     assert load.type == load.TYPES.PRESSURE
@@ -128,8 +130,9 @@ def test_the_positive_face_pressure_comes_back_positive_on_the_positive_face(rou
 
 
 def test_the_negative_face_pressure_comes_back_positive_on_the_negative_face(round_tripped):
-    """The sign, both halves at once: the deck carries ``-2500`` and SIDE 2, and what went in was
-    ``+2500`` on ``SNEG``."""
+    """The sign, both halves at once: the deck carries ``+2500`` and SIDE 2, and what went in was
+    ``+2500`` on ``SNEG`` -- the face the model named survives in SIDE alone here, since the sign
+    is unchanged."""
     load = _load(round_tripped, -1)
 
     assert load.magnitude == Q_NEG

@@ -7,13 +7,18 @@ commit calls out, because two such runs agree with each other perfectly.
 
 The one field these tests are really about is the **sign**. Measured on one shell with its nodes
 counter-clockwise in x-y (normal +z): Abaqus puts a positive ``*Dsload P`` into the face it
-names, while a positive BEUSLO intensity pushes along the element's *negative* normal for every
-legal SIDE, because Sestra computes the load in the mid-plane and SIDE therefore cannot carry a
-direction. So the writer puts ``+q`` on the positive face and ``-q`` with SIDE 2 on the negative
-one, and this reads that back: a ``Load`` written positive on ``SPOS`` comes back positive on
-``SPOS``, and one written positive on ``SNEG`` comes back positive on ``SNEG``.
+names (U3 = -3.2004021E-03 on ``SPOS``), while a positive BEUSLO intensity pushes along the
+element's *positive* normal for every legal SIDE (Sestra V11.3-00: u3 = +3.9252336E-03, and
+reversed with the node order), because Sestra computes the load in the mid-plane and SIDE
+therefore cannot carry a direction. So the writer puts ``-q`` on the positive face and ``+q``
+with SIDE 2 on the negative one, and this reads that back: a ``Load`` written positive on
+``SPOS`` comes back positive on ``SPOS``, and one written positive on ``SNEG`` comes back
+positive on ``SNEG``.
 
-Hand-written minimal decks, one field per test.
+Hand-written minimal decks, one field per test. The intensities are literals, not the writer's
+sign applied to ``Q``: a deck from anywhere else means what Sestra does with it, so what a record
+reads as is pinned here directly, and the round trip (``test_sesam_load_round_trip``) is what
+pins the reader to the writer.
 """
 
 from __future__ import annotations
@@ -105,7 +110,7 @@ def _loads(step) -> list:
 
 def test_one_record_is_a_pressure_load_on_the_decks_own_element_set():
     fem = _quad_fem(1, {"TOP": [1]})
-    step, findings = _read(_beuslo(1, [Q] * 4), fem)
+    step, findings = _read(_beuslo(1, [-Q] * 4), fem)
 
     assert not findings
     # A Sesam FEM file holds no analysis step -- Sestra's control data is a separate
@@ -123,10 +128,11 @@ def test_one_record_is_a_pressure_load_on_the_decks_own_element_set():
 
 
 def test_side_2_is_the_negative_face_and_the_sign_comes_back_positive():
-    """The whole sign convention in one test: the writer wrote ``-q`` and SIDE 2 for a pressure
-    the model gave as ``+q`` on ``SNEG``, so the reader has to undo exactly that."""
+    """The whole sign convention in one test: the writer wrote ``+q`` and SIDE 2 for a pressure
+    the model gave as ``+q`` on ``SNEG`` -- into the negative face is along the element's
+    positive normal, which is where a positive RLOAD pushes -- so the reader keeps the sign."""
     fem = _quad_fem(1, {"BTM": [1]})
-    step, findings = _read(_beuslo(1, [-Q] * 4, side=SIDE_NEGATIVE), fem)
+    step, findings = _read(_beuslo(1, [Q] * 4, side=SIDE_NEGATIVE), fem)
 
     assert not findings
     (load,) = _loads(step)
@@ -138,7 +144,7 @@ def test_a_negative_pressure_on_the_positive_face_stays_negative():
     """Sign and face are two statements, not one: SIDE 1 with a negative intensity is suction on
     the positive face, and reading the sign as the face would turn it into pressure on SNEG."""
     fem = _quad_fem(1, {"TOP": [1]})
-    step, _ = _read(_beuslo(1, [-Q] * 4, side=SIDE_POSITIVE), fem)
+    step, _ = _read(_beuslo(1, [Q] * 4, side=SIDE_POSITIVE), fem)
 
     (load,) = _loads(step)
     assert (load.magnitude, load.surface.el_face_index) == (-Q, 1)
@@ -147,7 +153,7 @@ def test_a_negative_pressure_on_the_positive_face_stays_negative():
 def test_records_sharing_a_case_face_and_magnitude_become_one_load():
     """A deck writes one record per element; a ``Load`` covers a set. So they group back."""
     fem = _quad_fem(3, {"SHELLS": [1, 2, 3]})
-    step, _ = _read("".join(_beuslo(i, [Q] * 4) for i in (1, 2, 3)), fem)
+    step, _ = _read("".join(_beuslo(i, [-Q] * 4) for i in (1, 2, 3)), fem)
 
     (load,) = _loads(step)
     assert load.surface.fem_set.name == "SHELLS"
@@ -156,7 +162,7 @@ def test_records_sharing_a_case_face_and_magnitude_become_one_load():
 
 def test_two_magnitudes_in_one_case_are_two_loads():
     fem = _quad_fem(2)
-    step, _ = _read(_beuslo(1, [Q] * 4) + _beuslo(2, [2 * Q] * 4), fem)
+    step, _ = _read(_beuslo(1, [-Q] * 4) + _beuslo(2, [-2 * Q] * 4), fem)
 
     loads = _loads(step)
     assert [ld.magnitude for ld in loads] == [Q, 2 * Q], "in the order their records appear"
@@ -165,7 +171,7 @@ def test_two_magnitudes_in_one_case_are_two_loads():
 
 def test_both_faces_in_one_case_are_two_loads():
     fem = _quad_fem(2)
-    step, _ = _read(_beuslo(1, [Q] * 4) + _beuslo(2, [-Q] * 4, side=SIDE_NEGATIVE), fem)
+    step, _ = _read(_beuslo(1, [-Q] * 4) + _beuslo(2, [Q] * 4, side=SIDE_NEGATIVE), fem)
 
     loads = _loads(step)
     assert [ld.magnitude for ld in loads] == [Q, Q]
@@ -175,7 +181,7 @@ def test_both_faces_in_one_case_are_two_loads():
 def test_a_group_no_element_set_matches_gets_one_of_its_own():
     """Two of three shells loaded, and no set holds exactly those two."""
     fem = _quad_fem(3, {"SHELLS": [1, 2, 3]})
-    step, _ = _read(_beuslo(1, [Q] * 4) + _beuslo(3, [Q] * 4), fem)
+    step, _ = _read(_beuslo(1, [-Q] * 4) + _beuslo(3, [-Q] * 4), fem)
 
     (load,) = _loads(step)
     assert load.surface.fem_set.name not in ("SHELLS",)
@@ -188,7 +194,7 @@ def test_a_group_no_element_set_matches_gets_one_of_its_own():
 
 def test_the_load_cases_are_the_ones_tdload_names():
     fem = _quad_fem(2)
-    bulk = _tdload(1, "GRAV_CASE") + _tdload(2, "WIND") + _beuslo(1, [Q] * 4, llc=1) + _beuslo(2, [2 * Q] * 4, llc=2)
+    bulk = _tdload(1, "GRAV_CASE") + _tdload(2, "WIND") + _beuslo(1, [-Q] * 4, llc=1) + _beuslo(2, [-2 * Q] * 4, llc=2)
     step, _ = _read(bulk, fem)
 
     assert list(step.load_cases) == ["GRAV_CASE", "WIND"]
@@ -281,9 +287,10 @@ def test_a_non_uniform_pressure_is_approximated_with_its_values():
     """One ``Load`` carries one magnitude, and BEUSLO carries one intensity per node. Their mean
     is read, which keeps the resultant of a bilinear quad exactly -- the consistent load vector
     is ``q_i A / 4`` per node, so the total is ``A`` times the mean -- and the values themselves
-    go in the report, because an approximation nobody can size is a guess."""
+    go in the report, because an approximation nobody can size is a guess. They are the deck's
+    own values, so on the positive face the report's mean carries the deck's sign."""
     fem = _quad_fem(1)
-    intensities = [1000.0, 1000.0, 2000.0, 2000.0]
+    intensities = [-1000.0, -1000.0, -2000.0, -2000.0]
     step, findings = _read(_beuslo(1, intensities), fem)
 
     (load,) = _loads(step)
@@ -291,12 +298,12 @@ def test_a_non_uniform_pressure_is_approximated_with_its_values():
     assert len(findings) == 1
     assert findings[0].kind == conversion_report.APPROXIMATED
     assert findings[0].details["intensities"] == intensities
-    assert findings[0].details["mean"] == 1500.0
+    assert findings[0].details["mean"] == -1500.0
 
 
-def test_a_non_uniform_negative_face_pressure_keeps_the_sign_flip():
+def test_a_non_uniform_negative_face_pressure_keeps_its_sign():
     fem = _quad_fem(1)
-    step, _ = _read(_beuslo(1, [-1000.0, -2000.0, -2000.0, -1000.0], side=SIDE_NEGATIVE), fem)
+    step, _ = _read(_beuslo(1, [1000.0, 2000.0, 2000.0, 1000.0], side=SIDE_NEGATIVE), fem)
 
     (load,) = _loads(step)
     assert (load.magnitude, load.surface.el_face_index) == (1500.0, -1)
@@ -315,7 +322,7 @@ def test_bnload_and_bgrav_are_named_with_their_counts():
         write_ff("BNLOAD", [(1, 0, 0, 0), (1, 6, 0.0, 0.0), (-100.0, 0.0, 0.0, 0.0)])
         + write_ff("BNLOAD", [(1, 0, 0, 0), (2, 6, 0.0, 0.0), (-100.0, 0.0, 0.0, 0.0)])
         + write_ff("BGRAV", [(1, 0, 0, 0), (0.0, 0.0, -9.81)])
-        + _beuslo(1, [Q] * 4)
+        + _beuslo(1, [-Q] * 4)
     )
     step, findings = _read_all(bulk, fem)
 

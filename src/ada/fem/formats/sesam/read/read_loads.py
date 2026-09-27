@@ -5,8 +5,8 @@ through a Sesam deck came back with a settlement turned into a rigid clamp and a
 altogether. This module is the way back, and it is deliberately the *inverse* of the writer
 rather than an independent reading of the format: every constant it needs
 (:data:`~ada.fem.formats.sesam.write.write_bcs.DTYPE_DISPLACEMENT`, ``PRESSURE_LOTYP``,
-``SIDE_POSITIVE`` / ``SIDE_NEGATIVE``, ...) is imported from the module that writes it, so the
-two cannot drift apart silently.
+``SIDE_POSITIVE`` / ``SIDE_NEGATIVE``, and the sign each face's intensity is written with) is
+imported from the module that writes it, so the two cannot drift apart silently.
 
 **BNDISPL** (``LLC DTYPE COMPLX 0`` / ``NODENO NDOF D1 D2`` / ``D3..Dndof``) carries the
 *value* of a prescribed displacement; BNBCD FIX code 2 carries *which* DOFs are prescribed.
@@ -26,12 +26,16 @@ every settlement into the first case).
 
 **BEUSLO** (``LLC LOTYP COMPLX LAYER`` / ``ELNO NDOF INTNO SIDE`` / ``RLOAD1..RLOADn``) is a
 surface pressure, one intensity per node of the element. The sign is the whole of the direction:
-measured, a positive RLOAD pushes along the element's *negative* normal for every legal SIDE,
-because Sestra computes the load in the element's mid-plane and SIDE therefore cannot carry a
-direction. The writer records the face the model meant in SIDE and puts the direction in the
-sign (``+q`` on the positive face, ``-q`` and SIDE 2 on the negative one); this reads that back,
-so a ``Load`` written positive on ``SPOS`` comes back positive on ``SPOS``. See
-:data:`_SIDE_FACE`.
+measured, a positive RLOAD pushes along the element's *positive* normal (the one its node order
+gives by the right-hand rule) for every legal SIDE, because Sestra computes the load in the
+element's mid-plane and SIDE therefore cannot carry a direction. On one 1 x 1 m FQUS, three
+corners clamped, Sestra V11.3-00 puts the free corner at u3 = +3.9252336E-03 for RLOAD = +1000
+with the nodes counter-clockwise seen from +z, and at -3.9252336E-03 with the order reversed or
+the sign flipped. A positive ``*Dsload P`` pushes *into* the face it names, so the writer
+records the face the model meant in SIDE and puts the direction in the sign (``-q`` on the
+positive face, ``+q`` and SIDE 2 on the negative one); this reads that back, so a ``Load``
+written positive on ``SPOS`` comes back positive on ``SPOS``. The signs are the writer's own
+(:data:`_SIDE_FACE`), not restated here.
 
 **BNLOAD and BGRAV** are the two the writer also emits and this still has no card for. They are
 counted and named (:func:`report_unread_load_records`) rather than passed over, because a step
@@ -58,6 +62,7 @@ from ..write.write_loads import (
     PRESSURE_LOTYP,
     SIDE_NEGATIVE,
     SIDE_POSITIVE,
+    _pressure_side_and_sign,
 )
 from . import cards
 from .read_sets import text_record
@@ -90,12 +95,15 @@ SESAM_LOAD_CASE = "sesam_load_case"
 READ_STEP_NAME = "sesam_loads"
 
 #: BEUSLO ``SIDE`` -> (the shell face index an ada ``Surface`` names it by, the sign the writer
-#: put on RLOAD for that face). The exact inverse of
-#: ``write_loads._pressure_side_and_sign``: ``+1`` is ``SPOS`` and keeps the magnitude, ``-1``
-#: is ``SNEG`` and carries it negated. Nothing else is in here -- SIDE 3 is legal to Sestra but
-#: names no face (it is the mid-plane), and 0 and 4 and up are "Illegal side index specified on
-#: BEUSLO record".
-_SIDE_FACE = {SIDE_POSITIVE: (1, 1.0), SIDE_NEGATIVE: (-1, -1.0)}
+#: put on RLOAD for that face), read off ``write_loads._pressure_side_and_sign`` itself rather
+#: than restated: the sign is the writer's decision, and a copy of it here is what let the two
+#: disagree once already. The sign is +-1, so multiplying by it again undoes it under either
+#: convention. Nothing else is in here -- SIDE 3 is legal to Sestra but names no face (it is the
+#: mid-plane), and 0 and 4 and up are "Illegal side index specified on BEUSLO record".
+_SIDE_FACE = {
+    SIDE_POSITIVE: (1, _pressure_side_and_sign(1)[1]),
+    SIDE_NEGATIVE: (-1, _pressure_side_and_sign(-1)[1]),
+}
 
 
 def report():
