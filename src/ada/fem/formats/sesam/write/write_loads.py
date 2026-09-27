@@ -339,13 +339,18 @@ def _pressure_refusal(el, resolved, shell_shapes) -> str | None:
     """Why BEUSLO cannot carry a pressure on this element, or ``None`` if it can."""
     from ..common import sesam_reverse
 
-    if not isinstance(el.type, shell_shapes):
+    el_type = getattr(el, "type", None)
+    if el_type is None:
+        # A node, from an ELEMENT-typed surface built over a node set. Refused rather than
+        # crashed on: ``el.type`` used to raise AttributeError here and lose the whole deck.
+        return "a pressure on a node; BEUSLO names an element and a side"
+    if not isinstance(el_type, shell_shapes):
         return (
-            f"a pressure on a {el.type} element has no BEUSLO form; BEUSLO is a shell surface load "
+            f"a pressure on a {el_type} element has no BEUSLO form; BEUSLO is a shell surface load "
             "(the Sesam SIDE numbering of a solid face is not established here)"
         )
-    if el.type not in sesam_reverse:
-        return f"a pressure on a {el.type} element, which has no Sesam element type and is not in the deck"
+    if el_type not in sesam_reverse:
+        return f"a pressure on a {el_type} element, which has no Sesam element type and is not in the deck"
     if resolved is None:
         return "a pressure on a surface side that is not a shell face (SPOS / SNEG)"
     return None

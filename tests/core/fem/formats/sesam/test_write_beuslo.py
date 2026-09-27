@@ -289,3 +289,15 @@ def test_the_surface_gap_table_names_the_pressure_it_now_carries():
     reasons = [f.reason for f in rep.findings if f.keyword == "Surface"]
     assert len(reasons) == 1, reasons
     assert "BEUSLO" in reasons[0], reasons[0]
+
+
+def test_an_element_surface_built_over_nodes_is_refused_not_crashed_on():
+    """``Surface(..., "ELEMENT", <node set>)`` is a model a caller can build; reading ``.type``
+    off a ``Node`` raised AttributeError and cost the whole deck."""
+    fem, elements = _quad_fem(1)
+    nset = fem.add_set(FemSet("NODES", list(fem.nodes), FemSet.TYPES.NSET, parent=fem))
+    surf = Surface("ELEM_SURF_OVER_NODES", Surface.TYPES.ELEMENT, nset, el_face_index=1, parent=fem)
+    with conversion_report.collect() as rep:
+        out = load_pressure(LoadPressure("q", Q, surf), 1)
+    assert out == ""
+    assert any("a pressure on a node" in f.reason for f in rep.findings if f.subject == "q")
