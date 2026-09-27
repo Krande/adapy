@@ -508,7 +508,9 @@ channels = ["conda-forge"]
 calculix = "*"
 
 [feature.fem-deps.target.linux-64.dependencies]
-code-aster = ">=17.3.16"
+# 18.1.7: the first release built on libmed 4.2 build 29 (hdf5 2.2), which is what lets the FEM envs
+# share one hdf5 with gmsh and ifcopenshell -- and the first with a sequential MSVC win-64 build.
+code-aster = ">=18.1.7"
 # The MED reader `tests/fem/visualization` exercises. Declared per platform because conda-forge
 # builds it for linux and windows only -- there is no macOS build at all -- and a manifest-wide
 # dependency would make the whole project unsolvable there. Where it is absent those tests are
@@ -519,8 +521,9 @@ medcoupling = "*"
 medcoupling = "*"
 # code-aster builds for Windows now (MSVC), and win-64 libmed 4.2 build 29 carries the hdf5 2.2
 # it needs -- so the FEM solver is no longer linux-only. Same constraint as linux; the win-64
-# builds are nompi, which is what this env wants anyway.
-code-aster = ">=17.3.16"
+# builds are nompi, which is what this env wants anyway. 18.1.7 is the first with full sequential
+# (nompi) MSVC support.
+code-aster = ">=18.1.7"
 
 [feature.tests-core.tasks]
 

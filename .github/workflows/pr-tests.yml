@@ -52,8 +52,8 @@ jobs:
 
         # `test-quick` not `test`: this leg is the fast per-PR gate on three
         # OSes, and `test` now means the WHOLE suite. The FEM half needs the
-        # fem-deps environment and has its own job in test.yml, so running it
-        # here would triple its cost and gate nothing new. -e is what picks the
+        # fem environment and has its own job below (test-fem, Linux + Windows;
+        # no macOS build of code-aster exists). -e is what picks the
         # backend; `test`'s default environment is deliberately not relied on
         # in CI, where the environment is always stated.
         # The DEXPI corpus is ~220 third-party XML files fetched from a public repo. Cached so
@@ -70,6 +70,39 @@ jobs:
 
         - name: Runs Tests
           run: pixi run -e tests test-quick
+
+    # The FEM half: tests/fem writes decks and runs the free solvers on them (Calculix and
+    # Code_Aster; Abaqus and Sestra legs skip where they are not installed). Linux AND Windows,
+    # because code-aster 18.1.7 is the first conda-forge build with a sequential (nompi) MSVC
+    # win-64 package -- the Windows leg is what proves adapy's deck writers, the run_aster.bat
+    # launch and the .rmed reader work there, which no Linux run can. No macOS: conda-forge
+    # builds neither code-aster nor medcoupling for it.
+    test-fem:
+        name: FEM solvers (Calculix, Code_Aster)
+        runs-on: ${{ matrix.os }}
+        defaults:
+          run:
+            shell: bash -l {0}
+        strategy:
+          fail-fast: false
+          matrix:
+            os: [ubuntu-latest, windows-latest]
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.10.2
+          with:
+            pixi-version: v0.68.0
+            environments: fem
+            cache: true
+
+        - name: Solver versions
+          run: pixi list -e fem | grep -iE "^(code-aster|calculix|libmed|hdf5|python) "
+
+        - name: Run FEM tests
+          run: pixi run -e fem test-fem
 
     # Every other env carries one CAD kernel, so the parity suites' `both_backends` cases skip
     # everywhere else and a divergence between ada-cpp and pythonocc can land unseen. This env
