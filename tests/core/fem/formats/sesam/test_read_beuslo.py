@@ -84,10 +84,16 @@ def _tdload(llc: int, name: str) -> str:
 
 
 def _read(bulk: str, fem: ada.FEM):
-    """``(step, findings)`` -- the step ``get_loads`` builds, and what it reported."""
+    """``(step, findings)`` -- the step ``get_loads`` builds, and what it reported about BEUSLO."""
+    step, findings = _read_all(bulk, fem)
+    return step, [f for f in findings if f.keyword == "BEUSLO"]
+
+
+def _read_all(bulk: str, fem: ada.FEM):
+    """``(step, every finding of the reader)``."""
     with conversion_report.collect() as rep:
         step = get_loads(bulk, fem)
-    return step, [f for f in rep.findings if f.stage == STAGE and f.keyword == "BEUSLO"]
+    return step, [f for f in rep.findings if f.stage == STAGE]
 
 
 def _loads(step) -> list:
@@ -294,3 +300,35 @@ def test_a_non_uniform_negative_face_pressure_keeps_the_sign_flip():
 
     (load,) = _loads(step)
     assert (load.magnitude, load.surface.el_face_index) == (1500.0, -1)
+
+
+# --- the load records the reader still has no card for -----------------------------------------
+
+
+def test_bnload_and_bgrav_are_named_with_their_counts():
+    """The hole reading BEUSLO opens. Before it, a Sesam deck's loading did not reach the model at
+    all and every caller knew it; now a deck of gravity plus a pressure reads as a model whose
+    only loading is the pressure -- a wrong answer where there used to be an empty one. So the two
+    records the writer emits and this reader still cannot read are counted and named."""
+    fem = _quad_fem(1)
+    bulk = (
+        write_ff("BNLOAD", [(1, 0, 0, 0), (1, 6, 0.0, 0.0), (-100.0, 0.0, 0.0, 0.0)])
+        + write_ff("BNLOAD", [(1, 0, 0, 0), (2, 6, 0.0, 0.0), (-100.0, 0.0, 0.0, 0.0)])
+        + write_ff("BGRAV", [(1, 0, 0, 0), (0.0, 0.0, -9.81)])
+        + _beuslo(1, [Q] * 4)
+    )
+    step, findings = _read_all(bulk, fem)
+
+    assert [ld.magnitude for ld in _loads(step)] == [Q], "the pressure still arrives"
+    unread = {f.keyword: f.count for f in findings if f.kind == conversion_report.OMITTED}
+    assert unread == {"BNLOAD": 2, "BGRAV": 1}
+
+
+def test_they_are_named_even_when_the_deck_has_no_beuslo():
+    """A deck with only a nodal load builds no step, and the load must still be named: this is the
+    one case where the model comes back visibly empty, and it should say why."""
+    fem = _quad_fem(1)
+    step, findings = _read_all(write_ff("BGRAV", [(1, 0, 0, 0), (0.0, 0.0, -9.81)]), fem)
+
+    assert step is None
+    assert [(f.keyword, f.count) for f in findings] == [("BGRAV", 1)]

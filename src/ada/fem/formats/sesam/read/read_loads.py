@@ -32,10 +32,16 @@ direction. The writer records the face the model meant in SIDE and puts the dire
 sign (``+q`` on the positive face, ``-q`` and SIDE 2 on the negative one); this reads that back,
 so a ``Load`` written positive on ``SPOS`` comes back positive on ``SPOS``. See
 :data:`_SIDE_FACE`.
+
+**BNLOAD and BGRAV** are the two the writer also emits and this still has no card for. They are
+counted and named (:func:`report_unread_load_records`) rather than passed over, because a step
+holding only the pressures of a deck that also has gravity is a wrong answer where an empty
+model was merely an empty one.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
@@ -380,6 +386,46 @@ def _beuslo_record(d: dict, llc: int, elno: int, subject: str, fem: FEM, rep) ->
     return BeusloRecord(llc, element, face, sign * sum(intensities) / len(intensities))
 
 
+#: Load records the Sesam *writer* emits and this reader has no card for -> the adapy construct
+#: that is therefore missing. Both are silently lost on the way in, and that mattered less while
+#: nothing at all came back: now a deck of gravity plus a pressure reads as a model whose only
+#: loading is the pressure, which is a wrong answer rather than an empty one. Counted and named
+#: until they are read too. BNLOAD is ``write_loads.load_force``'s record and BGRAV
+#: ``load_gravity``'s; a distributed load other than BEUSLO is not written by adapy at all.
+_UNREAD_LOAD_RECORDS = {
+    "BNLOAD": "a nodal force or moment",
+    "BGRAV": "a gravity or acceleration field",
+}
+
+#: One pass for all of them: the deck this is run over is the whole non-mesh remainder of a
+#: superelement, up to hundreds of megabytes.
+_re_unread_loads = re.compile(rf"^({'|'.join(sorted(_UNREAD_LOAD_RECORDS))})\s", re.MULTILINE)
+
+
+def report_unread_load_records(bulk_str: str) -> dict[str, int]:
+    """Name every load record the reader has no card for, with how many the deck holds.
+
+    Returns the counts, so a caller can assert on them; the report is the point.
+    """
+    counts: dict[str, int] = {}
+    for m in _re_unread_loads.finditer(bulk_str):
+        flag = m.group(1).upper()
+        counts[flag] = counts.get(flag, 0) + 1
+    rep = report()
+    for flag in sorted(counts):
+        # ``count`` is the finding's own occurrence count, which is exactly what this is: one
+        # finding per record type, saying how many of them the deck holds.
+        rep.omitted(
+            STAGE,
+            flag,
+            f"{counts[flag]} record(s)",
+            f"{_UNREAD_LOAD_RECORDS[flag]}; the Sesam reader has no card for it yet, so this loading does "
+            "not reach the model even though the deck's other load records do",
+            count=counts[flag],
+        )
+    return counts
+
+
 def get_loads(bulk_str: str, fem: FEM) -> Step | None:
     """The deck's BEUSLO records as one static step of pressure loads, or ``None``.
 
@@ -393,7 +439,12 @@ def get_loads(bulk_str: str, fem: FEM) -> Step | None:
     when one holds exactly those elements -- which is the usual case, the writer having written
     the surface's set as GSETMEMB -- and a generated one otherwise, the same fallback
     ``read_constraints.group_bcs`` makes for a node set.
+
+    The load records this reader still has no card for are named first
+    (:func:`report_unread_load_records`), because a step holding only the pressures is a model
+    that *looks* loaded.
     """
+    report_unread_load_records(bulk_str)
     records = list(beuslo_records(bulk_str, fem))
     if not records:
         return None
