@@ -5,6 +5,7 @@ from ada.config import logger
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section
+from ada.sections.categories import BaseTypes
 
 from ..grammar import format_number
 from .helper_utils import render_block
@@ -89,6 +90,8 @@ def line_section_props(fem_sec: FemSection):
 
     if sec_data == "CIRC":
         return f"{sec.r}\n {n1}"
+    elif sec_data == "I" and sec.type == BaseTypes.TPROFILE:
+        return f"{t_as_i_section_lines(sec)}\n {n1}"
     elif sec_data == "I":
         if sec.t_fbtn + sec.t_w > min(sec.w_top, sec.w_btn):
             # TODO: Evaluate why this was here
@@ -123,13 +126,15 @@ def line_cross_sec_type_str(fem_sec: FemSection):
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
     sec_type = fem_sec.section.type
-    from ada.sections.categories import BaseTypes
-
     bt = BaseTypes
 
     sec_map = {
         bt.CIRCULAR: "CIRC",
         bt.IPROFILE: "I",
+        # Abaqus' beam library has no `section=T`. Its own preprocessor spells a T as an I-section
+        # with the bottom flange zeroed, so that is what adapy writes too -- see
+        # `t_as_i_section_lines`, which is where the zeroing happens.
+        bt.TPROFILE: "I",
         bt.BOX: "BOX",
         bt.GENERAL: "GENERAL",
         bt.TUBULAR: "PIPE",
@@ -144,6 +149,26 @@ def line_cross_sec_type_str(fem_sec: FemSection):
         raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
     return sec_str
+
+
+def t_as_i_section_lines(sec: Section) -> str:
+    """A T as a ``SECTION=I`` beam section: an I-section with its bottom flange zeroed.
+
+    Abaqus has no ``section=T``. Asked to export a member carrying its own ``TProfile``,
+    Abaqus/CAE writes ``section=I`` with ``b1`` and ``t1`` at zero and the flange in the
+    ``b2``/``t2`` slots, so this is the kernel's own encoding rather than a choice made here.
+
+    The zeroing is the whole of it, and it is not cosmetic. adapy stores a T in the
+    *collapsed-bottom-flange* form -- ``w_btn = t_w`` and ``t_fbtn = t_ftop`` (see
+    :mod:`ada.sections.string_to_section` and :mod:`ada.sections.from_geometry`) -- so handing those
+    two fields to the ordinary I-section line would describe a T with a small stub flange on the
+    bottom: extra material, extra stiffness, and no error anywhere. Writing zeros instead says what
+    adapy means, which is that there is no bottom flange.
+
+    ``l`` is the distance from the section origin to the section's bottom. adapy's profile outlines
+    are centred on the beam axis, so it is ``h / 2``, as for an I.
+    """
+    return f"{sec.h / 2}, {sec.h}, 0.0, {sec.w_top}, 0.0, {sec.t_ftop}, {sec.t_w}"
 
 
 def channel_arbitrary_lines(sec: Section) -> str:
