@@ -53,7 +53,7 @@ class BaseTypes(Enum):
             BaseTypes.TUBULAR: ["OD400x10", "TUB200x10"],
             BaseTypes.IPROFILE: ["HEA300", "HEB300", "IPE300", "IG650x300x25x40"],
             BaseTypes.TPROFILE: ["T650x300x25x40", "TG650x300x25x40"],
-            BaseTypes.ANGULAR: ["HP180x10"],
+            BaseTypes.ANGULAR: ["HP180x10", "L150x10"],
             BaseTypes.CHANNEL: ["UNP180x10"],
             BaseTypes.CIRCULAR: ["CIRC100"],
             BaseTypes.FLATBAR: ["FB100x10"],

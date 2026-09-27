@@ -119,28 +119,6 @@ def test_a_read_hp_beam_can_be_measured(tmp_path):
     assert (length, width, height) == pytest.approx((2.0, 0.038, 0.2))
 
 
-def test_an_equal_leg_angle_gains_the_legs_its_string_parser_omits(tmp_path):
-    """``L``-flavoured ANGULAR sections are the one place the mirror changes a value.
-
-    ``string_to_section.angular_section`` builds ``L150x10`` with ``w_top``/``t_ftop`` left
-    unset while ``profile_db_collect`` fills them for every HP, so adapy disagrees with
-    itself about what an ANGULAR section carries. The reader now always fills them, which
-    for an equal-leg angle means the legs it already has (``w_top == w_btn == 0.15``,
-    ``t_ftop == t_fbtn == 0.01``) -- the same numbers, not invented ones, and the values that
-    keep ``BoxSides._get_dim`` working (see above).
-
-    Pinned rather than hidden: the remaining asymmetry is in the string parser, not in this
-    reader, and closing it would change ``unique_props()`` for L sections everywhere.
-    Geometry is unaffected either way -- the properties below are identical.
-    """
-    src, read = _round_trip("L150x10", tmp_path)
-
-    assert (src.w_top, src.t_ftop) == (None, None), "the L string parser now fills these; drop this test"
-    assert (read.w_top, read.w_btn) == (0.15, 0.15)
-    assert (read.t_ftop, read.t_fbtn) == (0.01, 0.01)
-    assert _property_values(read.properties) == pytest.approx(_property_values(src.properties))
-
-
 def test_the_unsupported_set_is_exactly_what_the_writer_refuses():
     """Keeps ``UNSUPPORTED`` honest in both directions.
 
