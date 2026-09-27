@@ -127,7 +127,15 @@ def report_materials(materials: Iterable[Material]) -> None:
 
 #: ``FEM`` tables with no Sesam card at all -> (the adapy construct, why).
 _NOT_HELD_TABLES = (
-    ("surfaces", "Surface", "a Sesam file has no surfaces; a constraint using one is written on its nodes"),
+    # The surface object itself has no card, but what uses one is written from it: a constraint
+    # on the nodes it covers, and a pressure as one BEUSLO per element and side. Naming only the
+    # constraint read as though a surface carrying a pressure had been lost, which it is not.
+    (
+        "surfaces",
+        "Surface",
+        "a Sesam file has no surfaces; a constraint using one is written on its nodes and a "
+        "pressure on it as BEUSLO on its elements",
+    ),
     ("intprops", "InteractionProperty", "a Sesam file has no contact"),
     ("interactions", "Interaction", "a Sesam file has no contact"),
     ("amplitudes", "Amplitude", "a Sesam file has no time histories"),
