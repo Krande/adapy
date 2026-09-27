@@ -120,8 +120,6 @@ def pressure_load_str(load: LoadPressure) -> str:
     # it off also keeps the load's direction tied to the element normals as meshed, rather than to
     # whatever outward orientation the check would have imposed, which is what makes the sign above
     # reproducible.
-    return (
-        "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',\n    FORCE_COQUE=(\n{1}\n    ),\n)".format(
-            load.name, "\n".join(rows)
-        )
+    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',\n    FORCE_COQUE=(\n{1}\n    ),\n)".format(
+        load.name, "\n".join(rows)
     )
