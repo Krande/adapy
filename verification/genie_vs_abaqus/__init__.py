@@ -25,7 +25,7 @@ Layout::
     plate_model.py           the plate concept model: a strip, bare and stiffened, three seeds
     plate_hand_check.py      the three closed forms, the observed order, Richardson
     plate_sestra_runner.py   shells as FQUS, and the nodal load the Sesam writer needs instead
-    plate_abaqus_runner.py   shells as S4R, plus the edge supports the CAE writer cannot carry
+    plate_abaqus_runner.py   shells as S4R, supports on plate edges, the writer's own solve
     plate_compare.py         the convergence report and the plate case's own loud failures
 
     run_comparison.py        the CLI for both (``--case frame`` / ``--case plate``)

@@ -6,11 +6,12 @@ kind of guard that rots unquestioned if nothing runs it: the package is driven b
 command line, and a comparator that has quietly stopped discriminating still prints a table full of
 numbers. So the suite runs them.
 
-Eight groups: four for the portal frame and four for the plate strip. The plate groups carry the
+Nine groups: four for the portal frame and five for the plate strip. The plate groups carry the
 measured output of twelve real solves (Sestra ``FQUS`` and Abaqus ``S4R``, three mesh densities,
 bare and stiffened), which is what makes ``plate_compare.PLATE_REL_TOL`` checkable here without a
 solver -- including the check that the *coarsest* mesh pair would fail it, so the tolerance cannot
-quietly be loosened until a single-mesh comparison passes.
+quietly be loosened until a single-mesh comparison passes. One of them emits the plate's CAE script
+and asserts the writer's own supports in it, which needs the writer but no licence.
 
 Each group is its own test so a failure names the part that broke, and the group's printed output
 (captured by pytest) is the report: every check appears as PASS or FAIL with the numbers beside it.
@@ -31,8 +32,10 @@ if str(ROOT_DIR) not in sys.path:
 #:
 #: A floor, not an equality, so adding a check does not mean editing this line -- but net removal
 #: is caught, which is the failure mode that matters for a set of guards. Raise it when the real
-#: count moves up.
-MINIMUM_CHECKS = 109
+#: count moves up. 109 when the plate case's Abaqus supports came from a driver of its own; 116
+#: once adapy PR #405 moved them into the writer and the driver's checks were replaced by checks on
+#: the writer's emitted regions.
+MINIMUM_CHECKS = 116
 
 
 @pytest.fixture(scope="module")

@@ -62,26 +62,29 @@ the mechanism: correspondence is still established by position
 What each side can and cannot be given
 ======================================
 
-Two writer gaps decide how the load and the supports reach each solver. Both are reported
-rather than worked around silently, and both are stated in the runners' docstrings:
+**One** writer gap decides how the load reaches each solver, and it is reported rather than
+worked around silently:
 
-1. **adapy's Sesam writer has no distributed-load record at all.** ``write_loads.load_str``
-   reports ``[OMITTED] a "pressure" load is not written by the Sesam writer`` and returns
-   ``""``; there is no ``BEUSLO`` or ``BELOAD`` anywhere in ``ada/fem/formats/sesam/write``.
-   So a pressure reaches Sestra as *nothing*, and a Sestra run of this model would solve an
-   unloaded strip -- the exact "0 vs 0, agree" failure :mod:`compare` exists to prevent. The
-   Sestra side therefore carries :func:`consistent_nodal_loads` instead, which is not an
-   approximation: for a 4-node bilinear quad ``integral(N_i) dA = A / 4`` exactly, so the
-   consistent load vector of a uniform pressure *is* ``q A / 4`` at each of an element's
-   four nodes. Summed, that is 2000.000000 N against ``q L b = 2000`` (measured), and both
-   solvers' own reaction totals are checked against it.
-2. **The CAE writer carries a support only on a geometric vertex.**
-   ``ada.cadit.cae.analysis._resolve_region`` resolves a ``FemSet``'s node positions against
-   the vertices of the emitted geometry, and the interior nodes of a plate edge are not
-   vertices -- so a ``Bc`` on this strip's supported edge is refused by name (reproduced in
-   :mod:`plate_abaqus_runner`). The Abaqus side therefore gets those three supports from a
-   driver appended to the emitted script, generated **from these very** :class:`ada.fem.Bc`
-   **records** and through ``analysis.BC_KEYWORDS``, so the two decks cannot drift apart.
+    **adapy's Sesam writer has no distributed-load record at all.** ``write_loads.load_str``
+    reports ``[OMITTED] a "pressure" load is not written by the Sesam writer`` and returns
+    ``""``; there is no ``BEUSLO`` or ``BELOAD`` anywhere in ``ada/fem/formats/sesam/write``.
+    So a pressure reaches Sestra as *nothing*, and a Sestra run of this model would solve an
+    unloaded strip -- the exact "0 vs 0, agree" failure :mod:`compare` exists to prevent. The
+    Sestra side therefore carries :func:`consistent_nodal_loads` instead, which is not an
+    approximation: for a 4-node bilinear quad ``integral(N_i) dA = A / 4`` exactly, so the
+    consistent load vector of a uniform pressure *is* ``q A / 4`` at each of an element's
+    four nodes. Summed, that is 2000.000000 N against ``q L b = 2000`` (measured), and both
+    solvers' own reaction totals are checked against it.
+
+The supports were a second such gap when this case was written -- the CAE writer resolved a
+``Bc`` to a geometric **vertex**, and the interior nodes of a plate edge are not vertices, so
+all three of this model's supports were refused by name and the Abaqus side got them from a
+driver appended to the emitted script. adapy **PR #405**
+(``feat/abaqus-cae-region-supports``) closed it: the writer classifies each record's nodes
+against its own geometry and builds a vertex, an edge or a face region, and these three come
+out as edge regions checked in the kernel for count and length. The driver is gone, and the
+answer did not move by a digit (see :mod:`plate_abaqus_runner`). So the three ``Bc`` records
+below are now the *only* statement of "simply supported" in either deck, on both routes.
 
 So the model is built with the load in one of two equivalent forms, chosen by the solver
 that will read it (:data:`LOAD_STYLES`), and everything else -- geometry, thickness,
@@ -134,41 +137,36 @@ MESH_SIZES: tuple[float, ...] = (0.125, 0.0625, 0.03125)
 LOAD_CASE = "LC1"
 STEP_NAME = "static"
 
-#: Which writer the model is being built for, and therefore which of two forced choices it gets.
+#: Which writer the model is being built for, and therefore the one forced choice it gets.
 #:
 #: There is **one** structure, one mesh, one thickness, one material, one stiffener and one
-#: statement of "simply supported" (:data:`EDGE_SUPPORTS`). What the route decides is only what
-#: each writer can be handed at all, and both halves of it are the writer gaps in the module
-#: docstring rather than modelling preferences:
+#: statement of "simply supported" (:data:`EDGE_SUPPORTS`, three ``Bc`` records both routes carry).
+#: What the route decides is **only the form of the load**, and that is the writer gap in the module
+#: docstring rather than a modelling preference:
 #:
-#: =========  ==========================  ==========================================================
-#: route      load                        supports
-#: =========  ==========================  ==========================================================
-#: ``sestra`` the exact consistent nodal  the three ``Bc`` records, which become ``BNBCD``
-#:            vector -- the Sesam writer
-#:            emits no distributed load
-#: ``abaqus`` one ``Load`` of type        **none in the model**: the CAE writer resolves a support
-#:            ``pressure``, which becomes  to a geometric vertex, so a ``Bc`` on a plate edge is
-#:            a ``Surface`` + ``*Dsload``  refused by name. They are emitted by
-#:                                         :func:`plate_abaqus_runner.support_driver`, generated
-#:                                         from :data:`EDGE_SUPPORTS` and ``analysis.BC_KEYWORDS``
-#: =========  ==========================  ==========================================================
+#: =========  ==========================================================================
+#: route      load
+#: =========  ==========================================================================
+#: ``sestra`` the exact consistent nodal vector -- the Sesam writer emits no distributed
+#:            load at all, so a pressure would reach Sestra as nothing
+#: ``abaqus`` one ``Load`` of type ``pressure``, which becomes a ``Surface`` + ``*Dsload``
+#: =========  ==========================================================================
 #:
-#: The refusal is reproducible on demand -- :func:`plate_abaqus_runner.reproduce_edge_support_refusal`
-#: builds the ``abaqus`` route *with* the records and returns what the writer says about them -- so
-#: it is a measured gap in this package rather than a remembered one, and the day the CAE writer
-#: grows edge regions that function stops raising and says so.
+#: The supports were the second column of this table until adapy PR #405 taught the CAE writer
+#: edge and face regions; see the module docstring and :mod:`plate_abaqus_runner`.
 ROUTES = ("sestra", "abaqus")
 
-#: How the uniform load is expressed for each route. ``"nodal"`` is the exact consistent load
-#: vector; ``"pressure"`` is the ``ada.fem.Load`` of type ``pressure``.
+#: How the uniform load is expressed for each route -- the whole of what :data:`ROUTES` decides.
+#: ``"nodal"`` is the exact consistent load vector; ``"pressure"`` is the ``ada.fem.Load`` of type
+#: ``pressure``.
 LOAD_STYLES = {"sestra": "nodal", "abaqus": "pressure"}
 
 #: The supported and constrained edges, as ``(set name, adapy dof list, what it means)``.
 #:
-#: Written out rather than inlined because the Abaqus driver is generated from exactly this
-#: through ``ada.cadit.cae.analysis.BC_KEYWORDS`` -- "simply supported" has to mean the same
-#: thing in both decks, and the only way to be sure is for there to be one statement of it.
+#: Written out rather than inlined because **both** decks are generated from exactly this -- the
+#: Sesam writer's ``BNBCD`` FIX codes and the CAE writer's ``DisplacementBC`` keywords, the latter
+#: through ``ada.cadit.cae.analysis.BC_KEYWORDS``. "Simply supported" has to mean the same thing in
+#: both, and the only way to be sure is for there to be one statement of it.
 #:
 #: ``x = 0`` takes ``u1`` as well, to stop the strip sliding along its own span: with ``u1``
 #: free at both ends the in-plane mode is unrestrained. ``x = L`` leaves ``u1`` free, which
@@ -216,8 +214,8 @@ ROTATION_PROBE = "X0_MID"
 #: cylindrical bending at all.
 CYLINDRICAL_PROBES = ("MID_Y0", "MID", "MID_YB")
 
-#: adapy's own name for the plate and the bar, and the part. Carried as constants because
-#: both runners and the emitted CAE driver name them.
+#: adapy's own name for the plate and the bar, and the part. Carried as constants because both
+#: runners name them, and because the CAE part instance is ``Strip-1``.
 PART_NAME = "Strip"
 PLATE_NAME = "strip"
 BAR_NAME = "bar"
@@ -283,9 +281,7 @@ def bar_section() -> ada.Section:
     return ada.Section("BAR", "FB", h=BAR_HEIGHT, w_top=BAR_WIDTH, w_btn=BAR_WIDTH)
 
 
-def build_strip(
-    mesh_size: float, *, stiffened: bool, route: str = "sestra", with_edge_supports: bool | None = None
-) -> ada.Assembly:
+def build_strip(mesh_size: float, *, stiffened: bool, route: str = "sestra") -> ada.Assembly:
     """The one definition of the strip. Both solver inputs are derived from this.
 
     Returns an :class:`ada.Assembly` carrying:
@@ -296,21 +292,18 @@ def build_strip(
       of two different element families;
     * when ``stiffened``, a ``Beam`` along the centreline meshed as line elements that share
       the shells' nodes. Checked, not hoped for: see :func:`assert_stiffener_shares_nodes`;
-    * node sets named after :data:`EDGE_SUPPORTS`, always -- and a ``Bc`` on each of them on
-      the ``sestra`` route only, because the CAE writer refuses one there (see :data:`ROUTES`);
+    * a node set and a ``Bc`` for each entry of :data:`EDGE_SUPPORTS`, on **both** routes --
+      the Sesam writer turns them into ``BNBCD`` and the CAE writer into three
+      ``DisplacementBC`` on edge regions, so the supports no longer depend on the route at all.
+      Checked before the model leaves here: :func:`assert_edge_supports_declared`;
     * one ``StepImplicitStatic`` carrying the load form the route can be given.
 
-    ``route`` is the only parameter that changes what the two writers see, and both of its
-    effects are writer gaps rather than modelling choices -- the table in :data:`ROUTES` is
-    the whole of it. ``with_edge_supports`` overrides the support half of it, and exists for
-    one caller: :func:`plate_abaqus_runner.reproduce_edge_support_refusal`, which asks the CAE
-    writer for the thing it refuses so the refusal is measured rather than remembered.
+    ``route`` therefore changes exactly one thing -- which of two equivalent forms the uniform
+    load takes (:data:`LOAD_STYLES`), because adapy's Sesam writer emits no distributed load.
     """
     if route not in ROUTES:
         raise PlateModelInvalid(f"route must be one of {ROUTES}, got {route!r}")
     load_style = LOAD_STYLES[route]
-    if with_edge_supports is None:
-        with_edge_supports = route == "sestra"
 
     mat = ada.Material(MATERIAL_NAME, CarbonSteel(MATERIAL_NAME))
     outline = [(0.0, 0.0), (STRIP_LENGTH, 0.0), (STRIP_LENGTH, STRIP_WIDTH), (0.0, STRIP_WIDTH)]
@@ -334,11 +327,9 @@ def build_strip(
     assert_probes_are_seeded(fem, mesh_size=mesh_size)
 
     for set_name, dofs, _why in EDGE_SUPPORTS:
-        # The set is added either way, so that both decks carry the same named node groups and a
-        # reader can see which nodes the driver's geometry edges have to cover.
         fem_set = fem.add_set(_edge_nset(fem, set_name))
-        if with_edge_supports:
-            fem.add_bc(Bc(set_name, fem_set, list(dofs)))
+        fem.add_bc(Bc(set_name, fem_set, list(dofs)))
+    assert_edge_supports_declared(fem)
 
     step = assembly.fem.add_step(StepImplicitStatic(STEP_NAME, nl_geom=False, total_time=1, init_incr=1, max_incr=1))
     if load_style == "nodal":
@@ -405,6 +396,36 @@ def assert_stiffener_shares_nodes(fem) -> None:
             f"A bar that has elements and shares no node carries no load, and the stiffened strip "
             f"would then deflect exactly like the bare one -- see "
             f"plate_compare.assert_stiffener_present for the measurement that catches it downstream."
+        )
+
+
+def assert_edge_supports_declared(fem) -> None:
+    """Raise unless ``fem`` carries one ``Bc`` per :data:`EDGE_SUPPORTS` entry, with its dofs.
+
+    The supports are now the model's own records on **both** routes -- the Sesam writer reads
+    them and, since adapy PR #405, so does the CAE writer -- which makes this the single point
+    where their absence can be caught. An unsupported strip is not a subtle failure in Abaqus
+    (a singular system, which the writer's own solve refuses) but it is a very quiet one in a
+    report: three ``Bc`` records silently becoming two leaves a model that still solves, still
+    balances its pressure and is simply 30% wrong somewhere. So the count *and* each record's
+    dof list are checked here, before a licence is spent on the model.
+    """
+    declared = {bc.name: tuple(sorted(int(d) for d in bc.dofs)) for bc in fem.bcs}
+    problems = []
+    for set_name, dofs, why in EDGE_SUPPORTS:
+        expected = tuple(sorted(dofs))
+        if set_name not in declared:
+            problems.append(f"{set_name!r} ({why}) has no Bc at all")
+        elif declared[set_name] != expected:
+            problems.append(
+                f"{set_name!r} fixes dofs {list(declared[set_name])}, and EDGE_SUPPORTS says {list(expected)}"
+            )
+    if problems:
+        raise PlateModelInvalid(
+            f"the strip's supports are not the three EDGE_SUPPORTS records both writers translate: "
+            f"{'; '.join(problems)}. The model holds {sorted(declared)}. 'Simply supported in "
+            f"cylindrical bending' is written once, in EDGE_SUPPORTS, and it is what both decks are "
+            f"generated from -- so a record missing here is a support missing from both solvers."
         )
 
 
@@ -519,7 +540,9 @@ def _edge_nset(fem, set_name: str) -> FemSet:
     """The node set one :data:`EDGE_SUPPORTS` entry acts on, by position.
 
     By position and not by a mesher's own grouping, so the same three sentences describe the
-    support at every density and in both decks.
+    support at every density and in both decks. It is also what the CAE writer classifies: every
+    node of this set lies on whole boundary edges of the emitted body, which is why these three
+    records come out as **edge** regions rather than being refused for want of a vertex.
     """
     tol = 1e-09
     if set_name == "SS_X0":

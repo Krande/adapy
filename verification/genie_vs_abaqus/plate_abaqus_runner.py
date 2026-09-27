@@ -1,12 +1,13 @@
 """The Abaqus half of the plate case: the same model -> a CAE script -> ``S4R`` -> a table.
 
-Built by ``Part.to_abaqus_cae_script`` from :func:`plate_model.build_strip`, the same function
-the Sestra half calls. What the writer carries for this model, and what it does not, is measured
-rather than assumed -- and the one thing it does not carry is the reason this module emits a
-driver at all.
+Written by ``Part.to_abaqus_cae_script`` from :func:`plate_model.build_strip`, the same function
+the Sestra half calls, and **the whole model travels through the writer** -- the body, the section,
+the stiffener, the three supports, the pressure, the step, the job and the displacement sidecar.
+Nothing is appended to the emitted script. What the writer carries is measured in that script and
+in its own sidecars rather than assumed.
 
-What the writer translates, verified in the emitted script and its sidecar
-========================================================================
+What the writer translates, verified in the emitted script and its sidecars
+==========================================================================
 
 * the plate as the **ACIS body adapy's own SAT writer produces** (``strip_Strip.sat`` beside the
   script), imported with ``openAcis`` / ``PartFromGeometryFile``. One face for the bare strip,
@@ -22,46 +23,51 @@ What the writer translates, verified in the emitted script and its sidecar
   the two finer seeds, matching the Sestra deck's ``FQUS`` and ``BEAS`` counts element for element.
   An *ordinary* shared edge gives ``{'S4R': 128}`` and no beam elements at all;
 * ``S4R`` on the faces, ``B31`` on the stringer, ``seedPart(size=mesh_size)``;
-* the ``StaticStep``, and a ``FieldOutputRequest`` already naming ``U``, ``UR`` and ``RF``.
+* the three supports of :data:`plate_model.EDGE_SUPPORTS` as assembly-level ``Set``s of geometry
+  **edges**, one ``DisplacementBC`` each in the ``Initial`` step, with every one of the six dofs
+  written out -- ``0.0`` where the record fixes it and ``UNSET`` where it does not. See below;
+* the ``StaticStep``, a ``FieldOutputRequest`` already naming ``U``, ``UR`` and ``RF``, and --
+  with ``submit=True`` -- the job, the writer's own equilibrium guard, and the
+  ``plate.cae_displacements.json`` this module reads.
 
-The gap, reproduced: a support on a plate edge is refused
-=========================================================
+The gap that used to be here, and the measurement it leaves behind
+=================================================================
 
-``ada.cadit.cae.analysis._resolve_region`` resolves a ``FemSet``'s node positions against the
-**geometric vertices** of the emitted model -- the plate's corners and the members' ends -- because
-that is what survives a re-mesh. The interior nodes of a plate edge are not vertices, so this
-model's three supports cannot be written. Reproduced on demand by
-:func:`reproduce_edge_support_refusal`, which needs no Abaqus and no licence -- verbatim, on the
-bare strip at a 0.125 seed::
+Until adapy **PR #405** (``feat/abaqus-cae-region-supports``) ``ada.cadit.cae.analysis`` resolved a
+``Bc``'s ``FemSet`` against the **geometric vertices** of the emitted model only -- the plate's
+corners and the members' ends. The interior nodes of a plate edge are not vertices, so all three of
+this model's supports were refused by name, and this module appended a driver of its own that built
+the regions with ``getByBoundingBox`` and submitted the job itself. That driver and the function
+that reproduced the refusal are **both gone**: the writer classifies each record's nodes against
+its own geometry and builds a vertex, an edge or a face region
+(``ada.cadit.cae.analysis.classify_region``), and all three of these come out ``'edge'``.
 
-    ada.cadit.cae.writer.CaeWriteError: boundary condition 'CYL' (on Strip's FEM) acts at
-    (0.125, 0.0, 0.0) through the set 'CYL', and the emitted geometry has no vertex there -- the
-    nearest vertex is at (0.0, 0.0, 0.0) in part instance 'Strip-1', 0.125 length units away.
-    CAE carries a support or a load on a geometric vertex, which is what survives re-meshing;
-    there is no vertex partway along a member [...]
+The answer did not move by a digit. The hand-written driver's bare strip at a 0.125 seed gave
+``u3(MID) = -0.17306548357009888``; the writer's own regions give ``-0.17306548357009888``, and so
+did a third, independent hand-built CAE probe (``-0.173065483570099``). That is what says the
+writer's regions are the *same* regions, and it is why every Abaqus number in
+:mod:`plate_hand_check`'s tables is unchanged across the switch.
 
-That is a refusal by name with the measurement in it, which is the behaviour this project asks
-for -- not a silent drop -- and it is a **capability gap, not a defect**: nothing is written
-wrongly. It is reported as such, and not fixed here, because ``src/ada/cadit/cae`` belongs to
-another workstream.
+The measurement that made the driver locate edges by box rather than by ``findAt`` is still the
+reason the writer does, and it is still the thing most worth stating about this model: on the
+**stiffened** strip the bar splits each supported end, so ``SS_X0`` is **two** collinear edges of
+0.25 m, and ``findAt`` at a point on that boundary returns **one** of them -- half a simple
+support, which moves the answer by about 10% and leaves every number in the report plausible.
+Measured in the emitted script for this very model, read back off the kernel and reported as
+``region_edges`` (edges, and their total length):
 
-So the three supports are emitted by :func:`support_driver`, appended to the writer's own script
-in the manner ``tests/core/cadit/cae/test_cae_licensed_acceptance.py`` already uses for the
-kernel probes. Two things keep that from becoming a second, divergent model:
+=========  ===================  ===================
+region     bare strip           stiffened strip
+=========  ===================  ===================
+``SS_X0``  1 edge, 0.5          **2** edges, 0.5
+``SS_X1``  1 edge, 0.5          **2** edges, 0.5
+``CYL``    2 edges, 8.0         2 edges, 8.0
+=========  ===================  ===================
 
-1. the driver is **generated from the model's own** :class:`ada.fem.Bc` **records**, through
-   ``ada.cadit.cae.analysis.BC_KEYWORDS`` -- the same six-slot DOF order and the same keyword
-   spellings the writer itself would have used. "Simply supported" therefore means one thing,
-   written once, in :data:`plate_model.EDGE_SUPPORTS`;
-2. the regions are **geometry** edges found by ``getByBoundingBox``, not mesh nodes, so they are
-   mesh-independent across the three densities in the same way the writer's own regions are.
-   Measured, the boxes find 1 edge each on the bare strip and 2 on each supported edge of the
-   stiffened one (the bar splits them) -- printed as ``PROBE edge_counts`` and asserted.
-
-The driver then submits the job, and writes the displacement sidecar in the writer's own
-``ada.cae_displacements/1`` schema so :func:`abaqus_runner.read_displacements_sidecar` reads it
-unchanged -- including the join across ``U`` and ``UR``, which Abaqus stores as two separate
-fields (measured on Abaqus 2025: ``U`` has ``componentLabels ('U1', 'U2', 'U3')``).
+Each of those is checked *in the kernel* against what adapy computed from the body it authored --
+per box and in total, count and length -- so a region that came out short fails the build instead
+of quietly solving a differently supported plate. :func:`read_checks` refuses a run whose three
+supports did not all arrive as edge regions, for the same reason.
 
 The load: the writer's own pressure, and why it is the same vector as Sestra's
 =============================================================================
@@ -69,7 +75,11 @@ The load: the writer's own pressure, and why it is the same vector as Sestra's
 This side is given the ``pressure`` load, which the writer turns into an assembly ``Surface`` over
 the plate's faces and a ``Pressure`` on it (``*Dsload``) -- ``side1Faces``, so a positive magnitude
 pushes against the plate's declared ``+z`` normal, i.e. in ``-z``, which is the sign the Sestra
-side's negative nodal forces have.
+side's negative nodal forces have. A pressure reaches **no** nodal field in the ODB, so the
+writer's equilibrium guard carries it as adapy's own magnitude times adapy's own area for the
+plate, along that plate's declared normal: ``APPLIED_PRESSURE (0.0, 0.0, -2000.0)`` against a
+reaction total of ``2000.0`` in ``z``. That is the other half of PR #405, and without it every
+solved plate model read as out of equilibrium by the whole of its own load.
 
 The Sestra side cannot be given it: adapy's Sesam writer has no distributed-load record at all and
 reports ``[OMITTED] a "pressure" load is not written`` (see :mod:`plate_sestra_runner`). It is
@@ -108,8 +118,6 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
-from ada.cadit.cae.analysis import BC_KEYWORDS
-
 from . import plate_model
 from .abaqus_runner import AbaqusFailed, AbaqusNotInstalled, read_displacements_sidecar
 from .displacements import sample_fea_result
@@ -127,259 +135,35 @@ DEFAULT_SHELL_ELEMENT = "S4R"
 #: matters because a hung run holds one of the four site CAE tokens.
 RUN_TIMEOUT = 1800.0
 
-#: The job the appended driver submits, and the stem of the sidecars it leaves.
+#: The job the writer submits, and the stem of the solver's own files.
 JOB_NAME = "plate_job"
 
-#: What the driver names its displacement sidecar -- the writer's own schema, read by
-#: :func:`abaqus_runner.read_displacements_sidecar`.
-DISPLACEMENTS_NAME = "plate.cae_displacements.json"
+#: The emitted script's name, without its suffix. The writer names both sidecars below off it,
+#: which is why it is a constant here rather than spelled out three times.
+SCRIPT_STEM = "plate"
 
-#: And its own small provenance sidecar: the reaction total, the element counts, the node count
-#: and the stringer names. Separate from the displacements so a reader can see what the run was
-#: without parsing 2193 rows.
-CHECKS_NAME = "plate.cae_checks.json"
+#: The writer's displacement sidecar, read by :func:`abaqus_runner.read_displacements_sidecar`.
+DISPLACEMENTS_NAME = "{0}.cae_displacements.json".format(SCRIPT_STEM)
 
-#: Half-width of the bounding boxes the driver finds the supported edges with, in metres.
-#:
-#: 1e-07 -- a round-off tolerance and not a search radius, for the reason
-#: :data:`displacements.MATCH_TOL` gives: the coarsest feature it must not reach across is the
-#: 0.03125 m finest element, 300000x larger.
-EDGE_BOX_TOL = 1.0e-07
+#: The writer's build-result sidecar: every guard's verdict, the mesh it built, the regions it
+#: resolved and the equilibrium it checked. :func:`read_checks` reads this run's provenance out of
+#: it rather than out of a sidecar of this package's own -- there is nothing left for this module
+#: to measure that the writer does not already measure in the kernel.
+BUILD_RESULT_NAME = "{0}.cae_build_result.json".format(SCRIPT_STEM)
 
 
 @dataclass(frozen=True)
 class PlateRunChecks:
-    """What the driver measured about the model it solved, read back from :data:`CHECKS_NAME`."""
+    """What the writer measured about the model it solved, read back from :data:`BUILD_RESULT_NAME`."""
 
     reaction_total: tuple[float, float, float]
     node_count: int
     element_counts: dict[str, int]
-    stringers: tuple[str, ...]
-    edge_counts: tuple[int, ...]
+    #: Per support set, what kind of geometry its region resolved to. All three are ``'edge'``.
+    region_kinds: dict[str, str]
+    #: Per support set, ``(edges, total length)`` as CAE itself measured them.
+    region_edges: dict[str, tuple[int, float]]
     solved: bool
-
-
-def support_driver() -> str:
-    """The CAE code that puts :data:`plate_model.EDGE_SUPPORTS` on the plate's edges, and solves.
-
-    Generated from the model's own ``Bc`` records and ``analysis.BC_KEYWORDS``, so the DOF order
-    and the keyword spellings are the writer's rather than a second opinion about them -- see the
-    module docstring. Everything else in the deck is the writer's.
-
-    The returned text is Abaqus-kernel Python (2.7): ``.format`` rather than f-strings, no
-    annotations, and ``print`` going to ``abaqus.rpy`` rather than stdout.
-    """
-    statements = []
-    for set_name, dofs, why in plate_model.EDGE_SUPPORTS:
-        keywords = ", ".join("{0}=0.0".format(BC_KEYWORDS[dof - 1]) for dof in sorted(dofs))
-        statements.append("    # {0}: {1}".format(set_name, why))
-        statements.append(
-            "    _m.DisplacementBC(name={0!r}, createStepName='Initial', "
-            "region=_a.sets[{1!r}], {2})".format(set_name, _cae_set_name(set_name), keywords)
-        )
-    return _DRIVER_TEMPLATE.format(
-        length=repr(float(plate_model.STRIP_LENGTH)),
-        width=repr(float(plate_model.STRIP_WIDTH)),
-        tol=repr(float(EDGE_BOX_TOL)),
-        job=repr(JOB_NAME),
-        displacements=repr(DISPLACEMENTS_NAME),
-        checks=repr(CHECKS_NAME),
-        part=repr(plate_model.PART_NAME),
-        instance=repr("{0}-1".format(plate_model.PART_NAME)),
-        step=repr(plate_model.STEP_NAME),
-        shell_code=repr(DEFAULT_SHELL_ELEMENT),
-        bcs="\n".join(statements),
-        x0=_cae_set_name("SS_X0"),
-        x1=_cae_set_name("SS_X1"),
-        cyl=_cae_set_name("CYL"),
-    )
-
-
-def _cae_set_name(set_name: str) -> str:
-    """The assembly-level set the driver builds for one support, lower-cased and suffixed.
-
-    Distinct from the adapy ``FemSet`` name so that nothing in the emitted script can collide
-    with a name the writer's own ``_guard_no_name_collisions`` already reserved.
-    """
-    return "{0}_edges".format(set_name.lower())
-
-
-#: The driver, with ``{...}`` slots filled by :func:`support_driver`. Doubled braces are literal.
-_DRIVER_TEMPLATE = '''
-
-# --------------------------------------------------------------------------------------------
-# Appended by verification/genie_vs_abaqus/plate_abaqus_runner.py.
-#
-# The three supports below are the ones ada.cadit.cae.analysis refuses: it resolves a support to
-# a geometric VERTEX, and the interior nodes of a plate edge are not vertices. The refusal is
-# reproduced verbatim in that module's docstring. The DOF keywords here come from
-# analysis.BC_KEYWORDS and the DOF lists from plate_model.EDGE_SUPPORTS, so this is the same
-# statement of "simply supported" the Sestra deck is written from -- not a second one.
-#
-# The regions are GEOMETRY edges, not mesh nodes, so they mean the same thing at all three mesh
-# densities.
-# --------------------------------------------------------------------------------------------
-import odbAccess
-
-_JOB = {job}
-_TOL = {tol}
-_L = {length}
-_B = {width}
-_STEP = {step}
-_m = mdb.models[MODEL_NAME]
-_a = _m.rootAssembly
-_p = _m.parts[{part}]
-_inst = _a.instances[{instance}]
-
-
-def _edges_in_box(xmin, xmax, ymin, ymax):
-    """Every geometry edge wholly inside the box, or a failure naming the box.
-
-    getByBoundingBox rather than findAt: a supported edge of the STIFFENED strip is two edges,
-    because the bar splits the body along its axis, and findAt at one point would have located
-    one of them and silently left the other unsupported -- half a simple support.
-    """
-    got = _inst.edges.getByBoundingBox(xMin=xmin, xMax=xmax, yMin=ymin, yMax=ymax,
-                                       zMin=-_TOL, zMax=_TOL)
-    if len(got) == 0:
-        _fail('no geometry edge lies inside the box x[{{0}}, {{1}}] y[{{2}}, {{3}}]; the emitted '
-              'part has {{4}} edge(s). Without it a support would be created on nothing and the '
-              'solve would fail as a singular system rather than as a missing '
-              'support.'.format(xmin, xmax, ymin, ymax, len(_inst.edges)))
-    return got
-
-
-_e_x0 = _edges_in_box(-_TOL, _TOL, -_TOL, _B + _TOL)
-_e_x1 = _edges_in_box(_L - _TOL, _L + _TOL, -_TOL, _B + _TOL)
-_e_y0 = _edges_in_box(-_TOL, _L + _TOL, -_TOL, _TOL)
-_e_y1 = _edges_in_box(-_TOL, _L + _TOL, _B - _TOL, _B + _TOL)
-_EDGE_COUNTS = [len(_e_x0), len(_e_x1), len(_e_y0), len(_e_y1)]
-print('PROBE edge_counts {{0}}'.format(_EDGE_COUNTS))
-_a.Set(name='{x0}', edges=_e_x0)
-_a.Set(name='{x1}', edges=_e_x1)
-_a.Set(name='{cyl}', edges=_e_y0 + _e_y1)
-
-
-def _apply_supports():
-{bcs}
-
-
-_apply_supports()
-
-_counts = {{}}
-for _el in _p.elements:
-    _key = str(_el.type)
-    _counts[_key] = _counts.get(_key, 0) + 1
-print('PROBE element_counts {{0!r}}'.format(_counts))
-print('PROBE node_count {{0}}'.format(len(_p.nodes)))
-print('PROBE stringers {{0!r}}'.format(sorted(_p.stringers.keys())))
-
-_job = mdb.Job(name=_JOB, model=MODEL_NAME)
-_job.submit(consistencyChecking=OFF)
-_job.waitForCompletion()
-# NOT job.status: measured on Abaqus 2025 it reads None after waitForCompletion under
-# `abaqus cae noGUI=`, so a check against COMPLETED fails every clean run. The .sta says so.
-_STA = os.path.join(os.path.dirname(_result_path()), _JOB + '.sta')
-_solved = False
-if os.path.isfile(_STA):
-    _handle = open(_STA, 'r')
-    _solved = 'THE ANALYSIS HAS COMPLETED SUCCESSFULLY' in _handle.read()
-    _handle.close()
-print('PROBE solved {{0}}'.format(_solved))
-if not _solved:
-    _fail('the plate job did not complete successfully; {{0}} does not carry Abaqus\\' own '
-          'completion line, so there is no result to sample.'.format(_JOB + '.sta'))
-
-_odb = odbAccess.openOdb(_JOB + '.odb')
-_payload = {{'schema': 'ada.cae_displacements/1', 'job': _JOB, 'odb': _JOB + '.odb',
-            'model': MODEL_NAME, 'element_type': {shell_code},
-            'components': ['U1', 'U2', 'U3', 'UR1', 'UR2', 'UR3'],
-            'solver_version': str(_odb.jobData.version), 'instances': []}}
-for _iname in sorted(_odb.rootAssembly.instances.keys()):
-    _oi = _odb.rootAssembly.instances[_iname]
-    _nodes = []
-    for _nd in _oi.nodes:
-        _c = _nd.coordinates
-        _nodes.append([int(_nd.label), float(_c[0]), float(_c[1]), float(_c[2])])
-    _nodes.sort()
-    _steps = []
-    for _sname in sorted(_odb.steps.keys()):
-        _st = _odb.steps[_sname]
-        _fr = _st.frames[-1]
-        _rows = {{}}
-        # Abaqus stores the six components in TWO fields -- U is ('U1','U2','U3') and the
-        # rotations are a separate UR -- so they are joined here, once, as the writer's own
-        # sidecar does. A reader expecting six in one place finds three.
-        for _fname, _offset in (('U', 0), ('UR', 3)):
-            if _fname not in _fr.fieldOutputs.keys():
-                _fail('step {{0!r}} carries no {{1!r}} field, so its components cannot be '
-                      'reported.'.format(_sname, _fname))
-            _sub = _fr.fieldOutputs[_fname].getSubset(region=_oi)
-            for _v in _sub.values:
-                _lab = int(_v.nodeLabel)
-                _row = _rows.get(_lab)
-                if _row is None:
-                    _row = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                    _rows[_lab] = _row
-                for _axis in range(3):
-                    _row[_offset + _axis] = float(_v.data[_axis])
-        _table = []
-        for _lab in sorted(_rows.keys()):
-            _table.append([_lab] + _rows[_lab])
-        _steps.append({{'name': _sname, 'frame': len(_st.frames) - 1,
-                       'time': float(_fr.frameValue), 'displacements': _table}})
-    _payload['instances'].append({{'name': _iname, 'nodes': _nodes, 'steps': _steps}})
-
-# The solver's own reaction bookkeeping. adapy computed the applied pressure, so comparing the
-# applied load against itself would prove nothing; this is what says the whole of it arrived.
-_rf = [0.0, 0.0, 0.0]
-_frame = _odb.steps[_STEP].frames[-1]
-for _v in _frame.fieldOutputs['RF'].values:
-    for _axis in range(3):
-        _rf[_axis] = _rf[_axis] + float(_v.data[_axis])
-print('PROBE reaction_total {{0!r}}'.format(_rf))
-_odb.close()
-
-_handle = open(os.path.join(os.path.dirname(_result_path()), {displacements}), 'w')
-json.dump(_payload, _handle)
-_handle.close()
-_handle = open(os.path.join(os.path.dirname(_result_path()), {checks}), 'w')
-json.dump({{'schema': 'ada.plate_checks/1', 'reaction_total': _rf, 'node_count': len(_p.nodes),
-           'element_counts': _counts, 'stringers': sorted(_p.stringers.keys()),
-           'edge_counts': _EDGE_COUNTS, 'solved': _solved}}, _handle)
-_handle.close()
-print('ADAPY-PLATE SOLVE OK')
-sys.stdout.flush()
-'''
-
-
-def reproduce_edge_support_refusal(destination: str | pathlib.Path, *, mesh_size: float = 0.125) -> str:
-    """Ask the CAE writer for a support on a plate edge and return what it says about it.
-
-    Needs no Abaqus and no licence: the refusal happens at plan time, in
-    ``ada.cadit.cae.analysis.plan_analysis``, before a file is written. So the gap this module's
-    docstring describes is **measured on demand** rather than remembered, and the day the writer
-    grows edge regions this function stops raising -- at which point the driver below can be
-    deleted and the supports translated like everything else.
-
-    Returns the ``CaeWriteError``'s message. Raises :class:`AssertionError` if the writer *accepts*
-    the model, because that is the interesting outcome and it must not be reported as a pass.
-    """
-    from ada.cadit.cae.writer import CaeWriteError
-
-    assembly = plate_model.build_strip(mesh_size, stiffened=False, route="abaqus", with_edge_supports=True)
-    try:
-        assembly.to_abaqus_cae_script(
-            pathlib.Path(destination), mesh_size=mesh_size, shell_element_type=DEFAULT_SHELL_ELEMENT
-        )
-    except CaeWriteError as exc:
-        return str(exc)
-    raise AssertionError(
-        "the CAE writer accepted a Bc on this strip's supported edge, which it refused when this "
-        "module was written (see its docstring). That is good news and it means this package is now "
-        "out of date: the three supports can be translated like everything else and "
-        "plate_abaqus_runner.support_driver should go."
-    )
 
 
 def emit_and_run(
@@ -391,9 +175,9 @@ def emit_and_run(
 ) -> pathlib.Path:
     """Write the CAE script for one variant at one seed, run it, and return its run directory.
 
-    ``submit=False`` on purpose: the writer's own ``solve()`` would submit the job *before* the
-    appended driver could create a single support, and an unsupported plate is a singular system.
-    So the driver submits, and it writes the writer's own sidecar schema on the way out.
+    ``submit=True``: the job, the equilibrium check and the displacement sidecar are the writer's
+    own, because the supports are too. Nothing is appended to the script -- see the module
+    docstring for the driver this used to need and the PR that removed the need for it.
     """
     try:
         from tests.core.cadit.cae.abaqus_runner import abaqus_command, run_cae_script
@@ -417,17 +201,16 @@ def emit_and_run(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     assembly = plate_model.build_strip(mesh_size, stiffened=stiffened, route="abaqus")
-    script = run_dir / "plate.py"
+    script = run_dir / "{0}.py".format(SCRIPT_STEM)
     # The assembly, not the part: the supports are on the part's FEM while the step carrying the
     # pressure is on the assembly's, so writing the part alone would refuse for want of the step.
     assembly.to_abaqus_cae_script(
         script,
         mesh_size=mesh_size,
         shell_element_type=shell_element_type,
-        submit=False,
+        job_name=JOB_NAME,
+        submit=True,
     )
-    with script.open("a", encoding="utf-8") as handle:
-        handle.write(support_driver())
 
     run = run_cae_script(script, run_dir, timeout=RUN_TIMEOUT)
     if run.licence_denied:
@@ -439,40 +222,86 @@ def emit_and_run(
                 "stiffened" if stiffened else "bare", mesh_size, run.failure_signals, run.describe()
             )
         )
-    if "ADAPY-PLATE SOLVE OK" not in run.printed:
+    if not (run_dir / DISPLACEMENTS_NAME).is_file():
         raise AbaqusFailed(
-            "the build reported success but the appended solve driver did not finish: no "
-            "'ADAPY-PLATE SOLVE OK' in the replay output for the {0} strip at seed {1}. The "
-            "writer's own build guards passed, so this is the supports, the job or the ODB "
-            "read.\n{2}".format("stiffened" if stiffened else "bare", mesh_size, run.describe())
+            "the build reported success and left no displacement sidecar at {0} for the {1} strip at "
+            "seed {2}. The writer writes one only when the job it submitted finished, so read {3} "
+            "for what it did instead.".format(
+                run_dir / DISPLACEMENTS_NAME,
+                "stiffened" if stiffened else "bare",
+                mesh_size,
+                run_dir / BUILD_RESULT_NAME,
+            )
         )
     return run_dir
 
 
 def read_checks(run_dir: str | pathlib.Path) -> PlateRunChecks:
-    """Read :data:`CHECKS_NAME` from a run directory.
+    """Read this run's provenance out of the writer's own :data:`BUILD_RESULT_NAME`.
 
-    Refused rather than defaulted when absent: the reaction total is the check that the whole
-    pressure arrived, and a missing file would otherwise become a silently skipped check.
+    Refused rather than defaulted at every step: the reaction total is the check that the whole
+    pressure arrived, and the region kinds are the check that the three supports ran along their
+    edges rather than sitting on the four corners a vertex region would have caught. A missing
+    file, a failed build, or a support that resolved to the wrong kind of geometry would each
+    otherwise become a silently skipped check.
     """
-    path = pathlib.Path(run_dir) / CHECKS_NAME
+    run_dir = pathlib.Path(run_dir)
+    path = run_dir / BUILD_RESULT_NAME
     if not path.is_file():
         raise AbaqusFailed(
-            "no {0} in {1}. The appended driver writes it whenever it solved, so its absence means "
-            "the solve did not reach the end -- and the reaction total, which is what says the "
-            "whole pressure arrived, cannot be checked.".format(CHECKS_NAME, run_dir)
+            "no {0} in {1}. The emitted script writes it whenever CAE ran it at all, so its absence "
+            "means the script never started -- and the reaction total, which is what says the whole "
+            "pressure arrived, cannot be checked.".format(BUILD_RESULT_NAME, run_dir)
         )
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("schema") != "ada.plate_checks/1":
-        raise AbaqusFailed("{0} is not a plate-checks sidecar (schema {1!r})".format(path, payload.get("schema")))
-    total = [float(v) for v in payload["reaction_total"]]
+    schema = str(payload.get("schema", ""))
+    if not schema.startswith("ada.cae_build_result/"):
+        raise AbaqusFailed("{0} is not a CAE build-result sidecar (schema {1!r})".format(path, schema))
+    if not payload.get("ok"):
+        raise AbaqusFailed(
+            "the emitted script's own guards failed for {0}, so whatever it solved is not the model "
+            "adapy described: {1}".format(run_dir, payload.get("errors") or "(no errors recorded)")
+        )
+
+    equilibrium = payload.get("equilibrium") or {}
+    if "reaction_force_sum" not in equilibrium:
+        raise AbaqusFailed(
+            "{0} carries no reaction total, which means the script was not asked to submit the job "
+            "(it holds {1}). That total is what says the whole pressure arrived, so it is not "
+            "optional here.".format(path, sorted(equilibrium) or "nothing")
+        )
+    total = [float(v) for v in equilibrium["reaction_force_sum"]]
+
+    mesh = payload.get("mesh") or {}
+    if len(mesh) != 1:
+        raise AbaqusFailed(
+            "{0} reports {1} meshed part(s) ({2}) and this model is one part: a node count summed "
+            "over several would not be the strip's.".format(path, len(mesh), sorted(mesh))
+        )
+    meshed = mesh[sorted(mesh)[0]]
+
+    kinds = {str(k): str(v) for k, v in sorted((payload.get("analysis") or {}).get("region_kinds", {}).items())}
+    edges = {str(k): (int(v[0]), float(v[1])) for k, v in sorted((payload.get("region_edges") or {}).items())}
+    wrong = [
+        "{0!r} is {1}".format(name, kinds.get(name, "absent"))
+        for name, _dofs, _why in plate_model.EDGE_SUPPORTS
+        if kinds.get(name) != "edge"
+    ]
+    if wrong:
+        raise AbaqusFailed(
+            "the three supports did not all reach CAE as regions along their edges -- {0}. A support "
+            "on the two corner vertices of a supported end holds two nodes instead of the whole "
+            "edge, which solves and comes out about 10% too soft; the regions read back as "
+            "{1}.".format(", ".join(wrong), kinds or "(none)")
+        )
+
     return PlateRunChecks(
         reaction_total=(total[0], total[1], total[2]),
-        node_count=int(payload["node_count"]),
-        element_counts={str(k): int(v) for k, v in sorted(payload["element_counts"].items())},
-        stringers=tuple(payload["stringers"]),
-        edge_counts=tuple(int(v) for v in payload["edge_counts"]),
-        solved=bool(payload["solved"]),
+        node_count=int(meshed["nodes"]),
+        element_counts={str(k): int(v) for k, v in sorted(meshed["elements_by_type"].items())},
+        region_kinds=kinds,
+        region_edges=edges,
+        solved=bool(payload.get("displacements")),
     )
 
 
@@ -548,24 +377,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="one seed only (default: every one of plate_model.MESH_SIZES)",
     )
     parser.add_argument("--json-out-dir", help="also write each table as JSON here")
-    parser.add_argument(
-        "--reproduce-refusal",
-        action="store_true",
-        help="build the model WITH its Bc records, hand it to the CAE writer, and print the refusal "
-        "this module's driver exists because of. Needs no Abaqus and no licence",
-    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     """Solve the Abaqus side and write its tables. ``0`` written, ``2`` could not be run."""
     args = build_parser().parse_args(argv)
-    if args.reproduce_refusal:
-        target = pathlib.Path(args.work_dir) / "refusal" / "plate.py"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        print("ada.cadit.cae.writer.CaeWriteError:")
-        print(reproduce_edge_support_refusal(target))
-        return 0
     sizes = (args.mesh_size,) if args.mesh_size else plate_model.MESH_SIZES
     try:
         solves = [run_and_sample(args.work_dir, mesh_size=size, stiffened=args.stiffened) for size in sizes]

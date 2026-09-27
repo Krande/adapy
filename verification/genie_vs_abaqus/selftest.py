@@ -13,10 +13,10 @@ against deliberately broken inputs and assert that it *raises*:
 Plus the positive cases: a table that agrees passes, and one perturbed just past
 :data:`compare.REL_TOL` fails at the right components.
 
-The **plate** case adds four groups of its own, because a shell comparison goes wrong in ways a
+The **plate** case adds five groups of its own, because a shell comparison goes wrong in ways a
 beam comparison cannot (:func:`check_plate_closed_forms`,
-:func:`check_plate_convergence`, :func:`check_plate_loud_failures`,
-:func:`check_plate_agreement`):
+:func:`check_plate_convergence`, :func:`check_plate_agreement`,
+:func:`check_plate_boundary_semantics`, :func:`check_plate_loud_failures`):
 
 * a table built from a mesh with **no shells in it** -- all the numbers, none of the physics;
 * a probe on no node of the plate mesh, and two coincident nodes at one;
@@ -29,8 +29,13 @@ beam comparison cannot (:func:`check_plate_closed_forms`,
 * a refinement sequence that is not one: two meshes, mixed variants, out of order, or a component
   that does not converge -- each of which would otherwise be extrapolated into a number and then
   compared;
-* and the plate probe set compared against the frame's, which must be a hard error rather than an
-  empty intersection.
+* the plate probe set compared against the frame's, which must be a hard error rather than an
+  empty intersection;
+* and a support missing from the model's own ``Bc`` records, or fixing the wrong dofs -- those
+  three records are what *both* writers translate now that the CAE writer carries a support along
+  a plate edge (adapy PR #405), so they are the one place "simply supported" is stated. The
+  writer's own emitted ``DisplacementBC`` calls and edge regions are asserted literally in
+  :func:`check_plate_boundary_semantics`, on a script emitted without a licence.
 
 The plate groups are checked against **measured** solver output, carried here as the constants
 ``_SESTRA_BARE`` .. ``_ABAQUS_STIFF`` and ``_MID_DEFLECTION_SEQUENCES``, so the tolerance the
@@ -48,8 +53,11 @@ Run it after any change to :mod:`compare`, :mod:`displacements` or the plate mod
 from __future__ import annotations
 
 import math
+import pathlib
+import re
 import sys
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -714,9 +722,18 @@ class _FakeNodeStore(list):
 
 
 @dataclass
+class _FakeBc:
+    """``fem.bcs``' two attributes :func:`plate_model.assert_edge_supports_declared` reads."""
+
+    name: str
+    dofs: list
+
+
+@dataclass
 class _FakeFem:
     nodes: _FakeNodeStore
     elements: list
+    bcs: list = field(default_factory=list)
 
 
 def _unit_grid(nx: int, ny: int, *, kind: str = "ShellShapes.QUAD", dx: float = 1.0, dy: float = 1.0) -> _FakeFem:
@@ -1089,23 +1106,63 @@ def check_plate_agreement() -> list[bool]:
     return results
 
 
+#: One ``_analysis_edge_region`` call in an emitted script: the region's name, and the edge count
+#: and total length adapy predicted for it and the kernel then checks.
+_EDGE_REGION_CALL = re.compile(
+    r"_analysis_edge_region\(assembly, '(?P<name>[^']+)', '[^']+', \(.*\), "
+    r"(?P<edges>\d+), (?P<length>[-+0-9.eE]+), '[^']+'\)"
+)
+
+
+def _emitted_plate_script(stiffened: bool, mesh_size: float = 0.125) -> str:
+    """The CAE script the **writer** produces for one variant of the strip, as text.
+
+    No licence and no Abaqus: the supports, the regions, the step and the job are all written at
+    plan time, so the text is checkable here. It is emitted rather than reconstructed because it
+    *is* the deck now -- asserting against anything this package built itself would be asserting
+    against a second opinion about the supports, which is the thing that no longer exists.
+    """
+    from . import plate_abaqus_runner as par
+    from . import plate_model as pm
+
+    assembly = pm.build_strip(mesh_size, stiffened=stiffened, route="abaqus")
+    with tempfile.TemporaryDirectory() as tmp:
+        script = pathlib.Path(tmp) / f"{par.SCRIPT_STEM}.py"
+        assembly.to_abaqus_cae_script(
+            script,
+            mesh_size=mesh_size,
+            shell_element_type=par.DEFAULT_SHELL_ELEMENT,
+            job_name=par.JOB_NAME,
+            submit=True,
+        )
+        return script.read_text(encoding="utf-8")
+
+
 def check_plate_boundary_semantics() -> list[bool]:
     """ "Simply supported" must mean the same thing in both decks. This is where it is written down.
 
-    The Sestra deck gets :data:`plate_model.EDGE_SUPPORTS` as three ``Bc`` records, which
-    ``write_bcs`` turns into ``BNBCD`` FIX codes. The Abaqus deck cannot -- the CAE writer resolves a
-    support to a geometric *vertex* and a plate edge's interior nodes are not vertices
-    (:func:`plate_abaqus_runner.reproduce_edge_support_refusal` reproduces the refusal) -- so the same
-    three records are rendered into the appended driver through ``analysis.BC_KEYWORDS``.
+    Both decks are now generated from :data:`plate_model.EDGE_SUPPORTS` by a *writer*: ``write_bcs``
+    turns the three ``Bc`` records into ``BNBCD`` FIX codes, and the CAE writer -- since adapy PR
+    #405 taught it edge and face regions -- into three ``DisplacementBC`` on assembly ``Set``s of
+    geometry edges. Until that PR the CAE side resolved a support to a geometric *vertex* only, so
+    all three were refused and this package appended a driver of its own; the driver is gone and
+    what is checked here is the writer's own emitted text.
 
-    That makes the driver's text the single place the two decks could drift apart, so the expected
-    ``DisplacementBC`` keywords are asserted here **literally** rather than rebuilt from
+    The expected ``DisplacementBC`` lines are asserted **literally** rather than rebuilt from
     ``EDGE_SUPPORTS``. Rebuilding them would make this check move with the very data it is checking:
     found by mutation, dropping ``ur1`` from the ``CYL`` entry -- which frees the long edges and makes
     ``D = E t^3 / (12 (1 - nu^2))`` the wrong stiffness by up to 9% -- was caught by nothing at all.
 
     The negative half matters as much as the positive: **no rotation is fixed on either supported
     edge**. ``ur2`` is what "simply supported" leaves free, and fixing it makes the strip 5x stiffer.
+    The writer states it rather than omitting it -- every one of the six dofs appears in every call,
+    ``UNSET`` where the record leaves it free -- so the negative half is now checked positively.
+
+    And the regions are **edges**, whole ones. A support on the two corner vertices of a supported
+    end would solve, and come out about 10% too soft; on the stiffened strip the bar splits each end
+    into two collinear edges, which is why the writer locates them by bounding box and not by
+    ``findAt`` -- ``findAt`` on that boundary returns one of the two. Both counts are asserted below,
+    off the script's own calls.
     """
     print("\nplate boundary-condition semantics (both decks must mean one thing):")
     from ada.cadit.cae.analysis import BC_KEYWORDS
@@ -1116,63 +1173,97 @@ def check_plate_boundary_semantics() -> list[bool]:
     results = []
     results.append(
         _expect(
-            "BC_KEYWORDS is adapy's own dof 1..6 order, which the driver is generated through",
+            "BC_KEYWORDS is adapy's own dof 1..6 order, which the writer renders each Bc's dofs through",
             tuple(BC_KEYWORDS) == ("u1", "u2", "u3", "ur1", "ur2", "ur3"),
             f"{tuple(BC_KEYWORDS)}",
         )
     )
-    driver = par.support_driver()
+    bare = _emitted_plate_script(stiffened=False)
     expected = {
-        "SS_X0": "u1=0.0, u2=0.0, u3=0.0",
-        "SS_X1": "u2=0.0, u3=0.0",
-        "CYL": "u2=0.0, ur1=0.0",
+        "SS_X0": "u1=0.0, u2=0.0, u3=0.0, ur1=UNSET, ur2=UNSET, ur3=UNSET",
+        "SS_X1": "u1=UNSET, u2=0.0, u3=0.0, ur1=UNSET, ur2=UNSET, ur3=UNSET",
+        "CYL": "u1=UNSET, u2=0.0, u3=UNSET, ur1=0.0, ur2=UNSET, ur3=UNSET",
     }
     for name, keywords in sorted(expected.items()):
-        line = f"_m.DisplacementBC(name={name!r}, createStepName='Initial', region=_a.sets[{par._cae_set_name(name)!r}], {keywords})"
+        line = (
+            f"    model.DisplacementBC(name={name!r}, createStepName='Initial',\n"
+            f"                         region=assembly.sets[{name!r}], {keywords})"
+        )
         results.append(
             _expect(
-                f"the driver emits {name} as exactly '{keywords}'",
-                line in driver,
-                "found" if line in driver else f"MISSING: {line}",
+                f"the writer emits {name} as exactly '{keywords}'",
+                line in bare,
+                "found" if line in bare else f"MISSING: {line}",
             )
         )
     results.append(
         _expect(
             "no rotation about the width axis is fixed anywhere -- that is what makes it simply supported",
-            "ur2=" not in driver and "ur3=" not in driver,
-            "ur2 and ur3 free at both supported edges",
+            bare.count("ur2=UNSET") == len(pm.EDGE_SUPPORTS) and "ur2=0.0" not in bare and "ur3=0.0" not in bare,
+            f"ur2 and ur3 UNSET in all {bare.count('ur2=UNSET')} supports",
         )
     )
     results.append(
         _expect(
-            "the three supports named in the model are the three the driver emits, and no more",
-            driver.count("_m.DisplacementBC(") == len(pm.EDGE_SUPPORTS) == 3,
-            f"{driver.count('_m.DisplacementBC(')} DisplacementBC calls for {len(pm.EDGE_SUPPORTS)} records",
+            "the three supports named in the model are the three the writer emits, and no more",
+            bare.count("model.DisplacementBC(") == len(pm.EDGE_SUPPORTS) == 3,
+            f"{bare.count('model.DisplacementBC(')} DisplacementBC calls for {len(pm.EDGE_SUPPORTS)} records",
         )
     )
-    # The driver has to be syntactically valid before Abaqus is asked for a licence to find out.
-    try:
-        compile(driver, "plate_support_driver", "exec")
-        compiles = True
-        detail = f"{len(driver)} characters"
-    except SyntaxError as exc:  # pragma: no cover - a regression in the template
-        compiles = False
-        detail = f"{type(exc).__name__}: {exc}"
-    results.append(_expect("and the rendered driver compiles", compiles, detail))
-    # The regions are geometry edges spanning the whole edge, not mesh nodes: that is what makes one
-    # statement of the support serve all three mesh densities.
+    # The regions. Every support is a set of whole geometry EDGES, located by bounding box, and the
+    # kernel checks each one's count and length against what adapy computed from its own body -- so
+    # one statement of the support serves all three mesh densities. A vertex region here would be a
+    # support on the corners only, which solves and is about 10% too soft.
+    stiffened = _emitted_plate_script(stiffened=True)
+    for variant, text, ends in (("bare", bare, 1), ("stiffened", stiffened, 2)):
+        regions = {
+            m.group("name"): (int(m.group("edges")), float(m.group("length"))) for m in _EDGE_REGION_CALL.finditer(text)
+        }
+        wanted = {
+            "SS_X0": (ends, pm.STRIP_WIDTH),
+            "SS_X1": (ends, pm.STRIP_WIDTH),
+            "CYL": (2, 2 * pm.STRIP_LENGTH),
+        }
+        results.append(
+            _expect(
+                f"the {variant} strip's three supports are edge regions of "
+                f"{ends}/{ends}/2 edge(s) and 0.5/0.5/8.0 in length",
+                regions == wanted,
+                f"{regions}",
+            )
+        )
+        # The calls, not the helper definitions the writer emits alongside them: every region call
+        # sits indented inside build(), and _analysis_region is the vertex form.
+        vertex_calls = text.count("\n    _analysis_region(assembly,")
+        edge_calls = text.count("\n    _analysis_edge_region(assembly,")
+        results.append(
+            _expect(
+                f"and the {variant} strip carries no vertex region at all -- no support sits on corners",
+                vertex_calls == 0 and edge_calls == len(pm.EDGE_SUPPORTS),
+                f"{edge_calls} edge region call(s), {vertex_calls} vertex",
+            )
+        )
+    # Nothing is appended to that script: the job it submits and the sidecar this package reads are
+    # the writer's own, which is what says the supports and the answer come from one deck.
     results.append(
         _expect(
-            "the supported edges are found as geometry edges by bounding box, not as mesh nodes",
-            "getByBoundingBox" in driver and "instance.nodes" not in driver,
-            "mesh-independent across the three densities",
+            "the writer's own script submits the job and writes the sidecar the runner reads",
+            f"DISPLACEMENTS_NAME = {par.DISPLACEMENTS_NAME!r}" in bare and f"JOB_NAME = {par.JOB_NAME!r}" in bare,
+            f"{par.JOB_NAME} -> {par.DISPLACEMENTS_NAME}",
+        )
+    )
+    results.append(
+        _expect(
+            "and this package has no support driver left to append to it",
+            not hasattr(par, "support_driver") and not hasattr(par, "reproduce_edge_support_refusal"),
+            "the CAE writer carries the supports (adapy PR #405)",
         )
     )
     # And the load: the Sestra route gets the nodal vector, the Abaqus route the pressure. Neither
     # choice is free, and a route that silently changed would change what is being compared.
     results.append(
         _expect(
-            "the two routes get the two load forms the two writers can carry, and nothing else",
+            "the route decides the load form and nothing else -- the supports are the same records on both",
             pm.LOAD_STYLES == {"sestra": "nodal", "abaqus": "pressure"} and pm.ROUTES == ("sestra", "abaqus"),
             f"{pm.LOAD_STYLES}",
         )
@@ -1416,6 +1507,40 @@ def check_plate_loud_failures() -> list[bool]:
             "a stiffener line whose nodes are not shared by a shell and a beam element",
             pm.PlateModelInvalid,
             lambda: pm.assert_stiffener_shares_nodes(detached),
+        )
+    )
+
+    # 9. The supports themselves, as records. They are now the ONLY route by which either solver
+    # hears about them -- both writers translate these three and nothing else -- so a record lost on
+    # the way into the model is a support lost from both decks. Abaqus would refuse an unsupported
+    # strip as a singular system, but two of three supports still solves and is simply wrong.
+    supported = _unit_grid(4, 2, dx=pm.STRIP_LENGTH / 4.0, dy=pm.STRIP_WIDTH / 2.0)
+    supported.bcs = [_FakeBc(name, list(dofs)) for name, dofs, _why in pm.EDGE_SUPPORTS]
+    results.append(
+        _expect(
+            "the three EDGE_SUPPORTS records pass the guard that says they are all there",
+            pm.assert_edge_supports_declared(supported) is None,
+            f"{[bc.name for bc in supported.bcs]}",
+        )
+    )
+    dropped = _unit_grid(4, 2, dx=pm.STRIP_LENGTH / 4.0, dy=pm.STRIP_WIDTH / 2.0)
+    dropped.bcs = [_FakeBc(name, list(dofs)) for name, dofs, _why in pm.EDGE_SUPPORTS[:-1]]
+    results.append(
+        _expect_raise(
+            "a model whose long-edge support was never added as a Bc record",
+            pm.PlateModelInvalid,
+            lambda: pm.assert_edge_supports_declared(dropped),
+        )
+    )
+    # A support that is present but fixes the wrong dofs: ur1 dropped from CYL frees the long edges,
+    # which makes D = E t^3 / (12 (1 - nu^2)) the wrong stiffness by up to 9%.
+    loosened = _unit_grid(4, 2, dx=pm.STRIP_LENGTH / 4.0, dy=pm.STRIP_WIDTH / 2.0)
+    loosened.bcs = [_FakeBc(name, [d for d in dofs if d != 4]) for name, dofs, _why in pm.EDGE_SUPPORTS]
+    results.append(
+        _expect_raise(
+            "a support present in the model but fixing fewer dofs than EDGE_SUPPORTS says",
+            pm.PlateModelInvalid,
+            lambda: pm.assert_edge_supports_declared(loosened),
         )
     )
     return results
