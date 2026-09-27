@@ -15,7 +15,11 @@ if TYPE_CHECKING:
     from .writer import NodeDofs
 
 
-def loads_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
+#: The load case a step's loads go into when the step declares none of its own.
+DEFAULT_CASE = "LC1"
+
+
+def loads_str(fem: FEM, ndofs: NodeDofs | None = None, prescribed: dict[int, dict[int, float]] | None = None) -> str:
     """The load block of ``fem``'s first step.
 
     ``ndofs`` (:class:`writer.NodeDofs`) is threaded down to BNLOAD, which declares an
@@ -23,29 +27,63 @@ def loads_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     """
     from .writer import node_dofs
 
-    if len(fem.steps) == 0:
-        return ""
-    return step_loads_str(fem.steps[0], node_dofs(fem) if ndofs is None else ndofs)
+    step = fem.steps[0] if len(fem.steps) > 0 else None
+    return step_loads_str(step, node_dofs(fem) if ndofs is None else ndofs, prescribed)
 
 
-def step_loads_str(step: Step | None, ndofs: NodeDofs | None = None) -> str:
+def _case_str(lid: int, name: str) -> str:
+    return write_ff("TDLOAD", [(4, lid, 100 + len(name), 0), (name,)])
+
+
+def step_loads_str(
+    step: Step | None,
+    ndofs: NodeDofs | None = None,
+    prescribed: dict[int, dict[int, float]] | None = None,
+) -> str:
     """The load block of one step: its load cases, or all its loads as one case ``LC1``.
 
     ``to_fem`` passes the part FEM's dof counts even when the step lives on the assembly,
     because that is where the nodes a load names actually live.
+
+    ``prescribed`` (``{node id: {dof: value}}``, from ``write_bcs.prescribed_displacements``)
+    are the settlements, and they are written *here* rather than with the boundary conditions
+    because in Sesam a prescribed displacement is loading: its BNDISPL record declares an LLC.
+    A model whose only loading is a settlement therefore still needs a load case -- with FIX
+    code 2 and no load case at all Sestra V11.3-00 warns "No load is specified" and writes no
+    displacement result -- so one is opened for it here.
     """
+    from .write_bcs import bndispl_str
+
+    prescribed = prescribed or {}
     if step is None or len(step.loads) == 0:
-        return ""
+        if not prescribed:
+            return ""
+        return _case_str(1, DEFAULT_CASE) + bndispl_str(prescribed, ndofs, 1)
 
     if len(step.load_cases.keys()) > 0:
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
     else:
-        cases = [("LC1", step.loads)]
+        cases = [(DEFAULT_CASE, step.loads)]
 
     out_str = ""
     for lid, (lc_name, loads) in enumerate(cases, start=1):
-        out_str += write_ff("TDLOAD", [(4, lid, 100 + len(lc_name), 0), (lc_name,)])
+        out_str += _case_str(lid, lc_name)
         out_str += case_loads_str(loads, lid, ndofs)
+        if lid == 1:
+            out_str += bndispl_str(prescribed, ndofs, lid)
+    if prescribed and len(cases) > 1:
+        # A Bc belongs to no load case, so which case a settlement acts in is not something the
+        # model says. Sestra solves each case on its own, so putting it in all of them would make
+        # every case a settlement case; the first one is the choice, said out loud.
+        report().approximated(
+            STAGE,
+            "BNDISPL",
+            cases[0][0],
+            "the prescribed displacements are written into the first load case only; each Sesam "
+            "load case has its own BNDISPL records and a Bc belongs to no load case",
+            n_nodes=len(prescribed),
+            n_cases=len(cases),
+        )
     return out_str
 
 
