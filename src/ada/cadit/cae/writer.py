@@ -1613,6 +1613,7 @@ def build_plan(
                     part_plan.cae_instance_name,
                     tuple(face.point for face in plate.faces),
                     plate.area,
+                    plate.normal,
                 )
                 for part_plan in plan.parts
                 for plate in part_plan.plates
@@ -2806,6 +2807,16 @@ def _guard_equilibrium(frame):
     """
     reaction = _sum_nodal_field(frame, 'RF')
     concentrated = _sum_nodal_field(frame, 'CF')
+    planned_force = False
+    for axis in range(3):
+        if APPLIED_FORCE[axis] != 0.0:
+            planned_force = True
+    if concentrated is None and not planned_force:
+        # Measured: Abaqus writes no CF field at all for a model whose only load is a *Dsload, and
+        # that is not a defect -- there is no concentrated force to report. Treated as zero, which it
+        # is, rather than failing the build on the absence of a field nothing asked for. When adapy
+        # DID plan a concentrated force the absence is still fatal, below.
+        concentrated = ([0.0, 0.0, 0.0], 0.0)
     if reaction is None or concentrated is None:
         _RESULT['equilibrium'] = {'applied_force_from_adapy': list(APPLIED_FORCE)}
         _fail('the ODB carries no RF and/or CF field, so whether the load arrived cannot be checked. '
@@ -2814,7 +2825,7 @@ def _guard_equilibrium(frame):
     concentrated, concentrated_peak = concentrated
     scale = 0.0
     for axis in range(3):
-        scale = scale + APPLIED_FORCE[axis] * APPLIED_FORCE[axis]
+        scale = scale + APPLIED_FORCE[axis] * APPLIED_FORCE[axis] + APPLIED_PRESSURE[axis] * APPLIED_PRESSURE[axis]
     scale = scale ** 0.5
     if reaction_peak > scale:
         scale = reaction_peak
@@ -2825,6 +2836,7 @@ def _guard_equilibrium(frame):
         tolerance = scale * EQUILIBRIUM_REL_TOL
     _RESULT['equilibrium'] = {
         'applied_force_from_adapy': list(APPLIED_FORCE),
+        'applied_pressure_from_adapy': list(APPLIED_PRESSURE),
         'concentrated_force_sum': concentrated,
         'reaction_force_sum': reaction,
         'largest_nodal_force': scale,
@@ -2834,7 +2846,7 @@ def _guard_equilibrium(frame):
     residual = []
     for axis in range(3):
         arrived.append(abs(concentrated[axis] - APPLIED_FORCE[axis]))
-        residual.append(abs(concentrated[axis] + reaction[axis]))
+        residual.append(abs(concentrated[axis] + APPLIED_PRESSURE[axis] + reaction[axis]))
     if max(arrived) > tolerance:
         _fail('the load Abaqus applied is not the load adapy described: adapy summed its own Load '
               'records to ' + repr(tuple(APPLIED_FORCE)) + ' and the ODB concentrated-force total is '
@@ -2844,8 +2856,12 @@ def _guard_equilibrium(frame):
               'total -- and so does a load that was never written.')
     if max(residual) > tolerance:
         _fail('the solved model is not in equilibrium: applied ' + repr(tuple(concentrated))
-              + ' against reactions ' + repr(tuple(reaction)) + ', residual up to '
-              + repr(max(residual)) + ' against a tolerance of ' + repr(tolerance) + '.')
+              + ' as concentrated forces plus ' + repr(tuple(APPLIED_PRESSURE)) + ' of pressure, '
+              'against reactions ' + repr(tuple(reaction)) + ', residual up to '
+              + repr(max(residual)) + ' against a tolerance of ' + repr(tolerance) + '. The pressure '
+              'term is adapy\\'s own magnitude times its own area for the plate, along that plate\\'s '
+              'declared normal, so a disagreement here is either a surface holding the wrong faces or '
+              'a plate CAE built at a different size.')
 
 
 def _odb_displacements(odb, element_code_name):
@@ -3192,6 +3208,14 @@ def _analysis_source(plan: _Plan, displacements_name: str) -> list[str]:
         "    'surfaces': [{0}],".format(", ".join(repr(p.cae_surface_name) for p in analysis.pressures)),
         "}",
         "APPLIED_FORCE = ({0})".format(", ".join(_num(c) for c in analysis.applied_resultant())),
+        "# And the resultant of every Pressure, from adapy's magnitude, its own area for the plate and",
+        "# that plate's declared normal. A pressure reaches NO nodal field in the ODB -- it is a",
+        "# *Dsload on a surface, and the only trace of it in the results is the reactions balancing it",
+        "# -- so this is the term the equilibrium residual needs. Without it a solved pressure model",
+        "# reads as out of equilibrium by the whole of its own load. side1Faces fixes the sign: a",
+        "# positive magnitude acts against the plate's normal, so a +z plate at 1000 Pa over 2 m2 is a",
+        "# resultant of (0, 0, -2000), and the reactions measured (0, 0, +2000).",
+        "APPLIED_PRESSURE = ({0})".format(", ".join(_num(c) for c in analysis.applied_pressure())),
         "",
     ]
     if any(region.kind == "edge" for region in analysis.regions):

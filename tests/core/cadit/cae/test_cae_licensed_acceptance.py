@@ -1601,6 +1601,197 @@ def test_a_pressure_the_writer_wrote_arrives_as_a_dsload_on_the_plates_faces(pre
     assert re.search(r"q_surf,\s*P,\s*1000", text) is not None, text[-3000:]
 
 
+# ------------------------- the writer's own EDGE-region supports, solved against a known answer
+
+#: The seed the reference number below was produced at. 0.125 rather than :data:`STRIP_SEED` because
+#: that is the coarsest mesh of the cross-solver plate comparison, and the answer it produced with its
+#: own hand-written support driver is the thing this run has to reproduce.
+REGION_SEED = 0.125
+
+#: What ``verification/genie_vs_abaqus/plate_abaqus_runner.py``'s appended ``support_driver``
+#: produced for the bare strip at :data:`REGION_SEED` -- ``u3(MID) -1.730654835701e-01``, re-run for
+#: this comparison. Its supports were assembly ``Set``s of geometry edges found by
+#: ``getByBoundingBox``, created by hand in that driver **because this writer refused them**. They
+#: are now the writer's own, and this is the number that says the two are the same model.
+#:
+#: Independently reproduced by a third route: a hand-built CAE probe that imported the same SAT body
+#: and made the same three supports gave ``-0.173065483570099``.
+REGION_STRIP_U3 = -0.1730654835701
+
+#: The closed form for the same strip is ``5 q L**4 / (384 D) = 0.1733333...``, and at this coarse
+#: seed ``S4R`` sits 1.545e-03 below it (measured, second order). So the closed form is checked at
+#: 2% -- enough to say the answer is the right *size* -- while the reproduction of the reference solve
+#: carries the tight tolerance below.
+REGION_STRIP_CLOSED_FORM_TOL = 2e-02
+
+#: How closely this run must reproduce the reference. Two deterministic solves of the same deck agree
+#: bit for bit in practice; 1e-09 leaves room for a different Abaqus build and still fails on any real
+#: difference -- half a support would move the answer by about 10%.
+REGION_STRIP_REL_TOL = 1e-09
+
+REGION_STRIP_DRIVER = """
+import odbAccess
+
+# What the three edge regions caught, read back off the kernel's own assembly sets.
+_a = mdb.models[MODEL_NAME].rootAssembly
+for _name in sorted(_a.sets.keys()):
+    _s = _a.sets[_name]
+    print('PROBE set {{0}} edges {{1}} faces {{2}} vertices {{3}}'.format(
+        _name, len(_s.edges), len(_s.faces), len(_s.vertices)))
+_odb = odbAccess.openOdb('{job}.odb')
+_frame = _odb.steps['static'].frames[-1]
+_inst = _odb.rootAssembly.instances[_odb.rootAssembly.instances.keys()[0]]
+_coords = {{}}
+for _nd in _inst.nodes:
+    _coords[int(_nd.label)] = (float(_nd.coordinates[0]), float(_nd.coordinates[1]),
+                               float(_nd.coordinates[2]))
+# Which nodes the solver actually held. A reaction anywhere but the two u3-restrained short edges
+# would mean a support landed where the model never asked for one.
+_reacting = []
+for _v in _frame.fieldOutputs['RF'].values:
+    _d = _v.data
+    if max(abs(float(_d[0])), abs(float(_d[1])), abs(float(_d[2]))) > 1e-09:
+        _reacting.append(_coords[int(_v.nodeLabel)])
+_on_ends = 0
+for _c in _reacting:
+    if abs(_c[0]) < 1e-09 or abs(_c[0] - {L}) < 1e-09:
+        _on_ends = _on_ends + 1
+print('PROBE reacting {{0}} of them on the two short edges {{1}}'.format(len(_reacting), _on_ends))
+_odb.close()
+"""
+
+
+def strip_on_its_edges() -> ada.Assembly:
+    """The bare strip with its three supports as ``Bc`` records, its pressure, and a step.
+
+    The same statement of "simply supported in cylindrical bending" as
+    ``verification.genie_vs_abaqus.plate_model.EDGE_SUPPORTS``: ``u1 = u2 = u3 = 0`` at ``x = 0``,
+    ``u2 = u3 = 0`` at ``x = L`` (so the support is *simple* rather than a membrane restraint -- a
+    strip stretched between two fixed ends is 15% stiffer at this deflection), and ``u2 = ur1 = 0`` on
+    both long edges. No rotation is fixed on either supported edge, which is the whole content of
+    "simply supported".
+
+    Every one of those three was **refused** by this writer until edge regions existed: the interior
+    nodes of a plate edge are at no vertex. That is why the verification package had to append a
+    driver of its own, and why the number this run reproduces comes from there.
+    """
+    from ada.fem import Bc, FemSet, Load, StepImplicitStatic
+
+    part = ada.Part("Strip")
+    part / ada.Plate("strip", [(0, 0), (STRIP_L, 0), (STRIP_L, STRIP_B), (0, STRIP_B)], STRIP_T, mat="S355")
+    assembly = ada.Assembly("StripSite") / part
+    part.fem = part.to_fem_obj(REGION_SEED, "line", use_quads=True, interactive=False)
+    fem = part.fem
+    tol = 1e-09
+    groups = (
+        ("SS_X0", [1, 2, 3], [n for n in fem.nodes if abs(n.x) < tol]),
+        ("SS_X1", [2, 3], [n for n in fem.nodes if abs(n.x - STRIP_L) < tol]),
+        ("CYL", [2, 4], [n for n in fem.nodes if abs(n.y) < tol or abs(n.y - STRIP_B) < tol]),
+    )
+    for name, dofs, nodes in groups:
+        assert nodes, name
+        fem_set = fem.add_set(FemSet(name, sorted(nodes, key=lambda n: n.id), "nset", parent=fem))
+        fem.add_bc(Bc(name, fem_set, dofs))
+    shells = [el for el in fem.elements if str(el.type).endswith("QUAD")]
+    assert len(shells) == 128, "32 x 4 quads at a 0.125 seed, which is the mesh the reference solve had"
+    step = assembly.fem.add_step(StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    step.add_load(
+        Load("q", "pressure", STRIP_Q, fem_set=fem.add_set(FemSet("PLATE_SHELLS", shells, "elset", parent=fem)))
+    )
+    return assembly
+
+
+@pytest.fixture(scope="session")
+def region_strip_run(tmp_path_factory):
+    """The strip emitted **entirely** by the writer -- supports included -- then meshed and solved.
+
+    ``submit=True``, so the job, the equilibrium guard and the displacement sidecar are the writer's
+    own. Nothing in the appended driver creates a region, a support, a load or a step; all it does is
+    read back what the kernel held and which nodes reacted.
+    """
+    assembly = strip_on_its_edges()
+    workdir = tmp_path_factory.mktemp("cae_region_strip")
+    driver = REGION_STRIP_DRIVER.format(job="strip_regions_job", L=repr(float(STRIP_L)))
+    script = emit(
+        assembly,
+        workdir,
+        driver,
+        name="strip_regions",
+        mesh_size=REGION_SEED,
+        shell_element_type="S4R",
+        submit=True,
+        job_name="strip_regions_job",
+    )
+    return assembly, run_cae_script(script, workdir)
+
+
+def test_the_writers_own_edge_supports_solve_to_the_answer_the_hand_written_driver_got(region_strip_run):
+    """The acceptance for the whole change: three supports on plate edges, written by the writer.
+
+    The number is neither this test's invention nor a closed form massaged to fit. It is what a
+    hand-written CAE driver produced for the same model at the same seed, in the verification
+    package, back when the writer refused these supports -- ``u3(MID) -1.730654835701e-01`` -- and a
+    separate hand-built probe reproduced it independently to fifteen digits. So what is asserted is
+    that the writer's own regions are the *same regions*; a support that came out half the length of
+    its edge would move this by about 10%.
+    """
+    _, run = region_strip_run
+    _assert_ran(run)
+
+    build, moved = sidecars(run, "strip_regions")
+    assert build["ok"] is True, build["errors"]
+    assert build["analysis"]["region_kinds"] == {"CYL": "edge", "SS_X0": "edge", "SS_X1": "edge"}
+    assert sorted(build["analysis"]["boundary_conditions"]) == ["CYL", "SS_X0", "SS_X1"]
+    # The in-kernel edge check, read back: two edges totalling 8.0 for the parallel pair, one of 0.5
+    # for each supported end -- against what adapy computed from the ACIS body it authored.
+    assert build["region_edges"] == {
+        "CYL": [2, pytest.approx(2 * STRIP_L)],
+        "SS_X0": [1, pytest.approx(STRIP_B)],
+        "SS_X1": [1, pytest.approx(STRIP_B)],
+    }
+
+    displacements = nodal(moved, "static")
+    mid = displacements[(STRIP_L / 2, STRIP_B / 2, 0.0)]
+    assert mid[2] == pytest.approx(REGION_STRIP_U3, rel=REGION_STRIP_REL_TOL)
+    # And the right size, against the closed form the strip's dimensions were chosen for.
+    closed_form = 5.0 * STRIP_Q * STRIP_L**4 / (384.0 * plate_stiffness())
+    assert abs(mid[2]) == pytest.approx(closed_form, rel=REGION_STRIP_CLOSED_FORM_TOL)
+    # u3 is zero at EVERY node of both supported edges, which is what a support on the whole edge
+    # means -- not just the two corners a vertex region would have caught.
+    for x in (0.0, STRIP_L):
+        for index in range(5):
+            here = (x, round(index * REGION_SEED, 9), 0.0)
+            assert displacements[here][2] == pytest.approx(0.0, abs=1e-12), here
+
+
+def test_the_solved_strips_reactions_balance_the_pressure_the_writer_wrote(region_strip_run):
+    """The writer's own equilibrium guard, on a model whose only load is a ``*Dsload``.
+
+    A pressure reaches **no** nodal field in the ODB, so the guard used to read a solved pressure
+    model as out of equilibrium by the whole of its own load. The term it needs is adapy's own
+    magnitude times adapy's own area for the plate, along that plate's declared normal -- which makes
+    this a real check rather than a bookkeeping identity: a surface holding the wrong faces, or a
+    plate CAE built at a different size, moves it.
+    """
+    _, run = region_strip_run
+    _assert_ran(run)
+
+    build, _ = sidecars(run, "strip_regions")
+    equilibrium = build["equilibrium"]
+    total = STRIP_Q * STRIP_L * STRIP_B
+    assert total == pytest.approx(2000.0)
+    assert equilibrium["applied_pressure_from_adapy"] == pytest.approx([0.0, 0.0, -total])
+    assert equilibrium["reaction_force_sum"] == pytest.approx([0.0, 0.0, total], abs=1e-06)
+    assert equilibrium["concentrated_force_sum"] == [0.0, 0.0, 0.0], "no ConcentratedForce in this model"
+
+    # And the supports are where the model put them: a reaction only on the two short edges, at all
+    # ten of their nodes -- five each at this seed, which a vertex region would have made two each.
+    assert run.value("PROBE reacting") == "10 of them on the two short edges 10"
+    sets = {row.split()[0]: row.split()[1:] for row in run.values("PROBE set")}
+    assert sets["SS_X0"] == ["edges", "1", "faces", "0", "vertices", "0"]
+    assert sets["CYL"] == ["edges", "2", "faces", "0", "vertices", "0"]
+
+
 # ------------------------------------- a curved member's offset, against an *MPC BEAM reference
 
 ARC_RADIUS = 4.0

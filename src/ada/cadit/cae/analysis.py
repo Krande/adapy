@@ -432,6 +432,13 @@ class PressurePlan:
     #: The adapy ``FemSet`` this came from, and how many elements it held.
     source_set_name: str
     element_count: int
+    #: adapy's own area for the plate and its declared normal. Together with the magnitude these are
+    #: the pressure's **resultant**, which is the only way the emitted script can check a distributed
+    #: load arrived: a pressure appears in neither the ODB's ``CF`` field nor anywhere else adapy can
+    #: compare against, so without it a solved pressure model reads as out of equilibrium by the whole
+    #: of its own load. See :meth:`AnalysisPlan.applied_pressure`.
+    area: float = 0.0
+    normal: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -474,6 +481,28 @@ class AnalysisPlan:
         for load in self.loads:
             for axis in range(3):
                 total[axis] += load.forces[axis] * load.node_count
+        return (total[0], total[1], total[2])
+
+    def applied_pressure(self) -> tuple[float, float, float]:
+        """The resultant of every ``Pressure``, from adapy's own magnitude, area and plate normal.
+
+        Separate from :meth:`applied_resultant` because the two are checked against different things.
+        A concentrated force arrives in the ODB's ``CF`` field and can be compared component for
+        component; a pressure arrives in **no** nodal field at all -- it is a ``*Dsload`` on a
+        surface, and the only trace of it in the results is the reactions that balance it. So this is
+        the term the equilibrium residual needs: ``CF + RF + this`` must cancel, and without it a
+        solved pressure model reads as out of equilibrium by the whole of its own load.
+
+        The sign is ``side1Faces``', not a choice made here: Abaqus takes a positive pressure as
+        acting **into** the surface, against side1's outward normal, which is the plate's declared
+        normal. So a positive magnitude on a ``+z`` plate is a resultant in ``-z``. Measured on a
+        4 x 0.5 m strip at 1000 Pa: the ODB's reaction total came back ``(0, 0, +2000.0)`` against
+        ``q L b = 2000``, so the load itself is ``(0, 0, -2000.0)``.
+        """
+        total = [0.0, 0.0, 0.0]
+        for pressure in self.pressures:
+            for axis in range(3):
+                total[axis] -= pressure.magnitude * pressure.area * pressure.normal[axis]
         return (total[0], total[1], total[2])
 
 
@@ -877,7 +906,7 @@ def _face_region(fem_set, nodes, plates: dict, owner: str, set_name: str) -> Reg
             "writer did not emit. The plates it emitted are {3}. A support on a plate that is not in "
             "the model would be written onto nothing.".format(owner, set_name, plate_name, sorted(plates))
         )
-    instance_name, points, area = plates[plate_name]
+    instance_name, points, area, _normal = plates[plate_name]
     return RegionPlan(
         cae_set_name="",
         cae_instance_name=instance_name,
@@ -1360,7 +1389,7 @@ def plan_analysis(
                 "pressure would be written at its full magnitude for the whole step -- the same load, "
                 "on a different history.".format(owner, getattr(load.amplitude, "name", load.amplitude))
             )
-        plate_name, (instance_name, points, _area) = _pressure_plate(load, plates, owner)
+        plate_name, (instance_name, points, area, normal) = _pressure_plate(load, plates, owner)
         cae_name = registries["loads"].allocate_unique(load.name)
         surface_name = registries["assembly surfaces"].allocate_unique("{0}_surf".format(load.name))
         plan.pressures.append(
@@ -1375,6 +1404,8 @@ def plan_analysis(
                 magnitude=float(load.magnitude),
                 source_set_name=load.fem_set.name,
                 element_count=len(list(load.fem_set.members)),
+                area=float(area),
+                normal=tuple(float(c) for c in normal),
             )
         )
 
