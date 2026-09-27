@@ -353,6 +353,31 @@ def test_the_refusal_names_the_nearest_vertex_and_the_nearest_edge():
     assert "the nearest edge is a plate boundary of part 'Strip'" in message
 
 
+def test_a_set_that_is_a_whole_mesh_line_is_still_refused_on_a_longer_edge():
+    """The coverage clause on its own, which the completeness clause does not subsume.
+
+    On a mesh that conforms to the emitted geometry the two overlap: a set holding every node the FEM
+    has on an edge reaches both its ends by construction, so either clause refuses a partial set. That
+    premise is exactly what this writer does not assume anywhere else -- ``_vertex_region`` matches by
+    *position* rather than by parentage for the same reason -- so the case is made here directly: an
+    edge twice as long as the mesh line the set covers. Completeness passes (all five nodes the FEM has
+    on that segment are in the set) and coverage refuses it, because carrying it would have supported
+    1.0 m of structure where the model named 0.5.
+    """
+    from ada.cadit.cae.analysis import EdgeSegment
+
+    assembly = strip()
+    fem = assembly.get_by_name("Strip").fem
+    vertices, _, tol = geometry_of(assembly)
+    fem_set = fem.add_set(FemSet("SUPPORT", nodes_where(fem, "x0"), FemSet.TYPES.NSET, parent=fem))
+    twice_as_long = [
+        EdgeSegment(p1=(0.0, 0.0, 0.0), p2=(0.0, 2 * WIDTH, 0.0), cae_instance_name="Strip-1", owner="a longer edge")
+    ]
+
+    with pytest.raises(AnalysisNotSupported, match=r"reach only 0 to 0\.5 of its 1 length"):
+        classify_region(fem_set, vertices, twice_as_long, {}, tol, "the test's own support")
+
+
 def test_a_set_whose_nodes_belong_to_no_fem_cannot_be_shown_to_cover_an_edge():
     """A detached ``FemSet`` is refused rather than accepted on the length check alone.
 

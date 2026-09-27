@@ -1661,8 +1661,15 @@ _odb.close()
 """
 
 
-def strip_on_its_edges() -> ada.Assembly:
-    """The bare strip with its three supports as ``Bc`` records, its pressure, and a step.
+#: The same run with the bar along the centreline, from the same hand-built probe:
+#: ``u3(MID) -0.0651114955544472``. The bar's ends cut the ``x = 0`` and ``x = L`` boundaries in two,
+#: so ``SS_X0`` is a **chain** of two 0.25 m sub-edges -- the case that makes ``findAt`` unusable, and
+#: the reason a box is used and its edge count asserted.
+REGION_STIFF_STRIP_U3 = -0.0651114955544472
+
+
+def strip_on_its_edges(stiffened: bool = False) -> ada.Assembly:
+    """The strip with its three supports as ``Bc`` records, its pressure, and a step.
 
     The same statement of "simply supported in cylindrical bending" as
     ``verification.genie_vs_abaqus.plate_model.EDGE_SUPPORTS``: ``u1 = u2 = u3 = 0`` at ``x = 0``,
@@ -1678,7 +1685,11 @@ def strip_on_its_edges() -> ada.Assembly:
     from ada.fem import Bc, FemSet, Load, StepImplicitStatic
 
     part = ada.Part("Strip")
-    part / ada.Plate("strip", [(0, 0), (STRIP_L, 0), (STRIP_L, STRIP_B), (0, STRIP_B)], STRIP_T, mat="S355")
+    objects = [ada.Plate("strip", [(0, 0), (STRIP_L, 0), (STRIP_L, STRIP_B), (0, STRIP_B)], STRIP_T, mat="S355")]
+    if stiffened:
+        bar = ada.Section("BAR", "FB", h=BAR_B, w_top=BAR_A, w_btn=BAR_A)
+        objects.append(ada.Beam("bar", (0, STRIP_B / 2, 0), (STRIP_L, STRIP_B / 2, 0), bar, "S355"))
+    part / objects
     assembly = ada.Assembly("StripSite") / part
     part.fem = part.to_fem_obj(REGION_SEED, "line", use_quads=True, interactive=False)
     fem = part.fem
@@ -1701,16 +1712,15 @@ def strip_on_its_edges() -> ada.Assembly:
     return assembly
 
 
-@pytest.fixture(scope="session")
-def region_strip_run(tmp_path_factory):
+def _region_strip_run(tmp_path_factory, stiffened: bool):
     """The strip emitted **entirely** by the writer -- supports included -- then meshed and solved.
 
     ``submit=True``, so the job, the equilibrium guard and the displacement sidecar are the writer's
     own. Nothing in the appended driver creates a region, a support, a load or a step; all it does is
     read back what the kernel held and which nodes reacted.
     """
-    assembly = strip_on_its_edges()
-    workdir = tmp_path_factory.mktemp("cae_region_strip")
+    assembly = strip_on_its_edges(stiffened)
+    workdir = tmp_path_factory.mktemp("cae_region_strip_" + ("stf" if stiffened else "bare"))
     driver = REGION_STRIP_DRIVER.format(job="strip_regions_job", L=repr(float(STRIP_L)))
     script = emit(
         assembly,
@@ -1723,6 +1733,16 @@ def region_strip_run(tmp_path_factory):
         job_name="strip_regions_job",
     )
     return assembly, run_cae_script(script, workdir)
+
+
+@pytest.fixture(scope="session")
+def region_strip_run(tmp_path_factory):
+    return _region_strip_run(tmp_path_factory, stiffened=False)
+
+
+@pytest.fixture(scope="session")
+def stiffened_region_strip_run(tmp_path_factory):
+    return _region_strip_run(tmp_path_factory, stiffened=True)
 
 
 def test_the_writers_own_edge_supports_solve_to_the_answer_the_hand_written_driver_got(region_strip_run):
@@ -1790,6 +1810,43 @@ def test_the_solved_strips_reactions_balance_the_pressure_the_writer_wrote(regio
     sets = {row.split()[0]: row.split()[1:] for row in run.values("PROBE set")}
     assert sets["SS_X0"] == ["edges", "1", "faces", "0", "vertices", "0"]
     assert sets["CYL"] == ["edges", "2", "faces", "0", "vertices", "0"]
+
+
+def test_a_support_on_a_stiffener_split_boundary_takes_both_sub_edges_in_the_kernel(
+    stiffened_region_strip_run,
+):
+    """The case ``findAt`` cannot do, solved. This is what the bounding box is for.
+
+    The bar's two ends cut the ``x = 0`` and ``x = L`` boundaries into two 0.25 m sub-edges apiece --
+    measured on the ACIS body, 7 edges where the bare strip has 4, and CAE imports exactly that. So
+    ``SS_X0`` is a **chain**, and the one box over its collinear run must come back with **two** edges
+    totalling 0.5. ``findAt`` at a point on that boundary returns one sub-edge of 0.25: half a simple
+    support, silently, with the model still solving.
+
+    The answer is the hand-built probe's ``-0.0651114955544472``, and it is 2.66x stiffer than the bare
+    strip -- so a half-supported end, or a stringer carrying nothing, is nowhere near it.
+    """
+    _, run = stiffened_region_strip_run
+    _assert_ran(run)
+
+    build, moved = sidecars(run, "strip_regions")
+    assert build["ok"] is True, build["errors"]
+    assert build["mesh"]["Strip"]["elements_by_type"] == {"S4R": 128, "B31": 32}
+    assert build["region_edges"] == {
+        "CYL": [2, pytest.approx(2 * STRIP_L)],
+        "SS_X0": [2, pytest.approx(STRIP_B)],
+        "SS_X1": [2, pytest.approx(STRIP_B)],
+    }
+    sets = {row.split()[0]: row.split()[1:] for row in run.values("PROBE set")}
+    assert sets["SS_X0"] == ["edges", "2", "faces", "0", "vertices", "0"]
+
+    displacements = nodal(moved, "static")
+    mid = displacements[(STRIP_L / 2, STRIP_B / 2, 0.0)]
+    assert mid[2] == pytest.approx(REGION_STIFF_STRIP_U3, rel=REGION_STRIP_REL_TOL)
+    for x in (0.0, STRIP_L):
+        for index in range(5):
+            here = (x, round(index * REGION_SEED, 9), 0.0)
+            assert displacements[here][2] == pytest.approx(0.0, abs=1e-12), here
 
 
 # ------------------------------------- a curved member's offset, against an *MPC BEAM reference

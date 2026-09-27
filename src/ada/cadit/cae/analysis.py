@@ -820,10 +820,21 @@ def _vertex_region(positions, vertices, tol: float, owner: str, set_name: str) -
 def _edge_region(fem_set, positions, edges, tol: float, owner: str, set_name: str) -> RegionPlan | None:
     """A region of whole edges, or ``None`` when the nodes are not exactly that.
 
-    The completeness test is against the **model's own mesh** rather than against a node count this
-    module would have to guess: every node the owning FEM has on the edge must be in the set. That
-    is the only statement of "the set is this edge" that does not depend on the seed, and it is the
-    same shape of check :func:`_pressure_plate` makes for a plate.
+    Two clauses, and they are not the same clause twice over even though they overlap on every
+    conforming mesh:
+
+    * **completeness** -- every node the owning FEM has on the edge is in the set. Tested against the
+      model's own mesh rather than against a node count this module would have to guess, which is the
+      only statement of "the set is this edge" that does not move with the seed, and the same shape of
+      check :func:`_pressure_plate` makes for a plate. It is what catches a set holding every *other*
+      node of an edge, whose ends are covered and whose middle is not;
+    * **coverage** -- the set's extreme nodes reach the edge's own two ends. On a mesh that conforms
+      to the emitted geometry this follows from completeness, and it is kept because that is exactly
+      the premise this writer does not assume: it is the clause that still holds when the FEM and the
+      emitted body disagree about where an edge *ends*, which is the same class of defect
+      :func:`_vertex_region` matches by position rather than by parentage for. Without it, a set that
+      is the whole of a 0.5 m mesh line would be carried onto a 1.0 m edge and support twice what the
+      model named.
     """
     if not edges:
         return None
