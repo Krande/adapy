@@ -800,6 +800,86 @@ _BC_KEYWORDS = ("u1", "u2", "u3", "ur1", "ur2", "ur3")
 #: insisted on one spelling would be testing a variable name.
 _REGION_SUBSCRIPT = re.compile(r"^[A-Za-z_]\w*\.sets\[(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)\]$")
 
+#: The three helpers that build a support/load region, and how many positional arguments each takes.
+#: They keep everything positional and literal so a text reader can see what the kernel will be asked
+#: for -- which is the only way to check a bounding box without running Abaqus.
+_REGION_HELPERS = {
+    "_analysis_region": 5,
+    "_analysis_edge_region": 7,
+    "_analysis_face_region": 7,
+}
+
+#: How far the boxes' own lengths may drift from the region total they are checked against. Pure
+#: float-summation slack: both numbers are computed by the writer from the same edge lengths.
+_REGION_LENGTH_SLACK = 1e-09
+
+
+def _check_edge_region(call: Call, name: str) -> None:
+    """An edge region's boxes are real boxes, and they add up to the total the kernel is given.
+
+    The licence-free half of the edge-region guard, and it is worth having separately from the
+    in-kernel one: this can see that the arithmetic the script asks CAE to confirm is *consistent*
+    -- every box a proper box, every count positive, the counts summing to the region's edge count
+    and the lengths to its total -- where the kernel can only say whether CAE agrees with it. A
+    region whose boxes summed to a different total than the length it asserts would pass in the
+    kernel by checking the wrong number.
+    """
+    boxes, edge_count, total_length = call.args[3], call.args[4], call.args[5]
+    if not isinstance(boxes, tuple) or not boxes:
+        _fail("the edge region {!r} on line {} names no bounding box at all".format(name, call.lineno))
+    if not isinstance(call.args[6], str):
+        _fail("the edge region {!r} on line {} does not name the adapy set it came from".format(name, call.lineno))
+    if not isinstance(edge_count, int) or edge_count < 1:
+        _fail(
+            "the edge region {!r} on line {} expects {!r} edge(s); a region of no edges would be a "
+            "support on nothing".format(name, call.lineno, edge_count)
+        )
+    if not isinstance(total_length, (int, float)) or total_length <= 0.0:
+        _fail(
+            "the edge region {!r} on line {} is checked against a total length of {!r}, so its own guard "
+            "would pass on a region CAE built somewhere else".format(name, call.lineno, total_length)
+        )
+    counted = 0
+    measured = 0.0
+    for box in boxes:
+        if not isinstance(box, tuple) or len(box) != 3:
+            _fail(
+                "the edge region {!r} on line {} has a box {!r}, which is not (bounds, count, "
+                "length)".format(name, call.lineno, box)
+            )
+        bounds, count, length = box
+        if not isinstance(bounds, tuple) or len(bounds) != 6 or not all(isinstance(v, (int, float)) for v in bounds):
+            _fail(
+                "the edge region {!r} on line {} has bounds {!r}, which are not six numbers".format(
+                    name, call.lineno, bounds
+                )
+            )
+        for axis in range(3):
+            if bounds[2 * axis] >= bounds[2 * axis + 1]:
+                _fail(
+                    "the edge region {!r} on line {} has a box whose axis {} runs from {} to {}, so it "
+                    "encloses nothing and getByBoundingBox would return no edge".format(
+                        name, call.lineno, axis, bounds[2 * axis], bounds[2 * axis + 1]
+                    )
+                )
+        if not isinstance(count, int) or count < 1:
+            _fail("the edge region {!r} on line {} has a box expecting {!r} edge(s)".format(name, call.lineno, count))
+        if not isinstance(length, (int, float)) or length <= 0.0:
+            _fail("the edge region {!r} on line {} has a box of length {!r}".format(name, call.lineno, length))
+        counted += count
+        measured += length
+    if counted != edge_count:
+        _fail(
+            "the edge region {!r} on line {} expects {} edge(s) in total and its {} box(es) expect {}; "
+            "the two numbers are checked separately in the kernel and one of them is "
+            "wrong".format(name, call.lineno, edge_count, len(boxes), counted)
+        )
+    if abs(measured - total_length) > _REGION_LENGTH_SLACK * max(abs(total_length), 1.0):
+        _fail(
+            "the edge region {!r} on line {} is checked against a total length of {} and its boxes add "
+            "up to {}".format(name, call.lineno, total_length, measured)
+        )
+
 
 def check_analysis_references_resolve(graph: ScriptGraph) -> None:
     """Every support and load names a step and a region that exist, and restrains something.
@@ -811,32 +891,58 @@ def check_analysis_references_resolve(graph: ScriptGraph) -> None:
     a support and is not one), a ``ConcentratedForce`` of nothing, and a region no support or
     load ever acts on.
 
-    Regions are read out of the emitted ``_analysis_region`` helper rather than out of a
-    ``Set`` call, because that is where they are created: the helper exists so that a
-    ``findAt`` returning no vertex fails loudly in the kernel, and it keeps its arguments
-    positional so a text reader can see them.
+    Regions are read out of the emitted ``_analysis_region`` / ``_analysis_edge_region`` /
+    ``_analysis_face_region`` helpers rather than out of a ``Set`` call, because that is where they
+    are created: the helpers exist so that a lookup returning the wrong geometry fails loudly in the
+    kernel, and they keep their arguments positional so a text reader can see them.
+
+    An edge region gets :func:`_check_edge_region` on top, which is the one thing only a text reader
+    can do: check that the numbers the script asks the kernel to confirm are *consistent with each
+    other* -- every box a proper box, the box counts summing to the region's edge count and the box
+    lengths to its total. A region whose boxes added up to something other than the length it
+    asserts would pass in the kernel by checking the wrong number.
     """
     regions: dict[str, int] = {}
     for call in graph.calls:
-        if call.method != "_analysis_region":
+        if call.method not in _REGION_HELPERS:
             continue
-        if len(call.args) < 5:
-            _fail("the _analysis_region on line {} takes {} argument(s), not 5".format(call.lineno, len(call.args)))
-        name, instance, points = call.args[1], call.args[2], call.args[3]
+        wanted = _REGION_HELPERS[call.method]
+        if len(call.args) < wanted:
+            _fail(
+                "the {} on line {} takes {} argument(s), not {}".format(
+                    call.method, call.lineno, len(call.args), wanted
+                )
+            )
+        name, instance = call.args[1], call.args[2]
         if not isinstance(name, str) or not isinstance(instance, str):
-            _fail("the _analysis_region on line {} has no literal set and instance name".format(call.lineno))
+            _fail("the {} on line {} has no literal set and instance name".format(call.method, call.lineno))
         if name in regions:
             _fail(
                 "the support/load region {!r} is created twice, on lines {} and {}; CAE would replace "
                 "the first with the second".format(name, regions[name], call.lineno)
             )
-        if not isinstance(points, tuple) or not points:
-            _fail("the region {!r} on line {} names no point at all".format(name, call.lineno))
-        for point in points:
-            if _as_vec3(point) is None:
-                _fail(
-                    "the region {!r} on line {} names {!r}, which is not three numbers".format(name, call.lineno, point)
-                )
+        if call.method == "_analysis_edge_region":
+            _check_edge_region(call, name)
+        else:
+            points = call.args[3]
+            if not isinstance(points, tuple) or not points:
+                _fail("the region {!r} on line {} names no point at all".format(name, call.lineno))
+            for point in points:
+                if _as_vec3(point) is None:
+                    _fail(
+                        "the region {!r} on line {} names {!r}, which is not three numbers".format(
+                            name, call.lineno, point
+                        )
+                    )
+            if call.method == "_analysis_face_region":
+                area = call.args[4]
+                if not isinstance(area, (int, float)) or area <= 0.0:
+                    _fail(
+                        "the face region {!r} on line {} is checked against an area of {!r}; a region over "
+                        "no area would pass its own guard".format(name, call.lineno, area)
+                    )
+                if not isinstance(call.args[5], str):
+                    _fail("the face region {!r} on line {} does not name its plate".format(name, call.lineno))
         regions[name] = call.lineno
 
     steps: dict[str, int] = {}

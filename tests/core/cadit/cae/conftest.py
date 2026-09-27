@@ -96,6 +96,53 @@ def plate_model() -> ada.Assembly:
 
 
 @pytest.fixture(scope="session")
+def region_model() -> ada.Assembly:
+    """The strip whose supports are EDGE and FACE regions rather than vertices.
+
+    A 4.0 x 0.5 m plate, 10 mm, simply supported on its two short edges and held in cylindrical
+    bending on both long ones -- the case ``ada.cadit.cae.analysis`` used to refuse, because the
+    interior nodes of a plate edge are at no vertex. ``SS_X0`` and ``SS_X1`` are one edge each,
+    ``CYL`` is two *parallel* edges and therefore two bounding boxes, and ``ALLFIX`` is the plate's
+    whole mesh and therefore a face region. One model reaching all three region kinds but the vertex
+    one, which every other specimen here already carries.
+    """
+    from ada.fem import Bc, FemSet, StepImplicitStatic
+
+    length, width, thickness = 4.0, 0.5, 0.010
+    part = ada.Part("Strip") / (ada.Plate("strip", [(0, 0), (length, 0), (length, width), (0, width)], thickness),)
+    assembly = ada.Assembly("StripSite") / part
+    part.fem = part.to_fem_obj(0.125, "line", use_quads=True, interactive=False)
+    fem = part.fem
+    tol = 1e-09
+    groups = {
+        "ALLFIX": (list(fem.nodes), [1, 2, 3, 4, 5, 6]),
+        "CYL": ([n for n in fem.nodes if abs(n.y) < tol or abs(n.y - width) < tol], [2, 4]),
+        "SS_X0": ([n for n in fem.nodes if abs(n.x) < tol], [1, 2, 3]),
+        "SS_X1": ([n for n in fem.nodes if abs(n.x - length) < tol], [2, 3]),
+    }
+    for name in sorted(groups):
+        nodes, dofs = groups[name]
+        fem_set = fem.add_set(FemSet(name, sorted(nodes, key=lambda n: n.id), FemSet.TYPES.NSET, parent=fem))
+        fem.add_bc(Bc(name, fem_set, dofs))
+    assembly.fem.add_step(StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1))
+    return assembly
+
+
+@pytest.fixture(scope="session")
+def region_specimen_source(region_model, tmp_path_factory) -> str:
+    """The writer's own output for :func:`region_model`, for the region checks to be shown teeth on.
+
+    Generated rather than committed, for the reason :func:`plate_specimen_source` gives: the bounding
+    boxes are computed from the ACIS body adapy authors, so a hand-written specimen would have to
+    carry a hand-written body beside it. The independent oracle for the *numbers* is the licensed
+    run, which builds these very boxes in the kernel and checks what each of them returns.
+    """
+    workdir = tmp_path_factory.mktemp("cae_region_specimen")
+    written = region_model.to_abaqus_cae_script(workdir / "specimen_regions.py", mesh_size=0.125)
+    return written[0].read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="session")
 def plate_specimen_source(plate_model, tmp_path_factory) -> str:
     """The writer's own output for :func:`plate_model`, for the graph checks to be shown teeth on.
 

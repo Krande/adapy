@@ -745,7 +745,9 @@ def classify_region(
     if region is None:
         region = _face_region(fem_set, nodes, plates, owner, set_name)
     if region is None:
-        raise AnalysisNotSupported(_region_refusal(positions, vertices, edges, tol, owner, set_name))
+        raise AnalysisNotSupported(
+            _region_refusal(positions, vertices, edges, tol, owner, set_name, _fem_node_positions(fem_set))
+        )
     return region
 
 
@@ -888,12 +890,13 @@ def _face_region(fem_set, nodes, plates: dict, owner: str, set_name: str) -> Reg
     )
 
 
-def _region_refusal(positions, vertices, edges, tol: float, owner: str, set_name: str) -> str:
+def _region_refusal(positions, vertices, edges, tol: float, owner: str, set_name: str, fem_nodes=None) -> str:
     """The message for a node set that is none of the three regions, naming the node and why.
 
-    Three distinguishable cases, because "this is not a region" is not actionable on its own: a node
-    that lies on no geometry at all, a node that lies on an edge the set covers only part of, and a
-    set that is neither of those (a mixed set, or some of a plate's nodes).
+    "This is not a region" is not actionable on its own, so the three distinguishable ways to get
+    here are told apart: a node that lies on no geometry at all, a node on an edge the set reaches
+    only part of the way along, and a set that skips some of the nodes the model has on an edge it
+    otherwise spans -- the case a length check alone would pass, since the *ends* are covered.
     """
     stray = [point for point in positions if not any(_distance(vertex, point) <= tol for vertex, _ in vertices)]
     point = stray[0] if stray else positions[0]
@@ -914,7 +917,13 @@ def _region_refusal(positions, vertices, edges, tol: float, owner: str, set_name
     )
 
     detail = ""
-    if not any(_nodes_on_segment((point,), edge, tol) for edge in edges):
+    if fem_nodes is None:
+        detail = (
+            "The set is not attached to a FEM, so 'every node this model has on that edge' -- the "
+            "clause that keeps an edge region from spreading a support along the rest of the edge -- "
+            "cannot be asked of it at all. Add the set to the FEM whose nodes it holds. "
+        )
+    elif not any(_nodes_on_segment((point,), edge, tol) for edge in edges):
         nearest_edge = min(edges, key=lambda edge: _segment_distance(point, edge)[0], default=None)
         detail = "It lies on no edge of the emitted geometry either -- {0}. ".format(
             "the nearest edge is {0}, from {1} to {2}, {3:.6g} away".format(
@@ -927,13 +936,34 @@ def _region_refusal(positions, vertices, edges, tol: float, owner: str, set_name
             else "the emitted model has no edges at all"
         )
     else:
-        for edge in sorted(edges, key=lambda item: (item.p1, item.p2)):
+        # Most-covered edge first, and not merely the first in the index: a corner node of the set
+        # also sits on the edge running away at right angles, and complaining that the set reaches
+        # "0 to 0" of *that* one would name the wrong edge entirely.
+        candidates = sorted(edges, key=lambda item: (-len(_nodes_on_segment(positions, item, tol)), item.p1, item.p2))
+        for edge in candidates:
             on_set = _nodes_on_segment(positions, edge, tol)
             if not on_set:
                 continue
             along = sorted(parameter for _, parameter in on_set)
             if along[0] <= tol and along[-1] >= edge.length - tol:
-                continue
+                on_fem = len(_nodes_on_segment(fem_nodes or (), edge, tol))
+                if on_fem <= len(on_set):
+                    continue
+                detail = (
+                    "Its nodes do span {0}, from {1} to {2}, but the set holds {3} of the {4} node(s) "
+                    "this model has on it. An edge region restrains every node CAE puts on the edge "
+                    "after meshing, so the {5} the set leaves out would be restrained too -- and an "
+                    "end-to-end length check would not have noticed, because the ends are covered. "
+                    "Give the record every node on the edge, or a vertex. ".format(
+                        edge.owner,
+                        tuple(round(c, 9) for c in edge.p1),
+                        tuple(round(c, 9) for c in edge.p2),
+                        len(on_set),
+                        on_fem,
+                        on_fem - len(on_set),
+                    )
+                )
+                break
             detail = (
                 "Its nodes do lie on {0}, from {1} to {2}, and they reach only {3:.6g} to {4:.6g} of its "
                 "{5:.6g} length. A CAE region is made of WHOLE edges, and a DisplacementBC on one "

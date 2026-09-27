@@ -385,13 +385,62 @@ DEFECTS = (
         "has to arrive as one part",
         specimen="plates",
     ),
+    # --- edge and face regions ------------------------------------------------------------------
+    # The kernel checks each box's edge count and the region's total length against what adapy
+    # predicted. What only a text reader can check is that those two numbers agree with *each other*:
+    # a region whose boxes added up to something else would pass in the kernel by confirming the
+    # wrong figure. Each of these is that class of defect.
+    Defect(
+        "edge_region_total_count_disagrees_with_its_boxes",
+        "), 2, 8.0, 'CYL')",
+        "), 3, 8.0, 'CYL')",
+        check_analysis_references_resolve,
+        "box(es) expect 2",
+        specimen="regions",
+    ),
+    Defect(
+        "edge_region_total_length_disagrees_with_its_boxes",
+        ", 1, 0.5, 'SS_X0')",
+        ", 1, 0.4, 'SS_X0')",
+        check_analysis_references_resolve,
+        "boxes add up to 0.5",
+        specimen="regions",
+    ),
+    Defect(
+        "edge_region_box_encloses_nothing",
+        "((-1e-07, 1e-07, -1e-07, 0.5000001",
+        "((1e-07, 1e-07, -1e-07, 0.5000001",
+        check_analysis_references_resolve,
+        "encloses nothing",
+        specimen="regions",
+    ),
+    Defect(
+        "edge_region_checked_against_no_length_at_all",
+        ", 1, 0.5, 'SS_X1')",
+        ", 1, 0.0, 'SS_X1')",
+        check_analysis_references_resolve,
+        "would pass on a region CAE built somewhere else",
+        specimen="regions",
+    ),
+    Defect(
+        "face_region_checked_against_no_area_at_all",
+        ", 2.0, 'strip', 'ALLFIX')",
+        ", 0.0, 'strip', 'ALLFIX')",
+        check_analysis_references_resolve,
+        "a region over no area would pass its own guard",
+        specimen="regions",
+    ),
 )
 
 
 @pytest.fixture
-def specimens(specimen_source, plate_specimen_source) -> dict:
+def specimens(specimen_source, plate_specimen_source, region_specimen_source) -> dict:
     """The sources a defect can be injected into, by the name its ``specimen`` field carries."""
-    return {"frame": specimen_source, "plates": plate_specimen_source}
+    return {
+        "frame": specimen_source,
+        "plates": plate_specimen_source,
+        "regions": region_specimen_source,
+    }
 
 
 def test_the_specimen_is_accepted(specimen_source):
