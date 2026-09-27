@@ -24,7 +24,7 @@ class LoadTypes:
     MASS = "mass"
     PRESSURE = "pressure"
 
-    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS]
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE]
 
 
 class Load(FemBase):
@@ -203,6 +203,9 @@ class Load(FemBase):
         self._parent = value
 
     def __repr__(self):
+        if self.forces is None:
+            # A pressure carries a magnitude and a surface, not a force vector.
+            return f"Load({self.name}, {self.type}, magnitude={self.magnitude!r})"
         forc_str = ",".join(f"{f:.6E}" for f in self.forces)
         return f"Load({self.name}, {self.type}, [{forc_str}])"
 

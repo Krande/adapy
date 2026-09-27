@@ -301,6 +301,73 @@ class Eig(Filter):
         )
 
 
+class Plate(Filter):
+    """The plate strip's views: deflection under pressure, and its eigenfrequencies.
+
+    Task-bound to ``plate_run_static``, so the scalars below report what actually ran on this
+    machine rather than what the matrix declares. The tables themselves are registered by
+    ``plate_static_tables`` / ``plate_eig_tables``; these are references to their keys.
+    """
+
+    def __init__(self, *, name: str, task=None):
+        super().__init__(name=name, task=task)
+
+    def _live_cells(self) -> list:
+        if self.task is None:
+            return []
+        return [c for c in self.task.cells() if self.task._runner.result_for(c) is not None]
+
+    @attr
+    def num_cases(self) -> int:
+        return len(self._live_cells())
+
+    @attr
+    def solvers(self) -> str:
+        return ", ".join(sorted({c.kwargs["solver"] for c in self._live_cells()})) or "none on this machine"
+
+    @attr
+    def length_m(self) -> float:
+        from ada.api.fem_tasks import PLATE_STRIP_LENGTH
+
+        return PLATE_STRIP_LENGTH
+
+    @attr
+    def width_m(self) -> float:
+        from ada.api.fem_tasks import PLATE_STRIP_WIDTH
+
+        return PLATE_STRIP_WIDTH
+
+    @attr
+    def thickness_m(self) -> float:
+        from ada.api.fem_tasks import PLATE_STRIP_THICKNESS
+
+        return PLATE_STRIP_THICKNESS
+
+    @attr
+    def pressure_pa(self) -> float:
+        from ada.api.fem_tasks import PLATE_STRIP_PRESSURE
+
+        return PLATE_STRIP_PRESSURE
+
+    @attr
+    def closed_form_deflection_m(self) -> float:
+        from ada.api.fem_tasks import plate_closed_form_deflection
+
+        return plate_closed_form_deflection()
+
+    @attr
+    def static_plain(self) -> TableView:
+        return TableView(table_key="plate_static_stFalse")
+
+    @attr
+    def static_stiffened(self) -> TableView:
+        return TableView(table_key="plate_static_stTrue")
+
+    @attr
+    def eig_compare(self) -> TableView:
+        return TableView(table_key="plate_eig_compare")
+
+
 # ---------------------------------------------------------------------
 # Module-level instances. paradoc.filters.discover_filters picks these
 # up from `verification/filters.py`; OneDoc binds the TaskHandles when
@@ -317,6 +384,7 @@ from paradoc.tasks import TaskHandle  # noqa: E402 — module-level instances ne
 
 beam = Beam(name="beam", task=TaskHandle.unbound("design"))
 eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
+plate = Plate(name="plate", task=TaskHandle.unbound("plate_run_static"))
 
 
 # `SolverCase` lived here until step 5 of the FEA-docs generalisation

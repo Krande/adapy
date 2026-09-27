@@ -49,3 +49,25 @@ reduced_integration = [false]
 
 [build.smoke.fanout.run_eig]
 solver = ["calculix"]
+
+# Plate profile: the plate strip cases at full fanout, with the cantilever matrix narrowed to a
+# single cheap cell. For iterating on the plate section, and for seeding `.cache-plate/` on a
+# machine that has the free solvers -- the cantilever's own cache is already committed, so
+# re-running its 42 cells to look at a plate table is pure waste.
+[build.plate]
+outputs = ["static"]
+
+[build.plate.static]
+target = "../docs/_static/fea-report"
+header_links = [
+    { label = "← adapy docs", href = "../../index.html" },
+]
+
+[build.plate.fanout.mesh]
+geom_repr = ["shell"]
+elem_order = [1]
+use_hex_quad = [true]
+reduced_integration = [false]
+
+[build.plate.fanout.run_eig]
+solver = ["calculix"]

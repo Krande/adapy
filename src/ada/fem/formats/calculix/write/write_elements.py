@@ -132,9 +132,22 @@ def el_type_sub(el_type, fem_sec: FemSection) -> str:
 
 
 def must_be_converted_to_general_section(sec_type):
+    """True for a section CalculiX has no ``*BEAM SECTION`` keyword for.
+
+    CalculiX' beam library is ``RECT``, ``CIRC``, ``PIPE``, ``BOX`` and ``GENERAL``; anything else
+    goes out as a general section on a ``U1`` element, carrying its integrated properties instead of
+    its outline. ``TPROFILE`` is here for the same reason ``IPROFILE`` is -- a T is an I with one
+    flange, and CalculiX has a keyword for neither.
+    """
     from ada.sections.categories import BaseTypes
 
-    if sec_type in [BaseTypes.CIRCULAR, BaseTypes.IPROFILE, BaseTypes.GENERAL, BaseTypes.ANGULAR]:
+    if sec_type in [
+        BaseTypes.CIRCULAR,
+        BaseTypes.IPROFILE,
+        BaseTypes.TPROFILE,
+        BaseTypes.GENERAL,
+        BaseTypes.ANGULAR,
+    ]:
         return True
     else:
         return False

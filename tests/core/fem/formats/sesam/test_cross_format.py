@@ -63,8 +63,9 @@ SESAM_WRITER = "sesam writer"
 SESAM_GAPS: dict = {
     "boundary_conditions": (
         Exception,
-        "writer: a prescribed displacement is written fixed, without its value (no BNDISPL yet), and "
-        "velocity and connector BCs have no BNBCD form (all reported)",
+        "reader: a prescribed displacement is now written in full (BNBCD FIX code 2 plus a BNDISPL "
+        "record) but the Sesam reader has no BNDISPL card, so its magnitude does not come back; "
+        "writer: velocity and connector BCs have no BNBCD form (all reported)",
     ),
     "constraints": (
         Exception,

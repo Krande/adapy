@@ -258,6 +258,17 @@ def _add_convert(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--split", action="store_true", help="Split ACIS/SAT bodies into individual faces.")
     p.add_argument("--limit", type=int, default=None, help="Limit number of geometries (debugging).")
     p.add_argument(
+        "--superelement",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Sesam super element number: written as the deck's IDENT SELTYP and used to name the "
+            "file <prefix>T<N>.FEM. Without it the T-number in OUT decides "
+            "(myPrefixT10.FEM -> 10), and with neither it is 1."
+        ),
+    )
+    p.add_argument(
         "--strict",
         action="store_true",
         help=(

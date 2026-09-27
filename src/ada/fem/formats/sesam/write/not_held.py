@@ -73,11 +73,17 @@ def report_bcs(fems: Iterable[FEM], deck_fem: FEM | None = None) -> None:
                 rep.omitted(STAGE, "Bc", bc.name, "on a node outside the part's mesh, which is all the deck holds")
                 continue
             if any(m not in (None, 0, 0.0) for m in (bc.magnitudes or ())):
-                rep.approximated(
+                # Written in full now (BNBCD FIX code 2 plus a BNDISPL record), so this is a
+                # note, not an approximation. It stays because a settlement is loading in
+                # Sesam: it lands in one load case, which is a thing to know when reading the
+                # deck, and it is the one BC that does not read back as what was written --
+                # the Sesam reader has no BNDISPL card, so the value is lost on the way in.
+                rep.note(
                     STAGE,
                     "Bc",
                     bc.name,
-                    "a prescribed displacement is written as a fixed dof; the value is not written",
+                    "a prescribed displacement is written as BNBCD FIX code 2 plus a BNDISPL record "
+                    "in the first load case; Sesam carries a settlement as loading",
                     magnitudes=[m for m in bc.magnitudes],
                 )
             if bc.amplitude is not None:
@@ -121,7 +127,15 @@ def report_materials(materials: Iterable[Material]) -> None:
 
 #: ``FEM`` tables with no Sesam card at all -> (the adapy construct, why).
 _NOT_HELD_TABLES = (
-    ("surfaces", "Surface", "a Sesam file has no surfaces; a constraint using one is written on its nodes"),
+    # The surface object itself has no card, but what uses one is written from it: a constraint
+    # on the nodes it covers, and a pressure as one BEUSLO per element and side. Naming only the
+    # constraint read as though a surface carrying a pressure had been lost, which it is not.
+    (
+        "surfaces",
+        "Surface",
+        "a Sesam file has no surfaces; a constraint using one is written on its nodes and a "
+        "pressure on it as BEUSLO on its elements",
+    ),
     ("intprops", "InteractionProperty", "a Sesam file has no contact"),
     ("interactions", "Interaction", "a Sesam file has no contact"),
     ("amplitudes", "Amplitude", "a Sesam file has no time histories"),

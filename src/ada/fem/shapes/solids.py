@@ -37,7 +37,7 @@
 # """
 # tet10 is modified from GMSH to abaqus. See gmsh_to_meshio_ordering for complete overview
 
-from ada.fem.shapes.definitions import SolidShapes
+from ada.fem.shapes.definitions import ShellShapes, SolidShapes
 
 # 12 physical edges of a hex; only corner nodes, so the same list
 # works for HEX8 / HEX20 / HEX27. Going through mid-side nodes
@@ -242,4 +242,48 @@ solid_abaqus_face_corners = {
     SolidShapes.HEX20: _HEX_ABAQUS_FACES,
     SolidShapes.WEDGE: _WEDGE_ABAQUS_FACES,
     SolidShapes.WEDGE15: _WEDGE_ABAQUS_FACES,
+}
+
+
+# ---------------------------------------------------------------------------
+# The *shape* of each Abaqus face, in the same order as ``solid_abaqus_faces``.
+#
+# A face of a continuum element is a surface facet in its own right, and a caller
+# that has to evaluate shape functions on it -- an interpolated tie projecting a
+# node onto the facet, say -- needs to know which facet it is. Node count alone does
+# not say: three nodes is a TRI3 face or a LINE3 shell edge, and six is a TRI6 face
+# or a first-order wedge. So the topology is stated rather than inferred.
+#
+# Only the wedge is inhomogeneous: its two triangular end faces and three
+# quadrilateral side faces, which is exactly why the table is per face rather than
+# per element.
+_TETRA_ABAQUS_FACE_SHAPES = (ShellShapes.TRI,) * 4
+_TETRA10_ABAQUS_FACE_SHAPES = (ShellShapes.TRI6,) * 4
+_HEX_ABAQUS_FACE_SHAPES = (ShellShapes.QUAD,) * 6
+_HEX20_ABAQUS_FACE_SHAPES = (ShellShapes.QUAD8,) * 6
+_WEDGE_ABAQUS_FACE_SHAPES = (
+    ShellShapes.TRI,
+    ShellShapes.TRI,
+    ShellShapes.QUAD,
+    ShellShapes.QUAD,
+    ShellShapes.QUAD,
+)
+_WEDGE15_ABAQUS_FACE_SHAPES = (
+    ShellShapes.TRI6,
+    ShellShapes.TRI6,
+    ShellShapes.QUAD8,
+    ShellShapes.QUAD8,
+    ShellShapes.QUAD8,
+)
+
+#: ``{shape: (shape of face S1, shape of face S2, ...)}`` -- the facet topology of each
+#: Abaqus face, aligned one-to-one with :data:`solid_abaqus_faces`. Same deliberate gaps:
+#: a type absent from ``solid_abaqus_faces`` is absent here.
+solid_abaqus_face_shapes = {
+    SolidShapes.TETRA: _TETRA_ABAQUS_FACE_SHAPES,
+    SolidShapes.TETRA10: _TETRA10_ABAQUS_FACE_SHAPES,
+    SolidShapes.HEX8: _HEX_ABAQUS_FACE_SHAPES,
+    SolidShapes.HEX20: _HEX20_ABAQUS_FACE_SHAPES,
+    SolidShapes.WEDGE: _WEDGE_ABAQUS_FACE_SHAPES,
+    SolidShapes.WEDGE15: _WEDGE15_ABAQUS_FACE_SHAPES,
 }

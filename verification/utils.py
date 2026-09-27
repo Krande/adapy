@@ -279,3 +279,123 @@ def create_eff_mass_summary_df(results: list[FeaVerificationResult]) -> pd.DataF
     if not rows:
         return None
     return pd.DataFrame(rows).sort_values("Case").reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# The plate strip case: its own result wrapper and comparison tables
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass
+class PlateStaticResult(FeaCaseResult):
+    """One static plate case: the mid-span deflection a solver returned, and its mesh.
+
+    Kept as a scalar rather than a whole field because that is what the comparison is: one number
+    per (solver, seed), against each other and against a closed form. The field data stays in the
+    solver's own result file for anyone who wants it.
+    """
+
+    mid_span_u3: float = None
+    mesh_size: float = None
+    stiffened: bool = False
+    n_shells: int = None
+
+    def _extra_payload(self) -> dict:
+        return {
+            "mid_span_u3": self.mid_span_u3,
+            "mesh_size": self.mesh_size,
+            "stiffened": self.stiffened,
+            "n_shells": self.n_shells,
+        }
+
+    def _hydrate_extras(self, payload: dict) -> None:
+        self.mid_span_u3 = payload["mid_span_u3"]
+        self.mesh_size = payload["mesh_size"]
+        self.stiffened = payload["stiffened"]
+        self.n_shells = payload.get("n_shells")
+
+
+def mid_span_u3(result, length: float, width: float) -> float:
+    """Mid-span centreline ``u3`` out of an adapy FEAResult, sampled by position.
+
+    By position and not by node id: the id is the mesher's, and the same physical point has a
+    different one at every seed and in every solver's renumbering.
+    """
+    import numpy as np
+
+    coords = np.asarray(result.mesh.nodes.coords, dtype=float)
+    field = next(f for f in result.results if f.name in ("DISP", "result__DEPL") or "displacement" in f.name.lower())
+    values = np.asarray(field.values, dtype=float)
+    offset = np.abs(coords[:, 0] - length / 2.0) + np.abs(coords[:, 1] - width / 2.0)
+    index = int(np.argmin(offset))
+    if offset[index] > 1e-06:
+        raise ValueError(f"no node at mid-span on the centreline; closest was {offset[index]!r} away")
+    return float(values[index][3])
+
+
+def create_plate_static_df(results, closed_form: float) -> "pd.DataFrame | None":
+    """Rows are mesh seeds, columns are solvers; the last column is the closed form.
+
+    The relative error against the closed form is what the report reads, so it is computed here
+    rather than left to the reader: a table of raw deflections all near 0.173 hides which solver is
+    converging and which is merely close.
+    """
+    rows: dict = {}
+    for res in results:
+        if not isinstance(res, PlateStaticResult) or res.mid_span_u3 is None:
+            continue
+        label = short_name_map.get(res.fem_format, res.fem_format)
+        if res.stiffened:
+            label += "_st"
+        rows.setdefault(res.mesh_size, {})[label] = res.mid_span_u3
+
+    if not rows:
+        return None
+
+    records = []
+    for mesh_size in sorted(rows, reverse=True):
+        record = {"Seed [m]": mesh_size}
+        record.update({k: rows[mesh_size][k] for k in sorted(rows[mesh_size])})
+        record["closed form"] = closed_form
+        records.append(record)
+    return pd.DataFrame.from_records(records)
+
+
+def create_plate_eig_df(results, closed_form: list) -> "pd.DataFrame | None":
+    """Rows are modes, columns are solvers; the last column is the closed form.
+
+    Only the cylindrical modes have the closed form beside them, and they are the low ones, so the
+    table is as long as the shortest solver's mode list rather than padded.
+
+    The column label carries the ``_st`` suffix of the stiffened variant, exactly as
+    :func:`create_plate_static_df` does, and a label that would be written twice raises. That is not
+    defensive dressing: a plain ``ca`` key silently took the stiffened plate's frequencies (19.3 Hz
+    against 1.54) into the unstiffened table, which looks like a solver disagreement rather than a
+    bookkeeping error, and is the one kind of mistake a comparison report must not make quietly.
+    """
+    columns: dict = {}
+    for res in results:
+        eig = getattr(res, "eig_data", None)
+        if eig is None or not getattr(eig, "modes", None):
+            continue
+        label = short_name_map.get(res.fem_format, res.fem_format)
+        if res.metadata.get("stiffened", False):
+            label += "_st"
+        if label in columns:
+            raise ValueError(
+                f"two plate eigen cases both want the column {label!r} ({res.name}). One of them "
+                f"would overwrite the other, so the label does not identify the case."
+            )
+        columns[label] = [m.f_hz for m in eig.modes]
+
+    if not columns:
+        return None
+
+    n = min(min(len(v) for v in columns.values()), len(closed_form))
+    records = []
+    for i in range(n):
+        record = {"Mode": i + 1}
+        record.update({k: columns[k][i] for k in sorted(columns)})
+        record["closed form"] = closed_form[i]
+        records.append(record)
+    return pd.DataFrame.from_records(records)

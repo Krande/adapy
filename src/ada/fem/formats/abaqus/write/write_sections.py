@@ -1,9 +1,11 @@
+import dataclasses
 from typing import TYPE_CHECKING
 
 from ada.config import logger
 from ada.fem import FemSection
 from ada.fem.steps import StepExplicit
 from ada.sections import GeneralProperties, Section
+from ada.sections.categories import BaseTypes
 
 from ..grammar import format_number
 from .helper_utils import render_block
@@ -88,6 +90,8 @@ def line_section_props(fem_sec: FemSection):
 
     if sec_data == "CIRC":
         return f"{sec.r}\n {n1}"
+    elif sec_data == "I" and sec.type == BaseTypes.TPROFILE:
+        return f"{t_as_i_section_lines(sec)}\n {n1}"
     elif sec_data == "I":
         if sec.t_fbtn + sec.t_w > min(sec.w_top, sec.w_btn):
             # TODO: Evaluate why this was here
@@ -122,13 +126,15 @@ def line_cross_sec_type_str(fem_sec: FemSection):
     if "section_type" in fem_sec.metadata.keys():
         return fem_sec.metadata["section_type"]
     sec_type = fem_sec.section.type
-    from ada.sections.categories import BaseTypes
-
     bt = BaseTypes
 
     sec_map = {
         bt.CIRCULAR: "CIRC",
         bt.IPROFILE: "I",
+        # Abaqus' beam library has no `section=T`. Its own preprocessor spells a T as an I-section
+        # with the bottom flange zeroed, so that is what adapy writes too -- see
+        # `t_as_i_section_lines`, which is where the zeroing happens.
+        bt.TPROFILE: "I",
         bt.BOX: "BOX",
         bt.GENERAL: "GENERAL",
         bt.TUBULAR: "PIPE",
@@ -143,6 +149,26 @@ def line_cross_sec_type_str(fem_sec: FemSection):
         raise Exception(f'Section type "{sec_type}" is not added to Abaqus beam export yet')
 
     return sec_str
+
+
+def t_as_i_section_lines(sec: Section) -> str:
+    """A T as a ``SECTION=I`` beam section: an I-section with its bottom flange zeroed.
+
+    Abaqus has no ``section=T``. Asked to export a member carrying its own ``TProfile``,
+    Abaqus/CAE writes ``section=I`` with ``b1`` and ``t1`` at zero and the flange in the
+    ``b2``/``t2`` slots, so this is the kernel's own encoding rather than a choice made here.
+
+    The zeroing is the whole of it, and it is not cosmetic. adapy stores a T in the
+    *collapsed-bottom-flange* form -- ``w_btn = t_w`` and ``t_fbtn = t_ftop`` (see
+    :mod:`ada.sections.string_to_section` and :mod:`ada.sections.from_geometry`) -- so handing those
+    two fields to the ordinary I-section line would describe a T with a small stub flange on the
+    bottom: extra material, extra stiffness, and no error anywhere. Writing zeros instead says what
+    adapy means, which is that there is no bottom flange.
+
+    ``l`` is the distance from the section origin to the section's bottom. adapy's profile outlines
+    are centred on the beam axis, so it is ``h / 2``, as for an I.
+    """
+    return f"{sec.h / 2}, {sec.h}, 0.0, {sec.w_top}, 0.0, {sec.t_ftop}, {sec.t_w}"
 
 
 def channel_arbitrary_lines(sec: Section) -> str:
@@ -168,26 +194,47 @@ def line_temperature_str(fem_sec: FemSection):
 
 
 def eval_general_properties(section: Section) -> GeneralProperties:
-    gp = section.properties
+    """The section properties to write on a ``*Beam General Section``, with missing ones filled in.
+
+    Returns a **copy**. ``Section.properties`` caches its result, so writing into it would make an
+    Abaqus export permanently change the model: a Sesam or IFC export later in the same process
+    would then inherit whatever this function substituted.
+
+    ``None`` is the only marker for "never computed" -- every field of
+    :class:`~ada.sections.concept.GeneralProperties` defaults to ``None``. **Zero is a computed
+    answer and is kept.** That distinction is the whole point of this function's shape: ``Iyz`` is
+    exactly ``0`` for every section symmetric about an axis (box, tubular, I, circular, flatbar,
+    channel -- only ``calc_angular`` returns a non-zero one), and treating that zero as missing used
+    to substitute ``(Iy + Iz) / 2``. That value is the *largest* a product of inertia may legally
+    take, so it then failed the positive-definiteness test below and inflated ``Iy`` as well: a
+    UNP200 channel went out with ``Iy`` 4.8x too large and a fabricated ``I12``, and a UNP300 5.6x.
+    Both numbers reached the deck behind a log line, which is the worst way for a section to be
+    wrong.
+
+    Where a value genuinely is unknown, the substitute is the neutral one -- ``0.0`` for ``Iyz`` --
+    not the extreme of its range.
+    """
+    gp = dataclasses.replace(section.properties)
     name = section.name
-    if gp.Ix <= 0.0:
-        gp.Ix = 1
-        logger.warning(f"Section {name} Ix <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iy <= 0.0:
-        gp.Iy = 2
-        logger.warning(f"Section {name} Iy <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iz <= 0.0:
-        gp.Iz = 2
-        logger.warning(f"Section {name} Iz <= 0.0. Changing to 2. {log_fin}")
-    if gp.Iyz <= 0.0:
-        gp.Iyz = (gp.Iy + gp.Iz) / 2
-        logger.warning(f"Section {name} Iyz <= 0.0. Changing to (Iy + Iz) / 2. {log_fin}")
-    if gp.Iy * gp.Iz - gp.Iyz**2 < 0:
-        old_y = str(gp.Iy)
-        gp.Iy = 1.1 * (gp.Iy + (gp.Iyz**2) / gp.Iz)
-        logger.warning(
-            f"Warning! Section {name}: I(11)*I(22)-I(12)**2 MUST BE POSITIVE. " f"Mod Iy={old_y} to {gp.Iy}. {log_fin}"
+
+    # A real cross-section has none of these at or below zero, so here 0.0 does mean "no data".
+    for attr, fallback in (("Ix", 1.0), ("Iy", 2.0), ("Iz", 2.0)):
+        value = getattr(gp, attr)
+        if value is None or value <= 0.0:
+            setattr(gp, attr, fallback)
+            logger.warning(f"Section {name} {attr} is {value}. Substituting {fallback}. {log_fin}")
+
+    if gp.Iyz is None:
+        gp.Iyz = 0.0
+        logger.warning(f"Section {name} has no Iyz. Substituting 0.0, i.e. symmetric. {log_fin}")
+
+    # With a real Iyz this cannot fail for a physically possible section, so a failure means the
+    # input is inconsistent. Say so instead of adjusting Iy until the inequality holds -- a section
+    # quietly made 10% stiffer is the failure this function used to produce.
+    if gp.Iy * gp.Iz - gp.Iyz**2 < 0 or not -(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2:
+        raise ValueError(
+            f"Section {name}: I(11)*I(22) - I(12)**2 must be positive and I(12) must lie within "
+            f"+/-(I(11) + I(22))/2, but Iy={gp.Iy}, Iz={gp.Iz}, Iyz={gp.Iyz}. These properties "
+            f"describe no real cross-section, so Abaqus would reject the section."
         )
-    if (-(gp.Iy + gp.Iz) / 2 < gp.Iyz <= (gp.Iy + gp.Iz) / 2) is False:
-        raise ValueError("Iyz must be between -(Iy+Iz)/2 and (Iy+Iz)/2")
     return gp
