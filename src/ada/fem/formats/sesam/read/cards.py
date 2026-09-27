@@ -309,3 +309,7 @@ re_tdload = get_ff_regex("TDLOAD", "nfield", "llc", "codnam", "codtxt", "name")
 # reader splits, the same shape as re_bnbcd's ``content``: naming D1..D6 would leave a
 # three-component record — a node attached only to solid elements — unmatchable.
 re_bndispl = get_ff_regex("BNDISPL", "llc", "dtype", "complx", "unused", "nodeno", "ndof", "content")
+# BEUSLO: ``LLC LOTYP COMPLX LAYER`` / ``ELNO NDOF INTNO SIDE`` / ``RLOAD1..RLOADn``, one
+# intensity per node of the element (see ``sesam/write/write_loads.load_pressure``). ``rload``
+# is the same kind of blob, NDOF deciding how many of its values belong to the record.
+re_beuslo = get_ff_regex("BEUSLO", "llc", "lotyp", "complx", "layer", "elno", "ndof", "intno", "side", "rload")

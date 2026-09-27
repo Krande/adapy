@@ -1,11 +1,12 @@
-"""The Sesam load block on the way in. So far: BNDISPL.
+"""The Sesam load block on the way in: BNDISPL and BEUSLO.
 
-The record is written by ``sesam/write/write_bcs`` and was not read, so a model round-tripped
-through a Sesam deck came back with its settlement turned into a rigid clamp. This module is the
-way back, and it is deliberately the *inverse* of the writer rather than an independent reading
-of the format: every constant it needs
-(:data:`~ada.fem.formats.sesam.write.write_bcs.DTYPE_DISPLACEMENT`, ...) is imported from the
-module that writes it, so the two cannot drift apart silently.
+Both records are written by ``sesam/write`` and neither was read, so a model round-tripped
+through a Sesam deck came back with a settlement turned into a rigid clamp and a pressure gone
+altogether. This module is the way back, and it is deliberately the *inverse* of the writer
+rather than an independent reading of the format: every constant it needs
+(:data:`~ada.fem.formats.sesam.write.write_bcs.DTYPE_DISPLACEMENT`, ``PRESSURE_LOTYP``,
+``SIDE_POSITIVE`` / ``SIDE_NEGATIVE``, ...) is imported from the module that writes it, so the
+two cannot drift apart silently.
 
 **BNDISPL** (``LLC DTYPE COMPLX 0`` / ``NODENO NDOF D1 D2`` / ``D3..Dndof``) carries the
 *value* of a prescribed displacement; BNBCD FIX code 2 carries *which* DOFs are prescribed.
@@ -22,29 +23,51 @@ A prescribed displacement is *loading* in Sesam, so the record names a load case
 ada ``Bc`` belongs to no load case, so the case name is recorded in the BC's metadata under
 :data:`SESAM_LOAD_CASE` -- which is also the writer's own approximation, in reverse (it writes
 every settlement into the first case).
+
+**BEUSLO** (``LLC LOTYP COMPLX LAYER`` / ``ELNO NDOF INTNO SIDE`` / ``RLOAD1..RLOADn``) is a
+surface pressure, one intensity per node of the element. The sign is the whole of the direction:
+measured, a positive RLOAD pushes along the element's *negative* normal for every legal SIDE,
+because Sestra computes the load in the element's mid-plane and SIDE therefore cannot carry a
+direction. The writer records the face the model meant in SIDE and puts the direction in the
+sign (``+q`` on the positive face, ``-q`` and SIDE 2 on the negative one); this reads that back,
+so a ``Load`` written positive on ``SPOS`` comes back positive on ``SPOS``. See
+:data:`_SIDE_FACE`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Iterator
 
+from ada.fem import FemSet, Surface
 from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import str_to_int
+from ada.fem.loads import LoadCase, LoadPressure
+from ada.fem.steps import StepImplicitStatic
 
 from ..write.write_bcs import DTYPE_DISPLACEMENT
+from ..write.write_loads import (
+    PRESSURE_INTNO,
+    PRESSURE_LAYER,
+    PRESSURE_LOTYP,
+    SIDE_NEGATIVE,
+    SIDE_POSITIVE,
+)
 from . import cards
 from .read_sets import text_record
 
 if TYPE_CHECKING:
     from ada.api.nodes import Node
+    from ada.fem import FEM, Elem
+    from ada.fem.steps import Step
 
 #: The ``stage`` every finding of the Sesam reader is filed under -- the same string
 #: ``read_elements`` uses.
 STAGE = "sesam reader"
 
-#: COMPLX 0: no phase shift, so no imaginary half follows the real values. It is the only value
-#: the writer emits and the only one an ada object can hold: a ``Bc`` magnitude is a single real
-#: number.
+#: COMPLX 0: no phase shift, so no imaginary half follows the real values. It is the only
+#: value the writer emits and, for both records, the only one an ada object can hold: a ``Bc``
+#: magnitude and a ``Load`` magnitude are single real numbers.
 NO_PHASE = 0
 
 #: ``Bc.metadata`` key holding the name of the load case a BNDISPL record was in. A ``Bc``
@@ -52,6 +75,21 @@ NO_PHASE = 0
 #: nowhere else to go; the writer puts every settlement in the *first* case, which is the same
 #: gap seen from the other side (``write_loads.step_loads_str``).
 SESAM_LOAD_CASE = "sesam_load_case"
+
+#: The step the deck's load cases are read into. A Sesam FEM file holds no analysis step at all
+#: -- Sestra's control data is a separate ``sestra.inp``, which is not read -- so the step is
+#: the reader's own container for the load cases, named rather than numbered so a deck that
+#: gains one is obvious. Static, because that is the analysis a BEUSLO load case is written for,
+#: and with no output requests: the deck asks for none, and inventing some would be invention.
+READ_STEP_NAME = "sesam_loads"
+
+#: BEUSLO ``SIDE`` -> (the shell face index an ada ``Surface`` names it by, the sign the writer
+#: put on RLOAD for that face). The exact inverse of
+#: ``write_loads._pressure_side_and_sign``: ``+1`` is ``SPOS`` and keeps the magnitude, ``-1``
+#: is ``SNEG`` and carries it negated. Nothing else is in here -- SIDE 3 is legal to Sestra but
+#: names no face (it is the mid-plane), and 0 and 4 and up are "Illegal side index specified on
+#: BEUSLO record".
+_SIDE_FACE = {SIDE_POSITIVE: (1, 1.0), SIDE_NEGATIVE: (-1, -1.0)}
 
 
 def report():
@@ -204,3 +242,225 @@ def prescribed_magnitudes(
         magnitudes = tuple(values.get(dof, 0.0) if dof in settled else None for dof in dofs)
         out.append((node, dofs, magnitudes, cases.get(node.id) if settled else None))
     return out
+
+
+# --- BEUSLO: a surface pressure -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BeusloRecord:
+    """One BEUSLO record the reader can hold: its load case, element, face and magnitude.
+
+    ``magnitude`` is already the pressure the model meant -- RLOAD with the writer's sign
+    convention undone -- and ``face`` the shell face index an ada ``Surface`` names it by.
+    """
+
+    llc: int
+    element: Elem
+    face: int
+    magnitude: float
+
+
+def beuslo_records(bulk_str: str, fem: FEM) -> Iterator[BeusloRecord]:
+    """The BEUSLO records of ``bulk_str``, in file order, skipping the ones ada cannot hold.
+
+    Everything skipped is reported by name. LOTYP, LAYER and INTNO are checked against the
+    writer's own constants, each of which carries the Sestra diagnostic that fixed it: LOTYP 2
+    is a three-component vector load and LOTYP 3 no load type at all, and a nonzero LAYER or
+    INTNO is *ignored* by Sestra ("Layered elements is not supported in this version" / "Only
+    the default rule is supported in this version") -- so a deck carrying one does not mean what
+    it says, and reading it as a plain pressure would put that misreading into the model.
+    """
+    names = load_case_names(bulk_str)
+    rep = report()
+    for m in cards.re_beuslo.finditer(bulk_str):
+        d = m.groupdict()
+        llc = str_to_int(d["llc"])
+        elno = str_to_int(d["elno"])
+        subject = f"element {elno} in load case {case_name(names, llc)}"
+
+        for field, value, expected, reason in (
+            (
+                "LOTYP",
+                str_to_int(d["lotyp"]),
+                PRESSURE_LOTYP,
+                "only LOTYP 1, a surface pressure, is a load ada can hold (LOTYP 2 is a three-component "
+                "vector load; LOTYP 3 is no load type at all and Sestra drops the record)",
+            ),
+            (
+                "COMPLX",
+                str_to_int(d["complx"]),
+                NO_PHASE,
+                "a complex pressure (COMPLX 1) carries a phase shift, which a real Load magnitude has no "
+                "room for; its imaginary half would be read as further intensities",
+            ),
+            (
+                "LAYER",
+                str_to_int(d["layer"]),
+                PRESSURE_LAYER,
+                "a load on a layered element, which Sestra warns about and then applies without the layer "
+                'attribute ("Layered elements is not supported in this version"), so the deck does not '
+                "mean what it says and ada has no layer to put it on",
+            ),
+            (
+                "INTNO",
+                str_to_int(d["intno"]),
+                PRESSURE_INTNO,
+                'a non-default integration rule, which Sestra warns about and then ignores ("Only the '
+                'default rule is supported in this version"); ada has no form for it',
+            ),
+        ):
+            if value != expected:
+                rep.omitted(STAGE, "BEUSLO", subject, f"{field} {value}: {reason}", **{field.lower(): value})
+                break
+        else:
+            record = _beuslo_record(d, llc, elno, subject, fem, rep)
+            if record is not None:
+                yield record
+
+
+def _beuslo_record(d: dict, llc: int, elno: int, subject: str, fem: FEM, rep) -> BeusloRecord | None:
+    """One well-formed BEUSLO record, or ``None`` with the reason reported.
+
+    The element, the face and the one magnitude a ``Load`` carries. A record whose intensities
+    differ across the element's nodes is a *non-uniform* pressure, which a single magnitude
+    cannot hold: their mean is read, which for a bilinear quad keeps the resultant exactly
+    (the consistent load vector is ``q_i A / 4`` per node, so the total is ``A`` times the
+    mean), and the values themselves go in the report.
+    """
+    side = str_to_int(d["side"])
+    face_sign = _SIDE_FACE.get(side)
+    if face_sign is None:
+        rep.omitted(
+            STAGE,
+            "BEUSLO",
+            subject,
+            f"SIDE {side} names no shell face ada can hold: only 1 (the positive normal) and 2 (the "
+            "negative one) do. Sestra also takes 3, the mid-plane, and refuses everything else as an "
+            '"Illegal side index"',
+            side=side,
+        )
+        return None
+
+    try:
+        element = fem.elements.from_id(elno)
+    except (ValueError, KeyError):
+        rep.omitted(STAGE, "BEUSLO", subject, "the element the load names is not in the deck")
+        return None
+
+    ndof = str_to_int(d["ndof"])
+    intensities = [float(x) for x in d["rload"].split()[:ndof]]
+    n_nodes = len(element.nodes)
+    if len(intensities) < ndof or ndof != n_nodes:
+        # Sestra's own check: "Load intensity vector size does not match dof count for load".
+        rep.omitted(
+            STAGE,
+            "BEUSLO",
+            subject,
+            f"the record declares NDOF {ndof} and carries {len(intensities)} intensities for an element "
+            f"with {n_nodes} nodes; one intensity per node is what the record means",
+            ndof=ndof,
+            n_intensities=len(intensities),
+            n_nodes=n_nodes,
+        )
+        return None
+
+    face, sign = face_sign
+    if len(set(intensities)) > 1:
+        rep.approximated(
+            STAGE,
+            "BEUSLO",
+            subject,
+            "the intensities differ across the element's nodes -- a non-uniform pressure, which one Load "
+            "magnitude cannot hold; their mean is read, which keeps the resultant of a bilinear quad",
+            intensities=intensities,
+            mean=sum(intensities) / len(intensities),
+        )
+    # The writer wrote ``sign * magnitude``; ``sign`` is +-1, so multiplying by it again undoes it.
+    return BeusloRecord(llc, element, face, sign * sum(intensities) / len(intensities))
+
+
+def get_loads(bulk_str: str, fem: FEM) -> Step | None:
+    """The deck's BEUSLO records as one static step of pressure loads, or ``None``.
+
+    Nothing is added to ``fem`` when the deck carries no BEUSLO record it can hold, so a deck
+    without one -- every deck this reader has ever read -- comes back exactly as before, step
+    table and all.
+
+    One ``LoadPressure`` per (load case, face, magnitude): those three are all a ``Load``
+    distinguishes, and a deck writes one record per element, so the records have to be grouped
+    back the way ``write_loads.load_pressure`` split them up. The element set is the deck's own
+    when one holds exactly those elements -- which is the usual case, the writer having written
+    the surface's set as GSETMEMB -- and a generated one otherwise, the same fallback
+    ``read_constraints.group_bcs`` makes for a node set.
+    """
+    records = list(beuslo_records(bulk_str, fem))
+    if not records:
+        return None
+
+    names = load_case_names(bulk_str)
+    # One pass over the deck's element sets, not one per load: a jacket model has thousands.
+    by_members = _elsets_by_membership(fem)
+    step = fem.add_step(StepImplicitStatic(READ_STEP_NAME, use_default_outputs=False))
+    for llc in sorted({r.llc for r in records}):
+        lc_name = case_name(names, llc)
+        groups: dict[tuple[int, float], list[Elem]] = {}
+        for record in (r for r in records if r.llc == llc):
+            groups.setdefault((record.face, record.magnitude), []).append(record.element)
+        loads = []
+        # In the order each group's first record appears in the deck, which is the order the
+        # writer emitted the loads in: written back out, the load block comes out unchanged.
+        for i, (face, magnitude) in enumerate(groups, start=1):
+            elements = sorted(groups[(face, magnitude)], key=lambda e: e.id)
+            side = "SPOS" if face == _SIDE_FACE[SIDE_POSITIVE][0] else "SNEG"
+            fem_set = _elset_for(fem, by_members, elements, _unique(f"{lc_name}_{side}", fem.elsets))
+            surface = fem.add_surface(
+                Surface(
+                    _unique(f"{fem_set.name}_{side}", fem.surfaces),
+                    Surface.TYPES.ELEMENT,
+                    fem_set,
+                    el_face_index=face,
+                    parent=fem,
+                )
+            )
+            name = f"{lc_name}_pressure" if len(groups) == 1 else f"{lc_name}_pressure{i}"
+            loads.append(LoadPressure(name, magnitude, surface))
+        step.add_loadcase(LoadCase(lc_name, None, loads=loads))
+    return step
+
+
+def _unique(name: str, taken) -> str:
+    """``name``, suffixed with a counter if ``taken`` (a name-keyed mapping) already has it."""
+    if name not in taken:
+        return name
+    return next(f"{name}_{i}" for i in range(2, len(taken) + 3) if f"{name}_{i}" not in taken)
+
+
+def _elsets_by_membership(fem: FEM) -> dict[frozenset, FemSet]:
+    """``{frozenset of element ids: the first element set holding exactly them}``.
+
+    First in file order wins, which is how ``read_constraints.group_bcs`` breaks the same tie
+    for a node set.
+    """
+    index: dict[frozenset, FemSet] = {}
+    for fs in fem.sets.sets:
+        if fs.type == FemSet.TYPES.ELSET:
+            index.setdefault(frozenset(m.id for m in fs.members), fs)
+    return index
+
+
+def _elset_for(fem: FEM, by_members: dict[frozenset, FemSet], elements: list[Elem], name: str) -> FemSet:
+    """The deck's element set holding exactly ``elements``, or a new one called ``name``.
+
+    A generated set is registered with ``parent=fem`` so the array-backed reader's internal ->
+    external renumber pass reaches it (``reader._remap_id_backed_sets`` only remaps the sets it
+    finds in ``fem.sets``), and is added to the index so a second group of the same elements --
+    the two faces of one plate, say -- shares it rather than creating a duplicate.
+    """
+    ids = frozenset(el.id for el in elements)
+    found = by_members.get(ids)
+    if found is not None:
+        return found
+    fem_set = fem.sets.add(FemSet(name, elements, FemSet.TYPES.ELSET, parent=fem))
+    by_members[ids] = fem_set
+    return fem_set
