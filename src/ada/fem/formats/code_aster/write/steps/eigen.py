@@ -17,8 +17,8 @@ def step_eig_str(step: StepEigen, part: Part) -> str:
             if bc not in bcs:
                 bcs.append(bc)
 
-    if len(bcs) > 1 or len(bcs) == 0:
-        raise NotImplementedError(f"Number of BC sets {len(bcs)=} is for now limited to 1 for eigenfrequency analysis")
+    if len(bcs) == 0:
+        raise NotImplementedError("An eigenfrequency analysis needs at least one boundary condition")
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
     eig_type = step.metadata.get("eig_method", "sorensen")
@@ -43,13 +43,17 @@ modes_0 = PROJ_CHAMP(
     RESULTAT=modes
 )"""
 
-    bc = bcs[0]
+    # `ASSEMBLAGE`'s CHARGE takes a tuple of mechanical loads, so every Bc goes in. This was one
+    # Bc only, which made a plate unanalysable: simple support plus a cylindrical-bending restraint
+    # is four disjoint node sets (they have to be disjoint -- Code_Aster refuses a dof held twice
+    # with <ASSEMBLA_26>), and there is no way to spell that as a single Bc.
+    charge_str = ", ".join(bc.name for bc in bcs)
     return f"""
 #modal analysis
 ASSEMBLAGE(
     MODELE=model,
     CHAM_MATER=material,{sec_str}
-    CHARGE={bc.name},
+    CHARGE=({charge_str},),
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),

@@ -24,6 +24,7 @@ Abaqus and Sestra join in where they exist.
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import numpy as np
@@ -56,6 +57,33 @@ FORMATS = ("calculix", "code_aster", "abaqus", "sesam")
 #: ``q L b``: the total load, newtons. The one scalar that says the *whole* pressure arrived -- a
 #: deck short by one element's load moves mid-span by far less than the discretisation residual.
 TOTAL_LOAD = PLATE_STRIP_PRESSURE * PLATE_STRIP_LENGTH * PLATE_STRIP_WIDTH
+
+
+#: The executable each solver actually installs under, where that differs from the name adapy looks
+#: for. ``get_exe_path`` searches for a binary called ``calculix`` / ``code_aster``; conda-forge
+#: ships ``ccx`` and ``run_aster``. Without this the whole comparison skips in the very environment
+#: built to run it -- the `fem` env, including CI -- which is a green run that measured nothing.
+_CONDA_EXE_NAMES = {"calculix": "ccx", "code_aster": "run_aster"}
+
+
+@pytest.fixture(autouse=True)
+def _point_adapy_at_the_conda_solvers(monkeypatch):
+    """Set ``ADA_<solver>_exe`` for any solver present under its conda binary name.
+
+    Scoped to this module rather than fixed in ``get_exe_path``, because making adapy discover these
+    globally would turn every currently-skipping FEA test into a live solver run -- a change worth
+    making deliberately, not as a side effect of adding a test.
+    """
+    import shutil
+    import sys
+
+    for fem_format, exe_name in _CONDA_EXE_NAMES.items():
+        env_var = f"ADA_{fem_format}_exe"
+        if os.environ.get(env_var):
+            continue
+        found = shutil.which(exe_name) or (pathlib.Path(sys.prefix) / "bin" / exe_name)
+        if found and pathlib.Path(found).exists():
+            monkeypatch.setenv(env_var, str(found))
 
 
 def _solver_available(fem_format: str) -> bool:

@@ -63,13 +63,24 @@ from paradoc.tasks import (  # noqa: E402
 
 import ada  # noqa: E402
 from ada.api.fem_tasks import (  # noqa: E402
+    PLATE_PART_NAME,
+    PLATE_STRIP_LENGTH,
+    PLATE_STRIP_WIDTH,
     design_cantilever,
+    design_plate_strip,
     eig_case_name,
     is_eig_skip,
+    is_plate_skip,
     mesh_cantilever,
+    mesh_plate_strip,
+    plate_case_name,
+    plate_closed_form_deflection,
+    plate_closed_form_frequencies,
 )
 from ada.api.fem_tasks import run_eig as run_eig_helper  # noqa: E402
+from ada.api.fem_tasks import run_plate_eig, run_plate_pressure  # noqa: E402
 from ada.fem.exceptions.fea_software import FEASolverNotInstalled  # noqa: E402
+from ada.fem.results import walk_cached_case_results  # noqa: E402
 from ada.fem.results.docs import (  # noqa: E402
     FeaCaseFilter,
     bake_fea_bundles,
@@ -561,3 +572,279 @@ def fea_outputs(results: list) -> list:
         outcomes.append(FilterOutcome(filter=FeaCaseFilter.from_assets(assets)))
 
     return outcomes
+
+
+# ---------------------------------------------------------------------------------------------
+# The plate strip: the shell half of the report, on plates rather than on a beam
+# ---------------------------------------------------------------------------------------------
+#
+# Everything above is one *beam*, in three representations. This is a plate: an `ada.Plate` meshed
+# into shells by the meshing module and written out as a deck per solver, checked against its own
+# closed forms rather than only against another solver.
+#
+# Two analyses, because they exercise different halves of the writers. The eigen case reaches the
+# mass and stiffness matrices and nothing else; the static case is the only one that reaches the
+# distributed-load records -- `*DLOAD`, `FORCE_COQUE` and BEUSLO -- which is where the pressure
+# support and its sign convention live.
+#
+# `stiffened` adds a T-profile bar on the centreline. It has no closed form (a parallel-spring
+# estimate is not one), so it is a cross-solver agreement case, and it is what carries a T section
+# through the deck writers.
+
+#: Element seeds for the plate cases, metres: 32 / 64 / 128 quads per span, a factor of two apart so
+#: the convergence order is readable off the table rather than asserted.
+_PLATE_MESH_SIZES = [0.125, 0.0625, 0.03125]
+
+#: Modes for the plate eigen case. The closed form covers the cylindrical modes, which are the low
+#: ones, so a long list would mostly be modes with nothing to compare against.
+_PLATE_EIG_MODES = 6
+
+#: The one seed the eigen case runs at. Frequencies converge from above far faster than a deflection
+#: does, and the static case already carries the mesh-refinement story.
+_PLATE_EIG_MESH_SIZE = 0.0625
+
+_PLATE_SCRATCH_DIR = _THIS_DIR / "temp" / "plate"
+
+#: The plate cases cache beside `.cache`, not inside it. `walk_cached_case_results` uses `rglob`, so
+#: a subdirectory would still be walked by the cantilever's own `retrieve_cached_results` -- and a
+#: plate eigen snapshot IS a `FeaVerificationResult` carrying `geo="shell"`, `elo=1`, so it would
+#: decode cleanly and land as an extra column in the cantilever's shell comparison table.
+_PLATE_CACHE_DIR = _THIS_DIR / ".cache-plate"
+_PLATE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@task(fanout={"stiffened": [False, True]})
+def plate_design(*, stiffened: bool) -> ada.Assembly:
+    """The strip as geometry: an `ada.Plate`, plus a T bar when stiffened. No FEM.
+
+    `stiffened` is stashed on the assembly because a task body is handed only its *own* fanout
+    kwargs -- the merged set reaches `skip_if` predicates, not the function. So a child that needs an
+    ancestor's axis reads it off the object it was passed, which is the arrangement `mesh` uses too.
+    """
+    a = design_plate_strip(stiffened=stiffened)
+    a.metadata["stiffened"] = stiffened
+    return a
+
+
+@task(parent=plate_design, fanout={"mesh_size": _PLATE_MESH_SIZES})
+def plate_mesh(a: ada.Assembly, *, mesh_size: float) -> ada.Assembly:
+    """Mesh the plate into quads through the meshing module and apply its supports.
+
+    Deep-copied first, for the same reason `mesh` is: the runner reuses one `plate_design` result
+    across every seed, and the supports are added to the FEM in place.
+
+    The axes ride along on `metadata["plate_axes"]` so the solver tasks below can name their case
+    without re-declaring the fanout (which would re-fan the matrix).
+    """
+    a = copy.deepcopy(a)
+    stiffened = bool(a.metadata.get("stiffened", False))
+    a = mesh_plate_strip(a, mesh_size=mesh_size, elem_order=1, use_quads=True)
+    n_shells = len([el for el in a.get_part(PLATE_PART_NAME).fem.elements if el.type.value.startswith("QUAD")])
+    a.metadata["plate_axes"] = {"mesh_size": mesh_size, "stiffened": stiffened, "n_shells": n_shells}
+    return a
+
+
+def _plate_static_skip(**kw: object) -> bool:
+    return is_plate_skip(fem_format=kw["solver"], analysis="static", elem_order=1, stiffened=kw["stiffened"])
+
+
+def _plate_eig_skip(**kw: object) -> bool:
+    # One seed for the eigen case; the others are the static convergence study's.
+    if kw["mesh_size"] != _PLATE_EIG_MESH_SIZE:
+        return True
+    return is_plate_skip(fem_format=kw["solver"], analysis="EIG", elem_order=1, stiffened=kw["stiffened"])
+
+
+@task(
+    parent=plate_mesh,
+    fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
+    skip_if=_plate_static_skip,
+)
+def plate_run_static(a: ada.Assembly, *, solver: str):
+    """Write the deck with a uniform pressure on the plate, solve it, keep mid-span ``u3``.
+
+    A missing solver logs and returns None rather than failing the build -- the shape every cell in
+    this report has, so a machine with only the free solvers still produces a report.
+    """
+    axes = a.metadata["plate_axes"]
+    name = plate_case_name(solver, "static", 1, axes["stiffened"])
+    name = f"{name}_h{str(axes['mesh_size']).replace('.', 'p')}"
+    try:
+        result = run_plate_pressure(
+            copy.deepcopy(a),
+            fem_format=solver,
+            scratch_dir=_PLATE_SCRATCH_DIR,
+            name=name,
+            overwrite=True,
+            execute=True,
+        )
+    except FEASolverNotInstalled as exc:
+        logger.warning(f"{name}: solver {solver!r} not installed: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001 - one bad cell must not lose the report
+        logger.warning(f"{name}: {type(exc).__name__}: {exc}", exc_info=True)
+        return None
+
+    if result is None:
+        return None
+    try:
+        u3 = ru.mid_span_u3(result, PLATE_STRIP_LENGTH, PLATE_STRIP_WIDTH)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"{name}: could not sample mid-span u3: {exc}")
+        return None
+
+    result._plate_case = {"name": name, "solver": solver, "u3": u3, **axes}
+    return result
+
+
+@task(
+    parent=plate_mesh,
+    fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
+    skip_if=_plate_eig_skip,
+)
+def plate_run_eig(a: ada.Assembly, *, solver: str):
+    """The same plate, as an eigenvalue analysis."""
+    axes = a.metadata["plate_axes"]
+    name = plate_case_name(solver, "EIG", 1, axes["stiffened"])
+    try:
+        result = run_plate_eig(
+            copy.deepcopy(a),
+            fem_format=solver,
+            scratch_dir=_PLATE_SCRATCH_DIR,
+            name=name,
+            eigen_modes=_PLATE_EIG_MODES,
+            overwrite=True,
+            execute=True,
+        )
+    except FEASolverNotInstalled as exc:
+        logger.warning(f"{name}: solver {solver!r} not installed: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"{name}: {type(exc).__name__}: {exc}", exc_info=True)
+        return None
+
+    if result is not None:
+        result._plate_case = {"name": name, "solver": solver, **axes}
+    return result
+
+
+@task(consumes=plate_run_static)
+def plate_static_postprocess(results: list) -> list:
+    """Wrap each live static case, then layer on any cached ones.
+
+    Same two-source shape as `postprocess`: what ran this build, plus the JSON snapshots in
+    `.cache/` for the solvers this machine does not have. That is what lets a report built with only
+    Calculix and Code_Aster still show the Abaqus and Sestra columns someone else measured.
+    """
+    out: list = []
+    for r in results:
+        case = getattr(r, "_plate_case", {})
+        wrapper = ru.PlateStaticResult(
+            name=case.get("name", "plate_static"),
+            fem_format=r.softwares[0] if getattr(r, "softwares", None) else case.get("solver", "unknown"),
+            results=r,
+            metadata={"elo": 1},
+            mid_span_u3=case.get("u3"),
+            mesh_size=case.get("mesh_size"),
+            stiffened=case.get("stiffened", False),
+            n_shells=case.get("n_shells"),
+        )
+        wrapper.name = wrapper.safe_name
+        cache_file = _PLATE_CACHE_DIR / f"{wrapper.name}.json"
+        try:
+            wrapper.save_to_json(cache_file)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"could not cache {wrapper.name}: {exc}")
+        out.append(wrapper)
+
+    live = {r.name for r in out}
+    for cached in walk_cached_case_results(ru.PlateStaticResult, _PLATE_CACHE_DIR, skip_names=live):
+        if cached.name.startswith("plate_static"):
+            out.append(cached)
+
+    logger.info(f"plate_static_postprocess: {len(out)} case(s) (live + cached)")
+    return out
+
+
+@task(parent=plate_static_postprocess)
+def plate_static_tables(results: list) -> list:
+    """One table of mid-span deflection against the closed form, per load case."""
+    out: list = []
+    for stiffened, caption in (
+        (
+            False,
+            "Plate strip mid-span deflection [m] under 1 kPa, by solver and mesh seed. The closed "
+            "form is 5 q L^4 / (384 D) for a strip in cylindrical bending.",
+        ),
+        (
+            True,
+            "The same strip with a T-profile stiffener on its centreline [m]. No closed form: this "
+            "is a cross-solver agreement case.",
+        ),
+    ):
+        subset = [r for r in results if getattr(r, "stiffened", False) is stiffened]
+        df = ru.create_plate_static_df(subset, plate_closed_form_deflection())
+        if df is None or df.empty:
+            logger.info(f"no plate static rows for stiffened={stiffened}, skipping table")
+            continue
+        out.append(
+            TableOutcome(
+                key=f"plate_static_st{stiffened}",
+                df=df,
+                caption=caption,
+                show_index=False,
+            )
+        )
+    return out
+
+
+@task(consumes=plate_run_eig)
+def plate_eig_postprocess(results: list) -> list:
+    """Wrap each live plate eigen case as a `FeaVerificationResult`, and cache it."""
+    out: list = []
+    for r in results:
+        case = getattr(r, "_plate_case", {})
+        fvr = ru.postprocess_result(
+            r, {"elo": 1, "geo": "shell", "hexquad": True, "stiffened": case.get("stiffened", False)}
+        )
+        fvr.name = case.get("name", fvr.name)
+        fvr.name = fvr.safe_name
+        try:
+            fvr.save_to_json(_PLATE_CACHE_DIR / f"{fvr.name}.json")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"could not cache {fvr.name}: {exc}")
+        out.append(fvr)
+
+    live = {r.name for r in out}
+    for cached in walk_cached_case_results(ru.FeaVerificationResult, _PLATE_CACHE_DIR, skip_names=live):
+        if cached.name.startswith("plate_EIG"):
+            out.append(cached)
+
+    logger.info(f"plate_eig_postprocess: {len(out)} case(s) (live + cached)")
+    return out
+
+
+@task(parent=plate_eig_postprocess)
+def plate_eig_tables(results: list) -> list:
+    """Plate eigenfrequencies by solver, against the cylindrical closed form."""
+    # `FeaVerificationResult` has no `stiffened` field, so the axis rides in `metadata` -- reading it
+    # off the attribute returned the default for both variants and put the stiffened plate's
+    # frequencies in the unstiffened table.
+    subset = [r for r in results if r.metadata.get("stiffened", False) is False]
+    df = ru.create_plate_eig_df(subset, plate_closed_form_frequencies(_PLATE_EIG_MODES))
+    if df is None or df.empty:
+        logger.info("no plate eigen rows, skipping table")
+        return []
+    return [
+        TableOutcome(
+            key="plate_eig_compare",
+            df=df,
+            caption=(
+                "Plate strip eigenfrequencies [Hz], by solver, at a 0.0625 m seed. The closed form "
+                "is f_n = n^2 pi / (2 L^2) sqrt(D / (rho t)), valid for the cylindrical modes the "
+                "long-edge constraint admits."
+            ),
+            show_index=False,
+            default_sort=("Mode", True),
+        )
+    ]

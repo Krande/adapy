@@ -509,8 +509,13 @@ def is_plate_skip(*, fem_format: str | FEA, analysis: str, elem_order: int, stif
     # Code_Aster's shell modelisation here is DKT/DKQ, which is first order only.
     if fem_format == FEA.CODE_ASTER and elem_order == 2:
         return True
-    # A stiffener is a line element, and Calculix's general beam elements do not take part in an
-    # eigenvalue analysis (see `check_compatibility`).
-    if fem_format == FEA.CALCULIX and stiffened and analysis == "EIG":
+    # A T stiffener reaches Calculix as a general section on a `U1` user element (CalculiX' beam
+    # library has no I or T keyword), and a U1 sharing its nodes with shells is more than that
+    # element can do: measured, ccx 2.23 stops at `*ERROR in gen3delem: first thickness in node 1 of
+    # element 1 is zero` while expanding the mesh to 3D, for the static case as well as the eigen
+    # one. adapy already gates U1 against gravity loads for a related reason
+    # (`calculix.compatibility.check_compatibility`). So the stiffened plate is a case for the other
+    # three solvers, and its table says so rather than showing an empty Calculix column.
+    if fem_format == FEA.CALCULIX and stiffened:
         return True
     return False
