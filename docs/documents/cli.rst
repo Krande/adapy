@@ -64,6 +64,10 @@ extensions, and ``--from`` / ``--to`` override that inference.
    * - ``xml``
      - ``.xml``
      - GeniE XML.
+   * - ``gnx``
+     - ``.gnx``
+     - GeniE workspace: the same concept XML zipped with its ACIS body, which is
+       what GeniE opens directly. ``ada.from_gnx`` is the Python entry point.
    * - ``acis``
      - ``.sat``, ``.acis``
      -
@@ -95,6 +99,10 @@ extensions, and ``--from`` / ``--to`` override that inference.
    * - ``xml``
      - ``.xml``
      - GeniE XML.
+   * - ``gnx``
+     - ``.gnx``
+     - GeniE workspace. Same model as ``xml``, in the container GeniE saves and
+       opens; ``Assembly.to_gnx`` is the Python entry point.
    * - ``abaqus``
      - ``.inp``
      - Default owner of ``.inp``. One self-contained deck — the include files
@@ -121,6 +129,15 @@ owner, picked to agree with what ``ada.from_fem`` already infers from a path:
 ``--to`` and no other way. Inference is not silent about it: resolving a shared
 extension is logged at ``INFO``, naming the flag that would have chosen the other
 one.
+
+``xml`` and ``gnx`` are the inverse case: one model, two containers. A ``.gnx`` is
+the GeniE workspace -- the concept XML plus its ACIS body, zipped the way GeniE
+saves one -- so the extension decides which container is written and ``--to``
+cannot override it. ``ada convert in.xml out.gnx --to xml`` is a usage error
+rather than an override, because the flag selects no conversion there: it can only
+put plain XML under a name GeniE will try to unzip, or a zip under a name an XML
+parser will try to parse, and neither file opens. Drop the flag and let the
+extension pick, or name the output with the extension you meant.
 
 The output argument always names **one file**, never a directory, and that exact
 path is what exists when the command exits ``0``. This is worth stating because
@@ -163,6 +180,8 @@ surprise.
 
     ada convert model.sat model.stp
     ada convert model.ifc model.glb
+    ada convert model.gnx model.ifc                  # GeniE workspace -> IFC
+    ada convert model.xml model.gnx                  # concept XML -> workspace
     ada convert model.inp model.FEM                  # Abaqus deck -> Sesam deck
     ada convert model.inp analysis/modelT1.FEM       # same, named as Sesam names it
     ada convert model.inp ufo/model.fem --to usfos

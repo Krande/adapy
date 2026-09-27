@@ -19,6 +19,7 @@ import argparse
 import contextlib
 import logging
 import pathlib
+import zipfile
 
 import pytest
 
@@ -613,3 +614,144 @@ def test_strict_exits_0_when_only_approximations_were_reported(src_inp, tmp_path
 def test_without_strict_an_omission_still_exits_0(src_inp, tmp_path, omitting_load):
     out = tmp_path / "model.FEM"
     assert _cmd_convert(_ns(src_inp, out)) == 0
+
+
+# --------------------------------------------------------------------------------------
+# .gnx -- the Genie workspace, its own read and write format
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def src_xml(tmp_path_factory) -> pathlib.Path:
+    """A GeniE concept XML with one beam and one plate, as the ``.gnx`` cases' input."""
+    tmp = tmp_path_factory.mktemp("cli_convert_gxml")
+    p = ada.Part("P") / (
+        ada.Beam("bm1", (0, 0, 0), (4, 0, 0), "IPE300"),
+        ada.Plate("pl1", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.02),
+    )
+    xml = tmp / "src.xml"
+    (ada.Assembly("src") / p).to_genie_xml(xml)
+    assert xml.is_file()
+    return xml
+
+
+@pytest.fixture(scope="module")
+def src_gnx(tmp_path_factory) -> pathlib.Path:
+    tmp = tmp_path_factory.mktemp("cli_convert_gnx")
+    p = ada.Part("P") / (
+        ada.Beam("bm1", (0, 0, 0), (4, 0, 0), "IPE300"),
+        ada.Plate("pl1", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.02),
+    )
+    gnx = tmp / "src.gnx"
+    (ada.Assembly("src") / p).to_gnx(gnx)
+    assert gnx.is_file()
+    return gnx
+
+
+def _is_zip(path: pathlib.Path) -> bool:
+    """A workspace is a zip; a concept XML is text. Two bytes tell them apart."""
+    return path.read_bytes()[:2] == b"PK"
+
+
+def test_gnx_is_inferred_from_the_extension_in_both_directions():
+    """``ada convert model.gnx out.ifc`` used to need ``--from xml`` to work at all, because
+    ``.gnx`` was in neither table and an explicit flag is what skips inference."""
+    assert _resolve_read_format("a.gnx", None) == "gnx"
+    assert _resolve_write_format("a.gnx", None) == "gnx"
+
+
+def test_the_loader_reads_a_workspace_with_no_flags(src_gnx):
+    model = _load(src_gnx)
+    assert isinstance(model, ada.Assembly)
+    assert [bm.name for bm in model.get_all_physical_objects(by_type=ada.Beam)] == ["bm1"]
+    assert [pl.name for pl in model.get_all_physical_objects(by_type=ada.Plate)] == ["pl1"]
+
+
+def test_a_gnx_target_gets_the_zip_container(src_xml, tmp_path):
+    out = tmp_path / "out.gnx"
+    _cmd_convert(_ns(src_xml, out))
+    assert out.is_file()
+    assert _is_zip(out), "a .gnx must be the workspace zip"
+    with zipfile.ZipFile(out) as z:
+        assert "modelData.xml" in z.namelist()
+        assert "acisGeometry.sat" in z.namelist()
+
+
+def test_an_xml_target_stays_plain_text(src_xml, tmp_path):
+    out = tmp_path / "out.xml"
+    _cmd_convert(_ns(src_xml, out))
+    assert out.is_file()
+    assert not _is_zip(out)
+    assert out.read_bytes().lstrip()[:1] == b"<"
+
+
+@pytest.mark.parametrize("to_format", ["xml", "gnx"])
+def test_the_container_a_target_gets_does_not_depend_on_the_to_flag(src_xml, tmp_path, to_format):
+    """The other half of the refusal below: whichever way ``--to`` is spelled, an extension
+    that is honoured gets the container its extension means."""
+    ext = to_format
+    out = tmp_path / f"explicit.{ext}"
+    _cmd_convert(_ns(src_xml, out, to_format=to_format))
+    assert _is_zip(out) is (ext == "gnx")
+
+
+@pytest.mark.parametrize(
+    "out_name, to_format",
+    [("out.gnx", "xml"), ("out.xml", "gnx")],
+)
+def test_a_container_contradiction_is_a_usage_error(src_xml, tmp_path, out_name, to_format):
+    """``ada convert in.xml out.gnx --to xml`` used to write plain XML into a ``.gnx`` name.
+
+    Silently: the generic "unusual extension" warning fired and the file was produced, and a
+    plain XML named ``.gnx`` is the one thing a workspace name promises it is not -- GeniE
+    opens a ``.gnx`` by unzipping it, so the file the user was handed cannot be opened at
+    all, and nothing said so. The reverse, a zip named ``.xml``, fails the same way in any
+    XML parser.
+
+    ``--to`` overriding the extension is the rule everywhere else in this CLI, so this is a
+    deliberate exception, made where the two names differ *only* by container: there is no
+    conversion left for the flag to select, so it can only contradict. Refused rather than
+    warned, for the same reason ``code_aster`` refuses a ``.comm`` output -- the file we
+    would deliver is not the file that was asked for.
+    """
+    out = tmp_path / out_name
+    with pytest.raises(CliUsageError, match="container"):
+        _cmd_convert(_ns(src_xml, out, to_format=to_format))
+    assert not out.exists(), "the usage error must be raised before anything is written"
+
+
+def test_the_contradiction_is_refused_before_the_input_is_read(src_xml, tmp_path, monkeypatch):
+    """Like every other usage error here: it must not cost the parse of a large model first."""
+    from ada.api import cli
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("the input was read before the invocation was validated")
+
+    monkeypatch.setattr(cli, "_load", _boom)
+    with pytest.raises(CliUsageError, match="container"):
+        _cmd_convert(_ns(src_xml, tmp_path / "out.gnx", to_format="xml"))
+
+
+def test_a_workspace_round_trips_through_the_cli(src_gnx, tmp_path, capsys):
+    """``ada convert a.gnx b.gnx``: inferred on both ends, and the model survives."""
+    out = tmp_path / "rt.gnx"
+    assert _cmd_convert(_ns(src_gnx, out)) == 0
+    assert _is_zip(out)
+    assert capsys.readouterr().out.splitlines() == [str(out.resolve())]
+
+    model = ada.from_gnx(out)
+    beams = {bm.name: bm for bm in model.get_all_physical_objects(by_type=ada.Beam)}
+    plates = {pl.name: pl for pl in model.get_all_physical_objects(by_type=ada.Plate)}
+    assert sorted(beams) == ["bm1"]
+    assert sorted(plates) == ["pl1"]
+    assert beams["bm1"].section.name == "IPE300"
+    assert plates["pl1"].t == pytest.approx(0.02)
+
+
+def test_a_workspace_converts_to_ifc_without_a_from_flag(src_gnx, tmp_path):
+    """The invocation the plan starts from: ``ada convert model.gnx out.ifc``, which only ever
+    worked with an explicit ``--from xml`` because that is what skipped the failed inference."""
+    out = tmp_path / "out.ifc"
+    assert _cmd_convert(_ns(src_gnx, out)) == 0
+    assert out.is_file()
+    assert out.read_bytes()[:4] == b"ISO-"
