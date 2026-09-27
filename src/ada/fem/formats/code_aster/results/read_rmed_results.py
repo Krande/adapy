@@ -234,8 +234,13 @@ class MedReader:
             eig_freq = step
             step = i
 
+        # Code_Aster writes REAC_NODA / FORC_NODA with the same DX..DRZ components as DEPL, so the
+        # components alone would call a reaction a displacement -- and a bake would then warp the mesh
+        # by newtons. The field name decides first, as the streaming MED reader already does.
         field_type = NodalFieldType.UNKNOWN
-        if "DX" in components:
+        if any(token in name.upper() for token in ("REAC", "FORC")):
+            field_type = NodalFieldType.FORCE
+        elif "DX" in components:
             field_type = NodalFieldType.DISP
 
         return NodalFieldData(
