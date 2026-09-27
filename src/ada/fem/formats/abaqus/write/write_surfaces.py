@@ -53,6 +53,12 @@ def surface_str(surface: Surface, write_on_assembly_level: bool) -> str:
                 fs_str += f"{set_ref}\n"
             continue
         el_type = find_element_type_from_list(fs.members)
+        if el_f_index == "":
+            # The entry named no face identifier, and that is information. Writing a face
+            # number here would invent one, and on a continuum element it would narrow the
+            # free-face surface Abaqus reads from a blank side down to a single named face.
+            fs_str += f"{set_ref},\n"
+            continue
         if el_type == ElemType.SOLID:
             fs_str += f"{set_ref}, S{el_f_index + 1}\n"
         elif el_type == ElemType.SHELL:

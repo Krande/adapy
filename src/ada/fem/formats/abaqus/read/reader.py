@@ -1155,12 +1155,21 @@ def get_surfaces_from_bulk(bulk_str, parent):
                 weight_factor = None
                 fem_set = parent.sets.get_elset_from_name(set_ref)
                 el_type = find_element_type_from_list(fem_set.members)
-                if el_type == ElemType.SOLID:
-                    el_face_index = int(set_id_ref.replace("S", "")) - 1
+                # ``ELSET,`` -- an entry that names no face identifier -- is valid Abaqus and
+                # means something specific: for a continuum element, the free faces of those
+                # elements (``ada.fem.surfaces`` resolves it). It is kept as the blank side
+                # rather than guessed at. It used to reach ``int("") - 1`` and take the whole
+                # *Surface down with a bare ValueError, and a surface written without the
+                # trailing comma at all arrived here as the float 1.0 and raised AttributeError.
+                side = set_id_ref.strip() if isinstance(set_id_ref, str) else ""
+                if side == "":
+                    el_face_index = ""
+                elif el_type == ElemType.SOLID:
+                    el_face_index = int(side.replace("S", "")) - 1
                 elif el_type == ElemType.SHELL:
-                    el_face_index = -1 if set_id_ref == "SNEG" else 1
+                    el_face_index = -1 if side == "SNEG" else 1
                 else:
-                    el_face_index = set_id_ref
+                    el_face_index = side
         else:
             fem_set = None
             weight_factor = None
