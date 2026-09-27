@@ -48,14 +48,38 @@ def box_sec(name, sec_prop) -> Section:
 
 
 def angular(name, sec_prop) -> Section:
+    """Genie ``l_section`` -> adapy ANGULAR (bulb flats and equal-leg angles alike).
+
+    ``b``/``tf`` are mirrored onto *both* flange slots, the way ``isec``, ``box_sec``,
+    ``channel_section`` and ``bar_section`` already mirror their single written
+    width/thickness. Leaving ``w_top``/``t_ftop`` unset silently dropped them from every HP
+    profile on the way back in: ``HP200x10`` is built by ``profile_db_collect`` with
+    ``w_top == w_btn == 0.038`` and ``t_ftop == t_fbtn == 0.0224``, and read back as
+    ``w_top=None, t_ftop=None``. Geometry never noticed -- ``calc_angular`` and
+    ``sections.profiles.angular`` read only ``h``, ``w_btn``, ``t_w``, ``t_fbtn``, so every
+    ``GeneralProperties`` value was already exact -- but ``unique_props()`` differed, and that
+    is the only section comparison that survives a file boundary (``Section.__eq__`` is guid
+    identity).
+
+    ``l_section`` is what Genie itself writes for an HP, not an adapy invention: the
+    GeniE V8.4-06 export in ``files/fem_files/sesam/xml_all_basic_props.xml`` carries
+    ``<section name="HP140x8"><l_section h="0.14" b="0.019" tw="0.008" tf="0.0123" .../>``.
+    Those four attributes are all the element has and all an ANGULAR shape needs, so the
+    mirror here -- rather than a new attribute on the writer, which Genie would not read --
+    is where the information belongs.
+    """
+    b = float(sec_prop.attrib["b"])
+    tf = float(sec_prop.attrib["tf"])
     return Section(
         name=name,
         sec_type=Section.TYPES.ANGULAR,
         sec_str=name,
         h=float(sec_prop.attrib["h"]),
-        w_btn=float(sec_prop.attrib["b"]),
+        w_top=b,
+        w_btn=b,
         t_w=float(sec_prop.attrib["tw"]),
-        t_fbtn=float(sec_prop.attrib["tf"]),
+        t_ftop=tf,
+        t_fbtn=tf,
     )
 
 

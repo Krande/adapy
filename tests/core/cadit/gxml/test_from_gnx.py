@@ -90,12 +90,12 @@ def test_from_gnx_takes_an_explicit_signature():
 def round_tripped(tmp_path_factory) -> tuple[ada.Assembly, ada.Assembly, ada.Assembly]:
     """``_build()``, the same model read back from a workspace, and from a plain concept XML.
 
-    The third one is the reference the workspace is held against. Two losses in this round
-    trip belong to the *reader*, not to the container, and both were measured on the ``.xml``
-    path as well (see the tests below): the plate outline comes back rotated by one vertex,
-    and an HP section loses ``w_top``/``t_ftop``. Comparing the workspace against the XML
-    pins the invariant that actually belongs to ``.gnx`` -- the zip carries everything the
-    text carries -- while the comparisons against the source say what the reader does.
+    The third one is the reference the workspace is held against. One loss in this round trip
+    still belongs to the *reader* rather than to the container, and was measured on the
+    ``.xml`` path as well (see ``_cycles`` below): the plate outline comes back rotated by one
+    vertex. Comparing the workspace against the XML pins the invariant that actually belongs
+    to ``.gnx`` -- the zip carries everything the text carries -- while the comparisons
+    against the source say what the reader does.
     """
     tmp = tmp_path_factory.mktemp("from_gnx_rt")
     src = _build()
@@ -144,12 +144,11 @@ def test_round_trip_keeps_sections_by_name_and_by_value(round_tripped):
     """``Section.__eq__`` is guid identity, so the comparison that means anything across a
     file boundary is ``unique_props`` -- type and every dimension.
 
-    One difference is expected and is the reader's, measured identically on the ``.xml``
-    path: an HP (angular) section comes back with ``w_top``/``t_ftop`` unset, so
-    ``HP200x10`` reads as ``(HP, h=0.2, w_top=None, w_btn=0.038, t_w=0.01, t_ftop=None,
-    t_fbtn=0.0224)`` against a source that has ``w_top=0.038, t_ftop=0.0224``. It is named
-    here rather than tolerated by a looser comparison, so that it reading back *correctly*
-    fails this test too and the note gets removed.
+    Nothing differs. An HP used to come back with ``w_top``/``t_ftop`` unset -- the gxml
+    reader's ``angular`` was the one section reader that did not mirror the single written
+    ``b``/``tf`` onto both flange slots -- so ``HP200x10`` read as ``w_top=None,
+    t_ftop=None`` against a source with ``w_top=0.038, t_ftop=0.0224``. Every shape the
+    writer supports is swept in ``test_gxml_section_round_trip.py``.
     """
     src, gnx, _ = round_tripped
     a, b = _sections(src), _sections(gnx)
@@ -159,8 +158,8 @@ def test_round_trip_keeps_sections_by_name_and_by_value(round_tripped):
     differs = {
         name: [p for p in props if getattr(b[name], p) != getattr(a[name], p)] for name in sorted(a) if name in b
     }
-    assert differs == {"IPE300": [], "HP200x10": ["w_top", "t_ftop"]}, differs
-    assert (b["HP200x10"].w_top, b["HP200x10"].t_ftop) == (None, None)
+    assert differs == {"IPE300": [], "HP200x10": []}, differs
+    assert b["HP200x10"].unique_props() == a["HP200x10"].unique_props()
 
 
 def test_round_trip_keeps_materials_by_name_and_by_value(round_tripped):
