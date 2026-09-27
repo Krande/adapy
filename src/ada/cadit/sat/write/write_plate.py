@@ -24,6 +24,15 @@ def outline_ccw_about(points3d, normal) -> list:
     ``test_write_basic_plate_sat`` comes back clockwise). Comparing the loop's
     own Newell normal to the declared one and flipping when they disagree keeps
     the emitted face oriented the way Genie writes it.
+
+    The flip keeps the outline's first vertex first, because ``outline[0]`` is
+    what ``plate_to_sat_entities`` makes the loop's first coedge and therefore
+    what a reader sees as the start of the outline. A plain ``pts[::-1]`` is the
+    same cyclic loop entered one step earlier -- ``[v0, v1, v2, v3]`` becomes
+    ``[v3, v2, v1, v0]`` -- and that one step was the whole reason a plate
+    written to Genie XML read back rotated by a vertex. ``CurvePoly2d._points_fix``
+    rewinds the same way and keeps ``points[0]``; matching it costs nothing,
+    since a rotation of a closed loop is the same loop with the same winding.
     """
     pts = np.asarray(points3d, dtype=float)
     newell = np.zeros(3)
@@ -31,7 +40,8 @@ def outline_ccw_about(points3d, normal) -> list:
         a, b = pts[i], pts[(i + 1) % len(pts)]
         newell += np.cross(a, b)
     if float(np.dot(newell, np.asarray(normal, dtype=float))) < 0:
-        pts = pts[::-1]
+        # Reverse about the first vertex: [v0, v1, v2, v3] -> [v0, v3, v2, v1].
+        pts = np.roll(pts[::-1], 1, axis=0)
     return [tuple(p) for p in pts]
 
 

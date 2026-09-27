@@ -268,9 +268,14 @@ def get_box_section(match, sect_names, fem) -> Section:
 
 
 def get_angular_section(match, sect_names, fem) -> Section:
-    """GLSEC: an L -- a web and one flange (manual 7.3.19). The flange is the bottom one, as
-    adapy's own L profile has it (``Section("L100x100x10")``); filling a top flange in as
-    well made an L read back as a different profile from the one written."""
+    """GLSEC: an L -- a web and one flange (manual 7.3.19), one width and one thickness.
+
+    adapy carries an ANGULAR section's one flange in both flange slots: ``profile_db_collect``
+    fills them for every HP and ``string_to_section`` for every L, so the card's ``BY``/``TZ``
+    go into both, as the Genie XML reader does too. Filling only the bottom slot made every
+    angle read back as a different profile from the one written. Nothing in the ANGULAR
+    geometry reads the top slots (``calc_angular`` and ``profiles.angular`` use ``h``,
+    ``w_btn``, ``t_w``, ``t_fbtn``), so this moves no property, only ``unique_props()``."""
     d = match.groupdict()
     sec_id = str_to_int(d["geono"])
     return Section(
@@ -278,8 +283,10 @@ def get_angular_section(match, sect_names, fem) -> Section:
         sec_id=sec_id,
         sec_type=Section.TYPES.ANGULAR,
         h=float(d["hz"]),
+        w_top=float(d["by"]),
         w_btn=float(d["by"]),
         t_w=float(d["ty"]),
+        t_ftop=float(d["tz"]),
         t_fbtn=float(d["tz"]),
         parent=fem.parent,
     )

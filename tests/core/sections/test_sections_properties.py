@@ -154,6 +154,21 @@ def test_angular():
     eval_assertions(sec, assertions)
 
 
+def test_an_equal_leg_angle_carries_its_leg_in_both_flange_slots():
+    """``L150x10`` is an equal-leg angle, so the one leg fills ``w_top``/``w_btn`` and the one
+    thickness ``t_ftop``/``t_fbtn`` -- as ``profile_db_collect`` fills them for every HP.
+
+    Left unset, ``w_top=None`` is a value other code does arithmetic on: ``BoxSides._get_dim``
+    takes ``max(section.w_btn, section.w_top)``, so measuring an L beam built from its string
+    raised ``TypeError: '>' not supported between instances of 'NoneType' and 'float'``.
+    """
+    sec = Section("MyL", from_str="L150x10")
+    assert (sec.w_top, sec.w_btn, sec.t_ftop, sec.t_fbtn, sec.t_w) == (0.15, 0.15, 0.01, 0.01, 0.01)
+
+    bm = ada.Beam("bm", (0, 0, 0), (2, 0, 0), "L150x10")
+    assert bm.bbox().sides._get_dim()[:3] == (2.0, 0.15, 0.15)
+
+
 def test_channel():
     sec = Section("MySec", from_str="UNP180x10")
 

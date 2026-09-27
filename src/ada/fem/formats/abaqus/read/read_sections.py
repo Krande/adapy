@@ -74,8 +74,12 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
                 parent=fem,
             )
         elif sec_type.upper() == "L":
+            # Flange width, height, flange thickness, web thickness. adapy carries an
+            # ANGULAR's one flange in both flange slots (every HP from the profile DB, every L
+            # from its string), so both are filled -- the bottom one alone read back a different
+            # profile from the one written. The ANGULAR geometry reads only the bottom slots.
             b, h, t1, t2 = props_clean
-            return Section(profile_name, "HP", h=h, w_btn=b, t_w=t2, t_fbtn=t1, parent=fem)
+            return Section(profile_name, "HP", h=h, w_top=b, w_btn=b, t_w=t2, t_ftop=t1, t_fbtn=t1, parent=fem)
         elif sec_type.upper() == "PIPE":
             r, t = props_clean
             return Section(profile_name, "TUB", r=r, wt=t, parent=fem)

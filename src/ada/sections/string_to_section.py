@@ -399,12 +399,18 @@ def angular_section(in_str: str, s: float, units: Units):
             h = float(h_str) * s
             w = h
             t_w = float(tw_str) * s
+            # An equal-leg angle: both flange slots carry the one leg, as profile_db_collect
+            # fills them for every HP. The ANGULAR geometry reads only h, w_btn, t_w and
+            # t_fbtn, so this moves no property or deck line -- only unique_props(), which
+            # otherwise disagreed with any L read back from a file that mirrors (Genie XML).
             sec = Section(
                 in_str,
                 sec_type=SectionCat.BASETYPES.ANGULAR,
                 h=h,
+                w_top=w,
                 w_btn=w,
                 t_w=t_w,
+                t_ftop=t_w,
                 t_fbtn=t_w,
                 metadata=dict(cad_str=in_str),
                 units=units,
