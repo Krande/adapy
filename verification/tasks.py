@@ -10,6 +10,11 @@ Complete declarative pipeline for the FEA verification report:
       (each parent=postprocess)                    (data outcomes)
   versions_filter (parent=postprocess)             (env-probed filter)
 
+  plate_design → plate_mesh → plate_run_static / plate_run_eig
+  plate_glb (parent=plate_design)                  (CAD asset, per variant)
+  plate_static_postprocess / plate_eig_postprocess (aggregators)
+  plate_*_tables / plate_*_fea_outputs             (tables + bundles)
+
 Each task that produces a table / plot / 3D row / filter returns a
 typed Outcome (or a list of them); paradoc.tasks auto-registers those
 on OneDoc before compile. The static bundle export is declared in
@@ -24,13 +29,14 @@ Layout matches paradoc's Q6 convention:
       _assets/          # per-case FEA bundles (bake target)
       report/*.md       # the document body
 
-The per-case ``#### Mode N`` markdown sections are NOT generated at
-build time. Instead, ``report/01-app/00-results-detailed.md`` is
-static, with one ``<!-- paradoc:figure figure_source: eig_modes_section
-solver: X ... -->`` block per solver. The ``eig_modes_section``
-figure-source handler in ``filters.py`` walks ``_assets/<case>/``
-for baked bundles, filters by solver, and expands each block into
-the per-case markdown at preprocessor time.
+The appendix's per-mode sections are NOT generated at build time.
+``report/01-app/00-results-detailed.md`` is static, with one
+``<!-- paradoc:figure figure_source: fea_modes_compare case_prefix: X -->``
+block per case family (cantilever eigen, plate eigen, plate static). The
+``fea_modes_compare`` handler in ``filters.py`` walks ``_assets/`` for
+the bundles ``fea_outputs`` / ``plate_*_fea_outputs`` baked and expands
+each block into one section per mesh configuration, one heading per mode,
+and the formats side by side under it.
 """
 
 from __future__ import annotations
@@ -545,12 +551,11 @@ def fea_outputs(results: list) -> list:
       FilterOutcome per `FeaCaseFilter`
 
     The bake / collect plumbing lives in `utils.py`; this task just
-    sequences them and emits outcomes. The per-case markdown sections
-    (`### case / #### Mode N` blocks) are NOT generated here. Instead,
-    `report/01-app/00-results-detailed.md` is static and uses
-    `<!-- paradoc:figure figure_source: eig_modes_section ... -->`
-    block-sugar registered in `filters.py` to expand per-case sections
-    at preprocessor time. See `verification/filters.py:EigModesSectionFilter`.
+    sequences them and emits outcomes. The appendix markdown is NOT
+    generated here: `report/01-app/00-results-detailed.md` is static and
+    uses `<!-- paradoc:figure figure_source: fea_modes_compare ... -->`
+    block-sugar to lay the bundles out per mode at preprocessor time. See
+    `verification/filters.py:FeaModesCompareFilter`.
     """
     fresh: dict = {}
     if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
@@ -559,7 +564,10 @@ def fea_outputs(results: list) -> list:
 
     assets_by_name: dict = {**fresh}
     for a in cached:
-        assets_by_name.setdefault(a.key, a)
+        # `collect_fea_bundles` walks recursively, so it also finds the plate bundles under
+        # `_assets/plate/`; those are `plate_fea_outputs`' to register.
+        if a.key.startswith("cantilever_"):
+            assets_by_name.setdefault(a.key, a)
 
     outcomes: list = []
     for assets in assets_by_name.values():
@@ -605,6 +613,9 @@ _PLATE_EIG_MESH_SIZE = 0.0625
 
 _PLATE_SCRATCH_DIR = _THIS_DIR / "temp" / "plate"
 
+#: Plate geometry and FEA bundles, nested under `_assets/` so the one gitignore entry covers them.
+_PLATE_ASSETS_DIR = _ASSETS_DIR / "plate"
+
 #: The plate cases cache beside `.cache`, not inside it. `walk_cached_case_results` uses `rglob`, so
 #: a subdirectory would still be walked by the cantilever's own `retrieve_cached_results` -- and a
 #: plate eigen snapshot IS a `FeaVerificationResult` carrying `geo="shell"`, `elo=1`, so it would
@@ -624,6 +635,55 @@ def plate_design(*, stiffened: bool) -> ada.Assembly:
     a = design_plate_strip(stiffened=stiffened)
     a.metadata["stiffened"] = stiffened
     return a
+
+
+@task(parent=plate_design)
+def plate_glb(a: ada.Assembly):
+    """Bake the strip's geometry GLB + poster, one per variant, for the model description.
+
+    The same shape as `beam_glb`, keyed by the `stiffened` axis the assembly carries. No `outputs=`
+    declaration: the path depends on the fanout, and a missing file is regenerated below anyway.
+    """
+    stiffened = bool(a.metadata.get("stiffened", False))
+    stem = "plate_stiffened" if stiffened else "plate"
+    dest = _PLATE_ASSETS_DIR / f"{stem}.glb"
+    regen = os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1"
+    if regen or not dest.exists():
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            a.to_gltf(dest)
+            logger.info(f"wrote plate GLB → {dest}")
+            try:
+                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+
+                glb_to_image(dest).save(str(dest.with_suffix(".png")))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"plate poster PNG failed: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"plate GLB generation failed: {exc}")
+            return None
+
+    if not dest.is_file():
+        return None
+
+    metadata: dict = {}
+    png_path = dest.with_suffix(".png")
+    if png_path.is_file():
+        metadata["image_path"] = str(png_path.relative_to(_THIS_DIR))
+    caption = "Plate strip with a T-profile stiffener on its centreline." if stiffened else "Plate strip geometry."
+    return ThreeDOutcome(
+        row=ThreeDData(
+            key=f"{stem}_geom",
+            glb_path=str(dest.relative_to(_THIS_DIR)),
+            format="glb",
+            camera_pos="iso_3",
+            caption=caption,
+            sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
+            size=dest.stat().st_size,
+            source_type="cad_model_file",
+            metadata=metadata,
+        )
+    )
 
 
 @task(parent=plate_design, fanout={"mesh_size": _PLATE_MESH_SIZES})
@@ -848,3 +908,42 @@ def plate_eig_tables(results: list) -> list:
             default_sort=("Mode", True),
         )
     ]
+
+
+def _plate_bundle_outcomes(cases: list, prefix: str) -> list:
+    """Bake the live plate cases into `_assets/plate/` and register what is on disk.
+
+    The shape `fea_outputs` has for the cantilever: fresh bakes under `ADAPY_VERIFICATION_REGEN_ASSETS=1`,
+    otherwise whatever bundles an earlier build left. Cached-only cases (Abaqus, Sestra) carry no live
+    result and so no bundle; the appendix shows the formats that ran.
+    """
+    fresh: dict = {}
+    if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
+        fresh = bake_fea_bundles(cases, out_dir=_PLATE_ASSETS_DIR)
+    assets_by_name: dict = {**fresh}
+    for a in collect_fea_bundles(_PLATE_ASSETS_DIR, skip_keys=set(fresh)):
+        if a.key.startswith(prefix):
+            assets_by_name.setdefault(a.key, a)
+
+    outcomes: list = []
+    for assets in assets_by_name.values():
+        for row in to_paradoc_rows(assets, base_dir=_THIS_DIR, caption=f"{assets.key} FEA results."):
+            outcomes.append(ThreeDOutcome(row=row))
+    return outcomes
+
+
+@task(parent=plate_eig_postprocess)
+def plate_eig_fea_outputs(results: list) -> list:
+    """FEA bundles for the plate eigen cases, plain and stiffened, for the appendix."""
+    return _plate_bundle_outcomes(results, "plate_EIG_")
+
+
+@task(parent=plate_static_postprocess)
+def plate_static_fea_outputs(results: list) -> list:
+    """FEA bundles for the plate static cases, at the eigen case's seed only.
+
+    The three seeds deform into the same shape; the convergence story is the table's. One seed keeps
+    the appendix to one row per variant, and the eigen seed makes it the same mesh as the modes.
+    """
+    at_seed = [r for r in results if getattr(r, "mesh_size", None) == _PLATE_EIG_MESH_SIZE]
+    return _plate_bundle_outcomes(at_seed, "plate_static_")

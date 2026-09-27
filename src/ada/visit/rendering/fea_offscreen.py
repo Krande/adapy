@@ -70,6 +70,14 @@ def _list_displacement_entries(manifest: dict) -> list[tuple[str, int]]:
     return out
 
 
+def _pair_keys(pairs):
+    """One uint64 per undirected (from, to) pair, for set operations on edge lists."""
+    import numpy as np
+
+    ordered = np.sort(pairs.astype(np.uint64), axis=1)
+    return (ordered[:, 0] << np.uint64(32)) | ordered[:, 1]
+
+
 def _parse_afeg(buf: bytes):
     """Parse an AFEG (Adapy Field EdGe) sidecar — the bake's
     element-boundary wireframe. Format:
@@ -257,10 +265,38 @@ def render_fea_mode_from_bundle(
     # renders. Skipped silently when the sidecar is missing or the
     # mesh was loaded as a PointCloud (the bake doesn't ship edges
     # for those cases yet).
+    # Line elements -- a beam model, or a plate's stiffener -- live in their own
+    # sidecar, `fea.mesh.line_edges.bin`, in the same AFEG format. The mesh GLB
+    # carries no line primitives (a line-only mesh even loads as a PointCloud),
+    # so without this a beam poster showed its nodes and a stiffened plate
+    # showed no stiffener. Drawn as coloured members over the surface, and taken
+    # out of the grey wireframe below so no edge is drawn twice -- the same split
+    # the frontend makes.
+    line_pairs = None
+    line_edges_bin = case_dir / "fea.mesh.line_edges.bin"
+    if line_edges_bin.is_file():
+        line_pairs = _parse_afeg(line_edges_bin.read_bytes())
+        if line_pairs is not None and line_pairs.size > 0:
+            from trimesh.path.entities import Line
+            from trimesh.path.path import Path3D
+
+            member_colors = None
+            if apply_colormap:
+                mag = np.linalg.norm(delta, axis=1)
+                member_colors = _abaqus_rgba(mag[line_pairs].mean(axis=1))
+            members = Path3D(
+                entities=[Line(points=pair.tolist()) for pair in line_pairs],
+                vertices=np.asarray(mesh.vertices, dtype=np.float32),
+                colors=member_colors,
+            )
+            scene.add_geometry(members, geom_name="line_elements")
+
     edges_bin = case_dir / "fea.mesh.edges.bin"
     if edges_bin.is_file() and not isinstance(mesh, trimesh.PointCloud):
         try:
             edge_indices = _parse_afeg(edges_bin.read_bytes())
+            if edge_indices is not None and line_pairs is not None and line_pairs.size > 0:
+                edge_indices = edge_indices[~np.isin(_pair_keys(edge_indices), _pair_keys(line_pairs))]
             if edge_indices is not None and edge_indices.size > 0:
                 # `Path3D` consumes lists of entities + a shared vertex
                 # array. Use `Line` entities with two-point segments

@@ -1,14 +1,15 @@
 """Tests for verification/filters.py block-sugar handlers.
 
-The verification report registers an ``eig_modes_section`` figure-source
-that expands a comment block into the per-case markdown sections for one
-solver. The filter walks ``bundle_root/<assets_dir>/`` for baked FEA
-bundles, filters by solver, and returns a mixed list of
-``MarkdownChunk`` (headings, placeholders) and ``RenderResult`` (per-mode
-figure references).
+The verification report registers a ``fea_modes_compare`` figure-source
+that expands a comment block into the results appendix for one family of
+cases: one section per mesh configuration, one heading per mode, and the
+formats side by side in a grid div under it. The filter walks
+``doc_root/<assets_dir>/`` for baked FEA bundles and returns a mixed list
+of ``MarkdownChunk`` (headings, grid fences, placeholders) and
+``RenderResult`` (one figure per solver per mode).
 
 We don't exercise the renderer or paradoc's full compile here — pure
-unit tests against ``EigModesSectionFilter.render()``. Synth a minimal
+unit tests against ``FeaModesCompareFilter.render()``. Synth a minimal
 bundle layout on disk, drive the filter directly, assert the returned
 sequence.
 """
@@ -59,148 +60,107 @@ def _make_case(case_dir: pathlib.Path, *, modes: list[int]) -> None:
             (case_dir / f"fea.mesh.mode_{n}.png").write_bytes(_PNG_BYTES)
 
 
-def test_renders_per_case_with_mode_per_section_layout(tmp_path):
-    """A baked CA case yields:
+def _render(tmp_path, case_prefix: str, analysis: str = "eigen") -> list:
+    from filters import FeaModesCompare, FeaModesCompareFilter
 
-    1. ``MarkdownChunk('### <case>\\n')`` heading
-    2. Per baked mode: ``MarkdownChunk('#### Mode N\\n')`` then ``RenderResult``.
-    """
-    from filters import EigModesSection, EigModesSectionFilter
+    spec = FeaModesCompare(
+        figure_source="fea_modes_compare",
+        figure_title="x",
+        case_prefix=case_prefix,
+        analysis=analysis,
+    )
+    return FeaModesCompareFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="fea_modes_compare_1")
+
+
+def _texts(out) -> list[str]:
+    from paradoc.figure_sources.filters.base import MarkdownChunk
+
+    return [e.text for e in out if isinstance(e, MarkdownChunk)]
+
+
+def test_formats_side_by_side_per_mode(tmp_path):
+    """Two formats of the same configuration land under one heading, and each mode's figures sit in
+    one grid div in the fixed solver order (Calculix before Code_Aster)."""
     from paradoc.figure_sources.filters.base import MarkdownChunk, RenderResult
 
-    case_dir = tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_hqFalse_riFalse"
-    _make_case(case_dir, modes=[1, 2, 3])
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ca_shell_o1_hqTrue_riFalse", modes=[1, 2])
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ccx_shell_o1_hqTrue_riFalse", modes=[1, 2])
 
-    spec = EigModesSection(
-        figure_source="eig_modes_section",
-        figure_title="Code Aster modes",
-        solver="code_aster",
-        layout="mode_per_section",
-    )
-    filt = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path)
-    out = filt.render(spec, key="eig_modes_section_1")
+    out = _render(tmp_path, "cantilever_EIG")
 
-    # Sequence: case heading + [mode heading + render] × 3
-    assert len(out) == 1 + 2 * 3
-    assert isinstance(out[0], MarkdownChunk)
-    assert "### cantilever_EIG_ca_solid_o1_hqFalse_riFalse" in out[0].text
-
-    for i, mode_n in enumerate([1, 2, 3]):
-        chunk = out[1 + 2 * i]
-        result = out[1 + 2 * i + 1]
-        assert isinstance(chunk, MarkdownChunk)
-        assert f"#### Mode {mode_n}" in chunk.text
-        assert isinstance(result, RenderResult)
-        assert result.caption.endswith(f"mode {mode_n}")
-        assert result.metadata["fea_mode_index"] == mode_n - 1
-        assert result.metadata["fea_bundle_key"].startswith("cantilever_EIG_ca_")
-        # png_path is absolute (filter reads from doc_root, not bundle_root).
-        assert pathlib.Path(result.png_path).is_absolute()
-        assert pathlib.Path(result.png_path).is_file()
+    # heading + [mode heading, grid open, ccx, ca, grid close] x 2
+    assert len(out) == 1 + 5 * 2
+    assert "### Shell, 1st order, QUAD" in out[0].text
+    for m in range(2):
+        block = out[1 + 5 * m : 1 + 5 * (m + 1)]
+        assert f"#### Mode {m + 1}" in block[0].text
+        assert block[1].text.startswith(":::") and "grid" in block[1].text
+        assert block[4].text == ":::"
+        figs = block[2:4]
+        assert all(isinstance(f, RenderResult) for f in figs)
+        assert [f.metadata["fea_bundle_key"].split("_")[2] for f in figs] == ["ccx", "ca"]
+        assert all(f.metadata["fea_mode_index"] == m for f in figs)
+        assert figs[0].caption.startswith("Calculix")
+        assert pathlib.Path(figs[0].png_path).is_absolute() and pathlib.Path(figs[0].png_path).is_file()
+    assert not any(isinstance(e, MarkdownChunk) and "Calculix" in e.text for e in out)
 
 
-def test_skips_cases_for_other_solvers(tmp_path):
-    """Only cases matching the solver tag should appear in the output."""
-    from filters import EigModesSection, EigModesSectionFilter
+def test_configurations_get_their_own_sections(tmp_path):
+    """Different mesh configurations do not share a heading."""
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_hqFalse_riFalse", modes=[1])
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ccx_solid_o2_hqTrue_riTrue", modes=[1])
+
+    headings = [t for t in _texts(_render(tmp_path, "cantilever_EIG")) if t.strip().startswith("### ")]
+    assert [h.strip() for h in headings] == [
+        "### Solid, 1st order, TET",
+        "### Solid, 2nd order, HEX, reduced integration",
+    ]
+
+
+def test_prefix_selects_the_case_family(tmp_path):
+    """The plate prefix does not pick up cantilever cases (and vice versa), and nested bundle dirs
+    such as ``_assets/plate/`` are found."""
     from paradoc.figure_sources.filters.base import RenderResult
 
-    # One CA case + one CCX case in the assets dir
-    _make_case(
-        tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_hqFalse_riFalse",
-        modes=[1, 2],
-    )
-    _make_case(
-        tmp_path / "_assets" / "cantilever_EIG_ccx_solid_o1_hqFalse_riFalse",
-        modes=[1, 2],
-    )
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ca_shell_o1_hqTrue_riFalse", modes=[1])
+    _make_case(tmp_path / "_assets" / "plate" / "plate_EIG_ca_shell_o1_stFalse", modes=[1, 2])
+    _make_case(tmp_path / "_assets" / "plate" / "plate_static_ca_shell_o1_stTrue_h0p0625", modes=[1])
 
-    spec = EigModesSection(
-        figure_source="eig_modes_section",
-        figure_title="CA modes",
-        solver="code_aster",
-        layout="mode_per_section",
-    )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
-
-    case_keys = {e.metadata["fea_bundle_key"] for e in out if isinstance(e, RenderResult)}
-    assert case_keys == {"cantilever_EIG_ca_solid_o1_hqFalse_riFalse"}
+    keys = {e.metadata["fea_bundle_key"] for e in _render(tmp_path, "plate_EIG") if isinstance(e, RenderResult)}
+    assert keys == {"plate_EIG_ca_shell_o1_stFalse"}
 
 
-def test_no_matching_solver_returns_placeholder_chunk(tmp_path):
-    """When no case matches the solver, a single placeholder chunk is
-    emitted (informative — distinguishes 'wrong solver' from 'empty
-    assets dir')."""
-    from filters import EigModesSection, EigModesSectionFilter
+def test_static_analysis_has_no_mode_heading(tmp_path):
+    _make_case(tmp_path / "_assets" / "plate" / "plate_static_ca_shell_o1_stTrue_h0p0625", modes=[1])
+    _make_case(tmp_path / "_assets" / "plate" / "plate_static_ccx_shell_o1_stTrue_h0p0625", modes=[1])
+
+    out = _render(tmp_path, "plate_static", analysis="static")
+    texts = _texts(out)
+    assert "### Shell, 1st order, stiffened, seed 0.0625 m" in texts[0]
+    assert not any("#### Mode" in t for t in texts)
+    assert sum(t.startswith(":::") and "grid" in t for t in texts) == 1
+
+
+def test_case_without_manifest_is_named_unavailable(tmp_path):
+    """A case dir without a baked manifest does not drop the configuration silently: the formats
+    that did bake render, and the missing one is named."""
+    from paradoc.figure_sources.filters.base import RenderResult
+
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ccx_solid_o1_hqFalse_riFalse", modes=[1])
+    bare = tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_hqFalse_riFalse"
+    bare.mkdir(parents=True)
+    (bare / "mode_01.glb").write_bytes(b"x")
+
+    out = _render(tmp_path, "cantilever_EIG")
+    assert any("unavailable" in t and "Code_Aster" in t for t in _texts(out))
+    assert [e.caption.split(" ")[0] for e in out if isinstance(e, RenderResult)] == ["Calculix"]
+
+
+def test_no_matching_cases_returns_placeholder_chunk(tmp_path):
     from paradoc.figure_sources.filters.base import MarkdownChunk
 
-    _make_case(
-        tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_x",
-        modes=[1],
-    )
-
-    spec = EigModesSection(
-        figure_source="eig_modes_section",
-        figure_title="x",
-        solver="abaqus",
-        layout="mode_per_section",
-    )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
+    _make_case(tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_hqFalse_riFalse", modes=[1])
+    out = _render(tmp_path, "plate_EIG")
     assert len(out) == 1
     assert isinstance(out[0], MarkdownChunk)
-    assert "abaqus" in out[0].text
-
-
-def test_case_dir_without_manifest_emits_placeholder(tmp_path):
-    """Committed mode-GLBs without a baked manifest (the cache-only state
-    today) yields the 'figures unavailable' placeholder for that case —
-    the report reader sees the case exists but has no figures yet."""
-    from filters import EigModesSection, EigModesSectionFilter
-    from paradoc.figure_sources.filters.base import MarkdownChunk
-
-    case_dir = tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_x"
-    case_dir.mkdir(parents=True)
-    # No fea.manifest.json — only the per-mode GLBs the repo commits.
-    (case_dir / "mode_01.glb").write_bytes(b"x")
-
-    spec = EigModesSection(
-        figure_source="eig_modes_section",
-        figure_title="x",
-        solver="code_aster",
-        layout="mode_per_section",
-    )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
-    # Single placeholder chunk: case heading + "_unavailable_" line.
-    assert len(out) == 1
-    assert isinstance(out[0], MarkdownChunk)
-    assert "### cantilever_EIG_ca_solid_o1_x" in out[0].text
-    assert "Mode-shape figures unavailable" in out[0].text
-
-
-def test_gallery_layout_omits_per_mode_subsection_headings(tmp_path):
-    """layout=gallery drops the `#### Mode N` chunks but keeps the case
-    heading + per-mode RenderResults (visual grouping is a v1
-    follow-up)."""
-    from filters import EigModesSection, EigModesSectionFilter
-    from paradoc.figure_sources.filters.base import MarkdownChunk, RenderResult
-
-    _make_case(
-        tmp_path / "_assets" / "cantilever_EIG_ca_solid_o1_x",
-        modes=[1, 2, 3],
-    )
-    spec = EigModesSection(
-        figure_source="eig_modes_section",
-        figure_title="gallery",
-        solver="code_aster",
-        layout="gallery",
-    )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
-
-    chunk_texts = [e.text for e in out if isinstance(e, MarkdownChunk)]
-    results = [e for e in out if isinstance(e, RenderResult)]
-
-    # One chunk: the case heading. No "#### Mode N" subsection headings.
-    assert len(chunk_texts) == 1
-    assert "### cantilever_EIG_ca_solid_o1_x" in chunk_texts[0]
-    assert not any("#### Mode" in t for t in chunk_texts)
-    # All three mode figures still present.
-    assert len(results) == 3
+    assert "plate_EIG" in out[0].text

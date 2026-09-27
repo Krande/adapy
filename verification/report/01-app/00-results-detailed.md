@@ -1,54 +1,43 @@
-# Eigenvalue analysis detailed results
+# Detailed results
 
-This section expands per solver. Each `<!-- paradoc:figure ... -->`
-block below is handled by the `eig_modes_section` figure-source
-registered in `filters.py` — it walks `_assets/<case>/` for baked FEA
-bundles tagged with the requested solver and emits a `### case_name`
-heading plus `#### Mode N` figures for every poster that baked. Cases
-present on disk but not baked (e.g. cache-only CI runs) render with a
-"figures unavailable" placeholder; cases for other solvers are skipped
-silently.
+Mode shapes and deflected shapes from every format that ran on the machine that built this report,
+laid out so the formats can be read against each other: one section per mesh configuration, one
+heading per mode, and the formats side by side under it. A swapped mode pair or a differently
+deflected shape shows up as two pictures that do not match.
 
-## Abaqus
+Only formats that ran on this machine have figures. Abaqus and Sesam results come from cached
+frequencies (see the summary tables), not from result files, so they carry no mode shapes here.
+Solver versions: Abaqus v${ versions.aba }, Calculix v${ versions.ccx }, Code Aster v${ versions.ca },
+Sesam v${ versions.ses }.
 
-Using Abaqus v${ versions.aba } the following results were obtained.
+## Cantilever eigenvalue analysis
 
 <!-- paradoc:figure
-figure_source: eig_modes_section
-figure_title: Abaqus eigenvalue results
-solver: abaqus
-layout: mode_per_section
+figure_source: fea_modes_compare
+figure_title: Cantilever eigenmodes by format
+case_prefix: cantilever_EIG
+analysis: eigen
 -->
 
-## Calculix
+## Plate eigenvalue analysis
 
-Using Calculix v${ versions.ccx } the following results were obtained.
+The plain and the stiffened strip, at the eigen case's 0.0625 m seed.
 
 <!-- paradoc:figure
-figure_source: eig_modes_section
-figure_title: Calculix eigenvalue results
-solver: calculix
-layout: mode_per_section
+figure_source: fea_modes_compare
+figure_title: Plate eigenmodes by format
+case_prefix: plate_EIG
+analysis: eigen
 -->
 
-## Code Aster
+## Plate static analysis
 
-Using Code Aster v${ versions.ca } the following results were obtained.
-
-<!-- paradoc:figure
-figure_source: eig_modes_section
-figure_title: Code Aster eigenvalue results
-solver: code_aster
-layout: mode_per_section
--->
-
-## Sesam
-
-Using Sesam v${ versions.ses } the following results were obtained.
+The deflected strip under 1 kPa, plain and stiffened, at the same 0.0625 m seed. The other seeds
+deform into the same shape; their convergence is in the summary table.
 
 <!-- paradoc:figure
-figure_source: eig_modes_section
-figure_title: Sesam eigenvalue results
-solver: sesam
-layout: mode_per_section
+figure_source: fea_modes_compare
+figure_title: Plate deflection by format
+case_prefix: plate_static
+analysis: static
 -->

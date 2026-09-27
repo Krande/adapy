@@ -26,6 +26,10 @@ on the two long ones, under a uniform surface pressure.
 | Pressure          | ${ plate.pressure_pa:.0f } Pa            |
 | Material          | S355 (E = 210 GPa, ν = 0.3, ρ = 7850 kg/m³) |
 
+${ plate.geometry_3d }
+
+${ plate.geometry_stiffened_3d }
+
 The span-to-thickness ratio is 400, so transverse shear sits several orders below the
 discretisation error and the thin-plate closed forms are the right reference rather than an
 approximation of one.
