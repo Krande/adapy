@@ -20,22 +20,16 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
     load_str = "\n".join(list(map(write_load, step.loads)))
     if len(step.loads) == 0:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
-    load = step.loads[0]
-    all_boundary_conditions = part.fem.bcs
-    assembly = part.get_assembly()
-    if assembly != part:
-        for bc in part.get_assembly().fem.bcs:
-            if bc not in all_boundary_conditions:
-                all_boundary_conditions.append(bc)
+    from ..write_constraints import get_charge_names, has_cara_elem
 
-    if len(all_boundary_conditions) == 0:
+    load = step.loads[0]
+    charges = get_charge_names(part)
+    if len(charges) == 0:
         raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
 
-    bc_str = ""
-    for bc in all_boundary_conditions:
-        bc_str += f"_F(CHARGE={bc.name}),"
+    bc_str = "".join(f"_F(CHARGE={name})," for name in charges)
 
-    has_shells_or_beams = len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0
+    has_shells_or_beams = has_cara_elem(part)
     sec_str = "\n    CARA_ELEM=element," if has_shells_or_beams else ""
     # MECA_STATIQUE auto-populates SIEF_ELGA, which carries sub-points on
     # shell/beam elements (DKT, POU_D_E, ...). IMPR_RESU then needs

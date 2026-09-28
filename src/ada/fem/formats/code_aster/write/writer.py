@@ -12,6 +12,12 @@ from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 from ..compatibility import check_compatibility
 from .templates import el_convert_str, main_comm_str
 from .write_bc import create_bc_str
+from .write_constraints import (
+    create_coupling_str,
+    create_ref_points_mesh_str,
+    create_ref_points_model_str,
+    get_couplings,
+)
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str
@@ -73,12 +79,13 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
 def create_comm_str(assembly: Assembly, part: Part) -> str:
     """Create COMM file input str"""
+    couplings = get_couplings(part)
     mat_str = materials_str(assembly)
-    sections_str = create_sections_str(part.fem.sections)
+    sections_str = create_sections_str(part.fem.sections, has_ref_points=len(couplings) > 0)
     bcs = part.fem.bcs
     if assembly != part:
         bcs += assembly.fem.bcs
-    bc_str = "\n".join([create_bc_str(bc) for bc in bcs])
+    bc_str = "\n".join([create_bc_str(bc) for bc in bcs] + [create_coupling_str(con) for con in couplings])
     step_str = "\n".join([create_step_str(s, part) for s in assembly.fem.steps])
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
@@ -132,6 +139,12 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         so_elset_str = ",".join([f"'{solid_fs.elset.name}'" for solid_fs in part.fem.sections.solids])
         section_sets += f"so_sets = ({so_elset_str})\n"
         model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula="3D")
+
+    if len(couplings) > 0:
+        output_mesh = "mesh_ref"
+        section_sets += create_ref_points_mesh_str(part, input_mesh, output_mesh)
+        input_mesh = output_mesh
+        model_type_str += create_ref_points_model_str()
 
     comm_str = main_comm_str.format(
         section_sets=section_sets,
