@@ -661,7 +661,7 @@ class FeaCaseFilter(Filter):
             glb_key=a.key,
             caption=f"{self.name} — un-deformed.",
             camera_preset=self._camera_preset,
-            image_path=a.canonical_poster_path,
+            image_path=_md_path(a.canonical_poster_path),
         )
 
     @attr
@@ -693,8 +693,17 @@ class FeaCaseFilter(Filter):
             glb_key=f"{a.key}_mode_{mode_n}",
             caption=f"{self.name} — mode {mode_n}.",
             camera_preset=self._camera_preset,
-            image_path=a.poster_paths.get(idx),
+            image_path=_md_path(a.poster_paths.get(idx)),
         )
+
+
+def _md_path(path: "pathlib.Path | None") -> str | None:
+    """A poster path for a paradoc view, with forward slashes.
+
+    paradoc writes it into markdown ``![cap](path)``, where a Windows path's backslashes are
+    escapes: pandoc then finds no file and the DOCX / PDF shows the caption without the image.
+    """
+    return pathlib.Path(path).as_posix() if path else None
 
 
 def _make_mode_attr(mode_n: int):

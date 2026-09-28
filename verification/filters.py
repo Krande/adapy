@@ -61,13 +61,15 @@ _eig_logger = logging.getLogger(__name__)
 _ASSETS_DIR = pathlib.Path(__file__).parent / "_assets"
 
 
-def _poster(rel_path: str) -> pathlib.Path | None:
+def _poster(rel_path: str) -> str | None:
     """The static poster a geometry GLB task wrote beside its GLB, for the DOCX / PDF exports.
 
     Without it paradoc stands a ``MISSING_3D_IMAGE.png`` in for the interactive view there.
+    Forward slashes: the path lands in markdown ``![cap](path)``, where a Windows path's
+    backslashes are escapes and pandoc would find no file.
     """
     path = _ASSETS_DIR / rel_path
-    return path if path.is_file() else None
+    return path.as_posix() if path.is_file() else None
 
 
 class Beam(Filter):
