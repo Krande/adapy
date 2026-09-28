@@ -332,22 +332,32 @@ def bake_artefacts(
     blob_paths: list[pathlib.Path] = []
     target_fraction = _normalization_fraction(normalize_modes)
     ref_length = reference_length(geom.points) if target_fraction else 0.0
+
+    def _normalizes(spec) -> bool:
+        return target_fraction is not None and spec.category == "displacement" and _infer_analysis_kind(spec) == "eigen"
+
+    # A first, read-only pass: every mode's peak translation. A factor needs the largest of them to
+    # tell a translation-free mode (round-off) from a real one -- across ALL the result's eigenmode
+    # fields, since some readers (Code_Aster's) give each mode a field of its own, and within a
+    # one-step field the largest mode is always the mode itself.
+    mode_peaks: dict[str, dict[int, float]] = {}
+    for spec in reader.field_specs():
+        if (nodal_only and spec.support != "nodal") or not _normalizes(spec):
+            continue
+        columns = translation_columns(spec.components)
+        mode_peaks[spec.name] = {
+            sv.step_index: peak_translation(np.asarray(sv.values, dtype=float).reshape(spec.n_points, -1), columns)
+            for sv in reader.iter_field_steps(spec.name)
+        }
+    reference_peak = max((p for peaks in mode_peaks.values() for p in peaks.values()), default=0.0) or None
+
     for spec in reader.field_specs():
         if nodal_only and spec.support != "nodal":
             continue
         blob_path = out_dir / f"fea.{spec.name}.bin"
-        normalizing = (
-            target_fraction is not None and spec.category == "displacement" and _infer_analysis_kind(spec) == "eigen"
-        )
-        if normalizing:
+        if _normalizes(spec):
             columns = translation_columns(spec.components)
-            # A first, read-only pass: each mode's peak translation. A factor needs the largest of
-            # them to tell a translation-free mode (round-off) from a real one.
-            peaks = {
-                sv.step_index: peak_translation(np.asarray(sv.values, dtype=float).reshape(spec.n_points, -1), columns)
-                for sv in reader.iter_field_steps(spec.name)
-            }
-            reference_peak = max(peaks.values(), default=0.0) or None
+            peaks = mode_peaks.get(spec.name, {})
             factors: dict[int, float] = {}
 
             def _normalize(step_index, values, _cols=columns, _factors=factors, _ref=reference_peak):

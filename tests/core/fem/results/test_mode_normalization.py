@@ -128,6 +128,28 @@ def test_the_bake_normalizes_eigenmodes_and_records_the_factors(tmp_path):
         np.testing.assert_allclose(mode / factor, _bending_mode() * scale, rtol=1e-5, atol=1e-7)
 
 
+def test_a_translation_free_mode_in_a_field_of_its_own_is_still_recognised(tmp_path):
+    """Code_Aster's reader gives each mode a field of its own; the reference is the result's."""
+    from ada.fem.results.artefacts import bake_artefacts
+    from ada.fem.results.artefacts.stream_adapter import FEAResultStreamAdapter
+
+    result = _eigen_result([1.0, 1e-16])
+    for i, field in enumerate(result.results):
+        field.name = f"modes_DEPL[{i}]"  # one field per mode, one step each
+    bake = bake_artefacts(
+        FEAResultStreamAdapter(result),
+        tmp_path,
+        include_element_fields=False,
+        include_beam_solids=False,
+        normalize_modes=True,
+    )
+    manifest = json.loads(bake.manifest_path.read_text(encoding="utf-8"))
+    records = [f["mode_normalization"] for f in manifest["fields"] if f.get("mode_normalization")]
+    assert len(records) == 2
+    assert [r["translation_free"] for r in records] == [[], [0]]
+    assert records[0]["reference_peak"] == records[1]["reference_peak"]
+
+
 def test_the_bake_leaves_modes_raw_by_default(tmp_path):
     modes, field = _baked_modes(tmp_path / "raw", [0.1439, -1.0], normalize=False)
     assert "mode_normalization" not in field
