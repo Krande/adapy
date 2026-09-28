@@ -42,13 +42,8 @@ class PrimBox(Shape):
     def solid_geom(self) -> Geometry:
         from ada.geom.solids import Box
 
-        p1, p2 = self.p1.copy(), self.p2.copy()
-        if not self.placement.is_identity():
-            abs_place = self.placement.get_absolute_placement()
-            if abs_place.origin is not None:
-                p1 += abs_place.origin
-                p2 += abs_place.origin
-        box = Box.from_2points(p1, p2)
+        # In the local system of the box. Consumers apply its absolute placement (see BackendGeom.world_matrix).
+        box = Box.from_2points(self.p1.copy(), self.p2.copy())
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 

@@ -1782,7 +1782,7 @@ def write_step_stream(
         )
         writer.begin()
         for i, obj in enumerate(objects, start=1):
-            geom, name, color, translate = _object_geom_meta(obj)
+            geom, name, color, world = _object_geom_meta(obj)
             done = False
             if geom is not None:
                 # Assembly breadcrumb (owning Part chain up to the root) so each
@@ -1790,8 +1790,8 @@ def write_step_stream(
                 parent_path = _object_parent_path(obj, part)
                 # transforms ride obj.geom (the mapped-item mesh-level instances); solid_geom()
                 # strips them. World order (matching the tessellation path + the ifcopenshell oracle)
-                # is placement @ transform[k] @ local — so bake the LOCAL geometry (obj.geom.geometry,
-                # pre-placement) under self._tf = P @ transform[k].
+                # is world placement @ transform[k] @ local — so bake the LOCAL geometry
+                # (obj.geom.geometry, pre-placement) under self._tf = W @ transform[k].
                 obj_geom = getattr(obj, "geom", None)
                 transforms = getattr(obj_geom, "transforms", None) if obj_geom is not None else None
                 if transforms:
@@ -1805,7 +1805,7 @@ def write_step_stream(
 
                     from ada.geom import Geometry
 
-                    P = np.asarray(obj.placement.get_matrix4x4(), dtype=float)
+                    P = np.eye(4) if world is None else world
                     base_ext = extrusion_from_geometry(Geometry(name, obj_geom.geometry), name=name, color=color)
                     n_ok = 0
                     for m in transforms:
@@ -1828,15 +1828,25 @@ def write_step_stream(
                     if n_ok > 0:
                         done = True
                 else:
-                    ext = extrusion_from_geometry(
-                        geom, name=name, color=color, translate=translate
-                    ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
-                    if ext is not None:
-                        writer.add_extrusion(ext, parent_path=parent_path)
+                    # The geometry is local to the object: place it in the world by its absolute placement
+                    ext = extrusion_from_geometry(geom, name=name, color=color) or _primitive_to_extrusion(
+                        geom, name=name, color=color
+                    )
+                    placed = ext if ext is None or world is None else _transform_extrusion(ext, world)
+                    transform = None if world is None else tuple(float(x) for x in world.ravel())
+                    if placed is not None:
+                        writer.add_extrusion(placed, parent_path=parent_path)
+                        done = True
+                    elif ext is not None and (
+                        writer.add_baked_instances(
+                            geom.geometry, name=name, color=color, transforms=[transform], parent_path=parent_path
+                        )
+                        > 0
+                    ):
                         done = True
                     elif (
                         writer.add_brep(
-                            geom.geometry, name=name, color=color, translate=translate, parent_path=parent_path
+                            geom.geometry, name=name, color=color, transform=transform, parent_path=parent_path
                         )
                         is not None
                     ):
@@ -1895,9 +1905,10 @@ def _object_parent_path(obj, root):
 
 
 def _object_geom_meta(obj):
-    """(geom, name, color, translate) for a physical object, or (None, ...) if it
-    has no usable solid geometry. Shared by the extrusion and B-rep emit paths."""
-    none = (None, None, None, (0.0, 0.0, 0.0))
+    """(geom, name, color, world) for a physical object, or (None, ...) if it has no usable solid geometry. ``geom``
+    is local to the object and ``world`` its 4x4 placement in the world (None for the identity). Shared by the
+    extrusion and B-rep emit paths."""
+    none = (None, None, None, None)
     solid_geom = getattr(obj, "solid_geom", None)
     if solid_geom is None:
         return none
@@ -1907,14 +1918,8 @@ def _object_geom_meta(obj):
         logger.warning("solid_geom() failed for %s (%s); skipping", getattr(obj, "name", "?"), exc)
         return none
 
-    translate = (0.0, 0.0, 0.0)
-    parent = getattr(obj, "parent", None)
-    if parent is not None and getattr(parent, "placement", None) is not None:
-        try:
-            loc = parent.placement.to_axis2placement3d(use_absolute_placement=True).location
-            translate = (float(loc[0]), float(loc[1]), float(loc[2]))
-        except Exception:
-            translate = (0.0, 0.0, 0.0)
+    world_matrix = getattr(obj, "world_matrix", None)
+    world = world_matrix() if world_matrix is not None else None
 
     color = None
     obj_color = getattr(obj, "color", None)
@@ -1924,12 +1929,15 @@ def _object_geom_meta(obj):
         except Exception:
             color = None
 
-    return geom, getattr(obj, "name", "obj"), color, translate
+    return geom, getattr(obj, "name", "obj"), color, world
 
 
 def _extrusion_from_object(obj):
-    """Best-effort Extrusion for a single physical object, or None."""
-    geom, name, color, translate = _object_geom_meta(obj)
+    """Best-effort Extrusion for a single physical object in world coordinates, or None."""
+    geom, name, color, world = _object_geom_meta(obj)
     if geom is None:
         return None
-    return extrusion_from_geometry(geom, name=name, color=color, translate=translate)
+    ext = extrusion_from_geometry(geom, name=name, color=color)
+    if ext is None or world is None:
+        return ext
+    return _transform_extrusion(ext, world)

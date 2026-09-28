@@ -121,12 +121,12 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     p2 = get_point(axis.Trim2[1])
     global_place = Placement()
     angle = axis.Trim2[0].wrappedValue
-    rot_origin = transform3d(beam_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.origin])[
-        0
-    ]
-    rot_axis = transform3d(curve_place.rot_matrix, global_place.rot_matrix, global_place.origin, [curve_place.zdir])[0]
+    # transform3d takes each coordinate system as its axes stacked as rows, i.e. the transposed rot_matrix
+    beam_csys, curve_csys, global_csys = (x.rot_matrix.T for x in (beam_place, curve_place, global_place))
+    rot_origin = transform3d(beam_csys, global_csys, global_place.origin, [curve_place.origin])[0]
+    rot_axis = transform3d(curve_csys, global_csys, global_place.origin, [curve_place.zdir])[0]
 
-    p1g, p2g = transform3d(beam_place.rot_matrix, global_place.rot_matrix, beam_place.origin, [p1, p2])
+    p1g, p2g = transform3d(beam_csys, global_csys, beam_place.origin, [p1, p2])
 
     curve = CurveRevolve(p1g, p2g, radius=r, rot_axis=rot_axis, rot_origin=rot_origin, angle=np.rad2deg(angle))
 

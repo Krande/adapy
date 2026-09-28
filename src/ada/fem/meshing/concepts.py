@@ -402,32 +402,20 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
     # active CAD backend (sub-shape iteration + the to_topods_pointer bridge)
     # so this works on either backend without kernel mixing: under adacpp the
     # pointer is to its OCCT 7.9.x TopoDS_Shape, ABI-valid for gmsh's OCCT.
-    from ada import Placement, PrimBox
+    from ada import PrimBox
     from ada.cad import active_backend
 
     backend = active_backend()
-    abs_place = obj.placement.get_absolute_placement(include_rotations=True)
 
-    def local_to_global(geo):
-        """Shell and line bodies are built in the local system of the object, while solid bodies already carry the
-        absolute placement. Rotate and translate the local bodies with the same convention as the solid bodies (see
-        Placement.transform_array_from_other_place), so that all representations of an object end up in one place.
-        """
-        if Placement() != abs_place:
-            mat = np.eye(4)
-            mat[:3, :3] = abs_place.rot_matrix
-            mat[:3, 3] = np.asarray(abs_place.origin, dtype=float)
-            geo = backend.transform(geo, mat, copy=True)
-        return geo
-
+    # The bodies are built in the local system of the object, the mesh is global
     if geom_repr == GeomRepr.SOLID:
-        geom = obj.solid_occ()
+        geom = obj.shape_global(GeomRepr.SOLID)
         sub_shapes = backend.solids(geom)
     elif geom_repr == GeomRepr.SHELL:
-        geom = local_to_global(obj.shell_occ()) if type(obj) not in (PrimBox,) else obj.solid_occ()
+        geom = obj.shape_global(GeomRepr.SHELL if type(obj) not in (PrimBox,) else GeomRepr.SOLID)
         sub_shapes = backend.faces(geom)
     else:
-        geom = local_to_global(obj.line_occ())
+        geom = obj.shape_global(GeomRepr.LINE)
         sub_shapes = backend.edges(geom)
 
     ents = []

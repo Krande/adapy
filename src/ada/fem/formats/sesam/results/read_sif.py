@@ -1021,7 +1021,11 @@ class Sif2Mesh:
             # No STEP name is defined
             return {key: key for key, value in rdresref.items()}
 
-        return {key: tdresref[value[1]][-1] for key, value in rdresref.items()}
+        # A deck may name only some of its cases: one with "smart load
+        # combinations" added after the analysis names its basic cases but not
+        # the combinations. An unnamed case is called by its number, as when
+        # the deck names none.
+        return {key: tdresref[value[1]][-1] if value[1] in tdresref else key for key, value in rdresref.items()}
 
     def get_nodal_data(self) -> list[NodalFieldData]:
         # Guard the no-RVNODDIS case symmetric to get_field_data's RVSTRESS /

@@ -39,6 +39,8 @@ import { fetchAssetAttributes } from "@/services/assets";
 import { conversionApi } from "@/services/api/conversion";
 import { filesApi } from "@/services/api/files";
 import { sourceNodesApi } from "@/services/api/sourceNodes";
+import { useClashCheckStore } from "@/state/clashCheckStore";
+import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { loaderFor } from "@/state/assetBrowserLoader";
 import { useModelSessionStore } from "@/state/modelSession";
@@ -452,6 +454,87 @@ const Attributes: React.FC<{ scope: string; provider: string; collection: string
     );
 };
 
+/** Check a published node for joints, and take the answer where joints are already shown.
+ *
+ *  WHY THE BUTTON IS HERE AND THE RESULT IS NOT. The Clashes panel already renders a result --
+ *  groups, types, the detail hand-off, the producer filter -- and a second joints table in this
+ *  tab would be a second implementation of the same reading, free to disagree with it. So this
+ *  runs the check and switches to that panel, which is also where a user who ran one from a FILE
+ *  ends up. The two ways in converge on one surface.
+ *
+ *  OFFERED ONLY FOR A NODE SOMETHING IS PUBLISHED AT OR ABOVE. A check reads the published
+ *  source, so a row with no covering publish has nothing to read -- and a button that enqueued a
+ *  job which 404s is worse than no button.
+ *
+ *  THE SUBJECT IS THE COVERING PUBLISH, not always this row: a leaf published under a root has no
+ *  manifest of its own, and the badge already resolved which one speaks for it.
+ */
+const ClashCheckControls: React.FC<{ view: AssetView; id: string; scope: string; badge: RowBadge }> = ({
+    view,
+    id,
+    scope,
+    badge,
+}) => {
+    const busy = useClashCheckStore((s) => s.busy);
+    const error = useClashCheckStore((s) => s.error);
+    const result = useClashCheckStore((s) => s.result);
+    const target = useClashCheckStore((s) => s.assetTarget);
+    const setAssetTarget = useClashCheckStore((s) => s.setAssetTarget);
+    const runCheck = useClashCheckStore((s) => s.runCheck);
+    const setMode = useSceneInfoStore((s) => s.setMode);
+    const setShowSceneInfoBox = useSceneInfoStore((s) => s.setShowSceneInfoBox);
+
+    // Whether the result on screen is THIS row's. The store holds one result at a time, and a
+    // count shown under the wrong node is the kind of wrong that looks right.
+    const mine =
+        target !== null &&
+        target.kind === "node" &&
+        target.collection === view.collection &&
+        target.subject === badge.at &&
+        (target.node ?? null) === id;
+
+    const onCheck = async () => {
+        setAssetTarget(`${view.collection} / ${id}`, {
+            kind: "node",
+            collection: view.collection,
+            subject: badge.at,
+            revision: badge.revision,
+            node: id,
+        });
+        await runCheck(scope);
+        // Only on success: leaving the user on a panel that shows the failure they caused is more
+        // useful than moving them to an empty one.
+        if (!useClashCheckStore.getState().error) {
+            setMode("clashes");
+            setShowSceneInfoBox(true);
+        }
+    };
+
+    return (
+        <div className="mt-1 flex items-center gap-2">
+            <button
+                className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
+                onClick={onCheck}
+                disabled={busy}
+                data-testid="asset-clash-check"
+                title="Identify the joints in this node's published source"
+            >
+                {busy && mine ? "checking…" : "Check for joints"}
+            </button>
+            {mine && !busy && error && (
+                <span className="text-red-300 truncate" title={error}>
+                    {error}
+                </span>
+            )}
+            {mine && !busy && !error && result && (
+                <span className="text-gray-400">
+                    {result.joints.length} joint{result.joints.length === 1 ? "" : "s"}
+                </span>
+            )}
+        </div>
+    );
+};
+
 const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view, id, scope }) => {
     const facts = rowFacts(view, id);
     const orphan = view.orphans.find((o) => o.id === id);
@@ -522,6 +605,7 @@ const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view
                     subject={facts.badge?.at ?? null}
                 />
             )}
+            {facts?.badge && <ClashCheckControls view={view} id={id} scope={scope} badge={facts.badge} />}
             <LoadControls view={view} id={id} scope={scope} />
         </div>
     );

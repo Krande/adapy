@@ -3,8 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada import Plate, PlateCurved
-from ada.cadit.ifc.utils import add_colour
-from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
+from ada.cadit.ifc.utils import (
+    add_colour,
+    create_absolute_placement,
+    create_object_placement,
+)
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.geom.surfaces import advanced_face
 
@@ -16,6 +19,15 @@ from ada.config import logger
 
 def update_ifc_plate(ifc_store: IfcStore, plate: Plate):
     logger.warning("Updating IFC plate not implemented yet")
+
+
+def _plate_placement(plate: Plate | PlateCurved, f):
+    """The body is in the local system of the plate, placed by the plate placement relative to its parent"""
+    try:
+        parent_placement = f.by_guid(plate.parent.guid).ObjectPlacement
+    except RuntimeError:
+        return create_absolute_placement(f, plate)
+    return create_object_placement(f, plate, relative_to=parent_placement)
 
 
 def _plate_body(plate: Plate, f) -> "ifcopenshell.entity_instance":  # noqa: F821 - typing-only name
@@ -52,10 +64,7 @@ def write_ifc_plate(ifc_store: IfcStore, plate: Plate):
     owner_history = ifc_store.owner_history
     f = ifc_store.f
 
-    ori = plate.placement.to_axis2placement3d()
-    axis2placement = ifc_placement_from_axis3d(ori, f)
-
-    plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
+    plate_placement = _plate_placement(plate, f)
 
     solid = _plate_body(plate, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])
@@ -112,10 +121,7 @@ def write_ifc_plate_curved(ifc_store: IfcStore, plate: PlateCurved):
     owner_history = ifc_store.owner_history
     f = ifc_store.f
 
-    ori = plate.placement.to_axis2placement3d()
-    axis2placement = ifc_placement_from_axis3d(ori, f)
-
-    plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
+    plate_placement = _plate_placement(plate, f)
 
     solid = _plate_curved_body(plate, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])

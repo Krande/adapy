@@ -23,26 +23,17 @@ if TYPE_CHECKING:
     from ada.occ.step.writer import StepWriter
 
 
-def _apply_parent_placement(occ_geom, obj_, name_ref):
-    """Apply the object's parent-placement translation to a backend body — the same
-    final-handle transform the solid/shell paths apply (see safe_geom below). Returns
-    None (logged) on failure when general_occ_silent_fail is set."""
-    import numpy as np
-
+def _apply_world_placement(occ_geom, obj_, name_ref):
+    """Move a backend body, built in the local system of ``obj_``, to the world by the absolute placement of
+    ``obj_``. Returns None (logged) on failure when general_occ_silent_fail is set."""
     from ada.cad import active_backend
 
-    position = obj_.parent.placement.to_axis2placement3d(use_absolute_placement=True)
     try:
-        loc = position.location
-        mat = np.array(
-            [
-                [1.0, 0.0, 0.0, float(loc[0])],
-                [0.0, 1.0, 0.0, float(loc[1])],
-                [0.0, 0.0, 1.0, float(loc[2])],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-        return active_backend().transform(occ_geom, mat, True)
+        matrix = obj_.world_matrix()
+        if matrix is None:
+            return occ_geom
+        # Routed through the active backend, as occ_geom is a backend handle, not necessarily a raw TopoDS_Shape
+        return active_backend().transform(occ_geom, matrix, True)
     except (RuntimeError, BaseException) as e:
         exc = traceback.format_exc()
         err_msg = f"Failed to transform geometry for {obj_.name} due to {e} from {name_ref} in {exc}"
@@ -105,9 +96,7 @@ class OCCStore:
                     except (NotImplementedError, ImportError) as e:
                         logger.warning(f"Skipping {getattr(obj_, 'name', obj_)!r} in STEP export: {e}")
                         return None
-                    # fall through to the shared placement transform below
-                    occ_geom = _apply_parent_placement(occ_geom, obj_, name_ref)
-                    return occ_geom
+                    return _apply_world_placement(occ_geom, obj_, name_ref)
                 try:
                     occ_geom = obj_.solid_occ()
                 except NotImplementedError as e:
@@ -138,35 +127,7 @@ class OCCStore:
             else:
                 raise ValueError(f"Invalid geometry representation {geo_repr}")
 
-            position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
-
-            try:
-                # Final-handle placement: route through the active backend so
-                # adacpp handles transform too (occ_geom is a backend handle,
-                # not necessarily a raw TopoDS_Shape).
-                import numpy as np
-
-                from ada.cad import active_backend
-
-                loc = position.location
-                mat = np.array(
-                    [
-                        [1.0, 0.0, 0.0, float(loc[0])],
-                        [0.0, 1.0, 0.0, float(loc[1])],
-                        [0.0, 0.0, 1.0, float(loc[2])],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ]
-                )
-                occ_geom = active_backend().transform(occ_geom, mat, True)
-            except (RuntimeError, BaseException) as e:
-                exc = traceback.format_exc()
-                err_msg = f"Failed to transform geometry for {obj.name} due to {e} from {name_ref} in {exc}"
-                if Config().general_occ_silent_fail:
-                    logger.warning(err_msg)
-                    return None
-                raise UnableToTransformOCCShape(err_msg)
-
-            return occ_geom
+            return _apply_world_placement(occ_geom, obj_, name_ref)
 
         if StepStore is not None and isinstance(part, StepStore):
             for shape in part.iter_all_shapes(include_colors=True):

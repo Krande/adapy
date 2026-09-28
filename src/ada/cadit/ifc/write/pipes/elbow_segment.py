@@ -7,9 +7,9 @@ import numpy as np
 from ada import PipeSegElbow, Units
 from ada.cadit.ifc.utils import (
     add_colour,
+    create_absolute_placement,
     create_ifc_placement,
     create_ifcpolyline,
-    create_local_placement,
     write_elem_property_sets,
 )
 from ada.cadit.ifc.write.geom import solids as igeo_so
@@ -36,10 +36,10 @@ def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> i
 
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
 
-    # Elbow geometry is in world coordinates (like the straight segment), so use an identity
-    # placement. This also decouples the segment from the pipe's IFC entity, which no longer
-    # exists when segments are written (the pipe is now an IfcDistributionSystem created after).
-    pfitting_placement = create_local_placement(f)
+    # The elbow geometry is in the local system of the segment. The segment carries its absolute placement, which
+    # also decouples it from the pipe's IFC entity, which no longer exists when segments are written (the pipe is
+    # now an IfcDistributionSystem created after).
+    pfitting_placement = create_absolute_placement(f, pipe_elbow)
 
     fitting_class = fitting_entity_class(pipe_elbow)
     pfitting = f.create_entity(

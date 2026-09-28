@@ -11,6 +11,7 @@ from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 
 if TYPE_CHECKING:
     from ada.geom.solids import FixedReferenceSweptAreaSolid
@@ -97,16 +98,17 @@ class PrimSweep(Shape):
         )
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
+        # The sweep curve expressed in the profile frame
         curve_pts = [p for p in self.sweep_curve.points3d]
-        update_points = other_place.transform_array_from_other_place(curve_pts, place_ident)
+        update_points = place_ident.transform_array_from_other_place(np.asarray(curve_pts, dtype=float), other_place)
         transformed_sweep_curve_pts = update_points
 
         transformed_sweep_curve = CurveOpen3d(
             transformed_sweep_curve_pts, radiis=self.sweep_curve.radiis, tol=self.sweep_curve._tol
         )
-        other_place.origin = self.placement.origin
+        # In the local system of the sweep. Consumers apply its absolute placement (see BackendGeom.world_matrix).
         solid = FixedReferenceSweptAreaSolid(
-            profile, other_place.to_axis2placement3d(), transformed_sweep_curve.curve_geom()
+            profile, other_place.to_axis2placement3d(use_absolute_placement=False), transformed_sweep_curve.curve_geom()
         )
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
@@ -118,7 +120,8 @@ class PrimSweep(Shape):
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
-        a2place3d = self.placement.to_axis2placement3d()
+        # In the local system of the sweep. Consumers apply its absolute placement (see BackendGeom.world_matrix).
+        a2place3d = Axis2Placement3D()
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
         transformed_sweep_curve = self.sweep_curve

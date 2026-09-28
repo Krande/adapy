@@ -280,3 +280,187 @@ def test_connection_specs_lists_the_builtins(client_and_scope):
     for spec in specs:
         if spec["slug"].startswith("builtin."):
             assert spec["capability"] is None
+
+
+# ── clash-check over a PUBLISHED ASSET NODE ───────────────────────────
+#
+# The second way to name a model. Everything below runs against a provider whose source format
+# core has no reader for -- a private text file -- so a check that succeeds could only have gone
+# through `ada.assets.concepts`. Nothing here imports a reader for it.
+
+LINES_PROVIDER = "fixture-lines"
+LINES_COLLECTION = "lines-a"
+LINES_SUBJECT = "unit-1"
+LINES_REVISION = "20260928T000000Z"
+LINES_SOURCE = b"\n".join([b"bm0 0 0 0 4 0 0", b"bm1 4 0 0 4 4 0", b"bm2 20 20 0 24 20 0"])
+
+
+class _LinesConcepts:
+    """Reads one member per line, which is a format core will never know."""
+
+    def concepts(self, options, *, storage, scope=None, node=None):
+        import ada
+
+        raw = storage.get_bytes(options["source_key"]).decode()
+        part = ada.Part(node or "lines")
+        for line in (ln for ln in raw.splitlines() if ln.strip()):
+            name, x0, y0, z0, x1, y1, z1 = line.split()
+            part.add_beam(
+                ada.Beam(name, (float(x0), float(y0), float(z0)), (float(x1), float(y1), float(z1)), "IPE200")
+            )
+        return part
+
+
+@pytest.fixture
+def published_lines_node(client_and_scope):
+    """Publish a node under the key grammar and register the reader for its provider."""
+    from ada.assets.concepts import clear_asset_concepts, register_asset_concepts
+    from ada.assets.keys import asset_key
+    from ada.assets.manifest import (
+        MANIFEST_FILENAME,
+        ArtefactEntry,
+        AssetManifest,
+        BuildSpec,
+    )
+
+    _, scope_dir = client_and_scope
+    source_key = asset_key(LINES_COLLECTION, LINES_SUBJECT, LINES_REVISION, "lines.txt")
+    _stage(scope_dir, source_key, LINES_SOURCE)
+
+    manifest = AssetManifest(
+        provider=LINES_PROVIDER,
+        collection=LINES_COLLECTION,
+        subject=LINES_SUBJECT,
+        revision=LINES_REVISION,
+        node=LINES_SUBJECT,
+        produced_at="2026-09-28T00:00:00Z",
+        published_at="2026-09-28T00:00:00Z",
+        delivery="build",
+        build=BuildSpec(capability="build-lines", options={"source_key": source_key}),
+        artefacts=(ArtefactEntry(role="source", key=source_key, sha256="", size=len(LINES_SOURCE)),),
+    )
+    _stage(
+        scope_dir,
+        asset_key(LINES_COLLECTION, LINES_SUBJECT, LINES_REVISION, MANIFEST_FILENAME),
+        manifest.to_json(),
+    )
+
+    register_asset_concepts(LINES_PROVIDER, lambda: _LinesConcepts())
+    yield
+    clear_asset_concepts()
+
+
+def _run_node_check(client, body: dict) -> tuple[dict, str]:
+    payload = {"collection": LINES_COLLECTION, "subject": LINES_SUBJECT, **body}
+    r = client.post(f"/api/scopes/{SCOPE}/clash-check", json=payload)
+    assert r.status_code == 200, r.text
+    status = _wait_done(client, r.json()["job_id"])
+    assert status["status"] == "done", status
+    return _read_blob(client, SCOPE, r.json()["derived_key"]), r.json()["derived_key"]
+
+
+def test_a_node_of_a_format_core_cannot_read_is_checked_through_its_provider(client_and_scope, published_lines_node):
+    client, _ = client_and_scope
+    doc, _ = _run_node_check(client, {"options": {"include_plate_joints": False}})
+
+    assert doc["counts"]["beams"] == 3
+    joined = {m["name"] for joint in doc["joints"] for m in joint["members"]}
+    assert joined == {"bm0", "bm1"}  # bm2 is 20 m away and joins nothing
+    assert doc["provenance"]["reader"] == "provider-concepts"
+    assert doc["provenance"]["provider"] == LINES_PROVIDER
+
+
+def test_the_result_is_the_same_document_a_file_check_produces(client_and_scope, published_lines_node):
+    """Same schema, so the panel cannot tell the two ways in apart -- which is the point."""
+    client, _ = client_and_scope
+    doc, _ = _run_node_check(client, {})
+    assert doc["schema"].startswith("ada.clash/result@")
+    assert {"joints", "groups", "counts", "source_key"} <= set(doc)
+
+
+def test_a_repeat_node_request_is_a_cache_hit_with_no_job(client_and_scope, published_lines_node):
+    client, _ = client_and_scope
+    _, key = _run_node_check(client, {})
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": LINES_SUBJECT},
+    )
+    assert r.json() == {"job_id": None, "derived_key": key, "cached": True}
+
+
+def test_two_subjects_of_one_shared_export_do_not_share_a_result(client_and_scope, published_lines_node):
+    """The derived key carries the SUBJECT, not just the source bytes.
+
+    One upload is commonly referenced by many subjects, so a token over the blob alone would
+    serve one node's joints under another node's name -- silently, and only for the second
+    caller.
+    """
+    from ada.assets.keys import asset_key
+    from ada.assets.manifest import (
+        MANIFEST_FILENAME,
+        ArtefactEntry,
+        AssetManifest,
+        BuildSpec,
+    )
+
+    client, scope_dir = client_and_scope
+    shared_source = asset_key(LINES_COLLECTION, LINES_SUBJECT, LINES_REVISION, "lines.txt")
+    other = AssetManifest(
+        provider=LINES_PROVIDER,
+        collection=LINES_COLLECTION,
+        subject="unit-2",
+        revision=LINES_REVISION,
+        node="unit-2",
+        produced_at="2026-09-28T00:00:00Z",
+        published_at="2026-09-28T00:00:00Z",
+        delivery="build",
+        build=BuildSpec(capability="build-lines", options={"source_key": shared_source}),
+        # The SAME blob, by absolute key: exactly the fan-out the grammar is built for.
+        artefacts=(ArtefactEntry(role="source", key=shared_source, sha256="", size=len(LINES_SOURCE)),),
+    )
+    _stage(scope_dir, asset_key(LINES_COLLECTION, "unit-2", LINES_REVISION, MANIFEST_FILENAME), other.to_json())
+
+    _, key_one = _run_node_check(client, {})
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": "unit-2"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["derived_key"] != key_one
+
+
+def test_naming_the_model_both_ways_is_refused(client_and_scope, ifc_source_key):
+    """Which one was checked would otherwise depend on the order this route reads them in."""
+    client, _ = client_and_scope
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"source_key": ifc_source_key, "collection": LINES_COLLECTION, "subject": LINES_SUBJECT},
+    )
+    assert r.status_code == 400
+    assert "ONE way" in r.json()["detail"]
+
+
+def test_naming_the_model_no_way_is_refused(client_and_scope):
+    client, _ = client_and_scope
+    r = client.post(f"/api/scopes/{SCOPE}/clash-check", json={})
+    assert r.status_code == 400
+
+
+def test_an_unpublished_subject_is_404(client_and_scope, published_lines_node):
+    client, _ = client_and_scope
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": "nope"},
+    )
+    assert r.status_code == 404
+
+
+def test_a_provider_the_caller_names_wrongly_is_refused(client_and_scope, published_lines_node):
+    """The caller is acting on a view that has moved -- the same rule the build request applies."""
+    client, _ = client_and_scope
+    r = client.post(
+        f"/api/scopes/{SCOPE}/clash-check",
+        json={"collection": LINES_COLLECTION, "subject": LINES_SUBJECT, "provider": "someone-else"},
+    )
+    assert r.status_code == 409
+    assert LINES_PROVIDER in r.json()["detail"]

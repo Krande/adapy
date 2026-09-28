@@ -62,7 +62,7 @@ jobs:
         # A cache miss just means the task fetches, so a stale or absent cache costs time, never
         # correctness.
         - name: Cache the DEXPI corpus
-          uses: actions/cache@v4
+          uses: actions/cache@v6
           with:
             path: files/dexpi_files/_external
             key: dexpi-corpus-${{ hashFiles('scripts/fetch_dexpi_testcases.py') }}

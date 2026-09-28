@@ -75,21 +75,57 @@ async def api_clash_check(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Identify, classify and group the joints in ``source_key``'s model. Body:
-    ``{source_key, options?}``. Returns ``{job_id, derived_key, cached}``.
+    """Identify, classify and group the joints in a model. Returns ``{job_id, derived_key, cached}``.
 
-    ``source_key`` is a SOURCE, never a GLB (see ``ada.clash.identify``'s module docstring): the
-    same key the scene was loaded from, an IFC/Genie-XML/FEM file, or a compiled procedural
-    model's neutral artifact. A source whose reader yields no members finishes ``done`` with
-    ``counts.members == 0`` and a warning -- "this source cannot be checked" is an answer, not an
-    error.
+    TWO WAYS TO NAME THE MODEL, and exactly one of them per request:
+
+    * ``{source_key, options?}`` -- a SOURCE, never a GLB (see ``ada.clash.identify``'s module
+      docstring): the same key the scene was loaded from, an IFC/Genie-XML/FEM file, or a compiled
+      procedural model's neutral artifact. A source whose reader yields no members finishes
+      ``done`` with ``counts.members == 0`` and a warning -- "this source cannot be checked" is an
+      answer, not an error.
+    * ``{collection, subject, revision?, node?, options?}`` -- a PUBLISHED ASSET NODE, whose
+      provider reads its own format into ``ada`` objects (``ada.assets.concepts``). This is the
+      way in for every format core has no reader for, and core learns nothing about that format
+      here: it resolves the manifest only to find which blob the check will run against, so the
+      derived key still changes when the source bytes do.
+
+    A SUBJECT IS NOT A FILE, which is why the second form does not simply take the source's key:
+    one blob is commonly shared by many subjects, and a check over a storey is not a check over
+    the export that contains it.
     """
     source_key = str(body.get("source_key") or "")
-    if not source_key:
-        raise HTTPException(status_code=400, detail="'source_key' is required")
+    collection = str(body.get("collection") or "")
+    subject = str(body.get("subject") or "")
+    if source_key and (collection or subject):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "name the model ONE way: 'source_key' for a file core reads, or "
+                "'collection' + 'subject' for a published node whose provider reads it. Passing "
+                "both leaves which one was checked to the order this route happens to read them in"
+            ),
+        )
+    if not source_key and not (collection and subject):
+        raise HTTPException(
+            status_code=400,
+            detail="'source_key', or 'collection' and 'subject' together, is required",
+        )
     options = _options_from_body(body.get("options"))
 
     ctx.jobs.require("clash_check")
+
+    if not source_key:
+        return await _submit_asset_node_check(
+            body=body,
+            request=request,
+            ctx=ctx,
+            scope_obj=scope_obj,
+            user=user,
+            collection=collection,
+            subject=subject,
+            options=options,
+        )
 
     key_token = await _source_content_token(ctx, scope_obj, source_key)
     options_token = _options_token(options)
@@ -116,6 +152,132 @@ async def api_clash_check(
             "clash_check",
             key=derived_key,
             target_format="clash_check",
+            status="queued",
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "cached": False})
+
+
+async def _asset_source_key(ctx: RestContext, scope: Scope, collection: str, subject: str, revision):
+    """The blob a published subject's check will run against, and the revision it resolved to.
+
+    Read from the manifest rather than taken from the caller: the source may be one upload shared
+    by many subjects, referenced by absolute key, so only the manifest knows which bytes this
+    subject means. Core reads the manifest for exactly this -- the derived key has to move when
+    the source does -- and learns nothing about the format inside.
+    """
+    from ada.assets.keys import asset_key
+    from ada.assets.manifest import MANIFEST_FILENAME, ManifestError, parse_manifest
+
+    revision = revision or await _latest_asset_revision(ctx, scope, collection, subject)
+    if revision is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no published revision for collection={collection!r} subject={subject!r}",
+        )
+    key = asset_key(collection, subject, revision, MANIFEST_FILENAME)
+    try:
+        raw = await ctx.storage.get_bytes(scope, key)
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=f"no manifest at {key}") from exc
+    try:
+        manifest = parse_manifest(raw)
+    except ManifestError as exc:
+        raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+
+    entry = next((a for a in manifest.artefacts if a.role == "source"), None)
+    if entry is None:
+        # Nothing to check and nothing to cache on: a subject with no source artefact publishes
+        # a tree and no model, which a check cannot be run over at all.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"subject {subject!r} at {revision} publishes no source artefact, so there is " f"no model to check"
+            ),
+        )
+    return (entry.key or asset_key(collection, subject, revision, entry.file)), manifest
+
+
+async def _latest_asset_revision(ctx: RestContext, scope: Scope, collection: str, subject: str):
+    """Newest revision that HAS a manifest -- written last, so a manifest-less newer one is a
+    half-written publish and must not shadow the last good revision."""
+    from ada.assets.index import fold_listing
+    from ada.assets.keys import ASSET_PREFIX
+
+    entries = await ctx.storage.list_prefix(scope, f"{ASSET_PREFIX}/{collection}/{subject}/")
+    entry = fold_listing([e.key for e in entries]).subject(collection, subject)
+    if entry is None:
+        return None
+    complete = entry.latest_complete
+    return complete.revision if complete is not None else None
+
+
+async def _submit_asset_node_check(
+    *,
+    body: dict,
+    request: Request,
+    ctx: RestContext,
+    scope_obj: Scope,
+    user: User,
+    collection: str,
+    subject: str,
+    options: ClashOptions,
+) -> JSONResponse:
+    """Enqueue a check over a published node. Same derived-key shape as the file path."""
+    asked_revision = body.get("revision") or None
+    source_key, manifest = await _asset_source_key(ctx, scope_obj, collection, subject, asked_revision)
+
+    asked_provider = str(body.get("provider") or "")
+    if asked_provider and asked_provider != manifest.provider:
+        # The caller is acting on a view that has moved. Refused rather than checked against the
+        # other provider, which is the same rule the build request applies.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"subject {subject!r} at {manifest.revision} was produced by provider "
+                f"{manifest.provider!r}, not {asked_provider!r}"
+            ),
+        )
+
+    key_token = await _source_content_token(ctx, scope_obj, source_key)
+    # The SUBJECT rides the token as well as the blob: one export is commonly shared by many
+    # subjects, so a token over the bytes alone would serve one storey's joints for another's.
+    node = str(body.get("node") or subject)
+    scope_token = hashlib.sha256(f"{collection}/{subject}/{manifest.revision}/{node}".encode()).hexdigest()[:16]
+    options_token = _options_token(options)
+    prefix = f"_derived/clash/{key_token}/{scope_token}/{options_token}"
+    derived_key = f"{prefix}/result.json"
+
+    if not bool(body.get("force")) and await ctx.storage.exists(scope_obj, derived_key):
+        return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+
+    submitted = await ctx.jobs.submit(
+        JobRequest(
+            source_key=source_key,
+            # The kind as a LITERAL, like every other route names its own: importing it from
+            # `..formats` would pull the worker's handler chain -- and through it the CAD
+            # readers -- into the API process, which the slim viewer image does not carry.
+            target_format="clash_check_asset",
+            scope=scope_obj,
+            feature="clash_check",
+            derived_prefix=prefix,
+            derived_key=derived_key,
+            conversion_options={
+                "collection": collection,
+                "subject": subject,
+                "revision": manifest.revision,
+                "node": node,
+                "options": options.to_dict(),
+            },
+        ),
+        before_dispatch=lambda submitted: ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "clash_check",
+            key=derived_key,
+            target_format="clash_check_asset",
             status="queued",
             job_id=submitted.job_id,
         ),

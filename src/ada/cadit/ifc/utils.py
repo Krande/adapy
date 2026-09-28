@@ -134,6 +134,19 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
     return ifclocalplacement2
 
 
+def create_object_placement(f: ifcopenshell.file, obj, relative_to=None):
+    """The IfcLocalPlacement of an object: its own placement, relative to ``relative_to`` (the ObjectPlacement of
+    its parent). The body of the object is written in its local system, which this placement puts in the world."""
+    place = obj.placement
+    return create_local_placement(f, origin=place.origin, loc_z=place.zdir, loc_x=place.xdir, relative_to=relative_to)
+
+
+def create_absolute_placement(f: ifcopenshell.file, obj):
+    """The IfcLocalPlacement of an object that has no placed parent in the IFC file: its absolute placement"""
+    place = obj.placement.get_absolute_placement(include_rotations=True)
+    return create_local_placement(f, origin=place.origin, loc_z=place.zdir, loc_x=place.xdir)
+
+
 def assembly_to_ifc_file(a: "Assembly"):
     import types
 

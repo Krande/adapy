@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.api.transforms import to_global_points
 from ada.core.constants import X, Y, Z
 from ada.fem.concept.constraints import ConstraintConceptDofType
 
@@ -183,20 +185,17 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
     # A beam end constraint is written as a support point at the beam end
     all_points = {**constraint_concepts.point_constraints, **constraint_concepts.beam_end_constraints}
     for pname, point in all_points.items():
-        abs_place = point.parent.parent_fem.parent_part.placement.get_absolute_placement()
-        origin = abs_place.origin
-        p = origin + point.position.copy()
+        # a beam end is local to its beam, anything else to its part
+        owner = getattr(point, "beam", None) or point.parent.parent_fem.parent_part
+        p = to_global_points(owner, point.position)
         add_support_point(
             root,
             name=point.name,
-            pos=(p.x, p.y, p.z),
+            pos=(float(p[0]), float(p[1]), float(p[2])),
             dof_constraints=point.dof_constraints,
         )
     for cname, curve in constraint_concepts.curve_constraints.items():
-        abs_place = curve.parent.parent_fem.parent_part.placement.get_absolute_placement()
-        origin = abs_place.origin
-        pt1 = origin + curve.start_pos.copy()
-        pt2 = origin + curve.end_pos.copy()
+        pt1, pt2 = to_global_points(curve.parent.parent_fem.parent_part, [curve.start_pos, curve.end_pos])
         add_support_curve(
             root,
             name=curve.name,
@@ -206,15 +205,13 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
         )
 
     for rigid_name, rigid_link in constraint_concepts.rigid_links.items():
-        abs_place = rigid_link.parent.parent_fem.parent_part.placement.get_absolute_placement()
-        origin = abs_place.origin
+        part = rigid_link.parent.parent_fem.parent_part
+        master_pos = to_global_points(part, rigid_link.master_point)
 
-        # Get master point position
-        master_pos = origin + rigid_link.master_point.copy()
-
-        # Default bounds - you may need to implement proper bounds extraction
-        lower_corner = origin + rigid_link.influence_region.lower_corner.copy()
-        upper_corner = origin + rigid_link.influence_region.upper_corner.copy()
+        # The region is a box in the local system of the part: its world bounds
+        region = rigid_link.influence_region
+        corners = to_global_points(part, list(itertools.product(*zip(region.lower_corner, region.upper_corner))))
+        lower_corner, upper_corner = corners.min(axis=0), corners.max(axis=0)
 
         add_support_rigid_link(
             root,

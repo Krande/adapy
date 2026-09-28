@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada import PipeSegStraight
-from ada.cadit.ifc.utils import add_colour, create_ifcpolyline, create_local_placement
+from ada.cadit.ifc.utils import (
+    add_colour,
+    create_absolute_placement,
+    create_ifcpolyline,
+)
 from ada.cadit.ifc.write.geom import solids as igeo_so
 from ada.cadit.ifc.write.pipes.entity_class import segment_entity_class
 from ada.core.utils import to_real
@@ -57,7 +61,9 @@ def write_pipe_straight_seg(ifc_store: IfcStore, pipe_seg: PipeSegStraight):  # 
         [axis_representation, body_representation],
     )
 
-    local_placement = create_local_placement(f)
+    # The body and axis are in the local system of the segment. The pipe itself is written as an
+    # IfcDistributionSystem without a placement, so the segment carries its absolute placement.
+    local_placement = create_absolute_placement(f, pipe_seg)
 
     pipe_segment = f.create_entity(
         segment_entity_class(pipe_seg),

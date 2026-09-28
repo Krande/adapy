@@ -130,9 +130,9 @@ class BoundingBox:
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:
-        """Calculate the Bounding Box of a plate"""
+        """Calculate the Bounding Box of a plate, in the local system of the plate (as for beams and shapes)"""
         plate: Plate = self.parent
-        p3d = plate.placement.get_absolute_placement().origin + np.asarray(plate.poly.points3d)
+        p3d = np.asarray(plate.poly.points3d, dtype=float)
         bbox_min = p3d.min(axis=0)
         bbox_max = p3d.max(axis=0)
         n = plate.poly.normal.astype(np.float64)

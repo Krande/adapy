@@ -10,6 +10,7 @@ from . import (
     asset_build,
     asset_publish,
     clash_check,
+    clash_check_asset,
     clash_detail,
     component,
     convert,
@@ -49,6 +50,9 @@ register(procedural_export.ProceduralExportModelHandler())
 register(procedural_export.ProceduralImportXlsxHandler())
 register(equipment.EquipmentBboxHandler())
 register(engine_build.ProceduralEngineBuildHandler())
+# Synthetic: the model comes from a provider that reads its own format, so there is no source
+# file to stream and no extension to dispatch on (see the module docstring).
+register(clash_check_asset.ClashCheckAssetHandler())
 # Source-backed kinds that are not registry conversions.
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())
