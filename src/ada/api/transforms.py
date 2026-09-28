@@ -638,6 +638,17 @@ def to_global_points(obj: BackendGeom | Part, points: Iterable) -> np.ndarray:
     )
 
 
+def to_local_points(obj: BackendGeom | Part, points: Iterable) -> np.ndarray:
+    """The inverse of :func:`to_global_points`: global points expressed in the local system of ``obj``."""
+    points = np.asarray(points, dtype=float)
+    place_abs = obj.placement.get_absolute_placement(include_rotations=True)
+    if place_abs.is_identity(use_absolute_placement=False):
+        return points
+    return (
+        _identity_placement().transform_array_from_other_place(np.atleast_2d(points), place_abs).reshape(points.shape)
+    )
+
+
 def to_global_vectors(obj: BackendGeom | Part, vectors: Iterable) -> np.ndarray:
     """Rotate direction vectors given in the local system of ``obj`` (e.g. ``Beam.xvec``) to the global system."""
     vectors = np.asarray(vectors, dtype=float)

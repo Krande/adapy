@@ -178,3 +178,89 @@ def test_global_constraint_concepts_include_beam_ends():
 
     assert list(concepts.beam_end_constraints) == ["bm1_n1"]
     assert concepts.beam_end_constraints["bm1_n1"].parent.parent_fem.parent_part is p
+
+
+def _plate_part() -> ada.Part:
+    pl = ada.Plate("pl1", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.01)
+    return ada.Part("P1") / pl
+
+
+def test_curve_constraint_restrains_the_nodes_on_its_segment():
+    p = _plate_part()
+    p.concept_fem.constraints.add_curve_constraint(
+        ada.ConstraintConceptCurve("edge", (0, 0, 0), (0, 1, 0), ada.ConstraintConceptDofType.pinned())
+    )
+
+    fem = p.to_fem_obj(0.25, pl_repr=GeomRepr.SHELL)
+
+    bc = {bc.name: bc for bc in fem.bcs}["edge"]
+    members = bc.fem_set.members
+    assert len(members) >= 5  # 1 m edge at a 0.25 m seed
+    assert all(abs(n.x) < 1e-4 for n in members)
+    assert bc.dofs == [1, 2, 3]
+
+
+def test_curve_constraint_yields_to_a_beam_end_constraint(caplog):
+    bm = _beam()
+    p = ada.Part("P1") / bm
+    bm.concept_fem.fix_end("n1")
+    p.concept_fem.constraints.add_curve_constraint(
+        ada.ConstraintConceptCurve("line", (0, 0, 0), (1, 0, 0), ada.ConstraintConceptDofType.pinned())
+    )
+
+    ada_logger = logging.getLogger("ada")
+    ada_logger.addHandler(caplog.handler)
+    try:
+        fem = p.to_fem_obj(0.25, GeomRepr.LINE)
+    finally:
+        ada_logger.removeHandler(caplog.handler)
+
+    bcs = {bc.name: bc for bc in fem.bcs}
+    assert [n.x for n in bcs["bm1_n1"].fem_set.members] == [0.0]
+    assert all(n.x > 0 for n in bcs["line"].fem_set.members)
+    assert "overlaps beam end constraint(s) ['bm1_n1']" in caplog.text
+
+
+@pytest.mark.parametrize("rotation_dependent", [True, False])
+def test_rigid_link_couples_the_region_to_a_supported_master_node(rotation_dependent):
+    bm = _beam()
+    p = ada.Part("P1") / bm
+    region = ada.RigidLinkRegion((-0.01, -0.1, -0.2), (0.01, 0.1, 0.2))
+    p.concept_fem.constraints.add_rigid_link(
+        ada.ConstraintConceptRigidLink(
+            "rl1", (-0.5, 0, 0), region, ada.ConstraintConceptDofType.encastre(), rotation_dependent=rotation_dependent
+        )
+    )
+
+    fem = p.to_fem_obj(0.1, GeomRepr.SOLID)
+
+    con = {c.name: c for c in fem.constraints.values()}["rl1"]
+    assert con.type == con.TYPES.COUPLING
+    master = con.m_set.members[0]
+    assert master.p.is_equal(ada.Point(-0.5, 0, 0))
+    dependents = con.s_set.members
+    assert len(dependents) > 1
+    assert all(abs(n.x) < 1e-4 for n in dependents)
+    assert con.dofs == ([1, 2, 3, 4, 5, 6] if rotation_dependent else [1, 2, 3])
+
+    support = {bc.name: bc for bc in fem.bcs}["rl1_support"]
+    assert support.fem_set.members == [master]
+    assert support.dofs == [1, 2, 3, 4, 5, 6]
+
+
+def test_rigid_link_is_written_to_abaqus_as_a_coupling(tmp_path):
+    bm = _beam()
+    p = ada.Part("P1") / bm
+    a = ada.Assembly("A") / p
+    region = ada.RigidLinkRegion((-0.01, -0.1, -0.2), (0.01, 0.1, 0.2))
+    p.concept_fem.constraints.add_rigid_link(
+        ada.ConstraintConceptRigidLink("rl1", (-0.5, 0, 0), region, ada.ConstraintConceptDofType.encastre())
+    )
+    p.fem = p.to_fem_obj(0.1, GeomRepr.SOLID)
+    a.fem.add_step(ada.fem.StepEigen("Eig", 5))
+
+    a.to_fem("rl_deck", "abaqus", scratch_dir=tmp_path, overwrite=True, execute=False)
+
+    deck = "\n".join(f.read_text().upper() for f in tmp_path.rglob("*.inp"))
+    assert "*COUPLING" in deck
+    assert "RL1_SUPPORT_SET" in deck
