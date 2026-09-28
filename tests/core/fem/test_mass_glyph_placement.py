@@ -1,12 +1,12 @@
 """Regression: the FEM-concepts mass *overlay* glyph must sit exactly where the mass *geometry*
-is rendered. build_mass_glyphs used the raw MassPoint cog while PrimSphere.solid_geom renders the
-sphere at cog + placement.get_absolute_placement(include_rotations=False).origin, so any mass with
-a non-identity placement (e.g. a model pipeline positions equipment via placement) drew the amber
-overlay offset from the actual mass point.
+is rendered. build_mass_glyphs used the raw MassPoint cog while the sphere renders at its local cog
+moved to the world by the placement, so any mass with a non-identity placement (e.g. a model
+pipeline positions equipment via placement) drew the amber overlay offset from the actual mass point.
 """
 
 from ada import Part, Placement
 from ada.api.mass import MassPoint
+from ada.api.transforms import to_global_points
 from ada.extension.fem_concepts_builder import build_mass_glyphs
 
 
@@ -23,7 +23,8 @@ def _approx(a, b, tol=1e-9):
 
 
 def _sphere_center(mp: MassPoint):
-    return _coords(mp.solid_geom().geometry.center)
+    """Where the sphere renders: its local center moved to the world by the placement"""
+    return _coords(to_global_points(mp, mp.solid_geom().geometry.center))
 
 
 def test_mass_glyph_matches_geometry_identity_placement():

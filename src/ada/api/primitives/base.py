@@ -314,19 +314,8 @@ class Shape(BackendGeom):
                     BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans
                 ]
 
-            # Bake a non-identity placement into the geometry. The tessellator/exporters are
-            # placement-agnostic for generic Shapes (unlike Beam, whose straight_beam_to_geom
-            # bakes it in, and the Prim* subclasses, which override solid_geom) — so an IFC/
-            # native shape read in LOCAL representation coords with its world transform held in
-            # ``self.placement`` would otherwise render unplaced (rotation dropped; translation
-            # only happened to work when it was already baked into the geom). Returns a COPY so
-            # repeat calls don't compound; ``self.geom``/``self.placement`` are never mutated.
-            # Only analytic (positioned) solids are handled today — face-set / B-rep placement
-            # baking is a follow-up (helper returns None → keep the unplaced geom).
-            if not self.placement.is_identity():
-                placed = _bake_placement_into_geometry(self.geom, self.placement)
-                if placed is not None:
-                    return placed
+            # In the local system of the shape, like every other object. Consumers that need world coordinates
+            # apply the absolute placement of the shape (see BackendGeom.world_matrix).
             return self.geom
         else:
             raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")

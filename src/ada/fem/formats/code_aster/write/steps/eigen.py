@@ -9,15 +9,10 @@ if TYPE_CHECKING:
 
 
 def step_eig_str(step: StepEigen, part: Part) -> str:
-    bcs = part.fem.bcs
+    from ..write_constraints import get_charge_names, has_cara_elem
 
-    assembly = part.get_assembly()
-    if part != assembly:
-        for bc in assembly.fem.bcs:
-            if bc not in bcs:
-                bcs.append(bc)
-
-    if len(bcs) == 0:
+    charges = get_charge_names(part)
+    if len(charges) == 0:
         raise NotImplementedError("An eigenfrequency analysis needs at least one boundary condition")
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
@@ -25,7 +20,7 @@ def step_eig_str(step: StepEigen, part: Part) -> str:
     eig_method = eig_map[eig_type]
 
     sec_str = ""
-    if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
+    if has_cara_elem(part):
         sec_str = "\n    CARA_ELEM=element,"
 
     # TODO: Add check for second order shell elements. If exists add conversion of results back from TRI7 to TRI6
@@ -47,7 +42,7 @@ modes_0 = PROJ_CHAMP(
     # Bc only, which made a plate unanalysable: simple support plus a cylindrical-bending restraint
     # is four disjoint node sets (they have to be disjoint -- Code_Aster refuses a dof held twice
     # with <ASSEMBLA_26>), and there is no way to spell that as a single Bc.
-    charge_str = ", ".join(bc.name for bc in bcs)
+    charge_str = ", ".join(charges)
     return f"""
 #modal analysis
 ASSEMBLAGE(

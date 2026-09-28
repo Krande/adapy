@@ -253,24 +253,28 @@ def _emit_with_geom_transforms(ms: "MeshStore", ada_obj):
     if not transforms:
         yield ms
         return
+    for mat in transforms:
+        yield _transform_meshstore(ms, mat)
+
+
+def _transform_meshstore(ms: "MeshStore", matrix) -> "MeshStore":
+    """A copy of ``ms`` with the 4x4 ``matrix`` baked into its positions, and its inverse-transpose into the normals
+    (so non-uniform scale renders correctly)."""
+    m = np.asarray(matrix, dtype=np.float64)
     base = np.asarray(ms.position, dtype=np.float64).reshape(-1, 3)
-    base_n = None
+    pos = (np.c_[base, np.ones(len(base))] @ m.T)[:, :3].astype(np.float32).reshape(-1)
+    nrm = ms.normal
     if ms.normal is not None and len(ms.normal):
         base_n = np.asarray(ms.normal, dtype=np.float64).reshape(-1, 3)
-    for mat in transforms:
-        m = np.asarray(mat, dtype=np.float64)
-        pos = (np.c_[base, np.ones(len(base))] @ m.T)[:, :3].astype(np.float32).reshape(-1)
-        nrm = None
-        if base_n is not None:
-            try:
-                nm = np.linalg.inv(m[:3, :3]).T  # inverse-transpose: correct under non-uniform scale
-            except np.linalg.LinAlgError:
-                nm = m[:3, :3]
-            n = base_n @ nm.T
-            ln = np.linalg.norm(n, axis=1, keepdims=True)
-            ln[ln == 0] = 1.0
-            nrm = (n / ln).astype(np.float32).reshape(-1)
-        yield MeshStore(ms.index, ms.matrix, pos, ms.indices, nrm, ms.material, ms.type, ms.node_ref)
+        try:
+            nm = np.linalg.inv(m[:3, :3]).T  # inverse-transpose: correct under non-uniform scale
+        except np.linalg.LinAlgError:
+            nm = m[:3, :3]
+        n = base_n @ nm.T
+        ln = np.linalg.norm(n, axis=1, keepdims=True)
+        ln[ln == 0] = 1.0
+        nrm = (n / ln).astype(np.float32).reshape(-1)
+    return MeshStore(ms.index, ms.matrix, pos, ms.indices, nrm, ms.material, ms.type, ms.node_ref)
 
 
 def _thicken_face_mesh(positions: np.ndarray, faces: np.ndarray, thickness: float):
@@ -1105,6 +1109,18 @@ class BatchTessellator:
         render_override: dict[str, GeomRepr] = None,
         graph_store: GraphStore = None,
     ) -> Iterable[MeshStore]:
+        """Tessellate each object in its local system, and move its meshes to the world by its absolute placement"""
+        for obj in objects:
+            matrix = obj.world_matrix() if isinstance(obj, BackendGeom) else None
+            for ms in self._batch_tessellate_local([obj], render_override, graph_store):
+                yield ms if matrix is None else _transform_meshstore(ms, matrix)
+
+    def _batch_tessellate_local(
+        self,
+        objects: Iterable[Geometry | BackendGeom],
+        render_override: dict[str, GeomRepr] = None,
+        graph_store: GraphStore = None,
+    ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()
 
@@ -1514,18 +1530,18 @@ class BatchTessellator:
         """
         backend = active_backend()
         shapes = []
-        meta: list = []  # (color, node_ref) parallel to shapes
+        meta: list = []  # (color, node_ref, world matrix) parallel to shapes
         for obj in objects:
             geom = obj.solid_geom()
             shapes.append(backend.build(geom))
             node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
-            meta.append((geom.color, node_ref))
+            meta.append((geom.color, node_ref, obj.world_matrix()))
 
         if not shapes:
             return
 
         bm = backend.tessellate_batch(shapes, linear_deflection)
-        for grp, (color, node_ref) in zip(bm.groups, meta):
+        for grp, (color, node_ref, matrix) in zip(bm.groups, meta):
             mat_id = self.add_color(color)
             pos = np.ascontiguousarray(bm.positions[grp.vstart * 3 : (grp.vstart + grp.vlength) * 3], dtype="float32")
             # rebase the group's indices to this object's local vertex range
@@ -1537,7 +1553,8 @@ class BatchTessellator:
                 nrm = np.ascontiguousarray(bm.normals[grp.vstart * 3 : (grp.vstart + grp.vlength) * 3], dtype="float32")
             else:
                 nrm = _vertex_normals(pos, idx)
-            yield MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
+            ms = MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
+            yield ms if matrix is None else _transform_meshstore(ms, matrix)
 
     def meshes_to_trimesh(
         self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=False

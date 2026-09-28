@@ -41,30 +41,30 @@ from ada.core.vector_utils import (
 
 
 def _reference_absolute(place: Placement, include_rotations: bool) -> Placement:
-    """The pre-optimisation ``get_absolute_placement``, transcribed unchanged."""
+    """The full ancestry walk of ``get_absolute_placement``, without its fast paths.
+
+    A rigid composition, nearest ancestor first: every ancestor rotates the accumulated origin and rotation into
+    its own parent's system, then adds its origin. No-op rotations (an exact identity, or of a zero origin) are
+    skipped, as they can flip the sign of a zero.
+    """
     if place.parent is None:
         return place
 
-    current_location = place.origin.copy()
+    current_location = np.asarray(place.origin, dtype=float).copy()
+    accumulated_rot_matrix = place.rot_matrix.copy()
+    for ancestor in place.parent.get_ancestors(include_self=False):
+        ancestor_rot = ancestor.placement.rot_matrix
+        if not is_exact_identity_rot_matrix(ancestor_rot):
+            if current_location.any():
+                current_location = ancestor_rot @ current_location
+            accumulated_rot_matrix = ancestor_rot @ accumulated_rot_matrix
+        if current_location.any():
+            current_location = current_location + ancestor.placement.origin
+        else:
+            current_location = np.asarray(ancestor.placement.origin, dtype=float).copy()
 
     if include_rotations:
-        accumulated_rot_matrix = place.rot_matrix.copy()
-        ancestry = place.parent.get_ancestors(include_self=False)
-
-        for ancestor in ancestry:
-            current_location += ancestor.placement.origin
-            accumulated_rot_matrix = ancestor.placement.rot_matrix @ accumulated_rot_matrix
-
-        return Placement(
-            origin=current_location,
-            xdir=accumulated_rot_matrix[0],
-            ydir=accumulated_rot_matrix[1],
-            zdir=accumulated_rot_matrix[2],
-        )
-
-    ancestry = place.parent.get_ancestors(include_self=False)
-    for ancestor in ancestry:
-        current_location += ancestor.placement.origin
+        return Placement.from_rot_matrix(accumulated_rot_matrix, origin=current_location)
 
     return Placement(origin=current_location, xdir=place.xdir, ydir=place.ydir, zdir=place.zdir)
 

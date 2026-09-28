@@ -4,7 +4,9 @@ from ada.fem import FemSection
 from ada.fem.containers import FemSections
 
 
-def create_sections_str(fem_sections: FemSections) -> str:
+def create_sections_str(fem_sections: FemSections, has_ref_points: bool = False) -> str:
+    from .write_constraints import create_ref_points_discrete_str
+
     mat_assign_str = ""
 
     beam_sections_str = "\n        POUTRE=(),"
@@ -28,10 +30,12 @@ def create_sections_str(fem_sections: FemSections) -> str:
     if len(fem_sections.solids) > 0:
         mat_assign_str += write_solid_section(fem_sections.solids)
 
+    discrete_str = create_ref_points_discrete_str() if has_ref_points else ""
+
     sec_str = ""
-    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0:
+    if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or has_ref_points:
         sec_str = f"""element = AFFE_CARA_ELEM(\n
-    MODELE=model,{shell_sections_str}{beam_sections_str}
+    MODELE=model,{shell_sections_str}{beam_sections_str}{discrete_str}
 )"""
 
     return f"""

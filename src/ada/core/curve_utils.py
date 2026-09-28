@@ -674,7 +674,7 @@ def transform_2d_arc_segment_to_3d(arc2d: ArcSegment, place: Placement):
 
     arc_points = [arc2d.p1, arc2d.p2, arc2d.midpoint, arc2d.center, arc2d.intersection]
     r = place.transform_local_points_back_to_global(np.asarray(arc_points))
-    sn, en = transform_3x3(place.rot_matrix, np.array([arc2d.s_normal, arc2d.e_normal]), inverse=True)
+    sn, en = transform_3x3(place.rot_matrix, np.array([arc2d.s_normal, arc2d.e_normal]))
     return ArcSegment(r[0], r[1], r[2], arc2d.radius, r[3], r[4], sn, en)
 
 

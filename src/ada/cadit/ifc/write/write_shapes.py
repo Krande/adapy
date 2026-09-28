@@ -18,7 +18,7 @@ from ada import (
     Shape,
 )
 from ada.base.units import Units
-from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
+from ada.cadit.ifc.utils import add_colour, create_object_placement, tesselate_shape
 from ada.cadit.ifc.write.geom.curves import indexed_poly_curve, poly_line
 from ada.cadit.ifc.write.geom.solids import faceted_brep
 from ada.cadit.ifc.write.geom.surfaces import (
@@ -103,7 +103,8 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
         # If rel_to is still None, create_local_placement should be able to handle it,
         # but if not, you can explicitly create an absolute placement here.
 
-    shape_placement = create_local_placement(f, relative_to=rel_to)
+    # The body is in the local system of the shape, placed by the shape placement relative to its parent
+    shape_placement = create_object_placement(f, shape, relative_to=rel_to)
 
     schema = f.wrapped_data.schema
 

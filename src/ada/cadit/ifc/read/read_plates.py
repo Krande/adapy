@@ -28,6 +28,18 @@ def _is_extruded_arbitrary(geometry) -> bool:
     )
 
 
+def _object_placement(ifc_elem):
+    """The world placement of ``ifc_elem`` (its whole ObjectPlacement chain), or None when it has none. The body is
+    in the local system of the element, like for beams."""
+    from ifcopenshell.util.placement import get_local_placement
+
+    from .geom.placement import placement_from_ifc_4x4
+
+    if getattr(ifc_elem, "ObjectPlacement", None) is None:
+        return None
+    return placement_from_ifc_4x4(get_local_placement(ifc_elem.ObjectPlacement))
+
+
 def _read_plate_material(ifc_elem, name, ifc_store: IfcStore):
     mat = None
     if ifc_store.assembly is not None:
@@ -68,6 +80,7 @@ def _import_curved_plate(ifc_elem, name, advanced_face: geo_su.AdvancedFace, ifc
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
         color=color,
+        placement=_object_placement(ifc_elem),
     )
     fallback_pts = _edge_loop_points(advanced_face)
     if fallback_pts:
@@ -176,6 +189,7 @@ def _plate_from_extruded_brep(ifc_elem, name, shell: geo_su.ClosedShell, ifc_sto
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
+        placement=_object_placement(ifc_elem),
     )
 
 
@@ -230,4 +244,5 @@ def import_ifc_plate(ifc_elem: ifcopenshell.entity_instance, name, ifc_store: If
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
+        placement=_object_placement(ifc_elem),
     )
