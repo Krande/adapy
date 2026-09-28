@@ -58,7 +58,7 @@ def test_solid_mesh_is_not_transformed_twice(placement):
     fem = p.to_fem_obj(0.25, GeomRepr.SOLID)
 
     coords = np.array([n.p for n in fem.nodes], dtype=float)
-    body_bbox = np.array(active_backend().bbox(bm.solid_occ()), dtype=float)
+    body_bbox = np.array(active_backend().bbox(bm.shape_global()), dtype=float)
     assert coords.min(axis=0) == pytest.approx(body_bbox[:3], abs=1e-3)
     assert coords.max(axis=0) == pytest.approx(body_bbox[3:], abs=1e-3)
 

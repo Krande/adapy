@@ -113,9 +113,10 @@ def test_transform_rotation():
     # Rotate 90 degrees about the z-axis
     m = pq.Quaternion(axis=[0, 0, 1], angle=-np.radians(90)).transformation_matrix
 
-    xdir = m[0][:3]
-    ydir = m[1][:3]
-    zdir = m[2][:3]
+    # xdir/ydir/zdir are where the local axes point, i.e. the columns of the rotation
+    xdir = m[:3, 0]
+    ydir = m[:3, 1]
+    zdir = m[:3, 2]
     place = Placement(xdir=xdir, zdir=zdir)
 
     assert np.allclose(place.xdir, xdir)

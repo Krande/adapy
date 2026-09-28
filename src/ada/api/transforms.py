@@ -139,17 +139,20 @@ class Placement:
         return [self.xdir, self.ydir, self.zdir][key]
 
     @staticmethod
+    def from_rot_matrix(rot_matrix: np.ndarray, origin=None) -> Placement:
+        """A placement from a rotation matrix whose columns are the world directions of the local axes"""
+        m = np.asarray(rot_matrix)
+        return Placement(origin=origin, xdir=m[:3, 0], ydir=m[:3, 1], zdir=m[:3, 2])
+
+    @staticmethod
     def from_quaternion(quat: pq.Quaternion, origin=None):
-        rot_mat = quat.rotation_matrix
-        return Placement(origin=origin, xdir=rot_mat[0], ydir=rot_mat[1], zdir=rot_mat[2])
+        return Placement.from_rot_matrix(quat.rotation_matrix, origin=origin)
 
     @staticmethod
     def from_axis_angle(axis: list[float], angle: float, origin: Iterable[float | int] = None) -> Placement:
         """Axis is a list of 3 floats, angle is in degrees."""
         q = pq.Quaternion(axis=axis, angle=np.radians(angle))
-        m = q.transformation_matrix
-
-        return Placement(origin=origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+        return Placement.from_rot_matrix(q.rotation_matrix, origin=origin)
 
     @staticmethod
     def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None, flip_n=False) -> Placement:
@@ -198,18 +201,11 @@ class Placement:
 
     @staticmethod
     def from_4x4_matrix(matrix: np.ndarray) -> Placement:
-        # Extract the axes from the matrix ROWS, matching from_axis_angle / from_quaternion /
-        # rotate / get_absolute_placement (all row-based) and ``rot_matrix`` itself. Reading
-        # COLUMNS here (the old behaviour) stored the TRANSPOSE — for a rotation the inverse —
-        # so a rotated IFC ObjectPlacement rendered on the wrong world axis and the round-trip
-        # ``from_4x4_matrix(M).get_matrix4x4() == M`` was broken. See test_placement_convention.
+        # The COLUMNS of a world matrix are the world directions of the local axes, which is what
+        # xdir/ydir/zdir are (see ``rot_matrix``). ``from_4x4_matrix(M).get_matrix4x4() == M``, see
+        # test_placement_convention.
         matrix = np.asarray(matrix)
-        return Placement(
-            origin=matrix[:3, 3],
-            xdir=matrix[0, :3],
-            ydir=matrix[1, :3],
-            zdir=matrix[2, :3],
-        )
+        return Placement.from_rot_matrix(matrix[:3, :3], origin=matrix[:3, 3])
 
     def _is_local_identity(self) -> bool:
         """``True`` when this placement contributes nothing to an ancestry accumulation.
@@ -304,29 +300,28 @@ class Placement:
             if cached is not None and _fingerprints_match(cached[0], fingerprint):
                 return cached[1]
 
-        current_location = self.origin.copy()
+        # A rigid composition, nearest ancestor first: each ancestor rotates what is below it into its own
+        # parent's system and then moves it by its origin. The origin is where the local origin really is in the
+        # world, also when the rotations are not asked for.
+        current_location = np.asarray(self.origin, dtype=float).copy()
+        accumulated_rot_matrix = self.rot_matrix.copy()
+        for ancestor in ancestry:
+            ancestor_placement = ancestor.placement
+            ancestor_rot = ancestor_placement.rot_matrix
+            # Skipping no-op rotations (of an identity, or of a zero origin) keeps the result bit-identical to the
+            # fast path above, which starts from the container's origin: rotating zeros can turn 0.0 into -0.0.
+            if not is_exact_identity_rot_matrix(ancestor_rot):
+                if current_location.any():
+                    current_location = ancestor_rot @ current_location
+                accumulated_rot_matrix = ancestor_rot @ accumulated_rot_matrix
+            if current_location.any():
+                current_location = current_location + ancestor_placement.origin
+            else:
+                current_location = np.asarray(ancestor_placement.origin, dtype=float).copy()
 
         if include_rotations:
-            # Accumulate rotation matrices instead of quaternions
-            accumulated_rot_matrix = self.rot_matrix.copy()
-
-            for ancestor in ancestry:
-                current_location += ancestor.placement.origin
-                # Matrix multiplication is faster than quaternion multiplication
-                accumulated_rot_matrix = ancestor.placement.rot_matrix @ accumulated_rot_matrix
-
-            # Extract direction vectors directly from the final rotation matrix
-            result = Placement(
-                origin=current_location,
-                xdir=accumulated_rot_matrix[0],
-                ydir=accumulated_rot_matrix[1],
-                zdir=accumulated_rot_matrix[2],
-            )
+            result = Placement.from_rot_matrix(accumulated_rot_matrix, origin=current_location)
         else:
-            # For non-rotation case, just accumulate origins
-            for ancestor in ancestry:
-                current_location += ancestor.placement.origin
-
             result = Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
         if fingerprint is not None:
@@ -340,9 +335,8 @@ class Placement:
         """Rotate the placement around an axis. Returns a new placement."""
         q0 = pq.Quaternion(matrix=self.rot_matrix)
         q = q0 * pq.Quaternion(axis=axis, angle=np.radians(angle))
-        m = q.transformation_matrix
 
-        return Placement(origin=self.origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+        return Placement.from_rot_matrix(q.rotation_matrix, origin=self.origin)
 
     @property
     def origin(self) -> Point:
@@ -388,9 +382,13 @@ class Placement:
 
     @cached_property
     def rot_matrix(self):
-        """Get rotation matrix using optimized caching."""
-        # Fallback to original implementation
-        return np.array([self.xdir, self.ydir, self.zdir])
+        """The rotation from the local to the parent system: its COLUMNS are xdir, ydir and zdir.
+
+        ``xdir``/``ydir``/``zdir`` are where the local x, y and z axes point in the parent system, as in an
+        ``IfcAxis2Placement3D`` (RefDirection and Axis). So ``rot_matrix @ p + origin`` takes a local point ``p``
+        to the parent system.
+        """
+        return np.column_stack([self.xdir, self.ydir, self.zdir]).astype(float)
 
     @cached_property
     def rot_matrix_inv(self):
@@ -458,13 +456,8 @@ class Placement:
         return points3d
 
     def transform_local_points_back_to_global(self, points2d):
-        if not isinstance(points2d, np.ndarray):
-            points2d = np.array(points2d)
-
-        points3d = transform_3x3(self.rot_matrix, points2d, inverse=True)
-        points3d += self.origin
-
-        return points3d
+        """Local (2d or 3d) points to the parent system. The same as :meth:`transform_local_points_to_global`."""
+        return self.transform_local_points_to_global(points2d)
 
     def transform_global_points_back_to_local(self, points3d):
         """Transform points from the global coordinate system to the coordinate system of this placement."""
@@ -474,14 +467,11 @@ class Placement:
 
     def transform_global_points_to_local(self, points3d):
         """Transform points from the global coordinate system to the coordinate system of this placement."""
-        points3d_ = np.array(points3d) - np.array(self.origin)
-        points2d = transform_3x3(self.rot_matrix, points3d_, inverse=False)
-
-        return points2d[:, :2]
+        return self.transform_global_points_back_to_local(points3d)
 
     def to_axis2placement3d(self, use_absolute_placement=True) -> Axis2Placement3D:
         if use_absolute_placement:
-            abs_place = self.get_absolute_placement()
+            abs_place = self.get_absolute_placement(include_rotations=True)
             return Axis2Placement3D(location=abs_place.origin, axis=abs_place.zdir, ref_direction=abs_place.xdir)
 
         return Axis2Placement3D(

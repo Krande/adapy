@@ -78,7 +78,10 @@ def _shape_records(assembly):
             continue
         col = getattr(shp, "color", None)
         rgba = [float(c) for c in col][:4] if col is not None else None
-        records.append((name, blob, rgba, None, None))
+        # solid_geom() is local to the shape: its world placement rides as the (single) instance transform
+        world = shp.world_matrix()
+        tfs = [list(np.asarray(world, dtype="float32").flatten(order="F"))] if world is not None else None
+        records.append((name, blob, rgba, tfs, None))
     return records, skipped
 
 

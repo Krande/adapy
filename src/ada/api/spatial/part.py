@@ -16,7 +16,7 @@ from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
 from ada.api.primitives import PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.spatial.eq_types import EquipRepr
-from ada.api.transforms import Placement
+from ada.api.transforms import Placement, to_global_points
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -1557,7 +1557,7 @@ class Part(BackendGeom):
             fem = gs.get_fem(name=name if name is not None else f"{self.name}-FEM")
 
         for mass_shape in masses:
-            cog_absolute = mass_shape.placement.get_absolute_placement().origin + mass_shape.cog
+            cog_absolute = to_global_points(mass_shape, mass_shape.cog)
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
 

@@ -8,7 +8,6 @@ import ada.geom.curves
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada.core.vector_transforms import transform_csys_to_csys
-from ada.core.vector_utils import is_identity_rot_matrix
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Circle, Edge
@@ -75,26 +74,8 @@ def straight_beam_frame(beam: Beam | PipeSegStraight) -> BeamFrame:
     p1 = beam.n1.p
     p2 = beam.n2.p
 
-    # ---- Apply placement rotation/translation to axes and endpoints (same as exporter intent) ----
-    if beam.placement.is_identity() is False:
-        ident_place = ada.Placement()
-        place_abs = beam.placement.get_absolute_placement(include_rotations=True)
-
-        if not is_identity_rot_matrix(place_abs.rot_matrix):
-            ori_vectors = place_abs.transform_array_from_other_place(
-                np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
-            )
-            xvec, yvec, up = (
-                np.asarray(ori_vectors[0], float),
-                np.asarray(ori_vectors[1], float),
-                np.asarray(ori_vectors[2], float),
-            )
-
-            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1, p2]), ident_place)
-            p1, p2 = np.asarray(tra_vectors[0], float), np.asarray(tra_vectors[1], float)
-        else:
-            p1 = place_abs.origin + p1
-            p2 = place_abs.origin + p2
+    # The frame is in the local system of the beam. Consumers that need world coordinates apply the absolute
+    # placement of the beam (see BackendGeom.world_matrix).
 
     # Plain float arrays from here on. Point / Direction are ndarray subclasses
     # whose arithmetic re-enters an interning cache on every operation; that is

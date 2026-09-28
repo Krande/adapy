@@ -17,7 +17,18 @@ def plates_min_distance(pl1: Plate, pl2: Plate, tol: float = 1e-3) -> float | No
     Public API: ensure both solids are cached, then dispatch to the GUID-based
     LRU cache. Returns the minimal distance (m) when the plates are within
     ``tol``, else ``None``.
+
+    The cached solids are in the local system of each plate. A distance is unchanged by a rigid motion, so plates
+    that share their world transform (e.g. plates of one part) are measured locally. Otherwise their world bodies
+    are measured.
     """
+    import numpy as np
+
+    m1, m2 = pl1.world_matrix(), pl2.world_matrix()
+    if not (m1 is None and m2 is None) and not (m1 is not None and m2 is not None and np.array_equal(m1, m2)):
+        dist = active_backend().distance(pl1.shape_global(), pl2.shape_global())
+        return dist if dist <= tol else None
+
     # 1) build/cache solids
     get_solid_occ(pl1)
     get_solid_occ(pl2)

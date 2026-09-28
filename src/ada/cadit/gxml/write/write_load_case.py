@@ -163,6 +163,7 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
 
 def add_loads(root: ET.Element, part: Part) -> None:
     from ada import Point
+    from ada.api.transforms import to_global_points
     from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load
     from ada.fem.concept.loads import LoadConceptLine, LoadConceptPoint
 
@@ -181,11 +182,15 @@ def add_loads(root: ET.Element, part: Part) -> None:
             mesh_loads_as_mass=lc.mesh_loads_as_mass,
         )
         for load in lc.loads:
-            abs_place = load.parent.parent.parent_fem.parent_part.placement.get_absolute_placement()
-            origin = abs_place.origin
+            # load positions are in the local system of the part
+            part_ = load.parent.parent.parent_fem.parent_part
+
+            def to_global(p):
+                return Point(*to_global_points(part_, p))
+
             if isinstance(load, LoadConceptLine):
-                start = origin + load.start_point.copy()
-                end = origin + load.end_point.copy()
+                start = to_global(load.start_point)
+                end = to_global(load.end_point)
                 add_line_load(
                     global_elem,
                     lc_elem,
@@ -197,7 +202,7 @@ def add_loads(root: ET.Element, part: Part) -> None:
                     load.system,
                 )
             elif isinstance(load, LoadConceptPoint):
-                position = origin + load.position.copy()
+                position = to_global(load.position)
                 add_point_load(global_elem, lc_elem, load.name, position, load.force, load.moment, load.system)
             elif isinstance(load, LoadConceptSurface):
                 if load.plate_ref:
@@ -212,7 +217,7 @@ def add_loads(root: ET.Element, part: Part) -> None:
                     )
                 else:
 
-                    points = [origin + Point(p) for p in load.points]
+                    points = [to_global(p) for p in load.points]
                     add_surface_load_polygon(
                         global_elem,
                         lc_elem,

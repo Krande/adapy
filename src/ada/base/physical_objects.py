@@ -15,6 +15,8 @@ from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from ada import FEM, Boolean, BoolHalfSpace, Point
     from ada.cad import ShapeHandle
     from ada.cadit.ifc.store import IfcStore
@@ -148,7 +150,7 @@ class BackendGeom(Root):
         from ada.cad.doc import active_doc_backend
 
         step_writer = active_doc_backend().step_writer()
-        step_writer.add_shape(self.solid_occ(), self.name, rgb_color=self.color.rgb)
+        step_writer.add_shape(self.shape_global(geom_repr), self.name, rgb_color=self.color.rgb)
         step_writer.export(destination_file)
 
     def to_obj_mesh(self, geom_repr: str | GeomRepr = GeomRepr.SOLID, export_config: ExportConfig = ExportConfig()):
@@ -162,7 +164,7 @@ class BackendGeom(Root):
     def to_trimesh(self) -> trimesh.Trimesh:
         from ada.visit.tessellate import shape_to_tri_mesh
 
-        return shape_to_tri_mesh(self.solid_occ())
+        return shape_to_tri_mesh(self.shape_global(GeomRepr.SOLID))
 
     def show(
         self,
@@ -303,6 +305,27 @@ class BackendGeom(Root):
         elif geom_repr == GeomRepr.LINE:
             return self.line_occ()
         raise ValueError(f"Unrecognized geom representation {geom_repr!r}")
+
+    def world_matrix(self) -> np.ndarray | None:
+        """The 4x4 transform from the local system of this object to the world, or None when it is the identity.
+
+        The geometry builders (``solid_geom``/``shell_geom``/``line_geom`` and the ``*_occ`` bodies) work in the
+        local system of the object. Anything that needs world coordinates applies this transform, once.
+        """
+        place_abs = self.placement.get_absolute_placement(include_rotations=True)
+        if place_abs.is_identity(use_absolute_placement=False):
+            return None
+        return place_abs.get_matrix4x4()
+
+    def shape_global(self, geom_repr: GeomRepr | str = GeomRepr.SOLID) -> ShapeHandle:
+        """The CAD body of this object (see :meth:`shape`) in world coordinates"""
+        from ada.cad import active_backend
+
+        shape = self.shape(geom_repr)
+        matrix = self.world_matrix()
+        if matrix is None:
+            return shape
+        return active_backend().transform(shape, matrix, copy=True)
 
     def solid_geom(self) -> Geometry:
         raise NotImplementedError(f"solid_geom not implemented for {self.__class__.__name__}")
