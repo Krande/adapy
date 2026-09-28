@@ -293,9 +293,12 @@ re_rdforces = RDFORCES.to_ff_re()
 re_rsumreac = get_ff_regex("RSUMREAC", "nfield", "ires", "ircomp", "x", "y", "z", "rx", "ry", "rz")
 re_rvnodrea = RVNODREA.to_ff_re()
 
-# Result-case combination definitions. ``bulk`` is ``nres`` triplets of
-# ``(component IRES, real factor, imag factor)`` — the combined result IRES
-# (``ires``) is a *factored superposition* of the listed basic result cases.
+# Result-case combination definitions (Results Interface File 4.3.1.11). ``bulk``
+# is ``nres`` triplets of ``(basic IRES, FACT, PHASE)`` — the third word is a
+# PHASE ANGLE in radians, not an imaginary factor. ``complx`` says whether the
+# COMBINED case is complex. The combined result IRES (``ires``) is a factored,
+# phase-shifted superposition of the listed basic result cases, by the formulae
+# of RBLODCMB (4.3.1.1, Table 4.1).
 RDRESCMB = DataCard("RDRESCMB", ["nfield", "ires", "complx", "nres", "bulk"])
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
 

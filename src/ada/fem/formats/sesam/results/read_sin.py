@@ -13,6 +13,8 @@ debugging / interop, but isn't on the read path.
 
 from __future__ import annotations
 
+import itertools
+import math
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -133,6 +135,28 @@ class SinReader(SifReader):
     sin: SinFile = None
     file: object = None  # unused — kept for SifReader dataclass shape
     step: int | None = None  # when set, only this IRES is materialised
+    # How a COMPLEX result case (RDRESREF COMPLX=1) is presented: as its response
+    # at this phase angle, in radians — R cos Φ − I sin Φ per component. The
+    # default 0 is the real part; −π/2 gives the imaginary part. Combinations do
+    # not use it: they read the raw real and imaginary words and apply their own
+    # per-term phases. See :func:`_present_complex_rows`.
+    complex_phase: float = 0.0
+
+    def complex_cases(self) -> frozenset[int]:
+        """Result IRES the deck flags complex (RDRESREF COMPLX), read once."""
+        cached = getattr(self, "_complex_cases", None)
+        if cached is None:
+            cached = read_complex_result_cases(self.sin)
+            self._complex_cases = cached
+        return cached
+
+    def combination_terms(self) -> dict[int, CombinationRecipe]:
+        """The deck's RDRESCMB recipes, read once."""
+        cached = getattr(self, "_combination_terms", None)
+        if cached is None:
+            cached = read_result_combination_terms(self.sin)
+            self._combination_terms = cached
+        return cached
 
     def load(self) -> None:
         """Walk every SIN type block and populate the internal
@@ -154,7 +178,7 @@ class SinReader(SifReader):
         and dereference the wrong fields as element type.
         """
         self._load_static()
-        recipe = read_result_combinations(self.sin).get(int(self.step)) if self.step is not None else None
+        recipe = self.combination_terms().get(int(self.step)) if self.step is not None else None
         if recipe:
             self.load_combination(int(self.step), recipe)
         else:
@@ -243,14 +267,23 @@ class SinReader(SifReader):
             if rec is not None:
                 self.results.append(rec)
 
-    def load_combination(self, step: int, recipe: dict[int, float], cards: "set[str] | None" = None) -> None:
+    def load_combination(
+        self,
+        step: int,
+        recipe: "CombinationRecipe | dict[int, float]",
+        cards: "set[str] | None" = None,
+    ) -> None:
         """Materialise a linear ``RDRESCMB`` case from its stored basic cases.
+
+        ``recipe`` is a :class:`CombinationRecipe` (factors AND phases, as
+        :func:`read_result_combination_terms` returns them) or the legacy
+        ``{basic: factor}`` dict, which means a real combination at zero phase.
 
         Combination is deliberately performed on the raw RV component values,
         before :class:`Sif2Mesh` computes any nonlinear derived quantities such
-        as principal or von Mises stress.  Metadata columns (entity ids,
-        descriptor ids, local systems) must be identical across contributing
-        cases; a drift is an input/schema error and is surfaced.
+        as principal or von Mises stress.  The entity columns (node or element,
+        result point, descriptor, transformation flag) must be identical across
+        contributing cases; a drift is an input/schema error and is surfaced.
         """
 
         if not getattr(self, "_static_loaded", False):
@@ -263,20 +296,37 @@ class SinReader(SifReader):
                 continue
             if want is not None and card.name not in want:
                 continue
-            combined = None
-            for basic_step, factor in recipe.items():
-                rec = self._read_result_card(card, step=int(basic_step))
-                if rec is None or len(rec[1]) <= 1:
-                    continue
-                combined = _accumulate_rv_combination(
-                    card,
-                    combined,
-                    rec[1],
-                    float(factor),
-                    combination_step=int(step),
-                )
+            combined = self._combine_card(card, int(step), CombinationRecipe.coerce(recipe))
             if combined is not None:
                 self.results.append((card.name, combined))
+
+    def _combine_card(self, card, step: int, recipe: CombinationRecipe):
+        """Superpose one RV card of ``recipe``'s basic cases → the combination's table (or None)."""
+        complex_cases = self.complex_cases()
+        combined = None
+        reference = None
+        for basic_step, factor, phase in recipe.terms:
+            # Raw: the combination needs a complex case's real AND imaginary words.
+            rec = self._read_result_card(card, step=int(basic_step), raw=True)
+            if rec is None or len(rec[1]) <= 1:
+                continue
+            combined = _accumulate_rv_combination(
+                card,
+                combined,
+                rec[1],
+                float(factor),
+                combination_step=int(step),
+                phase=float(phase),
+                basic_complex=int(basic_step) in complex_cases,
+                combination_complex=recipe.complex,
+                reference_step=reference,
+            )
+            if reference is None:
+                reference = int(basic_step)
+        if combined is not None and recipe.complex:
+            # A complex combination is presented like any complex case.
+            combined = _present_complex_rows(card, combined, frozenset({int(step)}), self.complex_phase)
+        return combined
 
     def stored_steps(self) -> set[int]:
         """Result-case ids the SIN physically stores, from the RV* tables."""
@@ -305,7 +355,7 @@ class SinReader(SifReader):
         stresses are computed from the combined components, which is what the reference postprocessor
         does, and not combined after the fact, which would be wrong.
         """
-        combinations = read_result_combinations(self.sin)
+        combinations = self.combination_terms()
         if not combinations:
             return
         stored = self.stored_steps()
@@ -321,18 +371,7 @@ class SinReader(SifReader):
                     continue
                 if want is not None and card.name not in want:
                     continue
-                combined = None
-                for basic_step, factor in missing[ires].items():
-                    rec = self._read_result_card(card, step=int(basic_step))
-                    if rec is None or len(rec[1]) <= 1:
-                        continue
-                    combined = _accumulate_rv_combination(
-                        card,
-                        combined,
-                        rec[1],
-                        float(factor),
-                        combination_step=int(ires),
-                    )
+                combined = self._combine_card(card, int(ires), missing[ires])
                 if combined is None:
                     continue
                 at = index_of.get(card.name)
@@ -343,9 +382,13 @@ class SinReader(SifReader):
                     name, existing = self.results[at]
                     self.results[at] = (name, _concat_rv_rows(existing, combined))
 
-    def _read_result_card(self, card, step):
+    def _read_result_card(self, card, step, *, raw: bool = False):
         """Read one result card → ``(name, rows)`` (or None if the block
         is absent), step-filtered for RV* cards.
+
+        Complex result cases' RV* rows are presented at :attr:`complex_phase`
+        (one word per component, like a real case) unless ``raw`` — the
+        combination path needs their real and imaginary words.
 
         SifReader keeps the first record as the type-block "super-header"
         (`[-ndim, ndim, dim0, …]`) and consumers do ``records[1:]`` to skip
@@ -379,6 +422,11 @@ class SinReader(SifReader):
         # mmap pages so the next (often equally large) RV* table doesn't
         # stack its resident pages on top of this one's.
         self.sin.release_record_pages(card.name)
+        if not raw and card.name in _RV_TYPE_NAMES:
+            complex_cases = self.complex_cases()
+            if step is not None:
+                complex_cases = complex_cases & {int(step)}
+            rows = _present_complex_rows(card, rows, complex_cases, self.complex_phase)
         return (card.name, rows)
 
 
@@ -403,6 +451,12 @@ class SinMetadata:
     not* also appear in ``field_steps`` — SESTRA "smart load
     combinations" usually store only the basic cases, so combination
     results must be reconstructed by superposing the basic fields.
+
+    ``combinations`` drops each term's phase and so is exact only for real
+    cases at zero phase; ``combination_terms`` is the full recipe (factor AND
+    phase in radians per term, and whether the combination is complex).
+    ``complex_cases`` are the result IRES whose results are complex (RDRESREF
+    COMPLX=1), e.g. quasi-static wave cases.
     """
 
     types: list[str]
@@ -411,12 +465,18 @@ class SinMetadata:
     field_steps: dict[str, list[int]]
     combinations: dict[int, dict[int, float]] = None
     result_names: dict[int, str] = None
+    combination_terms: dict[int, CombinationRecipe] = None
+    complex_cases: frozenset[int] = None
 
     def __post_init__(self) -> None:
         if self.combinations is None:
             self.combinations = {}
         if self.result_names is None:
             self.result_names = {}
+        if self.combination_terms is None:
+            self.combination_terms = {}
+        if self.complex_cases is None:
+            self.complex_cases = frozenset()
 
     @property
     def steps(self) -> list[int]:
@@ -442,37 +502,123 @@ class SinMetadata:
         return sorted(set(self.steps) | set(self.combinations))
 
 
-def read_result_combinations(sin: SinFile) -> dict[int, dict[int, float]]:
-    """Read result-case combination definitions from a SIN.
+@dataclass(frozen=True)
+class CombinationRecipe:
+    """One ``RDRESCMB`` record (Results Interface File 4.3.1.11), in file order.
 
-    Returns ``{combination IRES: {basic IRES: factor}}``. Each RDRESCMB
-    record is ``[ires, complx, nres, *triplets]`` where ``triplets`` is
-    ``nres`` groups of ``(component IRES, real factor, imag factor)``. The
-    imaginary factor is ignored (real-valued static combinations); zero
-    factors are dropped (the basic case contributes nothing and need not be
-    read). Component IRES reference basic result cases whose first RV* data
-    word (``ires``) equals them, so they double as the streaming step id.
+    ``terms`` are ``(basic IRES, FACT, PHASE)``: the basic result case, its
+    factor, and its phase angle Φ in RADIANS, as the results file stores it
+    (Prepost takes the angle in degrees at its command line; the file holds
+    radians). Terms whose factor is zero are left out — they contribute nothing
+    and their case need not be read. The same basic case may appear more than
+    once at different phases, and each occurrence is its own term.
+
+    ``complex`` is the record's COMPLX flag: whether the COMBINED case is complex
+    (a real and an imaginary part) or real. Whether a BASIC case is complex is
+    not on this record; it is ``RDRESREF``'s COMPLX (see
+    :func:`read_complex_result_cases`).
+
+    Each term contributes by the RBLODCMB formulae (4.3.1.1, Table 4.1), which
+    4.3.1.11 says apply to RDRESCMB too. For a real basic case ``[R]`` and a
+    complex one ``[R, I]``::
+
+        real combination:     [R cos Φ]·FACT              [R cos Φ − I sin Φ]·FACT
+        complex combination:  [R cos Φ, R sin Φ]·FACT     [R cos Φ − I sin Φ, I cos Φ + R sin Φ]·FACT
+
+    So a phase selects which instant of a complex (e.g. quasi-static wave)
+    response enters a real design combination.
+    """
+
+    complex: bool
+    terms: tuple[tuple[int, float, float], ...]
+
+    def __bool__(self) -> bool:
+        # An all-zero recipe superposes nothing, and callers have always treated
+        # an empty ``{basic: factor}`` dict as "no combination to build".
+        return bool(self.terms)
+
+    @property
+    def factors(self) -> dict[int, float]:
+        """``{basic IRES: summed factor}``, the shape :func:`read_result_combinations`
+        has always returned. It ignores the phases, so it describes the
+        combination exactly only when every phase is zero and every basic case
+        is real."""
+        out: dict[int, float] = {}
+        for basic, factor, _phase in self.terms:
+            out[basic] = out.get(basic, 0.0) + factor
+        return out
+
+    @classmethod
+    def coerce(cls, recipe: "CombinationRecipe | dict[int, float]") -> "CombinationRecipe":
+        """Accept the legacy ``{basic: factor}`` recipe: a real combination at zero phase."""
+        if isinstance(recipe, CombinationRecipe):
+            return recipe
+        return cls(complex=False, terms=tuple((int(b), float(f), 0.0) for b, f in recipe.items()))
+
+
+def read_result_combination_terms(sin: SinFile) -> dict[int, CombinationRecipe]:
+    """Read every ``RDRESCMB`` record → ``{combination IRES: CombinationRecipe}``.
+
+    A record is ``[ires, complx, nres, *triplets]`` with ``nres`` triplets
+    ``(basic IRES, FACT, PHASE)`` (Results Interface File 4.3.1.11); PHASE is in
+    radians. Basic IRES values are the first RV* data word of the basic case's
+    records, so they double as the streaming step id.
     """
     if "RDRESCMB" not in sin.type_blocks:
         return {}
-    out: dict[int, dict[int, float]] = {}
+    out: dict[int, CombinationRecipe] = {}
     for rec in sin.iter_records("RDRESCMB"):
         if len(rec) < 3:
             continue
         ires = int(round(rec[0]))
         nres = int(round(rec[2]))
         triplets = rec[3:]
-        comps: dict[int, float] = {}
+        terms: list[tuple[int, float, float]] = []
         for i in range(nres):
             base = 3 * i
             if base + 1 >= len(triplets):
                 break
             basic = int(round(triplets[base]))
             factor = float(triplets[base + 1])
+            phase = float(triplets[base + 2]) if base + 2 < len(triplets) else 0.0
             if factor != 0.0:
-                comps[basic] = comps.get(basic, 0.0) + factor
-        out[ires] = comps
+                terms.append((basic, factor, phase))
+        out[ires] = CombinationRecipe(complex=int(round(rec[1])) != 0, terms=tuple(terms))
     return out
+
+
+def read_result_combinations(sin: SinFile) -> dict[int, dict[int, float]]:
+    """Read result-case combination definitions from a SIN as ``{combination
+    IRES: {basic IRES: factor}}``.
+
+    The long-standing shape, kept for callers that only list or label
+    combinations. It drops each term's PHASE (the third RDRESCMB word, an angle
+    in radians — not an imaginary factor), so it is only a faithful recipe for a
+    real combination of real cases at zero phase. Anything that superposes
+    results must use :func:`read_result_combination_terms`. Zero factors are
+    dropped (the basic case contributes nothing and need not be read).
+    """
+    return {ires: recipe.factors for ires, recipe in read_result_combination_terms(sin).items()}
+
+
+def read_complex_result_cases(sin: SinFile) -> frozenset[int]:
+    """Result IRES whose ``RDRESREF`` COMPLX flag is set (4.3.1.12).
+
+    Their RV* records carry a real AND an imaginary word per component —
+    interleaved, ``R1, I1, R2, I2, …`` — which doubles the value words of the
+    record (4.3.1.29 RVFORCES, 4.3.1.35 RVNODDIS, 4.3.1.36 RVNODREA,
+    4.3.1.49 RVSTRESS). Quasi-static linear cases (ICALTY 6) are the usual
+    source. A reader that did not know would take ``R1, I1, R2`` for three
+    components.
+    """
+    if "RDRESREF" not in sin.type_blocks:
+        return frozenset()
+    out: set[int] = set()
+    for rec in sin.iter_records("RDRESREF"):
+        # [ires, irno, ieres, icalty, complx, numtyp, ...] — NFIELD stripped.
+        if len(rec) >= 5 and int(round(rec[4])) != 0:
+            out.add(int(round(rec[0])))
+    return frozenset(out)
 
 
 def read_result_names(sin: SinFile) -> dict[int, str]:
@@ -533,55 +679,283 @@ def _concat_rv_rows(existing, extra):
     return [*list(existing), *list(extra)[1:]]
 
 
-def _accumulate_rv_combination(card, accumulated, rows, factor: float, *, combination_step: int):
-    """Accumulate one basic RV table into a synthetic combination table."""
+# The columns that say WHICH entity a row belongs to, per RV card. Two basic
+# cases superpose row by row, so these must agree; the other header words are
+# per-case descriptors and may differ. RVNODREA's IRBOC is the case in point: it
+# references the boundary-condition description RDNODBOC (4.3.1.36), which a
+# deck may number per basic case while the node, its reaction components and
+# its transformation are the same.
+_RV_ENTITY_COLUMNS = {
+    "RVNODDIS": ("inod", "irdva|", "itrans|"),
+    "RVNODREA": ("inod", "irrea|", "itrans|"),
+    "RVSTRESS": ("iielno", "ispalt", "irstrs"),
+    "RVFORCES": ("ielno", "ispalt", "irforc|"),
+}
 
-    import copy
+
+def _combination_values(values, factor: float, phase: float, *, basic_complex: bool, combination_complex: bool):
+    """One basic case's contribution to a combination, per value word.
+
+    ``values`` is a float32 array whose last axis holds value words — one row's
+    components, or several rows' concatenated, which is the same thing as long
+    as every row of a complex case has an even count. A complex case's words are
+    interleaved ``R1, I1, R2, I2, …`` (the RDIS/IDIS, STRESS/ISTRESS pairs of
+    4.3.1.35 / 4.3.1.49 sit INSIDE the per-component repeat).
+
+    The contribution is Table 4.1 of the Results Interface File (4.3.1.1,
+    applied to RDRESCMB by 4.3.1.11), with ``phase`` in radians::
+
+        combination real:     R cos Φ − I sin Φ                     (I = 0 for a real case)
+        combination complex:  R cos Φ − I sin Φ,  I cos Φ + R sin Φ  (interleaved again)
+
+    all times FACT. The result has the COMBINATION's shape: half the words of a
+    complex case when the combination is real, twice a real case's when it is
+    complex. The minus sign on I sin Φ, and the interleaving, were also checked
+    against Sesam Xtract's own evaluation of a deck's stored recipes: they agree
+    to float32 noise, where a plus sign is off by about half the displacement.
+    A complex combination (RDRESCMB COMPLX=1) follows the same table but has
+    not been checked against a reference.
+
+    FACT·cos Φ and FACT·sin Φ are formed in double and rounded to float32 once,
+    then applied in float32 like the rest of the superposition. At Φ = 0 that is
+    exactly ``float32(FACT)``, so a real term at zero phase is bit-for-bit the
+    long-standing ``value * float32(FACT)``; the rounding order for a non-zero
+    phase is our choice, not something the manual specifies.
+    """
+    c = np.float32(factor * math.cos(phase))
+    s = np.float32(factor * math.sin(phase))
+    if basic_complex:
+        re, im = values[..., 0::2], values[..., 1::2]
+    else:
+        re, im = values, None
+    real = re * c
+    if im is not None and s != 0:
+        real = real - im * s
+    if not combination_complex:
+        return real
+    imag = re * s
+    if im is not None:
+        imag = im * c + imag
+    out = np.empty(real.shape[:-1] + (2 * real.shape[-1],), dtype=np.float32)
+    out[..., 0::2] = real
+    out[..., 1::2] = imag
+    return out
+
+
+def _check_rv_entities(card, reference, current, *, combination_step, current_step, reference_step) -> None:
+    """Raise when two contributors' rows do not describe the same entities.
+
+    ``reference`` / ``current`` are ``(rows, n_entity_columns)`` arrays of the
+    card's :data:`_RV_ENTITY_COLUMNS`. Superposing rows that belong to different
+    nodes or elements would produce numbers that look valid and mean nothing.
+    """
+    differ = reference != current
+    if not differ.any():
+        return
+    row, col = (int(x) for x in np.argwhere(differ)[0])
+    name = _RV_ENTITY_COLUMNS[card.name][col].rstrip("|").upper()
+    earlier = f"basic case {reference_step}" if reference_step is not None else "an earlier basic case"
+    raise ValueError(
+        f"{card.name} combination {combination_step}: basic case {current_step} and {earlier} disagree on "
+        f"{name} at data row {row + 1} ({reference[row, col]:g} vs {current[row, col]:g}); "
+        "their rows do not describe the same entities, so they cannot be superposed"
+    )
+
+
+def _accumulate_rv_combination(
+    card,
+    accumulated,
+    rows,
+    factor: float,
+    *,
+    combination_step: int,
+    phase: float = 0.0,
+    basic_complex: bool = False,
+    combination_complex: bool = False,
+    reference_step: int | None = None,
+):
+    """Accumulate one basic RV table into a synthetic combination table.
+
+    ``rows`` is the basic case's table as read (row 0 the super-header), either
+    one ndarray or a list of rows. ``phase`` (radians), ``basic_complex`` (the
+    basic case's RDRESREF COMPLX) and ``combination_complex`` (the RDRESCMB
+    COMPLX) select the Table 4.1 formula — see :func:`_combination_values`. The
+    accumulated table has the combination's shape, and each row's NFIELD word
+    counts the words it now holds. ``reference_step`` names the first
+    contributor in an error message.
+    """
 
     value_start = int(_RV_VALUE_START[card.name])
     ires_i = int(card.get_indices_from_names(["ires"]))
-    meta_indices = [i for i in range(value_start) if i != ires_i]
+    entity_i = card.get_indices_from_names(list(_RV_ENTITY_COLUMNS[card.name]))
+    kind = dict(basic_complex=basic_complex, combination_complex=combination_complex)
+
+    # One case can arrive vectorised and another per record (a table is ragged
+    # when its cases differ in width); meet on the per-record form.
+    if accumulated is not None and isinstance(accumulated, np.ndarray) != isinstance(rows, np.ndarray):
+        if isinstance(accumulated, np.ndarray):
+            accumulated = accumulated.tolist()
+        else:
+            rows = rows.tolist()
 
     if isinstance(rows, np.ndarray):
         current = np.asarray(rows, dtype=np.float64)
+        current_step = int(current[1, ires_i]) if current.shape[0] > 1 else None
+        values = np.asarray(current[1:, value_start:], dtype=np.float32)
+        if basic_complex and values.shape[1] % 2:
+            raise ValueError(f"{card.name} case {current_step} is flagged complex but stores an odd count of values")
+        # NORSAM result values and factors are IEEE float32 words. The reference postprocessor
+        # superposes them in that precision, one contributor at a time.
+        # Keeping the accumulator in float64 changes cancellation-heavy
+        # combinations by visible amounts (several tenths for stresses of
+        # order 1e6), even though every input word is identical.
+        contribution = _combination_values(values, factor, phase, **kind)
         if accumulated is None:
-            out = current.copy()
-            # NORSAM result values and factors are IEEE float32 words. The reference postprocessor
-            # superposes them in that precision, one contributor at a time.
-            # Keeping the accumulator in float64 changes cancellation-heavy
-            # combinations by visible amounts (several tenths for stresses of
-            # order 1e6), even though every input word is identical.
-            out[1:, value_start:] = np.asarray(current[1:, value_start:], dtype=np.float32) * np.float32(factor)
+            width = value_start + contribution.shape[1]
+            if width == current.shape[1]:
+                out = current.copy()
+            else:
+                out = np.zeros((current.shape[0], width), dtype=np.float64)
+                out[:, :value_start] = current[:, :value_start]
+                keep = min(width, current.shape[1])
+                out[0, :keep] = current[0, :keep]
+                # NFIELD counts the words the record holds (4.3.1.35: NFIELD-5 =
+                # NDIS·(COMPLX+1)); a consumer that trusts it must see the new width.
+                out[1:, 0] = float(width)
+            out[1:, value_start:] = contribution
             out[1:, ires_i] = combination_step
             return out
         out = accumulated
-        if not isinstance(out, np.ndarray) or out.shape != current.shape:
-            raise ValueError(f"{card.name} combination contributors have different table shapes")
-        if not np.array_equal(out[1:, meta_indices], current[1:, meta_indices]):
-            raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
+        if out.shape[0] != current.shape[0]:
+            raise ValueError(f"{card.name} combination contributors have different row counts")
+        if out.shape[1] != value_start + contribution.shape[1]:
+            raise ValueError(
+                f"{card.name} combination {combination_step}: basic case {current_step} has "
+                f"{contribution.shape[1]} values per row where the combination holds {out.shape[1] - value_start}"
+            )
+        _check_rv_entities(
+            card,
+            out[1:, entity_i],
+            current[1:, entity_i],
+            combination_step=combination_step,
+            current_step=current_step,
+            reference_step=reference_step,
+        )
         accumulated_values = np.asarray(out[1:, value_start:], dtype=np.float32)
-        current_values = np.asarray(current[1:, value_start:], dtype=np.float32)
-        accumulated_values += current_values * np.float32(factor)
+        accumulated_values += contribution
         out[1:, value_start:] = accumulated_values
         return out
 
+    # Per-record tables (RVSTRESS / RVFORCES widths vary with the element's
+    # descriptor): the value words of all rows are handled as one flat array so
+    # the arithmetic is vectorised, then cut back into rows.
     current_rows = list(rows)
+    data = current_rows[1:]
+    current_step = int(data[0][ires_i]) if data else None
+    lengths = np.fromiter((len(r) - value_start for r in data), dtype=np.int64, count=len(data))
+    flat = np.fromiter(
+        itertools.chain.from_iterable(r[value_start:] for r in data), dtype=np.float64, count=int(lengths.sum())
+    ).astype(np.float32)
+    if basic_complex and np.any(lengths % 2):
+        raise ValueError(f"{card.name} case {current_step} is flagged complex but stores an odd count of values")
+    contribution = _combination_values(flat, factor, phase, **kind)
+    out_lengths = lengths
+    if basic_complex and not combination_complex:
+        out_lengths = lengths // 2
+    elif combination_complex and not basic_complex:
+        out_lengths = lengths * 2
+    offsets = np.concatenate(([0], np.cumsum(out_lengths))).tolist()
+
     if accumulated is None:
-        out = copy.deepcopy(current_rows)
-        for row in out[1:]:
-            row[ires_i] = float(combination_step)
-            for i in range(value_start, len(row)):
-                row[i] = float(np.float32(row[i]) * np.float32(factor))
+        resized = bool(np.any(out_lengths != lengths))
+        out = [list(current_rows[0])]
+        for k, row in enumerate(data):
+            head = list(row[:value_start])
+            head[ires_i] = float(combination_step)
+            if resized:
+                head[0] = float(value_start + int(out_lengths[k]))
+            out.append(head + contribution[offsets[k] : offsets[k + 1]].tolist())
         return out
 
     out = accumulated
     if isinstance(out, np.ndarray) or len(out) != len(current_rows):
         raise ValueError(f"{card.name} combination contributors have different row counts")
-    for out_row, row in zip(out[1:], current_rows[1:]):
-        if len(out_row) != len(row) or any(out_row[i] != row[i] for i in meta_indices):
-            raise ValueError(f"{card.name} combination contributors have different entity/descriptor metadata")
-        for i in range(value_start, len(row)):
-            out_row[i] = float(np.float32(out_row[i]) + np.float32(row[i]) * np.float32(factor))
+    acc_rows = out[1:]
+    acc_lengths = np.fromiter((len(r) - value_start for r in acc_rows), dtype=np.int64, count=len(acc_rows))
+    if not np.array_equal(acc_lengths, out_lengths):
+        bad = int(np.argmax(acc_lengths != out_lengths))
+        raise ValueError(
+            f"{card.name} combination {combination_step}: basic case {current_step} has {int(out_lengths[bad])} "
+            f"values at data row {bad + 1} where the combination holds {int(acc_lengths[bad])}"
+        )
+    _check_rv_entities(
+        card,
+        np.array([[r[i] for i in entity_i] for r in acc_rows], dtype=np.float64).reshape(len(acc_rows), -1),
+        np.array([[r[i] for i in entity_i] for r in data], dtype=np.float64).reshape(len(data), -1),
+        combination_step=combination_step,
+        current_step=current_step,
+        reference_step=reference_step,
+    )
+    acc = np.fromiter(
+        itertools.chain.from_iterable(r[value_start:] for r in acc_rows), dtype=np.float64, count=int(acc_lengths.sum())
+    ).astype(np.float32)
+    acc += contribution
+    for k, row in enumerate(acc_rows):
+        row[value_start:] = acc[offsets[k] : offsets[k + 1]].tolist()
+    return out
+
+
+def _present_complex_rows(card, rows, complex_steps: frozenset[int], phase: float):
+    """Reduce the complex cases' rows of an RV table to one real value per component.
+
+    Everything downstream of the reader (:class:`Sif2Mesh`, the mesh and result
+    adapters) expects one word per component: handed a complex row it would
+    read ``R1, I1, R2`` as three components, or fail to reshape a stress record.
+    A complex case is therefore PRESENTED as its response at ``phase`` (radians):
+    ``R cos Φ − I sin Φ`` (Table 4.1, a real combination of the one case at
+    factor 1). Φ = 0 gives the real part exactly, Φ = −π/2 the imaginary part.
+    Real cases' rows pass through untouched.
+    """
+    if not complex_steps:
+        return rows
+    value_start = int(_RV_VALUE_START[card.name])
+    ires_i = int(card.get_indices_from_names(["ires"]))
+
+    if isinstance(rows, np.ndarray):
+        if rows.shape[0] <= 1:
+            return rows
+        is_complex = np.isin(rows[1:, ires_i].astype(np.int64), np.fromiter(complex_steps, dtype=np.int64))
+        if not is_complex.any():
+            return rows
+        if not is_complex.all():
+            return _present_complex_rows(card, rows.tolist(), complex_steps, phase)
+        values = np.asarray(rows[1:, value_start:], dtype=np.float32)
+        if values.shape[1] % 2:
+            raise ValueError(f"{card.name}: a case flagged complex stores an odd count of values")
+        real = _combination_values(values, 1.0, phase, basic_complex=True, combination_complex=False)
+        width = value_start + real.shape[1]
+        out = np.zeros((rows.shape[0], width), dtype=np.float64)
+        out[:, :value_start] = rows[:, :value_start]
+        keep = min(width, rows.shape[1])
+        out[0, :keep] = rows[0, :keep]
+        out[1:, 0] = float(width)
+        out[1:, value_start:] = real
+        return out
+
+    out = [rows[0]]
+    for row in rows[1:]:
+        if int(row[ires_i]) not in complex_steps:
+            out.append(row)
+            continue
+        values = np.asarray(row[value_start:], dtype=np.float32)
+        if values.size % 2:
+            raise ValueError(
+                f"{card.name}: case {int(row[ires_i])} is flagged complex but stores an odd count of values"
+            )
+        real = _combination_values(values, 1.0, phase, basic_complex=True, combination_complex=False)
+        head = list(row[:value_start])
+        head[0] = float(value_start + real.size)
+        out.append(head + real.tolist())
     return out
 
 
@@ -616,19 +990,22 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
                 continue
             unique = np.unique(ires_floats.astype(np.int64))
             field_steps[rv_name] = [int(x) for x in unique.tolist()]
+        terms = read_result_combination_terms(sin)
         return SinMetadata(
             types=types,
             node_count=node_count,
             element_count=element_count,
             field_steps=field_steps,
-            combinations=read_result_combinations(sin),
+            combinations={ires: recipe.factors for ires, recipe in terms.items()},
             result_names=read_result_names(sin),
+            combination_terms=terms,
+            complex_cases=read_complex_result_cases(sin),
         )
     finally:
         sin.close()
 
 
-def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "FEAResult":
+def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None, complex_phase: float = 0.0) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
     Pure-Python — no Prepost.exe shell-out, no on-disk SIF
@@ -643,6 +1020,11 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     ``n_steps × …`` materialisation that hundreds-of-modes /
     millions-of-RVNODDIS-rows decks won't fit under the 4 GiB
     worker budget.
+
+    ``complex_phase``: the phase angle, in radians, at which a COMPLEX result
+    case (RDRESREF COMPLX=1) is presented — ``R cos Φ − I sin Φ`` per
+    component. 0 (the default) is the real part, −π/2 the imaginary part.
+    Combinations are unaffected: their terms carry their own phases.
     """
     # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
     # open_sin pick the backend. Don't Path()-mangle a URI; use the
@@ -656,7 +1038,7 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
 
     sin = open_sin(sin_file)
     name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
-    reader = SinReader(sin=sin, step=step)
+    reader = SinReader(sin=sin, step=step, complex_phase=complex_phase)
     reader.load()
     s2m = Sif2Mesh(reader)
     result = s2m.convert(name_path)
@@ -673,7 +1055,13 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     return result
 
 
-def iter_sin_step_results(sin_file: str | pathlib.Path, steps, *, forces_elements: set[int] | None = None):
+def iter_sin_step_results(
+    sin_file: str | pathlib.Path,
+    steps,
+    *,
+    forces_elements: set[int] | None = None,
+    complex_phase: float = 0.0,
+):
     """Yield ``(step, FEAResult)`` reading the SIN once and reusing the mesh.
 
     On large multi-step SINs this is dramatically faster than calling
@@ -687,9 +1075,11 @@ def iter_sin_step_results(sin_file: str | pathlib.Path, steps, *, forces_element
     these element ids (IELNO). A caller that only reads line forces for a small
     subset of beam elements avoids decoding the whole model's forces every step.
     Leave ``None`` (the bake / full-materialise paths) to read all.
+
+    ``complex_phase``: see :func:`read_sin_file`.
     """
     sin = open_sin(sin_file)
-    with SinStreamReader(sin, forces_elements=forces_elements) as reader:
+    with SinStreamReader(sin, forces_elements=forces_elements, complex_phase=complex_phase) as reader:
         for step in steps:
             yield int(step), reader._load_step(int(step))
 
@@ -715,11 +1105,20 @@ class SinStreamReader:
     Accepts a :class:`SinFile` or any ``ByteSource`` (wrapped into one).
     """
 
-    def __init__(self, source, *, forces_elements: set[int] | None = None) -> None:
+    def __init__(
+        self,
+        source,
+        *,
+        forces_elements: set[int] | None = None,
+        complex_phase: float = 0.0,
+    ) -> None:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
         self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
-        self._combinations = read_result_combinations(self.sin)
+        self._combinations = read_result_combination_terms(self.sin)
+        # Phase (radians) at which complex result cases are presented; see
+        # :attr:`SinReader.complex_phase`.
+        self._complex_phase = float(complex_phase)
         self._steps = sorted(set(self._discover_steps()) | set(self._combinations))
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
         self._mesh = None  # step-invariant Mesh, built once and reused across steps
@@ -773,7 +1172,7 @@ class SinStreamReader:
         # One persistent reader: read the step-invariant mesh/section/
         # RDPOINTS blocks once, then only re-read this step's RV* tables.
         if self._reader is None:
-            self._reader = SinReader(sin=self.sin)
+            self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
             self._reader._forces_elements = self._forces_elements
             self._reader._load_static()
         reader = self._reader
@@ -937,7 +1336,7 @@ class SinStreamReader:
         from ada.fem.formats.sesam.results.sets import manifest_groups
 
         if self._reader is None:
-            self._reader = SinReader(sin=self.sin)
+            self._reader = SinReader(sin=self.sin, complex_phase=self._complex_phase)
             self._reader._load_static()
         return manifest_groups(self._reader)
 
@@ -964,10 +1363,13 @@ class SinStreamReader:
 
 
 __all__ = [
+    "CombinationRecipe",
     "SinMetadata",
     "SinReader",
     "SinStreamReader",
     "iter_sin_step_results",
+    "read_complex_result_cases",
+    "read_result_combination_terms",
     "read_result_combinations",
     "read_result_names",
     "read_sin_file",
