@@ -22,7 +22,8 @@ name: Create Tag on PR Merge
 #   * Do not enable "Do not allow bypassing the above settings" in branch
 #     protection, or the deploy-key push is rejected and no tag is created.
 #
-# Pinned to deputy @v0.5.3.
+# deputy runs through its action; the `uses:` ref is the pin, where Dependabot
+# can see it and bump both workflows together.
 
 on:
   pull_request_target:
@@ -57,20 +58,13 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.SOURCE_KEY }}
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
       - name: Configure git identity for the release commit
         run: |
           git config user.name "semantic-release"
           git config user.email "semantic-release@users.noreply.github.com"
 
-      - name: Install deputy
-        # deputy pins gitpython<3.1.60 itself from v0.5.2 — do not re-add it here.
-        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.5.3"
-
       - name: Tag + release per the PR's release label
-        run: deputy tag-on-merge
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: Krande/deputy@v0.9.0
+        with:
+          command: tag-on-merge
+          github-token: ${{ secrets.GITHUB_TOKEN }}

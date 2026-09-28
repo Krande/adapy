@@ -18,7 +18,8 @@ name: Review Pull Request
 # pull_request_target so the job (and GITHUB_TOKEN) can comment and label even
 # on fork PRs. It checks out the BASE ref only and never runs any PR-head code.
 #
-# Pinned to deputy @v0.8.1.
+# deputy runs through its action; the `uses:` ref is the pin, where Dependabot
+# can see it and bump both workflows together.
 
 on:
   pull_request_target:
@@ -44,15 +45,9 @@ jobs:
           ref: ${{ github.ref }}   # base branch — never the untrusted PR head
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install deputy
-        run: pip install "deputy @ git+https://github.com/Krande/deputy.git@v0.8.1"
-
       - name: Review the PR (checks + sticky comment); fails if a check fails
-        run: deputy pr-review
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HAS_SOURCE_KEY: ${{ secrets.SOURCE_KEY != '' }}
+        uses: Krande/deputy@v0.9.0
+        with:
+          command: pr-review
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          has-source-key: ${{ secrets.SOURCE_KEY != '' }}
