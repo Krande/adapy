@@ -582,6 +582,9 @@ fastapi = "*"  # For the API docs
 pandas = "*"
 tectonic = ">=0.17.0,<0.18"
 
+[feature.docs.target.win-64.dependencies]
+miktex = ">=24.4,<25"
+
 [feature.viewer-api.dependencies]
 fastapi = "*"
 uvicorn = "*"
