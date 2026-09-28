@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import struct
+from typing import Callable
 
 import numpy as np
 
@@ -63,12 +64,14 @@ def write_field_blob_streaming(
     reader: FEAStreamReader,
     spec: FieldSpec,
     out_path: os.PathLike,
+    step_transform: Callable[[int, np.ndarray], np.ndarray] | None = None,
 ) -> FieldArtefactMeta:
     """Stream one field's step-stack to disk; return the manifest meta.
 
     Computes the per-component and magnitude scalar ranges as steps
     pass through, so the bake never needs the full field stack in
-    memory.
+    memory. ``step_transform(step_index, values)``, when given, rewrites
+    each step before it is written and ranged (mode normalization).
     """
 
     out_path = pathlib.Path(out_path)
@@ -93,6 +96,8 @@ def write_field_blob_streaming(
                     f"Field {spec.name!r} step {sv.step_index} produced shape "
                     f"{arr.shape}, expected {(spec.n_points, spec.n_components)}."
                 )
+            if step_transform is not None:
+                arr = np.asarray(step_transform(sv.step_index, arr), dtype=spec.dtype)
             f.write(arr.tobytes(order="C"))
 
             # Range tracking, NaN-safe so profile-restricted fields
@@ -222,7 +227,7 @@ def write_element_field_blob_streaming(
 
     if seen != spec.n_steps:
         raise ValueError(
-            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} " f"steps but spec says {spec.n_steps}."
+            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} steps but spec says {spec.n_steps}."
         )
 
     range_per_comp: dict[str, tuple[float, float]] = {}

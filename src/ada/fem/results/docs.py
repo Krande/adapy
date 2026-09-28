@@ -250,6 +250,7 @@ def assets_for_docs(
     out_dir: "pathlib.Path | str",
     modes: "str | int | Iterable[int] | None" = "all",
     poster_backend: str = "pygfx",
+    normalize_modes: bool | float = True,
 ) -> FeaDocAssets:
     """Bake the bundle + posters and return a :class:`FeaDocAssets`.
 
@@ -265,6 +266,13 @@ def assets_for_docs(
     ``"all"`` because the downstream doc may export to PDF / DOCX /
     ODT, and interactive figures must carry a static counterpart per
     mode in those formats.
+
+    ``normalize_modes`` (default on here) bakes every eigenmode at a common
+    amplitude and sign -- see :func:`~ada.fem.results.artefacts.bake_artefacts`.
+    A document puts modes side by side, and an eigenvector's amplitude is the
+    solver's arbitrary normalization, not a result; left raw, one mode from
+    two solvers can differ several times in size. Static results are never
+    touched. Pass ``False`` to bake the solver's raw values.
     """
     out_dir = pathlib.Path(out_dir)
     fea_result: Any = None
@@ -280,6 +288,7 @@ def assets_for_docs(
             src_key=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     elif hasattr(src, "read_mesh_geometry"):
         # FEAStreamReader (Protocol).
@@ -289,6 +298,7 @@ def assets_for_docs(
             src=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     elif hasattr(src, "results"):
         # FEAResult — keep the reference so we can pull fem_format +
@@ -300,6 +310,7 @@ def assets_for_docs(
             src=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     else:
         raise TypeError(
@@ -416,6 +427,7 @@ def bake_fea_bundles(
     *,
     out_dir: "pathlib.Path | str",
     modes: "str | int | Iterable[int]" = "all",
+    normalize_modes: bool | float = True,
 ) -> dict[str, FeaDocAssets]:
     """Bake one FEA artefact bundle per case under ``out_dir/<case.name>/``.
 
@@ -446,6 +458,9 @@ def bake_fea_bundles(
     are logged and dropped: a single broken case never kills the loop;
     the report degrades to the "figures unavailable" placeholder for
     that case via :func:`collect_fea_bundles` returning nothing for it.
+
+    ``normalize_modes`` is passed to :func:`assets_for_docs` (default on:
+    one mode from different solvers bakes at the same amplitude and sign).
     """
     out_dir = pathlib.Path(out_dir)
     out: dict[str, FeaDocAssets] = {}
@@ -463,6 +478,7 @@ def bake_fea_bundles(
                 key=case.name,
                 out_dir=case_dir,
                 modes=modes,
+                normalize_modes=normalize_modes,
             )
             out[case.name] = assets
             logger.info(f"{case.name}: baked FEA artefacts → {case_dir.name}/ " f"(n_modes={assets.n_modes})")

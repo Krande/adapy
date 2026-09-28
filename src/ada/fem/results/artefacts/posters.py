@@ -84,6 +84,7 @@ def bake_with_posters(
     nodal_only: bool = True,
     include_element_fields: bool = True,
     include_beam_solids: bool = True,
+    normalize_modes: bool | float = False,
 ) -> BakeWithPostersResult:
     """Bake the artefact bundle AND render per-mode static PNG posters.
 
@@ -109,6 +110,11 @@ def bake_with_posters(
           the same `iso_3` math the embed uses.
         * ``"chromium"`` — drives the production embed headless via
           playwright. Bit-identical to the live viewer, ~5 s/PNG.
+
+    ``normalize_modes`` is passed to :func:`bake_artefacts`: eigenmodes are
+    scaled to a common amplitude and sign, so the posters of one mode from
+    different solvers are comparable (the posters draw the baked
+    displacement at scale 1).
 
     Per-mode render failures are logged but don't abort the bake —
     the bundle is still valid even if a few posters are missing, and
@@ -136,6 +142,7 @@ def bake_with_posters(
         nodal_only=nodal_only,
         include_element_fields=include_element_fields,
         include_beam_solids=include_beam_solids,
+        normalize_modes=normalize_modes,
     )
 
     if modes is None:
@@ -209,6 +216,7 @@ def bake_with_posters_from_source(
     poster_backend: Literal["pygfx", "chromium"] = "pygfx",
     legacy_glb_url_template: str | None = None,
     include_beam_solids: bool = True,
+    normalize_modes: bool | float = False,
 ) -> BakeWithPostersResult:
     """End-to-end bake + per-mode posters from a result file path.
 
@@ -230,4 +238,5 @@ def bake_with_posters_from_source(
             poster_backend=poster_backend,
             legacy_glb_url_template=legacy_glb_url_template,
             include_beam_solids=include_beam_solids,
+            normalize_modes=normalize_modes,
         )
