@@ -2,6 +2,15 @@
 
 
 
+## v0.95.1 (2026-09-28)
+
+### Fix
+
+* fix(sesam): superpose combinations with complex basic cases and phase angles (#418)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`217e486`](https://github.com/Krande/adapy/commit/217e4866466a39a11a8710891b69524e96714ac9))
+
+
 ## v0.95.0 (2026-09-28)
 
 ### Feature
