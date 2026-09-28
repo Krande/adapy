@@ -23,7 +23,9 @@ import {
 } from "@/services/clash/browserClashCheck";
 import {
   clashCheckApi,
+  describeClashTarget,
   type ClashCheckOptions,
+  type ClashCheckTarget,
   type ClashCheckResponse,
   type ClashDetailResponse,
   type WireClashPass,
@@ -636,7 +638,7 @@ export function mergeProducedJoints(a: ProducedJoints | null, b: ProducedJoints 
 // ---------------------------------------------------------------------------------------------
 
 export interface ClashFlowApi {
-  runClashCheck(scope: string, body: { source_key: string; options?: ClashCheckOptions }): Promise<ClashCheckResponse>;
+  runClashCheck(scope: string, body: { target: ClashCheckTarget; options?: ClashCheckOptions }): Promise<ClashCheckResponse>;
   runClashDetail(
     scope: string,
     body: { result_key: string; joint_ids: readonly string[]; spec: string; options?: Record<string, unknown> },
@@ -686,15 +688,19 @@ async function pollToTerminal(deps: ClashFlowDeps, jobId: string, label: string)
 export async function runClashCheckFlow(
   deps: ClashFlowDeps,
   scope: string,
-  sourceKey: string,
+  target: ClashCheckTarget,
   options: ClashCheckOptions,
 ): Promise<{ result: ClashResult; derivedKey: string; cached: boolean }> {
-  const resp = await deps.api.runClashCheck(scope, { source_key: sourceKey, options });
+  const resp = await deps.api.runClashCheck(scope, { target, options });
   if (!resp.cached) {
     if (!resp.job_id) {
       throw new ClashResultError("clash-check reported neither a cached result nor a job id");
     }
-    deps.trackJob?.({ jobId: resp.job_id, label: `Clash check: ${sourceKey}`, derivedKey: resp.derived_key });
+    deps.trackJob?.({
+      jobId: resp.job_id,
+      label: `Clash check: ${describeClashTarget(target)}`,
+      derivedKey: resp.derived_key,
+    });
     await pollToTerminal(deps, resp.job_id, "clash check");
   }
   const doc = await deps.api.getClashResult(scope, resp.derived_key);
@@ -746,6 +752,10 @@ export async function runClashDetailFlow(
 interface ClashCheckState {
   /** The scene source name the check was run against, for display only. */
   sourceName: string | null;
+  /** Set when the thing to check is a PUBLISHED NODE rather than a file. Mutually exclusive
+   *  with `sourceKey` by construction -- the two setters clear each other -- because the
+   *  route refuses both at once and a store holding both would have to guess which it meant. */
+  assetTarget: ClashCheckTarget | null;
   /** The model's SOURCE key -- what the check actually reads (never the GLB). */
   sourceKey: string | null;
   options: ClashCheckOptions;
@@ -821,6 +831,8 @@ interface ClashCheckState {
   detailProgress: { done: number; total: number } | null;
 
   setSource: (sourceName: string | null, sourceKey: string | null) => void;
+  /** Point the check at a published node. `label` is what the panel calls it. */
+  setAssetTarget: (label: string | null, target: ClashCheckTarget | null) => void;
   setOptions: (patch: Partial<ClashCheckOptions>) => void;
   setFilters: (patch: Partial<ClashFilters>) => void;
   selectGroup: (typeKey: string | null) => void;
@@ -870,6 +882,7 @@ const INITIAL_OPTIONS: ClashCheckOptions = {
 
 export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   sourceName: null,
+  assetTarget: null,
   sourceKey: null,
   options: INITIAL_OPTIONS,
   filters: DEFAULT_CLASH_FILTERS,
@@ -902,6 +915,40 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   producedSkipped: [],
   detailProgress: null,
 
+  setAssetTarget: (label, target) => {
+    // Same invalidation rule as `setSource`, for the same reason: a result rendered against a node
+    // that is no longer selected would misreport joints that are not there. Compared by VALUE --
+    // the panel builds a fresh object per render, so identity would reset the result on every
+    // repaint and lose the run the user just made.
+    const prev = get().assetTarget;
+    const same =
+      prev !== null &&
+      target !== null &&
+      prev.kind === "node" &&
+      target.kind === "node" &&
+      prev.collection === target.collection &&
+      prev.subject === target.subject &&
+      (prev.revision ?? null) === (target.revision ?? null) &&
+      (prev.node ?? null) === (target.node ?? null);
+    if (same) return;
+    set({
+      sourceName: label,
+      sourceKey: null,
+      assetTarget: target,
+      result: null,
+      derivedKey: null,
+      cached: false,
+      error: null,
+      selectedGroup: null,
+      selectedJoints: [],
+      selectedJoint: null,
+      detailDerivedKey: null,
+      detailGlbKey: null,
+      producedJoints: null,
+      producedSkipped: [],
+    });
+  },
+
   setSource: (sourceName, sourceKey) => {
     // A different source invalidates the previous run's result -- a stale clash result rendered
     // against a model that is no longer loaded would misreport joints that aren't there.
@@ -909,6 +956,8 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       set({
         sourceName,
         sourceKey,
+        // Only one thing is being checked at a time.
+        assetTarget: null,
         result: null,
         derivedKey: null,
         cached: false,
@@ -966,11 +1015,15 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     })),
 
   runCheck: async (scope) => {
-    const { sourceKey, options, inBrowser } = get();
-    if (!sourceKey || get().busy) return;
+    const { sourceKey, assetTarget, options, inBrowser } = get();
+    // A node's model is read by its provider on a worker, so the in-browser path below cannot
+    // serve one: it scans a FILE this process fetched. Falling through to the server is not a
+    // degradation here, it is the only way the format can be read at all.
+    if (!sourceKey && !assetTarget) return;
+    if (get().busy) return;
     set({ busy: true, error: null, browserStage: null });
     try {
-      if (inBrowser && browserClashCheckSupports(sourceKey)) {
+      if (sourceKey && inBrowser && browserClashCheckSupports(sourceKey)) {
         // No job, no upload: the file is fetched once for the scan and everything else happens
         // here. `derivedKey` stays null on purpose -- there IS no server-side document to point a
         // detail hand-off at, and a key that resolved to nothing would fail later and further away
@@ -996,7 +1049,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       const { result, derivedKey, cached } = await runClashCheckFlow(
         realFlowDeps(scope),
         scope,
-        sourceKey,
+        assetTarget ?? { kind: "file", sourceKey: sourceKey as string },
         // `null` selection means "core's default set", which the wire expresses by OMITTING the
         // field -- sending an empty array would ask for no passes at all.
         get().selectedPasses === null ? options : { ...options, passes: get().selectedPasses ?? [] },

@@ -457,6 +457,30 @@ class LocalJobTransport(_BaseTransport):
         """The check kind's local engine. Its identity travels in ``conversion_options`` (the
         route composed it), matching ``_submit_asset_build``'s argument for why."""
         opts = req.conversion_options or {}
+        # A published NODE names itself with a subject, not a key -- and its model comes from the
+        # provider that owns the format rather than from a file this process can open. Told apart
+        # by what the route put in the options, not by the source key's shape: an asset source IS a
+        # real key, so sniffing it would be guessing at something already stated.
+        if opts.get("collection") and opts.get("subject"):
+            job = local_jobs.start_clash_check_asset(
+                collection=str(opts["collection"]),
+                subject=str(opts["subject"]),
+                revision=opts.get("revision") or None,
+                node=opts.get("node") or None,
+                options=dict(opts.get("options") or {}),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+            return SubmittedJob(
+                job_id=job.job_id,
+                derived_key=job.derived_key,
+                status=job.status,
+                stage=job.stage,
+                progress=job.progress,
+                target_capability=None,
+                payload=job.as_json(),
+            )
         source_key = str(opts.get("source_key") or req.source_key)
         job = local_jobs.start_clash_check(
             source_key=source_key,

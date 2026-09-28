@@ -608,6 +608,81 @@ def start_clash_check(
     return job
 
 
+def start_clash_check_asset(
+    *,
+    collection: str,
+    subject: str,
+    revision: "str | None",
+    node: "str | None",
+    options: dict[str, Any],
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run a clash check over a PUBLISHED NODE in a thread -- the queue-less twin of
+    ``start_clash_check``.
+
+    No temp file and no extension: the model comes from the provider that owns the format, which
+    reads whatever blobs it needs through the same storage facade. A single-node viewer can
+    therefore check a published export it has no reader for, provided the provider's package is
+    installed here -- and when it is not, the error says so by name rather than answering "no
+    joints".
+    """
+    from ada.clash import ClashOptions
+    from ada.clash.from_asset import clash_check_from_asset_node
+    from ada.comms.rest.worker import _SyncStorageFacade
+
+    loop = asyncio.get_running_loop()
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="clash_check",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _run() -> None:
+        try:
+            job.stage, job.progress = "clash", 0.4
+            clash_options = ClashOptions(
+                out_of_plane_tol=float(options.get("out_of_plane_tol", 0.1)),
+                point_tol=float(options.get("point_tol", 1e-5)),
+                root=options.get("root") or None,
+                include_plate_joints=bool(options.get("include_plate_joints", True)),
+            )
+            payload = clash_check_from_asset_node(
+                collection=collection,
+                subject=subject,
+                storage=sync_storage,
+                revision=revision,
+                node=node,
+                options=clash_options,
+            )
+            if job.status != STATUS_RUNNING:
+                return
+            job.stage, job.progress = "upload", 0.95
+            sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            job.result = payload
+            job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+        except Exception as exc:  # noqa: BLE001 — the check's failure is data, not ours
+            if job.status != STATUS_RUNNING:
+                return
+            if job.cancel_event.is_set():
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+                return
+            logger.exception("local clash_check_asset %s failed", job.job_id)
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.stage = "error"
+            logger.debug("local clash_check_asset traceback:\n%s", traceback.format_exc())
+
+    threading.Thread(target=_run, name="local-clash-check-asset", daemon=True).start()
+    return job
+
+
 def start_clash_detail(
     *,
     result_key: str,
