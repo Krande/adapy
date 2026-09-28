@@ -190,6 +190,9 @@ class FieldArtefactMeta:
     stride_bytes: int
     scalar_range_per_component: dict[str, tuple[float, float]]
     scalar_range_magnitude: tuple[float, float]
+    # Set when the bake normalized this field's mode shapes: how, and the signed factor applied
+    # to each step (the solver's raw values are ``baked / factor``). Written to the manifest.
+    mode_normalization: dict | None = None
 
 
 # ---------------------------------------------------------------------------

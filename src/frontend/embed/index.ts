@@ -17,10 +17,13 @@
 // Both modes drive everything through adapy's existing pipelines
 // (setupModelLoaderAsync, prepareLoadedModel, setupPointerHandler,
 // cacheAndBuildTree) so paradoc's embed and adapy's standalone viewer
-// share one ingest path. Phase 1 of `AdaViewerProvider` makes the
-// store / ref singletons context-routed but they're still process-
-// global; this embed assumes one mount per page, which is the
-// paradoc usage today. Phase 3 will switch to per-instance stores.
+// share one ingest path.
+//
+// Several mounts per page are supported: each has its own scene-graph
+// runtime, and `./viewerInstances` gives each its own store state by
+// swapping it into the (still process-global) stores whenever the user
+// turns to that viewer. So a panel's controls act on the panel they sit
+// in, not on whichever viewer the page opened last.
 
 import * as THREE from "three"
 import CameraControls from "camera-controls"
@@ -31,13 +34,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 import "../src/app.css"
 
 import { AdaViewerProvider } from "../src/state/AdaViewerContext"
-import {
-    sceneRef,
-    cameraRef,
-    controlsRef,
-    rendererRef,
-    updatelightRef,
-} from "../src/state/refs"
+import { createViewerRuntime, getViewerRuntime } from "../src/state/viewerRuntime"
 import { useModelState } from "../src/state/modelState"
 import { useOptionsStore } from "../src/state/optionsStore"
 import { useObjectInfoStore } from "../src/state/objectInfoStore"
@@ -49,13 +46,22 @@ import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/set
 import { setupPointerHandler } from "../src/components/viewer/sceneHelpers/setupPointerHandler"
 import { applyStandardLayers } from "../src/components/viewer/sceneHelpers/setupCamera"
 import { setupCameraControlsHandlers } from "../src/components/viewer/sceneHelpers/setupCameraControlsHandlers"
-import { useFeaAnimationStore } from "../src/state/feaAnimationStore"
+import { useFeaAnimationStore, type FeaAnimationState } from "../src/state/feaAnimationStore"
 import {
     resetFeaAnimationPhase,
+    stepFeaSweep,
     tickFeaAnimation,
 } from "../src/utils/scene/fea/feaAnimationDriver"
 
 import { EmbedUI } from "./EmbedUI"
+import {
+    createEmbedInstance,
+    disposeEmbedInstance,
+    isActiveInstance,
+    parkedState,
+    requestActivation,
+    withActiveInstance,
+} from "./viewerInstances"
 
 // adapy emits Z-up GLBs by convention (matches FEA / CAD), so the
 // embed orients the camera accordingly. Single-instance assumption.
@@ -271,35 +277,32 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         element,
     )
 
-    // --- Populate the singleton refs ---
+    // --- This viewer's runtime ---
     // adapy's pipeline (setupModelLoaderAsync, prepareLoadedModel,
-    // setupPointerHandler, the Menu/TreeView/InfoBox React tree)
-    // reads these via context which today delegates to the same
-    // singletons. One mount per page (phase 3 will make this safe
-    // for multi-instance via createStore factories).
-    sceneRef.current = scene
-    cameraRef.current = camera
-    controlsRef.current = controls as unknown as OrbitControls
-    rendererRef.current = renderer
-    updatelightRef.current = null
+    // setupPointerHandler, the TreeView/InfoBox React tree) reaches the
+    // scene through `getViewerRuntime()` / `useViewerRefs()`; the
+    // instance makes this runtime the one they answer with whenever this
+    // viewer is the active one.
+    const runtime = createViewerRuntime()
+    runtime.scene.current = scene
+    runtime.camera.current = camera
+    runtime.controls.current = controls as unknown as OrbitControls
+    runtime.renderer.current = renderer
+    runtime.updateLight.current = null
 
-    // --- Pre-configure useModelState so the adapy pipeline doesn't
-    //     fight the embed's camera preset framing. Lock translation
-    //     so prepareLoadedModel doesn't recenter the model — paradoc
-    //     hands us a baked PNG-aligned preset and we frame to that. ---
-    const modelStore = useModelState.getState()
-    modelStore.setZIsUp(Z_IS_UP)
-    const optionsStore = useOptionsStore.getState()
-    const priorLockTranslation = optionsStore.lockTranslation
-    optionsStore.setLockTranslation(true)
-
-    // --- Embed default: panels start closed, tree drawer collapsed.
-    //     The user opens what they need via the toolbar. Mirrors the
-    //     paradoc-side "first-paint stays minimal" idiom. ---
-    useObjectInfoStore.setState({ show_info_box: false })
-    useSceneInfoStore.setState({ show_scene_info_box: false })
-    useAnimationStore.getState().setIsControlsVisible(false)
-    useTreeViewStore.getState().setIsTreeCollapsed(true)
+    // Only the active viewer shows its toolbar and panels: an inactive
+    // one's overlay would render the active viewer's store state.
+    const instance = createEmbedInstance(runtime, (isActive) => {
+        overlayHost.style.visibility = isActive ? "" : "hidden"
+        element.dataset.adaViewerActive = isActive ? "true" : "false"
+    })
+    overlayHost.style.visibility = "hidden"
+    // Turning to a viewer makes it the active one. Capture phase, so the
+    // switch is queued before the viewer's own handlers see the press.
+    const activate = () => requestActivation(instance)
+    element.addEventListener("pointerenter", activate)
+    element.addEventListener("pointerdown", activate, true)
+    element.addEventListener("focusin", activate)
 
     // --- Resize handling ---
     // `loadedModelGroup` is populated by the GLB load below; it's
@@ -339,8 +342,17 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         // Drive the FEA mode-shape morph each frame when an FEA
         // session is active (set by mountFeaArtefactViewer). No-op
         // when no session is active — same path the standalone
-        // viewer uses via ThreeCanvas.tsx.
-        tickFeaAnimation(delta)
+        // viewer uses via ThreeCanvas.tsx. The stores hold only the
+        // active viewer's session; an inactive one sweeps its own mesh
+        // from its parked session and phase, so a mode left playing
+        // keeps playing while the user works in another panel.
+        if (isActiveInstance(instance)) {
+            tickFeaAnimation(delta)
+        } else {
+            const fea = parkedState<FeaAnimationState>(instance, "useFeaAnimationStore")
+            const stepped = fea ? stepFeaSweep(fea, instance.feaPhase, delta) : null
+            if (stepped) instance.feaPhase = stepped.phase
+        }
         // Reposition the key light to track the camera each frame —
         // matches the standalone viewer's lighting feel.
         updateCameraLight()
@@ -353,14 +365,39 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     // worker-cache tree build that the TreeView panel reads. Without
     // that pipeline the panels would render empty even with the
     // refs populated.
-    ;(async () => {
+    //
+    // The whole load runs with this viewer active: the loader and
+    // `onReady` write the stores and resolve the scene at call time, so
+    // no other viewer may swap its state in until they are done.
+    void withActiveInstance(instance, async () => {
         try {
+            // --- Pre-configure useModelState so the adapy pipeline doesn't
+            //     fight the embed's camera preset framing. Lock translation
+            //     so prepareLoadedModel doesn't recenter the model — paradoc
+            //     hands us a baked PNG-aligned preset and we frame to that.
+            //     These land in this viewer's own store state. ---
+            useModelState.getState().setZIsUp(Z_IS_UP)
+            useOptionsStore.getState().setLockTranslation(true)
+
+            // --- Embed default: panels start closed, tree drawer collapsed.
+            //     The user opens what they need via the toolbar. Mirrors the
+            //     paradoc-side "first-paint stays minimal" idiom. ---
+            useObjectInfoStore.setState({ show_info_box: false })
+            useSceneInfoStore.setState({ show_scene_info_box: false })
+            useAnimationStore.getState().setIsControlsVisible(false)
+            useTreeViewStore.getState().setIsTreeCollapsed(true)
+
             const blob = new Blob([new Uint8Array(opts.modelBytes)], {
                 type: "model/gltf-binary",
             })
             blobUrl = URL.createObjectURL(blob)
 
-            const modelGroup = await setupModelLoaderAsync(blobUrl, false)
+            const modelGroup = await setupModelLoaderAsync({
+                modelUrl: blobUrl,
+                translate: false,
+                // The embed frames to paradoc's camera preset below.
+                autoFitOverride: false,
+            })
             if (disposed) return
 
             // Hand the model to the resize handler so subsequent
@@ -385,30 +422,34 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
             if (opts.showControls) {
                 reactRoot = createRoot(overlayHost)
                 reactRoot.render(
-                    React.createElement(AdaViewerProvider, null, React.createElement(EmbedUI)),
+                    React.createElement(AdaViewerProvider, {
+                        runtime,
+                        children: React.createElement(EmbedUI),
+                    }),
                 )
             }
 
             tick()
-            queueMicrotask(() => {
-                if (disposed) return
-                opts.onReady?.()
-                // `onReady` is where mountFeaArtefactViewer activates the FEA
-                // session and sets ``morphTargetInfluences = [1.0]`` on the
-                // mesh. The first ``applyCameraPreset`` above ran before that
-                // — its bbox saw the rest-position vertices and framed the
-                // un-deformed silhouette, so the deformed tip ended up below
-                // the bottom of the viewport. Re-fit here so the framing
-                // matches whatever the scene became during ``onReady``. No-op
-                // for non-FEA mounts (no morphs → same bbox → same fit).
-                if (loadedModelGroup) {
-                    applyCameraPreset(camera, controls, loadedModelGroup, opts.camera)
-                }
-            })
+            // A microtask later, as before (the overlay's first commit
+            // lands first), but still inside this viewer's turn.
+            await Promise.resolve()
+            if (disposed) return
+            opts.onReady?.()
+            // `onReady` is where mountFeaArtefactViewer activates the FEA
+            // session and sets ``morphTargetInfluences = [1.0]`` on the
+            // mesh. The first ``applyCameraPreset`` above ran before that
+            // — its bbox saw the rest-position vertices and framed the
+            // un-deformed silhouette, so the deformed tip ended up below
+            // the bottom of the viewport. Re-fit here so the framing
+            // matches whatever the scene became during ``onReady``. No-op
+            // for non-FEA mounts (no morphs → same bbox → same fit).
+            if (loadedModelGroup) {
+                applyCameraPreset(camera, controls, loadedModelGroup, opts.camera)
+            }
         } catch (err) {
             opts.onError?.(err instanceof Error ? err : new Error(String(err)))
         }
-    })()
+    })
 
     return {
         dispose() {
@@ -432,23 +473,20 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
                 /* ignore */
             }
             controls.dispose()
-            // Drop refs so a subsequent mount on the same page gets a
-            // clean slate. Phase 3 (per-instance stores via createStore
-            // factories) makes the explicit teardown unnecessary; for
-            // now this is the discipline that keeps a navigated-away
-            // viewer from leaking the WebGL context through stale
-            // sceneRef/rendererRef captures.
-            if (sceneRef.current === scene) sceneRef.current = null
-            if (cameraRef.current === camera) cameraRef.current = null
-            if ((controlsRef.current as unknown) === controls) controlsRef.current = null
-            if (rendererRef.current === renderer) rendererRef.current = null
-            // Restore the user's option so a re-mount doesn't inherit
-            // our forced lockTranslation=true.
-            try {
-                useOptionsStore.getState().setLockTranslation(priorLockTranslation)
-            } catch {
-                /* store may already be torn down in test envs */
-            }
+            element.removeEventListener("pointerenter", activate)
+            element.removeEventListener("pointerdown", activate, true)
+            element.removeEventListener("focusin", activate)
+            // Drop this viewer's state: its runtime leaves the mounted
+            // stack, its parked store state goes, and if it was the active
+            // one the stores return to their initial state -- so no other
+            // viewer, and no later mount, inherits its session, selection
+            // or forced lockTranslation, nor a handle into this scene.
+            disposeEmbedInstance(instance)
+            runtime.scene.current = null
+            runtime.camera.current = null
+            runtime.controls.current = null
+            runtime.renderer.current = null
+            delete element.dataset.adaViewerActive
             renderer.dispose()
             if (blobUrl) {
                 try {
@@ -619,26 +657,30 @@ function activateFeaSession(
     manifest: import("../src/services/viewerApi").FeaManifest,
     modeIndex: number,
 ): void {
-    const scene = sceneRef.current
+    // Called from `onReady`, inside the loading viewer's turn, so the
+    // mounted runtime is that viewer's.
+    const scene = getViewerRuntime().scene.current
     if (!scene) return
 
     // Find the first mesh whose geometry has a morph attribute — the
     // bake installs exactly one (the mode displacement delta).
     // CustomBatchedMesh has `isMesh = true`, so this catches both
     // it and any leftover plain Mesh in the same traversal.
-    let feaMesh: (THREE.Mesh & {
-        morphTargetInfluences?: number[]
-    }) | null = null
+    type MorphMesh = THREE.Mesh & { morphTargetInfluences?: number[] }
+    let found: MorphMesh | null = null
     scene.traverse((obj) => {
-        if (feaMesh) return
+        if (found) return
         const m = obj as any
         if (
             m.isMesh &&
             m.geometry?.morphAttributes?.position?.length > 0
         ) {
-            feaMesh = m
+            found = m
         }
     })
+    // Re-bound: TS cannot see the assignment inside the callback and
+    // narrows `found` to `null` -- every use below then typed as `never`.
+    const feaMesh = found as MorphMesh | null
     if (!feaMesh) return
 
     // prepareLoadedModel only copies morphTargetInfluences onto the
@@ -842,13 +884,9 @@ export function mountFeaArtefactViewer(
     return {
         dispose: () => {
             disposed = true
-            try {
-                // Clear the FEA session so a subsequent non-FEA mount
-                // doesn't inherit our sessionActive / mesh ref.
-                useFeaAnimationStore.getState().reset()
-            } catch {
-                /* store may already be torn down in test envs */
-            }
+            // No FEA-store reset here: the store may hold ANOTHER viewer's
+            // session by now. The inner viewer's dispose drops this one's
+            // state (and resets the stores if it was the active viewer).
             try {
                 inner?.dispose()
             } catch {

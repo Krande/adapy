@@ -250,6 +250,7 @@ def assets_for_docs(
     out_dir: "pathlib.Path | str",
     modes: "str | int | Iterable[int] | None" = "all",
     poster_backend: str = "pygfx",
+    normalize_modes: bool | float = True,
 ) -> FeaDocAssets:
     """Bake the bundle + posters and return a :class:`FeaDocAssets`.
 
@@ -265,9 +266,20 @@ def assets_for_docs(
     ``"all"`` because the downstream doc may export to PDF / DOCX /
     ODT, and interactive figures must carry a static counterpart per
     mode in those formats.
+
+    ``normalize_modes`` (default on here) bakes every eigenmode at a common
+    amplitude and sign -- see :func:`~ada.fem.results.artefacts.bake_artefacts`.
+    A document puts modes side by side, and an eigenvector's amplitude is the
+    solver's arbitrary normalization, not a result; left raw, one mode from
+    two solvers can differ several times in size. Static results are never
+    touched. Pass ``False`` to bake the solver's raw values.
     """
     out_dir = pathlib.Path(out_dir)
     fea_result: Any = None
+
+    if hasattr(src, "to_fea_result"):
+        # FEAResultV2 (Abaqus via ODBDump → SQLite): the bake speaks FEAResult.
+        src = src.to_fea_result()
 
     if _src_is_pathlike(src):
         bake = bake_with_posters_from_source(
@@ -276,6 +288,7 @@ def assets_for_docs(
             src_key=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     elif hasattr(src, "read_mesh_geometry"):
         # FEAStreamReader (Protocol).
@@ -285,6 +298,7 @@ def assets_for_docs(
             src=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     elif hasattr(src, "results"):
         # FEAResult — keep the reference so we can pull fem_format +
@@ -296,11 +310,12 @@ def assets_for_docs(
             src=key,
             modes=modes,
             poster_backend=poster_backend,
+            normalize_modes=normalize_modes,
         )
     else:
         raise TypeError(
             f"assets_for_docs: unsupported src type {type(src).__name__}; "
-            "expected pathlib.Path | str | FEAResult | FEAStreamReader."
+            "expected pathlib.Path | str | FEAResult | FEAResultV2 | FEAStreamReader."
         )
 
     solver, solver_version, frequencies = _extract_solver_and_freqs(
@@ -412,6 +427,7 @@ def bake_fea_bundles(
     *,
     out_dir: "pathlib.Path | str",
     modes: "str | int | Iterable[int]" = "all",
+    normalize_modes: bool | float = True,
 ) -> dict[str, FeaDocAssets]:
     """Bake one FEA artefact bundle per case under ``out_dir/<case.name>/``.
 
@@ -442,6 +458,9 @@ def bake_fea_bundles(
     are logged and dropped: a single broken case never kills the loop;
     the report degrades to the "figures unavailable" placeholder for
     that case via :func:`collect_fea_bundles` returning nothing for it.
+
+    ``normalize_modes`` is passed to :func:`assets_for_docs` (default on:
+    one mode from different solvers bakes at the same amplitude and sign).
     """
     out_dir = pathlib.Path(out_dir)
     out: dict[str, FeaDocAssets] = {}
@@ -459,6 +478,7 @@ def bake_fea_bundles(
                 key=case.name,
                 out_dir=case_dir,
                 modes=modes,
+                normalize_modes=normalize_modes,
             )
             out[case.name] = assets
             logger.info(f"{case.name}: baked FEA artefacts → {case_dir.name}/ " f"(n_modes={assets.n_modes})")
@@ -657,7 +677,7 @@ class FeaCaseFilter(Filter):
             glb_key=a.key,
             caption=f"{self.name} — un-deformed.",
             camera_preset=self._camera_preset,
-            image_path=a.canonical_poster_path,
+            image_path=_md_path(a.canonical_poster_path),
         )
 
     @attr
@@ -689,8 +709,17 @@ class FeaCaseFilter(Filter):
             glb_key=f"{a.key}_mode_{mode_n}",
             caption=f"{self.name} — mode {mode_n}.",
             camera_preset=self._camera_preset,
-            image_path=a.poster_paths.get(idx),
+            image_path=_md_path(a.poster_paths.get(idx)),
         )
+
+
+def _md_path(path: "pathlib.Path | None") -> str | None:
+    """A poster path for a paradoc view, with forward slashes.
+
+    paradoc writes it into markdown ``![cap](path)``, where a Windows path's backslashes are
+    escapes: pandoc then finds no file and the DOCX / PDF shows the caption without the image.
+    """
+    return pathlib.Path(path).as_posix() if path else None
 
 
 def _make_mode_attr(mode_n: int):

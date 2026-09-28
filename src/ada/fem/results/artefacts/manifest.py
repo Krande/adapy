@@ -203,6 +203,7 @@ def build_manifest(
                 "scalar_range": scalar_range,
                 "default_view": _default_view_for(spec),
                 **_presentation_payload(spec.presentation),
+                **({"mode_normalization": fm.mode_normalization} if fm.mode_normalization else {}),
             }
         )
 

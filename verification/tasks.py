@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 import logging
 import os
 import pathlib
@@ -86,7 +85,7 @@ from ada.api.fem_tasks import (  # noqa: E402
 from ada.api.fem_tasks import run_eig as run_eig_helper  # noqa: E402
 from ada.api.fem_tasks import run_plate_eig, run_plate_pressure  # noqa: E402
 from ada.fem.exceptions.fea_software import FEASolverNotInstalled  # noqa: E402
-from ada.fem.results import walk_cached_case_results  # noqa: E402
+from ada.fem.results import FeaCaseResult, walk_cached_case_results  # noqa: E402
 from ada.fem.results.docs import (  # noqa: E402
     FeaCaseFilter,
     bake_fea_bundles,
@@ -256,6 +255,9 @@ def run_eig(a: ada.Assembly, *, solver: str):
         return None
 
     if result is not None:
+        # Readers name the result after the solver's output file (Sesam's is
+        # `<name>R1.SIN`); pin it to the case name so it matches its cache entry.
+        result.name = name
         # FEAResult is a plain @dataclass — attribute injection is fine
         # and survives pickle round-trip through the cache layer.
         result._case_axes = {
@@ -497,46 +499,28 @@ def freq_plot(results: list):
 
 @task(parent=postprocess)
 def versions_filter(results: list):
-    """FilterOutcome wrapping the Versions filter, env-probed.
+    """FilterOutcome wrapping the Versions filter: the versions the report's results came from.
 
-    Mirrors the legacy build_hooks `_solver_versions` logic: hardcoded
-    defaults overridden by env-installed solver versions, with a
-    `software_versions.json` cache for offline replay.
+    Read off the cases themselves -- each carries the version its solver wrote into its own output,
+    and keeps it in its cache file -- rather than probed from whatever is installed on the machine
+    building the report, which for a cached case need not be the solver that produced it. The plate
+    cases are not this task's input, so their cache files are read for theirs.
+
+    A solver whose cases disagree lists every version; one with no known version says so.
     """
     from filters import Versions as VersionsFilter
 
-    version_cache = _CACHE_DIR / "software_versions.json"
-    cached: dict = {}
-    if version_cache.exists():
-        try:
-            cached = json.loads(version_cache.read_text())
-        except Exception:
-            cached = {}
+    cases = list(results)
+    live = {r.name for r in cases}
+    cases += walk_cached_case_results(FeaCaseResult, _PLATE_CACHE_DIR, skip_names=live)
 
-    versions = dict(
-        calculix="2.21",
-        code_aster="17.1.0",
-        abaqus=cached.get("abaqus", "2021"),
-        sesam=cached.get("sesam", "10"),
-    )
-    from ada.fem.formats.abaqus.versions import get_abaqus_exe, get_abaqus_version
-    from ada.fem.formats.sesam.sesam_exe_locator import (
-        get_sestra_default_exe_path,
-        get_sestra_version,
-    )
+    found: dict[str, set] = {}
+    for case in cases:
+        if case.software_version:
+            found.setdefault(case.fem_format, set()).add(str(case.software_version))
 
-    if get_abaqus_exe() is not None:
-        try:
-            versions["abaqus"] = get_abaqus_version()
-        except Exception as exc:
-            logger.warning(f"abaqus version probe failed: {exc}")
-    if get_sestra_default_exe_path() is not None:
-        try:
-            versions["sesam"] = get_sestra_version()
-        except Exception as exc:
-            logger.warning(f"sesam version probe failed: {exc}")
-
-    version_cache.write_text(json.dumps(versions, indent=4))
+    versions = {solver: " / ".join(sorted(v)) for solver, v in found.items()}
+    logger.info(f"solver versions from {len(cases)} case(s): {versions}")
     return FilterOutcome(filter=VersionsFilter(versions, name="versions"))
 
 
@@ -843,7 +827,9 @@ def plate_static_tables(results: list) -> list:
         ),
     ):
         subset = [r for r in results if getattr(r, "stiffened", False) is stiffened]
-        df = ru.create_plate_static_df(subset, plate_closed_form_deflection())
+        # The closed form is the bare strip's; the stiffened strip has none.
+        closed_form = None if stiffened else plate_closed_form_deflection()
+        df = ru.create_plate_static_df(subset, closed_form)
         if df is None or df.empty:
             logger.info(f"no plate static rows for stiffened={stiffened}, skipping table")
             continue

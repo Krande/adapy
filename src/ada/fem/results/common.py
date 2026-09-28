@@ -721,9 +721,17 @@ class FEAResult:
         from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
 
         modes = []
+        seen_steps = set()
         for x in self.results:
-            if isinstance(x, NodalFieldData) and x.field_type != NodalFieldType.DISP:
+            # One mode per step, taken from its displacement field. Element fields
+            # (forces/stresses per mode) carry no eigen frequency and would otherwise
+            # land as f_hz=None; Sesam also carries a derived displacement field next
+            # to RVNODDIS, which would list every mode twice.
+            if not isinstance(x, NodalFieldData) or x.field_type != NodalFieldType.DISP:
                 continue
+            if x.step in seen_steps:
+                continue
+            seen_steps.add(x.step)
             m = EigenMode(x.step, f_hz=x.eigen_freq, eigenvalue=x.eigen_value)
             modes.append(m)
         return EigenDataSummary(modes)

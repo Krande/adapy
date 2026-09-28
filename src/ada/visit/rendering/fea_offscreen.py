@@ -233,10 +233,20 @@ def render_fea_mode_from_bundle(
     if header["n_points"] != n_verts:
         raise ValueError(f"vertex count mismatch: mesh has {n_verts}, field has {header['n_points']}")
 
-    # Same warp logic the embed's assembleAnimatedFeaGlb runs:
-    # delta = step[:, :3], position = base + delta. Scale 1.0 —
-    # amplification belongs in a user-facing control, not the renderer.
-    delta = steps[step_idx, :, :3].astype(np.float32)
+    # Same warp logic the embed runs: position = base + delta, at scale 1.0 --
+    # amplification belongs in a user-facing control (or in the bake's
+    # mode normalization), not the renderer. The translation columns are
+    # found by NAME, as the viewer's warpComponents does: Sesam's
+    # displacement is [ALL, X, Y, Z, ...], and its first three columns warp
+    # by a magnitude along x with the real X and Y shifted into y and z.
+    from ada.fem.results.artefacts.mode_normalization import translation_columns
+
+    field_components = next(
+        (f.get("components") or [] for f in manifest.get("fields", []) if (f.get("blob") or {}).get("url") == blob_url),
+        [],
+    )
+    columns = translation_columns(field_components) if field_components else [0, 1, 2]
+    delta = steps[step_idx][:, columns].astype(np.float32)
     mesh.vertices = base_positions + delta
 
     if apply_colormap:

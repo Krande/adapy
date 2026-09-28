@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable
 
+import numpy as np
+
 from .beam_compact import (
     BEAM_SOLID_FORMATS,
     BeamSolidInstances,
@@ -19,7 +21,7 @@ from .beam_solids import (
     write_beam_solids_warp,
 )
 from .fields import write_element_field_blob_streaming, write_field_blob_streaming
-from .manifest import build_manifest, write_manifest
+from .manifest import _infer_analysis_kind, build_manifest, write_manifest
 from .mesh import (
     _compute_topology,
     write_mesh_edges,
@@ -27,9 +29,29 @@ from .mesh import (
     write_mesh_glb,
     write_mesh_line_edges,
 )
+from .mode_normalization import (
+    DEFAULT_TARGET_FRACTION,
+    is_translation_free,
+    mode_scale_factor,
+    peak_translation,
+    reference_length,
+    translation_columns,
+)
 from .protocol import FEAStreamReader
 from .readers import make_stream_reader
 from .specs import ElementFieldArtefactMeta, FieldArtefactMeta
+
+
+def _normalization_fraction(normalize_modes: bool | float) -> float | None:
+    """``normalize_modes`` as a target fraction, or None when off."""
+    if normalize_modes is True:
+        return DEFAULT_TARGET_FRACTION
+    if normalize_modes is False or normalize_modes is None:
+        return None
+    fraction = float(normalize_modes)
+    if not fraction > 0.0:
+        raise ValueError(f"normalize_modes must be True, False or a positive fraction, got {normalize_modes!r}")
+    return fraction
 
 
 def _try_solid_beams(reader: FEAStreamReader, method: str, fmt: str = "mesh"):
@@ -136,8 +158,20 @@ def bake_artefacts(
     beam_solid_method: str = "procedural",
     beam_solid_format: str = "compact",
     on_artefact: Callable[[pathlib.Path], None] | None = None,
+    normalize_modes: bool | float = False,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
+
+    ``normalize_modes``: scale every eigenmode's displacement so its
+    largest translation is a fixed fraction of the model's bounding-box
+    diagonal, with a solver-independent sign (see
+    :mod:`.mode_normalization`). ``True`` uses the default fraction
+    (0.1); a float sets it. Solvers normalize eigenvectors differently,
+    so without this one physical mode bakes at several different
+    amplitudes -- and sometimes the opposite sign -- depending on which
+    solver computed it. The per-mode factors go into the manifest
+    (``mode_normalization``), so the raw values remain ``baked / factor``.
+    Static fields and non-displacement fields are never touched.
 
     Nodal fields produce one AFBL blob each. Element fields (gauss /
     element_nodal) produce one AFEL blob per (field, element-type);
@@ -296,11 +330,54 @@ def bake_artefacts(
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
+    target_fraction = _normalization_fraction(normalize_modes)
+    ref_length = reference_length(geom.points) if target_fraction else 0.0
+
+    def _normalizes(spec) -> bool:
+        return target_fraction is not None and spec.category == "displacement" and _infer_analysis_kind(spec) == "eigen"
+
+    # A first, read-only pass: every mode's peak translation. A factor needs the largest of them to
+    # tell a translation-free mode (round-off) from a real one -- across ALL the result's eigenmode
+    # fields, since some readers (Code_Aster's) give each mode a field of its own, and within a
+    # one-step field the largest mode is always the mode itself.
+    mode_peaks: dict[str, dict[int, float]] = {}
+    for spec in reader.field_specs():
+        if (nodal_only and spec.support != "nodal") or not _normalizes(spec):
+            continue
+        columns = translation_columns(spec.components)
+        mode_peaks[spec.name] = {
+            sv.step_index: peak_translation(np.asarray(sv.values, dtype=float).reshape(spec.n_points, -1), columns)
+            for sv in reader.iter_field_steps(spec.name)
+        }
+    reference_peak = max((p for peaks in mode_peaks.values() for p in peaks.values()), default=0.0) or None
+
     for spec in reader.field_specs():
         if nodal_only and spec.support != "nodal":
             continue
         blob_path = out_dir / f"fea.{spec.name}.bin"
-        meta = write_field_blob_streaming(reader, spec, blob_path)
+        if _normalizes(spec):
+            columns = translation_columns(spec.components)
+            peaks = mode_peaks.get(spec.name, {})
+            factors: dict[int, float] = {}
+
+            def _normalize(step_index, values, _cols=columns, _factors=factors, _ref=reference_peak):
+                factor = mode_scale_factor(values, geom.points, _cols, ref_length, target_fraction, _ref)
+                _factors[step_index] = factor
+                return values * factor
+
+            meta = write_field_blob_streaming(reader, spec, blob_path, step_transform=_normalize)
+            meta.mode_normalization = {
+                "method": "max_translation",
+                "target_fraction": target_fraction,
+                "reference_length": ref_length,
+                "reference_peak": reference_peak,
+                "factors": [factors[i] for i in sorted(factors)],
+                # Modes with no translation of their own (e.g. beam torsion), scaled like the
+                # largest mode so their round-off stays invisible.
+                "translation_free": sorted(i for i, p in peaks.items() if is_translation_free(p, reference_peak)),
+            }
+        else:
+            meta = write_field_blob_streaming(reader, spec, blob_path)
         field_metas.append(meta)
         blob_paths.append(blob_path)
         emit(blob_path)

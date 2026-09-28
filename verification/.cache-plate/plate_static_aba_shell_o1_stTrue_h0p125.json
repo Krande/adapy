@@ -1,0 +1,13 @@
+{
+    "name": "plate_static_aba_shell_o1_stTrue_h0p125",
+    "fem_format": "abaqus",
+    "software_version": "2024",
+    "metadata": {
+        "elo": 1
+    },
+    "mid_span_u3": 0.0005845309933647513,
+    "mesh_size": 0.125,
+    "stiffened": true,
+    "n_shells": 128,
+    "last_modified": 1790592506.822545
+}

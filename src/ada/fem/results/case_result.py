@@ -116,6 +116,14 @@ class FeaCaseResult:
         (``geo`` / ``elo`` / ``hexquad`` / ``reduced_integration``) here
         so the comparison-table builder can group by them; param_models
         and future reports use it for their own per-case dimensions.
+    software_version :
+        The version of the solver that produced the result, as its reader
+        extracted it from the solver's own output (``.frd`` / ``.mess`` /
+        ``.sta`` / ``SESTRA.MLG``). Cached with the case, so a report built
+        from the cache still states the version the numbers came from, not
+        whatever is installed on the machine replaying it. ``None`` when
+        unknown (the reader found nothing, or a cache written before this
+        field existed).
     last_modified :
         Timestamp the wrapper was created or last cached. Used to
         invalidate stale JSON snapshots if a report grows a freshness
@@ -126,7 +134,16 @@ class FeaCaseResult:
     fem_format: str
     results: Optional[Union[FEAResult, "FEAResultV2"]] = None
     metadata: dict = field(default_factory=dict)
+    software_version: Optional[str] = None
     last_modified: datetime = field(default_factory=datetime.now)
+
+    def __post_init__(self):
+        # Take the version off the live result unless given explicitly. Readers say "N/A" when
+        # they found nothing; that is "unknown", not a version.
+        if self.software_version is None and self.results is not None:
+            self.software_version = getattr(self.results, "software_version", None)
+        if self.software_version in ("N/A", ""):
+            self.software_version = None
 
     # ----- identifier hygiene ------------------------------------------------
 
@@ -166,6 +183,7 @@ class FeaCaseResult:
         payload = {
             "name": self.name,
             "fem_format": self.fem_format,
+            "software_version": self.software_version,
             "metadata": self.metadata,
             **self._extra_payload(),
             "last_modified": self.last_modified.timestamp(),
@@ -200,6 +218,7 @@ class FeaCaseResult:
             fem_format=payload["fem_format"],
             results=None,
             metadata=payload.get("metadata", {}),
+            software_version=payload.get("software_version"),
             last_modified=datetime.fromtimestamp(payload["last_modified"]),
         )
         instance._hydrate_extras(payload)

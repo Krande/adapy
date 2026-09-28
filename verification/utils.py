@@ -95,6 +95,12 @@ def postprocess_result(result: Union[FEAResult, FEAResultV2], metadata: dict) ->
     )
 
 
+def _case_identity(res: FeaVerificationResult) -> tuple:
+    """What makes two results the same case, independent of the name they were cached under."""
+    m = res.metadata
+    return (res.fem_format, m["geo"], m["elo"], m["hexquad"], m.get("reduced_integration", False))
+
+
 def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pathlib.Path) -> None:
     """Augment ``results`` in-place with cached cases from ``cache_dir``.
 
@@ -115,7 +121,16 @@ def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pat
 
     res_names = [r.name for r in results]
     res_elo = [r.metadata["elo"] for r in results]
+    # Cache files have been written under more than one naming scheme (e.g. the legacy
+    # `cantilever_EIG_sesam_SHELL_o1_hqTrue`), so a name match alone lets the same case in
+    # twice -- and a duplicated case is a duplicated comparison-table column.
+    seen = {_case_identity(r) for r in results}
     for cached_result in cached:
+        identity = _case_identity(cached_result)
+        if identity in seen:
+            logger.info(f"skipping cached {cached_result.name}: same case as an entry already loaded")
+            continue
+        seen.add(identity)
         cache_elo = cached_result.metadata["elo"]
         try:
             results.insert(res_elo.index(cache_elo), cached_result)
@@ -315,26 +330,61 @@ class PlateStaticResult(FeaCaseResult):
         self.n_shells = payload.get("n_shells")
 
 
+#: What each solver's reader calls the global Z translation.
+_U3_COMPONENTS = ("U3", "D3", "DZ", "Z")
+
+
 def mid_span_u3(result, length: float, width: float) -> float:
     """Mid-span centreline ``u3`` out of an adapy FEAResult, sampled by position.
 
     By position and not by node id: the id is the mesher's, and the same physical point has a
     different one at every seed and in every solver's renumbering.
+    The column is picked by component name too: the solvers disagree on layout (Sesam's derived
+    ``sesam.nodes.displacement`` leads with a magnitude column, so position 3 there is Y, not Z).
     """
     import numpy as np
 
+    from ada.fem.results.field_data import NodalFieldType
+
+    if hasattr(result, "to_fea_result"):  # FEAResultV2 (Abaqus via ODBDump) carries no mesh itself
+        result = result.to_fea_result()
+
     coords = np.asarray(result.mesh.nodes.coords, dtype=float)
-    field = next(f for f in result.results if f.name in ("DISP", "result__DEPL") or "displacement" in f.name.lower())
+    # The last one: a reader that keeps the step's base-state frame (Abaqus' frame 0, all zeros) lists
+    # it first, and the loaded increment is the step's final one.
+    field = [
+        f
+        for f in result.results
+        if getattr(f, "field_type", None) == NodalFieldType.DISP or f.name in ("DISP", "result__DEPL")
+    ][-1]
+    u3_col = next((i for i, c in enumerate(field.components) if c.upper() in _U3_COMPONENTS), None)
+    if u3_col is None:
+        raise ValueError(f"no vertical component among {field.name} components {field.components}")
     values = np.asarray(field.values, dtype=float)
     offset = np.abs(coords[:, 0] - length / 2.0) + np.abs(coords[:, 1] - width / 2.0)
     index = int(np.argmin(offset))
     if offset[index] > 1e-06:
         raise ValueError(f"no node at mid-span on the centreline; closest was {offset[index]!r} away")
-    return float(values[index][3])
+    # values rows are [node_id, *components]
+    return float(values[index][u3_col + 1])
 
 
-def create_plate_static_df(results, closed_form: float) -> "pd.DataFrame | None":
+def _closed_form_last(df: pd.DataFrame, key_col: str) -> pd.DataFrame:
+    """Key column first, solvers sorted, closed form pinned last.
+
+    `from_records` orders columns by first appearance across rows, so a solver missing from the
+    first row (no result at the coarsest seed, say) would otherwise land after the closed form.
+    """
+    solvers = sorted(c for c in df.columns if c not in (key_col, "closed form"))
+    tail = ["closed form"] if "closed form" in df.columns else []
+    return df[[key_col, *solvers, *tail]]
+
+
+def create_plate_static_df(results, closed_form: float | None) -> "pd.DataFrame | None":
     """Rows are mesh seeds, columns are solvers; the last column is the closed form.
+
+    ``closed_form=None`` leaves the column out -- the stiffened strip has none, and repeating the
+    bare strip's value beside it would read as a reference the solvers miss by 99 %.
 
     The relative error against the closed form is what the report reads, so it is computed here
     rather than left to the reader: a table of raw deflections all near 0.173 hides which solver is
@@ -356,9 +406,10 @@ def create_plate_static_df(results, closed_form: float) -> "pd.DataFrame | None"
     for mesh_size in sorted(rows, reverse=True):
         record = {"Seed [m]": mesh_size}
         record.update({k: rows[mesh_size][k] for k in sorted(rows[mesh_size])})
-        record["closed form"] = closed_form
+        if closed_form is not None:
+            record["closed form"] = closed_form
         records.append(record)
-    return pd.DataFrame.from_records(records)
+    return _closed_form_last(pd.DataFrame.from_records(records), "Seed [m]")
 
 
 def create_plate_eig_df(results, closed_form: list) -> "pd.DataFrame | None":
@@ -398,4 +449,4 @@ def create_plate_eig_df(results, closed_form: list) -> "pd.DataFrame | None":
         record.update({k: columns[k][i] for k in sorted(columns)})
         record["closed form"] = closed_form[i]
         records.append(record)
-    return pd.DataFrame.from_records(records)
+    return _closed_form_last(pd.DataFrame.from_records(records), "Mode")

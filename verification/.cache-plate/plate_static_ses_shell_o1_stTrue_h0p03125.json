@@ -1,0 +1,13 @@
+{
+    "name": "plate_static_ses_shell_o1_stTrue_h0p03125",
+    "fem_format": "sesam",
+    "software_version": "11.2.0.92",
+    "metadata": {
+        "elo": 1
+    },
+    "mid_span_u3": 0.0007369988015852869,
+    "mesh_size": 0.03125,
+    "stiffened": true,
+    "n_shells": 2048,
+    "last_modified": 1790592506.825544
+}
