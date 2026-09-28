@@ -30,6 +30,16 @@ header_links = [
     { label = "← adapy docs", href = "../../index.html" },
 ]
 
+# Download profiles: the same full matrix as `default`, compiled to a single file instead of the
+# web bundle. Separate profiles rather than extra `default` outputs, so a failing DOCX/PDF export
+# can't take the web report down with it. The `fea-doc-docx` / `fea-doc-pdf` pixi tasks run these
+# and copy the file into `docs/_static/fea-report-files/`, which the docs page links to.
+[build.docx]
+outputs = ["docx"]
+
+[build.pdf]
+outputs = ["pdf"]
+
 # Smoke profile: minimal cell count for quick iteration / CI sanity.
 # One mesh cell × one solver = ~1 cell post-skip.
 [build.smoke]

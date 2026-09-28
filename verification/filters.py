@@ -58,6 +58,17 @@ if TYPE_CHECKING:
 
 _eig_logger = logging.getLogger(__name__)
 
+_ASSETS_DIR = pathlib.Path(__file__).parent / "_assets"
+
+
+def _poster(rel_path: str) -> pathlib.Path | None:
+    """The static poster a geometry GLB task wrote beside its GLB, for the DOCX / PDF exports.
+
+    Without it paradoc stands a ``MISSING_3D_IMAGE.png`` in for the interactive view there.
+    """
+    path = _ASSETS_DIR / rel_path
+    return path if path.is_file() else None
+
 
 class Beam(Filter):
     """Reads geometry/section/material straight off the analyzed ada.Beam.
@@ -128,6 +139,7 @@ class Beam(Filter):
             glb_key="beam_geom",
             caption="Cantilever beam geometry.",
             camera_preset="iso_3",
+            image_path=_poster("beam.png"),
         )
 
 
@@ -369,7 +381,12 @@ class Plate(Filter):
 
     @attr
     def geometry_3d(self) -> ThreeDView:
-        return ThreeDView(glb_key="plate_geom", caption="Plate strip geometry.", camera_preset="iso_3")
+        return ThreeDView(
+            glb_key="plate_geom",
+            caption="Plate strip geometry.",
+            camera_preset="iso_3",
+            image_path=_poster("plate/plate.png"),
+        )
 
     @attr
     def geometry_stiffened_3d(self) -> ThreeDView:
@@ -377,6 +394,7 @@ class Plate(Filter):
             glb_key="plate_stiffened_geom",
             caption="Plate strip with a T-profile stiffener on its centreline.",
             camera_preset="iso_3",
+            image_path=_poster("plate/plate_stiffened.png"),
         )
 
 
