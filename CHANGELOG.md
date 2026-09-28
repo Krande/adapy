@@ -2,6 +2,19 @@
 
 
 
+## v0.94.0 (2026-09-28)
+
+### Chore
+
+* chore: plate results in the verification report, a per-mode appendix, and FEM PR tests on Linux + Windows (#411)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`b30f8f6`](https://github.com/Krande/adapy/commit/b30f8f65de17fdc770c615e576dc737add0ac432))
+
+### Feature
+
+* feat(fem): concept constraints become boundary conditions, and a moved or rotated part meshes where it is (#414) ([`dd7c8d4`](https://github.com/Krande/adapy/commit/dd7c8d475c43f42e36aac8298500aa8094b04362))
+
+
 ## v0.93.1 (2026-09-27)
 
 ### Fix
