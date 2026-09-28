@@ -92,7 +92,10 @@ def _eigen_result(scales):
 def _baked_modes(out_dir, scales, normalize):
     from ada.fem.results.artefacts import bake_artefacts
     from ada.fem.results.artefacts.stream_adapter import FEAResultStreamAdapter
-    from ada.visit.rendering.fea_offscreen import _list_displacement_entries, _parse_afbl
+    from ada.visit.rendering.fea_offscreen import (
+        _list_displacement_entries,
+        _parse_afbl,
+    )
 
     bake = bake_artefacts(
         FEAResultStreamAdapter(_eigen_result(scales)),
@@ -137,7 +140,10 @@ def test_a_translation_free_mode_is_not_blown_up_to_a_visible_shape():
     Normalized by its own peak, that round-off was scaled to a tenth of the model and drew as a
     jagged zigzag. Scaled like the result's largest mode it stays invisible, as it should.
     """
-    from ada.fem.results.artefacts.mode_normalization import is_translation_free, peak_translation
+    from ada.fem.results.artefacts.mode_normalization import (
+        is_translation_free,
+        peak_translation,
+    )
 
     cols, ref = [0, 1, 2], reference_length(POINTS)
     bending = _bending_mode()

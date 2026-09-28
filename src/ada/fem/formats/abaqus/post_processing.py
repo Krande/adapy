@@ -100,9 +100,7 @@ class FEAResultV2:
 _NODAL_FIELD_GROUPS = {"U": ("U1", "U2", "U3"), "UR": ("UR1", "UR2", "UR3")}
 
 
-def read_odbdump_sqlite(
-    db_path: pathlib.Path, name: str = None, results_file_path: pathlib.Path = None
-) -> FEAResult:
+def read_odbdump_sqlite(db_path: pathlib.Path, name: str = None, results_file_path: pathlib.Path = None) -> FEAResult:
     """Read an ODBDump SQLite file into an :class:`FEAResult`.
 
     Only the nodal U / UR fields are read (that's what ODBDump writes for the runs adapy makes).

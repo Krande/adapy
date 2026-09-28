@@ -29,8 +29,6 @@ from .mesh import (
     write_mesh_glb,
     write_mesh_line_edges,
 )
-from .protocol import FEAStreamReader
-from .readers import make_stream_reader
 from .mode_normalization import (
     DEFAULT_TARGET_FRACTION,
     is_translation_free,
@@ -39,6 +37,8 @@ from .mode_normalization import (
     reference_length,
     translation_columns,
 )
+from .protocol import FEAStreamReader
+from .readers import make_stream_reader
 from .specs import ElementFieldArtefactMeta, FieldArtefactMeta
 
 
