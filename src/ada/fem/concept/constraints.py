@@ -1,19 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias
+from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, get_args
 
 if TYPE_CHECKING:
-    from ada import Point
-    from ada.fem.concept.base import ConceptFEM
+    from ada import Beam, Point
+    from ada.fem.concept.base import BeamConceptFEM, ConceptFEM
 
 
 @dataclass
 class ConstraintConcepts:
-    parent_fem: ConceptFEM = None
+    parent_fem: ConceptFEM | BeamConceptFEM = None
     point_constraints: dict[str, ConstraintConceptPoint] = field(default_factory=dict)
     curve_constraints: dict[str, ConstraintConceptCurve] = field(default_factory=dict)
     rigid_links: dict[str, ConstraintConceptRigidLink] = field(default_factory=dict)
+    beam_end_constraints: dict[str, ConstraintConceptBeamEnd] = field(default_factory=dict)
+
+    def add_beam_end_constraint(self, constraint: ConstraintConceptBeamEnd) -> ConstraintConceptBeamEnd:
+        if constraint.name in self.beam_end_constraints:
+            raise ValueError(f"Beam end constraint with name {constraint.name} already exists.")
+
+        self.beam_end_constraints[constraint.name] = constraint
+        constraint.parent = self
+
+        return constraint
 
     def add_point_constraint(self, constraint: ConstraintConceptPoint) -> ConstraintConceptPoint:
         if constraint.name in self.point_constraints:
@@ -43,26 +53,33 @@ class ConstraintConcepts:
         return constraint
 
     def get_global_constraint_concepts(self) -> ConstraintConcepts:
-        all_parts = self.parent_fem.parent_part.get_all_parts_in_assembly(include_self=True)
-        point_constraints = {}
-        curve_constraints = {}
-        rigid_links = {}
+        """All constraint concepts in the assembly, including those assigned on beams"""
+        return self._collect(self.parent_fem.parent_part.get_all_parts_in_assembly(include_self=True))
 
-        for p in all_parts:
-            for pc_name, pc in p.concept_fem.constraints.point_constraints.items():
-                if pc_name in point_constraints:
-                    raise ValueError(f"Point constraint with name {pc_name} already exists.")
-                point_constraints[pc_name] = pc
-            for cu_name, cu in p.concept_fem.constraints.curve_constraints.items():
-                if cu_name in curve_constraints:
-                    raise ValueError(f"Curve constraint with name {cu_name} already exists.")
-                curve_constraints[cu_name] = cu
-            for ri_name, ri in p.concept_fem.constraints.rigid_links.items():
-                if ri_name in rigid_links:
-                    raise ValueError(f"Rigid link with name {ri_name} already exists.")
-                rigid_links[ri_name] = ri
+    def get_part_constraint_concepts(self) -> ConstraintConcepts:
+        """All constraint concepts in the parent part and its sub-parts, including those assigned on beams"""
+        return self._collect(self.parent_fem.parent_part.get_all_subparts(include_self=True))
 
-        return ConstraintConcepts(self.parent_fem, point_constraints, curve_constraints, rigid_links)
+    def _collect(self, parts) -> ConstraintConcepts:
+        from ada import Beam
+
+        collected = ConstraintConcepts(self.parent_fem)
+        for p in parts:
+            collected._merge(p.concept_fem.constraints)
+            for bm in p.get_all_physical_objects(sub_elements_only=True, by_type=Beam):
+                # avoid creating an empty concept container on every beam
+                if bm.has_concept_fem:
+                    collected._merge(bm.concept_fem.constraints)
+
+        return collected
+
+    def _merge(self, other: ConstraintConcepts) -> None:
+        for attr in ("point_constraints", "curve_constraints", "rigid_links", "beam_end_constraints"):
+            target: dict = getattr(self, attr)
+            for name, constraint in getattr(other, attr).items():
+                if name in target:
+                    raise ValueError(f'Constraint with name "{name}" already exists in {attr}.')
+                target[name] = constraint
 
 
 _all_dofs = {"dx", "dy", "dz", "rx", "ry", "rz"}
@@ -134,6 +151,33 @@ class ConstraintConceptPoint:
 
         # fill in all dof_constraints not explicitly defined with "fixed
         self.dof_constraints = _constraint_dof_type_resolver(self.dof_constraints)
+
+
+# Define TypeAlias for the ends of a beam
+BeamEnd: TypeAlias = Literal["n1", "n2"]
+
+
+@dataclass
+class ConstraintConceptBeamEnd:
+    """A support at one end of a beam. In a shell/solid mesh it restrains the whole cross-section face of that end."""
+
+    name: str
+    beam: Beam
+    end: BeamEnd
+    dof_constraints: list[ConstraintConceptDofType]
+    parent: ConstraintConcepts = field(init=False, repr=False)
+
+    def __post_init__(self):
+        if self.end not in get_args(BeamEnd):
+            raise ValueError(f'Invalid beam end: "{self.end}". Must be one of {get_args(BeamEnd)}.')
+
+        # fill in all dof_constraints not explicitly defined with "fixed
+        self.dof_constraints = _constraint_dof_type_resolver(self.dof_constraints)
+
+    @property
+    def position(self) -> Point:
+        """The beam end position, in the coordinate system of the beam's parent part"""
+        return getattr(self.beam, self.end).p
 
 
 @dataclass

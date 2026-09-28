@@ -1511,6 +1511,7 @@ class Part(BackendGeom):
         merge_coincident_nodes=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
+        from ada.fem.concept.to_fem import add_constraint_concepts_to_fem
         from ada.fem.elements import Mass
         from ada.fem.meshing import GmshOptions, GmshSession
 
@@ -1565,6 +1566,12 @@ class Part(BackendGeom):
             fem.nodes.remove_standalones()
             n_after = len(fem.nodes)
             logger.info(f"Removed {n_before - n_after} standalone nodes")
+
+        add_constraint_concepts_to_fem(
+            self.concept_fem.constraints.get_part_constraint_concepts(),
+            fem,
+            beams=self.get_all_physical_objects(by_type=Beam),
+        )
 
         if Config().meshing_check_hanging_nodes:
             from ada.fem.conformality import check_conformal_mesh

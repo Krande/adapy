@@ -30,9 +30,10 @@ from ada.sections import Section
 from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
-    from ada import Plate
+    from ada import FEM, Plate
     from ada.api.beams.helpers import BeamConnectionProps
     from ada.cad import ShapeHandle
+    from ada.fem.concept.base import BeamConceptFEM
 
 
 section_counter = Counter(1)
@@ -157,6 +158,28 @@ class Beam(BackendGeom):
 
         self._justification = justification
         self._offset_helper = OffsetHelper(self)
+        self._concept_fem: BeamConceptFEM | None = None
+
+    @property
+    def concept_fem(self) -> BeamConceptFEM:
+        """FEM concepts (e.g. end supports) assigned on this beam. Created on first access."""
+        if not self.has_concept_fem:
+            from ada.fem.concept.base import BeamConceptFEM
+
+            self._concept_fem = BeamConceptFEM(self)
+        return self._concept_fem
+
+    @property
+    def has_concept_fem(self) -> bool:
+        return getattr(self, "_concept_fem", None) is not None
+
+    def to_fem_obj(self, *args, **kwargs) -> FEM:
+        from ada.fem.concept.to_fem import add_constraint_concepts_to_fem
+
+        fem = super().to_fem_obj(*args, **kwargs)
+        if self.has_concept_fem:
+            add_constraint_concepts_to_fem(self.concept_fem.constraints, fem, beams=[self])
+        return fem
 
     @staticmethod
     def array_from_list_of_coords(
