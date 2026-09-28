@@ -1,6 +1,7 @@
 {
     "name": "cantilever_EIG_aba_shell_o2_hqFalse_riFalse",
     "fem_format": "abaqus",
+    "software_version": "2024",
     "metadata": {
         "geo": "shell",
         "elo": 2,
@@ -229,5 +230,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1790585835.861993
+    "last_modified": 1790592506.782957
 }

@@ -1,6 +1,7 @@
 {
     "name": "cantilever_EIG_aba_shell_o1_hqFalse_riTrue",
     "fem_format": "abaqus",
+    "software_version": null,
     "metadata": {
         "geo": "shell",
         "elo": 1,

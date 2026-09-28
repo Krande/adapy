@@ -1,6 +1,7 @@
 {
     "name": "cantilever_EIG_ses_line_o2_hqFalse_riFalse",
     "fem_format": "sesam",
+    "software_version": "11.2.0.92",
     "metadata": {
         "geo": "line",
         "elo": 2,
@@ -229,5 +230,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1790585835.857657
+    "last_modified": 1790592506.777388
 }

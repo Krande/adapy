@@ -1,6 +1,7 @@
 {
     "name": "plate_EIG_aba_shell_o1_stTrue",
     "fem_format": "abaqus",
+    "software_version": "2024",
     "metadata": {
         "elo": 1,
         "geo": "shell",
@@ -10,8 +11,8 @@
     "eigen_mode_data": {
         "1": {
             "no": 1,
-            "f_hz": 21.241775512695312,
-            "eigenvalue": 17813.17578125,
+            "f_hz": 21.241891860961914,
+            "eigenvalue": 17813.373046875,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -30,8 +31,8 @@
         },
         "2": {
             "no": 2,
-            "f_hz": 80.46729278564453,
-            "eigenvalue": 255622.15625,
+            "f_hz": 80.4687728881836,
+            "eigenvalue": 255631.5625,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -50,8 +51,8 @@
         },
         "3": {
             "no": 3,
-            "f_hz": 93.0882797241211,
-            "eigenvalue": 342097.34375,
+            "f_hz": 93.08829498291016,
+            "eigenvalue": 342097.46875,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -70,8 +71,8 @@
         },
         "4": {
             "no": 4,
-            "f_hz": 106.61769104003906,
-            "eigenvalue": 448764.28125,
+            "f_hz": 106.61773681640625,
+            "eigenvalue": 448764.65625,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -90,8 +91,8 @@
         },
         "5": {
             "no": 5,
-            "f_hz": 128.50401306152344,
-            "eigenvalue": 651918.1875,
+            "f_hz": 128.50405883789062,
+            "eigenvalue": 651918.6875,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -110,8 +111,8 @@
         },
         "6": {
             "no": 6,
-            "f_hz": 155.5205535888672,
-            "eigenvalue": 954850.375,
+            "f_hz": 155.52455139160156,
+            "eigenvalue": 954899.5,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -129,5 +130,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1790585836.142105
+    "last_modified": 1790592506.810488
 }

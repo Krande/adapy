@@ -1,6 +1,7 @@
 {
     "name": "plate_EIG_ses_shell_o1_stTrue",
     "fem_format": "sesam",
+    "software_version": "11.2.0.92",
     "metadata": {
         "elo": 1,
         "geo": "shell",
@@ -129,5 +130,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1790585836.143105
+    "last_modified": 1790592506.811994
 }
