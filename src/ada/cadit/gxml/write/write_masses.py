@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from ada.api.spatial.eq_types import EquipRepr
 from ada.api.spatial.equipment import Equipment
+from ada.api.transforms import to_global_points
 from ada.core.constants import X, Y, Z
 
 from .write_utils import add_local_system
@@ -36,9 +37,8 @@ def add_masses(root: ET.Element, part: Part):
             if isinstance(p, Equipment) and p.eq_repr != EquipRepr.AS_IS:
                 continue
             for mass in p.masses:
-                abs_place = p.placement.get_absolute_placement()
-                origin = abs_place.origin
-                pt = origin + mass.cog.copy()
+                # the cog is in the local system of the mass point
+                pt = to_global_points(mass, mass.cog)
                 bc_stru = ET.SubElement(root, "structure")
                 sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
                 sup_point.append(add_local_system(X, Y, Z))

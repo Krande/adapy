@@ -2,7 +2,14 @@ import numpy as np
 import pytest
 
 import ada
+from ada.api.transforms import to_global_points, to_global_vectors
 from ada.core.vector_utils import angle_between
+
+
+def _world_position(obj) -> tuple[ada.Point, ada.Direction]:
+    """Location and axis of the solid of ``obj`` in the world. The solid itself is local to the object."""
+    pos = obj.solid_geom().geometry.position
+    return ada.Point(*to_global_points(obj, pos.location)), ada.Direction(*to_global_vectors(obj, pos.axis))
 
 
 def test_placement_beam():
@@ -10,9 +17,9 @@ def test_placement_beam():
 
     bm2 = bm.copy_to("bm2", (0, 0, 1))
     bm2.placement = bm2.placement.rotate((0, 0, 1), 45)
-    so_geo = bm2.solid_geom()
-    assert so_geo.geometry.position.axis.is_equal(ada.Direction([0.70710678, 0.70710678, 0.0]))
-    assert so_geo.geometry.position.location.is_equal(ada.Point([0.0, 0.0, 1.0]))
+    location, axis = _world_position(bm2)
+    assert axis.is_equal(ada.Direction([0.70710678, 0.70710678, 0.0]))
+    assert location.is_equal(ada.Point([0.0, 0.0, 1.0]))
 
 
 def test_place_copied_part():
@@ -31,14 +38,11 @@ def test_place_copied_part():
     pl_copy_place = pl1_copy.placement.get_absolute_placement()
     bm_copy_place = bm1_copy.placement.get_absolute_placement()
 
-    pl_copy_so_geo = pl1_copy.solid_geom()
-    bm_copy_so_geo = bm1_copy.solid_geom()
-
     assert ada.Direction(pl_copy_place.origin - pl.placement.origin).is_equal(move_dir)
     assert ada.Direction(bm_copy_place.origin - bm1_copy.placement.origin).is_equal(move_dir)
 
-    assert pl_copy_so_geo.geometry.position.location.is_equal(new_pos)
-    assert bm_copy_so_geo.geometry.position.location.is_equal(new_pos)
+    assert _world_position(pl1_copy)[0].is_equal(new_pos)
+    assert _world_position(bm1_copy)[0].is_equal(new_pos)
 
 
 def test_place_copied_part_w_rotation():
@@ -54,16 +58,13 @@ def test_place_copied_part_w_rotation():
     pl_copy_place = pl1_copy.placement.get_absolute_placement(True)
     bm_copy_place = bm1_copy.placement.get_absolute_placement(True)
 
-    pl_copy_so_geo = pl1_copy.solid_geom()
-    bm_copy_so_geo = bm1_copy.solid_geom()
-
     move_dir = ada.Direction(0, 0, 1)
     new_pos = ada.Point(0, 0, 1)
 
     assert ada.Direction(pl_copy_place.origin - pl.placement.origin).is_equal(move_dir)
     assert ada.Direction(bm_copy_place.origin - bm1_copy.placement.origin).is_equal(move_dir)
 
-    assert pl_copy_so_geo.geometry.position.location.is_equal(new_pos)
-    assert bm_copy_so_geo.geometry.position.location.is_equal(new_pos)
+    assert _world_position(pl1_copy)[0].is_equal(new_pos)
+    assert _world_position(bm1_copy)[0].is_equal(new_pos)
 
     assert angle_between(pl.placement.xdir, pl_copy_place.xdir) == pytest.approx(np.deg2rad(45))

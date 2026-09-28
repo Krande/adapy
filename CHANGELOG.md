@@ -2,6 +2,16 @@
 
 
 
+## v0.94.1 (2026-09-28)
+
+### Fix
+
+* fix: one rigid placement convention, pinned beam ends that rotate, and curve/rigid-link supports (#417)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`3b9b11a`](https://github.com/Krande/adapy/commit/3b9b11a76b3c55ff2617bcdbf5b1b8a249335a0a))
+
+
 ## v0.94.0 (2026-09-28)
 
 ### Chore

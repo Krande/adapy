@@ -20,30 +20,23 @@ class StatNonLin:
 
     @property
     def sec_str(self):
+        from ..write_constraints import has_cara_elem
+
         sec_str = ""
-        if len(self.part.fem.sections.lines) > 0 or len(self.part.fem.sections.shells) > 0:
+        if has_cara_elem(self.part):
             sec_str = "\n    CARA_ELEM=element,"
         return sec_str
 
     def get_bc_str(self):
         from ada.fem.exceptions.model_definition import NoBoundaryConditionsApplied
 
-        part = self.part
-        all_boundary_conditions = part.fem.bcs
-        assembly = part.get_assembly()
-        if assembly != part:
-            for bc in part.get_assembly().fem.bcs:
-                if bc not in all_boundary_conditions:
-                    all_boundary_conditions.append(bc)
+        from ..write_constraints import get_charge_names
 
-        if len(all_boundary_conditions) == 0:
+        charges = get_charge_names(self.part)
+        if len(charges) == 0:
             raise NoBoundaryConditionsApplied("No boundary condition is found for the specified model")
 
-        bc_str = ""
-        for bc in all_boundary_conditions:
-            bc_str += f"_F(CHARGE={bc.name}),"
-
-        return bc_str
+        return "".join(f"_F(CHARGE={name})," for name in charges)
 
     def write(self):
         return f"""{self.name} = STAT_NON_LINE(

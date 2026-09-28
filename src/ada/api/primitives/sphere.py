@@ -27,12 +27,8 @@ class PrimSphere(Shape):
         from ada.geom.points import Point
         from ada.geom.solids import Sphere
 
-        cog = self.cog.copy()
-        if self.placement.is_identity() is False:
-            place_abs = self.placement.get_absolute_placement(include_rotations=False)
-            cog += place_abs.origin
-
-        sphere = Sphere(Point(*cog), self.radius)
+        # In the local system of the sphere. Consumers apply its absolute placement (see BackendGeom.world_matrix).
+        sphere = Sphere(Point(*self.cog.copy()), self.radius)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, sphere, self.color, bool_operations=booleans)
 

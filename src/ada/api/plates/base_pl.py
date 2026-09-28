@@ -10,7 +10,7 @@ from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Config, logger
-from ada.core.vector_utils import is_identity_rot_matrix, poly2d_center_of_gravity
+from ada.core.vector_utils import poly2d_center_of_gravity
 from ada.geom import Geometry
 from ada.geom.direction import Direction
 from ada.geom.points import Point
@@ -182,29 +182,16 @@ class Plate(BackendGeom):
 
         import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
-        from ada import Placement
         from ada.geom.booleans import BooleanOperation
         from ada.geom.placement import Axis2Placement3D
 
+        # In the local system of the plate. Consumers that need world coordinates apply the absolute placement of
+        # the plate (see BackendGeom.world_matrix).
         outer_curve = self.poly.curve_geom(use_3d_segments=False)
         profile = geo_su.ArbitraryProfileDef(geo_su.ProfileType.AREA, outer_curve, [])
         origin = self.poly.origin
         normal = self.poly.normal
         xdir = self.poly.xdir
-
-        if not self.placement.is_identity():
-            ident_place = Placement()
-            place_abs = self.placement.get_absolute_placement(include_rotations=True)
-            if not is_identity_rot_matrix(place_abs.rot_matrix):
-                new_vectors = place_abs.transform_array_from_other_place(
-                    np.asarray([normal, xdir]), ident_place, ignore_translation=True
-                )
-                new_normal = new_vectors[0]
-                if Direction(new_normal).get_length() != 0.0:
-                    normal = new_normal
-                xdir = new_vectors[1]
-
-            origin = place_abs.origin + origin
 
         # Global thickness anchor: offset the extrusion BASE along the plate normal
         # ("as_is" = 0 keeps the historical output byte-identical).
@@ -242,17 +229,16 @@ class Plate(BackendGeom):
         - poly.normal defines local Z (plane normal) in 3D.
         - local Y is constructed as (normal × xdir) to enforce right-hand rule.
 
-        If plate has a non-identity placement, we:
-        - rotate xdir and normal by placement rotation
-        - translate origin by placement translation (origin = place_abs.origin + poly.origin)
+        The centroid is found in the local system of the plate, and moved to global coordinates by the absolute
+        placement of the plate.
         """
-        from ada import Placement
+        from ada.api.transforms import to_global_points
 
         # 2D centroid
         c2 = poly2d_center_of_gravity(np.asarray(self.poly.points2d, dtype=float))
         if c2 is None:
             # degenerate polygon
-            return Point(self.poly.origin.copy(), units=self.units)
+            return Point(to_global_points(self, self.poly.origin), units=self.units)
 
         cx, cy = float(c2[0]), float(c2[1])
 
@@ -260,21 +246,6 @@ class Plate(BackendGeom):
         origin = np.asarray(self.poly.origin, dtype=float)
         xdir = np.asarray(self.poly.xdir, dtype=float)
         normal = np.asarray(self.poly.normal, dtype=float)
-
-        # Apply plate placement the same way as solid_geom
-        if self.placement is not None:
-            ident = Placement()
-            place_abs = self.placement.get_absolute_placement(include_rotations=True)
-
-            # rotate basis vectors (ignore translation)
-            new_vectors = place_abs.transform_array_from_other_place(
-                np.asarray([normal, xdir], dtype=float), ident, ignore_translation=True
-            )
-            normal = new_vectors[0]
-            xdir = new_vectors[1]
-
-            # translate origin (do NOT rotate origin here; you don't in solid_geom either)
-            origin = np.asarray(place_abs.origin, dtype=float) + origin
 
         # Enforce right-handed in-plane y
         # y = z × x
@@ -291,7 +262,7 @@ class Plate(BackendGeom):
         xdir = xdir / xn
 
         cog = origin + cx * xdir + cy * ydir
-        return Point(cog)
+        return Point(to_global_points(self, cog))
 
     def get_volume(self) -> float:
         return self.t * self.poly.get_area()

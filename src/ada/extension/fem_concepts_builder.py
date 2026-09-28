@@ -52,14 +52,13 @@ def build_mass_glyphs(part_or_assembly):
     masses = []
     for subp in part_or_assembly.get_all_subparts(include_self=True):
         for m in getattr(subp, "masses", None) or []:
-            # Match where PrimSphere.solid_geom actually renders the mass sphere: the cog shifted
-            # by the placement's absolute origin (translation only). Using the raw cog left the
-            # amber overlay offset from the geometry whenever the mass carried a non-identity
-            # placement (e.g. a model pipeline positions equipment via placement).
-            cog = m.cog.copy()
-            placement = getattr(m, "placement", None)
-            if placement is not None and placement.is_identity() is False:
-                cog = cog + placement.get_absolute_placement(include_rotations=False).origin
+            # Match where the mass sphere renders: the cog is in the local system of the mass point,
+            # moved to the world by its absolute placement. Using the raw cog left the amber overlay
+            # offset from the geometry whenever the mass carried a non-identity placement (e.g. a
+            # model pipeline positions equipment via placement).
+            from ada.api.transforms import to_global_points
+
+            cog = to_global_points(m, m.cog) if getattr(m, "placement", None) is not None else m.cog.copy()
             masses.append(
                 fem_ext.MassGlyph(
                     name=m.name,
