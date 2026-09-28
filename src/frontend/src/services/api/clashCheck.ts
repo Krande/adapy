@@ -142,17 +142,55 @@ function detailBase(scope: ScopeUrl): string {
   return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/clash-detail`;
 }
 
+/** WHAT IS BEING CHECKED, and the route takes exactly one of the two.
+ *
+ *  A FILE is a source key core can read -- the same key the scene was loaded from. A NODE is a
+ *  published asset subject, whose provider reads a format core has none: the check reaches the
+ *  model through `ada.assets.concepts`, and core never learns the format.
+ *
+ *  A node is NOT addressed by its source key, even though it has one. A single upload is commonly
+ *  referenced by many subjects, so the key answers "which bytes" and not "which node" -- and a
+ *  check over a storey is not a check over the export containing it.
+ */
+export type ClashCheckTarget =
+  | { readonly kind: "file"; readonly sourceKey: string }
+  | {
+      readonly kind: "node";
+      readonly collection: string;
+      readonly subject: string;
+      readonly revision?: string | null;
+      /** The node actually checked, when it differs from the subject that covers it. */
+      readonly node?: string | null;
+    };
+
+/** How a target reads in a job label or an error -- never parsed, only shown. */
+export function describeClashTarget(target: ClashCheckTarget): string {
+  return target.kind === "file" ? target.sourceKey : `${target.collection}/${target.subject}`;
+}
+
+function clashTargetBody(target: ClashCheckTarget): Record<string, unknown> {
+  if (target.kind === "file") return {source_key: target.sourceKey};
+  return {
+    collection: target.collection,
+    subject: target.subject,
+    ...(target.revision ? {revision: target.revision} : {}),
+    ...(target.node ? {node: target.node} : {}),
+  };
+}
+
 export const clashCheckApi = {
   async runClashCheck(
     scope: ScopeUrl,
-    body: { source_key: string; options?: ClashCheckOptions },
+    body: { target: ClashCheckTarget; options?: ClashCheckOptions },
   ): Promise<ClashCheckResponse> {
     const r = await authedFetch(checkBase(scope), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_key: body.source_key, options: body.options ?? {} }),
+      // Exactly one addressing shape goes on the wire: the route refuses both at once, because
+      // which model was checked would otherwise depend on the order it reads them in.
+      body: JSON.stringify({ ...clashTargetBody(body.target), options: body.options ?? {} }),
     });
-    return jsonOrThrow<ClashCheckResponse>(r, `runClashCheck(${body.source_key})`);
+    return jsonOrThrow<ClashCheckResponse>(r, `runClashCheck(${describeClashTarget(body.target)})`);
   },
 
   async runClashDetail(

@@ -110,7 +110,7 @@ test("runClashCheckFlow: cached:true reads the result and never polls a job", as
   const { result, derivedKey, cached } = await runClashCheckFlow(
     { api, trackJob: (o) => tracked.push(o), wait: noWait },
     SCOPE,
-    "models/plant-a.ifc",
+    {kind: "file", sourceKey: "models/plant-a.ifc"},
     {},
   );
   assert.equal(cached, true);
@@ -133,7 +133,7 @@ test("runClashCheckFlow: cached:false polls to done, tracks the job, then reads 
     },
   });
   const tracked: { jobId: string; label: string }[] = [];
-  const { cached } = await runClashCheckFlow({ api, trackJob: (o) => tracked.push(o), wait: noWait }, SCOPE, "models/plant-a.ifc", {});
+  const { cached } = await runClashCheckFlow({ api, trackJob: (o) => tracked.push(o), wait: noWait }, SCOPE, {kind: "file", sourceKey: "models/plant-a.ifc"}, {});
   assert.equal(cached, false);
   assert.equal(calls.jobStatus.length, 2);
   assert.equal(tracked.length, 1);
@@ -150,7 +150,7 @@ test("runClashCheckFlow: an errored job is refused with the reason named", async
     },
   });
   await assert.rejects(
-    runClashCheckFlow({ api, wait: noWait }, SCOPE, "models/plant-a.ifc", {}),
+    runClashCheckFlow({ api, wait: noWait }, SCOPE, {kind: "file", sourceKey: "models/plant-a.ifc"}, {}),
     (err: unknown) => err instanceof ClashResultError && /the beam-to-beam pass failed/.test((err as Error).message),
   );
 });
@@ -161,7 +161,7 @@ test("runClashCheckFlow: cached:false with no job_id is refused, not silently ig
       return { job_id: null, derived_key: "k", cached: false };
     },
   });
-  await assert.rejects(runClashCheckFlow({ api, wait: noWait }, SCOPE, "models/plant-a.ifc", {}), ClashResultError);
+  await assert.rejects(runClashCheckFlow({ api, wait: noWait }, SCOPE, {kind: "file", sourceKey: "models/plant-a.ifc"}, {}), ClashResultError);
 });
 
 test("runClashDetailFlow: cached:true (or absent) reads the derived key without polling", async () => {
@@ -191,4 +191,51 @@ test("runClashDetailFlow: cached:false polls to done and tracks the job", async 
   assert.equal(cached, false);
   assert.equal(calls.jobStatus.length, 1);
   assert.equal(tracked.length, 1);
+});
+
+// ── a PUBLISHED NODE as the thing checked ────────────────────────────────────────────────────
+//
+// The second addressing shape. What matters is that it reaches the wire as `collection`/`subject`
+// and never as a source key: one upload is commonly referenced by many subjects, so the key
+// answers "which bytes" and not "which node".
+
+test("a node target goes on the wire as collection + subject, not as a source key", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const { api } = fakeApi({
+    async runClashCheck(_scope: string, body: { target: unknown; options?: unknown }) {
+      bodies.push(body as Record<string, unknown>);
+      return { job_id: null, derived_key: "_derived/clash/n/result.json", cached: true };
+    },
+  });
+  await runClashCheckFlow(
+    { api, wait: noWait },
+    SCOPE,
+    { kind: "node", collection: "plant-a", subject: "16531-1", revision: "20260928T000000Z" },
+    {},
+  );
+  const target = bodies[0].target as Record<string, unknown>;
+  assert.equal(target.kind, "node");
+  assert.equal(target.collection, "plant-a");
+  assert.equal(target.subject, "16531-1");
+  assert.equal(target.sourceKey, undefined, "a node must not be addressed by a key");
+});
+
+test("a node's job label names the node, not a blob nobody chose", async () => {
+  const { api } = fakeApi({
+    async runClashCheck() {
+      return { job_id: "job-9", derived_key: "_derived/clash/n/result.json", cached: false };
+    },
+    async jobStatus() {
+      return { status: "done" };
+    },
+  });
+  const tracked: { jobId: string; label: string }[] = [];
+  await runClashCheckFlow(
+    { api, trackJob: (o) => tracked.push(o), wait: noWait },
+    SCOPE,
+    { kind: "node", collection: "plant-a", subject: "16531-1" },
+    {},
+  );
+  assert.equal(tracked.length, 1);
+  assert.match(tracked[0].label, /plant-a\/16531-1/);
 });
