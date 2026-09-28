@@ -14,6 +14,12 @@ multiple FEA software packages supported by ADA.
             Open the interactive FEA verification report →
         </a>
     </p>
+    <p style="margin: 0 0 24px 0;">
+        Download the report:
+        <a href="../../_static/fea-report-files/fea-report.pdf" download>PDF</a>
+        &middot;
+        <a href="../../_static/fea-report-files/fea-report.docx" download>Word (DOCX)</a>
+    </p>
     <p style="color: #555; font-size: 0.95em;">
         The report is a standalone paradoc bundle with sortable tables,
         interactive 3D mode-shape viewers, and a frequency-vs-mode plot.
