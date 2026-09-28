@@ -380,6 +380,53 @@ class TypeBlock:
         return self.nfield + (self.nfield & 1)
 
 
+def _trim_stale_packed_tail(pointer_table: Any, type_flag: int, dims: list[int]) -> Any:
+    """Cut a 2-D result table's pointer table at its packed extent when stale slots follow.
+
+    Some writers record a 2-D result table (type flag 2: cases × entities)
+    with a single dim word holding ``n_cases * 100000 + n_entities`` — e.g.
+    ``1200450`` for 12 cases of 450 nodes. On every packed table surveyed the
+    real table spans exactly ``n_cases * n_entities`` slots (sometimes one
+    more), which is also why eigen decks appear to report "~20 M".
+
+    The capacity past that extent is not always zero-filled: a deck rewritten
+    after its analysis was seen with stale pointers sprinkled among zeros
+    there — every one of them also in the BELOAD1 pointer table, i.e. element
+    load records, whose first word (the load case) is also a valid result
+    case number. They pass the NFIELD check that otherwise ends the table, and
+    read as extra rows of a result case — which then no longer lines up
+    row-for-row with the other cases.
+
+    Why a wrong unpacking must not cut data: the packing is ambiguous once
+    ``n_entities >= 100000`` (8 cases of 150855 entities would read as
+    9 × 50855), and the computed extent would then fall INSIDE the real table,
+    where a sparse table (element tables have empty slots for elements without
+    results) may well hold a zero. The writers surveyed do not pack in that
+    case — one file stores its node table packed and its 128k-element table as
+    two dims side by side; another stores [8, 150855] and [8, 318483] as two
+    dims — but the guard does not rely on it. It trims only when:
+
+    * the slot right at the extent is empty (a plain count misread as packed,
+      on a dense table, has a live pointer there);
+    * fewer slots follow the extent than precede it (an extent that landed
+      inside a real table would leave most of it behind);
+
+    and it only ever shortens the table. A stronger check (for instance that
+    the tail's pointers resolve to another type's records) would need the
+    other blocks, which are not decoded yet at this point.
+    """
+    if type_flag != 2 or len(dims) != 1 or dims[0] < 100_000:
+        return pointer_table
+    extent = (dims[0] // 100_000) * (dims[0] % 100_000)
+    if extent <= 0 or pointer_table.size <= extent + 1:
+        return pointer_table
+    if pointer_table[extent] != 0:
+        return pointer_table
+    if pointer_table.size - (extent + 1) >= extent:
+        return pointer_table
+    return pointer_table[: extent + 1]
+
+
 def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int | None = None) -> TypeBlock:
     """Decode one per-type block. ``next_preamble`` is accepted for
     signature compatibility; the pointer-table read is clamped to the file
@@ -490,6 +537,7 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
     # otherwise the last record (id N) falls off the end — multi-super-
     # element files would lose one node/element per SE.
     pointer_table = _read_pointer_table(source, pointer_table_offset, read_cap)
+    pointer_table = _trim_stale_packed_tail(pointer_table, type_flag, dims)
     total_records = int(pointer_table.size)
 
     records_start = pointer_table_offset + total_records * SLOT_STRIDE
@@ -919,6 +967,9 @@ class SinFile:
         Returns ``None`` when the records are **not** uniform width
         (e.g. GELMNT1, whose NFIELD varies per element), signalling the
         caller to fall back to the per-record :meth:`iter_records` path.
+        With ``where_first_word``, a table that is ragged only across result
+        cases (real and complex cases side by side) is judged on the selected
+        case's records, so one case of it still vectorises.
         Returns an empty ``(0, 0)`` array when the type has no populated
         records.
 
@@ -946,7 +997,20 @@ class SinFile:
         # Only vectorise truly fixed-width tables; a varying NFIELD
         # means the per-record path is the only correct reader.
         if not np.all(nfields == nfields[0]):
-            return None
+            if where_first_word is None:
+                return None
+            # A table may be ragged only ACROSS result cases: a deck that mixes
+            # real cases with complex ones (RDRESREF COMPLX=1, e.g. quasi-static
+            # wave cases) stores twice the value words for the complex ones
+            # (Results Interface File 4.3.1.35 / 4.3.1.49: NFIELD grows by the
+            # factor COMPLX+1). Then one case's slice is still fixed-width, and
+            # vectorising it keeps a per-case read off the per-record path.
+            in_file = (nz * 4 + 4) <= file_end
+            nz, nfields = nz[in_file], nfields[in_file]
+            keep = src.gather_f32(nz).astype(np.int64) == where_first_word
+            nz, nfields = nz[keep], nfields[keep]
+            if nz.size == 0 or not np.all(nfields == nfields[0]):
+                return None
         nfield = int(nfields[0])
         n_data = nfield - 1
         if n_data <= 0:

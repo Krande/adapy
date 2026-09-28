@@ -26,6 +26,7 @@ case is built up. That is supporting detail, not the case's name.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 __all__ = ["combination_label", "result_case_names", "selectable_result_cases"]
@@ -39,21 +40,38 @@ def _factor(value: float) -> str:
     return f"{round(float(value), 4):g}"
 
 
-def combination_label(components: dict[int, float], names: dict[int, str]) -> str:
+def _phase(radians: float) -> str:
+    """A term's phase angle as the engineer typed it: ``∠30°``, empty at zero."""
+    # Stored in radians as float32 (0.5236 for 30°); degrees rounded to a
+    # hundredth read back as what was entered.
+    degrees = round(math.degrees(float(radians)), 2)
+    return "" if degrees == 0 else f"∠{degrees:g}°"
+
+
+def combination_label(components: Any, names: dict[int, str]) -> str:
     """Describe a combination by its recipe: ``1.2·girder_local + 1.1·deck``.
 
     ``components`` is ``{basic case: factor}`` as ``read_result_combinations``
-    returns it; ``names`` is what the basic cases are called. A basic case with
-    no name of its own appears as ``case 5`` — better than dropping the term,
+    returns it, or a ``CombinationRecipe`` from ``read_result_combination_terms``,
+    which also carries each term's phase, shown as ``15.6·wave∠30°``: two
+    combinations that differ only in the phase of a wave case are different
+    cases and must not read alike. ``names`` is what the basic cases are called.
+    A basic case with no name of its own appears as ``case 5`` — better than dropping the term,
     which would silently misdescribe the combination.
 
     Ordered by case number rather than by factor, so the same basics always read
     in the same order across combinations and two of them can be compared by eye.
     Never truncated: this is the detail view of a case, not its label.
     """
-    if not components:
+    terms = getattr(components, "terms", None)
+    if terms is None:
+        terms = [(n, f, 0.0) for n, f in (components or {}).items()]
+    if not terms:
         return ""
-    return " + ".join(f"{_factor(f)}\u00b7{names.get(n) or f'case {n}'}" for n, f in sorted(components.items()))
+    return " + ".join(
+        f"{_factor(f)}\u00b7{names.get(n) or f'case {n}'}{_phase(p)}"
+        for n, f, p in sorted(terms, key=lambda t: (t[0], t[2]))
+    )
 
 
 def _text_records(sin_file: Any, card: str) -> dict[int, str]:
@@ -102,13 +120,13 @@ def selectable_result_cases(sin_file: Any) -> list[dict] | None:
     ``name``: the case is called ``lcc1``, and a label that spelled out five
     weighted terms instead would be unreadable everywhere a case is listed.
     """
-    from ada.fem.formats.sesam.results.read_sin import read_result_combinations
+    from ada.fem.formats.sesam.results.read_sin import read_result_combination_terms
 
     if sin_file is None or not getattr(sin_file, "type_blocks", None):
         return None
     names = result_case_names(sin_file) or {}
     try:
-        combinations = read_result_combinations(sin_file)
+        combinations = read_result_combination_terms(sin_file)
     except Exception:
         combinations = {}
     numbers = sorted(set(names) | set(combinations))
