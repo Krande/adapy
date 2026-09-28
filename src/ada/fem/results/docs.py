@@ -269,6 +269,10 @@ def assets_for_docs(
     out_dir = pathlib.Path(out_dir)
     fea_result: Any = None
 
+    if hasattr(src, "to_fea_result"):
+        # FEAResultV2 (Abaqus via ODBDump → SQLite): the bake speaks FEAResult.
+        src = src.to_fea_result()
+
     if _src_is_pathlike(src):
         bake = bake_with_posters_from_source(
             pathlib.Path(src),
@@ -300,7 +304,7 @@ def assets_for_docs(
     else:
         raise TypeError(
             f"assets_for_docs: unsupported src type {type(src).__name__}; "
-            "expected pathlib.Path | str | FEAResult | FEAStreamReader."
+            "expected pathlib.Path | str | FEAResult | FEAResultV2 | FEAStreamReader."
         )
 
     solver, solver_version, frequencies = _extract_solver_and_freqs(

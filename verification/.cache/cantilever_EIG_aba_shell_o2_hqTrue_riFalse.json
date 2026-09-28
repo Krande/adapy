@@ -1,16 +1,17 @@
 {
-    "name": "cantilever_EIG_sesam_SHELL_o2_hqFalse",
-    "fem_format": "sesam",
+    "name": "cantilever_EIG_aba_shell_o2_hqTrue_riFalse",
+    "fem_format": "abaqus",
     "metadata": {
         "geo": "shell",
         "elo": 2,
-        "hexquad": false
+        "hexquad": true,
+        "reduced_integration": false
     },
     "eigen_mode_data": {
         "1": {
             "no": 1,
-            "f_hz": 12.75475,
-            "eigenvalue": 6422.492,
+            "f_hz": 12.758302688598633,
+            "eigenvalue": 6426.07177734375,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -29,8 +30,8 @@
         },
         "2": {
             "no": 2,
-            "f_hz": 19.50177,
-            "eigenvalue": 15014.39,
+            "f_hz": 19.48614501953125,
+            "eigenvalue": 14990.3447265625,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -49,8 +50,8 @@
         },
         "3": {
             "no": 3,
-            "f_hz": 51.96824,
-            "eigenvalue": 106619.3,
+            "f_hz": 51.99753189086914,
+            "eigenvalue": 106739.515625,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -69,8 +70,8 @@
         },
         "4": {
             "no": 4,
-            "f_hz": 75.14398,
-            "eigenvalue": 222919.5,
+            "f_hz": 75.14892578125,
+            "eigenvalue": 222948.90625,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -89,8 +90,8 @@
         },
         "5": {
             "no": 5,
-            "f_hz": 95.91838,
-            "eigenvalue": 363214.7,
+            "f_hz": 95.91966247558594,
+            "eigenvalue": 363224.375,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -109,8 +110,8 @@
         },
         "6": {
             "no": 6,
-            "f_hz": 125.0805,
-            "eigenvalue": 617644.8,
+            "f_hz": 125.00059509277344,
+            "eigenvalue": 616856.125,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -129,8 +130,8 @@
         },
         "7": {
             "no": 7,
-            "f_hz": 142.5538,
-            "eigenvalue": 802264.3,
+            "f_hz": 142.32492065429688,
+            "eigenvalue": 799689.875,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -149,8 +150,8 @@
         },
         "8": {
             "no": 8,
-            "f_hz": 166.1156,
-            "eigenvalue": 1089383.0,
+            "f_hz": 165.84878540039062,
+            "eigenvalue": 1085886.25,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -169,8 +170,8 @@
         },
         "9": {
             "no": 9,
-            "f_hz": 192.7236,
-            "eigenvalue": 1466323.0,
+            "f_hz": 192.18382263183594,
+            "eigenvalue": 1458120.375,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -189,8 +190,8 @@
         },
         "10": {
             "no": 10,
-            "f_hz": 233.6306,
-            "eigenvalue": 2154860.0,
+            "f_hz": 232.86668395996094,
+            "eigenvalue": 2140792.0,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -209,8 +210,8 @@
         },
         "11": {
             "no": 11,
-            "f_hz": 250.1353,
-            "eigenvalue": 2470073.0,
+            "f_hz": 250.1732177734375,
+            "eigenvalue": 2470821.5,
             "f_rad": null,
             "f_imag_rad": null,
             "px": null,
@@ -228,5 +229,5 @@
             "source_dict": null
         }
     },
-    "last_modified": 1637068395.433893
+    "last_modified": 1790585835.864004
 }

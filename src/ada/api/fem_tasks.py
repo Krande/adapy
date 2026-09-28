@@ -307,7 +307,7 @@ _TOL = 1e-09
 
 
 def _plate_support_groups(fem) -> tuple:
-    """The four support sets, chosen so that no dof is constrained twice.
+    """The support sets, chosen so that no dof is constrained twice.
 
     Simple support on the two short edges plus cylindrical bending on the two long ones is four
     overlapping regions at the corners, and the obvious spelling -- one set per edge -- constrains
@@ -320,7 +320,10 @@ def _plate_support_groups(fem) -> tuple:
     """
     on_x0 = lambda n: abs(n.x) < _TOL  # noqa: E731
     on_x1 = lambda n: abs(n.x - PLATE_STRIP_LENGTH) < _TOL  # noqa: E731
+    from ada.fem.shapes.definitions import LineShapes
+
     on_long = lambda n: abs(n.y) < _TOL or abs(n.y - PLATE_STRIP_WIDTH) < _TOL  # noqa: E731
+    beam_node_ids = {n.id for el in fem.elements if isinstance(el.type, LineShapes) for n in el.nodes}
 
     return (
         ("EDGE_X0", [n for n in fem.nodes if on_x0(n)], (1, 2, 3), "pinned: the support that locates the strip"),
@@ -336,6 +339,14 @@ def _plate_support_groups(fem) -> tuple:
             [n for n in fem.nodes if on_long(n) and (on_x0(n) or on_x1(n))],
             (4,),
             "the roll restraint only; u2 and u3 are already held by the edge sets",
+        ),
+        (
+            "DRILLING",
+            [n for n in fem.nodes if n.id not in beam_node_ids],
+            (6,),
+            "no rotation about the plate normal: it carries no load in the bare plate, and Sestra's "
+            "FQUS gives it next to no stiffness, so left free it is a 0.01 Hz mechanism mode. Not on "
+            "a stiffener's nodes: there it is the bar's own lateral bending, which is real",
         ),
     )
 

@@ -1,0 +1,12 @@
+{
+    "name": "plate_static_aba_shell_o1_stFalse_h0p0625",
+    "fem_format": "abaqus",
+    "metadata": {
+        "elo": 1
+    },
+    "mid_span_u3": 0.17326860129833221,
+    "mesh_size": 0.0625,
+    "stiffened": false,
+    "n_shells": 512,
+    "last_modified": 1790585836.361226
+}

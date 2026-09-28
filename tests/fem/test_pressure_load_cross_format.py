@@ -129,16 +129,29 @@ def _element_normals_are_negative_z(a: ada.Assembly) -> bool:
 def _mid_span_u3(res) -> float:
     """Mid-span centreline ``u3``, sampled by position rather than by node id.
 
-    The id depends on the mesher; the position is the model's. Both result shapes are handled: ccx's
-    ``DISP`` carries ``[id, dx, dy, dz]`` and Code_Aster's ``result__DEPL`` adds the three rotations.
+    The id depends on the mesher; the position is the model's. The column is picked by component
+    name, not position: ccx's ``DISP`` is ``[id, D1, D2, D3]``, Code_Aster's ``result__DEPL`` is
+    ``[id, DX, DY, DZ, ...]``, and Sesam carries a derived displacement field whose first column is a
+    magnitude, so position 3 there is Y.
     """
+    from ada.fem.results.field_data import NodalFieldType
+
+    if hasattr(res, "to_fea_result"):  # FEAResultV2 (Abaqus via ODBDump) carries no mesh itself
+        res = res.to_fea_result()
     coords = np.asarray(res.mesh.nodes.coords, dtype=float)
-    field = next(f for f in res.results if f.name in ("DISP", "result__DEPL") or "displacement" in f.name.lower())
+    # The last one: a reader that keeps the step's base-state frame (Abaqus' frame 0, all zeros) lists
+    # it first, and the loaded increment is the step's final one.
+    field = [
+        f
+        for f in res.results
+        if getattr(f, "field_type", None) == NodalFieldType.DISP or f.name in ("DISP", "result__DEPL")
+    ][-1]
+    u3_col = next(i for i, c in enumerate(field.components) if c.upper() in ("U3", "D3", "DZ", "Z"))
     values = np.asarray(field.values, dtype=float)
     offset = np.abs(coords[:, 0] - PLATE_STRIP_LENGTH / 2) + np.abs(coords[:, 1] - PLATE_STRIP_WIDTH / 2)
     index = int(np.argmin(offset))
     assert offset[index] < 1e-06, "the mesh has no node at mid-span on the centreline"
-    return float(values[index][3])
+    return float(values[index][u3_col + 1])
 
 
 def _solve(a: ada.Assembly, fem_format: str, name: str) -> float:
