@@ -59,6 +59,8 @@ if TYPE_CHECKING:
 _eig_logger = logging.getLogger(__name__)
 
 _ASSETS_DIR = pathlib.Path(__file__).parent / "_assets"
+#: The cantilever eigen cases' JSON cache (tasks.py writes it); the plate cases keep theirs apart.
+_CACHE_DIR = pathlib.Path(__file__).parent / ".cache"
 
 
 def _poster(rel_path: str) -> str | None:
@@ -214,31 +216,38 @@ class Eig(Filter):
             return list(self._results_legacy)
         return [r for r in self.task.results() if r is not None]
 
-    def _live_solvers(self) -> list[str]:
-        """Solver names for cells that produced a result."""
-        if self._results_legacy is not None:
-            return sorted({r.fem_format for r in self._results_legacy})
-        # Task path needs the cell to read solver from kwargs.
-        live: set[str] = set()
-        for c in self.task.cells():
-            if self.task._runner.result_for(c) is None:
-                continue
-            live.add(c.kwargs["solver"])
-        return sorted(live)
-
     @attr
     def num_modes(self) -> int:
         if self._num_modes_override is not None:
             return self._num_modes_override
         return self._DEFAULT_NUM_MODES
 
+    def _compared_cases(self) -> list[tuple[str, str]]:
+        """``(name, solver)`` for every case the comparison tables hold: this build's live
+        results plus the cached ones. Counting only live results made a cache-only build (CI,
+        or a machine without the solvers) report "0 cases are compared" above full tables."""
+        from ada.fem.results import FeaCaseResult, walk_cached_case_results
+
+        live = self._live_results()
+        cases = {getattr(r, "name", None): getattr(r, "fem_format", None) for r in live}
+        if self._results_legacy is None:
+            # Task path: run_eig's results are raw FEAResults; name them by the cell's solver.
+            cases = {}
+            for c in self.task.cells():
+                result = self.task._runner.result_for(c)
+                if result is not None:
+                    cases[result.name] = c.kwargs["solver"]
+        for cached in walk_cached_case_results(FeaCaseResult, _CACHE_DIR, skip_names=set(cases)):
+            cases.setdefault(cached.name, cached.fem_format)
+        return sorted(cases.items())
+
     @attr
     def num_cases(self) -> int:
-        return len(self._live_results())
+        return len(self._compared_cases())
 
     @attr
     def solvers(self) -> str:
-        return ", ".join(self._live_solvers())
+        return ", ".join(sorted({solver for _, solver in self._compared_cases() if solver}))
 
     @attr
     def compare_solid_o1(self) -> TableView:
