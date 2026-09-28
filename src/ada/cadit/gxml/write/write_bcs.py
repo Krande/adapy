@@ -180,7 +180,9 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
     """
     constraint_concepts = part.concept_fem.constraints.get_global_constraint_concepts()
 
-    for pname, point in constraint_concepts.point_constraints.items():
+    # A beam end constraint is written as a support point at the beam end
+    all_points = {**constraint_concepts.point_constraints, **constraint_concepts.beam_end_constraints}
+    for pname, point in all_points.items():
         abs_place = point.parent.parent_fem.parent_part.placement.get_absolute_placement()
         origin = abs_place.origin
         p = origin + point.position.copy()

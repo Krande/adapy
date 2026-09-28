@@ -623,6 +623,32 @@ def _identity_placement() -> Placement:
     return Placement(O(), XV(), YV(), ZV())
 
 
+def to_global_points(obj: BackendGeom | Part, points: Iterable) -> np.ndarray:
+    """Transform points given in the local system of ``obj`` (e.g. ``Beam.n1.p``) to the global system.
+
+    Uses the same convention as the solid geometry of beams and plates, so that points line up with meshes and
+    bodies generated from them.
+    """
+    points = np.asarray(points, dtype=float)
+    place_abs = obj.placement.get_absolute_placement(include_rotations=True)
+    if place_abs.is_identity(use_absolute_placement=False):
+        return points
+    return place_abs.transform_array_from_other_place(np.atleast_2d(points), _identity_placement()).reshape(
+        points.shape
+    )
+
+
+def to_global_vectors(obj: BackendGeom | Part, vectors: Iterable) -> np.ndarray:
+    """Rotate direction vectors given in the local system of ``obj`` (e.g. ``Beam.xvec``) to the global system."""
+    vectors = np.asarray(vectors, dtype=float)
+    place_abs = obj.placement.get_absolute_placement(include_rotations=True)
+    if is_exact_identity_rot_matrix(place_abs.rot_matrix):
+        return vectors
+    return place_abs.transform_array_from_other_place(
+        np.atleast_2d(vectors), _identity_placement(), ignore_translation=True
+    ).reshape(vectors.shape)
+
+
 @dataclass
 class Instance:
     instance_ref: Union["Part", "BackendGeom"]

@@ -61,6 +61,7 @@ from ada.core.utils import Counter
 from ada.deprecation import deprecated
 from ada.fem import FEM
 from ada.fem.concept.constraints import (
+    ConstraintConceptBeamEnd,
     ConstraintConceptCurve,
     ConstraintConceptDofType,
     ConstraintConceptPoint,
@@ -139,6 +140,7 @@ __all__ = [
     "Group",
     "BoolHalfSpace",
     "ConstraintConceptPoint",
+    "ConstraintConceptBeamEnd",
     "ConstraintConceptCurve",
     "ConstraintConceptRigidLink",
     "ConstraintConceptDofType",

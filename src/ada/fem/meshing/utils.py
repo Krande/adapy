@@ -6,7 +6,7 @@ import gmsh
 import numpy as np
 
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
-from ada.api.transforms import Placement
+from ada.api.transforms import Placement, to_global_points, to_global_vectors
 from ada.base.types import GeomRepr
 from ada.config import logger
 from ada.core.utils import make_name_fem_ready
@@ -49,7 +49,9 @@ def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe
 def get_sh_sections_for_beam_obj(model: gmsh.model, beam: Beam, gmsh_data: GmshData, fem: FEM):
     from ada.sections.bm_sh_ident import eval_thick_normal_from_cog_of_beam_plate
 
-    pl1 = Placement(beam.n1.p, beam.yvec, beam.up, beam.xvec)
+    # The mesh is global, so the section identification must use the global beam axes
+    xvec, yvec, up = to_global_vectors(beam, [beam.xvec, beam.yvec, beam.up])
+    pl1 = Placement(to_global_points(beam, beam.n1.p), yvec, up, xvec)
     for _, ent in gmsh_data.entities:
         _, _, param = model.mesh.getNodes(2, ent, True)
         normal = np.array([0.0 if abs(x) == 0.0 else x for x in model.getNormal(ent, param)[:3]])
@@ -157,9 +159,8 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
     fem_sec = fem.sections.name_map.get(fem_sec_name, None)
     if fem_sec is None:
-        fem_sec = FemSection(
-            fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, beam.ori[2], refs=[beam]
-        )
+        local_z = to_global_vectors(beam, beam.ori[2])
+        fem_sec = FemSection(fem_sec_name, ElemType.LINE, fem_set, beam.material, beam.section, local_z, refs=[beam])
         add_sec_to_fem(fem, fem_sec, fem_set)
 
     add_beam_ecc_to_elements(beam, elements)
@@ -168,8 +169,8 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
     if hinge_prop is None:
         return
 
-    end1_p = hinge_prop.end1.concept_node.p if hinge_prop.end1 is not None else None
-    end2_p = hinge_prop.end2.concept_node.p if hinge_prop.end2 is not None else None
+    end1_p = to_global_points(beam, hinge_prop.end1.concept_node.p) if hinge_prop.end1 is not None else None
+    end2_p = to_global_points(beam, hinge_prop.end2.concept_node.p) if hinge_prop.end2 is not None else None
 
     for el in elements:
         n1 = el.nodes[0]
@@ -216,10 +217,11 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
 
     # A missing end means "no offset there", which is what the geometry path assumes
     # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
-    e1 = -np.array(beam.e1, dtype=float) if beam.e1 is not None else np.zeros(3)
-    e2 = -np.array(beam.e2, dtype=float) if beam.e2 is not None else np.zeros(3)
-    p1 = np.asarray(beam.n1.p, dtype=float)
-    axis = np.asarray(beam.n2.p, dtype=float) - p1
+    # The offsets and nodal line are in the beam's local system, the element nodes are global
+    e1 = -to_global_vectors(beam, beam.e1) if beam.e1 is not None else np.zeros(3)
+    e2 = -to_global_vectors(beam, beam.e2) if beam.e2 is not None else np.zeros(3)
+    p1, p2 = to_global_points(beam, [beam.n1.p, beam.n2.p])
+    axis = p2 - p1
     length_sq = float(np.dot(axis, axis))
 
     def offset_at(node) -> np.ndarray | None:
@@ -342,6 +344,10 @@ def build_bm_lines(model: gmsh.model, bm: Beam, point_tol):
         p1 = con_props.connected_end1.centre
     if con_props.connected_end2 is not None:
         p2 = con_props.connected_end2.centre
+
+    # The gmsh model is global, the beam and its connection points are in the beam's local system
+    p1, p2 = to_global_points(bm, [p1, p2])
+    midpoints = [to_global_points(bm, p) for p in midpoints]
 
     s = get_point(model, p1, point_tol)
     e = get_point(model, p2, point_tol)

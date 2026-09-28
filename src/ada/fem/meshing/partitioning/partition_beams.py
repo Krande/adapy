@@ -1,3 +1,4 @@
+from ada.api.transforms import to_global_points
 from ada.config import Config, logger
 from ada.fem.meshing import GmshSession
 
@@ -71,7 +72,9 @@ def split_intersecting_beams(
         are_beams_connected(bm, cbeams, out_of_plane_tol, point_tol, nodes, nmap)
 
     for n, beams in nmap.items():
-        split_point = gmsh_session.model.occ.addPoint(n.x, n.y, n.z)
+        # the intersection is found in the local system of the beams, the gmsh model is global
+        x, y, z = to_global_points(beams[0], n.p)
+        split_point = gmsh_session.model.occ.addPoint(x, y, z)
         for bm in beams:
             if n.p.is_equal(bm.n1.p) or n.p.is_equal(bm.n2.p):
                 continue
