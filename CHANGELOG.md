@@ -2,6 +2,15 @@
 
 
 
+## v0.95.0 (2026-09-28)
+
+### Feature
+
+* feat: address a clash check by published asset node (#416)
+
+Co-authored-by: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt; ([`d8cad15`](https://github.com/Krande/adapy/commit/d8cad15ebc05126cb856cad7bcfda71e26d00196))
+
+
 ## v0.94.1 (2026-09-28)
 
 ### Fix
