@@ -288,13 +288,22 @@ export function useViewerStores(): AdaViewerStores {
  * because a component reading a scene that belongs to nobody is a bug that
  * would otherwise present as an empty canvas.
  */
-export function AdaViewerProvider({ children }: { children: ReactNode }) {
+export function AdaViewerProvider({
+    children,
+    runtime: givenRuntime,
+}: {
+    children: ReactNode
+    /** The runtime to hand the children, when the host has already built the
+     *  scene it describes outside React (the paradoc embed builds its canvas
+     *  imperatively, then mounts the overlay UI). Omitted: a fresh one. */
+    runtime?: ViewerRuntime
+}) {
     // One runtime per mount, created on the first render and kept for the life
     // of it. `useRef` rather than `useMemo` because this is identity, not a
     // cached computation: a recomputed `useMemo` would hand the children a
     // second scene while the canvas kept drawing into the first.
     const runtimeRef = useRef<ViewerRuntime | null>(null)
-    if (runtimeRef.current === null) runtimeRef.current = createViewerRuntime()
+    if (runtimeRef.current === null) runtimeRef.current = givenRuntime ?? createViewerRuntime()
     const runtime = runtimeRef.current
 
     // Registered DURING render, not in an effect. Child effects run before the

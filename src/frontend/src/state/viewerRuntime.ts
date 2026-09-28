@@ -137,3 +137,21 @@ export function mountViewerRuntime(runtime: ViewerRuntime): () => void {
         if (at >= 0) mounted.splice(at, 1);
     };
 }
+
+/**
+ * Make an already-mounted `runtime` the one `getViewerRuntime()` answers with,
+ * by moving it to the top of the stack.
+ *
+ * "The most recently mounted" is the right default for one viewer per page, and
+ * the wrong one for several: the imperative paths (the model loader, click
+ * picking, zoom-to-all) would keep acting on whichever viewer the page opened
+ * last, whichever one the user is actually working in. A host with several
+ * viewers calls this when the user turns to one of them (the paradoc embed does,
+ * on pointer entry and focus). No-op for a runtime that is not mounted.
+ */
+export function activateViewerRuntime(runtime: ViewerRuntime): void {
+    const at = mounted.indexOf(runtime);
+    if (at < 0 || at === mounted.length - 1) return;
+    mounted.splice(at, 1);
+    mounted.push(runtime);
+}

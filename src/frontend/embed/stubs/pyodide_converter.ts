@@ -9,7 +9,17 @@
 // the embed; they throw if ever called so a regression surfaces loudly rather
 // than silently shipping a broken pyodide path.
 
-export type PyodideSourceFormat = "ifc" | "step";
+// Keep the export list in step with the real module: a name the real module
+// gained and this stub lacks fails the embed build ("X is not exported by
+// embed/stubs/pyodide_converter.ts").
+
+export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea_glb" | "fem" | "genie";
+
+export interface PyodideEngineWheel {
+    entrypoint: string;
+    deps: string[];
+    url: string;
+}
 
 const UNAVAILABLE = "Pyodide conversion is not available in the embed build";
 
@@ -21,7 +31,23 @@ export async function ensurePyodideWorker(): Promise<never> {
     throw new Error(UNAVAILABLE);
 }
 
+export function prewarmPyodide(): void {
+    /* no worker in the embed */
+}
+
 export async function convertViaPyodide(): Promise<never> {
+    throw new Error(UNAVAILABLE);
+}
+
+export async function compileProceduralViaPyodide(): Promise<never> {
+    throw new Error(UNAVAILABLE);
+}
+
+export async function convertViaPyodideStream(): Promise<never> {
+    throw new Error(UNAVAILABLE);
+}
+
+export async function convertViaPyodideFeaBakeStream(): Promise<never> {
     throw new Error(UNAVAILABLE);
 }
 
