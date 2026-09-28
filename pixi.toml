@@ -540,7 +540,7 @@ pytest-benchmark = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 pytest-cov = "*"
-paradoc = ">=0.6.0"
+paradoc = ">=0.7.1"
 python-dotenv = "*"
 watchdog = "*"
 
