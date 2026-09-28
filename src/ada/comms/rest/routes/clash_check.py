@@ -27,7 +27,6 @@ from ada.clash.result import ClashResultError, parse_clash_result
 from .. import auth as auth_module
 from ..auth import User
 from ..catalog import merge_catalog_specs
-from ..formats.clash_check_asset import CLASH_CHECK_ASSET_KIND
 from ..job_transport import JobRequest
 from ..queue import capability_token
 from ..scope import Scope
@@ -256,7 +255,10 @@ async def _submit_asset_node_check(
     submitted = await ctx.jobs.submit(
         JobRequest(
             source_key=source_key,
-            target_format=CLASH_CHECK_ASSET_KIND,
+            # The kind as a LITERAL, like every other route names its own: importing it from
+            # `..formats` would pull the worker's handler chain -- and through it the CAD
+            # readers -- into the API process, which the slim viewer image does not carry.
+            target_format="clash_check_asset",
             scope=scope_obj,
             feature="clash_check",
             derived_prefix=prefix,
@@ -275,7 +277,7 @@ async def _submit_asset_node_check(
             scope_obj,
             "clash_check",
             key=derived_key,
-            target_format=CLASH_CHECK_ASSET_KIND,
+            target_format="clash_check_asset",
             status="queued",
             job_id=submitted.job_id,
         ),
