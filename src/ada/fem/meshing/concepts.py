@@ -406,31 +406,28 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
     from ada.cad import active_backend
 
     backend = active_backend()
-    abs_place = obj.placement.get_absolute_placement()
+    abs_place = obj.placement.get_absolute_placement(include_rotations=True)
 
-    def transform_occ(geo):
+    def local_to_global(geo):
+        """Shell and line bodies are built in the local system of the object, while solid bodies already carry the
+        absolute placement. Rotate and translate the local bodies with the same convention as the solid bodies (see
+        Placement.transform_array_from_other_place), so that all representations of an object end up in one place.
+        """
         if Placement() != abs_place:
-            o = abs_place.origin
-            mat = np.array(
-                [
-                    [1.0, 0.0, 0.0, float(o[0])],
-                    [0.0, 1.0, 0.0, float(o[1])],
-                    [0.0, 0.0, 1.0, float(o[2])],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]
-            )
+            mat = np.eye(4)
+            mat[:3, :3] = abs_place.rot_matrix
+            mat[:3, 3] = np.asarray(abs_place.origin, dtype=float)
             geo = backend.transform(geo, mat, copy=True)
         return geo
 
     if geom_repr == GeomRepr.SOLID:
-        geom = transform_occ(obj.solid_occ())
+        geom = obj.solid_occ()
         sub_shapes = backend.solids(geom)
     elif geom_repr == GeomRepr.SHELL:
-        geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.solid_occ()
-        geom = transform_occ(geom)
+        geom = local_to_global(obj.shell_occ()) if type(obj) not in (PrimBox,) else obj.solid_occ()
         sub_shapes = backend.faces(geom)
     else:
-        geom = transform_occ(obj.line_occ())
+        geom = local_to_global(obj.line_occ())
         sub_shapes = backend.edges(geom)
 
     ents = []
