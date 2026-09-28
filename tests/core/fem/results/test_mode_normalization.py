@@ -1,8 +1,8 @@
-"""Mode-shape normalization: one mode from any solver bakes at the same amplitude and sign.
+"""Mode-shape normalization: one mode from any solver bakes at the same deformation scale.
 
-Solvers scale eigenvectors by their own convention (max component = 1, mass-normalized, ...) and
-may return either sign, so the same physical mode arrives several times larger or flipped
-depending on who computed it.
+Solvers scale eigenvectors by their own convention (max component = 1, mass-normalized, ...), so
+the same physical mode arrives several times larger depending on who computed it. Only that
+scale is aligned; the solver's shape and sign are kept.
 """
 
 import json
@@ -39,23 +39,15 @@ def test_translation_columns_are_found_by_name():
 
 
 @pytest.mark.parametrize("solver_scale", [1.0, 0.1439, -2.5, -0.2])
-def test_the_same_mode_normalizes_to_the_same_values_whatever_its_scale_and_sign(solver_scale):
+def test_the_same_mode_normalizes_to_the_same_scale_and_keeps_its_sign(solver_scale):
     mode = _bending_mode()
     ref = reference_length(POINTS)
-    normalized = mode * solver_scale * mode_scale_factor(mode * solver_scale, POINTS, [0, 1, 2], ref)
+    factor = mode_scale_factor(mode * solver_scale, POINTS, [0, 1, 2], ref)
+    assert factor > 0  # a scale, nothing else: no flipping
+    normalized = mode * solver_scale * factor
     expected = mode * mode_scale_factor(mode, POINTS, [0, 1, 2], ref)
-    np.testing.assert_allclose(normalized, expected, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(normalized, np.sign(solver_scale) * expected, rtol=1e-12, atol=1e-12)
     assert np.linalg.norm(normalized, axis=1).max() == pytest.approx(DEFAULT_TARGET_FRACTION * ref)
-    assert normalized[:, 2].max() > 0  # the energy-weighted motion points +z
-
-
-def test_an_antisymmetric_mode_gets_a_stable_sign_too():
-    # Torsion-like: z motion of opposite sign on the two long edges, summing to zero.
-    twist = np.column_stack([np.zeros(6), np.zeros(6), np.where(POINTS[:, 1] > 0.5, 1.0, -1.0) * POINTS[:, 0]])
-    ref = reference_length(POINTS)
-    a = twist * mode_scale_factor(twist, POINTS, [0, 1, 2], ref)
-    b = -twist * mode_scale_factor(-twist, POINTS, [0, 1, 2], ref)
-    np.testing.assert_allclose(a, b)
 
 
 def test_nothing_to_normalize_leaves_the_mode_alone():
@@ -121,7 +113,9 @@ def _baked_modes(out_dir, scales, normalize):
 def test_the_bake_normalizes_eigenmodes_and_records_the_factors(tmp_path):
     scales = [0.1439, -1.0]  # one mode, as two solvers might return it
     modes, field = _baked_modes(tmp_path / "norm", scales, normalize=True)
-    np.testing.assert_allclose(modes[0], modes[1], rtol=1e-5, atol=1e-7)
+    # Same deformation scale; each solver's sign is kept.
+    np.testing.assert_allclose(modes[0], -modes[1], rtol=1e-5, atol=1e-7)
+    assert all(f > 0 for f in field["mode_normalization"]["factors"])
 
     record = field["mode_normalization"]
     assert record["method"] == "max_translation"
@@ -135,3 +129,25 @@ def test_the_bake_leaves_modes_raw_by_default(tmp_path):
     modes, field = _baked_modes(tmp_path / "raw", [0.1439, -1.0], normalize=False)
     assert "mode_normalization" not in field
     np.testing.assert_allclose(modes[1], -_bending_mode(), rtol=1e-6)
+
+
+def test_a_translation_free_mode_is_not_blown_up_to_a_visible_shape():
+    """Beam torsion: the axis nodes only rotate; their translation is round-off (~1e-16).
+
+    Normalized by its own peak, that round-off was scaled to a tenth of the model and drew as a
+    jagged zigzag. Scaled like the result's largest mode it stays invisible, as it should.
+    """
+    from ada.fem.results.artefacts.mode_normalization import is_translation_free, peak_translation
+
+    cols, ref = [0, 1, 2], reference_length(POINTS)
+    bending = _bending_mode()
+    noise = np.random.default_rng(0).normal(scale=1e-16, size=bending.shape)
+    reference_peak = max(peak_translation(bending, cols), peak_translation(noise, cols))
+
+    assert is_translation_free(peak_translation(noise, cols), reference_peak)
+    assert not is_translation_free(peak_translation(bending, cols), reference_peak)
+
+    normalized_noise = noise * mode_scale_factor(noise, POINTS, cols, ref, reference_peak=reference_peak)
+    assert np.abs(normalized_noise).max() < 1e-12 * ref  # still invisible
+    normalized_bending = bending * mode_scale_factor(bending, POINTS, cols, ref, reference_peak=reference_peak)
+    assert np.linalg.norm(normalized_bending, axis=1).max() == pytest.approx(DEFAULT_TARGET_FRACTION * ref)

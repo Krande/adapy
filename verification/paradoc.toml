@@ -40,6 +40,25 @@ outputs = ["docx"]
 [build.pdf]
 outputs = ["pdf"]
 
+# PDF layout, tuned for this report: hundreds of captioned mode-shape posters and comparison
+# tables up to eleven numeric columns wide. Every key is optional (paradoc's defaults are the
+# same values); they are spelled out so the layout can be adjusted here.
+[build.pdf.pdf]
+papersize = "a4"
+fontsize = "10pt"
+geometry = "margin=2cm"             # the widest comparison table needs the full text width
+# mainfont / monofont: unset = a system font with Greek and superscript glyphs (ρ, ⁴)
+figure_max_height = 0.42            # of the text height: two captioned posters per page
+figure_max_width = 0.85             # of the line width
+figure_placement = "H"              # keep each poster under its mode heading
+figure_trim_whitespace = true       # posters are mostly empty background; crop it
+figure_trim_padding = 0.04
+block_headings = true               # "#### Mode N" stays above its figures
+table_font_size = "footnotesize"
+table_col_sep = "3pt"
+table_col_widths = "content"        # numeric tables: natural widths; prose tables still wrap
+table_short_cell_chars = 24
+
 # Smoke profile: minimal cell count for quick iteration / CI sanity.
 # One mesh cell × one solver = ~1 cell post-skip.
 [build.smoke]

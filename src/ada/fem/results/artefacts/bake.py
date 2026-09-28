@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Callable
 
+import numpy as np
+
 from .beam_compact import (
     BEAM_SOLID_FORMATS,
     BeamSolidInstances,
@@ -31,7 +33,9 @@ from .protocol import FEAStreamReader
 from .readers import make_stream_reader
 from .mode_normalization import (
     DEFAULT_TARGET_FRACTION,
+    is_translation_free,
     mode_scale_factor,
+    peak_translation,
     reference_length,
     translation_columns,
 )
@@ -337,10 +341,17 @@ def bake_artefacts(
         )
         if normalizing:
             columns = translation_columns(spec.components)
+            # A first, read-only pass: each mode's peak translation. A factor needs the largest of
+            # them to tell a translation-free mode (round-off) from a real one.
+            peaks = {
+                sv.step_index: peak_translation(np.asarray(sv.values, dtype=float).reshape(spec.n_points, -1), columns)
+                for sv in reader.iter_field_steps(spec.name)
+            }
+            reference_peak = max(peaks.values(), default=0.0) or None
             factors: dict[int, float] = {}
 
-            def _normalize(step_index, values, _cols=columns, _factors=factors):
-                factor = mode_scale_factor(values, geom.points, _cols, ref_length, target_fraction)
+            def _normalize(step_index, values, _cols=columns, _factors=factors, _ref=reference_peak):
+                factor = mode_scale_factor(values, geom.points, _cols, ref_length, target_fraction, _ref)
                 _factors[step_index] = factor
                 return values * factor
 
@@ -349,7 +360,11 @@ def bake_artefacts(
                 "method": "max_translation",
                 "target_fraction": target_fraction,
                 "reference_length": ref_length,
+                "reference_peak": reference_peak,
                 "factors": [factors[i] for i in sorted(factors)],
+                # Modes with no translation of their own (e.g. beam torsion), scaled like the
+                # largest mode so their round-off stays invisible.
+                "translation_free": sorted(i for i, p in peaks.items() if is_translation_free(p, reference_peak)),
             }
         else:
             meta = write_field_blob_streaming(reader, spec, blob_path)
