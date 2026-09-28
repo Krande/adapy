@@ -38,6 +38,9 @@ CHAIN_KINDS = [
     ("procedural_import_xlsx", True),
     ("equipment_bbox", True),
     ("procedural_engine_build", True),
+    # Synthetic: the model comes from a provider that reads its own source format, so there
+    # is no file to stream and no extension to dispatch on.
+    ("clash_check_asset", True),
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),
