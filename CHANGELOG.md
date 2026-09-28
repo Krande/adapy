@@ -2,6 +2,15 @@
 
 
 
+## v0.95.2 (2026-09-28)
+
+### Fix
+
+* fix: FEA report — fix Windows build and wrong Sesam/Abaqus results, add DOCX/PDF downloads and per-view 3D state (#415)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`275c79d`](https://github.com/Krande/adapy/commit/275c79d3fe177fa0de13f72ee90dba0e0e5380cf))
+
+
 ## v0.95.1 (2026-09-28)
 
 ### Fix
