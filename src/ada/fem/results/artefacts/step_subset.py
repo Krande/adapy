@@ -9,11 +9,14 @@ from .protocol import FEAStreamReader
 
 
 def normalize_steps(steps: Iterable[int | float]) -> list[float]:
-    """``steps`` as a sorted list of distinct step values; ValueError when empty."""
-    wanted = sorted({float(s) for s in steps})
-    if not wanted:
-        raise ValueError("steps is empty: pass None to bake every step")
-    return wanted
+    """``steps`` as a sorted list of distinct step values.
+
+    Empty is allowed and means no step at all: a bake of the geometry only (the
+    mesh, beam solids, sets and property fields), for a caller that wants the
+    model drawn and no result field with it. ``None``, not an empty list, is
+    what asks for every step.
+    """
+    return sorted({float(s) for s in steps})
 
 
 def restrict_to_steps(reader: FEAStreamReader, steps: Iterable[int | float]) -> FEAStreamReader:
@@ -29,7 +32,8 @@ def restrict_to_steps(reader: FEAStreamReader, steps: Iterable[int | float]) -> 
 
     Property fields (``category == "property"``: thickness, material, ...) do not
     vary by step and are kept whole. A field that has none of the chosen steps
-    is dropped. A step no field has is an error, not a silent omission.
+    is dropped. A step no field has is an error, not a silent omission. No steps
+    at all leaves the property fields only.
     """
     wanted = normalize_steps(steps)
     select = getattr(reader, "select_steps", None)

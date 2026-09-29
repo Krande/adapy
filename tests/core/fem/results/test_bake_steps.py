@@ -179,8 +179,44 @@ def test_subset_bake_writes_only_the_chosen_steps(tmp_path):
 def test_a_step_the_result_does_not_have_is_an_error(tmp_path):
     with pytest.raises(ValueError, match="steps not in this result: \\[3\\]"):
         bake_artefacts(_SyntheticReader(), tmp_path / "x", src="s", steps=[2, 3])
-    with pytest.raises(ValueError, match="empty"):
-        bake_artefacts(_SyntheticReader(), tmp_path / "y", src="s", steps=[])
+
+
+@pytest.mark.parametrize("step_major", [False, True])
+def test_no_steps_bakes_the_geometry_only(tmp_path, step_major):
+    """``steps=[]``: the mesh and the property fields, no result field, and the manifest says so."""
+    whole, geometry = tmp_path / "whole", tmp_path / "geometry"
+    calls: list[tuple[int, int, str]] = []
+    bake_artefacts(_SyntheticReader(), whole, src="s")
+    bake_artefacts(
+        _SyntheticReader(step_major=step_major),
+        geometry,
+        src="s",
+        steps=[],
+        on_progress=lambda *a: calls.append(a),
+    )
+
+    manifest = _manifest(geometry)
+    assert manifest["baked_steps"] == []
+    assert [f["name_canonical"] for f in manifest["fields"]] == ["props.thickness"]
+    assert not (geometry / "fea.DISP.bin").exists()
+    assert not (geometry / "fea.STRESS.quad.elements.bin").exists()
+    a, b = _digests(whole), _digests(geometry)
+    for name in (
+        "fea.mesh.glb",
+        "fea.mesh.edges.bin",
+        "fea.mesh.elements.bin",
+        "fea.props.thickness.quad.elements.bin",
+    ):
+        assert a[name] == b[name]
+    # The property field is the one unit of work left.
+    assert [c[:2] for c in calls] == [(1, 1)]
+
+
+def test_the_callers_hint_is_kept_for_a_partial_bake_only(tmp_path):
+    bake_artefacts(_SyntheticReader(), tmp_path / "part", src="s", steps=[2], steps_hint="bake more: run X")
+    bake_artefacts(_SyntheticReader(), tmp_path / "whole", src="s", steps_hint="bake more: run X")
+    assert _manifest(tmp_path / "part")["baked_steps_hint"] == "bake more: run X"
+    assert "baked_steps_hint" not in _manifest(tmp_path / "whole")
 
 
 def test_progress_counts_field_steps_with_the_total_known_up_front(tmp_path):

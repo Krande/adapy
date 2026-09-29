@@ -1131,6 +1131,7 @@ class SinStreamReader:
         # :attr:`SinReader.complex_phase`.
         self._complex_phase = float(complex_phase)
         self._steps = sorted(set(self._discover_steps()) | set(self._combinations))
+        self._offered = list(self._steps)  # every case, before any narrowing
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
         self._mesh = None  # step-invariant Mesh, built once and reused across steps
         self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
@@ -1139,6 +1140,8 @@ class SinStreamReader:
         self._forces_elements = set(forces_elements) if forces_elements is not None else None
         # The step whose RV cards were decoded last, as (step index, {card: adapter}).
         self._step_cache: "tuple[int, dict[str | None, object]] | None" = None
+        # No step chosen on purpose (``steps=[]``): geometry only, no RV* record read.
+        self._geometry_only = False
         if steps is not None:
             self.select_steps(steps)
 
@@ -1148,6 +1151,10 @@ class SinStreamReader:
         Must come before the first read: the representative step, which the
         geometry and the field specs come from, is the first chosen one. A case
         the deck neither stores nor defines as a combination is a ValueError.
+
+        No case at all offers the geometry only: the mesh, sections, sets and
+        property fields come from the step-invariant blocks, and no RV* record is
+        read, so the cost is the model's and not a case's.
         """
         wanted: set[int] = set()
         for s in steps:
@@ -1155,12 +1162,11 @@ class SinStreamReader:
             if not value.is_integer():
                 raise ValueError(f"SIN result steps are case numbers; got {s!r}")
             wanted.add(int(value))
-        if not wanted:
-            raise ValueError("steps is empty: pass None to read every step")
         missing = sorted(wanted - set(self._steps))
         if missing:
             raise ValueError(f"result cases not in this SIN: {missing}")
         self._steps = sorted(wanted)
+        self._geometry_only = not wanted
         self._rep = None
         self._step_cache = None
 
@@ -1189,7 +1195,7 @@ class SinStreamReader:
 
     def _load_step(
         self,
-        step: int,
+        step: int | None,
         cards: "set[str] | None" = None,
         requested_fields: "set[str] | None" = None,
     ):
@@ -1202,7 +1208,9 @@ class SinStreamReader:
         per-step RV* field extraction (``get_sif_results``) re-runs. ``cards``
         restricts which RV blocks are gathered so a per-field bake pass reads
         only that field's card, not every field's records. (No LIS/MLG
-        enrichment here — same as before; the source is a bare SinFile.)"""
+        enrichment here — same as before; the source is a bare SinFile.)
+        ``step=None`` with ``cards=set()`` is the geometry-only load: the
+        static blocks and no RV* card."""
         from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
         from ada.fem.results.common import FEAResult, FEATypes
 
@@ -1213,11 +1221,11 @@ class SinStreamReader:
             self._reader._forces_elements = self._forces_elements
             self._reader._load_static()
         reader = self._reader
-        recipe = self._combinations.get(int(step))
+        recipe = self._combinations.get(int(step)) if step is not None else None
         if recipe:
             reader.load_combination(int(step), recipe, cards=cards)
         else:
-            reader.load_step(int(step), cards=cards)
+            reader.load_step(None if step is None else int(step), cards=cards)
         s2m = Sif2Mesh(reader)
         if self._mesh is None:
             self._mesh = s2m.get_sif_mesh()
@@ -1235,6 +1243,18 @@ class SinStreamReader:
             software_version="N/A",
         )
 
+    def _load_geometry(self):
+        """The model without a case: the static blocks, no RV* card, and the
+        property fields (thickness, material, section), which a loaded case
+        would otherwise have carried. They are stamped with the deck's first
+        case, as a bake of every case stamps them."""
+        from ada.fem.formats.sesam.results.property_fields import build_property_fields
+
+        result = self._load_step(None, cards=set())
+        step = self._offered[0] if self._offered else 1
+        result.results = [*result.results, *build_property_fields(self._mesh, self._reader, step=step)]
+        return result
+
     def _adapter_for(self, idx: int):
         """``FEAResultStreamAdapter`` over step ``idx``; step 0 is cached as
         the representative (its result stays resident for geometry/specs)."""
@@ -1242,6 +1262,9 @@ class SinStreamReader:
 
         if idx == 0:
             if self._rep is None:
+                if self._geometry_only:
+                    self._rep = FEAResultStreamAdapter(self._load_geometry())
+                    return self._rep
                 if not self._steps:
                     raise RuntimeError("SIN result has no RV* result steps to bake")
                 self._rep = FEAResultStreamAdapter(self._load_step(self._steps[0]))

@@ -123,6 +123,7 @@ def bake_fea_artefacts_from_source(
     beam_solid_format: str = "compact",
     steps: Iterable[int | float] | None = None,
     on_progress: "ProgressCallback | None" = None,
+    steps_hint: str | None = None,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
@@ -130,7 +131,7 @@ def bake_fea_artefacts_from_source(
     endpoint, CLI, tests) is responsible for the policy decision of
     when to surface that vs route to a different code path.
 
-    ``steps`` and ``on_progress``: see :func:`bake_artefacts`. The reader is
+    ``steps``, ``on_progress`` and ``steps_hint``: see :func:`bake_artefacts`. The reader is
     opened on ``steps`` already, so a SIN is read for those cases only."""
 
     src_path = pathlib.Path(src_path)
@@ -147,6 +148,7 @@ def bake_fea_artefacts_from_source(
             beam_solid_format=beam_solid_format,
             steps=steps,
             on_progress=on_progress,
+            steps_hint=steps_hint,
         )
 
 
@@ -266,6 +268,7 @@ def bake_artefacts(
     normalize_modes: bool | float = False,
     steps: Iterable[int | float] | None = None,
     on_progress: ProgressCallback | None = None,
+    steps_hint: str | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
 
@@ -342,7 +345,16 @@ def bake_artefacts(
     steps does (the SIN stream reader); any other still reads them and the bake
     passes on only the chosen ones. A step the source does not have is a
     ValueError. Case lists (``result_cases``), names and groups are not
-    narrowed: they describe the source, not the bake.
+    narrowed: they describe the source, not the bake. An empty ``steps`` bakes
+    the geometry only: the mesh and its sidecars, the beam solids, the sets and
+    the property fields, no result field, and ``baked_steps: []`` in the
+    manifest; a reader that can (the SIN stream reader) then reads no result
+    records at all.
+
+    ``steps_hint``: with ``steps``, one line from the caller on how to get the
+    steps it left out baked (a command, say), kept in the manifest as
+    ``baked_steps_hint`` for the viewer to show where it says a step is not
+    baked. Ignored for a whole bake.
 
     ``on_progress(done, total, label)``: called as each unit of field-writing
     work finishes, with ``total`` fixed before the first. The unit is a step of
@@ -650,6 +662,7 @@ def bake_artefacts(
         result_cases=result_cases,
         legacy_glb_url_template=legacy_glb_url_template,
         baked_steps=baked_steps,
+        baked_steps_hint=steps_hint if baked_steps is not None else None,
     )
     manifest_path = out_dir / "fea.manifest.json"
     write_manifest(manifest, manifest_path)

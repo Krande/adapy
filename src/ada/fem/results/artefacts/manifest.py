@@ -147,6 +147,7 @@ def build_manifest(
     result_cases: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
     baked_steps: list[int | float] | None = None,
+    baked_steps_hint: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
 
@@ -172,7 +173,12 @@ def build_manifest(
     ``baked_steps`` (optional): the step values a partial bake was asked for,
     written as ``baked_steps``. Absent means every step the source has; a
     reader of the manifest that wants to know whether a case was baked looks
-    here rather than inferring it from the fields' steps."""
+    here rather than inferring it from the fields' steps.
+
+    ``baked_steps_hint`` (optional, with ``baked_steps`` only): what the
+    producer of the bake says to do to get the other steps baked, written as
+    ``baked_steps_hint``; the viewer shows it where it says a step is not
+    baked."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -470,6 +476,8 @@ def build_manifest(
     # ``result_cases`` above still lists every case the source offers.
     if baked_steps is not None:
         manifest["baked_steps"] = list(baked_steps)
+        if baked_steps_hint:
+            manifest["baked_steps_hint"] = str(baked_steps_hint)
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 

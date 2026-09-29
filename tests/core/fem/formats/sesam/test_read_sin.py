@@ -470,6 +470,45 @@ def test_sin_bake_over_chosen_steps(tmp_path):
     assert calls == [(1, 1, "step 1")]
 
 
+def test_sin_bake_of_no_steps_is_the_geometry_only(tmp_path):
+    """``steps=[]`` bakes the whole bake's geometry and property fields, reading no RV* card."""
+    import hashlib
+    import json
+
+    from ada.fem.formats.sesam.results.read_sin import SinReader
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    def digests(d):
+        return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.iterdir()) if p.is_file()}
+
+    read_cards = []
+    real = SinReader._read_result_card
+
+    def watching(self, card, step, *, raw=False):
+        read_cards.append(card.name)
+        return real(self, card, step, raw=raw)
+
+    whole, geometry = tmp_path / "whole", tmp_path / "geometry"
+    bake_fea_artefacts_from_source(SIN_PATH, whole, src_key="cantilever")
+    SinReader._read_result_card = watching
+    try:
+        bake_fea_artefacts_from_source(SIN_PATH, geometry, src_key="cantilever", steps=[])
+    finally:
+        SinReader._read_result_card = real
+
+    assert not [name for name in read_cards if name.startswith("RV")]
+    a, b = digests(whole), digests(geometry)
+    assert b, "nothing baked"
+    # Everything the geometry bake wrote is the whole bake's, byte for byte, but the manifest.
+    assert [n for n in b if n != "fea.manifest.json" and a.get(n) != b[n]] == []
+    manifest = json.loads((geometry / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["baked_steps"] == []
+    assert manifest["fields"], "the property fields are part of the model"
+    assert all(f["name_canonical"].startswith("props.") for f in manifest["fields"])
+    whole_manifest = json.loads((whole / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mesh"] == whole_manifest["mesh"]
+
+
 def test_sin_stream_reader_decodes_a_card_once_per_step():
     """Every field of one RV card comes from one decode of that card per step."""
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
