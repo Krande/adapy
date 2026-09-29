@@ -70,8 +70,16 @@ class FEAResultV2:
         return extract_abaqus_version(sta_file) if sta_file.exists() else "N/A"
 
     def get_eig_summary(self) -> EigenDataSummary:
-        """Read eigenfrequency + eigenvalue history out of the SQLite store."""
+        """The modal summary: from the ``.dat`` beside the ``.odb`` when there is one, else the SQLite store.
+
+        The ``.dat`` has the participation factors and effective masses as well as the
+        frequencies; the dump's history output has only EIGFREQ / EIGVAL.
+        """
         from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
+
+        from_dat = _eigen_data_from_dat(self.results_file_path)
+        if from_dat is not None:
+            return from_dat
 
         fea_store = SQLiteFEAStore(self.results_db_path)
         results_freq = fea_store.get_history_data("EIGFREQ")
@@ -94,6 +102,19 @@ class FEAResultV2:
         connectivity, and per-frame nodal U / UR as float32 blobs.
         """
         return read_odbdump_sqlite(self.results_db_path, name=self.name, results_file_path=self.results_file_path)
+
+
+def _eigen_data_from_dat(results_file_path: Optional[pathlib.Path]) -> Optional[EigenDataSummary]:
+    """The eigen tables of the ``.dat`` beside ``results_file_path``; None without one or without modes."""
+    from ada.fem.formats.abaqus.results._results import get_eigen_data
+
+    if results_file_path is None:
+        return None
+    dat_file = pathlib.Path(results_file_path).with_suffix(".dat")
+    if not dat_file.is_file():
+        return None
+    summary = get_eigen_data(dat_file)
+    return summary if summary.modes else None
 
 
 # Nodal field vars ODBDump writes one blob per component for; grouped back into one field each.
@@ -218,6 +239,7 @@ def read_odbdump_sqlite(db_path: pathlib.Path, name: str = None, results_file_pa
         mesh=mesh,
         results_file_path=results_file_path or db_path,
         software_version=software_version,
+        eigen_mode_data=_eigen_data_from_dat(results_file_path) if is_modal else None,
     )
 
 

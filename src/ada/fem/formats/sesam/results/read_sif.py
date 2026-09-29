@@ -858,7 +858,7 @@ class Sif2Mesh:
         if mlg_file.exists():
             software_version = extract_sestra_version(mlg_file)
 
-        return FEAResult(
+        result = FEAResult(
             sif_file.stem,
             FEATypes.SESAM,
             results=results,
@@ -867,6 +867,27 @@ class Sif2Mesh:
             step_name_map=rnames,
             software_version=software_version,
         )
+        self._add_modal_mass(result, sif_file)
+        return result
+
+    def _add_modal_mass(self, result: FEAResult, sif_file: pathlib.Path) -> None:
+        """Attach the eigen run's participation factors + effective masses (``RDMLFACT``).
+
+        Built on the frequency summary the displacement fields already carry, so a mode keeps its
+        LIS frequency. A result without the records -- any static run -- is left as it is.
+        """
+        from ada.fem.formats.sesam.results.modal_mass import (
+            add_modal_mass,
+            read_modal_load_factors,
+        )
+
+        try:
+            factors = read_modal_load_factors(sif_file, sin=getattr(self.sif, "sin", None))
+        except Exception as e:  # noqa: BLE001 - the modal mass is an extra; the result stands without it
+            logger.info("Unable to read modal load factors from %s. Error: %s", sif_file, e)
+            return
+        if factors:
+            result.eigen_mode_data = add_modal_mass(result.get_eig_summary(), factors)
 
     def get_sif_mesh(self) -> Mesh:
         from ada.fem.results.common import (

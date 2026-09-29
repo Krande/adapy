@@ -10,7 +10,6 @@ from ada.fem.exceptions.fea_execution import (
     FEAnalysisUnableToStart,
     FEAnalysisUnsuccessfulError,
 )
-from ada.fem.formats.utils import DatFormatReader
 
 from .read_odb import get_odb_data
 
@@ -19,37 +18,80 @@ if TYPE_CHECKING:
     from ada.fem.results.eigenvalue import EigenDataSummary
 
 
+#: The ``.dat`` tables of a *FREQUENCY step, by their letter-spaced banner with the spaces removed.
+_DAT_TABLES = {
+    "EIGENVALUEOUTPUT": "eig",
+    "PARTICIPATIONFACTORS": "part",
+    "EFFECTIVEMASS": "eff",
+}
+
+
+def _dat_tables(dat_file: str | os.PathLike) -> tuple[dict[str, dict[int, list[float]]], list[float] | None]:
+    """The eigen tables of an Abaqus ``.dat``: ``{table: {mode: values}}`` and the effective-mass TOTAL.
+
+    A row is a mode number followed by numbers. Above the rows a table has headings and blank
+    lines, which are skipped; the rows are contiguous, so the first other line after them ends the
+    table (the effective-mass TOTAL row is read on the way out). A later step's table replaces an
+    earlier one, so a file with several frequency steps reports its last.
+    """
+    tables: dict[str, dict[int, list[float]]] = {}
+    total: list[float] | None = None
+    current: str | None = None
+    with open(dat_file, "r", errors="replace") as f:
+        for line in f:
+            banner = line.replace(" ", "").strip().upper()
+            if banner in _DAT_TABLES:
+                current = _DAT_TABLES[banner]
+                tables[current] = {}
+                continue
+            if current is None:
+                continue
+            tokens = line.split()
+            row = None
+            if tokens and tokens[0].isdigit():
+                try:
+                    row = [float(x) for x in tokens[1:]]
+                except ValueError:
+                    row = None
+            if row is not None:
+                tables[current][int(tokens[0])] = row
+                continue
+            if not tables[current]:
+                continue  # still in the headings
+            if tokens and tokens[0] == "TOTAL" and current == "eff":
+                total = [float(x) for x in tokens[1:7]]
+            if tokens or current != "eff":
+                current = None
+    return tables, total
+
+
 def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
+    """Frequencies, participation factors and effective masses from an Abaqus ``.dat``.
+
+    Abaqus prints all three for a *FREQUENCY step by default: EIGENVALUE OUTPUT (eigenvalue,
+    rad/time, cycles/time, generalized mass, ...), then PARTICIPATION FACTORS and EFFECTIVE MASS,
+    each in the six global DOF. The participation factors refer to the step's eigenvector
+    normalization (effective mass = factor² × generalized mass); the effective masses do not.
+    """
     from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
 
-    dtr = DatFormatReader()
-
-    re_compiled = dtr.compile_ff_re([int] + [float] * 5)
-    re_compiled_2 = dtr.compile_ff_re([int] + [float] * 6)
-
-    eig_str = "eigenvalueoutput"
-    part_str = "participationfactors"
-    eff_modal = "effectivemass"
-
-    eig_res = dtr.read_data_lines(dat_file, re_compiled, eig_str, part_str, split_data=True)
-    part_res = dtr.read_data_lines(dat_file, re_compiled_2, part_str, eff_modal, split_data=True)
-    modalmass = dtr.read_data_lines(dat_file, re_compiled_2, eff_modal, split_data=True)
-
-    eigen_modes: List[EigenMode] = []
+    tables, total = _dat_tables(dat_file)
+    eig = tables.get("eig", {})
+    part = tables.get("part", {})
+    eff = tables.get("eff", {})
 
     dof_base = ["x", "y", "z", "rx", "ry", "rz"]
-    part_factor_names = ["p" + x for x in dof_base]
-    eff_mass_names = ["ef" + x for x in dof_base]
+    eigen_modes: List[EigenMode] = []
+    for no in sorted(eig):
+        values = eig[no]
+        mode = EigenMode(no=no, eigenvalue=values[0], f_rad=values[1], f_hz=values[2])
+        for dof, value in zip(dof_base, part.get(no, [])):
+            setattr(mode, f"p{dof}", value)
+        for dof, value in zip(dof_base, eff.get(no, [])):
+            setattr(mode, f"ef{dof}", value)
+        eigen_modes.append(mode)
 
-    # Note! participation factors and effective modal mass are each deconstructed into 6 degrees of freedom
-    for eig, part, modal in zip(eig_res, part_res, modalmass):
-        mode, eig_value, freq_rad, freq_cycl, gen_mass, composite_modal_damping = eig
-        eig_output = dict(eigenvalue=eig_value, f_rad=freq_rad, f_hz=freq_cycl)
-        participation_data = {pn: p for pn, p in zip(part_factor_names, part[1:])}
-        eff_mass_data = {pn: p for pn, p in zip(eff_mass_names, part[1:])}
-        eigen_modes.append(EigenMode(no=mode, **eig_output, **participation_data, **eff_mass_data))
-
-    return EigenDataSummary(eigen_modes)
+    return EigenDataSummary(eigen_modes, total)
 
 
 def read_abaqus_results(results: "Results", file_ref: pathlib.Path, overwrite):
