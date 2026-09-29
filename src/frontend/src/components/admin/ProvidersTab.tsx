@@ -3,6 +3,7 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {AdminProject, viewerApi} from "@/services/viewerApi";
 import {
     ASSET_SCOPE_COLLECTIONS_KEY,
+    AssetCollectionsRefresh,
     AssetProviderCollections,
     EnabledCollections,
     ScopeCollectionsMap,
@@ -59,6 +60,76 @@ interface ProviderSection {
 
 const rowKey = (scope: string, provider: string) => `${provider}\u0000${scope}`;
 
+/** Where one provider's rescan is: running, or what it said when it finished. */
+interface RescanState {
+    running: boolean;
+    note: string;
+    failed?: boolean;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** How long a rescan job may take before the tab stops watching it. A scan of two
+ *  file servers has been measured at ~11 s; this is generous on purpose. */
+const RESCAN_JOB_TIMEOUT_MS = 5 * 60_000;
+/** How long to wait for the new list to arrive on a heartbeat after the job. The
+ *  worker re-reads its spec every heartbeat (15 s), so two of them and a margin. */
+const RESCAN_ADVERT_TIMEOUT_MS = 45_000;
+
+/** Run a provider's declared rescan and wait for its new list to be advertised.
+ *
+ *  THREE HOPS, and the tab only sees the last one: the job rescans on the worker,
+ *  the worker re-registers its spec, and the next heartbeat carries it to the API.
+ *  So the job finishing is not the list changing, and the tab keeps reading
+ *  `GET /plugins` until it does -- or until two heartbeats have passed, since an
+ *  unchanged list is a legitimate answer. Returns the job's own `message`, which
+ *  is the provider's sentence about what it found. */
+async function runRescan(
+    providerId: string,
+    refresh: AssetCollectionsRefresh,
+    before: readonly string[],
+    onLive: (live: AssetProviderCollections[]) => void,
+    onStage: (note: string) => void,
+): Promise<string> {
+    const {job_id, derived_key} = await viewerApi.pluginJob(refresh.pluginId, {
+        options: {...refresh.options, requested_at: new Date().toISOString()},
+    });
+    onStage("Rescanning…");
+    const deadline = Date.now() + RESCAN_JOB_TIMEOUT_MS;
+    for (;;) {
+        const st = await viewerApi.convertStatus(job_id);
+        if (st.status === "done") break;
+        if (st.status === "error" || st.status === "cancelled") {
+            throw new Error(st.error || `the rescan job ${st.status}`);
+        }
+        if (Date.now() > deadline) throw new Error("the rescan job did not finish in five minutes");
+        if (st.stage) onStage(`Rescanning… ${st.stage}`);
+        await sleep(2000);
+    }
+
+    let message = "";
+    try {
+        const doc = JSON.parse(new TextDecoder().decode(await viewerApi.getBlob("shared", derived_key)));
+        if (doc && typeof doc.message === "string") message = doc.message;
+    } catch {
+        // The summary is a courtesy; the list below is the answer.
+    }
+
+    onStage("Waiting for the worker to advertise the new list…");
+    const was = JSON.stringify(before);
+    const advertDeadline = Date.now() + RESCAN_ADVERT_TIMEOUT_MS;
+    for (;;) {
+        const plugins = await viewerApi.listBackendPlugins().catch(() => ({plugins: []}));
+        const live = assetProviderCollections(plugins.plugins ?? []);
+        const now = live.find((p) => p.providerId === providerId)?.collections ?? [];
+        if (JSON.stringify(now) !== was || Date.now() > advertDeadline) {
+            onLive(live);
+            return message || (JSON.stringify(now) === was ? "No change." : "Updated.");
+        }
+        await sleep(3000);
+    }
+}
+
 const ProvidersTab: React.FC = () => {
     const [live, setLive] = useState<AssetProviderCollections[]>([]);
     const [projects, setProjects] = useState<AdminProject[]>([]);
@@ -68,6 +139,18 @@ const ProvidersTab: React.FC = () => {
     const [open, setOpen] = useState<string | null>(null);
     const [filter, setFilter] = useState("");
     const [error, setError] = useState<string | null>(null);
+    const [rescans, setRescans] = useState<Record<string, RescanState>>({});
+
+    const rescan = useCallback(async (providerId: string, refresh: AssetCollectionsRefresh, before: readonly string[]) => {
+        const set = (s: RescanState) => setRescans((prev) => ({...prev, [providerId]: s}));
+        set({running: true, note: "Asking the worker…"});
+        try {
+            const note = await runRescan(providerId, refresh, before, setLive, (n) => set({running: true, note: n}));
+            set({running: false, note});
+        } catch (e) {
+            set({running: false, note: e instanceof Error ? e.message : String(e), failed: true});
+        }
+    }, []);
 
     const refresh = useCallback(async () => {
         setLoading(true);
@@ -182,9 +265,33 @@ const ProvidersTab: React.FC = () => {
 
             {sections.map(({providerId, live: declared}) => {
                 const advertised = declared?.collections ?? [];
+                const refresh = declared?.refresh ?? null;
+                const rs = rescans[providerId];
                 return (
                     <section key={providerId} className="border-b border-gray-800">
                         <div className="px-3 pt-3 pb-1">
+                            {refresh && (
+                                // Declared by the provider (`asset_collections_refresh`), so
+                                // only a provider that knows how to look again offers it. It
+                                // is how a collection the worker missed at boot -- a share that
+                                // refused a folder for a moment -- comes back without a restart.
+                                <div className="float-right flex items-center gap-2">
+                                    {rs?.note && (
+                                        <span className={`text-xs ${rs.failed ? "text-red-300" : "text-gray-400"}`}>
+                                            {rs.note}
+                                        </span>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="text-xs px-2 py-1 rounded-sm border border-gray-700 hover:bg-gray-800 disabled:opacity-50"
+                                        disabled={rs?.running}
+                                        title={`Ask ${refresh.pluginId} to look for its collections again`}
+                                        onClick={() => void rescan(providerId, refresh, advertised)}
+                                    >
+                                        {rs?.running ? "Rescanning…" : "Rescan"}
+                                    </button>
+                                </div>
+                            )}
                             <div className="text-sm font-medium">
                                 <code>{providerId}</code>
                                 {declared && declared.titles.length > 0 && (

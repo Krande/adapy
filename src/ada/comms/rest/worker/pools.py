@@ -256,6 +256,35 @@ def _pool_capabilities(capabilities: list[str]) -> list[str]:
     return list(dict.fromkeys(pools)) or ["base"]
 
 
+def _capabilities_to_add(requested: list[str], serving: list[str]) -> list[str]:
+    """Which of the capabilities a plugin REQUESTED after boot this worker should start serving.
+
+    Those whose pool token is not already served, minus anything
+    ``ADA_WORKER_DISABLED_CAPABILITIES`` names -- the incident switch applies to a pool a plugin
+    asks for exactly as it applies to one the image declared, or a plugin could re-open a pool an
+    operator just closed. Compared by :func:`capability_token`, de-duplicated, order kept.
+
+    Pure, like the other helpers here, because the loop that calls it needs a live consumer.
+    """
+    raw_disabled = [c.strip() for c in os.environ.get("ADA_WORKER_DISABLED_CAPABILITIES", "").split(",") if c.strip()]
+    disabled = {t for t in (capability_token(c) for c in raw_disabled) if t}
+    seen = {t for t in (capability_token(c) for c in serving) if t}
+    out: list[str] = []
+    for cap in requested:
+        token = capability_token(cap)
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        if token in disabled:
+            logger.warning(
+                "worker: a plugin asked to serve %s, which ADA_WORKER_DISABLED_CAPABILITIES switches off",
+                cap,
+            )
+            continue
+        out.append(cap)
+    return out
+
+
 def _per_fetch_timeout(n_pools: int) -> float:
     """Per-pool fetch timeout so one full round-robin cycle takes ~FETCH_TIMEOUT.
 

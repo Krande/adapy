@@ -35,7 +35,8 @@ registry below is empty until a plugin registers, so behaviour is unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+import threading
+from typing import Any, Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ __all__ = [
     "plugin_artefact_contributors",
     "reserved_sidecar_prefix",
     "discover_plugins",
+    "request_worker_capabilities",
+    "requested_worker_capabilities",
     "reset_registry",
 ]
 
@@ -65,6 +68,12 @@ _PLUGIN_REGISTRY: dict[str, dict] = {}
 
 # plugin id -> artefact-contributor callable ``(bake_ctx: dict) -> Any``.
 _ARTEFACT_CONTRIBUTORS: dict[str, Callable[[dict], Any]] = {}
+
+# Capabilities a plugin asked this process's worker to start serving after boot, in request order
+# (see request_worker_capabilities). Locked: a plugin job asks from an executor thread while the
+# worker loop reads from the event loop.
+_REQUESTED_CAPABILITIES: list[str] = []
+_REQUESTED_LOCK = threading.Lock()
 
 
 def register_plugin_backend(
@@ -203,7 +212,40 @@ def discover_plugins() -> list[str]:
     return run
 
 
+def request_worker_capabilities(capabilities: Iterable[str]) -> None:
+    """Ask the worker running this process to START serving more capability pools, without a
+    restart.
+
+    For a plugin whose pools follow something it discovers at run time -- the datasets a machine
+    can reach, say -- and which finds a new one after boot. Re-registering the spec with the new
+    list is half of it (the heartbeat re-reads specs, so the advertisement follows within one
+    tick); this is the other half. Without it the new entry is ADVERTISED and not SERVED: a job
+    for it is published to a subject nothing consumes and queues for ever, silently.
+
+    Only ever ADDS. The worker subscribes on its next poll round, after the same qualification
+    and ``ADA_WORKER_DISABLED_CAPABILITIES`` subtraction its boot capabilities went through, so a
+    plugin cannot reach a pool the deployment has switched off. Removing a pool mid-life is a
+    different job (see ``build_registration``) and is not offered.
+
+    Safe from the executor thread a plugin job runs in. A process with no worker loop (the API,
+    a CLI, a test) simply never reads the request.
+    """
+    with _REQUESTED_LOCK:
+        for cap in capabilities:
+            cap = str(cap or "").strip()
+            if cap and cap not in _REQUESTED_CAPABILITIES:
+                _REQUESTED_CAPABILITIES.append(cap)
+
+
+def requested_worker_capabilities() -> list[str]:
+    """Every capability a plugin has asked this process's worker to serve (a copy), in order."""
+    with _REQUESTED_LOCK:
+        return list(_REQUESTED_CAPABILITIES)
+
+
 def reset_registry() -> None:
-    """Clear both registries — for tests only."""
+    """Clear every registry — for tests only."""
     _PLUGIN_REGISTRY.clear()
     _ARTEFACT_CONTRIBUTORS.clear()
+    with _REQUESTED_LOCK:
+        _REQUESTED_CAPABILITIES.clear()

@@ -157,6 +157,17 @@ export interface AssetProviderCollections {
   titles: readonly string[];
   /** The advertised collections, as spelled by the provider, sorted. */
   collections: readonly string[];
+  /** How to ask for a fresh list, when a spec declares one: the plugin to run a
+   *  job on and the options to send. `null` when nobody declares it. */
+  refresh: AssetCollectionsRefresh | null;
+}
+
+/** A declared rescan: `asset_collections_refresh` on a plugin spec, which is the
+ *  job options core sends to that plugin. Core adds only a `requested_at`
+ *  stamp, so a second request is a second job rather than a cache hit. */
+export interface AssetCollectionsRefresh {
+  pluginId: string;
+  options: Readonly<Record<string, unknown>>;
 }
 
 /** Read the provider -> collections links out of `GET /plugins` specs.
@@ -168,15 +179,28 @@ export interface AssetProviderCollections {
 export function assetProviderCollections(
   specs: readonly unknown[],
 ): AssetProviderCollections[] {
-  const byProvider = new Map<string, { pluginIds: string[]; titles: string[]; collections: Set<string> }>();
+  const byProvider = new Map<
+    string,
+    { pluginIds: string[]; titles: string[]; collections: Set<string>; refresh: AssetCollectionsRefresh | null }
+  >();
   for (const spec of specs) {
     if (!isRecord(spec)) continue;
     const providerId = spec.asset_provider_id;
     const field = spec.asset_collections_field;
     if (typeof providerId !== "string" || !providerId) continue;
-    const entry = byProvider.get(providerId) ?? { pluginIds: [], titles: [], collections: new Set<string>() };
+    const entry = byProvider.get(providerId) ?? {
+      pluginIds: [],
+      titles: [],
+      collections: new Set<string>(),
+      refresh: null,
+    };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
+    // The first declaring spec wins: several workers advertising one plugin
+    // carry the same declaration, and one rescan job is what is wanted.
+    if (!entry.refresh && pluginId && isRecord(spec.asset_collections_refresh)) {
+      entry.refresh = { pluginId, options: { ...spec.asset_collections_refresh } };
+    }
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
     }
@@ -192,6 +216,7 @@ export function assetProviderCollections(
       pluginIds: e.pluginIds,
       titles: e.titles,
       collections: [...e.collections].sort(compare),
+      refresh: e.refresh,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }

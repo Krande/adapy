@@ -85,8 +85,26 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
     { id: "exporter", title: "Exporter", asset_provider_id: "vendor", asset_collections_field: "projects", projects: ["B", "A"] },
   ];
   assert.deepEqual(assetProviderCollections(specs), [
-    { providerId: "vendor", pluginIds: ["exporter"], titles: ["Exporter"], collections: ["A", "B"] },
+    { providerId: "vendor", pluginIds: ["exporter"], titles: ["Exporter"], collections: ["A", "B"], refresh: null },
   ]);
+});
+
+test("assetProviderCollections carries a declared rescan, naming the plugin to run it on", () => {
+  const specs = [
+    { id: "one", asset_provider_id: "vendor", asset_collections_field: "items", items: ["A"] },
+    {
+      id: "two",
+      asset_provider_id: "vendor",
+      asset_collections_field: "items",
+      items: ["B"],
+      asset_collections_refresh: { action: "rescan" },
+    },
+    { id: "three", asset_provider_id: "other", asset_collections_field: "items", asset_collections_refresh: "rescan" },
+  ];
+  const [other, vendor] = assetProviderCollections(specs);
+  assert.deepEqual(vendor.refresh, { pluginId: "two", options: { action: "rescan" } });
+  // Only an object is a declaration: a bare string is not options core could send.
+  assert.equal(other.refresh, null);
 });
 
 test("assetProviderCollections merges specs naming one provider", () => {
