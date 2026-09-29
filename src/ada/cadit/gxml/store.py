@@ -17,6 +17,11 @@ from ada.cadit.gxml.xml_parse import read_genie_xml_root
 from ada.cadit.sat.store import SatReaderFactory
 from ada.config import Config, logger
 
+#: The property table, not ``.//thickness``: a meshed workspace also records the thicknesses its
+#: mesh used as ``<thickness thickness_ref=".." id=".."/>`` under ``create_mesh/mirror_model``,
+#: with no ``name`` and no value (see ``read_sections.SECTIONS_PATH``).
+THICKNESSES_PATH = "./model/structure_domain/properties/thicknesses/thickness"
+
 
 class GxmlStore:
     def __init__(self, xml_path: pathlib.Path):
@@ -89,7 +94,7 @@ class GxmlStore:
             sat_d.update(sat_faces)
 
         thick_map = dict()
-        for thickn in self.xml_root.iterfind(".//thickness"):
+        for thickn in self.xml_root.iterfind(THICKNESSES_PATH):
             res = thickn.find(".//constant_thickness")
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
