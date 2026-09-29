@@ -222,6 +222,42 @@ def test_dry_run_publish_writes_nothing_to_disk_but_the_summary_says_so(client):
         assert not _exists(tmp_path, key)  # ... none of which actually landed on disk
 
 
+def _staging_ids(c) -> set[str]:
+    r = c.get("/api/scopes/user:me/assets/staging")
+    assert r.status_code == 200, r.text
+    return {g["staging_id"] for g in r.json()["staged"]}
+
+
+def test_a_real_publish_clears_the_staging_it_consumed(client):
+    """`GET /assets/staging` lists what was staged and NOT YET published; a staging that outlived
+    its publish would read as unfinished work for ever."""
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+    _stage(tmp_path, "up2")  # someone else's, and untouched by this publish
+
+    r = c.post(_publish_url(), json={"provider": FIXTURE_PROVIDER_ID, "staging_id": "up1", "collection": COLLECTION})
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] == local_jobs.STATUS_DONE, status
+
+    assert not _exists(tmp_path, staged_key)
+    assert _staging_ids(c) == {"up2"}
+
+
+def test_a_dry_run_keeps_the_staging_for_the_publish_that_follows_it(client):
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+
+    r = c.post(
+        _publish_url(),
+        json={"provider": FIXTURE_PROVIDER_ID, "staging_id": "up1", "collection": COLLECTION, "dry_run": True},
+    )
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] == local_jobs.STATUS_DONE, status
+
+    assert _exists(tmp_path, staged_key)
+    assert _staging_ids(c) == {"up1"}
+
+
 # --------------------------------------------------------------------------------------------
 # POST /assets/publish -- the request-shape refusals.
 # --------------------------------------------------------------------------------------------

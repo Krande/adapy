@@ -135,4 +135,28 @@ export const assetsApi = {
     const r = await authedFetch(filesApi.blobUrl(scope, key));
     return jsonOrThrow<unknown>(r, `getBuildSummary(${key})`);
   },
+
+  /** Publish what is staged under `assets/_staging/<staging_id>/` as `provider`'s
+   *  format: the provider derives, core writes (`POST /assets/publish`). A job:
+   *  poll it, then read `derived_key` for the outcome. */
+  async publishStaged(
+    scope: ScopeUrl,
+    body: { provider: string; staging_id: string; dry_run?: boolean; replace?: boolean },
+  ): Promise<{ job_id: string; derived_key: string; dry_run: boolean }> {
+    const r = await authedFetch(`${base(scope)}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return jsonOrThrow(r, `publishStaged(${body.staging_id})`);
+  },
+
+  /** What is staged and not yet published, grouped by staging id -- the store's
+   *  memory of a request or upload nobody finished publishing. */
+  async listStaging(scope: ScopeUrl): Promise<{
+    staged: { staging_id: string; files: { file: string; key: string; size: number | null }[]; size: number }[];
+  }> {
+    const r = await authedFetch(`${base(scope)}/staging`);
+    return jsonOrThrow(r, "listStaging");
+  },
 };

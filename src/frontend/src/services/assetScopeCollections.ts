@@ -160,6 +160,38 @@ export interface AssetProviderCollections {
   /** How to ask for a fresh list, when a spec declares one: the plugin to run a
    *  job on and the options to send. `null` when nobody declares it. */
   refresh: AssetCollectionsRefresh | null;
+  /** How to ask the provider for one collection, when a spec declares it. */
+  request: AssetCollectionRequest | null;
+}
+
+/** A declared request: `asset_collection_request` on a plugin spec.
+ *
+ *  `{options, collection_option, label?}` -- the job options to send, and the
+ *  name of the option that carries the chosen collection. Core adds the
+ *  collection under that name and a `requested_at` stamp, and nothing else. The
+ *  job is expected to STAGE what it fetched and return its `asset_staging_id`,
+ *  which core then publishes under the provider's id. */
+export interface AssetCollectionRequest {
+  pluginId: string;
+  options: Readonly<Record<string, unknown>>;
+  collectionOption: string;
+  label: string;
+  /** The plugin's job needs an admin (its spec's EFFECTIVE `requires_admin`), so
+   *  anyone else is told why rather than offered a button the server refuses. */
+  requiresAdmin: boolean;
+}
+
+function parseRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetCollectionRequest | null {
+  if (!pluginId || !isRecord(raw)) return null;
+  const collectionOption = raw.collection_option;
+  if (typeof collectionOption !== "string" || !collectionOption.trim()) return null;
+  return {
+    pluginId,
+    options: isRecord(raw.options) ? { ...raw.options } : {},
+    collectionOption: collectionOption.trim(),
+    label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : "Request",
+    requiresAdmin,
+  };
 }
 
 /** A declared rescan: `asset_collections_refresh` on a plugin spec, which is the
@@ -181,7 +213,13 @@ export function assetProviderCollections(
 ): AssetProviderCollections[] {
   const byProvider = new Map<
     string,
-    { pluginIds: string[]; titles: string[]; collections: Set<string>; refresh: AssetCollectionsRefresh | null }
+    {
+      pluginIds: string[];
+      titles: string[];
+      collections: Set<string>;
+      refresh: AssetCollectionsRefresh | null;
+      request: AssetCollectionRequest | null;
+    }
   >();
   for (const spec of specs) {
     if (!isRecord(spec)) continue;
@@ -193,6 +231,7 @@ export function assetProviderCollections(
       titles: [],
       collections: new Set<string>(),
       refresh: null,
+      request: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -200,6 +239,9 @@ export function assetProviderCollections(
     // carry the same declaration, and one rescan job is what is wanted.
     if (!entry.refresh && pluginId && isRecord(spec.asset_collections_refresh)) {
       entry.refresh = { pluginId, options: { ...spec.asset_collections_refresh } };
+    }
+    if (!entry.request) {
+      entry.request = parseRequest(pluginId, spec.asset_collection_request, spec.requires_admin === true);
     }
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
@@ -217,6 +259,7 @@ export function assetProviderCollections(
       titles: e.titles,
       collections: [...e.collections].sort(compare),
       refresh: e.refresh,
+      request: e.request,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }

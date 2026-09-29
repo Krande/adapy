@@ -502,6 +502,14 @@ def start_asset_publish(
             job.stage = "upload"
             job.progress = 0.95
             sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+            # Clear what the publish consumed, as the queued path does (see `consumed_staging`).
+            from ada.comms.rest.formats.asset_publish import consumed_staging
+
+            for key in consumed_staging(staged, dry_run=dry_run):
+                try:
+                    asyncio.run_coroutine_threadsafe(storage.delete(scope, key), loop).result()
+                except Exception:  # noqa: BLE001 — a key left staged is listed as such, not lost
+                    logger.warning("local asset publish %s could not clear staged %s", job.job_id, key)
             job.result = payload
             job.status = STATUS_DONE
             job.stage = "done"

@@ -85,7 +85,14 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
     { id: "exporter", title: "Exporter", asset_provider_id: "vendor", asset_collections_field: "projects", projects: ["B", "A"] },
   ];
   assert.deepEqual(assetProviderCollections(specs), [
-    { providerId: "vendor", pluginIds: ["exporter"], titles: ["Exporter"], collections: ["A", "B"], refresh: null },
+    {
+      providerId: "vendor",
+      pluginIds: ["exporter"],
+      titles: ["Exporter"],
+      collections: ["A", "B"],
+      refresh: null,
+      request: null,
+    },
   ]);
 });
 
@@ -129,6 +136,33 @@ test("assetProviderCollections lists a declared provider with no usable list, em
     assetProviderCollections(specs).map((p) => [p.providerId, p.collections]),
     [["other", []], ["vendor", []]],
   );
+});
+
+test("assetProviderCollections carries a declared request, and ignores one naming no option", () => {
+  const specs = [
+    {
+      id: "one",
+      asset_provider_id: "vendor",
+      asset_collections_field: "items",
+      requires_admin: true,
+      asset_collection_request: { options: { action: "fetch" }, collection_option: "project", label: "Fetch" },
+    },
+    {
+      id: "two",
+      asset_provider_id: "other",
+      asset_collections_field: "items",
+      asset_collection_request: { options: { action: "fetch" } },
+    },
+  ];
+  const [other, vendor] = assetProviderCollections(specs);
+  assert.deepEqual(vendor.request, {
+    pluginId: "one",
+    options: { action: "fetch" },
+    collectionOption: "project",
+    label: "Fetch",
+    requiresAdmin: true,
+  });
+  assert.equal(other.request, null);
 });
 
 test("collectionChoices keeps an enabled collection no online worker advertises", () => {

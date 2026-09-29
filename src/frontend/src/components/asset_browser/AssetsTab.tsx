@@ -51,6 +51,7 @@ import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 
 import AssetTree from "./AssetTree";
 import { formatRevision } from "./format";
+import RequestCollection from "./RequestCollection";
 
 // Owner tag for every scene object this tab adds -- the same role `OWNER` in
 // `ExternalModelsPanel.tsx` plays for the External Models panel: a standalone
@@ -743,133 +744,161 @@ const AssetsTab: React.FC = () => {
 
     const revisions = useMemo(() => (index && collection ? revisionsOf(index, collection) : []), [index, collection]);
 
-    if (indexError && !index) {
-        return <Banner tone="error">Could not read the asset index: {indexError}</Banner>;
+    // A request publishes into this scope: re-read, then show what arrived.
+    const onPublished = async (published: string) => {
+        await loader.refresh(scope);
+        if (useAssetBrowserStore.getState().collections?.includes(published)) {
+            await loader.chooseCollection(scope, published);
+        }
+    };
+    // ONE MOUNT POINT FOR THE REQUEST PANEL, whatever the tab below it shows. A
+    // request that publishes into an empty scope turns "nothing published" into a
+    // tree, and a panel mounted in each branch separately would be torn down by
+    // that very change -- taking the outcome it was about to report with it.
+    return (
+        <div className="flex flex-col h-full min-h-0 text-white">
+            <div className="shrink-0">
+                <RequestCollection scope={scope} onPublished={(c) => void onPublished(c)} />
+            </div>
+            {renderBody()}
+        </div>
+    );
+
+    // Plain render functions, CALLED rather than mounted: a component declared in
+    // here would be a new type every render, and React would remount the tree
+    // under it -- expansion, selection and scroll with it -- on every keystroke.
+    function renderBody(): React.ReactElement {
+        if (indexError && !index) {
+            return <Banner tone="error">Could not read the asset index: {indexError}</Banner>;
+        }
+        if (!collections || (indexLoading && !index)) {
+            return <div className="p-2 text-xs text-gray-400">Reading published assets…</div>;
+        }
+        if (!collections.length) {
+            return (
+                <div className="p-2 text-xs text-gray-400">
+                    Nothing is published under <code>assets/</code> in this scope.
+                </div>
+            );
+        }
+        return renderPublished();
     }
-    if (!collections || (indexLoading && !index)) {
-        return <div className="p-2 text-xs text-gray-400">Reading published assets…</div>;
-    }
-    if (!collections.length) {
+
+    function renderPublished(): React.ReactElement {
+        const summary = view?.summary;
         return (
-            <div className="p-2 text-xs text-gray-400">
-                Nothing is published under <code>assets/</code> in this scope.
+            <div className="flex flex-col flex-1 min-h-0">
+                <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
+                    <select
+                        aria-label="Collection"
+                        className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 max-w-[45%] truncate"
+                        value={collection ?? ""}
+                        onChange={(e) => void loader.chooseCollection(scope, e.target.value)}
+                    >
+                        {(collections ?? []).map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
+                    </select>
+                    <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
+                    <button
+                        type="button"
+                        className="ml-auto text-xs text-gray-300 hover:text-white px-1"
+                        onClick={() => void loader.refresh(scope)}
+                        title="Re-read the index and rebuild the tree from nothing"
+                    >
+                        ⟳
+                    </button>
+                </div>
+                <div className="px-1 pt-1 shrink-0">
+                    <input
+                        className="w-full bg-gray-600 text-white rounded-sm pl-1 text-sm"
+                        placeholder="Search assets"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
+
+                <div className="shrink-0">
+                    {indexError && <Banner tone="error">{indexError}</Banner>}
+                    {summary?.mixed && (
+                        <Banner tone="warn" title={summary.revisions.map(formatRevision).join("\n")}>
+                            Mixed: this view spans {summary.revisions.length} publishes (
+                            {formatRevision(summary.revisions[0])} … {formatRevision(summary.revisions[summary.revisions.length - 1])}). Pick a
+                            run for a coeval view.
+                        </Banner>
+                    )}
+                    {summary?.coeval && mode.kind === "run" && (
+                        <Banner tone="info">
+                            Run {formatRevision(mode.revision)} — coeval
+                            {summary.missingCount > 0 && `; ${summary.missingCount} subject(s) have nothing in this run`}
+                        </Banner>
+                    )}
+                    {view && view.staleCount > 0 && (
+                        <Banner tone="warn">
+                            {view.staleCount} row(s) are drawn from a hierarchy the resolution has moved past. Refresh to rebuild.
+                        </Banner>
+                    )}
+                    {/* BEHIND is not STALE: stale says our own tree lags the resolution
+                        (fixed by Refresh); behind says the SOURCE moved after a root was
+                        published (fixed only by a new export). Different tone ("error", not
+                        "warn"), different verb, so the two are never mistaken for one banner
+                        said twice -- see `@/assets/changes`'s module comment. */}
+                    {view && view.changes.behind > 0 && (
+                        <Banner tone="error">
+                            {view.changes.behind} published root(s) are behind their source — it changed after this was
+                            published. Re-export to catch up; Refresh will not fix this.
+                        </Banner>
+                    )}
+                    {view && view.drift.size > 0 && (
+                        <Banner tone="warn">{view.drift.size} subject(s) were published against an older tree than the one shown.</Banner>
+                    )}
+                    {view && view.providers.length > 1 && (
+                        <Banner tone="info">Mixed collection — providers: {view.providers.join(", ")}</Banner>
+                    )}
+                    {summary && summary.incompleteCount > 0 && (
+                        <Banner tone="warn">
+                            {summary.incompleteCount} subject(s) have a half-written newest revision (no manifest); the last complete one is shown.
+                        </Banner>
+                    )}
+                    {view && view.manifestErrors.size > 0 && (
+                        <Banner tone="error">{view.manifestErrors.size} manifest(s) could not be read.</Banner>
+                    )}
+                    {view && view.malformedKeys.length > 0 && (
+                        <Banner tone="error" title={view.malformedKeys.join("\n")}>
+                            {view.malformedKeys.length} key(s) under assets/ do not parse.
+                        </Banner>
+                    )}
+                    {view && view.spineRevision === null && (
+                        <Banner tone="info">No collection hierarchy is published for this resolution; rows come from subject spines only.</Banner>
+                    )}
+                </div>
+
+                <div className="flex-1 min-h-0 flex flex-col">
+                    {view && (
+                        <AssetTree
+                            view={view}
+                            onRetrySpine={(source) => void loader.loadSpine(scope, source)}
+                        />
+                    )}
+                </div>
+                {view && (
+                    <Orphans
+                        orphans={view.orphans}
+                        pending={view.pending}
+                        unmergedSpines={view.unmergedSpines.length}
+                        loadingSpines={spineLoading.size > 0}
+                        selected={selected}
+                        onSelect={select}
+                        onPlace={() => void loader.loadSpines(scope, view.unmergedSpines)}
+                    />
+                )}
+                {view && selected && <Detail view={view} id={selected} scope={scope} />}
             </div>
         );
     }
-
-    const summary = view?.summary;
-    return (
-        <div className="flex flex-col h-full min-h-0 text-white">
-            <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
-                <select
-                    aria-label="Collection"
-                    className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 max-w-[45%] truncate"
-                    value={collection ?? ""}
-                    onChange={(e) => void loader.chooseCollection(scope, e.target.value)}
-                >
-                    {collections.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
-                <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
-                <button
-                    type="button"
-                    className="ml-auto text-xs text-gray-300 hover:text-white px-1"
-                    onClick={() => void loader.refresh(scope)}
-                    title="Re-read the index and rebuild the tree from nothing"
-                >
-                    ⟳
-                </button>
-            </div>
-            <div className="px-1 pt-1 shrink-0">
-                <input
-                    className="w-full bg-gray-600 text-white rounded-sm pl-1 text-sm"
-                    placeholder="Search assets"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-            </div>
-            {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
-
-            <div className="shrink-0">
-                {indexError && <Banner tone="error">{indexError}</Banner>}
-                {summary?.mixed && (
-                    <Banner tone="warn" title={summary.revisions.map(formatRevision).join("\n")}>
-                        Mixed: this view spans {summary.revisions.length} publishes (
-                        {formatRevision(summary.revisions[0])} … {formatRevision(summary.revisions[summary.revisions.length - 1])}). Pick a
-                        run for a coeval view.
-                    </Banner>
-                )}
-                {summary?.coeval && mode.kind === "run" && (
-                    <Banner tone="info">
-                        Run {formatRevision(mode.revision)} — coeval
-                        {summary.missingCount > 0 && `; ${summary.missingCount} subject(s) have nothing in this run`}
-                    </Banner>
-                )}
-                {view && view.staleCount > 0 && (
-                    <Banner tone="warn">
-                        {view.staleCount} row(s) are drawn from a hierarchy the resolution has moved past. Refresh to rebuild.
-                    </Banner>
-                )}
-                {/* BEHIND is not STALE: stale says our own tree lags the resolution
-                    (fixed by Refresh); behind says the SOURCE moved after a root was
-                    published (fixed only by a new export). Different tone ("error", not
-                    "warn"), different verb, so the two are never mistaken for one banner
-                    said twice -- see `@/assets/changes`'s module comment. */}
-                {view && view.changes.behind > 0 && (
-                    <Banner tone="error">
-                        {view.changes.behind} published root(s) are behind their source — it changed after this was
-                        published. Re-export to catch up; Refresh will not fix this.
-                    </Banner>
-                )}
-                {view && view.drift.size > 0 && (
-                    <Banner tone="warn">{view.drift.size} subject(s) were published against an older tree than the one shown.</Banner>
-                )}
-                {view && view.providers.length > 1 && (
-                    <Banner tone="info">Mixed collection — providers: {view.providers.join(", ")}</Banner>
-                )}
-                {summary && summary.incompleteCount > 0 && (
-                    <Banner tone="warn">
-                        {summary.incompleteCount} subject(s) have a half-written newest revision (no manifest); the last complete one is shown.
-                    </Banner>
-                )}
-                {view && view.manifestErrors.size > 0 && (
-                    <Banner tone="error">{view.manifestErrors.size} manifest(s) could not be read.</Banner>
-                )}
-                {view && view.malformedKeys.length > 0 && (
-                    <Banner tone="error" title={view.malformedKeys.join("\n")}>
-                        {view.malformedKeys.length} key(s) under assets/ do not parse.
-                    </Banner>
-                )}
-                {view && view.spineRevision === null && (
-                    <Banner tone="info">No collection hierarchy is published for this resolution; rows come from subject spines only.</Banner>
-                )}
-            </div>
-
-            <div className="flex-1 min-h-0 flex flex-col">
-                {view && (
-                    <AssetTree
-                        view={view}
-                        onRetrySpine={(source) => void loader.loadSpine(scope, source)}
-                    />
-                )}
-            </div>
-            {view && (
-                <Orphans
-                    orphans={view.orphans}
-                    pending={view.pending}
-                    unmergedSpines={view.unmergedSpines.length}
-                    loadingSpines={spineLoading.size > 0}
-                    selected={selected}
-                    onSelect={select}
-                    onPlace={() => void loader.loadSpines(scope, view.unmergedSpines)}
-                />
-            )}
-            {view && selected && <Detail view={view} id={selected} scope={scope} />}
-        </div>
-    );
 };
 
 export default AssetsTab;
