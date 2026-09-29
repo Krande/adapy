@@ -1,5 +1,5 @@
-"""GeniE itself as the oracle for the concept XML adapy writes: loads on beams, and the workspace
-GeniE saves after meshing.
+"""GeniE itself as the oracle for the concept XML adapy writes: loads on beams, combinations, and
+the workspace GeniE saves after meshing.
 
 The model is the one the loads investigation compared against GeniE's own: two IPE300 beams at
 y=0 and y=1.5 beside a 4 x 1 m plate at y=3..4. adapy writes it (with the embedded ACIS body,
@@ -10,6 +10,9 @@ same loads on its own model.
 * **Beam loads.** The SAT body box used to be the plate's extent only, while the beams hang off
   the same shell as wires outside it. GeniE then placed no load that finds a beam by position:
   load cases 1, 4 and 5 below wrote no records at all. The plate load (case 3) is the control.
+* **Combination.** adapy writes ``LCC1`` as a global combination. GeniE keeps it as one, with both
+  cases and their factors -- pinned here because an investigation read GeniE's journal as losing
+  them (``LCC1 = LoadCombination();`` is followed by the ``addCase`` lines after the loads).
 * **Meshed workspace.** Meshing adds a ``mirror_model`` of nameless property references that
   ``from_gnx`` used to crash on.
 """
@@ -198,6 +201,17 @@ def test_every_load_lands_with_genies_resultant(genie_run, lc_name):
     assert set(kinds) == {kind}
     assert force == pytest.approx(f_ref, abs=1e-6)
     assert moment == pytest.approx(m_ref, abs=1e-6)
+
+
+def test_genie_keeps_the_combination_with_its_cases_and_factors(genie_run):
+    out, _ = genie_run
+    root = ET.parse(out / "after_import.xml").getroot()
+    combo = root.find("./model/analysis_domain/analyses/global/combinations/combination[@combination_ref='LCC1']")
+    assert combo is not None
+    assert [(c.attrib["loadcase_ref"], float(c.attrib["factor"])) for c in combo.findall("./loadcases/loadcase")] == [
+        ("LC_ll_beam_u", 1.5),
+        ("LC_grav", 1.0),
+    ]
 
 
 def test_from_gnx_reads_the_workspace_genie_meshed(genie_run):
