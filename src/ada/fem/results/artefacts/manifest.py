@@ -146,6 +146,7 @@ def build_manifest(
     step_names: dict[int, str] | None = None,
     result_cases: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
+    baked_steps: list[int | float] | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
 
@@ -166,7 +167,12 @@ def build_manifest(
     scenarios — read back from the same deck-write sidecar (the .rmed
     result has none of them). Same shape as the ``fem_concepts``
     glTF-extension block; the frontend renders it via the shared
-    FemConceptsController overlay in the viewer's FEM mode."""
+    FemConceptsController overlay in the viewer's FEM mode.
+
+    ``baked_steps`` (optional): the step values a partial bake was asked for,
+    written as ``baked_steps``. Absent means every step the source has; a
+    reader of the manifest that wants to know whether a case was baked looks
+    here rather than inferring it from the fields' steps."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -460,6 +466,10 @@ def build_manifest(
     # something the colour machinery can read, and a combination is not.
     if result_cases:
         manifest["result_cases"] = result_cases
+    # A bake of chosen steps only; ``fields[].steps`` then hold just these, while
+    # ``result_cases`` above still lists every case the source offers.
+    if baked_steps is not None:
+        manifest["baked_steps"] = list(baked_steps)
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 

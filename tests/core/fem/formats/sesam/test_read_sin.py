@@ -428,6 +428,73 @@ def test_sin_stream_reader_bake_matches_full(tmp_path):
     assert full == stream, f"differing artefacts: {[n for n in full if full[n] != stream.get(n)]}"
 
 
+def test_sin_bake_over_chosen_steps(tmp_path):
+    """``steps`` opens the SIN streamer on just those cases, and bakes the same bytes.
+
+    The fixture's one case (1) chosen explicitly must give the whole bake's
+    artefacts; only the manifest differs, by saying which steps were baked. A
+    case the deck does not have is refused before anything is read.
+    """
+    import hashlib
+    import json
+
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import (
+        bake_fea_artefacts_from_source,
+        make_stream_reader,
+    )
+
+    def digests(d):
+        return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.iterdir()) if p.is_file()}
+
+    with make_stream_reader(SIN_PATH, steps=[1]) as reader:
+        assert isinstance(reader, SinStreamReader)
+        assert reader._steps == [1]
+    with pytest.raises(ValueError, match="not in this SIN: \\[2\\]"):
+        make_stream_reader(SIN_PATH, steps=[1, 2])
+
+    calls = []
+    whole, part = tmp_path / "whole", tmp_path / "part"
+    bake_fea_artefacts_from_source(SIN_PATH, whole, src_key="cantilever")
+    bake_fea_artefacts_from_source(
+        SIN_PATH, part, src_key="cantilever", steps=[1], on_progress=lambda *a: calls.append(a)
+    )
+    a, b = digests(whole), digests(part)
+    assert set(a) == set(b)
+    assert [n for n in a if a[n] != b[n]] == ["fea.manifest.json"]
+    manifest_whole = json.loads((whole / "fea.manifest.json").read_text(encoding="utf-8"))
+    manifest_part = json.loads((part / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest_part.pop("baked_steps") == [1]
+    assert manifest_part == manifest_whole
+    # The SIN streamer decodes whole steps: one unit of work per step.
+    assert calls == [(1, 1, "step 1")]
+
+
+def test_sin_stream_reader_decodes_a_card_once_per_step():
+    """Every field of one RV card comes from one decode of that card per step."""
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    reader = SinStreamReader(open_sin(SIN_PATH))
+    loads = []
+    real = reader._load_step
+
+    def counting(step, cards=None, requested_fields=None):
+        loads.append((step, None if cards is None else tuple(sorted(cards))))
+        return real(step, cards=cards, requested_fields=requested_fields)
+
+    reader._load_step = counting
+    try:
+        reader._steps = [1, 1]  # a second index over the same case: not the cached representative
+        names = [s.name for s in reader.element_field_specs() if s.category != "property"]
+        loads.clear()
+        for name in names:
+            reader._field_adapter(1, "RVSTRESS", name)
+        assert loads == [(1, ("RVSTRESS",))]
+    finally:
+        reader.close()
+
+
 def test_sin_load_step_card_filter():
     """A per-field bake pass loads only that field's RV card, not all of them.
 
