@@ -352,6 +352,9 @@ class TypeBlock:
     type_flag: int
     ptr_table_word: int
     ndim: int
+    # slot[4 + 2d + 1] and slot[4 + 2d]. Usually equal; where a writer grew the
+    # table (see _anchored_grown_ndim), ``dims`` is the allocation that sizes the
+    # pointer table and ``capacity`` the highest id in use.
     dims: tuple[int, ...]  # populated count per dimension
     capacity: tuple[int, ...]  # allocated capacity per dimension
     pointer_table_offset: int
@@ -427,6 +430,51 @@ def _trim_stale_packed_tail(pointer_table: Any, type_flag: int, dims: list[int])
     return pointer_table[: extent + 1]
 
 
+def _anchored_grown_ndim(source: ByteSource, payload: int, dim_bytes: int) -> int:
+    """NDIM of a block whose dimension pairs record a table grown past its extent.
+
+    Returns 0 unless the header matches the layout below exactly.
+
+    Many writers put one more slot after the dimension pairs, so that the anchor
+    (``ptr_table_word``) leaves ``2 * NDIM + 1`` slots between the fixed header and
+    the pointer table: NDIM cannot be divided out of the gap, and the dimensions
+    are found by walking pairs whose two words are equal. Most files write every
+    pair that way. Some write a pair as two different words ``(used, allocated)``
+    — seen on result-definition blocks of large decks, one of them with
+    quasi-static wave cases and stored combinations (RDSTRESS ``(25, 100)`` whose
+    only records are ids 24 and 25; RDIELCOR; RDNODBOC; a packed RDPOINTS, see
+    :func:`_trim_stale_packed_tail`, whose second word packs twice the element
+    count of the first), and on their result tables (an RVSTRESS written
+    ``(c, c), (m, n)`` for c cases, n elements, highest stressed element m; an
+    RDPOINTS written ``(1, 2), (n, n)``). In every one of them the pointer table spans exactly the
+    product of the second words, its records lie inside the first words' range,
+    and the next block's preamble follows its last slot. The walk stopped at the
+    first unequal pair, so these blocks decoded one dimension short (or none) and
+    read only a sliver of their table: a deck's shell stresses were dropped whole,
+    and its result points reduced to two elements.
+
+    Why this cannot change a block that reads today: the caller applies it only
+    where the walk found FEWER pairs than the anchor has room for, which is a block
+    that today reads a table cut short by a missing dimension. The anchor must
+    leave room for exactly ``k`` pairs plus the trailing slot (``1 <= k <= 4``),
+    and each pair must satisfy ``0 < used <= allocated``; a header that does not
+    is left to the walk. The pointer table is then read from the same offset,
+    only longer, and is still cut by the pointer-validity check, so the table read
+    before is its prefix: records are only ever added.
+    """
+    if dim_bytes <= 0 or dim_bytes % (2 * SLOT_STRIDE) != SLOT_STRIDE:
+        return 0
+    k = dim_bytes // (2 * SLOT_STRIDE)
+    if not 1 <= k <= 4:
+        return 0
+    for d in range(k):
+        used = _read_u32_slot(source, payload + (4 + 2 * d) * SLOT_STRIDE)
+        allocated = _read_u32_slot(source, payload + (4 + 2 * d + 1) * SLOT_STRIDE)
+        if not 0 < used <= allocated:
+            return 0
+    return k
+
+
 def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int | None = None) -> TypeBlock:
     """Decode one per-type block. ``next_preamble`` is accepted for
     signature compatibility; the pointer-table read is clamped to the file
@@ -490,6 +538,8 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
             if (dim_slot - 4) // 2 >= 4:
                 break
         ndim = (dim_slot - 4) // 2
+        if anchored:
+            ndim = max(ndim, _anchored_grown_ndim(source, payload, dim_bytes))
         # Only when there was no anchor to keep. Where the walk stopped short of
         # the anchor, it stopped on a header slot, and reading the table from
         # there takes that slot's value as the first pointer — which is not one.
