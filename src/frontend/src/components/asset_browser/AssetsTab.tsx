@@ -171,6 +171,37 @@ const Banner: React.FC<{ tone: "info" | "warn" | "error"; children: React.ReactN
     </div>
 );
 
+/** The toolbar's one control surface: selects, the search field and icon buttons share it. */
+const CONTROL = "h-7 rounded-md border border-gray-700 bg-gray-800 text-xs text-gray-100";
+/** Buttons in the detail block: one primary action, the rest secondary or quiet. */
+const BTN_PRIMARY =
+    "h-7 px-3 rounded-md text-xs font-semibold bg-blue-400 text-gray-950 hover:bg-blue-300 disabled:opacity-50";
+const BTN_SECONDARY =
+    "h-7 px-3 rounded-md text-xs font-medium border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50";
+const BTN_QUIET = "h-7 px-1.5 rounded-md text-xs text-gray-400 hover:text-white disabled:opacity-50";
+
+const IconButton: React.FC<{ label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode }> = ({
+    label,
+    pressed,
+    onClick,
+    children,
+}) => (
+    <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pressed}
+        title={label}
+        onClick={onClick}
+        className={`${CONTROL} w-7 shrink-0 grid place-items-center ${
+            pressed ? "bg-gray-600 border-gray-500 text-white" : "text-gray-300 hover:text-white hover:bg-gray-700"
+        }`}
+    >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            {children}
+        </svg>
+    </button>
+);
+
 const ModePicker: React.FC<{ mode: ResolutionMode; revisions: readonly string[]; onChange: (m: ResolutionMode) => void }> = ({
     mode,
     revisions,
@@ -178,10 +209,10 @@ const ModePicker: React.FC<{ mode: ResolutionMode; revisions: readonly string[];
 }) => {
     const newest = revisions[revisions.length - 1];
     return (
-        <div className="flex items-center gap-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
             <select
                 aria-label="Resolution"
-                className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5"
+                className={`${CONTROL} px-2`}
                 value={mode.kind}
                 onChange={(e) => {
                     const kind = e.target.value as ResolutionMode["kind"];
@@ -197,7 +228,7 @@ const ModePicker: React.FC<{ mode: ResolutionMode; revisions: readonly string[];
             {mode.kind !== "latest" && (
                 <select
                     aria-label="Revision"
-                    className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 min-w-0 truncate"
+                    className={`${CONTROL} px-2 min-w-0 truncate`}
                     value={mode.revision}
                     onChange={(e) => onChange({ kind: mode.kind, revision: e.target.value })}
                 >
@@ -352,7 +383,7 @@ const LoadControls: React.FC<{ view: AssetView; id: string; scope: string }> = (
             <button
                 type="button"
                 disabled={busy}
-                className="text-blue-300 hover:text-white disabled:text-gray-500"
+                className={BTN_PRIMARY}
                 onClick={() => {
                     const store = useAssetBrowserStore.getState();
                     store.beginLoad(id);
@@ -372,7 +403,7 @@ const LoadControls: React.FC<{ view: AssetView; id: string; scope: string }> = (
                     })();
                 }}
             >
-                {busy ? "loading…" : badge.weight === "ghost" ? `Load (from ${badge.at})` : "Load"}
+                {busy ? "Loading…" : "Load into scene"}
             </button>
             {error && (
                 <span className="text-red-300 truncate" title={error}>
@@ -524,7 +555,7 @@ const ClashCheckControls: React.FC<{ view: AssetView; id: string; scope: string;
     return (
         <div className="mt-1 flex items-center gap-2">
             <button
-                className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
+                className={BTN_SECONDARY}
                 onClick={onCheck}
                 disabled={busy}
                 data-testid="asset-clash-check"
@@ -553,8 +584,8 @@ const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view
     const manifest = resolved?.revision.manifest ?? null;
     const lines: [string, React.ReactNode][] = [];
     if (facts) {
-        lines.push(["Kind", facts.node.kind || "—"]);
-        lines.push(["Provider", facts.node.provider]);
+        lines.push(["Id", <span className="font-mono text-[11px]">{id}</span>]);
+        lines.push(["Provider", <span className="font-mono text-[11px]">{facts.node.provider}</span>]);
         lines.push(["Claim", facts.node.delivery === "none" ? "none" : facts.node.delivery]);
     }
     if (resolved) lines.push(["Published", `${formatRevision(resolved.revision.revision)}${manifest ? ` · ${manifest.delivery}` : ""}`]);
@@ -597,16 +628,24 @@ const Detail: React.FC<{ view: AssetView; id: string; scope: string }> = ({ view
     const err = view.manifestErrors.get(id);
     if (err) lines.push(["Manifest", err]);
     return (
-        <div className="border-t border-gray-700 px-2 py-1 text-xs text-gray-200 shrink-0 max-h-40 overflow-auto" data-testid="asset-detail">
-            <div className="font-semibold text-white truncate" title={id}>
-                {facts?.node.label ?? id} <span className="text-gray-400 font-normal">{id}</span>
+        <div
+            className="border-t border-gray-700/70 bg-gray-900/40 px-3 py-2.5 text-xs text-gray-200 shrink-0 max-h-56 overflow-auto space-y-2"
+            data-testid="asset-detail"
+        >
+            <div className="flex items-baseline gap-2 min-w-0" title={id}>
+                <span className="font-semibold text-[13px] text-white truncate">{facts?.node.label ?? id}</span>
+                {facts?.node.kind && (
+                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-gray-400">{facts.node.kind}</span>
+                )}
             </div>
-            {lines.map(([k, v]) => (
-                <div key={k} className="flex gap-2">
-                    <span className="text-gray-400 w-20 shrink-0">{k}</span>
-                    <span className="min-w-0 break-words">{v}</span>
-                </div>
-            ))}
+            <dl className="grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 m-0">
+                {lines.map(([k, v]) => (
+                    <React.Fragment key={k}>
+                        <dt className="text-gray-400">{k}</dt>
+                        <dd className="m-0 min-w-0 break-words">{v}</dd>
+                    </React.Fragment>
+                ))}
+            </dl>
             {facts && (
                 <Attributes
                     scope={scope}
@@ -643,7 +682,7 @@ const ChangedByFilter: React.FC<{ view: AssetView; selected: string | null; onSe
         <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
             <select
                 aria-label="Changed by"
-                className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 max-w-[55%] truncate"
+                className={`${CONTROL} px-2 max-w-[70%] truncate`}
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
             >
@@ -758,6 +797,7 @@ const AssetsTab: React.FC = () => {
     const viewHints = useAssetBrowserStore((s) => s.viewHints);
     const viewDoc = useAssetBrowserStore((s) => s.viewDoc);
     const showHidden = useAssetBrowserStore((s) => s.showHidden);
+    const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
     const [viewOpen, setViewOpen] = useState(false);
     const [viewBusy, setViewBusy] = useState(false);
     const [viewError, setViewError] = useState<string | null>(null);
@@ -877,10 +917,10 @@ const AssetsTab: React.FC = () => {
         const summary = view?.summary;
         return (
             <div className="flex flex-col flex-1 min-h-0">
-                <div className="px-1 pt-1 flex flex-wrap items-center gap-1 shrink-0">
+                <div className="px-2 pt-2 flex items-center gap-1.5 shrink-0">
                     <select
                         aria-label="Collection"
-                        className="bg-gray-600 text-white rounded-sm text-xs px-1 py-0.5 max-w-[45%] truncate"
+                        className={`${CONTROL} px-2 min-w-0 flex-1 truncate font-medium`}
                         value={collection ?? ""}
                         onChange={(e) => void loader.chooseCollection(scope, e.target.value)}
                     >
@@ -891,23 +931,16 @@ const AssetsTab: React.FC = () => {
                         ))}
                     </select>
                     <ModePicker mode={mode} revisions={revisions} onChange={setMode} />
-                    <button
-                        type="button"
-                        className="ml-auto text-xs text-gray-300 hover:text-white px-1"
-                        onClick={() => void loader.refresh(scope)}
-                        title="Re-read the index and rebuild the tree from nothing"
-                    >
-                        ⟳
-                    </button>
-                    <button
-                        type="button"
-                        aria-pressed={viewOpen}
-                        className={`text-xs px-1 rounded-sm ${viewOpen ? "bg-gray-600 text-white" : "text-gray-300 hover:text-white"}`}
+                    <IconButton label="Refresh — re-read the index and rebuild the tree from nothing" onClick={() => void loader.refresh(scope)}>
+                        <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" />
+                    </IconButton>
+                    <IconButton
+                        label="View — where the tree starts, which top-level kinds, what is out of scope, row style"
+                        pressed={viewOpen}
                         onClick={() => setViewOpen((o) => !o)}
-                        title="How this collection's tree is drawn: where it starts, which top-level kinds, what is out of scope"
                     >
-                        View
-                    </button>
+                        <path d="M2 4h7M12 4h2M2 12h3M8 12h6M9 2.5v3M5 10.5v3" />
+                    </IconButton>
                 </div>
                 {viewOpen && (
                     <TreeViewPanel
@@ -919,20 +952,42 @@ const AssetsTab: React.FC = () => {
                         error={viewError}
                         onChange={onViewChange}
                         onUseProviderDefaults={onUseProviderDefaults}
+                        treeStyle={treeStyle}
+                        onTreeStyle={(s) => useAssetBrowserStore.getState().setTreeStyle(s)}
                     />
                 )}
                 {!viewOpen && viewError && <Banner tone="error">{viewError}</Banner>}
+                <div className="px-2 pt-2 shrink-0">
+                    <div className={`${CONTROL} flex items-center gap-2 px-2`}>
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="text-gray-400 shrink-0">
+                            <circle cx="7" cy="7" r="4.5" />
+                            <path d="M10.5 10.5 14 14" />
+                        </svg>
+                        <input
+                            aria-label="Search assets"
+                            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-gray-100 placeholder:text-gray-500"
+                            placeholder="Search names and refs"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                </div>
                 {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown) && (
-                    <div className="px-1 pt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 shrink-0">
-                        {display.hiddenRoots > 0 && (
+                    <div className="px-2 pt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 shrink-0">
+                        {viewSettings.rootKinds && !display.rootFilterStoodDown && searchTerm.trim() === "" && (
                             <button
                                 type="button"
-                                className="hover:text-white"
-                                title="Top-level branches of other kinds are not drawn. Change it under View."
+                                className="rounded-full bg-gray-700/70 px-2 py-0.5 text-gray-200 hover:bg-gray-600"
+                                title="Only these kinds are drawn at the top level. Change it under View."
                                 onClick={() => setViewOpen(true)}
                             >
-                                −{display.hiddenRoots} top-level branch{display.hiddenRoots === 1 ? "" : "es"}
+                                Top: {[...viewSettings.rootKinds].join(", ")}
                             </button>
+                        )}
+                        {display.hiddenRoots > 0 && (
+                            <span title="Top-level branches of other kinds are not drawn">
+                                {display.hiddenRoots} other branch{display.hiddenRoots === 1 ? "" : "es"} hidden
+                            </span>
                         )}
                         {display.rootFilterStoodDown && (
                             <span title="None of the chosen kinds is at the top, so every branch is drawn">
@@ -940,9 +995,10 @@ const AssetsTab: React.FC = () => {
                             </span>
                         )}
                         {viewSettings.outOfScope.size > 0 && (
-                            <label className="flex items-center gap-1 cursor-pointer">
+                            <label className="ml-auto flex items-center gap-1 cursor-pointer hover:text-gray-200">
                                 <input
                                     type="checkbox"
+                                    className="accent-blue-400"
                                     checked={showHidden}
                                     onChange={(e) => useAssetBrowserStore.getState().setShowHidden(e.target.checked)}
                                 />
@@ -951,14 +1007,7 @@ const AssetsTab: React.FC = () => {
                         )}
                     </div>
                 )}
-                <div className="px-1 pt-1 shrink-0">
-                    <input
-                        className="w-full bg-gray-600 text-white rounded-sm pl-1 text-sm"
-                        placeholder="Search assets"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
+                <div className="mt-2 border-t border-gray-700/70 shrink-0" />
                 {view && <ChangedByFilter view={view} selected={selected} onSelect={select} />}
 
                 <div className="shrink-0">
@@ -1045,7 +1094,7 @@ const AssetsTab: React.FC = () => {
                             <button
                                 type="button"
                                 disabled={viewBusy}
-                                className="px-1.5 py-0.5 rounded-sm border border-gray-600 hover:bg-gray-700 disabled:opacity-50"
+                                className={BTN_QUIET}
                                 title="Draw this branch again, for everyone in this scope"
                                 onClick={() => toggleOutOfScope(selected)}
                             >
@@ -1057,7 +1106,7 @@ const AssetsTab: React.FC = () => {
                             <button
                                 type="button"
                                 disabled={viewBusy}
-                                className="px-1.5 py-0.5 rounded-sm border border-gray-600 hover:bg-gray-700 disabled:opacity-50"
+                                className={BTN_QUIET}
                                 title="Stop drawing this branch and everything under it, for everyone in this scope. Hides nothing that is published; Show hidden draws it again."
                                 onClick={() => toggleOutOfScope(selected)}
                             >

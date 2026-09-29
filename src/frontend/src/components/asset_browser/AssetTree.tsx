@@ -8,19 +8,29 @@
 // A row receives the view and its id and nothing else (`rowFacts`), so every
 // mark on it is one function of one derived object.
 //
-// SIX WAYS A ROW CAN READ AS LESS THAN ORDINARY, kept visually apart:
+// ONE QUIET ROW, marks only where they carry something. Label, then the
+// provider's kind as a short code, then a right-aligned count column, then one
+// publish-state dot: filled = published at this row, ring = covered by a publish
+// above or holding one below. Everything else is a word, and only when it says
+// something is wrong or different:
+//
 //   dimmed    nothing at or below to deliver -- reduced opacity, and it SAYS so
 //             in its title. Rendered, never hidden: "there is nothing here" is
 //             an answer, a missing row is not.
-//   gap       something below, no publish covers it -- an amber `gap` tag.
-//   stale     drawn from a spine the resolution moved past -- a gray `stale`
-//             tag. Fixed by Refresh.
-//   drift     published against an older tree -- an amber `older tree` tag.
+//   gap       something below, no publish covers it -- amber `gap`.
+//   stale     drawn from a spine the resolution moved past -- gray `stale`.
+//             Fixed by Refresh.
+//   drift     published against an older tree -- amber `older tree`.
 //   behind    (change feed) the SOURCE moved after this root was published --
-//             a RED chip, never the same mark as `stale`: fixed only by a new
-//             export, and Refresh does nothing for it.
+//             RED `behind`, never the same mark as `stale`: fixed only by a new
+//             export, and Refresh does nothing for it. The feed's other answers
+//             (current, not recorded, no feed) are the row's tooltip, not a
+//             chip on every row.
 //   evidence  (change feed) the sweep found THIS node added/modified/deleted --
-//             a purple per-node letter, independent of the root's own chip.
+//             a purple per-node letter, independent of the root's own state.
+//
+// TWO STYLES, the same facts: `outline` draws a folder or a cube and the kind
+// as a code; `tiles` draws a coloured tile per kind (`@/assets/kindTile`).
 
 import React, { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -28,17 +38,23 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
 import { flattenVisible, type Hierarchy } from "@/assets/hierarchy";
+import { kindTile } from "@/assets/kindTile";
 import { isOutOfScope } from "@/assets/treeView";
 import type { AssetNode } from "@/assets/types";
 import { rowFacts, searchRows, type RowBadge } from "@/assets/rowFacts";
 import { canFetchSpine, rowSpineState, type SpineSource } from "@/assets/spines";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import type { AssetTreeStyle } from "@/state/assetBrowserStore";
 
 import { formatRevision } from "./format";
 
-const ROW_HEIGHT = 22;
+const ROW_HEIGHT = 26;
+/** Horizontal step per level. A level's guide line runs under its parent's
+ *  chevron: 6px into the 12px chevron column. */
+const INDENT = 14;
+const GUIDE_AT = 6;
 
-const BADGE_LETTER: Record<string, string> = { mesh: "M", build: "B", none: "·" };
+const DELIVERY_WORD: Record<string, string> = { mesh: "a mesh", build: "a build", none: "nothing" };
 
 const BADGE_TITLE: Record<RowBadge["weight"], string> = {
     solid: "Published at this node",
@@ -46,116 +62,88 @@ const BADGE_TITLE: Record<RowBadge["weight"], string> = {
     below: "Published content beneath this node",
 };
 
-const Badge: React.FC<{ badge: RowBadge }> = ({ badge }) => {
-    const cls =
-        badge.weight === "solid"
-            ? "bg-blue-500 text-white"
-            : badge.weight === "below"
-              ? "bg-blue-500/25 text-blue-200 ring-1 ring-inset ring-blue-400"
-              : "text-gray-300 ring-1 ring-inset ring-gray-500";
-    return (
-        <span
-            className={`ml-1 inline-flex items-center justify-center rounded-sm text-[9px] leading-none font-bold w-3.5 h-3.5 shrink-0 ${cls}`}
-            title={`${BADGE_TITLE[badge.weight]} (${badge.delivery}) — ${badge.at} @ ${formatRevision(badge.revision)}`}
-        >
-            {BADGE_LETTER[badge.delivery] ?? "?"}
-        </span>
-    );
-};
+/** The one publish-state mark: filled when published here, a ring otherwise. */
+const StateDot: React.FC<{ badge: RowBadge }> = ({ badge }) => (
+    <span
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            badge.weight === "solid"
+                ? "bg-blue-400"
+                : badge.weight === "below"
+                  ? "ring-[1.5px] ring-inset ring-blue-400/80"
+                  : "ring-[1.5px] ring-inset ring-gray-500"
+        }`}
+        title={`${BADGE_TITLE[badge.weight]} — delivers ${DELIVERY_WORD[badge.delivery] ?? badge.delivery} — ${badge.at} @ ${formatRevision(badge.revision)}`}
+    />
+);
 
-const Tag: React.FC<{ tone: "amber" | "gray"; title: string; children: React.ReactNode }> = ({ tone, title, children }) => (
+const Word: React.FC<{ tone: "amber" | "gray" | "red"; title: string; children: React.ReactNode }> = ({ tone, title, children }) => (
     <span
         title={title}
-        className={`ml-1 shrink-0 rounded-sm px-1 text-[9px] leading-[14px] ${
-            tone === "amber" ? "bg-amber-800/70 text-amber-100" : "bg-gray-600 text-gray-200"
+        className={`shrink-0 font-mono text-[10px] leading-none ${
+            tone === "amber" ? "text-amber-300" : tone === "red" ? "text-red-300" : "text-gray-400"
         }`}
     >
         {children}
     </span>
 );
 
-// BEHIND-UPSTREAM is a change-feed fact, never the same mark as `stale`
-// (freshness, gray) or `drift` (hierarchy, amber) above: a red family, its
-// own word per state, so a row that is stale, drifted AND behind at once
-// shows three visibly different tags rather than one overloaded amber dot.
-const CHANGE_CHIP: Record<ChangeState, { cls: string; label: string; title: string }> = {
-    behind: {
-        cls: "bg-red-800/70 text-red-100",
-        label: "behind",
-        title: "The source moved after this root was published. Re-export to catch up -- Refresh will not fix this.",
-    },
-    current: {
-        cls: "bg-emerald-800/60 text-emerald-100",
-        label: "current",
-        title: "The change feed covered this root and found nothing newer at the source.",
-    },
-    "not-recorded": {
-        cls: "bg-gray-600 text-gray-300",
-        label: "not recorded",
-        title: "The change feed has never covered this root -- nobody has looked, which is not the same as unchanged.",
-    },
-    "no-feed": {
-        cls: "bg-gray-700 text-gray-400 italic",
-        label: "no feed",
-        title: "This deployment has no change-feed database. Whether the source moved cannot be said.",
-    },
-};
-
-const ChangeChip: React.FC<{ state: ChangeState }> = ({ state }) => {
-    const c = CHANGE_CHIP[state];
-    return (
-        <span title={c.title} className={`ml-1 shrink-0 rounded-sm px-1 text-[9px] leading-[14px] ${c.cls}`}>
-            {c.label}
-        </span>
-    );
+const CHANGE_TITLE: Record<ChangeState, string> = {
+    behind: "The source moved after this root was published. Re-export to catch up -- Refresh will not fix this.",
+    current: "The change feed covered this root and found nothing newer at the source.",
+    "not-recorded": "The change feed has never covered this root -- nobody has looked, which is not the same as unchanged.",
+    "no-feed": "This deployment has no change-feed database. Whether the source moved cannot be said.",
 };
 
 const EVIDENCE_LETTER: Record<ChangeAction, string> = { added: "+", modified: "~", deleted: "−" };
 
 // Per-NODE evidence -- what the sweep found AT this row -- is a purple
-// family, deliberately apart from the root-level red `ChangeChip`: a leaf the
+// family, deliberately apart from the root-level red `behind`: a leaf the
 // sweep flagged `modified` inside a root already marked `behind` would
 // otherwise repaint the same fact twice in the same colour.
 const EvidenceMark: React.FC<{ action: ChangeAction }> = ({ action }) => (
     <span
         title={`The change feed's sweep recorded this node as ${action}.`}
-        className="ml-1 inline-flex items-center justify-center rounded-sm text-[9px] leading-none font-bold w-3.5 h-3.5 shrink-0 bg-purple-700/80 text-purple-100"
+        className="inline-flex items-center justify-center rounded-sm text-[9px] leading-none font-bold w-3.5 h-3.5 shrink-0 bg-purple-700/80 text-purple-100"
     >
         {EVIDENCE_LETTER[action]}
     </span>
 );
 
-// A branch or a leaf, drawn -- the only distinction the glyph makes. Core cannot
-// read a provider's `kind`, so an icon per kind would be core guessing at a
-// vocabulary it does not own; the kind is printed beside the label instead.
-// Hand-drawn SVG in `currentColor`, like the rest of the tab: no icon package.
+const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="currentColor">
+        {open ? <path d="M2 3l3 4 3-4z" /> : <path d="M3 2l4 3-4 3z" />}
+    </svg>
+);
+
+// A branch or a leaf -- the `outline` style's only glyph distinction. Core cannot
+// read a provider's `kind`, so the kind is printed as a code beside the label.
+// Hand-drawn SVG in `currentColor`: no icon package.
 const NodeGlyph: React.FC<{ branch: boolean }> = ({ branch }) => (
-    <svg
-        width="12"
-        height="12"
-        viewBox="0 0 16 16"
-        aria-hidden="true"
-        className="mr-1 shrink-0 text-gray-400"
-        fill="currentColor"
-        stroke="currentColor"
-    >
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0" fill="currentColor" stroke="currentColor">
         {branch ? (
-            // A folder.
-            <path
-                d="M1.5 3.5h4.2l1.5 1.6h7.3v8.4h-13z"
-                fillOpacity="0.22"
-                strokeWidth="1.2"
-                strokeLinejoin="round"
-            />
+            <path d="M1.5 3.5h4.2l1.5 1.6h7.3v8.4h-13z" fillOpacity="0.18" strokeWidth="1.2" strokeLinejoin="round" />
         ) : (
-            // An isometric cube: a thing with geometry.
             <g strokeWidth="1.1" strokeLinejoin="round">
-                <path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5z" fillOpacity="0.22" />
+                <path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5z" fillOpacity="0.18" />
                 <path d="M2.4 5 8 8.2 13.6 5M8 8.2v6.2" fill="none" />
             </g>
         )}
     </svg>
 );
+
+// The `tiles` style's mark: the kind itself, two letters on its own colour.
+const KindTileMark: React.FC<{ kind: string }> = ({ kind }) => {
+    const tile = kindTile(kind);
+    return (
+        <span
+            className="w-[18px] h-[18px] rounded-[5px] shrink-0 grid place-items-center font-mono text-[9px] font-semibold"
+            style={{ background: tile.bg, color: tile.fg }}
+            title={kind}
+        >
+            {tile.letters}
+        </span>
+    );
+};
 
 const AssetRow: React.FC<{
     view: AssetView;
@@ -168,75 +156,121 @@ const AssetRow: React.FC<{
     showProvider: boolean;
     /** Drawn although it is out of scope, because "show hidden" is on. */
     outOfScope: boolean;
+    treeStyle: AssetTreeStyle;
     onToggle: () => void;
     onSelect: () => void;
     onRetry: () => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, onToggle, onSelect, onRetry }) => {
+}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
     const { node } = facts;
-    const title = facts.dimmed
-        ? `${node.label} — nothing at or below this node to deliver`
-        : facts.gap
-          ? `${node.label} — ${facts.uncovered} of ${facts.payload} leaf node(s) below are not covered by any publish`
-          : node.label;
+    const reasons = [
+        facts.dimmed ? "nothing at or below this node to deliver" : null,
+        facts.gap ? `${facts.uncovered} of ${facts.payload} leaf node(s) below are not covered by any publish` : null,
+        facts.changeState && facts.changeState !== "behind" ? CHANGE_TITLE[facts.changeState] : null,
+        outOfScope ? "out of scope" : null,
+    ].filter(Boolean);
+    const title = reasons.length ? `${node.label} — ${reasons.join("; ")}` : node.label;
+    const branch = hasChildren || spine.deadEnd || !node.leaf;
+    const indent = 4 + depth * INDENT;
     return (
         <div
             role="treeitem"
             aria-selected={selected}
             aria-expanded={hasChildren ? expanded : undefined}
+            aria-level={depth + 1}
             onClick={onSelect}
-            className={`flex items-center h-full pr-1 cursor-pointer rounded-sm whitespace-nowrap text-sm ${
-                selected ? "bg-blue-700" : "hover:bg-gray-700"
-            } ${outOfScope ? "opacity-50" : facts.dimmed ? "opacity-60" : ""}`}
-            style={{ paddingLeft: 4 + depth * 12 }}
-            title={outOfScope ? `${title} — out of scope` : title}
+            className={`relative flex items-center gap-1.5 h-full pr-2 cursor-pointer rounded whitespace-nowrap text-[13px] ${
+                selected ? "bg-blue-500/20 text-white shadow-[inset_2px_0_0_var(--color-blue-400)]" : "text-gray-200 hover:bg-white/5"
+            } ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
+            style={{ paddingLeft: indent }}
+            title={title}
         >
+            {/* One guide per ancestor level. Drawn per row because the list is flat:
+                virtualisation leaves no nested container to border. */}
+            {Array.from({ length: depth }, (_, d) => (
+                <span
+                    key={d}
+                    aria-hidden="true"
+                    className="absolute top-0 bottom-0 w-px bg-gray-700/70"
+                    style={{ left: 4 + d * INDENT + GUIDE_AT }}
+                />
+            ))}
             <span
-                className="w-4 shrink-0 text-center text-xs text-gray-300"
+                className={`w-3 shrink-0 grid place-items-center ${selected ? "text-gray-100" : "text-gray-400"}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     if (spine.error) onRetry();
                     else if (hasChildren) onToggle();
                 }}
             >
-                {spine.loading ? "…" : spine.error ? <span title={`Could not fetch this branch: ${spine.error} (click to retry)`} className="text-red-300">!</span> : hasChildren ? (expanded ? "▼" : "▶") : ""}
+                {spine.loading ? (
+                    <span className="text-[10px]">…</span>
+                ) : spine.error ? (
+                    <span title={`Could not fetch this branch: ${spine.error} (click to retry)`} className="text-red-300 text-xs">!</span>
+                ) : hasChildren ? (
+                    <Chevron open={expanded} />
+                ) : null}
             </span>
-            <NodeGlyph branch={hasChildren || spine.deadEnd || !node.leaf} />
-            <span className={`truncate ${outOfScope ? "line-through" : ""}`}>{node.label}</span>
-            {node.kind && <span className="ml-1 text-[10px] text-gray-400 truncate">{node.kind}</span>}
-            {outOfScope && (
-                <Tag tone="gray" title="Out of scope for this collection in this scope — shown because Show hidden is on">
-                    out
-                </Tag>
+            {treeStyle === "tiles" ? (
+                <KindTileMark kind={node.kind} />
+            ) : (
+                <span className={selected ? "text-gray-100" : "text-gray-400"}>
+                    <NodeGlyph branch={branch} />
+                </span>
             )}
-            {hasChildren && !expanded && facts.payload > 0 && (
-                <span className="ml-1 text-[10px] text-gray-500">{facts.payload}</span>
+            <span className={`truncate min-w-0 flex-1 ${selected ? "font-medium" : ""} ${outOfScope ? "line-through" : ""}`}>
+                {node.label}
+            </span>
+            {treeStyle === "outline" && node.kind && (
+                <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-gray-400">{node.kind}</span>
             )}
-            {facts.badge && <Badge badge={facts.badge} />}
-            {facts.changeState && <ChangeChip state={facts.changeState} />}
             {facts.evidenceMark && <EvidenceMark action={facts.evidenceMark} />}
-            {facts.gap && <Tag tone="amber" title={`${facts.uncovered} leaf node(s) at or below are not covered by any publish`}>gap</Tag>}
+            {facts.changeState === "behind" && (
+                <Word tone="red" title={CHANGE_TITLE.behind}>
+                    behind
+                </Word>
+            )}
+            {facts.gap && (
+                <Word tone="amber" title={`${facts.uncovered} leaf node(s) at or below are not covered by any publish`}>
+                    gap
+                </Word>
+            )}
             {spine.deadEnd && (
-                <Tag tone="gray" title="Marked as a branch, but no published hierarchy holds its children">no subtree</Tag>
+                <Word tone="gray" title="Marked as a branch, but no published hierarchy holds its children">
+                    no subtree
+                </Word>
             )}
             {facts.freshness?.stale && (
-                <Tag
+                <Word
                     tone="gray"
                     title={`Drawn from ${formatRevision(facts.freshness.shownAt)}; the resolution now names ${formatRevision(facts.freshness.resolvedAt)}. Refresh to rebuild.`}
                 >
                     stale
-                </Tag>
+                </Word>
             )}
             {facts.drift && (
-                <Tag
+                <Word
                     tone="amber"
                     title={`Published against the ${formatRevision(facts.drift.publishedAgainst)} tree; the tree shown is ${formatRevision(facts.drift.shownFrom)}`}
                 >
                     older tree
-                </Tag>
+                </Word>
             )}
-            {showProvider && <Tag tone="gray" title="Producing provider">{node.provider}</Tag>}
+            {outOfScope && (
+                <Word tone="gray" title="Out of scope for this collection in this scope — shown because Show hidden is on">
+                    out
+                </Word>
+            )}
+            {showProvider && (
+                <Word tone="gray" title="Producing provider">
+                    {node.provider}
+                </Word>
+            )}
+            <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-500">
+                {hasChildren && !expanded && facts.payload > 0 ? facts.payload : ""}
+            </span>
+            <span className="w-2 shrink-0 grid place-items-center">{facts.badge && <StateDot badge={facts.badge} />}</span>
         </div>
     );
 };
@@ -259,6 +293,7 @@ const AssetTree: React.FC<{
     const spineLoaded = useAssetBrowserStore((s) => s.spineLoaded);
     const spineLoading = useAssetBrowserStore((s) => s.spineLoading);
     const spineErrors = useAssetBrowserStore((s) => s.spineErrors);
+    const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
     const { toggleExpanded, select } = useAssetBrowserStore.getState();
 
     const search = useMemo(() => searchRows(view.hierarchy, searchTerm), [view.hierarchy, searchTerm]);
@@ -291,13 +326,13 @@ const AssetTree: React.FC<{
 
     if (!rows.length) {
         return (
-            <div className="p-2 text-xs text-gray-400">
+            <div className="p-3 text-xs text-gray-400">
                 {search ? `Nothing matches "${searchTerm}".` : "No rows yet for this resolution."}
             </div>
         );
     }
     return (
-        <div ref={scrollRef} role="tree" className="flex-1 min-h-0 overflow-auto scrollbar px-1 pt-1" data-testid="asset-tree">
+        <div ref={scrollRef} role="tree" className="flex-1 min-h-0 overflow-auto scrollbar px-1.5 py-1.5" data-testid="asset-tree">
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualizer.getVirtualItems().map((item) => {
                     const row = rows[item.index];
@@ -325,6 +360,7 @@ const AssetTree: React.FC<{
                                 spine={spine}
                                 showProvider={showProvider}
                                 outOfScope={markOut && isOutOfScope(view.hierarchy, outOfScope, row.id)}
+                                treeStyle={treeStyle}
                                 onToggle={() => toggleExpanded(row.id)}
                                 onSelect={() => select(row.id)}
                                 onRetry={() => source && onRetrySpine(source)}

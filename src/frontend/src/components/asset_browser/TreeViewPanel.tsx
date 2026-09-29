@@ -8,6 +8,7 @@
 import React from "react";
 
 import { normKind, type TreeViewHints, type TreeViewSettings } from "@/assets/treeView";
+import type { AssetTreeStyle } from "@/state/assetBrowserStore";
 
 export interface TreeViewChange {
   flattenKinds: ReadonlySet<string>;
@@ -52,7 +53,10 @@ const TreeViewPanel: React.FC<{
   error: string | null;
   onChange: (next: TreeViewChange) => void;
   onUseProviderDefaults: () => void;
-}> = ({ settings, hints, topKinds, rootKindCensus, busy, error, onChange, onUseProviderDefaults }) => {
+  /** The row style: this viewer's own choice, never written to the scope. */
+  treeStyle: AssetTreeStyle;
+  onTreeStyle: (style: AssetTreeStyle) => void;
+}> = ({ settings, hints, topKinds, rootKindCensus, busy, error, onChange, onUseProviderDefaults, treeStyle, onTreeStyle }) => {
   // Offered: what is actually at the top, plus anything already chosen, so a
   // saved choice never disappears from the list that would undo it.
   const flattenOffer = [...new Set([...topKinds, ...settings.flattenKinds].map((k) => k.trim()).filter(Boolean))];
@@ -107,6 +111,20 @@ const TreeViewPanel: React.FC<{
               {rootKindCensus.has(kind) && <span className="ml-1 text-gray-400">{rootKindCensus.get(kind)}</span>}
             </Chip>
           ))}
+        </div>
+      </div>
+
+      <div className="space-y-0.5">
+        <div className="text-gray-400" title="How rows look for you. Not saved for the scope.">
+          Row style <span className="text-gray-500">(just for you)</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <Chip on={treeStyle === "outline"} title="A folder or a cube, and the kind as a code" onClick={() => onTreeStyle("outline")}>
+            Outline
+          </Chip>
+          <Chip on={treeStyle === "tiles"} title="A coloured tile per kind" onClick={() => onTreeStyle("tiles")}>
+            Kind tiles
+          </Chip>
         </div>
       </div>
 

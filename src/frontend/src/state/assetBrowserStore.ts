@@ -17,6 +17,28 @@ import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
 
 export type AssetBrowserTab = "files" | "assets";
 
+/** How a tree row is drawn: `outline` (a glyph and the kind as a code) or
+ *  `tiles` (a coloured tile per kind). A per-viewer preference, nothing more. */
+export type AssetTreeStyle = "outline" | "tiles";
+
+const TREE_STYLE_KEY = "ada.assets.treeStyle";
+
+function readTreeStyle(): AssetTreeStyle {
+  try {
+    return globalThis.localStorage?.getItem(TREE_STYLE_KEY) === "tiles" ? "tiles" : "outline";
+  } catch {
+    return "outline"; // storage blocked (a private window, a sandbox): the default
+  }
+}
+
+function writeTreeStyle(style: AssetTreeStyle): void {
+  try {
+    globalThis.localStorage?.setItem(TREE_STYLE_KEY, style);
+  } catch {
+    // Remembered for this page only; nothing depends on it surviving.
+  }
+}
+
 const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
 const EMPTY_LOADED: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
@@ -87,6 +109,8 @@ export interface AssetBrowserState {
   /** Draw out-of-scope branches anyway, marked. A browsing preference, so it
    *  survives a collection switch like the mode does. */
   showHidden: boolean;
+  /** Row style, remembered per viewer. */
+  treeStyle: AssetTreeStyle;
 
   /** Scene content loaded through the Assets tab (Phase 3), mirrored against
    *  the scene's live loaded-source set (`reconcileLoaded`) so a model
@@ -136,6 +160,7 @@ export interface AssetBrowserState {
   setViewHints: (hints: TreeViewHints | null) => void;
   setViewDoc: (doc: TreeViewDoc | null) => void;
   setShowHidden: (on: boolean) => void;
+  setTreeStyle: (style: AssetTreeStyle) => void;
   /** A load just started for `id` -- clears any previous error for it too, so
    *  retrying a failed row does not show a stale message beside the spinner. */
   beginLoad: (id: string) => void;
@@ -202,6 +227,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   viewHints: null,
   viewDoc: null,
   showHidden: false,
+  treeStyle: readTreeStyle(),
   loaded: EMPTY_LOADED_ASSETS,
   loadBusy: EMPTY_SET,
   loadErrors: EMPTY_ERRORS,
@@ -291,6 +317,10 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   setViewHints: (viewHints) => set({ viewHints }),
   setViewDoc: (viewDoc) => set({ viewDoc }),
   setShowHidden: (showHidden) => set({ showHidden }),
+  setTreeStyle: (treeStyle) => {
+    writeTreeStyle(treeStyle);
+    set({ treeStyle });
+  },
 
   beginLoad: (id) =>
     set((s) => {

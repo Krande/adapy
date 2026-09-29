@@ -130,7 +130,7 @@ const RequestCollection: React.FC<{
     const blockedForUser = !!request?.requiresAdmin && !isAdmin;
 
     return (
-        <div className="px-1 py-1 space-y-1 border-b border-gray-700 text-xs">
+        <div className="px-2 py-2 space-y-1.5 border-b border-gray-700/70 text-xs">
             {provider && request && (
                 <>
                     <div className="text-gray-400">Request from a provider</div>
@@ -138,7 +138,7 @@ const RequestCollection: React.FC<{
                         {providers.length > 1 && (
                             <select
                                 aria-label="Provider"
-                                className="bg-gray-600 text-white rounded-sm px-1 py-0.5"
+                                className="h-7 rounded-md border border-gray-700 bg-gray-800 text-xs text-gray-100 px-2"
                                 value={providerId}
                                 disabled={busy}
                                 onChange={(e) => setProviderId(e.target.value)}
@@ -152,7 +152,7 @@ const RequestCollection: React.FC<{
                         )}
                         <select
                             aria-label="Collection to request"
-                            className="bg-gray-600 text-white rounded-sm px-1 py-0.5 max-w-[40%]"
+                            className="h-7 rounded-md border border-gray-700 bg-gray-800 text-xs text-gray-100 px-2 min-w-0 max-w-[45%]"
                             value={collection}
                             disabled={busy || offered.length === 0}
                             onChange={(e) => setCollection(e.target.value)}
@@ -165,7 +165,7 @@ const RequestCollection: React.FC<{
                         </select>
                         <button
                             type="button"
-                            className="px-2 py-0.5 rounded-sm bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
+                            className="h-7 px-3 rounded-md text-xs font-semibold bg-blue-400 text-gray-950 hover:bg-blue-300 disabled:opacity-50"
                             disabled={busy || !collection || blockedForUser}
                             title={
                                 blockedForUser
@@ -221,7 +221,7 @@ const RequestCollection: React.FC<{
                                 {providers.length > 0 && (
                                     <button
                                         type="button"
-                                        className="ml-auto px-1.5 rounded-sm border border-gray-600 hover:bg-gray-700 disabled:opacity-50"
+                                        className="ml-auto h-6 px-2 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
                                         disabled={busy}
                                         title={`Publish as ${providerId}`}
                                         onClick={() =>
