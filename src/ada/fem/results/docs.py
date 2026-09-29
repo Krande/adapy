@@ -39,6 +39,7 @@ import pathlib
 import shutil
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Iterable
 
 from paradoc.db.models import ThreeDData
@@ -522,6 +523,140 @@ def collect_fea_bundles(
             out.append(assets_from_bundle_dir(case_dir, key=case))
         except Exception as exc:
             logger.warning(f"could not load bundle at {case_dir}: {exc}")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Committed snapshots — mode shapes for solvers a doc build cannot run
+# ---------------------------------------------------------------------------
+
+
+def snapshot_fea_bundle(
+    src: Any,
+    *,
+    key: str,
+    cache_dir: "pathlib.Path | str",
+    normalize_modes: bool | float = True,
+) -> dict:
+    """Bake a lean, commit-sized bundle of ``src`` into ``cache_dir/<key>/``.
+
+    The raw-data counterpart of a report's JSON result snapshot. A licensed solver (Abaqus,
+    Sestra) runs on one machine; the report is built on another, so what that machine measured has
+    to travel in the repo. Frequencies travel in the JSON; this is the mode shapes.
+
+    Lean means the bundle the viewer and the poster renderer need and nothing else: mesh GLB, its
+    edge / element sidecars, and the nodal fields. Element-field blobs are left out (they are most of
+    a full bake's size and a mode-shape figure never reads them), and so are posters -- they are a
+    rendering of the bundle, re-made on the replaying machine by :func:`restore_fea_bundles`, so a
+    renderer change does not mean re-committing binary images.
+
+    Returns the reference the JSON snapshot records (``dir``, ``manifest_sha256``, ``n_steps``),
+    so a snapshot says which bundle it was written with.
+    """
+    case_dir = pathlib.Path(cache_dir) / key
+    if hasattr(src, "to_fea_result"):
+        src = src.to_fea_result()
+    src = _displacement_only(src)
+    if case_dir.exists():
+        shutil.rmtree(case_dir)
+    bake = bake_with_posters(
+        src,
+        case_dir,
+        src=key,
+        modes=None,
+        include_element_fields=False,
+        normalize_modes=normalize_modes,
+    )
+    manifest = json.loads(bake.manifest_path.read_text(encoding="utf-8"))
+    return {
+        "dir": key,
+        "manifest_sha256": hashlib.sha256(bake.manifest_path.read_bytes()).hexdigest(),
+        "n_steps": _count_displacement_steps(manifest),
+    }
+
+
+def _displacement_only(result: Any) -> Any:
+    """``result`` with its nodal displacement fields only.
+
+    Some readers carry more nodal fields than a mode shape needs -- Sesam's has nodal stresses per
+    mode, more than half a snapshot's size -- and a committed bundle keeps what the figures draw.
+    A result with no displacement field is returned unchanged.
+    """
+    from ada.fem.results.field_data import NodalFieldData, NodalFieldType
+
+    kept = [r for r in result.results if isinstance(r, NodalFieldData) and r.field_type == NodalFieldType.DISP]
+    if not kept or len(kept) == len(result.results):
+        return result
+    return replace(result, results=kept)
+
+
+def _count_displacement_steps(manifest: dict) -> int:
+    from ada.visit.rendering.fea_offscreen import _list_displacement_entries
+
+    return len(_list_displacement_entries(manifest))
+
+
+def render_missing_posters(assets: FeaDocAssets, *, poster_backend: str = "pygfx") -> FeaDocAssets:
+    """Render a poster for every displacement step of ``assets`` that has none on disk.
+
+    Same filenames as :func:`bake_with_posters` (``fea.mesh.png`` for mode 1,
+    ``fea.mesh.mode_<N>.png`` after), so the result reads exactly like a fresh bake. Per-mode render
+    failures are logged and skipped, like the bake's.
+    """
+    from ada.visit.rendering.fea_offscreen import render_fea_mode_from_bundle
+
+    manifest = json.loads(assets.manifest_path.read_text(encoding="utf-8"))
+    posters = dict(assets.poster_paths)
+    for mode_idx in range(_count_displacement_steps(manifest)):
+        if mode_idx in posters:
+            continue
+        if mode_idx == 0:
+            dest = assets.mesh_glb_path.with_suffix(".png")
+        else:
+            dest = assets.mesh_glb_path.with_name(f"fea.mesh.mode_{mode_idx + 1}.png")
+        try:
+            render_fea_mode_from_bundle(assets.bundle_dir, mode_index=mode_idx, backend=poster_backend).save(str(dest))
+        except Exception as exc:  # noqa: BLE001 — a missing poster degrades one figure, not the doc
+            logger.warning(f"{assets.key}: mode {mode_idx + 1} poster failed: {exc}")
+            continue
+        posters[mode_idx] = dest
+    return replace(assets, poster_paths=posters, canonical_poster_path=posters.get(0))
+
+
+def restore_fea_bundles(
+    cache_dir: "pathlib.Path | str",
+    assets_dir: "pathlib.Path | str",
+    *,
+    skip_keys: Iterable[str] = (),
+    prefix: str = "",
+) -> list[FeaDocAssets]:
+    """Replay the committed snapshots under ``cache_dir`` into ``assets_dir``.
+
+    The read side of :func:`snapshot_fea_bundle`. Each ``cache_dir/<key>/`` bundle is copied to
+    ``assets_dir/<key>/`` -- where a report's figures, and the paths its ``ThreeDData`` rows record,
+    already look -- and its posters are rendered there. The cache itself is never written to.
+
+    A copy already in ``assets_dir`` with the same manifest is kept, posters and all, so a rebuild
+    does not re-render. ``skip_keys`` excludes cases baked fresh this build; a live result beats a
+    committed snapshot of it. ``prefix`` restricts the replay to case keys starting with it.
+    """
+    skip = set(skip_keys)
+    out: list[FeaDocAssets] = []
+    for manifest_path in sorted(pathlib.Path(cache_dir).glob("*/fea.manifest.json")):
+        src_dir = manifest_path.parent
+        key = src_dir.name
+        if key in skip or not key.startswith(prefix):
+            continue
+        dest = pathlib.Path(assets_dir) / key
+        dest_manifest = dest / "fea.manifest.json"
+        try:
+            if not (dest_manifest.is_file() and dest_manifest.read_bytes() == manifest_path.read_bytes()):
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns("*.png"))
+            out.append(render_missing_posters(assets_from_bundle_dir(dest, key=key)))
+        except Exception as exc:
+            logger.warning(f"could not restore bundle {key} from {src_dir}: {exc}")
     return out
 
 
