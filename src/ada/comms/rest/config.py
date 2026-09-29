@@ -164,6 +164,11 @@ class Settings:
     # the frontend keeps whatever default was baked in at build time.
     # Defaulted last so existing constructors stay valid.
     ui_default: str = ""
+    # A launcher's per-launch token that enables ``POST /api/local/shutdown``
+    # (see local_shutdown.py). Empty — every deployment — means no such route.
+    # It also needs a loopback ``host``, so a token that leaked into a deployed
+    # environment still enables nothing there.
+    local_shutdown_token: str = ""
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -231,6 +236,7 @@ def load_settings() -> Settings:
     # means "not configured" — NOT "the built-in UI" — so an image that was
     # built with a default UI keeps it unless a deployment says otherwise.
     ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
+    local_shutdown_token = os.environ.get("ADA_VIEWER_LOCAL_SHUTDOWN_TOKEN", "").strip()
 
     if kind == "s3":
         s3 = S3Config(
@@ -254,6 +260,7 @@ def load_settings() -> Settings:
             auth=auth,
             database_url=database_url,
             ui_default=ui_default,
+            local_shutdown_token=local_shutdown_token,
         )
 
     if kind == "local":
@@ -272,6 +279,7 @@ def load_settings() -> Settings:
             auth=auth,
             database_url=database_url,
             ui_default=ui_default,
+            local_shutdown_token=local_shutdown_token,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

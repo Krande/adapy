@@ -37,6 +37,15 @@ export type { Runtime } from "@/runtime/config";
 export { viewerApi } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------
+// The local viewer's lifetime. On a viewer a launcher started on a workstation
+// (and only there), the page may stop it: `localShutdownAvailable()` says
+// whether to offer that, `stopLocalViewer()` does it. Never available on a
+// deployment. See `@/services/localViewer`.
+// ---------------------------------------------------------------------------
+export { localShutdownAvailable, stopLocalViewer } from "@/services/localViewer";
+export type { StopLocalViewerResult } from "@/services/localViewer";
+
+// ---------------------------------------------------------------------------
 // Active scope (user / project namespace every storage call is relative to).
 // ---------------------------------------------------------------------------
 export { scopeFromUrlPart, scopeUrlPart, useScopeStore } from "@/state/scopeStore";
