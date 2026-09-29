@@ -541,8 +541,19 @@ def _format_step_label_simple(n_steps: int, name: str, v: float) -> str:
     return f"{v:g}"
 
 
+#: Compact: no indentation and no spaces after separators. The manifest carries
+#: per-element tables (``element_labels``, ``element_node_indices`` per field
+#: bucket) and group member lists, so ``indent=2`` put every integer on its own
+#: line behind a dozen spaces of indentation - about 3x the compact size, 23.7 MB
+#: against 7.3 MB for a model-only bake of a 70k-element deck. Every reader
+#: parses it as JSON, so the layout is invisible to them.
+MANIFEST_JSON_SEPARATORS = (",", ":")
+
+
 def write_manifest(manifest: dict, out_path: os.PathLike) -> None:
     out_path = pathlib.Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    # newline="": no text-mode newline translation, so the bytes are the same on
+    # every platform.
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        json.dump(manifest, f, separators=MANIFEST_JSON_SEPARATORS)
