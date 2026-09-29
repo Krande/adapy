@@ -27,7 +27,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { AssetView } from "@/assets/assetView";
 import type { ChangeAction, ChangeState } from "@/assets/changes";
-import { flattenVisible } from "@/assets/hierarchy";
+import { flattenVisible, type Hierarchy } from "@/assets/hierarchy";
+import { isOutOfScope } from "@/assets/treeView";
+import type { AssetNode } from "@/assets/types";
 import { rowFacts, searchRows, type RowBadge } from "@/assets/rowFacts";
 import { canFetchSpine, rowSpineState, type SpineSource } from "@/assets/spines";
 import { useViewerStores } from "@/state/AdaViewerContext";
@@ -123,6 +125,38 @@ const EvidenceMark: React.FC<{ action: ChangeAction }> = ({ action }) => (
     </span>
 );
 
+// A branch or a leaf, drawn -- the only distinction the glyph makes. Core cannot
+// read a provider's `kind`, so an icon per kind would be core guessing at a
+// vocabulary it does not own; the kind is printed beside the label instead.
+// Hand-drawn SVG in `currentColor`, like the rest of the tab: no icon package.
+const NodeGlyph: React.FC<{ branch: boolean }> = ({ branch }) => (
+    <svg
+        width="12"
+        height="12"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        className="mr-1 shrink-0 text-gray-400"
+        fill="currentColor"
+        stroke="currentColor"
+    >
+        {branch ? (
+            // A folder.
+            <path
+                d="M1.5 3.5h4.2l1.5 1.6h7.3v8.4h-13z"
+                fillOpacity="0.22"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+            />
+        ) : (
+            // An isometric cube: a thing with geometry.
+            <g strokeWidth="1.1" strokeLinejoin="round">
+                <path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5z" fillOpacity="0.22" />
+                <path d="M2.4 5 8 8.2 13.6 5M8 8.2v6.2" fill="none" />
+            </g>
+        )}
+    </svg>
+);
+
 const AssetRow: React.FC<{
     view: AssetView;
     id: string;
@@ -132,10 +166,12 @@ const AssetRow: React.FC<{
     selected: boolean;
     spine: ReturnType<typeof rowSpineState>;
     showProvider: boolean;
+    /** Drawn although it is out of scope, because "show hidden" is on. */
+    outOfScope: boolean;
     onToggle: () => void;
     onSelect: () => void;
     onRetry: () => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, onToggle, onSelect, onRetry }) => {
+}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, onToggle, onSelect, onRetry }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
     const { node } = facts;
@@ -152,9 +188,9 @@ const AssetRow: React.FC<{
             onClick={onSelect}
             className={`flex items-center h-full pr-1 cursor-pointer rounded-sm whitespace-nowrap text-sm ${
                 selected ? "bg-blue-700" : "hover:bg-gray-700"
-            } ${facts.dimmed ? "opacity-60" : ""}`}
+            } ${outOfScope ? "opacity-50" : facts.dimmed ? "opacity-60" : ""}`}
             style={{ paddingLeft: 4 + depth * 12 }}
-            title={title}
+            title={outOfScope ? `${title} — out of scope` : title}
         >
             <span
                 className="w-4 shrink-0 text-center text-xs text-gray-300"
@@ -166,8 +202,14 @@ const AssetRow: React.FC<{
             >
                 {spine.loading ? "…" : spine.error ? <span title={`Could not fetch this branch: ${spine.error} (click to retry)`} className="text-red-300">!</span> : hasChildren ? (expanded ? "▼" : "▶") : ""}
             </span>
-            <span className="truncate">{node.label}</span>
+            <NodeGlyph branch={hasChildren || spine.deadEnd || !node.leaf} />
+            <span className={`truncate ${outOfScope ? "line-through" : ""}`}>{node.label}</span>
             {node.kind && <span className="ml-1 text-[10px] text-gray-400 truncate">{node.kind}</span>}
+            {outOfScope && (
+                <Tag tone="gray" title="Out of scope for this collection in this scope — shown because Show hidden is on">
+                    out
+                </Tag>
+            )}
             {hasChildren && !expanded && facts.payload > 0 && (
                 <span className="ml-1 text-[10px] text-gray-500">{facts.payload}</span>
             )}
@@ -199,7 +241,17 @@ const AssetRow: React.FC<{
     );
 };
 
-const AssetTree: React.FC<{ view: AssetView; onRetrySpine: (source: SpineSource) => void }> = ({ view, onRetrySpine }) => {
+const AssetTree: React.FC<{
+    view: AssetView;
+    /** The hierarchy as DRAWN (`displayHierarchy`): kinds flattened, the top
+     *  level filtered, out-of-scope branches removed unless shown. Every fact a
+     *  row carries still comes from `view`. */
+    display: Hierarchy<AssetNode>;
+    /** Out-of-scope ids, to mark the rows drawn anyway when Show hidden is on. */
+    outOfScope: ReadonlySet<string>;
+    showHidden: boolean;
+    onRetrySpine: (source: SpineSource) => void;
+}> = ({ view, display, outOfScope, showHidden, onRetrySpine }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const expanded = useAssetBrowserStore((s) => s.expanded);
     const selected = useAssetBrowserStore((s) => s.selected);
@@ -219,13 +271,14 @@ const AssetTree: React.FC<{ view: AssetView; onRetrySpine: (source: SpineSource)
 
     const rows = useMemo(
         () =>
-            flattenVisible(view.hierarchy, open, {
+            flattenVisible(display, open, {
                 expandable: (id) =>
                     canFetchSpine(view.hierarchy.byId.get(id)?.data, view.spines.get(id) ?? null, spineLoaded),
                 include: search?.include,
             }),
-        [view, open, search, spineLoaded],
+        [view, display, open, search, spineLoaded],
     );
+    const markOut = showHidden && outOfScope.size > 0;
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const virtualizer = useVirtualizer({
@@ -271,6 +324,7 @@ const AssetTree: React.FC<{ view: AssetView; onRetrySpine: (source: SpineSource)
                                 selected={selected === row.id}
                                 spine={spine}
                                 showProvider={showProvider}
+                                outOfScope={markOut && isOutOfScope(view.hierarchy, outOfScope, row.id)}
                                 onToggle={() => toggleExpanded(row.id)}
                                 onSelect={() => select(row.id)}
                                 onRetry={() => source && onRetrySpine(source)}

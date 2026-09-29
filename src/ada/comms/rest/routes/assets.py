@@ -777,6 +777,8 @@ def _slice_to_dict(slice_) -> dict:
         "depth": slice_.depth,
         "cols": list(slice_.cols),
         "rows": [list(r) for r in slice_.rows],
+        # The provider's drawing suggestion rides through untouched (additive at hierarchy@1).
+        **({"view": dict(slice_.view)} if getattr(slice_, "view", None) else {}),
     }
 
 

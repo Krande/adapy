@@ -15,6 +15,7 @@
  * looked up once.
  */
 
+import { parseViewHints, type TreeViewHints } from "./treeView";
 import type { AssetNode, DeliveryKind, HierarchySlice, WireHierarchySlice } from "./types";
 
 export const HIERARCHY_SCHEMA = "ada.assets/hierarchy@1";
@@ -84,5 +85,14 @@ export function parseHierarchySlice(doc: WireHierarchySlice): HierarchySlice {
     producedAt: doc.produced_at,
     depth: doc.depth,
     nodes,
+    ...viewOf(doc),
   };
+}
+
+/** The optional `view` hints off a slice. Additive at hierarchy@1: an older
+ *  reader ignores the key, and a malformed one is dropped rather than failing
+ *  the slice -- see `./treeView`. */
+function viewOf(doc: WireHierarchySlice): { view?: TreeViewHints } {
+  const hints = parseViewHints((doc as { view?: unknown }).view);
+  return hints ? { view: hints } : {};
 }

@@ -38,6 +38,14 @@ def test_staged_uploads_are_skipped_not_reported_malformed():
     assert "_staging" not in idx.collections
 
 
+def test_every_core_reserved_segment_is_skipped_not_reported_malformed():
+    """A leading `_` is core's: the saved tree views live under `_view/`, and a segment core adds
+    later must not first appear to every browser as a malformed key."""
+    idx = fold_listing(KEYS + ["assets/_view/plant-a.json", "assets/_config/some-plugin/excluded.json"])
+    assert idx.malformed == ()
+    assert sorted(idx.collections) == ["plant-a", "plant-b"]
+
+
 def test_malformed_keys_are_surfaced_with_a_reason():
     """A publisher that cannot see its own bad keys keeps writing them."""
     bad = "assets/plant-a/n1/2026-09-21T14:30:01Z/asset.json"  # non-compact revision

@@ -12,6 +12,7 @@ import { create } from "zustand";
 import type { SourceNodeRow, SourceNodesAnswer } from "@/assets/changes";
 import type { LoadedAsset } from "@/assets/delivery";
 import { EMPTY_FOREST, mergeSpine, type Forest, type SpineMerge } from "@/assets/merge";
+import type { TreeViewDoc, TreeViewHints } from "@/assets/treeView";
 import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
 
 export type AssetBrowserTab = "files" | "assets";
@@ -77,6 +78,16 @@ export interface AssetBrowserState {
   selected: string | null;
   searchTerm: string;
 
+  /** How the provider suggests drawing this collection, off its newest merged
+   *  collection index (`@/assets/treeView`). Null = no suggestion. */
+  viewHints: TreeViewHints | null;
+  /** What this scope saved for this collection; overrides `viewHints` field by
+   *  field. Null = nothing saved (or not read yet). */
+  viewDoc: TreeViewDoc | null;
+  /** Draw out-of-scope branches anyway, marked. A browsing preference, so it
+   *  survives a collection switch like the mode does. */
+  showHidden: boolean;
+
   /** Scene content loaded through the Assets tab (Phase 3), mirrored against
    *  the scene's live loaded-source set (`reconcileLoaded`) so a model
    *  unloaded elsewhere -- the Files tab, another plugin -- does not leave a
@@ -122,6 +133,9 @@ export interface AssetBrowserState {
   setExpanded: (id: string, on: boolean) => void;
   select: (id: string | null) => void;
   setSearchTerm: (term: string) => void;
+  setViewHints: (hints: TreeViewHints | null) => void;
+  setViewDoc: (doc: TreeViewDoc | null) => void;
+  setShowHidden: (on: boolean) => void;
   /** A load just started for `id` -- clears any previous error for it too, so
    *  retrying a failed row does not show a stale message beside the spinner. */
   beginLoad: (id: string) => void;
@@ -158,6 +172,10 @@ const FOREST_RESET = {
   evidenceAsked: EMPTY_SET,
   expanded: EMPTY_SET,
   selected: null,
+  // Re-read with the index it rides on. The saved view (`viewDoc`) is NOT here:
+  // it belongs to the choice of collection, and Refresh rebuilds the forest
+  // without re-reading it.
+  viewHints: null,
 };
 
 export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
@@ -181,6 +199,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   expanded: EMPTY_SET,
   selected: null,
   searchTerm: "",
+  viewHints: null,
+  viewDoc: null,
+  showHidden: false,
   loaded: EMPTY_LOADED_ASSETS,
   loadBusy: EMPTY_SET,
   loadErrors: EMPTY_ERRORS,
@@ -192,7 +213,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
     set((s) =>
       s.collection === collection
         ? s
-        : { collection, index: null, indexError: null, ...FOREST_RESET, forestVersion: s.forestVersion + 1 },
+        : { collection, index: null, indexError: null, ...FOREST_RESET, viewDoc: null, forestVersion: s.forestVersion + 1 },
     ),
   setIndex: (index) => set({ index, indexError: null }),
   setIndexLoading: (indexLoading) => set({ indexLoading }),
@@ -267,6 +288,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
     }),
   select: (selected) => set({ selected }),
   setSearchTerm: (searchTerm) => set({ searchTerm }),
+  setViewHints: (viewHints) => set({ viewHints }),
+  setViewDoc: (viewDoc) => set({ viewDoc }),
+  setShowHidden: (showHidden) => set({ showHidden }),
 
   beginLoad: (id) =>
     set((s) => {
@@ -315,6 +339,7 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       indexLoading: false,
       indexError: null,
       ...FOREST_RESET,
+      viewDoc: null,
       forestVersion: s.forestVersion + 1,
       searchTerm: "",
       // `loaded` is left alone: it mirrors the scene, which a scope switch's

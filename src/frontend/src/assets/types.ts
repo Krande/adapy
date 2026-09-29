@@ -13,6 +13,8 @@
  * which the tab displays and never branches on.
  */
 
+import type { TreeViewHints } from "./treeView";
+
 export type DeliveryKind = "none" | "mesh" | "build";
 
 // --- wire ----------------------------------------------------------------------
@@ -112,6 +114,9 @@ export interface HierarchySlice {
   readonly producedAt: string;
   readonly depth: number;
   readonly nodes: readonly AssetNode[];
+  /** The provider's defaults for DRAWING this collection (`view` on the wire),
+   *  published with its collection index. See `./treeView`. */
+  readonly view?: TreeViewHints;
 }
 
 export interface Actor {

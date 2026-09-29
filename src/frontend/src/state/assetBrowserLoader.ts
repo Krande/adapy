@@ -14,6 +14,7 @@ import { collectionIndexRevisions, compareRevisions, defaultCollection, indexFro
 import type { SourceNodesAnswer } from "@/assets/changes";
 import { parseHierarchySlice } from "@/assets/projection";
 import type { SpineSource } from "@/assets/spines";
+import type { TreeViewHints } from "@/assets/treeView";
 import type { AssetNode, WireAssetIndex, WireHierarchySlice } from "@/assets/types";
 
 import type { AssetBrowserState } from "./assetBrowserStore";
@@ -51,6 +52,7 @@ function message(e: unknown): string {
 
 export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, sourceNodesApi?: SourceNodesApiLike) {
   const indexSlices = new Map<string, readonly AssetNode[]>(); // `${collection}@${revision}`
+  const indexHints = new Map<string, TreeViewHints | null>(); // same key: that index's `view`
   let generation = 0; // bumped on scope/collection change; stale responses are dropped
 
   const alive = (gen: number, scope: string, collection: string | null) => {
@@ -170,6 +172,7 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
         if (!indexSlices.has(key)) {
           const slice = parseHierarchySlice(await api.getAssetTree(scope, PROVIDER, collection, { revision }));
           indexSlices.set(key, slice.nodes);
+          indexHints.set(key, slice.view ?? null);
         }
         return revision;
       }),
@@ -188,6 +191,10 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
       });
     }
     cur.setMergedIndexRevisions(wanted);
+    // The provider's drawing suggestion rides on its collection index; the
+    // newest merged one speaks for the collection, as it does for its rows.
+    const newest = [...wanted].sort(compareRevisions).pop();
+    cur.setViewHints(newest ? indexHints.get(`${collection}@${newest}`) ?? null : null);
     await loadRootEvidence(scope, collection);
   }
 
@@ -240,7 +247,12 @@ export function createAssetBrowserLoader(store: StoreLike, api: AssetsApiLike, s
     const s = store.getState();
     if (!s.collection) return loadCollections(scope);
     generation++;
-    for (const k of [...indexSlices.keys()]) if (k.startsWith(`${s.collection}@`)) indexSlices.delete(k);
+    for (const k of [...indexSlices.keys()]) {
+      if (k.startsWith(`${s.collection}@`)) {
+        indexSlices.delete(k);
+        indexHints.delete(k);
+      }
+    }
     s.resetForest();
     await openCollection(scope, s.collection);
   }

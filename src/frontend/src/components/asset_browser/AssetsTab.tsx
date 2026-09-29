@@ -15,10 +15,18 @@
 // selected row's detail says what claim it carries; loading into the scene
 // comes with the delivery kinds.
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { revisionsOf } from "@/assets/assetIndex";
 import { buildAssetHierarchy, buildAssetView, type AssetView } from "@/assets/assetView";
+import {
+    VIEW_DOC_SCHEMA,
+    displayHierarchy,
+    isOutOfScope,
+    resolveTreeView,
+    viewDocFor,
+    type TreeViewDoc,
+} from "@/assets/treeView";
 import type { ChangeState } from "@/assets/changes";
 import {
     assetSourceName,
@@ -39,6 +47,7 @@ import { fetchAssetAttributes } from "@/services/assets";
 import { conversionApi } from "@/services/api/conversion";
 import { filesApi } from "@/services/api/files";
 import { sourceNodesApi } from "@/services/api/sourceNodes";
+import { readViewDoc, writeViewDoc } from "@/services/assetView";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { useViewerStores } from "@/state/AdaViewerContext";
@@ -52,6 +61,7 @@ import { selectTreeNode } from "@/utils/tree_view/treeNavigation";
 import AssetTree from "./AssetTree";
 import { formatRevision } from "./format";
 import RequestCollection from "./RequestCollection";
+import TreeViewPanel, { type TreeViewChange } from "./TreeViewPanel";
 
 // Owner tag for every scene object this tab adds -- the same role `OWNER` in
 // `ExternalModelsPanel.tsx` plays for the External Models panel: a standalone
@@ -744,6 +754,85 @@ const AssetsTab: React.FC = () => {
 
     const revisions = useMemo(() => (index && collection ? revisionsOf(index, collection) : []), [index, collection]);
 
+    // --- how the tree is DRAWN (`@/assets/treeView`) ---------------------------
+    const viewHints = useAssetBrowserStore((s) => s.viewHints);
+    const viewDoc = useAssetBrowserStore((s) => s.viewDoc);
+    const showHidden = useAssetBrowserStore((s) => s.showHidden);
+    const [viewOpen, setViewOpen] = useState(false);
+    const [viewBusy, setViewBusy] = useState(false);
+    const [viewError, setViewError] = useState<string | null>(null);
+
+    // The scope's saved view for this collection, read once per choice of it.
+    useEffect(() => {
+        if (!collection || storeScope !== scope) return;
+        let live = true;
+        void readViewDoc(scope, collection).then((doc) => {
+            if (live && useAssetBrowserStore.getState().collection === collection) {
+                useAssetBrowserStore.getState().setViewDoc(doc);
+            }
+        });
+        return () => {
+            live = false;
+        };
+    }, [scope, collection, storeScope, useAssetBrowserStore]);
+
+    const viewSettings = useMemo(() => resolveTreeView(viewDoc, viewHints), [viewDoc, viewHints]);
+    const display = useMemo(
+        () =>
+            view
+                ? displayHierarchy(view.hierarchy, viewSettings, {
+                      searchActive: searchTerm.trim() !== "",
+                      showHidden,
+                  })
+                : null,
+        [view, viewSettings, searchTerm, showHidden],
+    );
+    const topKinds = useMemo(
+        () => (view ? [...new Set(view.hierarchy.roots.map((id) => view.hierarchy.byId.get(id)?.data.kind ?? ""))] : []),
+        [view],
+    );
+
+    // Written straight through, like every other control in the tab, and shown
+    // at once; put back if the write fails.
+    const saveView = async (doc: TreeViewDoc) => {
+        if (!collection) return;
+        const store = useAssetBrowserStore.getState();
+        const previous = store.viewDoc;
+        setViewBusy(true);
+        setViewError(null);
+        store.setViewDoc(doc);
+        try {
+            await writeViewDoc(scope, collection, doc);
+        } catch (e) {
+            useAssetBrowserStore.getState().setViewDoc(previous);
+            setViewError(`Could not save the view: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+            setViewBusy(false);
+        }
+    };
+    const onViewChange = (next: TreeViewChange) =>
+        void saveView(
+            viewDocFor({ flattenKinds: next.flattenKinds, rootKinds: next.rootKinds, outOfScope: viewSettings.outOfScope }),
+        );
+    // Back to the provider's kinds; the out-of-scope list is the scope's own and stays.
+    const onUseProviderDefaults = () =>
+        void saveView({
+            schema: VIEW_DOC_SCHEMA,
+            out_of_scope: [...viewSettings.outOfScope].sort(),
+            updated_at: new Date().toISOString(),
+        });
+    const toggleOutOfScope = (id: string) => {
+        const next = new Set(viewSettings.outOfScope);
+        if (!next.delete(id)) next.add(id);
+        // Only the list changes: saved kind choices are kept as saved, and a
+        // provider default stays a default rather than being frozen into the file.
+        void saveView({
+            ...(viewDoc ?? { schema: VIEW_DOC_SCHEMA }),
+            out_of_scope: [...next].sort(),
+            updated_at: new Date().toISOString(),
+        });
+    };
+
     // A request publishes into this scope: re-read, then show what arrived.
     const onPublished = async (published: string) => {
         await loader.refresh(scope);
@@ -810,7 +899,58 @@ const AssetsTab: React.FC = () => {
                     >
                         ⟳
                     </button>
+                    <button
+                        type="button"
+                        aria-pressed={viewOpen}
+                        className={`text-xs px-1 rounded-sm ${viewOpen ? "bg-gray-600 text-white" : "text-gray-300 hover:text-white"}`}
+                        onClick={() => setViewOpen((o) => !o)}
+                        title="How this collection's tree is drawn: where it starts, which top-level kinds, what is out of scope"
+                    >
+                        View
+                    </button>
                 </div>
+                {viewOpen && (
+                    <TreeViewPanel
+                        settings={viewSettings}
+                        hints={viewHints}
+                        topKinds={topKinds}
+                        rootKindCensus={display?.rootKindCensus ?? new Map()}
+                        busy={viewBusy}
+                        error={viewError}
+                        onChange={onViewChange}
+                        onUseProviderDefaults={onUseProviderDefaults}
+                    />
+                )}
+                {!viewOpen && viewError && <Banner tone="error">{viewError}</Banner>}
+                {display && (display.hiddenRoots > 0 || viewSettings.outOfScope.size > 0 || display.rootFilterStoodDown) && (
+                    <div className="px-1 pt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400 shrink-0">
+                        {display.hiddenRoots > 0 && (
+                            <button
+                                type="button"
+                                className="hover:text-white"
+                                title="Top-level branches of other kinds are not drawn. Change it under View."
+                                onClick={() => setViewOpen(true)}
+                            >
+                                −{display.hiddenRoots} top-level branch{display.hiddenRoots === 1 ? "" : "es"}
+                            </button>
+                        )}
+                        {display.rootFilterStoodDown && (
+                            <span title="None of the chosen kinds is at the top, so every branch is drawn">
+                                top-level filter matches nothing — showing all
+                            </span>
+                        )}
+                        {viewSettings.outOfScope.size > 0 && (
+                            <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={showHidden}
+                                    onChange={(e) => useAssetBrowserStore.getState().setShowHidden(e.target.checked)}
+                                />
+                                show {viewSettings.outOfScope.size} out of scope
+                            </label>
+                        )}
+                    </div>
+                )}
                 <div className="px-1 pt-1 shrink-0">
                     <input
                         className="w-full bg-gray-600 text-white rounded-sm pl-1 text-sm"
@@ -877,9 +1017,12 @@ const AssetsTab: React.FC = () => {
                 </div>
 
                 <div className="flex-1 min-h-0 flex flex-col">
-                    {view && (
+                    {view && display && (
                         <AssetTree
                             view={view}
+                            display={display.hierarchy}
+                            outOfScope={viewSettings.outOfScope}
+                            showHidden={showHidden}
                             onRetrySpine={(source) => void loader.loadSpine(scope, source)}
                         />
                     )}
@@ -896,6 +1039,33 @@ const AssetsTab: React.FC = () => {
                     />
                 )}
                 {view && selected && <Detail view={view} id={selected} scope={scope} />}
+                {view && selected && view.hierarchy.byId.has(selected) && (
+                    <div className="px-1 pb-1 shrink-0 text-xs">
+                        {viewSettings.outOfScope.has(selected) ? (
+                            <button
+                                type="button"
+                                disabled={viewBusy}
+                                className="px-1.5 py-0.5 rounded-sm border border-gray-600 hover:bg-gray-700 disabled:opacity-50"
+                                title="Draw this branch again, for everyone in this scope"
+                                onClick={() => toggleOutOfScope(selected)}
+                            >
+                                Back in scope
+                            </button>
+                        ) : isOutOfScope(view.hierarchy, viewSettings.outOfScope, selected) ? (
+                            <span className="text-gray-500">Out of scope through a branch above it.</span>
+                        ) : (
+                            <button
+                                type="button"
+                                disabled={viewBusy}
+                                className="px-1.5 py-0.5 rounded-sm border border-gray-600 hover:bg-gray-700 disabled:opacity-50"
+                                title="Stop drawing this branch and everything under it, for everyone in this scope. Hides nothing that is published; Show hidden draws it again."
+                                onClick={() => toggleOutOfScope(selected)}
+                            >
+                                Out of scope
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         );
     }
