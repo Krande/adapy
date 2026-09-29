@@ -63,23 +63,33 @@ Two pixi tasks drive the report:
 
 .. code-block:: bash
 
-    # Cheap rebuild — consumes whatever's in `_assets/` (committed GLBs,
-    # cached eigenvalue JSONs). Run automatically as part of `pixi run docs`.
+    # Full build: runs every installed solver and bakes fresh mode-shape
+    # bundles into `_assets/`. Run automatically as part of `pixi run docs`.
     pixi run -e docs fea-doc
 
-    # Full regen on a host with FEA solvers installed: re-runs solvers and
-    # bakes fresh per-(case, mode) deformed-mesh GLBs into `_assets/`.
-    pixi run -e docs fea-doc-regen
+    # Rebuild reusing paradoc's task cache and whatever `_assets/` holds.
+    pixi run -e docs fea-doc-cached
 
 The bundle lands at ``docs/_static/fea-report/`` and is served as a
-standalone page (linked above). Mode-shape and beam geometry GLBs are
-checked into ``verification/_assets/``; the frontend
-resolves them by the ``data-3d-key`` attribute on each ``ThreeDView``
-substitution.
+standalone page (linked above). ``verification/_assets/`` is a build
+directory and is not committed; the frontend resolves its GLBs by the
+``data-3d-key`` attribute on each ``ThreeDView`` substitution.
 
 .. note::
 
-    The verification tests require at least one FEA solver to be installed and configured.
-    Supported solvers include: Code_Aster, CalculiX, Abaqus, and Sesam.
-    The CI docs build does **not** rerun solvers; it consumes the
-    eigenvalue JSON cache and the pre-baked GLBs from the repo.
+    Code_Aster and CalculiX are installed in the ``docs`` environment and
+    run on every build, CI included. Abaqus and Sesam need a licence, so a
+    licensed machine commits what they measured and every other build
+    replays it:
+
+    - ``verification/.cache/<case>.json`` (and ``.cache-plate/`` for the
+      plate strip) holds the frequencies, eigenvalues, participation factors
+      and effective masses;
+    - ``verification/.cache/<case>/`` beside it holds the raw mode shapes as
+      an FEA artefact bundle (``fea.mesh.glb``, the nodal displacement blob
+      and ``fea.manifest.json``). A build copies it into ``_assets/`` and
+      renders the per-mode posters from it, so the PNGs are never committed.
+
+    A licensed run writes both whenever a JSON snapshot is saved (unset
+    ``ADA_FEM_DO_NOT_SAVE_CACHE``). Review the size of the bundles before
+    committing them: a lean bundle is about 0.4–1.5 MB per case.
