@@ -1,7 +1,7 @@
 {
     "name": "plate_static_ses_shell_o1_stFalse_h0p0625",
     "fem_format": "sesam",
-    "software_version": "11.2.0.92",
+    "software_version": "10.20.0.122",
     "metadata": {
         "elo": 1
     },
@@ -9,5 +9,10 @@
     "mesh_size": 0.0625,
     "stiffened": false,
     "n_shells": 512,
-    "last_modified": 1790592506.820544
+    "fea_bundle": {
+        "dir": "plate_static_ses_shell_o1_stFalse_h0p0625",
+        "manifest_sha256": "c796e64c979477b265c7af50bb6721eddd493cb1da0e958e1f1fa68eca831543",
+        "n_steps": 1
+    },
+    "last_modified": 1790671460.836624
 }

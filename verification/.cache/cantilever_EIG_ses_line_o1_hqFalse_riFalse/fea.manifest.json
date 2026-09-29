@@ -1,0 +1,233 @@
+{
+  "version": 2,
+  "bake_version": 3,
+  "src": "cantilever_EIG_ses_line_o1_hqFalse_riFalse",
+  "mesh": {
+    "url": "fea.mesh.glb",
+    "n_points": 44,
+    "n_cells": 43,
+    "node_labels": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44
+    ],
+    "edges_url": "fea.mesh.edges.bin",
+    "n_edges": 43,
+    "line_edges_url": "fea.mesh.line_edges.bin",
+    "elements_url": "fea.mesh.elements.bin",
+    "n_elements": 43,
+    "beam_solids_compact_url": "fea.beam_solids.compact.bin",
+    "n_beam_solid_verts": 1032,
+    "n_beam_solids": 43,
+    "n_beam_total": 43
+  },
+  "fields": [
+    {
+      "name_canonical": "sesam.nodes.displacement",
+      "name_native": "sesam.nodes.displacement",
+      "kind": "vector7",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "ALL",
+        "X",
+        "Y",
+        "Z",
+        "RX",
+        "RY",
+        "RZ"
+      ],
+      "blob": {
+        "url": "fea.sesam.nodes.displacement.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 1232,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 11,
+      "steps": [
+        {
+          "i": 0,
+          "value": 12.24538,
+          "label": "12.2454"
+        },
+        {
+          "i": 1,
+          "value": 12.94308,
+          "label": "12.9431"
+        },
+        {
+          "i": 2,
+          "value": 36.75249,
+          "label": "36.7525"
+        },
+        {
+          "i": 3,
+          "value": 44.96223,
+          "label": "44.9622"
+        },
+        {
+          "i": 4,
+          "value": 61.30865,
+          "label": "61.3087"
+        },
+        {
+          "i": 5,
+          "value": 79.793,
+          "label": "79.793"
+        },
+        {
+          "i": 6,
+          "value": 85.94663,
+          "label": "85.9466"
+        },
+        {
+          "i": 7,
+          "value": 110.6993,
+          "label": "110.699"
+        },
+        {
+          "i": 8,
+          "value": 135.5996,
+          "label": "135.6"
+        },
+        {
+          "i": 9,
+          "value": 160.6808,
+          "label": "160.681"
+        },
+        {
+          "i": 10,
+          "value": 176.4949,
+          "label": "176.495"
+        }
+      ],
+      "scalar_range": {
+        "ALL": [
+          0.0,
+          0.30000001192092896
+        ],
+        "X": [
+          -5.1054932850846946e-12,
+          3.304803262646483e-12
+        ],
+        "Y": [
+          -0.21798190474510193,
+          0.30000001192092896
+        ],
+        "Z": [
+          -0.29999998211860657,
+          0.30000001192092896
+        ],
+        "RX": [
+          -1.2758668661117554,
+          1.2767187356948853
+        ],
+        "RY": [
+          -0.29610565304756165,
+          0.10610173642635345
+        ],
+        "RZ": [
+          -0.22361381351947784,
+          0.471091091632843
+        ],
+        "magnitude": [
+          0.0,
+          0.4242640733718872
+        ]
+      },
+      "default_view": {
+        "reduction": "ALL",
+        "colormap": "viridis"
+      },
+      "semantic_key": "sesam.nodes.displacement",
+      "group_path": [
+        "Nodes",
+        "DISPLACEMENT"
+      ],
+      "coordinate_system": "model",
+      "surface": "",
+      "derived": true,
+      "unit": "",
+      "component_units": [
+        "m",
+        "m",
+        "m",
+        "m",
+        "rad",
+        "rad",
+        "rad"
+      ],
+      "mode_normalization": {
+        "method": "max_translation",
+        "target_fraction": 0.1,
+        "reference_length": 3.0,
+        "reference_peak": 0.14489394426345825,
+        "factors": [
+          2.0704799053196803,
+          2.0704799053196803,
+          2.0704799053196803,
+          2.2316260674476145,
+          2.0704799053196803,
+          2.08733197278968,
+          2.0704799053196803,
+          2.0704799053196803,
+          2.0704799053196803,
+          2.0704799053196803,
+          2.5339170851493247
+        ],
+        "translation_free": [
+          0,
+          2,
+          4,
+          6,
+          7,
+          8,
+          9
+        ]
+      }
+    }
+  ]
+}
