@@ -8,6 +8,7 @@ from ada.cadit.gxml.read.helpers import (
 from ada.cadit.gxml.read.read_bcs import get_boundary_conditions
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_joints import get_joints
+from ada.cadit.gxml.read.read_loads import get_loads
 from ada.cadit.gxml.read.read_masses import get_masses
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
@@ -132,6 +133,8 @@ class GxmlStore:
 
         get_boundary_conditions(self.xml_root, p)
         get_masses(self.xml_root, p)
+        # after the plates: a surface load names its plate
+        get_loads(self.xml_root, p)
 
         all_plates = len(p.plates)
         all_beams = len(p.beams)
