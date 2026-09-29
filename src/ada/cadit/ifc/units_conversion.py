@@ -89,7 +89,7 @@ def convert_file_length_units(ifc_file: ifcopenshell.file, units: Units) -> ifco
     prefix = "MILLI" if target_units == "MILLIMETERS" else None
 
     # Copy all elements from the original file to the patched file
-    file_patched = ifcopenshell.file.from_string(ifc_file.wrapped_data.to_string())
+    file_patched = ifcopenshell.file.from_string(ifc_file.to_string())
 
     unit_assignment = ifcopenshell.util.unit.get_unit_assignment(file_patched)
 

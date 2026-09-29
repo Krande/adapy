@@ -106,7 +106,7 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     # The body is in the local system of the shape, placed by the shape placement relative to its parent
     shape_placement = create_object_placement(f, shape, relative_to=rel_to)
 
-    schema = f.wrapped_data.schema
+    schema = f.schema_identifier
 
     # Choose between parametric (round-trippable IfcAdvancedFace /
     # ClosedShell / etc.) and tesselation. The parametric path

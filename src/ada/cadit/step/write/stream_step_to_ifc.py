@@ -468,7 +468,7 @@ def stream_step_to_ifc(
     body_ctx_id = store.get_context("Body").id()
     container_id = f.by_guid(container.guid).id()
 
-    pre_text = f.wrapped_data.to_string()
+    pre_text = f.to_string()
     cut = pre_text.rindex("ENDSEC;")
     head = pre_text[:cut].rstrip("\n")
     start_id = max((e.id() for e in f), default=0) + 1

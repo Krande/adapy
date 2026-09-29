@@ -109,7 +109,7 @@ def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
     f = ifc_store.f
 
     owner_history = ifc_store.owner_history
-    schema = f.wrapped_data.schema
+    schema = f.schema_identifier
 
     # Create a simplified representation for the Window
     insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)

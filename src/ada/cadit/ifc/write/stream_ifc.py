@@ -526,7 +526,7 @@ def stream_assembly_to_ifc(
         )
 
     # ── serialise the preamble (drop empty stub material-rels + the footer) ──
-    pre_text = f.wrapped_data.to_string()
+    pre_text = f.to_string()
     cut = pre_text.rindex("ENDSEC;")
     head = [
         ln
