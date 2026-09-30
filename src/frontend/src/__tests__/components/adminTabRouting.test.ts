@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseTabId } from "@/components/admin/adminTabs";
+import { auditHash, parseAdminHash, parseTabId } from "@/components/admin/adminTabs";
 
 // Deep links into the admin panel after folding nine top-level tabs into three.
 //
@@ -47,7 +47,7 @@ test("an unknown sub-tab falls back to the tab's default rather than the wrong p
 });
 
 test("ungrouped tabs still resolve unchanged", () => {
-  for (const id of ["issues", "projects", "external_models", "storage", "workers", "conversion"]) {
+  for (const id of ["issues", "projects", "users", "external_models", "storage", "workers", "conversion"]) {
     assert.deepEqual(parse(id), { tab: id });
   }
 });
@@ -60,4 +60,36 @@ test("a plugin id survives, and is never split on its colon", () => {
 test("an unknown hash falls back to audit", () => {
   assert.deepEqual(parse("does-not-exist"), { tab: "audit" });
   assert.deepEqual(parse(""), { tab: "audit" });
+});
+
+// The Users tab's "Audit log" link: /admin#audit/log?user_sub=<sub>.
+
+test("the audit user filter round-trips through the hash, whatever the sub contains", () => {
+  for (const sub of ["abc-123", "ci:demo:build", "a/b?c#d&e=f", "Ada Lovelace"]) {
+    const hash = auditHash(sub, "log");
+    assert.deepEqual(parseAdminHash(hash, NO_PLUGINS), { tab: "audit", sub: "log", userSub: sub });
+  }
+});
+
+test("a bare audit hash carries no user, and the query never leaks into the tab id", () => {
+  assert.equal(auditHash(), "audit");
+  assert.equal(auditHash(undefined, "runs"), "audit/runs");
+  assert.deepEqual(parseAdminHash("audit", NO_PLUGINS), { tab: "audit", sub: undefined });
+  assert.deepEqual(parseAdminHash("audit?user_sub=x", NO_PLUGINS), {
+    tab: "audit",
+    sub: undefined,
+    userSub: "x",
+  });
+  // Empty value is no filter, not a filter on "".
+  assert.deepEqual(parseAdminHash("audit/log?user_sub=", NO_PLUGINS), { tab: "audit", sub: "log" });
+});
+
+test("a user filter on a non-audit tab is ignored rather than applied elsewhere", () => {
+  assert.deepEqual(parseAdminHash("projects?user_sub=x", NO_PLUGINS), { tab: "projects" });
+  // Legacy ids keep resolving with a query attached.
+  assert.deepEqual(parseAdminHash("audit_runs?user_sub=x", NO_PLUGINS), {
+    tab: "audit",
+    sub: "runs",
+    userSub: "x",
+  });
 });

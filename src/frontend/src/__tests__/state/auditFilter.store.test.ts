@@ -6,6 +6,7 @@ import {
   AUDIT_FILTER_KEYS,
   AUDIT_RANGES,
   AUDIT_REFRESH_INTERVALS,
+  auditFiltersForUser,
   countActiveAuditFilters,
   useAuditFilterStore,
 } from "@/state/auditFilterStore";
@@ -220,4 +221,22 @@ test("a filter change counts as a refresh for freshness", () => {
   const t0 = s().lastRefreshedAt;
   s().patch({ status: "error" });
   assert.ok(s().lastRefreshedAt >= t0);
+});
+
+test("a per-user audit link lands on that user alone, over all time", () => {
+  // The Users tab's "Audit log" link. Leftover filters would answer a
+  // different question, and the 24h default would show an empty log for
+  // anyone who last acted yesterday.
+  reset();
+  const store = useAuditFilterStore.getState();
+  store.patch({ status: "error", target: "glb" });
+  store.set(auditFiltersForUser("ci:demo:build"));
+  const { filters } = useAuditFilterStore.getState();
+  assert.equal(filters.user_sub, "ci:demo:build");
+  assert.equal(filters.status, undefined);
+  assert.equal(filters.target, undefined);
+  assert.equal(filters.since, undefined, "window should be all time");
+  assert.equal(filters.limit, 100);
+  // Visible as exactly one active filter, so its chip can clear it.
+  assert.equal(countActiveAuditFilters(filters), 1);
 });

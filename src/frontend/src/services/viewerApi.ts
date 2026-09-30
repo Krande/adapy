@@ -26,6 +26,7 @@ import { adminAuditApi } from "./api/adminAudit";
 import { adminCorpusApi } from "./api/adminCorpus";
 import { adminProjectsApi } from "./api/adminProjects";
 import { adminStorageApi } from "./api/adminStorage";
+import { adminUsersApi } from "./api/adminUsers";
 import { workersApi } from "./api/workers";
 import { metricsApi } from "./api/metrics";
 import { settingsApi } from "./api/settings";
@@ -46,6 +47,7 @@ export const viewerApi = {
   ...adminCorpusApi,
   ...adminProjectsApi,
   ...adminStorageApi,
+  ...adminUsersApi,
   ...workersApi,
   ...metricsApi,
   ...settingsApi,
@@ -129,6 +131,7 @@ export type {
   MetricsHistoryResp,
 } from "./api/metrics";
 export type { AdminProject, ProjectMember } from "./api/adminProjects";
+export type { AdminUser, AdminUserProject } from "./api/adminUsers";
 export type { Corpus } from "./api/adminCorpus";
 export type { PluginJobSchedule, BackendPluginSpec } from "./api/plugins";
 export type {

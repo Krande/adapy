@@ -51,6 +51,7 @@ from .routes.admin_projects import router as admin_projects_router
 from .routes.admin_settings import router as admin_settings_router
 from .routes.admin_storage import router as admin_storage_router
 from .routes.admin_storage_compression import router as admin_storage_compression_router
+from .routes.admin_users import router as admin_users_router
 from .routes.admin_workers import router as admin_workers_router
 from .routes.assets import router as assets_router
 from .routes.clash_check import router as clash_check_router
@@ -2637,6 +2638,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_audit_perf_router)
 
     admin.include_router(admin_projects_router)
+
+    admin.include_router(admin_users_router)
 
     admin.include_router(admin_storage_router)
 

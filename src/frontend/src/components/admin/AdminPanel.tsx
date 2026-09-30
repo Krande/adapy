@@ -1,12 +1,13 @@
 import React, {useEffect, useState} from "react";
 import {AdminTab, AdminTabDeepLink} from "@/state/adminPanelStore";
+import {auditFiltersForUser, useAuditFilterStore} from "@/state/auditFilterStore";
 import {useMeStore} from "@/state/meStore";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {disablePlugin, getAdminTabs, makePluginContextStandalone} from "@/plugins";
 import AuditTab from "./AuditTab";
 import PerformanceTab from "./PerformanceTab";
 import ProceduralTab from "./ProceduralTab";
-import {parseTabId} from "./adminTabs";
+import {auditHash, parseAdminHash, parseTabId} from "./adminTabs";
 import type {AuditSubTab, PerformanceSubTab, ProceduralSubTab} from "./adminTabs";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
@@ -14,6 +15,7 @@ import IssueTargetTab from "./IssueTargetTab";
 import ExternalModelsTab from "./ExternalModelsTab";
 import ProjectsTab from "./ProjectsTab";
 import StorageTab from "./adminStorage/StorageTab";
+import UsersTab from "./users/UsersTab";
 import WorkersTab from "./WorkersTab";
 
 // Path-mounted admin page (``/admin``) — full-screen on every
@@ -28,10 +30,22 @@ import WorkersTab from "./WorkersTab";
 // default. Anchor links elsewhere in the SPA can deep-link to a
 // specific tab without touching state, e.g. the conversion-toast
 // info icon hard-codes ``/admin#audit``.
+//
+// The audit tab's hash may also carry a user filter —
+// ``/admin#audit/log?user_sub=<sub>`` — which is what the Users tab's
+// "Audit log" link points at. It is two-way like the tab itself: landing on it
+// applies the filter, and clearing the filter's chip drops it from the URL, so
+// the address bar never claims a filter the screen is not showing.
 
 
-function readTabFromHash(extra: ReadonlySet<string>): {tab: string; sub?: string} {
-    return parseTabId((window.location.hash || "").replace(/^#/, "").trim(), extra);
+function readTabFromHash(extra: ReadonlySet<string>): {tab: string; sub?: string; userSub?: string} {
+    return parseAdminHash((window.location.hash || "").replace(/^#/, "").trim(), extra);
+}
+
+function applyAuditUser(userSub: string | undefined): void {
+    if (!userSub) return;
+    const store = useAuditFilterStore.getState();
+    if (store.filters.user_sub !== userSub) store.set(auditFiltersForUser(userSub));
 }
 
 interface AdminPanelProps {
@@ -57,35 +71,57 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
     // One parser for both entry points, so a retired id like "audit_runs"
     // resolves the same whether it arrives in the URL hash or from an in-app
     // trigger (the audit-sweep toast passes exactly that).
-    const initial = syncHash
+    const initial: {tab: string; sub?: string; userSub?: string} = syncHash
         ? readTabFromHash(pluginTabIds)
         : parseTabId(initialTab ?? "audit", pluginTabIds);
-    const [tab, setTab] = useState<string>(initial.tab);
-    // Sub-tab is only read FROM the hash (a legacy deep link, or #audit/runs).
-    // AuditTab owns it thereafter; re-serialising every sub-tab click into the
-    // URL would mean this component re-rendered the whole panel on each one.
-    const [initialSub] = useState<string | undefined>(initial.sub);
+    const [tab, setTab] = useState<string>(() => {
+        // A user filter in the landing URL goes into the store BEFORE the
+        // first render subscribes to it, so the audit panels' first fetch is
+        // already the filtered one rather than a 24h-of-everything query
+        // followed by a second, narrowed one.
+        applyAuditUser(initial.userSub);
+        return initial.tab;
+    });
+    // Sub-tab is only read FROM the hash (a legacy deep link, or #audit/runs)
+    // or set by an in-app jump (the Users tab's audit link). AuditTab owns it
+    // thereafter; re-serialising every sub-tab click into the URL would mean
+    // this component re-rendered the whole panel on each one.
+    const [initialSub, setInitialSub] = useState<string | undefined>(initial.sub);
+    const auditUserSub = useAuditFilterStore((s) => s.filters.user_sub);
     const activePlugin = pluginTabs.find((t) => t.panel.id === tab) ?? null;
+
+    /** Jump to the audit log narrowed to one user. Works embedded too — it
+     * never goes through the hash, it only ends up reflected in it. */
+    const openAuditForUser = (userSub: string) => {
+        useAuditFilterStore.getState().set(auditFiltersForUser(userSub));
+        setInitialSub("log");
+        setTab("audit");
+    };
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside
     // the page. setTab writes; popstate / hashchange reads back.
     useEffect(() => {
         if (!syncHash) return;
-        const onChange = () => setTab(readTabFromHash(pluginTabIds).tab);
+        const onChange = () => {
+            const next = readTabFromHash(pluginTabIds);
+            applyAuditUser(next.userSub);
+            setInitialSub(next.sub);
+            setTab(next.tab);
+        };
         window.addEventListener("hashchange", onChange);
         return () => window.removeEventListener("hashchange", onChange);
     }, [syncHash]);
 
     useEffect(() => {
         if (!syncHash) return;
-        const desired = `#${tab}`;
+        const desired = tab === "audit" ? `#${auditHash(auditUserSub)}` : `#${tab}`;
         if (window.location.hash !== desired) {
             // ``replaceState`` so each tab switch doesn't pollute the
             // back-button history with a long chain of admin tabs.
             window.history.replaceState(null, "", desired);
         }
-    }, [syncHash, tab]);
+    }, [syncHash, tab, auditUserSub]);
 
     if (!isAdmin) {
         // Non-admin landed on /admin directly (or auth dropped them
@@ -133,6 +169,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
                         Projects
                     </TabButton>
+                    <TabButton active={tab === "users"} onClick={() => setTab("users")}>
+                        Users
+                    </TabButton>
                     <TabButton active={tab === "external_models"} onClick={() => setTab("external_models")}>
                         External Models
                     </TabButton>
@@ -178,6 +217,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <PerformanceTab initialSubTab={initialSub as PerformanceSubTab | undefined}/>
                 )}
                 {tab === "projects" && <ProjectsTab/>}
+                {tab === "users" && <UsersTab onOpenAudit={openAuditForUser}/>}
                 {tab === "external_models" && <ExternalModelsTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}

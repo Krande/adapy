@@ -46,6 +46,7 @@ export const VALID_TABS: ReadonlySet<string> = new Set([
     "issues",
     "performance",
     "projects",
+    "users",
     "external_models",
     "storage",
     "workers",
@@ -97,4 +98,38 @@ export function parseTabId(raw: string, extra: ReadonlySet<string>): {tab: strin
 
     if (VALID_TABS.has(raw) || extra.has(raw)) return {tab: raw};
     return {tab: "audit"};
+}
+
+/** The one audit filter the hash carries: ``#audit?user_sub=<sub>``.
+ *
+ * Only the user, deliberately. It is the filter other panels hand over (the
+ * Users tab's "Audit" link) and the one worth pasting to a colleague — "here
+ * is everything this person did". The rest of the bar stays in-memory, for the
+ * reason auditFilterStore gives: a filter is a step in an investigation, and a
+ * URL that silently restores six of them is the hidden-filter failure the
+ * chips exist to prevent. */
+export const AUDIT_USER_PARAM = "user_sub";
+
+/** Split ``audit/log?user_sub=x`` into the tab path parseTabId expects and the
+ * query. Parsing the query separately keeps parseTabId's rules untouched —
+ * ``?`` never appears in a tab, sub-tab or plugin id. */
+export function parseAdminHash(
+    raw: string,
+    extra: ReadonlySet<string>,
+): {tab: string; sub?: string; userSub?: string} {
+    const q = raw.indexOf("?");
+    const path = q < 0 ? raw : raw.slice(0, q);
+    const target = parseTabId(path, extra);
+    if (q < 0 || target.tab !== "audit") return target;
+    const userSub = new URLSearchParams(raw.slice(q + 1)).get(AUDIT_USER_PARAM)?.trim();
+    return userSub ? {...target, userSub} : target;
+}
+
+/** Hash for the audit tab, optionally narrowed to one user. ``sub`` picks the
+ * landing sub-tab; the query is URL-encoded, so a sub with ``/``, ``?``, ``#``
+ * or ``:`` (CI bots are ``ci:<slug>:<name>``) survives the round trip. */
+export function auditHash(userSub?: string, sub?: AuditSubTab): string {
+    const path = sub ? `audit/${sub}` : "audit";
+    if (!userSub) return path;
+    return `${path}?${new URLSearchParams({[AUDIT_USER_PARAM]: userSub}).toString()}`;
 }

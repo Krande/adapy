@@ -146,6 +146,20 @@ function defaultAuditFilters(): AuditFilters {
     return {limit: AUDIT_PAGE_LIMIT, since: loadDefaultAuditRange()};
 }
 
+/** The filter a "show this user's audit trail" link lands on: that user, and
+ * nothing else.
+ *
+ * Every other field is cleared, the window included. A leftover status filter
+ * would answer a different question than the link asked, and the remembered
+ * 24h default would show an empty log for anyone who last did something
+ * yesterday — "no rows" read as "this person did nothing". All time is safe
+ * here where it is not as a default: the query is narrowed to one user and
+ * served by the (user_sub, ts) index. The range control still shows "All
+ * time", so nothing about it is hidden. */
+export function auditFiltersForUser(userSub: string): AuditFilters {
+    return {limit: AUDIT_PAGE_LIMIT, user_sub: userSub};
+}
+
 /** Filter keys the operator can actually set — i.e. everything except the
  * paging machinery. Used for "is anything filtered?" and for the chip row.
  *
