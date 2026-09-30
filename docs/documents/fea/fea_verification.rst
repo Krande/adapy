@@ -19,6 +19,8 @@ multiple FEA software packages supported by ADA.
         <a href="../../_static/fea-report-files/fea-report.pdf" download>PDF</a>
         &middot;
         <a href="../../_static/fea-report-files/fea-report.docx" download>Word (DOCX)</a>
+        &middot;
+        <a href="../../_static/fea-report-files/fea-report.odt" download>OpenDocument (ODT)</a>
     </p>
     <p style="color: #555; font-size: 0.95em;">
         The report is a standalone paradoc bundle with sortable tables,

@@ -58,7 +58,8 @@ fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspec
 # docs/_static/fea-report-files/ -- beside the web bundle, not inside it: the static export
 # deletes its target folder on every build. Sphinx copies _static into the published site.
 fea-doc-docx = { cmd = "python -m paradoc.cli_app build verification -p docx --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.docx docs/_static/fea-report-files/fea-report.docx", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
-fea-doc-pdf = { cmd = "python -m paradoc.cli_app build verification -p pdf --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.pdf docs/_static/fea-report-files/fea-report.pdf", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+fea-doc-odt = { cmd = "python -m paradoc.cli_app build verification -p odt --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.odt docs/_static/fea-report-files/fea-report.odt", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
+fea-doc-pdf = { cmd ="python -m paradoc.cli_app build verification -p pdf --name fea-report --work-dir temp/fea-report-export && mkdir -p docs/_static/fea-report-files && cp temp/fea-report-export/_dist/fea-report.pdf docs/_static/fea-report-files/fea-report.pdf", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
 serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
@@ -540,7 +541,7 @@ pytest-benchmark = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 pytest-cov = "*"
-paradoc = ">=0.7.1"
+paradoc = ">=0.8.0"
 python-dotenv = "*"
 watchdog = "*"
 
