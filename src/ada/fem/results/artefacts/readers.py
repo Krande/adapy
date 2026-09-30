@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 
 from .protocol import FEAStreamReader
+from .step_subset import normalize_steps, restrict_to_steps
 from .stream_adapter import FEAResultStreamAdapter
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
     return SifStreamReader(path)
 
 
-def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
+def _make_sin_reader(path: pathlib.Path, steps: "Iterable[int] | None" = None) -> "FEAStreamReader":
     # Pure-Python Sesam Norsam-binary reader (see
     # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
     # and no SIF text intermediate — feeds the streaming bake directly.
@@ -71,13 +72,18 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
     # flat in step count, for many-mode / large decks whose full result
     # would OOM the worker. On the streamer path step labels fall back to
     # the IRES mode index (no LIS enrichment).
+    #
+    # ``steps`` (result-case numbers) always takes the streamer, restricted to
+    # those cases: the full-materialise adapter reads every case before it can
+    # offer one, which on a deck of a few hundred combinations is hours and tens
+    # of gigabytes for the sake of one case.
     import os
 
-    if os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if steps is not None or os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
         from ada.fem.formats.sesam.results.read_sin import SinStreamReader
         from ada.fem.formats.sesam.results.sin_reader import open_sin
 
-        return SinStreamReader(open_sin(str(path)))
+        return SinStreamReader(open_sin(str(path)), steps=steps)
 
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
@@ -209,12 +215,18 @@ def is_fea_artefact_source(src_key_or_path) -> bool:
     return suffix in fea_artefact_extensions()
 
 
-def make_stream_reader(src_path: os.PathLike) -> FEAStreamReader:
+def make_stream_reader(src_path: os.PathLike, *, steps: Iterable[int] | None = None) -> FEAStreamReader:
     """Open the right streaming reader for a source file's extension.
 
     Dispatch goes through ``_STREAM_READERS``; built-ins (``.rmed`` /
     ``.sif``) self-register on first call. Caller is responsible for
-    closing the returned reader (use as a context manager)."""
+    closing the returned reader (use as a context manager).
+
+    ``steps``: offer only these steps, by value (for Sesam, the result-case
+    numbers). A factory that takes ``steps`` gets them and can skip reading the
+    rest (``.sin`` does); any other reader is narrowed by
+    :func:`~.step_subset.restrict_to_steps`. None, the default, offers every
+    step, as before."""
 
     _ensure_builtin_stream_readers()
     src_path = pathlib.Path(src_path)
@@ -224,4 +236,19 @@ def make_stream_reader(src_path: os.PathLike) -> FEAStreamReader:
         raise ValueError(
             f"no streaming reader for FEA source extension {ext!r}; " f"registered: {sorted(_STREAM_READERS)}"
         )
-    return factory(src_path)
+    if steps is None:
+        return factory(src_path)
+    steps = normalize_steps(steps)
+    if _takes_steps(factory):
+        return factory(src_path, steps=steps)
+    return restrict_to_steps(factory(src_path), steps)
+
+
+def _takes_steps(factory: _StreamReaderFactory) -> bool:
+    import inspect
+
+    try:
+        params = inspect.signature(factory).parameters
+    except (TypeError, ValueError):
+        return False
+    return "steps" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())

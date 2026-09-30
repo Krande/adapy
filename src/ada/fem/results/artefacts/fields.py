@@ -22,8 +22,10 @@ from .protocol import FEAStreamReader
 from .specs import (
     ElementFieldArtefactMeta,
     ElementFieldSpec,
+    ElementStepValues,
     FieldArtefactMeta,
     FieldSpec,
+    StepValues,
 )
 
 # ---------------------------------------------------------------------------
@@ -60,11 +62,109 @@ def _encode_blob_header(spec: FieldSpec, stride_bytes: int) -> bytes:
     return prefix + b"\x00" * (BLOB_HEADER_BYTES - len(prefix))
 
 
+class FieldBlobWriter:
+    """One nodal field's AFBL blob, written a step at a time.
+
+    :func:`write_field_blob_streaming` drives it from a reader field by field;
+    the bake can instead keep one open per field and feed them all a step at a
+    time (see :func:`~.bake.bake_artefacts`), which lets a reader that decodes a
+    whole step at once decode it once for every field. Either way the bytes and
+    the scalar ranges are the same: they depend on the order of a field's own
+    steps, never on how the fields are interleaved.
+
+    ``step_transform(step_index, values)``, when given, rewrites each step
+    before it is written and ranged (mode normalization).
+    """
+
+    def __init__(
+        self,
+        spec: FieldSpec,
+        out_path: os.PathLike,
+        step_transform: Callable[[int, np.ndarray], np.ndarray] | None = None,
+    ) -> None:
+        self.spec = spec
+        self.path = pathlib.Path(out_path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._transform = step_transform
+        self.stride = spec.n_points * spec.n_components * spec.dtype.itemsize
+        self._comp_min = np.full(spec.n_components, np.inf, dtype=np.float64)
+        self._comp_max = np.full(spec.n_components, -np.inf, dtype=np.float64)
+        self._mag_min = np.inf
+        self._mag_max = -np.inf
+        self.seen = 0
+        self._fh = open(self.path, "wb")
+        self._fh.write(_encode_blob_header(spec, self.stride))
+
+    def add(self, sv: StepValues) -> None:
+        spec = self.spec
+        arr = np.asarray(sv.values, dtype=spec.dtype)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        if arr.shape != (spec.n_points, spec.n_components):
+            raise ValueError(
+                f"Field {spec.name!r} step {sv.step_index} produced shape "
+                f"{arr.shape}, expected {(spec.n_points, spec.n_components)}."
+            )
+        if self._transform is not None:
+            arr = np.asarray(self._transform(sv.step_index, arr), dtype=spec.dtype)
+        self._fh.write(arr.tobytes(order="C"))
+
+        # Range tracking, NaN-safe so profile-restricted fields
+        # don't poison the bounds.
+        finite = np.isfinite(arr)
+        for c in range(spec.n_components):
+            col = arr[:, c][finite[:, c]]
+            if col.size:
+                self._comp_min[c] = min(self._comp_min[c], float(col.min()))
+                self._comp_max[c] = max(self._comp_max[c], float(col.max()))
+
+        if spec.n_components >= 3:
+            mag = np.linalg.norm(arr[:, :3], axis=1)
+            mag = mag[np.isfinite(mag)]
+            if mag.size:
+                self._mag_min = min(self._mag_min, float(mag.min()))
+                self._mag_max = max(self._mag_max, float(mag.max()))
+        self.seen += 1
+
+    def close(self) -> None:
+        """Close the file; safe to call more than once, and after a failure."""
+        self._fh.close()
+
+    def finish(self) -> FieldArtefactMeta:
+        """Close the blob, check the step count, and return the manifest meta."""
+        self.close()
+        spec = self.spec
+        if self.seen != spec.n_steps:
+            raise ValueError(f"Field {spec.name!r} streamed {self.seen} steps but spec says {spec.n_steps}.")
+
+        range_per_comp: dict[str, tuple[float, float]] = {}
+        for c, name in enumerate(spec.components):
+            if np.isfinite(self._comp_min[c]) and np.isfinite(self._comp_max[c]):
+                range_per_comp[name] = (float(self._comp_min[c]), float(self._comp_max[c]))
+            else:
+                # All-NaN field — fall back to (0, 0) so the manifest
+                # stays JSON-encodable.
+                range_per_comp[name] = (0.0, 0.0)
+
+        mag_min, mag_max = self._mag_min, self._mag_max
+        if not (np.isfinite(mag_min) and np.isfinite(mag_max)):
+            mag_min, mag_max = 0.0, 0.0
+
+        return FieldArtefactMeta(
+            spec=spec,
+            blob_filename=self.path.name,
+            stride_bytes=self.stride,
+            scalar_range_per_component=range_per_comp,
+            scalar_range_magnitude=(float(mag_min), float(mag_max)),
+        )
+
+
 def write_field_blob_streaming(
     reader: FEAStreamReader,
     spec: FieldSpec,
     out_path: os.PathLike,
     step_transform: Callable[[int, np.ndarray], np.ndarray] | None = None,
+    on_step: Callable[[StepValues], None] | None = None,
 ) -> FieldArtefactMeta:
     """Stream one field's step-stack to disk; return the manifest meta.
 
@@ -72,73 +172,19 @@ def write_field_blob_streaming(
     pass through, so the bake never needs the full field stack in
     memory. ``step_transform(step_index, values)``, when given, rewrites
     each step before it is written and ranged (mode normalization).
+    ``on_step(step_values)``, when given, is called after each step is
+    written (progress).
     """
 
-    out_path = pathlib.Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    stride = spec.n_points * spec.n_components * spec.dtype.itemsize
-
-    comp_min = np.full(spec.n_components, np.inf, dtype=np.float64)
-    comp_max = np.full(spec.n_components, -np.inf, dtype=np.float64)
-    mag_min = np.inf
-    mag_max = -np.inf
-
-    with open(out_path, "wb") as f:
-        f.write(_encode_blob_header(spec, stride))
-        seen = 0
+    writer = FieldBlobWriter(spec, out_path, step_transform)
+    try:
         for sv in reader.iter_field_steps(spec.name):
-            arr = np.asarray(sv.values, dtype=spec.dtype)
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            if arr.shape != (spec.n_points, spec.n_components):
-                raise ValueError(
-                    f"Field {spec.name!r} step {sv.step_index} produced shape "
-                    f"{arr.shape}, expected {(spec.n_points, spec.n_components)}."
-                )
-            if step_transform is not None:
-                arr = np.asarray(step_transform(sv.step_index, arr), dtype=spec.dtype)
-            f.write(arr.tobytes(order="C"))
-
-            # Range tracking, NaN-safe so profile-restricted fields
-            # don't poison the bounds.
-            finite = np.isfinite(arr)
-            for c in range(spec.n_components):
-                col = arr[:, c][finite[:, c]]
-                if col.size:
-                    comp_min[c] = min(comp_min[c], float(col.min()))
-                    comp_max[c] = max(comp_max[c], float(col.max()))
-
-            if spec.n_components >= 3:
-                mag = np.linalg.norm(arr[:, :3], axis=1)
-                mag = mag[np.isfinite(mag)]
-                if mag.size:
-                    mag_min = min(mag_min, float(mag.min()))
-                    mag_max = max(mag_max, float(mag.max()))
-            seen += 1
-
-    if seen != spec.n_steps:
-        raise ValueError(f"Field {spec.name!r} streamed {seen} steps but spec says {spec.n_steps}.")
-
-    range_per_comp: dict[str, tuple[float, float]] = {}
-    for c, name in enumerate(spec.components):
-        if np.isfinite(comp_min[c]) and np.isfinite(comp_max[c]):
-            range_per_comp[name] = (float(comp_min[c]), float(comp_max[c]))
-        else:
-            # All-NaN field — fall back to (0, 0) so the manifest
-            # stays JSON-encodable.
-            range_per_comp[name] = (0.0, 0.0)
-
-    if not (np.isfinite(mag_min) and np.isfinite(mag_max)):
-        mag_min, mag_max = 0.0, 0.0
-
-    return FieldArtefactMeta(
-        spec=spec,
-        blob_filename=out_path.name,
-        stride_bytes=stride,
-        scalar_range_per_component=range_per_comp,
-        scalar_range_magnitude=(float(mag_min), float(mag_max)),
-    )
+            writer.add(sv)
+            if on_step is not None:
+                on_step(sv)
+    finally:
+        writer.close()
+    return writer.finish()
 
 
 def _encode_elem_field_blob_header(spec: ElementFieldSpec, stride_bytes: int) -> bytes:
@@ -168,10 +214,99 @@ def _encode_elem_field_blob_header(spec: ElementFieldSpec, stride_bytes: int) ->
     return prefix + b"\x00" * (ELEM_FIELD_HEADER_BYTES - len(prefix))
 
 
+class ElementFieldBlobWriter:
+    """One (field, elem_type) bucket's AFEL blob, written a step at a time.
+
+    The element-field counterpart of :class:`FieldBlobWriter`: per-step payload
+    shape ``(n_elements, n_ips, n_components)`` float32, scalar ranges
+    (per-component + magnitude over the first 3 components when the field has
+    at least 3) computed inline so the manifest can pin the colour LUT across
+    all steps.
+    """
+
+    def __init__(self, spec: ElementFieldSpec, out_path: os.PathLike) -> None:
+        self.spec = spec
+        self.path = pathlib.Path(out_path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        n_components = spec.n_components
+        self.stride = spec.n_elements * spec.n_ips * n_components * spec.dtype.itemsize
+        self._comp_min = np.full(n_components, np.inf, dtype=np.float64)
+        self._comp_max = np.full(n_components, -np.inf, dtype=np.float64)
+        self._mag_min = np.inf
+        self._mag_max = -np.inf
+        self.seen = 0
+        self._fh = open(self.path, "wb")
+        self._fh.write(_encode_elem_field_blob_header(spec, self.stride))
+
+    def add(self, sv: ElementStepValues) -> None:
+        spec = self.spec
+        n_components = spec.n_components
+        arr = np.asarray(sv.values, dtype=spec.dtype)
+        if arr.shape != (spec.n_elements, spec.n_ips, n_components):
+            raise ValueError(
+                f"Element field {spec.name!r}/{spec.elem_type} step "
+                f"{sv.step_index} produced shape {arr.shape}, expected "
+                f"{(spec.n_elements, spec.n_ips, n_components)}."
+            )
+        self._fh.write(np.ascontiguousarray(arr).tobytes(order="C"))
+
+        finite = np.isfinite(arr)
+        for c in range(n_components):
+            col = arr[..., c][finite[..., c]]
+            if col.size:
+                self._comp_min[c] = min(self._comp_min[c], float(col.min()))
+                self._comp_max[c] = max(self._comp_max[c], float(col.max()))
+
+        if n_components >= 3:
+            # Magnitude over the first 3 components — for stress
+            # tensors this isn't the von Mises invariant but still
+            # gives a sensible default colour range; the von-Mises
+            # reduction is a frontend-side option.
+            first3 = arr[..., :3]
+            mag = np.linalg.norm(first3, axis=-1)
+            mag = mag[np.isfinite(mag)]
+            if mag.size:
+                self._mag_min = min(self._mag_min, float(mag.min()))
+                self._mag_max = max(self._mag_max, float(mag.max()))
+        self.seen += 1
+
+    def close(self) -> None:
+        """Close the file; safe to call more than once, and after a failure."""
+        self._fh.close()
+
+    def finish(self) -> ElementFieldArtefactMeta:
+        """Close the blob, check the step count, and return the manifest meta."""
+        self.close()
+        spec = self.spec
+        if self.seen != spec.n_steps:
+            raise ValueError(
+                f"Element field {spec.name!r}/{spec.elem_type} streamed {self.seen} steps but spec says {spec.n_steps}."
+            )
+
+        range_per_comp: dict[str, tuple[float, float]] = {}
+        for c, name in enumerate(spec.components):
+            if np.isfinite(self._comp_min[c]) and np.isfinite(self._comp_max[c]):
+                range_per_comp[name] = (float(self._comp_min[c]), float(self._comp_max[c]))
+            else:
+                range_per_comp[name] = (0.0, 0.0)
+        mag_min, mag_max = self._mag_min, self._mag_max
+        if not (np.isfinite(mag_min) and np.isfinite(mag_max)):
+            mag_min, mag_max = 0.0, 0.0
+
+        return ElementFieldArtefactMeta(
+            spec=spec,
+            blob_filename=self.path.name,
+            stride_bytes=self.stride,
+            scalar_range_per_component=range_per_comp,
+            scalar_range_magnitude=(float(mag_min), float(mag_max)),
+        )
+
+
 def write_element_field_blob_streaming(
     reader: FEAStreamReader,
     spec: ElementFieldSpec,
     out_path: os.PathLike,
+    on_step: Callable[[ElementStepValues], None] | None = None,
 ) -> ElementFieldArtefactMeta:
     """Stream one (field, elem_type) bucket's step-stack to disk.
 
@@ -179,73 +314,19 @@ def write_element_field_blob_streaming(
     float32. Scalar ranges (per-component + magnitude over the first
     3 components when the field has at least 3) are computed inline
     so the manifest can pin the colour LUT across all steps.
+    ``on_step(step_values)``, when given, is called after each step is
+    written (progress).
     """
 
-    out_path = pathlib.Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    n_components = spec.n_components
-    stride = spec.n_elements * spec.n_ips * n_components * spec.dtype.itemsize
-
-    comp_min = np.full(n_components, np.inf, dtype=np.float64)
-    comp_max = np.full(n_components, -np.inf, dtype=np.float64)
-    mag_min = np.inf
-    mag_max = -np.inf
-
-    with open(out_path, "wb") as f:
-        f.write(_encode_elem_field_blob_header(spec, stride))
-        seen = 0
+    writer = ElementFieldBlobWriter(spec, out_path)
+    try:
         for sv in reader.iter_element_field_steps(spec):
-            arr = np.asarray(sv.values, dtype=spec.dtype)
-            if arr.shape != (spec.n_elements, spec.n_ips, n_components):
-                raise ValueError(
-                    f"Element field {spec.name!r}/{spec.elem_type} step "
-                    f"{sv.step_index} produced shape {arr.shape}, expected "
-                    f"{(spec.n_elements, spec.n_ips, n_components)}."
-                )
-            f.write(np.ascontiguousarray(arr).tobytes(order="C"))
-
-            finite = np.isfinite(arr)
-            for c in range(n_components):
-                col = arr[..., c][finite[..., c]]
-                if col.size:
-                    comp_min[c] = min(comp_min[c], float(col.min()))
-                    comp_max[c] = max(comp_max[c], float(col.max()))
-
-            if n_components >= 3:
-                # Magnitude over the first 3 components — for stress
-                # tensors this isn't the von Mises invariant but still
-                # gives a sensible default colour range; the von-Mises
-                # reduction is a frontend-side option.
-                first3 = arr[..., :3]
-                mag = np.linalg.norm(first3, axis=-1)
-                mag = mag[np.isfinite(mag)]
-                if mag.size:
-                    mag_min = min(mag_min, float(mag.min()))
-                    mag_max = max(mag_max, float(mag.max()))
-            seen += 1
-
-    if seen != spec.n_steps:
-        raise ValueError(
-            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} steps but spec says {spec.n_steps}."
-        )
-
-    range_per_comp: dict[str, tuple[float, float]] = {}
-    for c, name in enumerate(spec.components):
-        if np.isfinite(comp_min[c]) and np.isfinite(comp_max[c]):
-            range_per_comp[name] = (float(comp_min[c]), float(comp_max[c]))
-        else:
-            range_per_comp[name] = (0.0, 0.0)
-    if not (np.isfinite(mag_min) and np.isfinite(mag_max)):
-        mag_min, mag_max = 0.0, 0.0
-
-    return ElementFieldArtefactMeta(
-        spec=spec,
-        blob_filename=out_path.name,
-        stride_bytes=stride,
-        scalar_range_per_component=range_per_comp,
-        scalar_range_magnitude=(float(mag_min), float(mag_max)),
-    )
+            writer.add(sv)
+            if on_step is not None:
+                on_step(sv)
+    finally:
+        writer.close()
+    return writer.finish()
 
 
 # ---------------------------------------------------------------------------

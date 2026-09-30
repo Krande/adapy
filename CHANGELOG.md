@@ -2,6 +2,15 @@
 
 
 
+## v0.95.3 (2026-09-30)
+
+### Fix
+
+* fix(sesam): read type blocks whose header records a grown table; bake chosen steps with progress (#424)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`fe65d00`](https://github.com/Krande/adapy/commit/fe65d00de26b7ec239852ea32cddece24b443214))
+
+
 ## v0.95.2 (2026-09-28)
 
 ### Fix
