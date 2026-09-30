@@ -1,7 +1,7 @@
 {
     "name": "plate_static_ses_shell_o1_stFalse_h0p03125",
     "fem_format": "sesam",
-    "software_version": "10.20.0.122",
+    "software_version": "11.3.1.0",
     "metadata": {
         "elo": 1
     },
@@ -9,5 +9,5 @@
     "mesh_size": 0.03125,
     "stiffened": false,
     "n_shells": 2048,
-    "last_modified": 1790671460.866214
+    "last_modified": 1790759738.011725
 }
