@@ -428,6 +428,112 @@ def test_sin_stream_reader_bake_matches_full(tmp_path):
     assert full == stream, f"differing artefacts: {[n for n in full if full[n] != stream.get(n)]}"
 
 
+def test_sin_bake_over_chosen_steps(tmp_path):
+    """``steps`` opens the SIN streamer on just those cases, and bakes the same bytes.
+
+    The fixture's one case (1) chosen explicitly must give the whole bake's
+    artefacts; only the manifest differs, by saying which steps were baked. A
+    case the deck does not have is refused before anything is read.
+    """
+    import hashlib
+    import json
+
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import (
+        bake_fea_artefacts_from_source,
+        make_stream_reader,
+    )
+
+    def digests(d):
+        return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.iterdir()) if p.is_file()}
+
+    with make_stream_reader(SIN_PATH, steps=[1]) as reader:
+        assert isinstance(reader, SinStreamReader)
+        assert reader._steps == [1]
+    with pytest.raises(ValueError, match="not in this SIN: \\[2\\]"):
+        make_stream_reader(SIN_PATH, steps=[1, 2])
+
+    calls = []
+    whole, part = tmp_path / "whole", tmp_path / "part"
+    bake_fea_artefacts_from_source(SIN_PATH, whole, src_key="cantilever")
+    bake_fea_artefacts_from_source(
+        SIN_PATH, part, src_key="cantilever", steps=[1], on_progress=lambda *a: calls.append(a)
+    )
+    a, b = digests(whole), digests(part)
+    assert set(a) == set(b)
+    assert [n for n in a if a[n] != b[n]] == ["fea.manifest.json"]
+    manifest_whole = json.loads((whole / "fea.manifest.json").read_text(encoding="utf-8"))
+    manifest_part = json.loads((part / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest_part.pop("baked_steps") == [1]
+    assert manifest_part == manifest_whole
+    # The SIN streamer decodes whole steps: one unit of work per step.
+    assert calls == [(1, 1, "step 1")]
+
+
+def test_sin_bake_of_no_steps_is_the_geometry_only(tmp_path):
+    """``steps=[]`` bakes the whole bake's geometry and property fields, reading no RV* card."""
+    import hashlib
+    import json
+
+    from ada.fem.formats.sesam.results.read_sin import SinReader
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    def digests(d):
+        return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.iterdir()) if p.is_file()}
+
+    read_cards = []
+    real = SinReader._read_result_card
+
+    def watching(self, card, step, *, raw=False):
+        read_cards.append(card.name)
+        return real(self, card, step, raw=raw)
+
+    whole, geometry = tmp_path / "whole", tmp_path / "geometry"
+    bake_fea_artefacts_from_source(SIN_PATH, whole, src_key="cantilever")
+    SinReader._read_result_card = watching
+    try:
+        bake_fea_artefacts_from_source(SIN_PATH, geometry, src_key="cantilever", steps=[])
+    finally:
+        SinReader._read_result_card = real
+
+    assert not [name for name in read_cards if name.startswith("RV")]
+    a, b = digests(whole), digests(geometry)
+    assert b, "nothing baked"
+    # Everything the geometry bake wrote is the whole bake's, byte for byte, but the manifest.
+    assert [n for n in b if n != "fea.manifest.json" and a.get(n) != b[n]] == []
+    manifest = json.loads((geometry / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["baked_steps"] == []
+    assert manifest["fields"], "the property fields are part of the model"
+    assert all(f["name_canonical"].startswith("props.") for f in manifest["fields"])
+    whole_manifest = json.loads((whole / "fea.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mesh"] == whole_manifest["mesh"]
+
+
+def test_sin_stream_reader_decodes_a_card_once_per_step():
+    """Every field of one RV card comes from one decode of that card per step."""
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    reader = SinStreamReader(open_sin(SIN_PATH))
+    loads = []
+    real = reader._load_step
+
+    def counting(step, cards=None, requested_fields=None):
+        loads.append((step, None if cards is None else tuple(sorted(cards))))
+        return real(step, cards=cards, requested_fields=requested_fields)
+
+    reader._load_step = counting
+    try:
+        reader._steps = [1, 1]  # a second index over the same case: not the cached representative
+        names = [s.name for s in reader.element_field_specs() if s.category != "property"]
+        loads.clear()
+        for name in names:
+            reader._field_adapter(1, "RVSTRESS", name)
+        assert loads == [(1, ("RVSTRESS",))]
+    finally:
+        reader.close()
+
+
 def test_sin_load_step_card_filter():
     """A per-field bake pass loads only that field's RV card, not all of them.
 
@@ -725,3 +831,108 @@ def test_pointer_table_anchor_survives_an_extra_header_slot():
     got = block.pointer_table.tolist()
     assert got[:2] == [w + 1 for w in rec_words]
     assert 8 not in got
+
+
+def _block_with_dim_pairs(name: bytes, pairs, table_slots: int, record_at: dict[int, int]):
+    """One synthetic block laid out the way many writers do it: the four fixed
+    header slots, one (used, allocated) pair per dimension, one trailing slot, then
+    the pointer table — ``ptr_table_word`` pointing at its first entry. ``record_at``
+    maps a table index to the word where that record's NFIELD sits. The slot after
+    the table holds a pointer past the end of the buffer, which the reader rejects,
+    so the table can only end where it was built to end."""
+    from ada.fem.formats.sesam.results.sin_reader import NAME_LEN, SLOT_STRIDE
+
+    payload = 4 + NAME_LEN
+    header = [0, 3 + 2 * len(pairs), 2 if len(pairs) > 1 else 1, 0]
+    for used, allocated in pairs:
+        header += [used, allocated]
+    header.append(0)  # the trailing slot that keeps NDIM out of the anchor's gap
+    header[3] = (payload + len(header) * SLOT_STRIDE + 4) // SLOT_STRIDE
+
+    table = [0] * table_slots
+    for index, word in record_at.items():
+        table[index] = word + 1  # a pointer names the first data word, after NFIELD
+    slots = header + table + [0xFFFFFFF0]
+
+    records_from = payload + len(slots) * SLOT_STRIDE
+    assert all(word * 4 >= records_from for word in record_at.values()), "records would overlap the header"
+    buf = bytearray((max(record_at.values(), default=0) + 16) * 4)
+    buf[0:4] = (2051).to_bytes(4, "little")
+    buf[4:payload] = name.ljust(NAME_LEN)
+    for i, value in enumerate(slots):
+        at = payload + i * SLOT_STRIDE + 4
+        buf[at : at + 4] = int(value).to_bytes(4, "little")
+    for word in record_at.values():
+        buf[word * 4 : word * 4 + 4] = np.float32(5.0).tobytes()
+    return bytes(buf), payload + len(header) * SLOT_STRIDE
+
+
+def _record_words(first_word: int, n: int) -> list[int]:
+    return [first_word + 8 * i for i in range(n)]
+
+
+def test_block_allocated_past_its_highest_id_reads_its_whole_table():
+    """A 1-D header written ``(used, allocated)`` with two different words.
+
+    A deck with quasi-static wave cases and stored combinations writes its
+    RDSTRESS header as (25, 100) — highest descriptor id 25, table allocated for
+    100 — and keeps its only descriptors at ids 24 and 25. The pair walk wanted two
+    equal words, found no dimension, and read two pointer slots: both empty, so
+    every shell stress row lost its descriptor and was dropped.
+    """
+    from ada.fem.formats.sesam.results.sin_reader import MmapSource, _decode_type_block
+
+    words = _record_words(400, 2)
+    buf, table_at = _block_with_dim_pairs(b"RDSTRESS", [(4, 8)], 8, {2: words[0], 3: words[1]})
+    block = _decode_type_block(MmapSource(memoryview(buf)), 0)
+
+    assert block.ndim == 1
+    assert block.capacity == (4,) and block.dims == (8,)
+    assert block.pointer_table_offset == table_at
+    assert block.pointer_table.size == 8  # the table the writer allocated, no more
+    assert [int(p) for p in block.pointer_table if p] == [w + 1 for w in words]
+
+
+def test_two_dim_block_with_a_grown_second_pair_reads_every_case():
+    """A 2-D result table written ``(cases, cases), (highest id, allocated)``.
+
+    Seen on RVSTRESS (the highest stressed element below the element
+    count that sizes the table) and on RDPOINTS written ``(1, 2), (n, n)``. The
+    walk stopped at the unequal pair, decoded one dimension short, and read a
+    table as long as the case count: none of the stress rows, and two result
+    points out of n.
+    """
+    from ada.fem.formats.sesam.results.sin_reader import MmapSource, _decode_type_block
+
+    n_cases, n_alloc, n_used = 2, 4, 3
+    records = {}
+    words = iter(_record_words(600, n_cases * n_used))
+    for case in range(n_cases):
+        for entity in range(n_used):
+            records[case * n_alloc + entity] = next(words)
+    buf, table_at = _block_with_dim_pairs(
+        b"RVSTRESS", [(n_cases, n_cases), (n_used, n_alloc)], n_cases * n_alloc, records
+    )
+    block = _decode_type_block(MmapSource(memoryview(buf)), 0)
+
+    assert block.ndim == 2
+    assert block.dims == (n_cases, n_alloc) and block.capacity == (n_cases, n_used)
+    assert block.pointer_table_offset == table_at
+    assert block.count == n_cases * n_used
+
+
+@pytest.mark.parametrize("pair", [(9, 8), (0, 8)], ids=["used-past-allocation", "nothing-used"])
+def test_unequal_pair_outside_the_grown_layout_is_left_to_the_walk(pair):
+    """The grown-table reading only applies to ``0 < used <= allocated``.
+
+    Anything else is not a header this reading was argued from, so the block
+    decodes exactly as it did before the rule: no dimension, a two-slot table.
+    (Every ``(0, n)`` header surveyed has an empty table anyway.)
+    """
+    from ada.fem.formats.sesam.results.sin_reader import MmapSource, _decode_type_block
+
+    buf, _ = _block_with_dim_pairs(b"RDNODREA", [pair], 8, {1: 400})
+    block = _decode_type_block(MmapSource(memoryview(buf)), 0)
+
+    assert block.ndim == 0 and block.dims == ()
+    assert block.pointer_table.size == 2

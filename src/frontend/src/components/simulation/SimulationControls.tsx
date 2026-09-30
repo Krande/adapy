@@ -27,6 +27,7 @@ import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
+import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {
@@ -345,6 +346,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         () => buildFeaResultHierarchy(manifest?.fields ?? []),
         [manifest],
     );
+    // A bake of chosen steps (or of the model only) leaves cases out, and the
+    // pickers below cannot list what is not there: say so, once.
+    const unbakedNote = useMemo(() => unbakedStepsNote(manifest), [manifest]);
 
     // Element-field path: expose Surface/layer and IP reduction pickers when
     // the active field has per_type buckets. Exact selectable surfaces omit
@@ -587,6 +591,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
+                </div>
+            )}
+            {unbakedNote && (
+                <div className="text-xs text-amber-300 min-w-0 break-words" data-testid="fea-unbaked-note">
+                    {unbakedNote}
                 </div>
             )}
 

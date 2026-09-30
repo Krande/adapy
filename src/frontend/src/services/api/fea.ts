@@ -281,6 +281,15 @@ export interface FeaManifest {
     fe_object_type?: "node" | "element";
   }[];
   legacy_glb?: { url_template: string };
+  /** Every result case the source offers, stored or combined; not narrowed by a
+   *  bake of chosen steps (see ``baked_steps``). */
+  result_cases?: { n: number; name?: string; makeup?: string }[];
+  /** The step values a bake of chosen steps holds; absent for a bake of every
+   *  step. Empty: the model only, with no result field. */
+  baked_steps?: number[];
+  /** With ``baked_steps``: the producer's one line on how to get other steps
+   *  baked, shown where the viewer says a step is not baked. */
+  baked_steps_hint?: string;
   /** Reserved plugin data map (Decision 3). Each key is a plugin id; the value
    *  is OPAQUE to core — a plugin's result-sidecar loader reads its own entry
    *  (`manifest.plugins["<id>"]`) and its `{sidecarPrefix}.*` blobs. Core never
