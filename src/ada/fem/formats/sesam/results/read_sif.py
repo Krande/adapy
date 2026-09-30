@@ -890,6 +890,7 @@ class Sif2Mesh:
             result.eigen_mode_data = add_modal_mass(result.get_eig_summary(), factors)
 
     def get_sif_mesh(self) -> Mesh:
+        from ada.fem.formats.sesam.node_order import SESAM_ORDER
         from ada.fem.results.common import (
             ElementBlock,
             ElementInfo,
@@ -897,8 +898,7 @@ class Sif2Mesh:
             FemNodes,
             Mesh,
         )
-        from ada.fem.shapes.definitions import LineShapes, ShapeResolver
-        from ada.fem.shapes.mesh_types import gmsh_to_meshio_ordering
+        from ada.fem.shapes.definitions import ShapeResolver
 
         sif = self.sif
 
@@ -935,22 +935,12 @@ class Sif2Mesh:
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
             elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
 
-            # Node-ordering reconciliation. Sesam's BTSS (eltyp 23 →
-            # LINE3) writes the three nodes as (end1, end2, mid) —
-            # the GMSH convention. adapy's ElemShape machinery and
-            # the line_edges table both assume Abaqus ordering
-            # (end1, mid, end2): without the permutation,
-            # ``line_edges[LINE3] = [[0, 2]]`` resolves to "end1 →
-            # mid" and every curved beam visualises as half a
-            # segment, producing the spiderweb effect on ship-FE
-            # models. The same gmsh→meshio permutation is already
-            # codified in mesh_types.gmsh_to_meshio_ordering — reuse
-            # it here rather than hardcoding the indices a second
-            # time.
-            if general_elem_type is LineShapes.LINE3:
-                perm = gmsh_to_meshio_ordering.get(LineShapes.LINE3)
-                if perm is not None:
-                    elem_node_refs = elem_node_refs[:, perm]
+            # Sesam interleaves corner and mid-side nodes on BTSS (end, end, mid), SCQS
+            # (round the perimeter) and the iso-parametric solids; adapy's shapes, edge
+            # tables and viewers assume corners first. Without this a curved beam draws as
+            # half a segment and an 8-node shell triangulates into slivers. Same table the
+            # input-deck reader uses.
+            elem_node_refs = SESAM_ORDER.conn_from_format(general_elem_type, elem_node_refs)
 
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
             elem_blocks.append(
