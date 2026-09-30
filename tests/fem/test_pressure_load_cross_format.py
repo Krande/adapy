@@ -136,7 +136,7 @@ def _mid_span_u3(res) -> float:
     """
     from ada.fem.results.field_data import NodalFieldType
 
-    if hasattr(res, "to_fea_result"):  # FEAResultV2 (Abaqus via ODBDump) carries no mesh itself
+    if hasattr(res, "to_fea_result"):  # FEAResultV2 (Abaqus via abaodb) carries no mesh itself
         res = res.to_fea_result()
     coords = np.asarray(res.mesh.nodes.coords, dtype=float)
     # The last one: a reader that keeps the step's base-state frame (Abaqus' frame 0, all zeros) lists

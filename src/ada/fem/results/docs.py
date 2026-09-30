@@ -279,7 +279,7 @@ def assets_for_docs(
     fea_result: Any = None
 
     if hasattr(src, "to_fea_result"):
-        # FEAResultV2 (Abaqus via ODBDump → SQLite): the bake speaks FEAResult.
+        # FEAResultV2 (Abaqus via abaodb → SQLite): the bake speaks FEAResult.
         src = src.to_fea_result()
 
     if _src_is_pathlike(src):

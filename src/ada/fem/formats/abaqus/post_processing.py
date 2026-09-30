@@ -1,15 +1,15 @@
 """Abaqus ODB → SQLite post-processing.
 
-The legacy verification driver shelled out to an `ODBDump` binary to
-convert `.odb` files into SQLite databases that adapy can query via
-`SQLiteFEAStore`. The result wrapper (`FEAResultV2`) and the
+The verification driver shells out to the `abaodb` binary (formerly
+`ODBDump`) to convert `.odb` files into SQLite databases that adapy can
+query via `SQLiteFEAStore`. The result wrapper (`FEAResultV2`) and the
 post-processor (`post_processing_abaqus`) lived in the verification
 report's helper module; they're not abaqus-specific in shape, but the
 ODB-dump path absolutely is, so they belong here.
 
-`ODB_DUMP_EXE` resolution order:
-1. `ODBDump` on PATH (the typical container layout)
-2. `ODB_DUMP_EXE` env var (override)
+`abaodb` resolution order:
+1. `abaodb` on PATH (the typical container layout)
+2. `ABAODB_EXE` env var (override)
 3. None — callers treat as "abaqus post-processing unavailable"
 """
 
@@ -30,12 +30,12 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 
-def get_odb_dump_exe() -> Optional[pathlib.Path]:
-    """Resolve the ODBDump exe path; None when unavailable."""
-    found = shutil.which("ODBDump")
+def get_abaodb_exe() -> Optional[pathlib.Path]:
+    """Resolve the abaodb exe path; None when unavailable."""
+    found = shutil.which("abaodb")
     if found is not None:
         return pathlib.Path(found)
-    raw = os.getenv("ODB_DUMP_EXE")
+    raw = os.getenv("ABAODB_EXE")
     if raw is None:
         return None
     return pathlib.Path(raw)
@@ -101,7 +101,7 @@ class FEAResultV2:
         `FEAResult`, and the dump carries everything that needs: the instance's points and
         connectivity, and per-frame nodal U / UR as float32 blobs.
         """
-        return read_odbdump_sqlite(self.results_db_path, name=self.name, results_file_path=self.results_file_path)
+        return read_abaodb_sqlite(self.results_db_path, name=self.name, results_file_path=self.results_file_path)
 
 
 def _eigen_data_from_dat(results_file_path: Optional[pathlib.Path]) -> Optional[EigenDataSummary]:
@@ -117,14 +117,14 @@ def _eigen_data_from_dat(results_file_path: Optional[pathlib.Path]) -> Optional[
     return summary if summary.modes else None
 
 
-# Nodal field vars ODBDump writes one blob per component for; grouped back into one field each.
+# Nodal field vars abaodb writes one blob per component for; grouped back into one field each.
 _NODAL_FIELD_GROUPS = {"U": ("U1", "U2", "U3"), "UR": ("UR1", "UR2", "UR3")}
 
 
-def read_odbdump_sqlite(db_path: pathlib.Path, name: str = None, results_file_path: pathlib.Path = None) -> FEAResult:
-    """Read an ODBDump SQLite file into an :class:`FEAResult`.
+def read_abaodb_sqlite(db_path: pathlib.Path, name: str = None, results_file_path: pathlib.Path = None) -> FEAResult:
+    """Read an abaodb SQLite file into an :class:`FEAResult`.
 
-    Only the nodal U / UR fields are read (that's what ODBDump writes for the runs adapy makes).
+    Only the nodal U / UR fields are read (that's what abaodb writes for the runs adapy makes).
     Result steps are numbered by frame, skipping each step's base-state frame 0, so a modal step's
     step numbers are its mode numbers, as with the other solvers' readers.
     """
@@ -250,18 +250,18 @@ def post_processing_abaqus(odb_file: pathlib.Path, overwrite: bool = False) -> F
     standard `a.to_fem(...)` solver path produces a SQLite-queryable
     result for downstream reporting.
     """
-    odb_dump_exe = get_odb_dump_exe()
-    if odb_dump_exe is None:
-        raise FileNotFoundError("ODBDump executable not found on PATH or via ODB_DUMP_EXE env var")
+    abaodb_exe = get_abaodb_exe()
+    if abaodb_exe is None:
+        raise FileNotFoundError("abaodb executable not found on PATH or via ABAODB_EXE env var")
     sqlite_file = odb_file.with_suffix(".sqlite")
     if not sqlite_file.exists() or overwrite:
         proc = subprocess.run(
-            [str(odb_dump_exe), "--odbFile", str(odb_file), "--sqliteFile", str(sqlite_file)],
+            [str(abaodb_exe), str(odb_file), str(sqlite_file)],
             text=True,
             check=True,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"ODBDump failed: {proc.stderr}")
+            raise RuntimeError(f"abaodb failed: {proc.stderr}")
 
     return FEAResultV2(
         name=sqlite_file.stem,
