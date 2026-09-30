@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import signal
 import subprocess
 import sys
@@ -106,8 +107,14 @@ class GeomRun:
                 sig = f" ({signal.Signals(-rc).name})"
             except ValueError:
                 pass
-        tail = "\n".join(self.stderr.strip().splitlines()[-25:])
+        # A native crash dumps the C stack innermost-first, and its bottom half is always the same
+        # CPython eval loop; drop those frames so the tail shows where it actually died.
+        lines = [ln for ln in self.stderr.strip().splitlines() if not _INTERPRETER_FRAME.search(ln)]
+        tail = "\n".join(lines[-25:])
         return f"ops={','.join(self.ops)} returncode={rc}{sig}\n--- child stderr (tail) ---\n{tail}"
+
+
+_INTERPRETER_FRAME = re.compile(r'Binary file "[^"]*(/bin/python[\d.]*|/usr/lib/dyld|[\\/]python[\d.]*\.exe)"')
 
 
 def run_geometry(path: str | os.PathLike, ops=OPS, timeout: float = 180) -> GeomRun:

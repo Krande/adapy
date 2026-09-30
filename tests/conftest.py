@@ -289,11 +289,23 @@ def pytest_collection_finish(session):
         tr.write_line(_IFCGEOM_PROBE.report(), red=True)
 
 
+_IFCGEOM_SKIPPED: list = []
+
+
+def pytest_runtest_logreport(report):
+    """Remember which tests the broken-geometry probe skipped: that list IS the blast radius."""
+    if report.skipped and isinstance(report.longrepr, tuple) and "session probe:" in str(report.longrepr[-1]):
+        _IFCGEOM_SKIPPED.append(report.nodeid)
+
+
 def pytest_terminal_summary(terminalreporter):
     """Repeat a broken probe at the END too, where a CI log reader actually looks."""
     if _IFCGEOM_PROBE is not None and not _IFCGEOM_PROBE.healthy:
         terminalreporter.section("ifcopenshell geometry probe", red=True)
         terminalreporter.write_line(_IFCGEOM_PROBE.report())
+        terminalreporter.write_line(f"{len(_IFCGEOM_SKIPPED)} test(s) skipped because of it:")
+        for nodeid in _IFCGEOM_SKIPPED:
+            terminalreporter.write_line(f"  {nodeid}")
 
 
 def pytest_unconfigure(config):
