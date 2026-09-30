@@ -18,7 +18,11 @@ from ada import (
     Shape,
 )
 from ada.base.units import Units
-from ada.cadit.ifc.utils import add_colour, create_object_placement, tesselate_shape
+from ada.cadit.ifc.utils import (
+    add_colour,
+    add_tesselated_shape,
+    create_object_placement,
+)
 from ada.cadit.ifc.write.geom.curves import indexed_poly_curve, poly_line
 from ada.cadit.ifc.write.geom.solids import faceted_brep
 from ada.cadit.ifc.write.geom.surfaces import (
@@ -106,8 +110,6 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     # The body is in the local system of the shape, placed by the shape placement relative to its parent
     shape_placement = create_object_placement(f, shape, relative_to=rel_to)
 
-    schema = f.schema_identifier
-
     # Choose between parametric (round-trippable IfcAdvancedFace /
     # ClosedShell / etc.) and tesselation. The parametric path
     # assumes ``shape.geom`` is an ``ada.geom.Geometry`` wrapper;
@@ -137,8 +139,7 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
             use_tesselation = True
     if use_tesselation:
         tol = Units.get_general_point_tol(a.units)
-        serialized_geom = tesselate_shape(shape.solid_occ(), schema, tol)
-        ifc_shape = f.add(serialized_geom)
+        ifc_shape = add_tesselated_shape(f, shape.solid_occ(), tol)
 
     # Add colour
     if shape.color is not None:

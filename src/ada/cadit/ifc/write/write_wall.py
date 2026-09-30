@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 from ada import Wall
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
+    add_tesselated_shape,
     create_ifc_placement,
     create_ifcextrudedareasolid,
     create_ifcpolyline,
     create_local_placement,
-    tesselate_shape,
     write_elem_property_sets,
 )
 from ada.config import logger
@@ -109,15 +109,13 @@ def add_ifc_insert_elem(wall: Wall, shape_, opening_element, wall_el, ifc_type):
     f = ifc_store.f
 
     owner_history = ifc_store.owner_history
-    schema = f.schema_identifier
 
     # Create a simplified representation for the Window
     insert_placement = create_local_placement(f, O, Z, X, wall_el.ObjectPlacement)
 
     shape = shape_.solid_occ()
 
-    insert_shape_ = tesselate_shape(shape, schema, Units.get_general_point_tol(a.units))
-    insert_shape = f.add(insert_shape_)
+    insert_shape = add_tesselated_shape(f, shape, Units.get_general_point_tol(a.units))
 
     # Link to representation context
     body_context = ifc_store.get_context("Body")
