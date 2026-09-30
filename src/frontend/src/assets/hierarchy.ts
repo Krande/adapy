@@ -206,21 +206,28 @@ export interface FlatRow {
  * forest, not in the filtered one, so a kept node whose parent was dropped
  * would render indented under a row that is not there. Building the set with
  * `foldSubtrees` gives that closure by construction, which is why there is no
- * closure step here — a filter that needs one has computed the wrong set. */
+ * closure step here — a filter that needs one has computed the wrong set.
+ *
+ * `rank` reorders siblings, lowest first, source order among equals -- a search
+ * puts the branches holding its shallowest hits on top. Absent, source order. */
 export function flattenVisible<T>(
   h: Hierarchy<T>,
   expanded: ReadonlySet<string>,
   opts?: {
     readonly expandable?: (id: string) => boolean;
     readonly include?: ReadonlySet<string>;
+    readonly rank?: (id: string) => number;
   },
 ): FlatRow[] {
   const out: FlatRow[] = [];
   const expandable = opts?.expandable;
   const include = opts?.include;
+  const rank = opts?.rank;
   const visible = (id: string) => include === undefined || include.has(id);
-  // Reversed so the stack pops in source order.
-  const stack: string[] = [...h.roots].filter(visible).reverse();
+  const ordered = (ids: readonly string[]): readonly string[] =>
+    rank ? ids.map((id, i) => ({ id, i, r: rank(id) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.id) : ids;
+  // Reversed so the stack pops in display order.
+  const stack: string[] = [...ordered([...h.roots].filter(visible))].reverse();
   while (stack.length) {
     const id = stack.pop() as string;
     const node = h.byId.get(id);
@@ -228,7 +235,7 @@ export function flattenVisible<T>(
     // Filtered before `hasChildren` is decided, so a row whose every child was
     // filtered out loses its twisty instead of offering an expansion that
     // reveals nothing.
-    const kids = include === undefined ? h.childrenOf(id) : h.childrenOf(id).filter(visible);
+    const kids = ordered(include === undefined ? h.childrenOf(id) : h.childrenOf(id).filter(visible));
     const hasChildren = kids.length > 0 || (expandable ? expandable(id) : false);
     const isExpanded = expanded.has(id);
     out.push({ id, depth: node.depth, hasChildren, expanded: isExpanded && hasChildren });

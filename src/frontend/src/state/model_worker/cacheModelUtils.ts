@@ -102,6 +102,7 @@ export async function cacheAndBuildTree(
     //    container whose children TreeViewComponent renders as the top level.
     if (treeData) {
         treeData.model_key = key;
+        treeData.source_name = sourceName ?? null;
 
         const prev = tree_store.treeData;
         const isContainer = !!prev && prev.id === ROOTS_CONTAINER_ID;

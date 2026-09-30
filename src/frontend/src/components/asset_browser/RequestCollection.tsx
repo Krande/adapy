@@ -31,11 +31,15 @@ import {
 import { viewerApi } from "@/services/viewerApi";
 import { useMeStore } from "@/state/meStore";
 
+import AssetFiles, { DeleteButton, formatSize } from "./AssetFiles";
+
 const OWNER = "assets";
 
 type Staged = Awaited<ReturnType<typeof assetsApi.listStaging>>["staged"][number];
 
-function deps(onStage: (s: string) => void): CollectionRequestDeps {
+/** The live api for `@/assets/collectionRequest`, jobs tracked in the toast. Shared with the
+ *  tree's per-node request. */
+export function requestDeps(onStage: (s: string) => void): CollectionRequestDeps {
     return {
         api: {
             pluginJob: (pluginId, body, opts) => viewerApi.pluginJob(pluginId, body, { scope: opts.scope as ScopeUrl }),
@@ -53,17 +57,13 @@ function deps(onStage: (s: string) => void): CollectionRequestDeps {
     };
 }
 
-function formatSize(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} kB`;
-    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 const RequestCollection: React.FC<{
     scope: string;
     /** Called with the collection a request published, so the tab can show it. */
     onPublished: (collection: string) => void;
-}> = ({ scope, onPublished }) => {
+    /** Called after a file or revision was deleted, so the tab re-reads what is published. */
+    onChanged?: () => void;
+}> = ({ scope, onPublished, onChanged }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
     const [providers, setProviders] = useState<AssetProviderCollections[] | null>(null);
     const [grants, setGrants] = useState<ScopeCollectionsMap>({});
@@ -104,13 +104,15 @@ const RequestCollection: React.FC<{
     }, [offered, collection]);
 
     const run = useCallback(
-        async (what: () => Promise<string>) => {
+        async (what: () => Promise<string | { collection: string; note: string }>) => {
             setBusy(true);
             setError(null);
             setDone(null);
             try {
-                const published = await what();
-                setDone(`Published ${published}.`);
+                const result = await what();
+                // A provider that found its source unchanged published nothing -- say so, in its words.
+                const published = typeof result === "string" ? result : result.collection;
+                setDone(typeof result === "string" ? `Published ${published}.` : result.note);
                 onPublished(published);
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
@@ -124,7 +126,6 @@ const RequestCollection: React.FC<{
     );
 
     if (providers === null) return <div className="p-2 text-xs text-gray-400">Reading providers…</div>;
-    if (providers.length === 0 && staged.length === 0) return null;
 
     const request = provider?.request ?? null;
     const blockedForUser = !!request?.requiresAdmin && !isAdmin;
@@ -175,13 +176,15 @@ const RequestCollection: React.FC<{
                             onClick={() =>
                                 void run(async () => {
                                     const out = await requestCollection(
-                                        deps(setStage),
+                                        requestDeps(setStage),
                                         scope,
                                         provider.providerId,
                                         request,
                                         collection,
                                     );
-                                    return out.collection;
+                                    return out.unchanged
+                                        ? { collection: out.collection, note: `Up to date: ${out.message ?? "nothing changed"}.` }
+                                        : out.collection;
                                 })
                             }
                         >
@@ -207,16 +210,18 @@ const RequestCollection: React.FC<{
             {staged.length > 0 && (
                 <details>
                     <summary className="cursor-pointer text-gray-400">
-                        Staged, not published ({staged.length})
+                        Staged, not published ({staged.length} · {formatSize(staged.reduce((n, s) => n + s.size, 0))})
                     </summary>
                     <ul className="mt-1 space-y-1">
                         {staged.map((s) => (
-                            <li key={s.staging_id} className="flex items-center gap-2">
+                            <li key={s.staging_id}>
+                            <details>
+                            <summary className="flex items-center gap-2 cursor-pointer rounded px-1 hover:bg-white/5">
                                 <code className="truncate text-gray-300" title={s.files.map((f) => f.key).join("\n")}>
                                     {s.staging_id}
                                 </code>
                                 <span className="text-gray-500 truncate">
-                                    {s.files.map((f) => f.file).join(", ")} · {formatSize(s.size)}
+                                    {s.files.length} file{s.files.length === 1 ? "" : "s"} · {formatSize(s.size)}
                                 </span>
                                 {providers.length > 0 && (
                                     <button
@@ -255,11 +260,39 @@ const RequestCollection: React.FC<{
                                         Publish
                                     </button>
                                 )}
+                            </summary>
+                            <ul className="pl-3">
+                                {s.files.map((f) => (
+                                    <li key={f.key} className="flex items-center gap-2 px-1 rounded hover:bg-white/5">
+                                        <span className="truncate text-gray-300" title={f.key}>
+                                            {f.file}
+                                        </span>
+                                        <span className="ml-auto shrink-0 font-mono text-[11px] text-gray-500">{formatSize(f.size)}</span>
+                                        <DeleteButton
+                                            title="Delete this staged file"
+                                            disabled={busy}
+                                            onClick={() => {
+                                                if (!window.confirm(`Delete ${f.key}?\n\nIt is staged, not published: nothing references it.`)) return;
+                                                void (async () => {
+                                                    try {
+                                                        await assetsApi.deleteFile(scope as ScopeUrl, f.key);
+                                                    } catch (e) {
+                                                        setError(e instanceof Error ? e.message : String(e));
+                                                    }
+                                                    await load();
+                                                })();
+                                            }}
+                                        />
+                                    </li>
+                                ))}
+                            </ul>
+                            </details>
                             </li>
                         ))}
                     </ul>
                 </details>
             )}
+            <AssetFiles scope={scope} onChanged={onChanged ?? (() => {})} />
         </div>
     );
 };

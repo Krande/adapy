@@ -28,9 +28,16 @@ from tests.core.assets.fixture_provider.builder import (  # noqa: E402
 )
 from tests.core.assets.fixture_provider.provider import (  # noqa: E402
     BUILD_CAPABILITY,
+    FIXTURE_PROVIDER_ID,
     SOURCE_FILENAME,
     FakeStore,
     publish_fixture,
+)
+from tests.core.assets.fixture_provider.second import (  # noqa: E402
+    SECOND_BUILD_CAPABILITY,
+    SECOND_PROVIDER_ID,
+    SECOND_SOURCE_FILENAME,
+    publish_second_claim,
 )
 
 from ada.assets.build import build_fingerprint, derived_asset_key  # noqa: E402
@@ -159,6 +166,96 @@ def test_an_unknown_node_is_404(client_and_revision):
     client, _, _ = client_and_revision
     r = client.post(_build_url(), json={"provider": "published", "collection": COLLECTION, "node": "not-a-node"})
     assert r.status_code == 404, r.text
+
+
+@pytest.fixture
+def two_providers(tmp_path):
+    """``pump-b``: provider A's build claim, then provider B's on the SAME subject, newer."""
+    store = FakeStore()
+    rev_a = publish_fixture(store)
+    rev_b = publish_second_claim(store, collection=COLLECTION, subject="pump-b")
+    assert rev_b > rev_a
+
+    scope_root = tmp_path / "users" / "local-dev"
+    for key, data in store.blobs.items():
+        dest = scope_root / key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        yield client, rev_a, rev_b, scope_root
+
+
+def _expected_second_derived_key(revision: str, node: str = "pump-b") -> str:
+    source_key = asset_key(COLLECTION, node, revision, SECOND_SOURCE_FILENAME)
+    fingerprint = build_fingerprint(
+        options={"outline_ref": node, "source_key": source_key},
+        fingerprint_inputs=("source_key", "outline_ref"),
+        node=node,
+        hierarchy_source=revision,
+    )
+    return derived_asset_key(
+        provider=SECOND_PROVIDER_ID,
+        collection=COLLECTION,
+        subject=node,
+        revision=revision,
+        node=node,
+        fingerprint=fingerprint,
+    )
+
+
+def _seed_cached(scope_root, derived_key: str) -> None:
+    """Only provider A's builder is registered here, so B's build is answered from a seeded
+    summary rather than enqueued -- the route's key composition is what is under test."""
+    dest = scope_root / derived_key
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b'{"schema":"ada.assets/build@1","ok":true}')
+
+
+def test_build_published_takes_the_newest_revision_of_any_provider(two_providers):
+    client, _, rev_b, scope_root = two_providers
+    _seed_cached(scope_root, _expected_second_derived_key(rev_b))
+    r = client.post(_build_url(), json={"provider": "published", "collection": COLLECTION, "node": "pump-b"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["provider"], body["revision"]) == (SECOND_PROVIDER_ID, rev_b)
+    assert body["capability"] == SECOND_BUILD_CAPABILITY
+
+
+def test_build_selects_by_provider_and_each_provider_gets_its_own_key(two_providers):
+    client, rev_a, rev_b, scope_root = two_providers
+    _seed_cached(scope_root, _expected_second_derived_key(rev_b))
+
+    a = client.post(_build_url(), json={"provider": FIXTURE_PROVIDER_ID, "collection": COLLECTION, "node": "pump-b"})
+    b = client.post(_build_url(), json={"provider": SECOND_PROVIDER_ID, "collection": COLLECTION, "node": "pump-b"})
+    assert a.status_code == 200 and b.status_code == 200, (a.text, b.text)
+    a, b = a.json(), b.json()
+
+    assert (a["provider"], a["revision"], a["capability"]) == (FIXTURE_PROVIDER_ID, rev_a, BUILD_CAPABILITY)
+    assert (b["provider"], b["revision"], b["capability"]) == (SECOND_PROVIDER_ID, rev_b, SECOND_BUILD_CAPABILITY)
+    assert a["derived_key"] == _expected_derived_key(rev_a)
+    assert b["derived_key"] == _expected_second_derived_key(rev_b)
+    assert a["derived_key"] != b["derived_key"]
+    # The provider is a segment of the derived key, so two providers never share a cache entry.
+    assert f"/{FIXTURE_PROVIDER_ID}/" in a["derived_key"] and f"/{SECOND_PROVIDER_ID}/" in b["derived_key"]
+
+
+def test_build_explicit_revision_by_another_provider_is_409(two_providers):
+    client, rev_a, _, _ = two_providers
+    r = client.post(
+        _build_url(),
+        json={"provider": SECOND_PROVIDER_ID, "collection": COLLECTION, "node": "pump-b", "revision": rev_a},
+    )
+    assert r.status_code == 409, r.text
+    assert FIXTURE_PROVIDER_ID in r.json()["detail"]
+
+
+def test_build_by_a_provider_that_never_published_the_subject_is_404(two_providers):
+    client, _, _, _ = two_providers
+    r = client.post(_build_url(), json={"provider": "nobody-here", "collection": COLLECTION, "node": "pump-b"})
+    assert r.status_code == 404, r.text
+    assert "nobody-here" in r.json()["detail"]
 
 
 def test_force_true_re_enqueues_even_when_a_summary_already_exists(client_and_revision, tmp_path):

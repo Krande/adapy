@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EMPTY_FOREST, mergeSpine, type Forest } from "../../assets/merge";
+import { EMPTY_FOREST, mergeLevel, mergeSpine, type Forest } from "../../assets/merge";
 import type { AssetNode } from "../../assets/types";
 
 const R1 = "20260825T135553Z";
@@ -141,4 +141,44 @@ test("a subtree top with a parent null keeps the parent an earlier slice gave", 
 test("an empty forest merges an empty collection index into itself as a no-op", () => {
   const forest = mergeSpine(EMPTY_FOREST, [], { subject: "plant-a", revision: R1, root: null });
   assert.equal(forest, EMPTY_FOREST, "an empty document with no root is ignored, not a deletion of nothing");
+});
+
+// --- mergeLevel: one level of a spine at a time ---------------------------------
+
+test("successive levels of one subject @ revision UNION -- none retires another's rows", () => {
+  let forest = mergeLevel(EMPTY_FOREST, [node("B1", "A"), node("B2", "A")], { subject: AREA, revision: R1, parent: "A" });
+  forest = mergeLevel(forest, [node("C1", "B1")], { subject: AREA, revision: R1, parent: "B1" });
+  forest = mergeLevel(forest, [node("C2", "B2")], { subject: AREA, revision: R1, parent: "B2" });
+  assert.deepEqual(ids(forest), ["B1", "B2", "C1", "C2"]);
+  for (const id of ids(forest)) assert.deepEqual(forest.origins.get(id), { subject: AREA, revision: R1 });
+  assert.equal(forest.retired.size, 0);
+});
+
+test("re-merging a level already held is a union too, and later wins per row", () => {
+  let forest = mergeLevel(EMPTY_FOREST, [node("B1", "A"), node("B2", "A")], { subject: AREA, revision: R1, parent: "A" });
+  forest = mergeLevel(forest, [{ ...node("B1", "A"), label: "B one", children: 4 }], { subject: AREA, revision: R1, parent: "A" });
+  assert.deepEqual(ids(forest), ["B1", "B2"]);
+  assert.equal(forest.nodes.get("B1")?.label, "B one");
+  assert.equal(forest.nodes.get("B1")?.children, 4);
+});
+
+test("a level of the subject's NEW revision replaces the old revision's rows", () => {
+  let forest = mergeLevel(EMPTY_FOREST, [node("B1", "A"), node("B2", "A")], { subject: AREA, revision: R1, parent: "A" });
+  forest = mergeLevel(forest, [node("C1", "B1")], { subject: AREA, revision: R1, parent: "B1" });
+  forest = mergeLevel(forest, [node("B1", "A")], { subject: AREA, revision: R2, parent: "A" });
+  assert.deepEqual(ids(forest), ["B1"], "B2 and C1 were drawn from R1; R2's first level retires them");
+  assert.deepEqual(forest.origins.get("B1"), { subject: AREA, revision: R2 });
+  assert.equal(forest.retired.get("B2"), "A");
+});
+
+test("a level never touches rows another subject contributed", () => {
+  let forest = mergeSpine(EMPTY_FOREST, [node("A", null)], { subject: "plant-a", revision: R1, root: null });
+  forest = mergeLevel(forest, [node("B1", "A")], { subject: AREA, revision: R2, parent: "A" });
+  assert.deepEqual(ids(forest), ["A", "B1"]);
+  assert.deepEqual(forest.origins.get("A"), { subject: "plant-a", revision: R1 });
+});
+
+test("an empty level is a no-op", () => {
+  const forest = mergeLevel(EMPTY_FOREST, [node("B1", "A")], { subject: AREA, revision: R1, parent: "A" });
+  assert.equal(mergeLevel(forest, [], { subject: AREA, revision: R2, parent: "B1" }), forest);
 });

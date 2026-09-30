@@ -21,6 +21,7 @@ from tests.core.assets.fixture_provider.second import (
     SECOND_BUILD_CAPABILITY,
     SECOND_PROVIDER_ID,
     publish_second_branch,
+    publish_second_claim,
     second_branch_nodes,
 )
 
@@ -102,6 +103,46 @@ def test_the_two_sources_have_nothing_in_common():
     assert "|" in SECOND_SOURCE_TEXT and "{" not in SECOND_SOURCE_TEXT  # outline, not JSON
     assert isinstance(FIXTURE_SOURCE_LINES[0], dict)  # records, not an outline
     json.dumps(FIXTURE_SOURCE_LINES)  # A is JSON-serialisable; B is not JSON at all
+
+
+def _two_providers_on_one_subject() -> tuple[FakeStore, str, str]:
+    """``pump-b``: provider A's build claim, then provider B's on the SAME subject, newer."""
+    store = FakeStore()
+    rev_a = publish_fixture(store, collection=COLLECTION, instant=INSTANT)
+    rev_b = publish_second_claim(store, collection=COLLECTION, subject="pump-b", instant="2026-09-22T09:00:00Z")
+    assert rev_b > rev_a
+    return store, rev_a, rev_b
+
+
+def test_provider_agnostic_resolution_takes_the_newest_of_any_provider():
+    store, _, rev_b = _two_providers_on_one_subject()
+    provider = PublishedAssetProvider(store.reader())
+    for asked in (None, "published"):
+        manifest = provider.manifest(COLLECTION, "pump-b", provider=asked)
+        assert (manifest.provider, manifest.revision) == (SECOND_PROVIDER_ID, rev_b)
+
+
+def test_a_named_provider_selects_its_own_publish_of_a_shared_subject():
+    store, rev_a, rev_b = _two_providers_on_one_subject()
+    provider = PublishedAssetProvider(store.reader())
+    a = provider.manifest(COLLECTION, "pump-b", provider=FIXTURE_PROVIDER_ID)
+    b = provider.manifest(COLLECTION, "pump-b", provider=SECOND_PROVIDER_ID)
+    assert (a.provider, a.revision) == (FIXTURE_PROVIDER_ID, rev_a)
+    assert (b.provider, b.revision) == (SECOND_PROVIDER_ID, rev_b)
+    assert provider.delivery(None, COLLECTION, "pump-b", provider=FIXTURE_PROVIDER_ID).capability == BUILD_CAPABILITY
+    assert (
+        provider.delivery(None, COLLECTION, "pump-b", provider=SECOND_PROVIDER_ID).capability == SECOND_BUILD_CAPABILITY
+    )
+    assert provider._latest_revision(COLLECTION, "pump-b", provider=FIXTURE_PROVIDER_ID) == rev_a
+
+
+def test_a_provider_that_never_published_the_subject_resolves_to_nothing():
+    store, rev_a, _ = _two_providers_on_one_subject()
+    provider = PublishedAssetProvider(store.reader())
+    assert provider.manifest(COLLECTION, "pump-b", provider="nobody") is None
+    assert provider.delivery(None, COLLECTION, "pump-b", provider="nobody") is None
+    # An explicit revision the named provider did not write is not its publish either.
+    assert provider.manifest(COLLECTION, "pump-b", revision=rev_a, provider=SECOND_PROVIDER_ID) is None
 
 
 def test_single_source_collection_needs_no_provider_column():

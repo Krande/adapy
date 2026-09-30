@@ -7,7 +7,7 @@
 // could disagree with its neighbour, and the tree would stop being consistent.
 
 import type { AssetView } from "./assetView";
-import { ROLE_CONTENT } from "./assetView";
+import { ROLE_CONTENT, contentRole } from "./assetView";
 import type { ChangeAction, ChangeState } from "./changes";
 import type { HierarchyDrift, NodeFreshness } from "./freshness";
 import { ancestorsOf, type Hierarchy } from "./hierarchy";
@@ -25,11 +25,18 @@ export interface RowBadge {
   readonly at: string;
   /** The revision it resolved to. */
   readonly revision: string;
+  /** The provider whose manifest makes the claim -- what a load asks for. Read off that
+   *  manifest, not off the row: a node's row names whichever provider's spine merged last. */
+  readonly provider: string;
 }
 
 export interface RowFacts {
   readonly node: AssetNode;
   readonly badge: RowBadge | null;
+  /** One badge per provider with content at, above or below this row, in `view.contentProviders`
+   *  order. `badge` is the any-provider answer (the nearest publish); these are what a row offers
+   *  when a node carries geometry from more than one provider. */
+  readonly claims: readonly RowBadge[];
   /** Nothing to deliver at or below this row. Rendered, never hidden. */
   readonly dimmed: boolean;
   /** Something at or below, and no publish at or above covers it. */
@@ -58,10 +65,39 @@ export interface RowFacts {
   readonly changeRecord: ChangeRecord | null;
 }
 
-function deliveryOf(view: AssetView, subject: string): { delivery: DeliveryKind; revision: string } | null {
-  const content = view.resolution.subjects.get(subject)?.content;
+function deliveryOf(
+  view: AssetView,
+  subject: string,
+  provider?: string,
+): { delivery: DeliveryKind; revision: string; provider: string } | null {
+  const resolved = view.resolution.subjects.get(subject);
+  const content = provider === undefined ? resolved?.content : resolved?.byProvider.get(provider);
   if (!content) return null;
-  return { delivery: content.manifest?.delivery ?? "none", revision: content.revision };
+  return {
+    delivery: content.manifest?.delivery ?? "none",
+    revision: content.revision,
+    provider: content.manifest?.provider ?? provider ?? "",
+  };
+}
+
+/** The badge for one coverage role at `id`: rooted here, covering from above, or rooted below. */
+function badgeFor(view: AssetView, id: string, role: string, provider?: string): RowBadge | null {
+  const cov = view.coverage.byId.get(id);
+  if (cov?.rooted.has(role)) {
+    const d = deliveryOf(view, id, provider);
+    return d ? { weight: "solid", at: id, ...d } : null;
+  }
+  if (cov?.covered.has(role)) {
+    const owner = cov.coveredBy.get(role)!;
+    const d = deliveryOf(view, owner, provider);
+    return d ? { weight: "ghost", at: owner, ...d } : null;
+  }
+  if (cov?.below.has(role)) {
+    const owner = cov.belowBy.get(role)!;
+    const d = deliveryOf(view, owner, provider);
+    return d ? { weight: "below", at: owner, ...d } : null;
+  }
+  return null;
 }
 
 export function rowFacts(view: AssetView, id: string): RowFacts | null {
@@ -69,23 +105,17 @@ export function rowFacts(view: AssetView, id: string): RowFacts | null {
   if (!hnode) return null;
   const cov = view.coverage.byId.get(id);
 
-  let badge: RowBadge | null = null;
-  if (cov?.rooted.has(ROLE_CONTENT)) {
-    const d = deliveryOf(view, id);
-    if (d) badge = { weight: "solid", at: id, ...d };
-  } else if (cov?.covered.has(ROLE_CONTENT)) {
-    const owner = cov.coveredBy.get(ROLE_CONTENT)!;
-    const d = deliveryOf(view, owner);
-    if (d) badge = { weight: "ghost", at: owner, ...d };
-  } else if (cov?.below.has(ROLE_CONTENT)) {
-    const owner = cov.belowBy.get(ROLE_CONTENT)!;
-    const d = deliveryOf(view, owner);
-    if (d) badge = { weight: "below", at: owner, ...d };
+  const badge = badgeFor(view, id, ROLE_CONTENT);
+  const claims: RowBadge[] = [];
+  for (const p of view.contentProviders) {
+    const b = badgeFor(view, id, contentRole(p), p);
+    if (b) claims.push(b);
   }
 
   return {
     node: hnode.data,
     badge,
+    claims,
     dimmed: (cov?.dimmed ?? false) && !view.unexplored.has(id),
     gap: cov?.gap ?? false,
     payload: cov?.payloadSubtree ?? 0,
@@ -135,23 +165,74 @@ export function subjectsByOwner(view: AssetView, actorId: string): readonly stri
   return out;
 }
 
+/** What a search compares, per hierarchy, built once: a whole project is most of a million
+ *  rows, and lowercasing two strings per row on every keystroke was the search's own cost. `last`
+ *  is the previous query's hits -- a term typed further can only match a subset of them. */
+interface SearchIndex {
+  readonly ids: readonly string[];
+  /** `label NUL id`, lowercased. A typed term holds no NUL, so it matches one field or the other,
+   *  never across the two. */
+  readonly keys: readonly string[];
+  last: { q: string; hits: readonly number[] } | null;
+}
+
+const searchIndexes = new WeakMap<Hierarchy<AssetNode>, SearchIndex>();
+
+/** Shorter terms are not searched. One character matches nearly every row of a project -- all of
+ *  them, for a common letter -- which filters nothing and costs most of a second on 650k rows to
+ *  say so. Two is already selective: 670 hits for "st" in that tree. */
+export const MIN_SEARCH_CHARS = 2;
+
+/** Whether `term` is long enough to search. One test for the tree and the tab, so the tab's
+ *  search mode and the tree's filter never disagree about whether a search is on. */
+export function isSearchTerm(term: string): boolean {
+  return term.trim().length >= MIN_SEARCH_CHARS;
+}
+
+function matchingIds(h: Hierarchy<AssetNode>, q: string): string[] {
+  let ix = searchIndexes.get(h);
+  if (!ix) {
+    const ids: string[] = [];
+    const keys: string[] = [];
+    for (const [id, node] of h.byId) {
+      ids.push(id);
+      keys.push(`${node.data.label}\u0000${node.data.id}`.toLowerCase());
+    }
+    ix = { ids, keys, last: null };
+    searchIndexes.set(h, ix);
+  }
+  const hits: number[] = [];
+  if (ix.last && q.includes(ix.last.q)) {
+    for (const i of ix.last.hits) if (ix.keys[i].includes(q)) hits.push(i);
+  } else {
+    for (let i = 0; i < ix.keys.length; i++) if (ix.keys[i].includes(q)) hits.push(i);
+  }
+  ix.last = { q, hits };
+  return hits.map((i) => ix!.ids[i]);
+}
+
 /** The rows a search keeps: every match and every ancestor of one, so the set
- *  is ancestor-closed as `flattenVisible`'s `include` requires. Also returns the
- *  ancestors, which the tab treats as expanded while the search is active --
- *  a hit inside a collapsed branch is otherwise found and not shown. */
+ *  is ancestor-closed as `flattenVisible`'s `include` requires. Case-insensitive,
+ *  on the label and the id.
+ *
+ *  Also returns the ancestors to treat as expanded while the search is active --
+ *  a hit inside a collapsed branch is otherwise found and not shown -- EXCEPT an
+ *  ancestor that is itself a hit. That row is the answer at its level, and
+ *  opening it for the deeper hits below would push the next hit at its level off
+ *  the screen; they are one expansion away, and still the only rows under it.
+ *
+ *  `hits` is the matched ids, for ranking branches by their shallowest hit. */
 export function searchRows(
   h: Hierarchy<AssetNode>,
   term: string,
-): { include: ReadonlySet<string>; open: ReadonlySet<string>; matches: number } | null {
+): { include: ReadonlySet<string>; open: ReadonlySet<string>; hits: ReadonlySet<string>; matches: number } | null {
+  if (!isSearchTerm(term)) return null;
   const q = term.trim().toLowerCase();
-  if (!q) return null;
   const include = new Set<string>();
   const open = new Set<string>();
-  let matches = 0;
-  for (const [id, node] of h.byId) {
-    const d = node.data;
-    if (!(d.label.toLowerCase().includes(q) || d.id.toLowerCase().includes(q))) continue;
-    matches++;
+  const hits = new Set<string>();
+  for (const id of matchingIds(h, q)) {
+    hits.add(id);
     include.add(id);
     for (const a of ancestorsOf(h, id)) {
       if (include.has(a) && open.has(a)) break; // the rest of the chain is already in
@@ -159,5 +240,23 @@ export function searchRows(
       open.add(a);
     }
   }
-  return { include, open, matches };
+  for (const id of hits) open.delete(id);
+  return { include, open, hits, matches: hits.size };
+}
+
+/** Per row of `h`, the depth of the shallowest search hit at or below it; absent for a row with
+ *  none. Ranking siblings by it puts a hit at their own level first, then the branches whose hits
+ *  are one level down, and so on. Pass the hierarchy as DRAWN, so a row's branch is the one the
+ *  user sees after any flattened kinds. */
+export function shallowestHit<T>(h: Hierarchy<T>, hits: ReadonlySet<string>): ReadonlyMap<string, number> {
+  const best = new Map<string, number>();
+  for (const id of hits) {
+    const d = h.byId.get(id)?.depth;
+    if (d === undefined) continue;
+    for (let cur: string | null = id; cur !== null; cur = h.byId.get(cur)?.parent ?? null) {
+      if ((best.get(cur) ?? Infinity) <= d) break; // everything above already ranks at least this well
+      best.set(cur, d);
+    }
+  }
+  return best;
 }

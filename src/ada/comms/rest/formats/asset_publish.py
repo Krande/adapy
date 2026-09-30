@@ -24,7 +24,12 @@ import asyncpg
 
 from ada.assets.keys import ASSET_PREFIX, STAGING_SEGMENT
 from ada.assets.manifest import Actor
-from ada.assets.publish import PublishError, PublishPlan, apply_publish_plan
+from ada.assets.publish import (
+    PublishError,
+    PublishPlan,
+    apply_publish_plan,
+    stored_encoding,
+)
 from ada.assets.publishers import AssetPublisherError, asset_publisher
 from ada.config import logger
 
@@ -128,7 +133,10 @@ async def _run_asset_publish(
         return
 
     def _write(key: str, data: bytes) -> None:
-        sync_storage.put_bytes(key, data)
+        # A hierarchy spine arrives gzip-compressed from apply_publish_plan (gzip at rest): store
+        # it as-is and label it, so the blob route and presigned reads carry its Content-Encoding.
+        encoding = stored_encoding(data)
+        sync_storage.put_bytes(key, data, content_encoding=encoding, pre_compressed=encoding is not None)
 
     try:
         await queue.update(job_id, stage="publish", progress=0.60)
@@ -142,6 +150,7 @@ async def _run_asset_publish(
                 replace_existing=replace_existing,
                 occupied=occupied,
                 write=_write,
+                provider=str(provider_id),
             ),
         )
     except PublishError as exc:

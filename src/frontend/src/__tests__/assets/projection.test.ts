@@ -29,6 +29,14 @@ test("an unknown schema is refused rather than partially read", () => {
   assert.throws(() => parseHierarchySlice(slice({ schema: "something-else" })), HierarchyError);
 });
 
+test("a one-level slice's `children` column is read as a count; a whole slice has none", () => {
+  const level = parseHierarchySlice(
+    slice({ cols: [...BASE_COLS, "children"], rows: [["level-1", "area-1", "Level 1", "level", 0, "", 3]] }),
+  );
+  assert.equal(level.nodes[0].children, 3);
+  assert.equal("children" in parseHierarchySlice(slice()).nodes[0], false);
+});
+
 test("columns are found by NAME — shuffled order and an extra unknown column give the same result", () => {
   const inOrder = parseHierarchySlice(slice());
   const shuffled = parseHierarchySlice(

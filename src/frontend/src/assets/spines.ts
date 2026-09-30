@@ -16,6 +16,7 @@
 // "which document" and "which row is its top".
 
 import { HIERARCHY_FILENAME } from "./assetIndex";
+import type { NodeOrigin } from "./freshness";
 import type { Hierarchy } from "./hierarchy";
 import type { Resolution } from "./resolve";
 import type { AssetNode } from "./types";
@@ -83,26 +84,80 @@ export function spineCoverage(
   };
 }
 
-/** Whether the covering spine is merged -- KEYED BY THE SPINE'S ROOT, so the
- *  second branch expanded under one spine does not re-fetch it, and compared by
- *  REVISION, because a resolution change re-points the tree at another document. */
-export function spineMerged(source: SpineSource | null, loaded: ReadonlyMap<string, string>): boolean {
-  return source !== null && loaded.get(source.root) === source.revision;
+// --- one LEVEL at a time ------------------------------------------------------
+//
+// A spine can be a whole site -- hundreds of thousands of rows, tens of MB -- so
+// it is never fetched whole to open one row. Expanding a row fetches ONE LEVEL:
+// that row's direct children, out of the spine that holds them (the tree
+// route's `parent=`), each carrying its own child count so the next level
+// knows whether it can open. So what is loaded is tracked per (subject,
+// revision, node), not per spine.
+
+/** One level to fetch: the direct children of `node`, from `subject`'s spine at
+ *  `revision`. `node === subject` is the spine's first level. */
+export interface LevelRequest {
+  readonly subject: string;
+  readonly revision: string;
+  readonly node: string;
 }
 
-/** Whether expanding this row would bring something back. `leaf` is load-
- *  bearing both ways: a leaf has nothing beneath by definition, and a
- *  `leaf: false` row is a positive claim that it HAS children. */
-export function canFetchSpine(
+/** The store's key for a level. The revision is part of it: the same node in a
+ *  new revision of its spine is a different question. */
+export function levelKey(req: LevelRequest): string {
+  return `${req.subject}\u0000${req.revision}\u0000${req.node}`;
+}
+
+/** The first level of the spine published AT `id`, if there is one. */
+export function firstLevel(resolution: Resolution, id: string): LevelRequest | null {
+  const own = spineRootedAt(resolution, id);
+  return own ? { subject: id, revision: own.revision, node: id } : null;
+}
+
+/** WHICH SPINE holds a row's children, and at which revision.
+ *
+ * A row that is itself a published subject with a spine owns its children: its
+ * first level comes from its own spine, at the revision the resolution names.
+ * Any other row's children sit in the spine the row itself came from (its
+ * forest ORIGIN), at the revision it was drawn from -- not the subject's
+ * current one: a row drawn from an older revision opens from that revision
+ * (and says `stale`), so a level never lands in a tree it does not belong to.
+ * Null when neither applies (a row no spine contributed). */
+export function levelOwner(
+  resolution: Resolution,
+  origins: ReadonlyMap<string, NodeOrigin>,
+  id: string,
+): LevelRequest | null {
+  const own = firstLevel(resolution, id);
+  if (own) return own;
+  const origin = origins.get(id);
+  if (!origin || origin.subject === id) return null;
+  return { subject: origin.subject, revision: origin.revision, node: id };
+}
+
+/** Whether this row's level below still has to be FETCHED -- and so whether it
+ *  can expand with nothing under it yet. `leaf` is load-bearing both ways: a
+ *  leaf has nothing beneath by definition, and a `leaf: false` row is a
+ *  positive claim that it HAS children.
+ *
+ * A subject's own first level is wanted until it is loaded at the resolved
+ * revision -- even with rows already under it (from an index, or an older
+ * revision): its spine is the authority on them. Any other row wants its level
+ * when the spine that drew it counted children (`children > 0`) and none are
+ * held yet. A row from a WHOLE spine carries no count and wants nothing: a
+ * whole spine held its children already, so an empty one is a real dead end. */
+export function levelWanted(
   node: AssetNode | undefined,
-  source: SpineSource | null,
-  loaded: ReadonlyMap<string, string>,
+  req: LevelRequest | null,
+  loaded: ReadonlySet<string>,
+  hasChildren: boolean,
 ): boolean {
-  if (!node || node.leaf) return false;
-  return source !== null && !spineMerged(source, loaded);
+  if (!node || node.leaf || !req) return false;
+  if (loaded.has(levelKey(req))) return false;
+  if (req.node === req.subject) return true;
+  return (node.children ?? 0) > 0 && !hasChildren;
 }
 
-export interface RowSpineState {
+export interface RowLevelState {
   readonly loading: boolean;
   readonly error: string | null;
   /** A branch that promises children it can never deliver: `leaf: false`, no
@@ -111,23 +166,22 @@ export interface RowSpineState {
   readonly deadEnd: boolean;
 }
 
-/** What one row says about the spine covering it. The mark goes where the wait
- *  is FELT: on a row with nothing under it yet, or on the spine's own root --
- *  not on every already-drawn row a re-read happens to cover. */
-export function rowSpineState(input: {
+/** What one row says about the level below it. The wait is shown on the row
+ *  whose level is being fetched, and only while it is. */
+export function rowLevelState(input: {
   readonly node: AssetNode | undefined;
   /** The FOREST's answer, not the filtered row's: a branch whose children a
    *  filter removed is filtered, not a dead end. */
   readonly hasChildren: boolean;
-  readonly source: SpineSource | null;
-  readonly loaded: ReadonlyMap<string, string>;
+  readonly req: LevelRequest | null;
+  readonly loaded: ReadonlySet<string>;
   readonly loading: ReadonlySet<string>;
   readonly errors: ReadonlyMap<string, string>;
-}): RowSpineState {
-  const { node, hasChildren, source, loaded, loading, errors } = input;
-  const explored = source === null || spineMerged(source, loaded);
-  const deadEnd = !!node && !node.leaf && !hasChildren && explored;
-  const waiting = source !== null && !!node && !node.leaf && (!hasChildren || source.root === node.id);
-  if (source === null || !waiting || spineMerged(source, loaded)) return { loading: false, error: null, deadEnd };
-  return { loading: loading.has(source.root), error: errors.get(source.root) ?? null, deadEnd };
+}): RowLevelState {
+  const { node, hasChildren, req, loaded, loading, errors } = input;
+  const wanted = levelWanted(node, req, loaded, hasChildren);
+  const deadEnd = !!node && !node.leaf && !hasChildren && !wanted;
+  if (!wanted || !req) return { loading: false, error: null, deadEnd };
+  const key = levelKey(req);
+  return { loading: loading.has(key), error: errors.get(key) ?? null, deadEnd };
 }

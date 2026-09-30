@@ -18,6 +18,7 @@ the spine so the browser can render an actionable row without a per-node round t
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass
 from typing import Any, Iterator, Mapping, Sequence
@@ -213,6 +214,14 @@ def _clean_view(raw: Any) -> dict | None:
 
 
 def parse_hierarchy(doc: bytes | str) -> HierarchySlice:
+    """Read a hierarchy document. Gzip-compressed bytes are accepted transparently: core stores
+    published spines gzip AT REST, and a reader handed the stored bytes as they are (an in-memory
+    store, a provider reading its own publish) must not need to know that."""
+    if isinstance(doc, (bytes, bytearray, memoryview)) and bytes(doc[:2]) == b"\x1f\x8b":
+        try:
+            doc = gzip.decompress(bytes(doc))
+        except (OSError, EOFError) as exc:
+            raise HierarchyError(f"hierarchy is gzip-framed but does not decompress: {exc}") from exc
     try:
         raw = json.loads(doc)
     except (ValueError, TypeError) as exc:

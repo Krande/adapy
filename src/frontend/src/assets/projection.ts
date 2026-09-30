@@ -55,6 +55,8 @@ export function parseHierarchySlice(doc: WireHierarchySlice): HierarchySlice {
   const iDelivery = at.get("delivery")!;
   const iPath = at.get("path");
   const iProvider = at.get("provider");
+  // Only on a one-level slice (`parent=`): the row's own child count in its spine.
+  const iChildren = at.get("children");
   const width = doc.cols.length;
 
   const nodes: AssetNode[] = new Array(doc.rows.length);
@@ -66,6 +68,7 @@ export function parseHierarchySlice(doc: WireHierarchySlice): HierarchySlice {
     const parent = row[iParent];
     const path = iPath === undefined ? undefined : row[iPath];
     const provider = iProvider === undefined ? null : row[iProvider];
+    const children = iChildren === undefined ? undefined : Number(row[iChildren]);
     nodes[r] = {
       id: String(row[iId]),
       parent: parent === null || parent === undefined || parent === "" ? null : String(parent),
@@ -75,6 +78,7 @@ export function parseHierarchySlice(doc: WireHierarchySlice): HierarchySlice {
       delivery: asDelivery(row[iDelivery]),
       ...(typeof path === "string" && path ? { path } : {}),
       provider: typeof provider === "string" && provider ? provider : doc.provider,
+      ...(children !== undefined && Number.isFinite(children) ? { children } : {}),
     };
   }
   return {

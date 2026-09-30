@@ -23,7 +23,7 @@
 //
 // Pure apart from the injected api, so the flow runs under plain node.
 
-import type { AssetCollectionRequest } from "@/services/assetScopeCollections";
+import type { AssetCollectionRequest, AssetNodeRequest } from "@/services/assetScopeCollections";
 
 export class CollectionRequestError extends Error {}
 
@@ -50,12 +50,30 @@ export interface CollectionRequestDeps {
   now?: () => number;
 }
 
-/** What a finished request published. */
+/** What a finished request published -- or, when `unchanged`, the existing publish it found still
+ *  current (nothing was staged or published; `stagingId` is empty). */
 export interface CollectionRequestOutcome {
   stagingId: string;
   collection: string;
   revision: string;
   subjects: readonly string[];
+  unchanged?: boolean;
+  /** The provider's own words for an unchanged answer, e.g. what it compared. */
+  message?: string;
+}
+
+/** A provider's "nothing changed" answer: `{asset_unchanged: true, revision, subjects?, message?}`
+ *  in place of `asset_staging_id`. Its source is exactly what it last published, so publishing it
+ *  again would only add a revision that says the same thing. Null for any other summary. */
+export function unchangedOf(summary: unknown): { revision: string; subjects: string[]; message: string | null } | null {
+  if (!summary || typeof summary !== "object") return null;
+  const s = summary as Record<string, unknown>;
+  if (s.asset_unchanged !== true) return null;
+  return {
+    revision: typeof s.revision === "string" ? s.revision : "",
+    subjects: Array.isArray(s.subjects) ? s.subjects.map(String) : [],
+    message: typeof s.message === "string" ? s.message : null,
+  };
 }
 
 const POLL_INTERVAL_MS = 3000;
@@ -76,7 +94,8 @@ export function requestOptions(
   return { ...req.options, [req.collectionOption]: collection, requested_at: requestedAt };
 }
 
-/** The staging id a provider's summary hands back, or a sentence saying why not. */
+/** The staging id a provider's summary hands back, or a sentence saying why not. (An
+ *  `asset_unchanged` answer is handled before this is asked -- see `unchangedOf`.) */
 export function stagingIdOf(summary: unknown): string {
   const id =
     summary && typeof summary === "object" ? (summary as Record<string, unknown>).asset_staging_id : undefined;
@@ -89,6 +108,21 @@ export function stagingIdOf(summary: unknown): string {
   return id.trim();
 }
 
+/** The options for a node request: the collection request's, plus the node's id -- as the
+ *  browser shows it -- under the declared `nodeOption`, as a one-element list; and its label under
+ *  `labelOption` when the provider declared one and a label is known. */
+export function nodeRequestOptions(
+  req: AssetNodeRequest,
+  collection: string,
+  node: string,
+  requestedAt: string,
+  label?: string,
+): Record<string, unknown> {
+  const options: Record<string, unknown> = { ...requestOptions(req, collection, requestedAt), [req.nodeOption]: [node] };
+  if (req.labelOption && label) options[req.labelOption] = [label];
+  return options;
+}
+
 export async function requestCollection(
   deps: CollectionRequestDeps,
   scope: string,
@@ -97,22 +131,61 @@ export async function requestCollection(
   collection: string,
 ): Promise<CollectionRequestOutcome> {
   const now = deps.now ?? (() => Date.now());
+  const options = requestOptions(req, collection, new Date(now()).toISOString());
+  return stageAndPublish(deps, scope, providerId, req, options, collection, collection);
+}
+
+/** Ask a provider for one node of a published collection -- its geometry, typically, where the
+ *  collection was published as a hierarchy alone -- and publish what it staged. The same two jobs
+ *  as a collection request. */
+export async function requestNode(
+  deps: CollectionRequestDeps,
+  scope: string,
+  providerId: string,
+  req: AssetNodeRequest,
+  collection: string,
+  node: string,
+  nodeLabel?: string,
+): Promise<CollectionRequestOutcome> {
+  const now = deps.now ?? (() => Date.now());
+  const options = nodeRequestOptions(req, collection, node, new Date(now()).toISOString(), nodeLabel);
+  return stageAndPublish(deps, scope, providerId, req, options, collection, `${collection} / ${nodeLabel ?? node}`);
+}
+
+async function stageAndPublish(
+  deps: CollectionRequestDeps,
+  scope: string,
+  providerId: string,
+  req: AssetCollectionRequest,
+  options: Record<string, unknown>,
+  collection: string,
+  what: string,
+): Promise<CollectionRequestOutcome> {
   const stage = (s: string) => deps.onStage?.(s);
 
-  stage(`asking ${req.pluginId} for ${collection}`);
-  const fetchJob = await deps.api.pluginJob(
-    req.pluginId,
-    { options: requestOptions(req, collection, new Date(now()).toISOString()) },
-    { scope },
-  );
-  deps.trackJob?.({ jobId: fetchJob.job_id, label: `${req.label}: ${collection}`, derivedKey: fetchJob.derived_key });
-  await pollToTerminal(deps, fetchJob.job_id, FETCH_TIMEOUT_MS, `the request for ${collection}`, stage);
-  const stagingId = stagingIdOf(await deps.api.readJson(scope, fetchJob.derived_key));
+  stage(`asking ${req.pluginId} for ${what}`);
+  const fetchJob = await deps.api.pluginJob(req.pluginId, { options }, { scope });
+  deps.trackJob?.({ jobId: fetchJob.job_id, label: `${req.label}: ${what}`, derivedKey: fetchJob.derived_key });
+  await pollToTerminal(deps, fetchJob.job_id, FETCH_TIMEOUT_MS, `the request for ${what}`, stage);
+  const summary = await deps.api.readJson(scope, fetchJob.derived_key);
+  // Nothing changed at the source since the provider last published it: no staging, no publish.
+  const same = unchangedOf(summary);
+  if (same) {
+    return {
+      stagingId: "",
+      collection,
+      revision: same.revision,
+      subjects: same.subjects,
+      unchanged: true,
+      message: same.message ?? `${what} is unchanged since ${same.revision || "its last publish"}`,
+    };
+  }
+  const stagingId = stagingIdOf(summary);
 
-  stage(`publishing ${collection}`);
+  stage(`publishing ${what}`);
   const publishJob = await deps.api.publish(scope, { provider: providerId, staging_id: stagingId });
-  deps.trackJob?.({ jobId: publishJob.job_id, label: `Publish ${collection}`, derivedKey: publishJob.derived_key });
-  await pollToTerminal(deps, publishJob.job_id, PUBLISH_TIMEOUT_MS, `the publish of ${collection}`, stage);
+  deps.trackJob?.({ jobId: publishJob.job_id, label: `Publish ${what}`, derivedKey: publishJob.derived_key });
+  await pollToTerminal(deps, publishJob.job_id, PUBLISH_TIMEOUT_MS, `the publish of ${what}`, stage);
 
   const outcome = (await deps.api.readJson(scope, publishJob.derived_key)) as Record<string, unknown> | null;
   return {

@@ -92,6 +92,7 @@ test("assetProviderCollections reads the two declared keys off plugin specs", ()
       collections: ["A", "B"],
       refresh: null,
       request: null,
+      nodeRequest: null,
     },
   ]);
 });
@@ -204,4 +205,28 @@ test("the plugin API advertises the reader at 1.8.0, through the asset surface",
 test("storedProviders lists every provider the map mentions", () => {
   const map = parseScopeCollections({ shared: { b: [], a: ["X"] }, "project:1": { c: [] } });
   assert.deepEqual(storedProviders(map), ["a", "b", "c"]);
+});
+
+test("a spec's asset_node_request is read with the option that carries the node", () => {
+  const [vendor] = assetProviderCollections([
+    {
+      id: "one",
+      asset_provider_id: "vendor",
+      asset_collections_field: "items",
+      asset_node_request: { options: { action: "export" }, collection_option: "project", node_option: "nodes", label: "Request geometry" },
+    },
+  ]);
+  assert.deepEqual(vendor.nodeRequest, {
+    pluginId: "one",
+    options: { action: "export" },
+    collectionOption: "project",
+    nodeOption: "nodes",
+    label: "Request geometry",
+    requiresAdmin: false,
+  });
+  // Without a node option it is not a node request: the node would have nowhere to go.
+  const [none] = assetProviderCollections([
+    { id: "two", asset_provider_id: "other", asset_node_request: { options: {}, collection_option: "project" } },
+  ]);
+  assert.equal(none.nodeRequest, null);
 });

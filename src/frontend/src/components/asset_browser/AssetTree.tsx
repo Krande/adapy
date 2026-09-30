@@ -32,7 +32,7 @@
 // TWO STYLES, the same facts: `outline` draws a folder or a cube and the kind
 // as a code; `tiles` draws a coloured tile per kind (`@/assets/kindTile`).
 
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { AssetView } from "@/assets/assetView";
@@ -41,14 +41,15 @@ import { flattenVisible, type Hierarchy } from "@/assets/hierarchy";
 import { kindTile } from "@/assets/kindTile";
 import { isOutOfScope } from "@/assets/treeView";
 import type { AssetNode } from "@/assets/types";
-import { rowFacts, searchRows, type RowBadge } from "@/assets/rowFacts";
-import { canFetchSpine, rowSpineState, type SpineSource } from "@/assets/spines";
+import { isSearchTerm, rowFacts, searchRows, shallowestHit, type RowBadge } from "@/assets/rowFacts";
+import { levelWanted, rowLevelState, type LevelRequest } from "@/assets/spines";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetTreeStyle } from "@/state/assetBrowserStore";
 
 import { formatRevision } from "./format";
 
 const ROW_HEIGHT = 26;
+const SEARCH_DEBOUNCE_MS = 180;
 /** Horizontal step per level. A level's guide line runs under its parent's
  *  chevron: 6px into the 12px chevron column. */
 const INDENT = 14;
@@ -74,6 +75,29 @@ const StateDot: React.FC<{ badge: RowBadge }> = ({ badge }) => (
         }`}
         title={`${BADGE_TITLE[badge.weight]} — delivers ${DELIVERY_WORD[badge.delivery] ?? badge.delivery} — ${badge.at} @ ${formatRevision(badge.revision)}`}
     />
+);
+
+/** A node with content from several providers: one mark per provider, in the same filled / ring
+ *  language as `StateDot`, tinted by provider so the marks can be told apart. The tint is hashed
+ *  from the provider id (`kindTile`), so core names no provider and a provider keeps its colour. */
+const ProviderDots: React.FC<{ claims: readonly RowBadge[] }> = ({ claims }) => (
+    <span className="shrink-0 flex items-center gap-0.5">
+        {claims.map((c) => {
+            const color = kindTile(c.provider).bg;
+            return (
+                <span
+                    key={c.provider}
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={
+                        c.weight === "solid"
+                            ? { background: color }
+                            : { boxShadow: `inset 0 0 0 1.5px ${color}`, opacity: c.weight === "below" ? 0.8 : 0.6 }
+                    }
+                    title={`${c.provider}: ${BADGE_TITLE[c.weight]} — delivers ${DELIVERY_WORD[c.delivery] ?? c.delivery} — ${c.at} @ ${formatRevision(c.revision)}`}
+                />
+            );
+        })}
+    </span>
 );
 
 const Word: React.FC<{ tone: "amber" | "gray" | "red"; title: string; children: React.ReactNode }> = ({ tone, title, children }) => (
@@ -152,7 +176,7 @@ const AssetRow: React.FC<{
     hasChildren: boolean;
     expanded: boolean;
     selected: boolean;
-    spine: ReturnType<typeof rowSpineState>;
+    spine: ReturnType<typeof rowLevelState>;
     showProvider: boolean;
     /** Drawn although it is out of scope, because "show hidden" is on. */
     outOfScope: boolean;
@@ -160,7 +184,8 @@ const AssetRow: React.FC<{
     onToggle: () => void;
     onSelect: () => void;
     onRetry: () => void;
-}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry }) => {
+    onContextMenu: (x: number, y: number) => void;
+}> = ({ view, id, depth, hasChildren, expanded, selected, spine, showProvider, outOfScope, treeStyle, onToggle, onSelect, onRetry, onContextMenu }) => {
     const facts = rowFacts(view, id);
     if (!facts) return null;
     const { node } = facts;
@@ -180,6 +205,12 @@ const AssetRow: React.FC<{
             aria-expanded={hasChildren ? expanded : undefined}
             aria-level={depth + 1}
             onClick={onSelect}
+            onContextMenu={(e) => {
+                e.preventDefault();
+                // Select first, so the detail below shows the row the menu acts on.
+                onSelect();
+                onContextMenu(e.clientX, e.clientY);
+            }}
             className={`relative flex items-center gap-1.5 h-full pr-2 cursor-pointer rounded whitespace-nowrap text-[13px] ${
                 selected ? "bg-blue-500/20 text-white shadow-[inset_2px_0_0_var(--color-blue-400)]" : "text-gray-200 hover:bg-white/5"
             } ${outOfScope ? "opacity-45" : facts.dimmed ? "opacity-60" : ""}`}
@@ -268,9 +299,15 @@ const AssetRow: React.FC<{
                 </Word>
             )}
             <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-500">
-                {hasChildren && !expanded && facts.payload > 0 ? facts.payload : ""}
+                {/* Not on an unexplored branch: a level below is still unfetched, so
+                    the leaves held there are a floor, not a count. */}
+                {hasChildren && !expanded && facts.payload > 0 && !view.unexplored.has(id) ? facts.payload : ""}
             </span>
-            <span className="w-2 shrink-0 grid place-items-center">{facts.badge && <StateDot badge={facts.badge} />}</span>
+            {facts.claims.length > 1 ? (
+                <ProviderDots claims={facts.claims} />
+            ) : (
+                <span className="w-2 shrink-0 grid place-items-center">{facts.badge && <StateDot badge={facts.badge} />}</span>
+            )}
         </div>
     );
 };
@@ -284,15 +321,29 @@ const AssetTree: React.FC<{
     /** Out-of-scope ids, to mark the rows drawn anyway when Show hidden is on. */
     outOfScope: ReadonlySet<string>;
     showHidden: boolean;
-    onRetrySpine: (source: SpineSource) => void;
-}> = ({ view, display, outOfScope, showHidden, onRetrySpine }) => {
+    onRetryLevel: (req: LevelRequest) => void;
+    /** Right-click on a row, at viewport coordinates. */
+    onRowContextMenu: (id: string, x: number, y: number) => void;
+}> = ({ view, display, outOfScope, showHidden, onRetryLevel, onRowContextMenu }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const expanded = useAssetBrowserStore((s) => s.expanded);
     const selected = useAssetBrowserStore((s) => s.selected);
-    const searchTerm = useAssetBrowserStore((s) => s.searchTerm);
-    const spineLoaded = useAssetBrowserStore((s) => s.spineLoaded);
-    const spineLoading = useAssetBrowserStore((s) => s.spineLoading);
-    const spineErrors = useAssetBrowserStore((s) => s.spineErrors);
+    const typedTerm = useAssetBrowserStore((s) => s.searchTerm);
+    // Searched once typing pauses, not per keystroke: a search over a whole project is tens of
+    // milliseconds, and running it between keystrokes is what made the field stutter. Dropping a
+    // search is immediate -- there is nothing to compute, and a stale filter would linger.
+    const [searchTerm, setSearchTerm] = useState(typedTerm);
+    useEffect(() => {
+        if (!isSearchTerm(typedTerm)) {
+            setSearchTerm(typedTerm);
+            return;
+        }
+        const t = setTimeout(() => setSearchTerm(typedTerm), SEARCH_DEBOUNCE_MS);
+        return () => clearTimeout(t);
+    }, [typedTerm]);
+    const levelLoaded = useAssetBrowserStore((s) => s.levelLoaded);
+    const levelLoading = useAssetBrowserStore((s) => s.levelLoading);
+    const levelErrors = useAssetBrowserStore((s) => s.levelErrors);
     const treeStyle = useAssetBrowserStore((s) => s.treeStyle);
     const { toggleExpanded, select } = useAssetBrowserStore.getState();
 
@@ -304,14 +355,25 @@ const AssetTree: React.FC<{
         return s;
     }, [expanded, search]);
 
+    // While searching, siblings are ordered by their shallowest hit: a hit at the top level lists
+    // before a branch whose hits are deeper, whatever the tree's own order.
+    const hitDepth = useMemo(() => (search ? shallowestHit(display, search.hits) : null), [display, search]);
     const rows = useMemo(
         () =>
             flattenVisible(display, open, {
+                // Asked only of a row with nothing under it (as drawn): can it
+                // open anyway -- a level still to fetch below it?
                 expandable: (id) =>
-                    canFetchSpine(view.hierarchy.byId.get(id)?.data, view.spines.get(id) ?? null, spineLoaded),
+                    levelWanted(
+                        view.hierarchy.byId.get(id)?.data,
+                        view.levelOf(id),
+                        levelLoaded,
+                        view.hierarchy.childrenOf(id).length > 0,
+                    ),
                 include: search?.include,
+                rank: hitDepth ? (id) => hitDepth.get(id) ?? Infinity : undefined,
             }),
-        [view, display, open, search, spineLoaded],
+        [view, display, open, search, hitDepth, levelLoaded],
     );
     const markOut = showHidden && outOfScope.size > 0;
 
@@ -336,14 +398,14 @@ const AssetTree: React.FC<{
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualizer.getVirtualItems().map((item) => {
                     const row = rows[item.index];
-                    const source = view.spines.get(row.id) ?? null;
-                    const spine = rowSpineState({
+                    const level = view.levelOf(row.id);
+                    const spine = rowLevelState({
                         node: view.hierarchy.byId.get(row.id)?.data,
                         hasChildren: view.hierarchy.childrenOf(row.id).length > 0,
-                        source,
-                        loaded: spineLoaded,
-                        loading: spineLoading,
-                        errors: spineErrors,
+                        req: level,
+                        loaded: levelLoaded,
+                        loading: levelLoading,
+                        errors: levelErrors,
                     });
                     return (
                         <div
@@ -363,7 +425,8 @@ const AssetTree: React.FC<{
                                 treeStyle={treeStyle}
                                 onToggle={() => toggleExpanded(row.id)}
                                 onSelect={() => select(row.id)}
-                                onRetry={() => source && onRetrySpine(source)}
+                                onRetry={() => level && onRetryLevel(level)}
+                                onContextMenu={(x, y) => onRowContextMenu(row.id, x, y)}
                             />
                         </div>
                     );

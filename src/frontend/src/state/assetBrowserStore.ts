@@ -11,7 +11,7 @@ import { create } from "zustand";
 
 import type { SourceNodeRow, SourceNodesAnswer } from "@/assets/changes";
 import type { LoadedAsset } from "@/assets/delivery";
-import { EMPTY_FOREST, mergeSpine, type Forest, type SpineMerge } from "@/assets/merge";
+import { EMPTY_FOREST, mergeLevel, mergeSpine, type Forest, type LevelMerge, type SpineMerge } from "@/assets/merge";
 import type { TreeViewDoc, TreeViewHints } from "@/assets/treeView";
 import type { AssetIndex, AssetNode, ResolutionMode } from "@/assets/types";
 
@@ -40,7 +40,6 @@ function writeTreeStyle(style: AssetTreeStyle): void {
 }
 
 const EMPTY_SET: ReadonlySet<string> = Object.freeze(new Set<string>());
-const EMPTY_LOADED: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_ERRORS: ReadonlyMap<string, string> = Object.freeze(new Map<string, string>());
 const EMPTY_LOADED_ASSETS: readonly LoadedAsset[] = Object.freeze([]);
 const EMPTY_SOURCE_ANSWERS: ReadonlyMap<string, SourceNodesAnswer | null> = Object.freeze(new Map());
@@ -67,12 +66,14 @@ export interface AssetBrowserState {
   forestVersion: number;
   /** Collection-index revisions merged into the forest, ascending. */
   mergedIndexRevisions: readonly string[];
-  /** SPINE ROOT -> the revision it was fetched at. Keyed by the spine, not the
-   *  row that asked, so a second branch under one spine does not re-fetch it;
-   *  and by revision, because a resolution change re-points the spine. */
-  spineLoaded: ReadonlyMap<string, string>;
-  spineLoading: ReadonlySet<string>;
-  spineErrors: ReadonlyMap<string, string>;
+  /** LEVELS fetched, by `levelKey` (subject, revision, node): a spine is opened
+   *  one level at a time -- expanding a row fetches that row's direct children
+   *  from the spine that holds them, never the whole spine (one can be a whole
+   *  site). By revision too, because a resolution change re-points a subject
+   *  at another document. */
+  levelLoaded: ReadonlySet<string>;
+  levelLoading: ReadonlySet<string>;
+  levelErrors: ReadonlyMap<string, string>;
 
   /** PROVIDER id -> the change feed's last answer for that provider, or
    *  `null` for that provider's own no-feed (§Decision 4's four states,
@@ -137,10 +138,13 @@ export interface AssetBrowserState {
    *  publishes -- the reason the modes exist -- unusable. */
   setMode: (mode: ResolutionMode) => void;
   mergeSlice: (nodes: readonly AssetNode[], merge: SpineMerge) => void;
+  /** One level of a spine (`mergeLevel`): unions with the levels already held
+   *  from the same subject @ revision. */
+  mergeLevelSlice: (nodes: readonly AssetNode[], merge: LevelMerge) => void;
   setMergedIndexRevisions: (revisions: readonly string[]) => void;
-  beginSpine: (root: string) => void;
-  endSpine: (root: string, revision: string) => void;
-  failSpine: (root: string, error: string) => void;
+  beginLevel: (key: string) => void;
+  endLevel: (key: string) => void;
+  failLevel: (key: string, error: string) => void;
   /** Fold one provider's answer to a batch of refs into the running picture.
    *  `askedRefs` is recorded in `evidenceAsked` REGARDLESS of whether `answer`
    *  is a real answer or `null` -- asking and being told no-feed is still
@@ -186,9 +190,9 @@ export interface AssetBrowserState {
 const FOREST_RESET = {
   forest: EMPTY_FOREST,
   mergedIndexRevisions: [] as readonly string[],
-  spineLoaded: EMPTY_LOADED,
-  spineLoading: EMPTY_SET,
-  spineErrors: EMPTY_ERRORS,
+  levelLoaded: EMPTY_SET,
+  levelLoading: EMPTY_SET,
+  levelErrors: EMPTY_ERRORS,
   // The change feed is asked about refs from THIS forest; a different
   // collection or a rebuilt forest has different refs to ask about, so
   // nothing here would still mean anything -- reset with the rest.
@@ -215,9 +219,9 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
   forest: EMPTY_FOREST,
   forestVersion: 0,
   mergedIndexRevisions: [],
-  spineLoaded: EMPTY_LOADED,
-  spineLoading: EMPTY_SET,
-  spineErrors: EMPTY_ERRORS,
+  levelLoaded: EMPTY_SET,
+  levelLoading: EMPTY_SET,
+  levelErrors: EMPTY_ERRORS,
   sourceAnswer: EMPTY_SOURCE_ANSWERS,
   changedRows: EMPTY_CHANGED_ROWS,
   evidenceAsked: EMPTY_SET,
@@ -251,31 +255,36 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       const forest = mergeSpine(s.forest, nodes, merge);
       return forest === s.forest ? s : { forest, forestVersion: s.forestVersion + 1 };
     }),
+  mergeLevelSlice: (nodes, merge) =>
+    set((s) => {
+      const forest = mergeLevel(s.forest, nodes, merge);
+      return forest === s.forest ? s : { forest, forestVersion: s.forestVersion + 1 };
+    }),
   setMergedIndexRevisions: (mergedIndexRevisions) => set({ mergedIndexRevisions }),
 
-  beginSpine: (root) =>
+  beginLevel: (key) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.add(root);
-      const errors = new Map(s.spineErrors);
-      errors.delete(root);
-      return { spineLoading: loading, spineErrors: errors };
+      const loading = new Set(s.levelLoading);
+      loading.add(key);
+      const errors = new Map(s.levelErrors);
+      errors.delete(key);
+      return { levelLoading: loading, levelErrors: errors };
     }),
-  endSpine: (root, revision) =>
+  endLevel: (key) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.delete(root);
-      const loaded = new Map(s.spineLoaded);
-      loaded.set(root, revision);
-      return { spineLoading: loading, spineLoaded: loaded };
+      const loading = new Set(s.levelLoading);
+      loading.delete(key);
+      const loaded = new Set(s.levelLoaded);
+      loaded.add(key);
+      return { levelLoading: loading, levelLoaded: loaded };
     }),
-  failSpine: (root, error) =>
+  failLevel: (key, error) =>
     set((s) => {
-      const loading = new Set(s.spineLoading);
-      loading.delete(root);
-      const errors = new Map(s.spineErrors);
-      errors.set(root, error);
-      return { spineLoading: loading, spineErrors: errors };
+      const loading = new Set(s.levelLoading);
+      loading.delete(key);
+      const errors = new Map(s.levelErrors);
+      errors.set(key, error);
+      return { levelLoading: loading, levelErrors: errors };
     }),
 
   mergeSourceAnswer: (source, answer, askedRefs) =>

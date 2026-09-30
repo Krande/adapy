@@ -201,6 +201,28 @@ def test_a_real_publish_ends_with_manifests_present_written_last_and_change_publ
     assert node_manifest["change"]["published_via"] == "user"
 
 
+def test_a_publish_whose_manifests_name_another_provider_is_refused(client):
+    """Readers select a subject's revisions by the manifest's ``provider``, so a publisher writing
+    manifests in someone else's name would land revisions under THEIR selection. Registered here
+    as ``impostor``, the fixture publisher still stamps ``fixture-lines`` into every manifest."""
+    from ada.assets.publishers import register_asset_publisher
+
+    register_asset_publisher("impostor", FixtureLinesPublisher)
+    c, tmp_path = client
+    staged_key = _stage(tmp_path, "up1")
+
+    r = c.post(_publish_url(), json={"provider": "impostor", "staging_id": "up1", "collection": COLLECTION})
+    assert r.status_code == 200, r.text
+    status = _poll_done(c, r.json()["job_id"])
+    assert status["status"] != local_jobs.STATUS_DONE, status
+    error = json.dumps(status)
+    assert "impostor" in error and FIXTURE_PROVIDER_ID in error
+
+    # Refused means nothing landed, and the staging is still there to publish properly.
+    assert not (_scope_root(tmp_path) / "assets" / COLLECTION).exists()
+    assert _exists(tmp_path, staged_key)
+
+
 def test_dry_run_publish_writes_nothing_to_disk_but_the_summary_says_so(client):
     c, tmp_path = client
     _stage(tmp_path, "up1")

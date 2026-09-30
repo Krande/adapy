@@ -451,7 +451,7 @@ def start_asset_publish(
     records cannot be trusted.
     """
     from ada.assets.manifest import Actor
-    from ada.assets.publish import apply_publish_plan
+    from ada.assets.publish import apply_publish_plan, stored_encoding
     from ada.assets.publishers import asset_publisher
 
     publisher = asset_publisher(provider_id)  # LookupError if this process cannot publish it
@@ -496,7 +496,11 @@ def start_asset_publish(
                 dry_run=dry_run,
                 replace_existing=replace_existing,
                 occupied=occupied,
-                write=lambda key, data: sync_storage.put_bytes(key, data),
+                # A spine arrives gzip-compressed (gzip at rest): stored as-is, and labelled.
+                write=lambda key, data: sync_storage.put_bytes(
+                    key, data, content_encoding=stored_encoding(data), pre_compressed=stored_encoding(data) is not None
+                ),
+                provider=provider_id,
             )
             payload = outcome.to_dict()
             job.stage = "upload"

@@ -13,7 +13,6 @@ import {disposeObject3D} from "@/utils/scene/dispose_object";
 
 export function unload_source_from_scene(sourceName: string): void {
     const group = useModelState.getState().unregisterLoadedSource(sourceName);
-    if (!group) return;
 
     // Drop this model's root from the tree view + the model-key map.
     // Each load registers one tree root under the synthetic container
@@ -21,26 +20,34 @@ export function unload_source_from_scene(sourceName: string): void {
     // for this group; without this the hierarchy panel keeps showing
     // the unloaded model and selection-sync walks dead refs.
     let modelKey: string | null = null;
-    getViewerRuntime().modelKeyMap.current?.forEach((g, key) => {
-        if (g === group) modelKey = key;
-    });
-    if (modelKey !== null) {
-        getViewerRuntime().modelKeyMap.current?.delete(modelKey);
-        const ts = useTreeViewStore.getState();
-        const td = ts.treeData;
-        if (td) {
-            if (td.model_key === modelKey) {
-                // Single un-containered root (first/only model).
-                ts.clearTreeData();
-            } else if (Array.isArray(td.children)) {
-                const remaining = td.children.filter((c) => c.model_key !== modelKey);
-                if (remaining.length !== td.children.length) {
-                    if (remaining.length === 0) ts.clearTreeData();
-                    else ts.setTreeData({...td, children: remaining});
-                }
+    if (group) {
+        getViewerRuntime().modelKeyMap.current?.forEach((g, key) => {
+            if (g === group) modelKey = key;
+        });
+    }
+    if (modelKey !== null) getViewerRuntime().modelKeyMap.current?.delete(modelKey);
+    // The root goes by EITHER handle: the model key, when the group was found in the key map, or
+    // the source name the root was stamped with at load. Keyed on the model key alone, a model
+    // whose lookup came back empty left its rows behind -- a tree showing a model the scene no
+    // longer holds. Done before the group check for the same reason: a stale row is removed even
+    // when there is no group left to remove.
+    const isThisModel = (n: {model_key?: string | null; source_name?: string | null}) =>
+        (modelKey !== null && n.model_key === modelKey) || (!!n.source_name && n.source_name === sourceName);
+    const ts = useTreeViewStore.getState();
+    const td = ts.treeData;
+    if (td) {
+        if (isThisModel(td)) {
+            // Single un-containered root (first/only model).
+            ts.clearTreeData();
+        } else if (Array.isArray(td.children)) {
+            const remaining = td.children.filter((c) => !isThisModel(c));
+            if (remaining.length !== td.children.length) {
+                if (remaining.length === 0) ts.clearTreeData();
+                else ts.setTreeData({...td, children: remaining});
             }
         }
     }
+    if (!group) return;
 
     // Drop selection entries that point at meshes we're about to
     // detach, BEFORE we tear the group down. Without this, the

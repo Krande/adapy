@@ -162,6 +162,8 @@ export interface AssetProviderCollections {
   refresh: AssetCollectionsRefresh | null;
   /** How to ask the provider for one collection, when a spec declares it. */
   request: AssetCollectionRequest | null;
+  /** How to ask the provider for one NODE of a published collection, when a spec declares it. */
+  nodeRequest: AssetNodeRequest | null;
 }
 
 /** A declared request: `asset_collection_request` on a plugin spec.
@@ -194,6 +196,29 @@ function parseRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): A
   };
 }
 
+/** A declared node request: `asset_node_request` on a plugin spec.
+ *
+ *  `{options, collection_option, node_option, label?}` -- a collection request that also names
+ *  one node of it: core adds the node's id, as the browser shows it, under `node_option`. The id
+ *  is the one the provider published the node under, so turning it back into whatever its source
+ *  calls that node is the provider's job. Staged and published exactly like a collection. */
+export interface AssetNodeRequest extends AssetCollectionRequest {
+  nodeOption: string;
+  /** `label_option`, when declared: core also sends the node's LABEL, as the tree shows it, under
+   *  this option. For a provider that must find a node published under ANOTHER provider's id --
+   *  an id it cannot turn back into anything of its own -- the label is the name to look for. */
+  labelOption?: string;
+}
+
+function parseNodeRequest(pluginId: string, raw: unknown, requiresAdmin: boolean): AssetNodeRequest | null {
+  const base = parseRequest(pluginId, raw, requiresAdmin);
+  if (!base || !isRecord(raw)) return null;
+  const nodeOption = raw.node_option;
+  if (typeof nodeOption !== "string" || !nodeOption.trim()) return null;
+  const labelOption = typeof raw.label_option === "string" && raw.label_option.trim() ? raw.label_option.trim() : undefined;
+  return { ...base, nodeOption: nodeOption.trim(), ...(labelOption ? { labelOption } : {}) };
+}
+
 /** A declared rescan: `asset_collections_refresh` on a plugin spec, which is the
  *  job options core sends to that plugin. Core adds only a `requested_at`
  *  stamp, so a second request is a second job rather than a cache hit. */
@@ -219,6 +244,7 @@ export function assetProviderCollections(
       collections: Set<string>;
       refresh: AssetCollectionsRefresh | null;
       request: AssetCollectionRequest | null;
+      nodeRequest: AssetNodeRequest | null;
     }
   >();
   for (const spec of specs) {
@@ -232,6 +258,7 @@ export function assetProviderCollections(
       collections: new Set<string>(),
       refresh: null,
       request: null,
+      nodeRequest: null,
     };
     const pluginId = typeof spec.id === "string" ? spec.id : typeof spec.slug === "string" ? spec.slug : "";
     if (pluginId && !entry.pluginIds.includes(pluginId)) entry.pluginIds.push(pluginId);
@@ -242,6 +269,9 @@ export function assetProviderCollections(
     }
     if (!entry.request) {
       entry.request = parseRequest(pluginId, spec.asset_collection_request, spec.requires_admin === true);
+    }
+    if (!entry.nodeRequest) {
+      entry.nodeRequest = parseNodeRequest(pluginId, spec.asset_node_request, spec.requires_admin === true);
     }
     if (typeof spec.title === "string" && spec.title && !entry.titles.includes(spec.title)) {
       entry.titles.push(spec.title);
@@ -260,6 +290,7 @@ export function assetProviderCollections(
       collections: [...e.collections].sort(compare),
       refresh: e.refresh,
       request: e.request,
+      nodeRequest: e.nodeRequest,
     }))
     .sort((a, b) => compare(a.providerId, b.providerId));
 }
