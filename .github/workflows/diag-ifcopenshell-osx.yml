@@ -1,0 +1,100 @@
+# THROWAWAY diagnostic for the ifcopenshell 0.9 osx-arm64 segfault seen on PR #423
+# (geom.iterator -> mapping_Ifc4x3_add2::initialize_units_ -> file::instances_by_type<IfcContext>).
+# Lives only on branch diag/ifcopenshell-09-osx; delete the branch when done.
+name: diag ifcopenshell 0.9 osx
+
+on:
+  push:
+    branches: [diag/ifcopenshell-09-osx]
+  workflow_dispatch:
+
+jobs:
+  conda-bare:
+    name: 1 conda-forge ifcopenshell alone
+    runs-on: macos-14
+    defaults: { run: { shell: "bash -el {0}" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: diag
+          create-args: python=3.12 ifcopenshell=0.9.0
+      - run: micromamba list | grep -Ei "ifcopenshell|occt|cgal|boost|libcxx|python " || true
+      - run: python diag/repro.py conda-bare
+      # The binding log: where each flat-namespace symbol of ifcopenshell's dylibs resolves.
+      - name: DYLD binding log around the crash
+        run: |
+          DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_BINDINGS=1 python -c "
+          import ifcopenshell, ifcopenshell.geom
+          f = ifcopenshell.open('diag/curved_thick_plate.ifc')
+          it = ifcopenshell.geom.iterator(ifcopenshell.geom.settings(), f)
+          print('constructed', it.initialize())
+          " 2> dyld-conda-bare.log; echo "rc=$?"
+          wc -l dyld-conda-bare.log
+          grep -c "bind" dyld-conda-bare.log || true
+      - name: Mach-O flags of the loaded ifcopenshell dylibs
+        run: |
+          for f in "$CONDA_PREFIX"/lib/ifcopenshell_geometry_mapping_ifc4x3_add2.dylib "$CONDA_PREFIX"/lib/libifcopenshell.parse.0.9.dylib "$CONDA_PREFIX"/lib/ifcopenshell_parse_schema_ifc4x3_add2.dylib; do
+            echo "== $f"; otool -hv "$f" | tail -1; otool -L "$f" | head -20
+          done
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-bare
+          path: |
+            dyld-conda-bare.log
+            diag/summary-*.json
+            ~/Library/Logs/DiagnosticReports/*.ips
+
+  pypi-wheel:
+    name: 2 PyPI ifcopenshell wheel
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install "ifcopenshell==0.9.0"
+      - name: Mach-O flags of the wheel's binaries
+        run: |
+          d=$(python -c "import ifcopenshell, os; print(os.path.dirname(ifcopenshell.__file__))")
+          find "$d" -name "*.so" -o -name "*.dylib" | head -20 | while read f; do echo "== $f"; otool -hv "$f" | tail -1; done
+      - run: python diag/repro.py pypi-wheel
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-wheel
+          path: |
+            diag/summary-*.json
+            ~/Library/Logs/DiagnosticReports/*.ips
+
+  conda-with-adacpp:
+    name: 3 conda-forge ifcopenshell + ada-cpp + gmsh imported first
+    runs-on: macos-14
+    defaults: { run: { shell: "bash -el {0}" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: diag
+          create-args: python=3.12 ifcopenshell=0.9.0 ada-cpp=0.31.1 python-gmsh numpy
+      - run: micromamba list | grep -Ei "ifcopenshell|ada-cpp|gmsh|occt|cgal|boost|libcxx|python " || true
+      - run: python diag/repro.py adacpp-first --preimport numpy,adacpp,gmsh
+      - run: python diag/repro.py ifc-first
+      - name: DYLD binding log with adacpp imported first
+        run: |
+          DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_BINDINGS=1 python -c "
+          import adacpp, gmsh
+          import ifcopenshell, ifcopenshell.geom
+          f = ifcopenshell.open('diag/curved_thick_plate.ifc')
+          it = ifcopenshell.geom.iterator(ifcopenshell.geom.settings(), f)
+          print('constructed', it.initialize())
+          " 2> dyld-adacpp-first.log; echo "rc=$?"
+          wc -l dyld-adacpp-first.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-with-adacpp
+          path: |
+            dyld-adacpp-first.log
+            diag/summary-*.json
+            ~/Library/Logs/DiagnosticReports/*.ips
