@@ -153,9 +153,7 @@ _COMPARISON_SPECS = [
 # keeps the side effect alongside the @task declarations.
 try:
     from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
-    from ada.fem.formats.abaqus.post_processing import (
-        get_abaodb_exe as _get_abaodb_exe,
-    )
+    from ada.fem.formats.abaqus.post_processing import get_abaodb_exe as _get_abaodb_exe
     from ada.fem.formats.abaqus.post_processing import (
         post_processing_abaqus as _post_processing_abaqus,
     )
