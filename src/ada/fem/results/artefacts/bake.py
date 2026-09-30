@@ -6,7 +6,7 @@ import os
 import pathlib
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 
@@ -20,7 +20,12 @@ from .beam_solids import (
     write_beam_solids_glb,
     write_beam_solids_warp,
 )
-from .fields import write_element_field_blob_streaming, write_field_blob_streaming
+from .fields import (
+    ElementFieldBlobWriter,
+    FieldBlobWriter,
+    write_element_field_blob_streaming,
+    write_field_blob_streaming,
+)
 from .manifest import _infer_analysis_kind, build_manifest, write_manifest
 from .mesh import (
     _compute_topology,
@@ -40,6 +45,7 @@ from .mode_normalization import (
 from .protocol import FEAStreamReader
 from .readers import make_stream_reader
 from .specs import ElementFieldArtefactMeta, FieldArtefactMeta
+from .step_subset import normalize_steps, restrict_to_steps
 
 
 def _normalization_fraction(normalize_modes: bool | float) -> float | None:
@@ -115,16 +121,22 @@ def bake_fea_artefacts_from_source(
     include_beam_solids: bool = True,
     beam_solid_method: str = "procedural",
     beam_solid_format: str = "compact",
+    steps: Iterable[int | float] | None = None,
+    on_progress: "ProgressCallback | None" = None,
+    steps_hint: str | None = None,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
     reader for the extension and drives the streaming bake. Raises
     ``ValueError`` for unsupported extensions; the caller (REST
     endpoint, CLI, tests) is responsible for the policy decision of
-    when to surface that vs route to a different code path."""
+    when to surface that vs route to a different code path.
+
+    ``steps``, ``on_progress`` and ``steps_hint``: see :func:`bake_artefacts`. The reader is
+    opened on ``steps`` already, so a SIN is read for those cases only."""
 
     src_path = pathlib.Path(src_path)
     src = src_key or src_path.stem
-    with make_stream_reader(src_path) as reader:
+    with make_stream_reader(src_path, steps=steps) as reader:
         return bake_artefacts(
             reader,
             out_dir,
@@ -134,7 +146,102 @@ def bake_fea_artefacts_from_source(
             include_beam_solids=include_beam_solids,
             beam_solid_method=beam_solid_method,
             beam_solid_format=beam_solid_format,
+            steps=steps,
+            on_progress=on_progress,
+            steps_hint=steps_hint,
         )
+
+
+#: ``on_progress(done, total, label)``: ``done`` of ``total`` units of work
+#: finished, ``label`` naming the one that just did.
+ProgressCallback = Callable[[int, int, str], None]
+
+
+class _Progress:
+    """Counts finished units and hands each one to the caller's callback."""
+
+    def __init__(self, callback: ProgressCallback | None, total: int) -> None:
+        self._callback = callback
+        self.total = int(total)
+        self.count = 0
+
+    def done(self, label: str) -> None:
+        self.count += 1
+        if self._callback is not None:
+            self._callback(self.count, self.total, label)
+
+
+def _value(step_value: float) -> str:
+    """A step value as a label: ``12`` rather than ``12.0``."""
+    v = float(step_value)
+    return str(int(v)) if v.is_integer() else f"{v:g}"
+
+
+@dataclass
+class _NodalJob:
+    """One nodal field to write, with its mode-normalization state if it has one."""
+
+    spec: object
+    path: pathlib.Path
+    transform: Callable | None = None
+    factors: dict = dc_field(default_factory=dict)
+    peaks: dict = dc_field(default_factory=dict)
+
+
+def _finish_nodal(job: _NodalJob, meta, target_fraction, ref_length, reference_peak):
+    if job.transform is not None:
+        factors = job.factors
+        meta.mode_normalization = {
+            "method": "max_translation",
+            "target_fraction": target_fraction,
+            "reference_length": ref_length,
+            "reference_peak": reference_peak,
+            "factors": [factors[i] for i in sorted(factors)],
+            # Modes with no translation of their own (e.g. beam torsion), scaled like the
+            # largest mode so their round-off stays invisible.
+            "translation_free": sorted(i for i, p in job.peaks.items() if is_translation_free(p, reference_peak)),
+        }
+    return meta
+
+
+def _write_fields_step_major(reader, nodal_jobs, elem_specs, elem_paths, progress: _Progress):
+    """Write every field blob at once, one step of all of them at a time.
+
+    Each field's own iterator is advanced one step per round, so a reader that
+    decodes a step for all its fields (and keeps it until the next step is
+    asked for) decodes each step once. Every blob receives exactly the steps it
+    would have received field by field, in the same order: the files are
+    byte-identical to the field-major bake's. A field with fewer steps than the
+    others (a property field has one) simply finishes early.
+    """
+    writers: list = []
+    try:
+        for job in nodal_jobs:
+            writers.append(FieldBlobWriter(job.spec, job.path, job.transform))
+        for es, path in zip(elem_specs, elem_paths):
+            writers.append(ElementFieldBlobWriter(es, path))
+        iters = [iter(reader.iter_field_steps(job.spec.name)) for job in nodal_jobs]
+        iters += [iter(reader.iter_element_field_steps(es)) for es in elem_specs]
+        live = list(zip(writers, iters))
+        while live:
+            label = None
+            still = []
+            for writer, it in live:
+                sv = next(it, None)
+                if sv is None:
+                    continue
+                writer.add(sv)
+                if label is None:
+                    label = f"step {_value(sv.step_value)}"
+                still.append((writer, it))
+            live = still
+            if label is not None:
+                progress.done(label)
+        metas = [w.finish() for w in writers]
+    finally:
+        for w in writers:
+            w.close()
+    return metas[: len(nodal_jobs)], metas[len(nodal_jobs) :]
 
 
 @dataclass
@@ -159,6 +266,9 @@ def bake_artefacts(
     beam_solid_format: str = "compact",
     on_artefact: Callable[[pathlib.Path], None] | None = None,
     normalize_modes: bool | float = False,
+    steps: Iterable[int | float] | None = None,
+    on_progress: ProgressCallback | None = None,
+    steps_hint: str | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
 
@@ -225,10 +335,48 @@ def bake_artefacts(
     construction reads only in-memory metas (never the blob bytes), so
     a sink that deletes the file after shipping it is safe. The
     returned ``BakeResult`` still lists every path; whether those
-    files survive on disk is the sink's choice."""
+    files survive on disk is the sink's choice.
+
+    ``steps``: bake only these steps, named by value -- for a Sesam result the
+    result-case numbers. None (the default) bakes every step. The fields then
+    carry just those steps, in ascending order, and the manifest lists them
+    under ``baked_steps`` (absent from a whole bake). The reader is narrowed by
+    :func:`~.step_subset.restrict_to_steps`: a reader that can skip the other
+    steps does (the SIN stream reader); any other still reads them and the bake
+    passes on only the chosen ones. A step the source does not have is a
+    ValueError. Case lists (``result_cases``), names and groups are not
+    narrowed: they describe the source, not the bake. An empty ``steps`` bakes
+    the geometry only: the mesh and its sidecars, the beam solids, the sets and
+    the property fields, no result field, and ``baked_steps: []`` in the
+    manifest; a reader that can (the SIN stream reader) then reads no result
+    records at all.
+
+    ``steps_hint``: with ``steps``, one line from the caller on how to get the
+    steps it left out baked (a command, say), kept in the manifest as
+    ``baked_steps_hint`` for the viewer to show where it says a step is not
+    baked. Ignored for a whole bake.
+
+    ``on_progress(done, total, label)``: called as each unit of field-writing
+    work finishes, with ``total`` fixed before the first. The unit is a step of
+    every field when the reader decodes whole steps (``step_major_bake``, see
+    below) -- ``label`` is then ``"step 12"`` -- and one step of one field
+    otherwise (``"<field> step 12"``). The mesh, edges and beam solids come
+    before the first unit and are not counted.
+
+    A reader that sets ``step_major_bake = True`` decodes a step once for all
+    its fields; the bake then feeds every field blob a step at a time instead of
+    completing them one field after another, so each step is decoded once
+    rather than once per field. Skipped when ``on_artefact`` is given, since
+    every blob then completes at the very end. The bytes written are the same
+    either way."""
 
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    baked_steps: list[int | float] | None = None
+    if steps is not None:
+        reader = restrict_to_steps(reader, steps)
+        baked_steps = [int(v) if v.is_integer() else v for v in normalize_steps(steps)]
 
     def emit(path: pathlib.Path) -> None:
         if on_artefact is not None:
@@ -351,38 +499,28 @@ def bake_artefacts(
         }
     reference_peak = max((p for peaks in mode_peaks.values() for p in peaks.values()), default=0.0) or None
 
+    # What to write: one AFBL blob per nodal field, one AFEL blob per (element
+    # field, element type). Planned in full before anything is written, so the
+    # number of units of work is known before the first one finishes.
+    nodal_jobs: list[_NodalJob] = []
     for spec in reader.field_specs():
         if nodal_only and spec.support != "nodal":
             continue
-        blob_path = out_dir / f"fea.{spec.name}.bin"
+        job = _NodalJob(spec=spec, path=out_dir / f"fea.{spec.name}.bin")
         if _normalizes(spec):
             columns = translation_columns(spec.components)
-            peaks = mode_peaks.get(spec.name, {})
-            factors: dict[int, float] = {}
+            job.peaks = mode_peaks.get(spec.name, {})
+            factors = job.factors
 
             def _normalize(step_index, values, _cols=columns, _factors=factors, _ref=reference_peak):
                 factor = mode_scale_factor(values, geom.points, _cols, ref_length, target_fraction, _ref)
                 _factors[step_index] = factor
                 return values * factor
 
-            meta = write_field_blob_streaming(reader, spec, blob_path, step_transform=_normalize)
-            meta.mode_normalization = {
-                "method": "max_translation",
-                "target_fraction": target_fraction,
-                "reference_length": ref_length,
-                "reference_peak": reference_peak,
-                "factors": [factors[i] for i in sorted(factors)],
-                # Modes with no translation of their own (e.g. beam torsion), scaled like the
-                # largest mode so their round-off stays invisible.
-                "translation_free": sorted(i for i, p in peaks.items() if is_translation_free(p, reference_peak)),
-            }
-        else:
-            meta = write_field_blob_streaming(reader, spec, blob_path)
-        field_metas.append(meta)
-        blob_paths.append(blob_path)
-        emit(blob_path)
+            job.transform = _normalize
+        nodal_jobs.append(job)
 
-    elem_field_metas: list[ElementFieldArtefactMeta] = []
+    elem_specs: list = []
     if include_element_fields:
         # Best-effort: a reader that hasn't implemented the
         # element-field protocol yet (returns from a Protocol stub or
@@ -390,14 +528,58 @@ def bake_artefacts(
         # buckets. Surface AttributeError as the explicit signal so
         # other failures still bubble up.
         try:
-            elem_specs = reader.element_field_specs()
+            elem_specs = list(reader.element_field_specs())
         except (AttributeError, NotImplementedError):
             elem_specs = []
-        for es in elem_specs:
-            # Filename includes elem_type so each (field, type) bucket
-            # gets a distinct file the frontend can range-fetch.
-            blob_path = out_dir / f"fea.{es.name}.{es.elem_type}.elements.bin"
-            em = write_element_field_blob_streaming(reader, es, blob_path)
+    # Filename includes elem_type so each (field, type) bucket
+    # gets a distinct file the frontend can range-fetch.
+    elem_paths = [out_dir / f"fea.{es.name}.{es.elem_type}.elements.bin" for es in elem_specs]
+
+    # Step by step, every field at once -- when the reader decodes a step for
+    # all its fields together (``step_major_bake``) and no caller is waiting to
+    # ship each blob the moment it is complete (``on_artefact``: all blobs are
+    # completed together at the end this way, which would defeat a sink that
+    # exists to keep only one on disk at a time). Otherwise field by field, as
+    # the bake always did. The bytes are the same either way.
+    step_major = bool(getattr(reader, "step_major_bake", False)) and on_artefact is None
+    progress = _Progress(
+        on_progress,
+        (
+            max((s.n_steps for s in [*(j.spec for j in nodal_jobs), *elem_specs]), default=0)
+            if step_major
+            else sum(j.spec.n_steps for j in nodal_jobs) + sum(es.n_steps for es in elem_specs)
+        ),
+    )
+
+    elem_field_metas: list[ElementFieldArtefactMeta] = []
+    if step_major:
+        metas, elem_field_metas = _write_fields_step_major(reader, nodal_jobs, elem_specs, elem_paths, progress)
+        for job, meta in zip(nodal_jobs, metas):
+            field_metas.append(_finish_nodal(job, meta, target_fraction, ref_length, reference_peak))
+            blob_paths.append(job.path)
+            emit(job.path)
+        for path in elem_paths:
+            blob_paths.append(path)
+            emit(path)
+    else:
+        for job in nodal_jobs:
+            meta = write_field_blob_streaming(
+                reader,
+                job.spec,
+                job.path,
+                step_transform=job.transform,
+                on_step=lambda sv, _name=job.spec.name: progress.done(f"{_name} step {_value(sv.step_value)}"),
+            )
+            field_metas.append(_finish_nodal(job, meta, target_fraction, ref_length, reference_peak))
+            blob_paths.append(job.path)
+            emit(job.path)
+        for es, blob_path in zip(elem_specs, elem_paths):
+            em = write_element_field_blob_streaming(
+                reader,
+                es,
+                blob_path,
+                on_step=lambda sv, _name=es.name: progress.done(f"{_name} step {_value(sv.step_value)}"),
+            )
             elem_field_metas.append(em)
             blob_paths.append(blob_path)
             emit(blob_path)
@@ -479,6 +661,8 @@ def bake_artefacts(
         step_names=step_names,
         result_cases=result_cases,
         legacy_glb_url_template=legacy_glb_url_template,
+        baked_steps=baked_steps,
+        baked_steps_hint=steps_hint if baked_steps is not None else None,
     )
     manifest_path = out_dir / "fea.manifest.json"
     write_manifest(manifest, manifest_path)

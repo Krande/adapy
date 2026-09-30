@@ -85,10 +85,39 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
         else:
             _add_plates_unfused(sw, plates)
 
+    # Before the lumps are split off: every lump copies the body box.
+    _cover_wires(sw)
     _assign_faces_to_shells(sw, shell)
 
     sw.renumber()
     return sw
+
+
+def _cover_wires(sw: SatWriter) -> None:
+    """Widen the body/lump/shell box over the beam wires the shell carries.
+
+    The box starts as the plates' extent, but the imprint also hangs every beam whose
+    axis lies on no plate off this shell as a wire. GeniE treats the boxes as a bound
+    on what is inside: with the box short of a wire, a load it places by position
+    (``footprint_point``, ``footprint_line``) never finds that beam. Measured with
+    GeniE V9.2-01 on two beams at y=0 and y=1.5 beside a plate at y=3..4 (box
+    ``0 3 0 4 4 0``): the point and line loads on the beams wrote no Sesam records at
+    all, while a load naming the beam (``footprint_beam``) landed. Widening the three
+    boxes to ``0 0 0 4 4 0`` and nothing else gives GeniE's own records and resultants
+    (Fz -10000 N / My 500 N m, -4000 N, -8000 N); widening any one of them alone does not.
+    """
+    wires = sw.get_entities_by_type(se.Wire)
+    if not wires or sw.body is None:
+        return
+
+    import numpy as np
+
+    from ada.cadit.sat.utils import make_ints_if_possible
+
+    boxes = np.asarray([sw.bbox] + [w.bbox for w in wires], dtype=float)
+    sw.bbox = make_ints_if_possible([*boxes[:, :3].min(axis=0), *boxes[:, 3:].max(axis=0)])
+    for entity in (sw.body, sw.lump, sw.shell):
+        entity.bbox = list(sw.bbox)
 
 
 def _face_components(faces: list[se.Face]) -> list[list[se.Face]]:
@@ -512,8 +541,9 @@ def _beam_axes(part) -> tuple[list, list[list[tuple[float, float, float]]]]:
 def _plates_bbox(plates: list[Plate], curved: list[PlateCurved]) -> list[float]:
     """[xmin, ymin, zmin, xmax, ymax, zmax] over every plate outline.
 
-    Genie sets the body/lump/shell box to the union of the plate extents; an
-    empty plate set degenerates to a zero box rather than failing. A curved
+    The starting body/lump/shell box; :func:`_cover_wires` widens it over the beam
+    wires once they exist. An empty plate set degenerates to a zero box rather than
+    failing. A curved
     plate has no ``poly``, so it contributes its boundary nodes instead — the
     same loop-edge endpoints the face is built from.
     """

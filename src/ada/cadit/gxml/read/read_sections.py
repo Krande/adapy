@@ -2,9 +2,16 @@ from ada import Part, Section
 from ada.api.containers import Sections
 from ada.sections import GeneralProperties
 
+#: Where GeniE defines its sections: the property table. A workspace that has been meshed also
+#: holds ``<section section_ref="IB" id="1"/>`` under
+#: ``analysis/activities/create_mesh/mirror_model/sections``, the mesh activity's record of which
+#: sections it used. That element defines nothing and has no ``name``, so sweeping ``.//section``
+#: picked it up and ``from_gnx`` failed with ``KeyError: 'name'`` on every meshed workspace.
+SECTIONS_PATH = "./model/structure_domain/properties/sections/section"
+
 
 def get_sections(xml_root, parent: Part) -> Sections:
-    all_secs = xml_root.findall(".//section")
+    all_secs = xml_root.findall(SECTIONS_PATH)
     sections = [interpret_section_props(sec_el.attrib["name"], sec_el[0], parent) for sec_el in all_secs]
     return Sections(sections, parent=parent)
 
