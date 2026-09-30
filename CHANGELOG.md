@@ -2,6 +2,16 @@
 
 
 
+## v0.96.0 (2026-09-30)
+
+### Feature
+
+* feat(gxml): read GeniE concept loads, and fix four GeniE round-trip defects (#420)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f058e54`](https://github.com/Krande/adapy/commit/f058e54c608cf2e80089b14c11efa71cfa9f508a))
+
+
 ## v0.95.3 (2026-09-30)
 
 ### Fix
