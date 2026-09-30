@@ -8,6 +8,7 @@ from ada.cadit.gxml.read.helpers import (
 from ada.cadit.gxml.read.read_bcs import get_boundary_conditions
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_joints import get_joints
+from ada.cadit.gxml.read.read_loads import get_loads
 from ada.cadit.gxml.read.read_masses import get_masses
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
@@ -16,6 +17,11 @@ from ada.cadit.gxml.sat_helpers import write_xml_sat_text_to_file
 from ada.cadit.gxml.xml_parse import read_genie_xml_root
 from ada.cadit.sat.store import SatReaderFactory
 from ada.config import Config, logger
+
+#: The property table, not ``.//thickness``: a meshed workspace also records the thicknesses its
+#: mesh used as ``<thickness thickness_ref=".." id=".."/>`` under ``create_mesh/mirror_model``,
+#: with no ``name`` and no value (see ``read_sections.SECTIONS_PATH``).
+THICKNESSES_PATH = "./model/structure_domain/properties/thicknesses/thickness"
 
 
 class GxmlStore:
@@ -89,7 +95,7 @@ class GxmlStore:
             sat_d.update(sat_faces)
 
         thick_map = dict()
-        for thickn in self.xml_root.iterfind(".//thickness"):
+        for thickn in self.xml_root.iterfind(THICKNESSES_PATH):
             res = thickn.find(".//constant_thickness")
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
@@ -132,6 +138,8 @@ class GxmlStore:
 
         get_boundary_conditions(self.xml_root, p)
         get_masses(self.xml_root, p)
+        # after the plates: a surface load names its plate
+        get_loads(self.xml_root, p)
 
         all_plates = len(p.plates)
         all_beams = len(p.beams)
