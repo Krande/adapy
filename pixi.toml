@@ -512,7 +512,7 @@ channels = ["conda-forge"]
 channels = ["conda-forge"]
 
 [feature.fem-deps.dependencies]
-calculix = "*"
+calculix = ">=2.23"
 
 [feature.fem-deps.target.linux-64.dependencies]
 # 18.1.7: the first release built on libmed 4.2 build 29 (hdf5 2.2), which is what lets the FEM envs
