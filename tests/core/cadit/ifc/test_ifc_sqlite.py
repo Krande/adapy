@@ -1,9 +1,12 @@
+import pytest
+
 import ada
 from ada.cadit.ifc.ifc2sql import Ifc2SqlPatcher
 from ada.cadit.ifc.sql_model import IfcSqlModel
 from ada.config import logger
 
 
+@pytest.mark.ifcgeom
 def test_ifc_to_sqlite_roundtrip(tmp_path):
     bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
     a = ada.Assembly("MyAssembly") / (ada.Part("MyPart") / bm)
