@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,16 @@ from ada.fem.concept.loads import LoadConceptAccelerationField, LoadConceptSurfa
 
 if TYPE_CHECKING:
     from ada import Part
+
+
+def xml_token(value) -> str:
+    """The attribute text for ``value``: an enum's value, anything else as ``str``.
+
+    ``DesignCondition`` is a ``str`` enum, and ``str()`` of one is its qualified name
+    (``"DesignCondition.OPERATING"``, measured on Python 3.12), not ``"operating"``. That is
+    what ElementTree writes for an enum put in an attribute, and it is not a GeniE token.
+    """
+    return value.value if isinstance(value, enum.Enum) else str(value)
 
 
 def add_loadcase(
@@ -55,9 +66,9 @@ def add_loadcase(
         "loadcase_basic",
         {
             "name": name,
-            "design_condition": design_condition,
+            "design_condition": xml_token(design_condition),
             "fem_loadcase_number": str(fem_loadcase_number),
-            "complex_type": complex_type,
+            "complex_type": xml_token(complex_type),
             "invalidated": str(invalidated).lower(),
         },
     )
@@ -107,14 +118,14 @@ def add_loadcase_combination(
 
     attribs = {
         "name": name,
-        "design_condition": design_condition,
-        "complex_type": complex_type,
+        "design_condition": xml_token(design_condition),
+        "complex_type": xml_token(complex_type),
         "convert_load_to_mass": str(convert_load_to_mass).lower(),
         "global_scale_factor": str(global_scale_factor),
     }
 
     lcc_elem = ET.SubElement(loadcases_elem, "loadcase_combination", attribs)
-    ET.SubElement(lcc_elem, "equipments", {"representation_type": equipments_type})
+    ET.SubElement(lcc_elem, "equipments", {"representation_type": xml_token(equipments_type)})
     return lcc_elem
 
 

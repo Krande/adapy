@@ -146,6 +146,8 @@ def build_manifest(
     step_names: dict[int, str] | None = None,
     result_cases: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
+    baked_steps: list[int | float] | None = None,
+    baked_steps_hint: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
 
@@ -166,7 +168,17 @@ def build_manifest(
     scenarios — read back from the same deck-write sidecar (the .rmed
     result has none of them). Same shape as the ``fem_concepts``
     glTF-extension block; the frontend renders it via the shared
-    FemConceptsController overlay in the viewer's FEM mode."""
+    FemConceptsController overlay in the viewer's FEM mode.
+
+    ``baked_steps`` (optional): the step values a partial bake was asked for,
+    written as ``baked_steps``. Absent means every step the source has; a
+    reader of the manifest that wants to know whether a case was baked looks
+    here rather than inferring it from the fields' steps.
+
+    ``baked_steps_hint`` (optional, with ``baked_steps`` only): what the
+    producer of the bake says to do to get the other steps baked, written as
+    ``baked_steps_hint``; the viewer shows it where it says a step is not
+    baked."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -460,6 +472,12 @@ def build_manifest(
     # something the colour machinery can read, and a combination is not.
     if result_cases:
         manifest["result_cases"] = result_cases
+    # A bake of chosen steps only; ``fields[].steps`` then hold just these, while
+    # ``result_cases`` above still lists every case the source offers.
+    if baked_steps is not None:
+        manifest["baked_steps"] = list(baked_steps)
+        if baked_steps_hint:
+            manifest["baked_steps_hint"] = str(baked_steps_hint)
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
 
@@ -523,8 +541,19 @@ def _format_step_label_simple(n_steps: int, name: str, v: float) -> str:
     return f"{v:g}"
 
 
+#: Compact: no indentation and no spaces after separators. The manifest carries
+#: per-element tables (``element_labels``, ``element_node_indices`` per field
+#: bucket) and group member lists, so ``indent=2`` put every integer on its own
+#: line behind a dozen spaces of indentation - about 3x the compact size, 23.7 MB
+#: against 7.3 MB for a model-only bake of a 70k-element deck. Every reader
+#: parses it as JSON, so the layout is invisible to them.
+MANIFEST_JSON_SEPARATORS = (",", ":")
+
+
 def write_manifest(manifest: dict, out_path: os.PathLike) -> None:
     out_path = pathlib.Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    # newline="": no text-mode newline translation, so the bytes are the same on
+    # every platform.
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        json.dump(manifest, f, separators=MANIFEST_JSON_SEPARATORS)

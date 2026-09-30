@@ -32,7 +32,7 @@ from ...sat.write.writer import part_to_sat_writer
 from .write_bcs import add_concept_constraints, add_fem_boundary_conditions
 from .write_equipments import add_equipments
 from .write_hinges import add_hinges
-from .write_load_case import add_loads
+from .write_load_case import add_loads, xml_token
 from .write_masses import add_masses
 from .write_materials import add_materials
 from .write_plates import (
@@ -70,7 +70,9 @@ def _analytic_merge_strategy(merge_strategy):
 
     if merge_strategy is None or isinstance(merge_strategy, bool):
         return None
-    s = str(merge_strategy).lower()
+    # MergeStrategy is a str enum: str() of one is "MergeStrategy.SURFACE", which matched
+    # nothing below, so an enum argument quietly lost its curved shells to polygons.
+    s = xml_token(merge_strategy).lower()
     if s in ("surface", "cylinder", "analytic"):
         return MergeStrategy.SURFACE
     if s == "panel":

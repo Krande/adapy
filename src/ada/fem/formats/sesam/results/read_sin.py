@@ -17,7 +17,7 @@ import itertools
 import math
 import pathlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
@@ -1103,7 +1103,17 @@ class SinStreamReader:
     materialise adapter, which can enrich labels from LIS.
 
     Accepts a :class:`SinFile` or any ``ByteSource`` (wrapped into one).
+
+    ``steps``: when given, only these result cases (IRES, stored or combined)
+    are offered and read -- the others are never touched, which is what makes a
+    bake of one case out of hundreds cost one case. See :meth:`select_steps`.
     """
+
+    #: Each step is decoded once per RV card and every field of that card is
+    #: derived from it (see :meth:`_field_adapter`), so a bake that feeds all its
+    #: fields a step at a time reads each step once; field by field, it would
+    #: read the step again for every field.
+    step_major_bake = True
 
     def __init__(
         self,
@@ -1111,6 +1121,7 @@ class SinStreamReader:
         *,
         forces_elements: set[int] | None = None,
         complex_phase: float = 0.0,
+        steps: "Iterable[int] | None" = None,
     ) -> None:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
@@ -1120,12 +1131,44 @@ class SinStreamReader:
         # :attr:`SinReader.complex_phase`.
         self._complex_phase = float(complex_phase)
         self._steps = sorted(set(self._discover_steps()) | set(self._combinations))
+        self._offered = list(self._steps)  # every case, before any narrowing
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
         self._mesh = None  # step-invariant Mesh, built once and reused across steps
         self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
         # Optional RVFORCES element-id narrowing for callers that read line
         # forces for only a small subset of beam elements.
         self._forces_elements = set(forces_elements) if forces_elements is not None else None
+        # The step whose RV cards were decoded last, as (step index, {card: adapter}).
+        self._step_cache: "tuple[int, dict[str | None, object]] | None" = None
+        # No step chosen on purpose (``steps=[]``): geometry only, no RV* record read.
+        self._geometry_only = False
+        if steps is not None:
+            self.select_steps(steps)
+
+    def select_steps(self, steps: "Iterable[int | float]") -> None:
+        """Offer and read only these result cases (IRES), in ascending order.
+
+        Must come before the first read: the representative step, which the
+        geometry and the field specs come from, is the first chosen one. A case
+        the deck neither stores nor defines as a combination is a ValueError.
+
+        No case at all offers the geometry only: the mesh, sections, sets and
+        property fields come from the step-invariant blocks, and no RV* record is
+        read, so the cost is the model's and not a case's.
+        """
+        wanted: set[int] = set()
+        for s in steps:
+            value = float(s)
+            if not value.is_integer():
+                raise ValueError(f"SIN result steps are case numbers; got {s!r}")
+            wanted.add(int(value))
+        missing = sorted(wanted - set(self._steps))
+        if missing:
+            raise ValueError(f"result cases not in this SIN: {missing}")
+        self._steps = sorted(wanted)
+        self._geometry_only = not wanted
+        self._rep = None
+        self._step_cache = None
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def close(self) -> None:
@@ -1152,7 +1195,7 @@ class SinStreamReader:
 
     def _load_step(
         self,
-        step: int,
+        step: int | None,
         cards: "set[str] | None" = None,
         requested_fields: "set[str] | None" = None,
     ):
@@ -1165,7 +1208,9 @@ class SinStreamReader:
         per-step RV* field extraction (``get_sif_results``) re-runs. ``cards``
         restricts which RV blocks are gathered so a per-field bake pass reads
         only that field's card, not every field's records. (No LIS/MLG
-        enrichment here — same as before; the source is a bare SinFile.)"""
+        enrichment here — same as before; the source is a bare SinFile.)
+        ``step=None`` with ``cards=set()`` is the geometry-only load: the
+        static blocks and no RV* card."""
         from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
         from ada.fem.results.common import FEAResult, FEATypes
 
@@ -1176,11 +1221,11 @@ class SinStreamReader:
             self._reader._forces_elements = self._forces_elements
             self._reader._load_static()
         reader = self._reader
-        recipe = self._combinations.get(int(step))
+        recipe = self._combinations.get(int(step)) if step is not None else None
         if recipe:
             reader.load_combination(int(step), recipe, cards=cards)
         else:
-            reader.load_step(int(step), cards=cards)
+            reader.load_step(None if step is None else int(step), cards=cards)
         s2m = Sif2Mesh(reader)
         if self._mesh is None:
             self._mesh = s2m.get_sif_mesh()
@@ -1198,6 +1243,18 @@ class SinStreamReader:
             software_version="N/A",
         )
 
+    def _load_geometry(self):
+        """The model without a case: the static blocks, no RV* card, and the
+        property fields (thickness, material, section), which a loaded case
+        would otherwise have carried. They are stamped with the deck's first
+        case, as a bake of every case stamps them."""
+        from ada.fem.formats.sesam.results.property_fields import build_property_fields
+
+        result = self._load_step(None, cards=set())
+        step = self._offered[0] if self._offered else 1
+        result.results = [*result.results, *build_property_fields(self._mesh, self._reader, step=step)]
+        return result
+
     def _adapter_for(self, idx: int):
         """``FEAResultStreamAdapter`` over step ``idx``; step 0 is cached as
         the representative (its result stays resident for geometry/specs)."""
@@ -1205,6 +1262,9 @@ class SinStreamReader:
 
         if idx == 0:
             if self._rep is None:
+                if self._geometry_only:
+                    self._rep = FEAResultStreamAdapter(self._load_geometry())
+                    return self._rep
                 if not self._steps:
                     raise RuntimeError("SIN result has no RV* result steps to bake")
                 self._rep = FEAResultStreamAdapter(self._load_step(self._steps[0]))
@@ -1212,24 +1272,38 @@ class SinStreamReader:
         return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
 
     def _field_adapter(self, idx: int, card: str | None, field_name: str):
-        """Adapter over step ``idx`` loading only ``card``'s block (one field).
+        """Adapter over step ``idx`` holding every field of ``card``'s block.
 
         Reuses the cached step-0 representative when available; every other
-        step gathers just the one RV card instead of all three — so iterating a
-        field no longer re-reads (and, on a range source, re-fetches) the other
-        fields' records once per field."""
+        step gathers just the one RV card instead of all of them — so iterating
+        a field does not re-read (and, on a range source, re-fetch) the other
+        cards' records.
+
+        The decoded card is kept until the next step is asked for. One RV card
+        feeds many fields — RVSTRESS alone gives some thirty (every stress
+        attribute at result points, element nodes and element averages, per
+        element type, plus the nodal averages) — and decoding it is the dominant
+        cost of a step, so a bake that visits every field of a step before
+        moving on (``step_major_bake``) decodes each card once per step rather
+        than once per field. ``field_name`` is no longer used to narrow the
+        decode: narrowing saves only the derivation, which is small beside the
+        decode that would then be repeated per field.
+        """
         from ada.fem.results.artefacts import FEAResultStreamAdapter
 
         if idx == 0 and self._rep is not None:
             return self._rep
-        cards = {card} if card else None
-        return FEAResultStreamAdapter(
-            self._load_step(
-                self._steps[idx],
-                cards=cards,
-                requested_fields={field_name},
-            )
-        )
+        if self._step_cache is None or self._step_cache[0] != idx:
+            # Drop the previous step's tables before decoding the next.
+            self._step_cache = None
+            self._step_cache = (idx, {})
+        by_card = self._step_cache[1]
+        adapter = by_card.get(card)
+        if adapter is None:
+            cards = {card} if card else None
+            adapter = FEAResultStreamAdapter(self._load_step(self._steps[idx], cards=cards))
+            by_card[card] = adapter
+        return adapter
 
     def _with_global_steps(self, specs):
         import dataclasses
