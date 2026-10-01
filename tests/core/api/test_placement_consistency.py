@@ -132,6 +132,7 @@ def test_tessellated_scene():
     assert found == set(objs)
 
 
+@pytest.mark.ifcgeom
 def test_ifc_world_coordinates(tmp_path):
     import ifcopenshell
 

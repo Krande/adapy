@@ -1,6 +1,9 @@
+import functools
 import importlib.util
 import os
 import pathlib
+import shutil
+import tempfile
 
 import pytest
 
@@ -193,3 +196,121 @@ def pytest_collection_modifyitems(config, items):
     if removed:
         config.hook.pytest_deselected(items=removed)
         items[:] = kept
+
+
+# --- ifcopenshell geometry: probe once, degrade to skips on a crashing build ----------------------
+# A broken ifcopenshell geometry build (conda-forge 0.9.0 on macOS: flat-namespace dylibs that
+# abort in dyld on first use) does not raise -- it kills the interpreter, and with it the whole
+# run. So before any test runs, the minimal case (an extrusion through `geom.iterator` and
+# `geom.create_shape`, per schema) is run in child processes. On a healthy build nothing else
+# happens. On a broken one:
+#   * tests marked `ifcgeom` are skipped up front, the reason naming the probe result;
+#   * `ifcopenshell.geom.iterator` / `create_shape` are wrapped so that any OTHER test reaching
+#     them (through adapy's readers, tessellators, ifc2sql, ...) skips at that call instead of
+#     aborting -- the marker cannot know every indirect caller, the wrapper does not need to;
+#   * `tests/core/cadit/ifc/test_ifcopenshell_geometry_health.py` still FAILS, out of process,
+#     so the run is red for the right reason and says exactly what is broken.
+# Set ADAPY_IFCGEOM_PROBE=0 to disable (e.g. to watch the real crash).
+
+_IFCGEOM_PROBE = None
+_IFCGEOM_ORIGINALS: dict = {}
+
+
+def _ifcgeom_skip_reason(schema=None) -> str | None:
+    failure = _IFCGEOM_PROBE.failure(schema) if _IFCGEOM_PROBE is not None else None
+    if failure is None:
+        return None
+    return (
+        f"ifcopenshell geometry crashes in this environment (session probe: {failure}); "
+        "see test_ifcopenshell_geometry_health.py for the per-schema/operation report"
+    )
+
+
+def _schema_of(obj) -> str | None:
+    """Schema of an ``ifcopenshell.file`` or ``entity_instance`` (None when unknown)."""
+    try:
+        if hasattr(obj, "schema_identifier"):
+            return obj.schema_identifier
+        return obj.is_a(True).split(".")[0]
+    except Exception:
+        return None
+
+
+def _install_ifcgeom_guards() -> None:
+    import ifcopenshell.geom
+
+    orig_iterator, orig_create_shape = ifcopenshell.geom.iterator, ifcopenshell.geom.create_shape
+    _IFCGEOM_ORIGINALS.update(iterator=orig_iterator, create_shape=orig_create_shape)
+
+    class GuardedIterator(orig_iterator):  # a subclass, so isinstance() checks keep working
+        def __init__(self, settings, file_or_filename, *args, **kwargs):
+            reason = _ifcgeom_skip_reason(_schema_of(file_or_filename))
+            if reason:
+                pytest.skip(f"ifcopenshell.geom.iterator: {reason}")
+            super().__init__(settings, file_or_filename, *args, **kwargs)
+
+    @functools.wraps(orig_create_shape)
+    def guarded_create_shape(settings, inst, *args, **kwargs):
+        reason = _ifcgeom_skip_reason(_schema_of(inst))
+        if reason:
+            pytest.skip(f"ifcopenshell.geom.create_shape: {reason}")
+        return orig_create_shape(settings, inst, *args, **kwargs)
+
+    GuardedIterator.__name__ = GuardedIterator.__qualname__ = "iterator"
+    ifcopenshell.geom.iterator = GuardedIterator
+    ifcopenshell.geom.create_shape = guarded_create_shape
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_finish(session):
+    """Probe after collection (so `--collect-only` and empty runs never pay for it)."""
+    global _IFCGEOM_PROBE
+    config = session.config
+    if not session.items or config.option.collectonly or os.environ.get("ADAPY_IFCGEOM_PROBE", "1") == "0":
+        return
+    from tests.ifcgeom_probe import probe
+
+    workdir = tempfile.mkdtemp(prefix="ifcgeom_probe_")
+    try:
+        _IFCGEOM_PROBE = probe(workdir)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    tr = config.pluginmanager.get_plugin("terminalreporter")
+    if _IFCGEOM_PROBE.healthy:
+        if tr is not None:
+            tr.write_line(_IFCGEOM_PROBE.report())
+        return
+    _install_ifcgeom_guards()
+    reason = _ifcgeom_skip_reason()
+    for item in session.items:
+        if item.get_closest_marker("ifcgeom"):
+            item.add_marker(pytest.mark.skip(reason=reason))
+    if tr is not None:
+        tr.write_line(_IFCGEOM_PROBE.report(), red=True)
+
+
+_IFCGEOM_SKIPPED: list = []
+
+
+def pytest_runtest_logreport(report):
+    """Remember which tests the broken-geometry probe skipped: that list IS the blast radius."""
+    if report.skipped and isinstance(report.longrepr, tuple) and "session probe:" in str(report.longrepr[-1]):
+        _IFCGEOM_SKIPPED.append(report.nodeid)
+
+
+def pytest_terminal_summary(terminalreporter):
+    """Repeat a broken probe at the END too, where a CI log reader actually looks."""
+    if _IFCGEOM_PROBE is not None and not _IFCGEOM_PROBE.healthy:
+        terminalreporter.section("ifcopenshell geometry probe", red=True)
+        terminalreporter.write_line(_IFCGEOM_PROBE.report())
+        terminalreporter.write_line(f"{len(_IFCGEOM_SKIPPED)} test(s) skipped because of it:")
+        for nodeid in _IFCGEOM_SKIPPED:
+            terminalreporter.write_line(f"  {nodeid}")
+
+
+def pytest_unconfigure(config):
+    if _IFCGEOM_ORIGINALS:
+        import ifcopenshell.geom
+
+        for name, fn in _IFCGEOM_ORIGINALS.items():
+            setattr(ifcopenshell.geom, name, fn)

@@ -21,7 +21,7 @@ jobs:
 
           - uses: prefix-dev/setup-pixi@v0.10.2 # https://github.com/prefix-dev/setup-pixi
             with:
-              pixi-version: v0.68.0
+              pixi-version: v0.81.0
               cache: true
               environments: lint
 
@@ -46,7 +46,7 @@ jobs:
 
         - uses: prefix-dev/setup-pixi@v0.10.2
           with:
-            pixi-version: v0.68.0
+            pixi-version: v0.81.0
             environments: tests
             cache: true
 
@@ -94,7 +94,7 @@ jobs:
 
         - uses: prefix-dev/setup-pixi@v0.10.2
           with:
-            pixi-version: v0.68.0
+            pixi-version: v0.81.0
             environments: fem
             cache: true
 
@@ -118,7 +118,7 @@ jobs:
 
         - uses: prefix-dev/setup-pixi@v0.10.2
           with:
-            pixi-version: v0.68.0
+            pixi-version: v0.81.0
             environments: tests-xkernel
             cache: true
 
@@ -178,7 +178,7 @@ jobs:
 
         - uses: prefix-dev/setup-pixi@v0.10.2
           with:
-            pixi-version: v0.68.0
+            pixi-version: v0.81.0
             environments: >-
               viewer-api-tests
               viewer-api-tests-adacpp

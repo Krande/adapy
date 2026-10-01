@@ -256,7 +256,7 @@ class IfcStore:
 
     def save_to_file(self, filepath: str | os.PathLike):
         with open(filepath, "w") as f:
-            f.write(self.f.wrapped_data.to_string())
+            f.write(self.f.to_string())
 
     def load_ifc_content_from_file(
         self, ifc_file: str | os.PathLike | ifcopenshell.file = None, data_only=False, elements2part=None
@@ -484,4 +484,4 @@ class IfcStore:
 
     @staticmethod
     def copy_ifc_obj(ifc_file: ifcopenshell.file) -> ifcopenshell.file:
-        return ifcopenshell.file.from_string(ifc_file.wrapped_data.to_string())
+        return ifcopenshell.file.from_string(ifc_file.to_string())

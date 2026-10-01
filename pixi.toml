@@ -313,10 +313,10 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # `edges` fix AdacppBackend.edges now depends on (adacpp#61); 0.25.5 for the
 # placement-aware `face_id` (adacpp#62); 0.28.0 for `read_step_shapes(matrix=)` (adacpp#65);
 # 0.30 for the compiled beam-to-beam clash pass and the member scan as JSONL
-# (adacpp#63, #64, #66, #67). KEEP IN STEP with ADACPP_BASE_IMAGE in
-# deploy/Dockerfile.viewer: the browser runs the same release's wasm build of
-# this same code.
-ada-cpp = "0.30.*"
+# (adacpp#63, #64, #66, #67); 0.31 for the build against ifcopenshell 0.9 (adacpp#69).
+# KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
+# same release's wasm build of this same code.
+ada-cpp = "0.31.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -389,7 +389,9 @@ ada-cpp = "0.30.*"
 # goes unexercised. It is also the release the browser's wasm module is built
 # from, so this pin and ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer move
 # together or the two runtimes stop running the same code.
-ada-cpp = "0.30.*"
+# 0.31 is built against ifcopenshell 0.9 as well as 0.8.5 (adacpp#69); 0.30 pins 0.8.5 through
+# run_exports, so it is the release that lets the envs move to ifcopenshell 0.9.
+ada-cpp = "0.31.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -429,7 +431,9 @@ bcf-client = "*"
 numpy = "*"
 hdf5 = "*"
 h5py = "*"
-ifcopenshell = "*"
+# 0.9: adapy runs on 0.8 and 0.9 alike (#423), but ada-cpp 0.31 is published against both, so
+# without a pin the solve may settle on either. Pinned so the envs test the release users install.
+ifcopenshell = "0.9.*"
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = ">=5,<6"

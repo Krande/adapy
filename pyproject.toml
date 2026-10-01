@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.96.0"
+version = "0.97.0"
 license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
@@ -175,6 +175,12 @@ markers = [
     # The mirror of `pyocc`: a test whose subject is the adacpp kernel, deselected in the
     # pythonocc-only envs rather than skipped there.
     "adacpp: test requiring the adacpp kernel",
+    # Calls ifcopenshell's geometry kernel (ifcopenshell.geom.iterator / create_shape) directly.
+    # When tests/conftest.py's session probe finds that kernel crashing the interpreter (the
+    # conda-forge 0.9.0 macOS build), these SKIP instead of killing the run; indirect callers are
+    # caught by the same probe's runtime guard. What FAILS in that case is
+    # tests/core/cadit/ifc/test_ifcopenshell_geometry_health.py.
+    "ifcgeom: test calling ifcopenshell's geometry kernel (skipped when the session probe finds it crashing)",
 ]
 # This is meant to stop and catch any unintended hangs
 timeout = 600

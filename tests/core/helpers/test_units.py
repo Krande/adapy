@@ -75,13 +75,13 @@ def test_ifc_reimport():
 
     b.units = "mm"
     f_mm = b.to_ifc(file_obj_only=True, validate=False)
-    f_mm_str = f_mm.wrapped_data.to_string()
+    f_mm_str = f_mm.to_string()
 
     # b.show()
 
     b.units = "m"
     f_m = b.to_ifc(file_obj_only=True, validate=True)
-    f_m_str = f_m.wrapped_data.to_string()
+    f_m_str = f_m.to_string()
 
     # b.show()
 

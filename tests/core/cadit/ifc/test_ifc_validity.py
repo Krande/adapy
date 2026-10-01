@@ -70,6 +70,7 @@ def _curved_boundary_plate() -> ada.Plate:
     return ada.Plate.from_segments("curved_pl", segs, 0.05)
 
 
+@pytest.mark.ifcgeom
 def test_spline_plate_advanced_brep_is_valid_renders_and_roundtrips(tmp_path):
     """A spline-boundary plate's body is an analytic IfcAdvancedBrep: valid IFC, tessellatable by
     ifcopenshell's OWN engine (what third-party viewers use), and reconstructed as a parametric Plate
