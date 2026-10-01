@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import logging
 import os
 import pathlib
@@ -119,6 +120,22 @@ _EIG_MODES = 11
 #: Solvers a doc build cannot run -- they need a licence -- so their results replay from what a
 #: licensed machine committed: the JSON snapshot, and beside it the bundle holding the mode shapes.
 _CACHE_ONLY_SOLVERS = frozenset({"abaqus", "sesam"})
+
+#: How many runs of each solver may go at once (paradoc runs a task's cells side by side within
+#: these). The licensed ones are held by their shared pools, not by the cores:
+#:   * Abaqus: two jobs, at most -- the FlexNet pool is shared, a CPUS=2 job holds 3 of its tokens,
+#:     and each job also waits until the pool has room for it (below).
+#:   * Sesam: two of the eight floating SESTRA licences, which are checked out per running job.
+#: Calculix and Code_Aster are licence-free and run single-core here; six each fits the 32-core
+#: machine this was tuned on. ``PARADOC_MAX_PARALLEL=1`` runs everything one at a time again.
+_SOLVER_CONCURRENCY = {"key": "solver", "limits": {"abaqus": 2, "sesam": 2}, "default": 6}
+# Passed only to a paradoc that knows the option (> 0.8.0); an older one runs the cells in turn.
+_CONCURRENCY = {"concurrency": _SOLVER_CONCURRENCY} if "concurrency" in inspect.signature(task).parameters else {}
+
+# An Abaqus job waits until the shared pool has room for its tokens -- counting the ones our other
+# running jobs hold -- instead of failing its checkout (ada.fem.formats.abaqus.licensing). Up to
+# half an hour.
+os.environ.setdefault("ADA_ABAQUS_LICENSE_WAIT_S", "1800")
 
 
 def _snapshot_raw_data(case: FeaCaseResult, cache_dir: pathlib.Path) -> None:
@@ -237,6 +254,7 @@ def _eig_skip(**kw: object) -> bool:
     parent=mesh,
     fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
     skip_if=_eig_skip,
+    **_CONCURRENCY,
 )
 def run_eig(a: ada.Assembly, *, solver: str):
     """Add eigen step + invoke solver. Returns FEAResult or None.
@@ -260,7 +278,9 @@ def run_eig(a: ada.Assembly, *, solver: str):
     )
     try:
         result = run_eig_helper(
-            a,
+            # Its own copy: the helper adds the eigen step to the assembly, and the four solver
+            # cells of one mesh share it -- run side by side, they would edit one model at once.
+            copy.deepcopy(a),
             fem_format=solver,
             scratch_dir=_SCRATCH_DIR,
             name=name,
@@ -732,6 +752,7 @@ def _plate_eig_skip(**kw: object) -> bool:
     parent=plate_mesh,
     fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
     skip_if=_plate_static_skip,
+    **_CONCURRENCY,
 )
 def plate_run_static(a: ada.Assembly, *, solver: str):
     """Write the deck with a uniform pressure on the plate, solve it, keep mid-span ``u3``.
@@ -774,6 +795,7 @@ def plate_run_static(a: ada.Assembly, *, solver: str):
     parent=plate_mesh,
     fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
     skip_if=_plate_eig_skip,
+    **_CONCURRENCY,
 )
 def plate_run_eig(a: ada.Assembly, *, solver: str):
     """The same plate, as an eigenvalue analysis."""
