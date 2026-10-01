@@ -179,14 +179,18 @@ const ExternalModelsPanel: React.FC = () => {
      *  and one failure from ten successes, and the last model's message would
      *  be the only one left standing. */
     const onLoad = useCallback(
-        async (m: ExternalModel): Promise<boolean> => {
+        async (
+            m: ExternalModel,
+            // A bulk load hands the URL in already being resolved (see `onLoadAll`).
+            resolved?: Promise<{url: string; headers: Record<string, string>}>,
+        ): Promise<boolean> => {
             if (!binding) return false;
             setBusy(m.id);
             setError(null);
             try {
-                const {url, headers} = await modelUrl(
+                const {url, headers} = await (resolved ?? modelUrl(
                     binding.provider, binding.collection, m.id, scope,
-                );
+                ));
                 const ctx = makePluginContextStandalone(OWNER);
                 await ctx.scene.loadModelFromUrl(OWNER, url, {
                     sourceName: sourceNameFor(m),
@@ -247,6 +251,23 @@ const ExternalModelsPanel: React.FC = () => {
             // The camera goes to this project's loading view (or frames the first model) and
             // stays put: no fit per model, which was the scene jumping once per model.
             const session = beginBulkLoad(scope, projectKey(binding));
+            // THE URLS ARE RESOLVED AHEAD OF THE LOADS. Resolving one is a round trip that can
+            // be a worker job (sign a URL, report back) -- measured at ~5 s a model, against a
+            // load of 50-250 ms -- so resolving each only when its turn came made the bulk load
+            // mostly waiting. The next few are resolved while the current one loads; the loads
+            // themselves stay one at a time. A URL is short-lived, so only a few ahead.
+            const URL_LOOKAHEAD = 4;
+            const urls = new Map<string, Promise<{url: string; headers: Record<string, string>}>>();
+            const resolveAhead = (from: number) => {
+                for (let j = from; j < Math.min(todo.length, from + URL_LOOKAHEAD); j++) {
+                    const id = todo[j].id;
+                    if (urls.has(id)) continue;
+                    const p = modelUrl(binding.provider, binding.collection, id, scope);
+                    // Settled even when nobody awaits it (a stop part-way): no unhandled rejection.
+                    p.catch(() => undefined);
+                    urls.set(id, p);
+                }
+            };
             try {
                 // ONE AT A TIME, deliberately. Firing 200 fetches at once would
                 // saturate the network and the GPU upload path, and the failure mode
@@ -255,10 +276,12 @@ const ExternalModelsPanel: React.FC = () => {
                 for (let i = 0; i < todo.length; i++) {
                     if (cancelBulk.current) break;
                     const m = todo[i];
+                    resolveAhead(i);
                     setBulk({done: i, total: todo.length, name: m.name});
                     // Collected rather than thrown: one unreachable model must not
                     // abandon the other two hundred.
-                    if (!(await onLoad(m))) failed.push(m.name);
+                    if (!(await onLoad(m, urls.get(m.id)))) failed.push(m.name);
+                    urls.delete(m.id);
                 }
             } finally {
                 endBulkLoad(session);

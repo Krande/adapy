@@ -17,12 +17,28 @@ import {usePerfStore, requestRender} from "@/state/perfStore";
 
 // Yield to the browser so it can paint a frame + service input between
 // batches of mesh processing. requestAnimationFrame lets an actual paint
-// happen (so geometry streams in visibly); falls back to a macrotask when
-// rAF isn't available (e.g. background tab).
+// happen (so geometry streams in visibly).
+//
+// NOT WHILE THE PAGE IS HIDDEN. A background tab gets no animation frames at all -- rAF exists and
+// simply never fires -- so a load that yielded through it stopped dead until the tab came back: a
+// bulk load measured 28 s of "preparation" on a 0.45 M-triangle model, and five loads finishing in
+// the same instant. Hidden, it yields through a MessageChannel task instead, which a background
+// tab does not throttle the way it throttles timers (to once a second, or worse).
 function frameYield(): Promise<void> {
     return new Promise<void>((resolve) => {
-        if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
-        else setTimeout(resolve, 0);
+        const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+        if (!hidden && typeof requestAnimationFrame === "function") {
+            requestAnimationFrame(() => resolve());
+        } else if (typeof MessageChannel === "function") {
+            const ch = new MessageChannel();
+            ch.port1.onmessage = () => {
+                ch.port1.close();
+                resolve();
+            };
+            ch.port2.postMessage(null);
+        } else {
+            setTimeout(resolve, 0);
+        }
     });
 }
 
