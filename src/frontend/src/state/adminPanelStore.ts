@@ -15,6 +15,7 @@ export type AdminTab =
     | "projects"
     | "users"
     | "external_models"
+    | "providers"
     | "storage"
     | "workers"
     | "conversion"
