@@ -52,6 +52,7 @@ import {
     stepFeaSweep,
     tickFeaAnimation,
 } from "../src/utils/scene/fea/feaAnimationDriver"
+import { findMorphPrimitive } from "../src/utils/scene/fea/morphPrimitive"
 
 import { EmbedUI } from "./EmbedUI"
 import {
@@ -662,25 +663,9 @@ function activateFeaSession(
     const scene = getViewerRuntime().scene.current
     if (!scene) return
 
-    // Find the first mesh whose geometry has a morph attribute — the
-    // bake installs exactly one (the mode displacement delta).
-    // CustomBatchedMesh has `isMesh = true`, so this catches both
-    // it and any leftover plain Mesh in the same traversal.
-    type MorphMesh = THREE.Mesh & { morphTargetInfluences?: number[] }
-    let found: MorphMesh | null = null
-    scene.traverse((obj) => {
-        if (found) return
-        const m = obj as any
-        if (
-            m.isMesh &&
-            m.geometry?.morphAttributes?.position?.length > 0
-        ) {
-            found = m
-        }
-    })
-    // Re-bound: TS cannot see the assignment inside the callback and
-    // narrows `found` to `null` -- every use below then typed as `never`.
-    const feaMesh = found as MorphMesh | null
+    // The primitive carrying the mode displacement morph the bake
+    // installs: a Mesh, or for a beam model a LineSegments.
+    const feaMesh = findMorphPrimitive(scene)
     if (!feaMesh) return
 
     // prepareLoadedModel only copies morphTargetInfluences onto the
@@ -719,7 +704,7 @@ function activateFeaSession(
             c.isLineSegments &&
             c.geometry?.morphAttributes?.position?.length > 0
         ) {
-            c.morphTargetInfluences = feaMesh!.morphTargetInfluences
+            c.morphTargetInfluences = feaMesh.morphTargetInfluences
             if (c.material) {
                 const lm = c.material as THREE.Material
                 if ("morphTargets" in lm) {

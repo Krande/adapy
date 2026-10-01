@@ -224,9 +224,11 @@ def test_static_analysis_has_no_mode_table(tmp_path):
     assert not any("| Solver |" in t for t in _texts(_render(tmp_path, "plate_static", analysis="static")))
 
 
-def test_a_value_rounding_to_zero_prints_without_a_sign():
+def test_a_value_too_small_for_the_column_prints_in_scientific_notation():
     from filters import _fmt
 
-    assert _fmt(-1e-14, ".3f") == "0.000"
+    assert _fmt(-1.234e-14, ".3f") == "-1.23e-14"
+    assert _fmt(0.0004, ".3f") == "4.00e-04"
+    assert _fmt(0.0, ".3f") == "0.000"
     assert _fmt(-0.25, ".3f") == "-0.250"
     assert _fmt(None, ".3f") == "–"

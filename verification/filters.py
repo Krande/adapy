@@ -540,8 +540,11 @@ def _fmt(value, spec: str) -> str:
     if value is None:
         return "–"
     text = format(value, spec)
-    # A value that rounds to zero (an off-axis factor of 1e-14, say) prints without a sign.
-    return text[1:] if text.startswith("-") and float(text) == 0.0 else text
+    # A nonzero value too small for the fixed-point spec (an off-axis factor of 1e-14, say) would
+    # print as a bare 0.00: show it in scientific notation instead.
+    if float(text) == 0.0 and value != 0:
+        return format(value, ".2e")
+    return text
 
 
 def mode_data_table(rows: list[tuple[str, dict | None]]) -> str:
