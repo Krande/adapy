@@ -1503,8 +1503,10 @@ const AssetsTab: React.FC = () => {
                         onChange={(e) => void loader.chooseCollection(scope, e.target.value)}
                     >
                         {(collections ?? []).map((c) => (
+                            // Shown as the project is written (ASP, SDE); the collection key is
+                            // lower-case by construction and stays the value.
                             <option key={c} value={c}>
-                                {c}
+                                {c.toUpperCase()}
                             </option>
                         ))}
                     </select>
