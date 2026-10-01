@@ -148,8 +148,6 @@ def create_absolute_placement(f: ifcopenshell.file, obj):
 
 
 def assembly_to_ifc_file(a: "Assembly"):
-    import types
-
     schema = a.metadata["schema"]
     f = ifcopenshell.api.run("project.create_file", version=schema)
     project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
@@ -174,14 +172,7 @@ def assembly_to_ifc_file(a: "Assembly"):
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
     )
-    header = f.wrapped_data.header
-    if isinstance(header, types.MethodType):
-        # ifcopenshell >= 0.8.4 made header a method; wrap it with file_header
-        from ifcopenshell.file import file_header
-
-        header = file_header(f, f.wrapped_data.header())
-
-    header.file_name.author = ("AdaUser",)
+    f.header.file_name.author = ("AdaUser",)
 
     return f
 
@@ -737,7 +728,24 @@ def _serialize_occ_shape(shape) -> str:
         return serialize_shape_via_shapeset(shape)
 
 
+def add_tesselated_shape(f: ifcopenshell.file, shape, tol) -> ifcopenshell.entity_instance:
+    """Add an IfcProductDefinitionShape for a CAD shape that has no parametric IFC description
+    to ``f`` and return it."""
+    if not hasattr(ifcopenshell.geom, "serialise"):
+        # ifcopenshell >= 0.9 moved BREP-string -> IFC into C++ plugins with no Python binding.
+        # Built straight into ``f``: on 0.9 an entity_instance does not keep its file alive, so
+        # building in a scratch file and ``f.add``-ing the result reads freed memory once the
+        # scratch file is collected (segfault in file.add on linux CI).
+        return _mesh_product_shape(shape, f, tol)
+    return f.add(tesselate_shape(shape, f.schema_identifier, tol))
+
+
 def tesselate_shape(shape, schema, tol):
+    """An IfcProductDefinitionShape (in a detached file, for the caller to ``f.add``) for a
+    CAD shape that has no parametric IFC description.
+
+    Needs ``ifcopenshell.geom.serialise`` (ifcopenshell < 0.9); use ``add_tesselated_shape``
+    to write into a file on any version."""
     occ_string = _serialize_occ_shape(shape)
     serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
 
@@ -746,6 +754,47 @@ def tesselate_shape(shape, schema, tol):
         serialized_geom = ifcopenshell.geom.tesselate(schema, occ_string, tol)
 
     return serialized_geom
+
+
+def _mesh_product_shape(shape, f: ifcopenshell.file, tol):
+    """Tessellate ``shape`` with the active CAD backend and wrap the triangles, in ``f``, as the
+    same IfcProductDefinitionShape -> IfcShapeRepresentation('Body') structure ``geom.serialise``
+    produced: an IfcTriangulatedFaceSet, or an IfcFacetedBrep on IFC2X3 (which predates it).
+    Lossy where serialise emitted an exact IfcAdvancedBrep, but it keeps the element."""
+    from ada.cad import active_backend
+
+    mesh = active_backend().tessellate(shape, tol)
+    points = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
+    triangles = np.asarray(mesh.indices, dtype=int).reshape(-1, 3)
+
+    if f.schema_identifier.upper() == "IFC2X3":
+        ifc_points = [f.create_entity("IfcCartesianPoint", Coordinates=tuple(map(float, p))) for p in points]
+        faces = [
+            f.create_entity(
+                "IfcFace",
+                Bounds=[
+                    f.create_entity(
+                        "IfcFaceOuterBound",
+                        Bound=f.create_entity("IfcPolyLoop", Polygon=[ifc_points[i] for i in tri]),
+                        Orientation=True,
+                    )
+                ],
+            )
+            for tri in triangles
+        ]
+        item = f.create_entity("IfcFacetedBrep", Outer=f.create_entity("IfcClosedShell", CfsFaces=faces))
+        rep_type = "Brep"
+    else:
+        coordinates = f.create_entity("IfcCartesianPointList3D", CoordList=points.tolist())
+        item = f.create_entity(
+            "IfcTriangulatedFaceSet", Coordinates=coordinates, Closed=True, CoordIndex=(triangles + 1).tolist()
+        )
+        rep_type = "Tessellation"
+
+    rep = f.create_entity(
+        "IfcShapeRepresentation", RepresentationIdentifier="Body", RepresentationType=rep_type, Items=[item]
+    )
+    return f.create_entity("IfcProductDefinitionShape", Representations=[rep])
 
 
 def default_settings():

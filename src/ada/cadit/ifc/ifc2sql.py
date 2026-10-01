@@ -150,7 +150,7 @@ class Ifc2SqlPatcher:
         if self.full_schema:
             ifc_classes = [d.name() for d in self.schema.declarations() if str(d).startswith("<entity")]
         else:
-            ifc_classes = self.file.wrapped_data.types()
+            ifc_classes = self.file.types()
 
         for ifc_class in ifc_classes:
             declaration = self.schema.declaration_by_name(ifc_class)
